@@ -15,13 +15,12 @@ export function createDailyVideoProvider(
 ): VideoProvider {
   const prefix = config.roomPrefix ?? "room-";
   async function apiCall<T>(path: string, init?: RequestInit): Promise<T> {
+    const headers = new Headers(init?.headers);
+    headers.set("authorization", `Bearer ${config.apiKey}`);
+    headers.set("content-type", "application/json");
     const res = await fetch(`https://api.daily.co/v1${path}`, {
       ...init,
-      headers: {
-        ...(init?.headers ?? {}),
-        authorization: `Bearer ${config.apiKey}`,
-        "content-type": "application/json",
-      },
+      headers,
     });
     if (!res.ok) {
       throw new Error(`Daily.co ${res.status}: ${await res.text()}`);

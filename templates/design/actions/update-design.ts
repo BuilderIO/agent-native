@@ -4,6 +4,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { numericDesignDataWriteError } from "../shared/canvas-frames.js";
 
 const MAX_DATA_CAS_ATTEMPTS = 5;
@@ -347,17 +348,20 @@ export default defineAction({
       .optional()
       .describe("Design system ID to link, or null to unlink"),
   }),
-  run: async ({
-    id,
-    title,
-    description,
-    data,
-    dataOperations,
-    operationSource,
-    operationRevision,
-    projectType,
-    designSystemId,
-  }) => {
+  run: async (
+    {
+      id,
+      title,
+      description,
+      data,
+      dataOperations,
+      operationSource,
+      operationRevision,
+      projectType,
+      designSystemId,
+    },
+    context,
+  ) => {
     if (data !== undefined) {
       let parsedSnapshot: unknown;
       try {
@@ -374,8 +378,21 @@ export default defineAction({
     }
 
     await assertAccess("design", id, "editor");
+    await snapshotDesignBeforeAgentEdit(id, context);
     if (designSystemId != null) {
       await assertAccess("design-system", designSystemId, "viewer");
+    }
+    if (
+      title === undefined &&
+      description === undefined &&
+      data === undefined &&
+      dataOperations === undefined &&
+      projectType === undefined &&
+      designSystemId === undefined
+    ) {
+      throw new Error(
+        "At least one design field or data operation is required.",
+      );
     }
 
     const db = getDb();
@@ -396,7 +413,7 @@ export default defineAction({
         .update(schema.designs)
         .set(staticUpdates())
         .where(eq(schema.designs.id, id));
-      return { id, updated: true };
+      return { id, updated: true, changed: true };
     }
 
     const maxAttempts = dataOperations ? MAX_DATA_CAS_ATTEMPTS : 1;
@@ -484,7 +501,7 @@ export default defineAction({
       }
 
       if (affected > 0) {
-        return { id, updated: true };
+        return { id, updated: true, changed: true };
       }
     }
 

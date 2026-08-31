@@ -19,7 +19,8 @@ import path from "node:path";
  *      get a real hostname in emails without needing to set `APP_URL`.
  *   5. Public `WORKSPACE_GATEWAY_URL` — multi-app workspace gateway
  *   6. Local `WORKSPACE_GATEWAY_URL` — local multi-app workspace gateway
- *   7. `http://localhost:3000`
+ *   7. `http://localhost:3000`, unless the caller supplies a different
+ *      fallback
  *
  * Older versions preferred `WORKSPACE_GATEWAY_URL` before platform URLs.
  * That is fine for local development, but in hosted Builder Desktop sessions
@@ -127,7 +128,10 @@ export function getFirstPartyProdUrl(): string | undefined {
   return t?.prodUrl;
 }
 
-export function getAppProductionUrl(event?: H3Event): string {
+export function getAppProductionUrl(
+  event?: H3Event,
+  options: { fallback?: string } = {},
+): string {
   const envUrl = firstConfiguredPublicUrl([
     "APP_URL",
     "WORKSPACE_OAUTH_ORIGIN",
@@ -180,5 +184,5 @@ export function getAppProductionUrl(event?: H3Event): string {
   const localWorkspaceGateway = workspaceGatewayUrl({ allowLoopback: true });
   if (localWorkspaceGateway) return localWorkspaceGateway;
 
-  return "http://localhost:3000";
+  return options.fallback ?? "http://localhost:3000";
 }

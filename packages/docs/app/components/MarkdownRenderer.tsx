@@ -528,7 +528,7 @@ export default function MarkdownRenderer({
       if (!cancelled) setHighlightedHtml({ sourceHtml: html, html: result });
     }
 
-    highlightCodeBlocks(baseHtml);
+    void highlightCodeBlocks(baseHtml);
     return () => {
       cancelled = true;
     };

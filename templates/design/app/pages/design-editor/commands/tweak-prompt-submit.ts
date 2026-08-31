@@ -70,7 +70,7 @@ export function runTweakPromptSubmit(
   ].join("\n");
 
   sendToDesignAgentChat({
-    message: `Add tweak controls to "${design.title}": ${trimmed}`,
+    message: prompt,
     context,
     submit: true,
     openSidebar: true,

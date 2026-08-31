@@ -74,6 +74,7 @@ export interface PromptComposerSubmitOptions {
   model?: string;
   engine?: string;
   effort?: ReasoningEffort;
+  attachments?: ReadonlyArray<unknown>;
 }
 
 export interface PromptComposerProps {
@@ -174,6 +175,8 @@ export interface PromptComposerProps {
   modelStatusChecksEnabled?: boolean;
   /** Called whenever the plain editor text changes. */
   onTextChange?: (text: string) => void;
+  /** Called whenever attached files change, before the composer is submitted. */
+  onAttachmentsChange?: (files: PromptComposerFile[]) => void;
   /**
    * Override the Builder.io connect action in the model picker. When provided,
    * clicking "Connect Builder.io" calls this instead of opening a browser popup.
@@ -191,7 +194,7 @@ export interface PromptComposerProps {
 // `useLocalRuntime` needs *something* shaped like a ChatModelAdapter.
 const NOOP_ADAPTER: ChatModelAdapter = {
   async *run() {
-    return;
+    yield* [];
   },
 };
 
@@ -543,6 +546,7 @@ function PromptComposerInner({
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
   onTextChange,
+  onAttachmentsChange,
   onConnectProvider,
   onConnectLocalRuntime,
   composerRef,
@@ -554,6 +558,23 @@ function PromptComposerInner({
   const BuilderSetupContent = modelsAdapter.BuilderSetupContent;
   const localRef = useRef<TiptapComposerHandle>(null);
   const handleRef = composerRef ?? localRef;
+  const attachments = useComposer((state) => state.attachments);
+  const attachmentFiles = useMemo(
+    () =>
+      attachments.flatMap((attachment) =>
+        attachment.file && !isPastedTextAttachmentName(attachment.name)
+          ? [attachment.file]
+          : [],
+      ),
+    [attachments],
+  );
+  const onAttachmentsChangeRef = useRef(onAttachmentsChange);
+  useEffect(() => {
+    onAttachmentsChangeRef.current = onAttachmentsChange;
+  }, [onAttachmentsChange]);
+  useEffect(() => {
+    onAttachmentsChangeRef.current?.(attachmentFiles);
+  }, [attachmentFiles]);
   const hostManagedModels = Boolean(
     availableModels && selectedModel && onModelChange,
   );
@@ -635,6 +656,7 @@ function PromptComposerInner({
         model: composerModel,
         engine: composerEngine,
         effort: composerEffort,
+        attachments,
       });
     },
     [composerEffort, composerEngine, composerModel, onSubmit],
@@ -723,6 +745,7 @@ function PromptComposerInner({
           onTextChange={onTextChange}
           draftScope={draftScope}
           selectedModel={composerModel}
+          selectedEngine={composerEngine}
           modelSelectorOpen={modelSelectorOpen}
           selectedEffort={composerEffort}
           availableModels={composerModelGroups}
@@ -755,7 +778,7 @@ function PromptComposerInner({
  * its own minimal assistant-ui runtime so it can be dropped into any subtree
  * without needing the outer chat to be mounted.
  */
-export function PromptComposer(props: PromptComposerProps) {
+function PromptComposerRuntime(props: PromptComposerProps) {
   const StaleIndexBoundary =
     useComposerRuntimeAdapters().agentChat!.StaleIndexBoundary!;
   const attachmentAdapter = useMemo(
@@ -793,4 +816,8 @@ export function PromptComposer(props: PromptComposerProps) {
       </AssistantRuntimeProvider>
     </TooltipProvider>
   );
+}
+
+export function PromptComposer(props: PromptComposerProps) {
+  return <PromptComposerRuntime key={props.draftScope ?? ""} {...props} />;
 }

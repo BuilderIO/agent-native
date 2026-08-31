@@ -95,6 +95,7 @@ const enUS = {
       typography: "Typography",
       autoLayout: "Auto layout",
       positionLayout: "Position",
+      layoutGrid: "Layout grid",
       flexLayout: "Flex Layout",
       layout: "Layout",
       spacing: "Spacing",
@@ -152,6 +153,10 @@ const enUS = {
       removeLayer: "Remove layer",
       showLayer: "Show layer",
       hideLayer: "Hide layer",
+      addGrid: "Add grid",
+      removeGrid: "Remove grid",
+      showGrid: "Show grid",
+      hideGrid: "Hide grid",
       reorderLayer: "Reorder layer",
       stylesComingSoon: "Styles — Coming soon",
       linkSides: "Link sides",
@@ -837,8 +842,12 @@ const enUS = {
         previousSibling: "Previous sibling",
         nextScreen: "Next screen",
         previousScreen: "Previous screen",
+        toggleLayoutGrids: "Show/hide layout grids",
         nudge: "Nudge",
-        nudgeLarge: "Nudge by 10",
+        // i18n-copy-ignore: dropped the hardcoded "10" — every locale's value
+        // for this row is built from the already-translated nudgeAmountBig
+        // label in i18n-keyboard-shortcuts.ts, changed in this same diff.
+        nudgeLarge: "Big nudge",
         copy: "Copy",
         copyPng: "Copy as PNG",
         cut: "Cut",
@@ -1084,7 +1093,7 @@ const enUS = {
       pngClipboardBlocked: "Allow clipboard access to copy this PNG",
       pngClipboardWriteError: "Could not copy PNG to the clipboard",
       pngLivePreviewUnavailable:
-        "PNG capture isn't available for URL-backed screens yet",
+        "PNG export is only available in the desktop app right now.",
       pngReadOnlyUnavailable:
         "PNG capture isn't available in read-only previews",
       pngSaveError: "Could not save PNG",
@@ -7299,7 +7308,7 @@ const designExactEnglishOverrides = {
         pngClipboardUnsupported: "此浏览器无法将 PNG 图像复制到剪贴板",
         pngClipboardBlocked: "请允许访问剪贴板以复制此 PNG",
         pngClipboardWriteError: "无法将 PNG 复制到剪贴板",
-        pngLivePreviewUnavailable: "URL 支持的屏幕暂不支持 PNG 捕获",
+        pngLivePreviewUnavailable: "PNG 导出目前仅在桌面应用中可用。",
         pngReadOnlyUnavailable: "只读预览不支持 PNG 捕获",
         pngExportError: "无法导出 PNG",
         pngSaveError: "无法保存 PNG",
@@ -7392,7 +7401,7 @@ const designExactEnglishOverrides = {
           "Permite el acceso al portapapeles para copiar este PNG",
         pngClipboardWriteError: "No se pudo copiar el PNG al portapapeles",
         pngLivePreviewUnavailable:
-          "La captura PNG aún no está disponible para pantallas basadas en URL",
+          "La exportación PNG solo está disponible en la aplicación de escritorio por ahora.",
         pngReadOnlyUnavailable:
           "La captura PNG no está disponible en vistas previas de solo lectura",
         pngExportError: "No se pudo exportar PNG",
@@ -7490,7 +7499,7 @@ const designExactEnglishOverrides = {
         pngClipboardWriteError:
           "Impossible de copier le PNG dans le presse-papiers",
         pngLivePreviewUnavailable:
-          "La capture PNG n’est pas encore disponible pour les écrans basés sur une URL",
+          "L’exportation PNG est actuellement disponible uniquement dans l’application de bureau.",
         pngReadOnlyUnavailable:
           "La capture PNG n’est pas disponible dans les aperçus en lecture seule",
         pngExportError: "Impossible d’exporter PNG",
@@ -7589,7 +7598,7 @@ const designExactEnglishOverrides = {
         pngClipboardWriteError:
           "PNG konnte nicht in die Zwischenablage kopiert werden",
         pngLivePreviewUnavailable:
-          "PNG-Aufnahmen sind für URL-basierte Bildschirme noch nicht verfügbar",
+          "Der PNG-Export ist derzeit nur in der Desktop-App verfügbar.",
         pngReadOnlyUnavailable:
           "PNG-Aufnahmen sind in schreibgeschützten Vorschauen nicht verfügbar",
         pngExportError: "PNG konnte nicht exportiert werden",
@@ -7687,7 +7696,7 @@ const designExactEnglishOverrides = {
           "この PNG をコピーするにはクリップボードへのアクセスを許可してください",
         pngClipboardWriteError: "PNG をクリップボードにコピーできませんでした",
         pngLivePreviewUnavailable:
-          "URL ベースの画面では PNG キャプチャをまだ利用できません",
+          "PNG のエクスポートは現在デスクトップアプリでのみ利用できます。",
         pngReadOnlyUnavailable:
           "読み取り専用プレビューでは PNG キャプチャを利用できません",
         pngExportError: "PNG をエクスポートできませんでした",
@@ -7782,7 +7791,7 @@ const designExactEnglishOverrides = {
         pngClipboardBlocked: "이 PNG를 복사하려면 클립보드 접근을 허용하세요",
         pngClipboardWriteError: "PNG를 클립보드에 복사할 수 없음",
         pngLivePreviewUnavailable:
-          "URL 기반 화면에서는 아직 PNG 캡처를 사용할 수 없음",
+          "PNG 내보내기는 현재 데스크톱 앱에서만 사용할 수 있습니다.",
         pngReadOnlyUnavailable:
           "읽기 전용 미리보기에서는 PNG 캡처를 사용할 수 없음",
         pngExportError: "PNG를 내보낼 수 없음",
@@ -7878,7 +7887,7 @@ const designExactEnglishOverrides = {
         pngClipboardWriteError:
           "Não foi possível copiar o PNG para a área de transferência",
         pngLivePreviewUnavailable:
-          "A captura PNG ainda não está disponível para telas baseadas em URL",
+          "A exportação de PNG está disponível apenas no aplicativo para computador no momento.",
         pngReadOnlyUnavailable:
           "A captura PNG não está disponível em visualizações somente leitura",
         pngExportError: "Não foi possível exportar PNG",
@@ -7973,8 +7982,7 @@ const designExactEnglishOverrides = {
         pngClipboardBlocked:
           "इस PNG को कॉपी करने के लिए क्लिपबोर्ड एक्सेस की अनुमति दें",
         pngClipboardWriteError: "PNG को क्लिपबोर्ड पर कॉपी नहीं किया जा सका",
-        pngLivePreviewUnavailable:
-          "URL-आधारित स्क्रीन के लिए PNG कैप्चर अभी उपलब्ध नहीं है",
+        pngLivePreviewUnavailable: "PNG निर्यात अभी केवल डेस्कटॉप ऐप में उपलब्ध है।",
         pngReadOnlyUnavailable: "केवल-पढ़ने वाले पूर्वावलोकन में PNG कैप्चर उपलब्ध नहीं है",
         pngExportError: "PNG निर्यात नहीं किया जा सका",
         pngSaveError: "PNG सहेजा नहीं जा सका",
@@ -8065,7 +8073,7 @@ const designExactEnglishOverrides = {
         pngClipboardBlocked: "اسمح بالوصول إلى الحافظة لنسخ ملف PNG هذا",
         pngClipboardWriteError: "تعذر نسخ PNG إلى الحافظة",
         pngLivePreviewUnavailable:
-          "التقاط PNG غير متاح بعد للشاشات المستندة إلى عنوان URL",
+          "يتوفر تصدير PNG حاليًا في تطبيق سطح المكتب فقط.",
         pngReadOnlyUnavailable:
           "التقاط PNG غير متاح في المعاينات المخصصة للقراءة فقط",
         pngExportError: "تعذر تصدير PNG",
@@ -8098,6 +8106,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "自動布局",
         positionLayout: "位置",
+        layoutGrid: "版面格線",
         stroke: "描邊",
         effects: "效果",
         codeConfidence: "程式碼",
@@ -8271,6 +8280,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "自动布局",
         positionLayout: "位置",
+        layoutGrid: "布局网格",
         stroke: "描边",
         effects: "效果",
         codeConfidence: "代码",
@@ -8443,6 +8453,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "Diseño automático",
         positionLayout: "Posición",
+        layoutGrid: "Cuadrícula de diseño",
         stroke: "Trazo",
         effects: "Efectos",
         codeConfidence: "Código",
@@ -8639,6 +8650,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "Mise en page auto",
         positionLayout: "Position",
+        layoutGrid: "Grille de mise en page",
         stroke: "Contour",
         effects: "Effets",
         codeConfidence: "Code",
@@ -8830,6 +8842,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "Auto-Layout",
         positionLayout: "Position",
+        layoutGrid: "Layoutraster",
         stroke: "Kontur",
         effects: "Effekte",
         codeConfidence: "Code",
@@ -9028,6 +9041,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "オートレイアウト",
         positionLayout: "位置",
+        layoutGrid: "レイアウトグリッド",
         stroke: "線",
         effects: "効果",
         codeConfidence: "コード",
@@ -9220,6 +9234,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "자동 레이아웃",
         positionLayout: "위치",
+        layoutGrid: "레이아웃 그리드",
         stroke: "획",
         effects: "효과",
         codeConfidence: "코드",
@@ -9409,6 +9424,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "Layout automático",
         positionLayout: "Posição",
+        layoutGrid: "Grade de layout",
         stroke: "Traço",
         effects: "Efeitos",
         codeConfidence: "Código",
@@ -9598,6 +9614,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "ऑटो लेआउट",
         positionLayout: "स्थिति",
+        layoutGrid: "लेआउट ग्रिड",
         stroke: "स्ट्रोक",
         effects: "प्रभाव",
         codeConfidence: "कोड",
@@ -9787,6 +9804,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "تخطيط تلقائي",
         positionLayout: "الموضع",
+        layoutGrid: "شبكة التخطيط",
         stroke: "الحد",
         effects: "التأثيرات",
         codeConfidence: "الكود",
@@ -10048,6 +10066,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "移除图层",
         showLayer: "显示图层",
         hideLayer: "隐藏图层",
+        addGrid: "添加网格",
+        removeGrid: "移除网格",
+        showGrid: "显示网格",
+        hideGrid: "隐藏网格",
         reorderLayer: "重新排序图层",
         linkSides: "链接四边",
         unlinkSides: "取消链接四边",
@@ -10151,6 +10173,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "Eliminar capa",
         showLayer: "Mostrar capa",
         hideLayer: "Ocultar capa",
+        addGrid: "Añadir cuadrícula",
+        removeGrid: "Eliminar cuadrícula",
+        showGrid: "Mostrar cuadrícula",
+        hideGrid: "Ocultar cuadrícula",
         reorderLayer: "Reordenar capa",
         linkSides: "Vincular lados",
         unlinkSides: "Desvincular lados",
@@ -10256,6 +10282,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "Supprimer le calque",
         showLayer: "Afficher le calque",
         hideLayer: "Masquer le calque",
+        addGrid: "Ajouter une grille",
+        removeGrid: "Supprimer la grille",
+        showGrid: "Afficher la grille",
+        hideGrid: "Masquer la grille",
         reorderLayer: "Réorganiser le calque",
         linkSides: "Lier les côtés",
         unlinkSides: "Délier les côtés",
@@ -10361,6 +10391,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "Ebene entfernen",
         showLayer: "Ebene anzeigen",
         hideLayer: "Ebene ausblenden",
+        addGrid: "Raster hinzufügen",
+        removeGrid: "Raster entfernen",
+        showGrid: "Raster anzeigen",
+        hideGrid: "Raster ausblenden",
         reorderLayer: "Ebene neu anordnen",
         linkSides: "Seiten verknüpfen",
         unlinkSides: "Seiten lösen",
@@ -10462,6 +10496,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "レイヤーを削除",
         showLayer: "レイヤーを表示",
         hideLayer: "レイヤーを非表示",
+        addGrid: "グリッドを追加",
+        removeGrid: "グリッドを削除",
+        showGrid: "グリッドを表示",
+        hideGrid: "グリッドを非表示",
         reorderLayer: "レイヤーを並べ替え",
         linkSides: "辺をリンク",
         unlinkSides: "辺のリンクを解除",
@@ -10563,6 +10601,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "레이어 제거",
         showLayer: "레이어 표시",
         hideLayer: "레이어 숨기기",
+        addGrid: "그리드 추가",
+        removeGrid: "그리드 제거",
+        showGrid: "그리드 표시",
+        hideGrid: "그리드 숨기기",
         reorderLayer: "레이어 순서 변경",
         linkSides: "면 연결",
         unlinkSides: "면 연결 해제",
@@ -10666,6 +10708,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "Remover camada",
         showLayer: "Mostrar camada",
         hideLayer: "Ocultar camada",
+        addGrid: "Adicionar grade",
+        removeGrid: "Remover grade",
+        showGrid: "Mostrar grade",
+        hideGrid: "Ocultar grade",
         reorderLayer: "Reordenar camada",
         linkSides: "Vincular lados",
         unlinkSides: "Desvincular lados",
@@ -10767,6 +10813,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "परत हटाएं",
         showLayer: "परत दिखाएं",
         hideLayer: "परत छिपाएं",
+        addGrid: "ग्रिड जोड़ें",
+        removeGrid: "ग्रिड हटाएं",
+        showGrid: "ग्रिड दिखाएं",
+        hideGrid: "ग्रिड छिपाएं",
         reorderLayer: "परत पुनः क्रमित करें",
         linkSides: "किनारे लिंक करें",
         unlinkSides: "किनारे अनलिंक करें",
@@ -10868,6 +10918,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "إزالة طبقة",
         showLayer: "إظهار الطبقة",
         hideLayer: "إخفاء الطبقة",
+        addGrid: "إضافة شبكة",
+        removeGrid: "إزالة الشبكة",
+        showGrid: "إظهار الشبكة",
+        hideGrid: "إخفاء الشبكة",
         reorderLayer: "إعادة ترتيب الطبقة",
         linkSides: "ربط الجوانب",
         unlinkSides: "إلغاء ربط الجوانب",

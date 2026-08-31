@@ -26,6 +26,7 @@ function textSnapshot(
     slideWidth: 1280,
     slideHeight: 720,
     color: "#ffffff",
+    fontFamily: "'Poppins', sans-serif",
     backgroundColor: "transparent",
     fontSize: 40,
     fontWeight: "700",
@@ -184,5 +185,24 @@ describe("contextual toolbar emphasis toggles", () => {
 
       fireEvent.keyDown(menu, { key: "Escape" });
     }
+  });
+});
+
+describe("contextual toolbar font family", () => {
+  afterEach(cleanup);
+
+  it("applies the selected font family to the text selection", () => {
+    const onChange = renderToolbar(textSnapshot());
+    const trigger = screen.getByRole("combobox", { name: "Font family" });
+
+    fireEvent.click(trigger);
+    expect(
+      screen.getByRole("listbox").closest("[data-slide-inline-edit-surface]"),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("option", { name: "Inter" }));
+
+    expect(onChange).toHaveBeenCalledWith({
+      fontFamily: "'Inter', sans-serif",
+    });
   });
 });

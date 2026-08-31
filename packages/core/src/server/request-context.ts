@@ -146,6 +146,8 @@ export interface RequestRunContext {
 }
 
 export interface RequestContext {
+  /** True for synthetic browser checks whose telemetry must not be recorded. */
+  isSyntheticTraffic?: boolean;
   userEmail?: string;
   userName?: string;
   orgId?: string;
@@ -321,10 +323,16 @@ export function runWithRequestContext<T>(
   ctx: RequestContext,
   fn: () => T | Promise<T>,
 ): T | Promise<T> {
-  if (ctx.run?.allowedActionNames !== undefined) {
+  const inheritedSyntheticTraffic = als.getStore()?.isSyntheticTraffic;
+  const context =
+    ctx.isSyntheticTraffic === undefined &&
+    inheritedSyntheticTraffic !== undefined
+      ? { ...ctx, isSyntheticTraffic: inheritedSyntheticTraffic }
+      : ctx;
+  if (context.run?.allowedActionNames !== undefined) {
     assertRequestActionSurfaceIsolation();
   }
-  return als.run(ctx, () => {
+  return als.run(context, () => {
     if (observers.length > 0) {
       for (const obs of observers) {
         try {

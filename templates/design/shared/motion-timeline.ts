@@ -21,7 +21,7 @@ export type MotionEase =
   | "ease-in-out"
   | "step-start"
   | "step-end"
-  | string; // cubic-bezier(...), steps(...), linear(...), or spring(...)
+  | (string & {}); // cubic-bezier(...), steps(...), linear(...), or spring(...)
 
 /**
  * Timeline playback mode (Figma Motion parity):

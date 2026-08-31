@@ -1,5 +1,6 @@
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import {
+  DefaultSpinner,
   OpenSourceBadge,
   PoweredByBadge,
   StarfieldBackground,
@@ -27,7 +28,6 @@ import { DatePicker } from "@/components/booking/DatePicker";
 import { TimeSlotPicker } from "@/components/booking/TimeSlotPicker";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
 import {
   useAvailableDays,
   useAvailableSlots,
@@ -93,13 +93,13 @@ export default function BookingPage() {
   // Handle slug redirects (old URL → new URL)
   useEffect(() => {
     if (bookingLink?.redirectPath) {
-      navigate(bookingLink.redirectPath, { replace: true });
+      void navigate(bookingLink.redirectPath, { replace: true });
       return;
     }
     if (!bookingLink?.redirect) return;
     const newSlug = bookingLink.redirect;
     const path = username ? `/book/${username}/${newSlug}` : `/book/${newSlug}`;
-    navigate(path, { replace: true });
+    void navigate(path, { replace: true });
   }, [bookingLink?.redirect, bookingLink?.redirectPath, username, navigate]);
 
   const [step, setStep] = useState<Step>("date");
@@ -266,13 +266,7 @@ export default function BookingPage() {
     availabilityLoading ||
     isRedirecting
   ) {
-    return (
-      <BookingPageShell>
-        <div className="mx-auto mt-[7.5vh] flex w-full max-w-lg justify-center">
-          <Spinner className="size-8 text-foreground" />
-        </div>
-      </BookingPageShell>
-    );
+    return <DefaultSpinner />;
   }
 
   if ((bookingLinkError || !bookingLink) && !isLegacyBookingPage) {

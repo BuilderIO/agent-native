@@ -196,7 +196,10 @@ function create(title: string) {
   } as never);
 }
 
-function upsertProxy(designSystemId: string) {
+function upsertProxy(
+  designSystemId: string,
+  status: "ready" | "in-progress" = "ready",
+) {
   return upsertBuilderProxyDesignSystem({
     result: {
       ok: true,
@@ -206,7 +209,7 @@ function upsertProxy(designSystemId: string) {
       designSystemId,
       suggestedTitle: null,
       builderUrl: `https://builder.io/ds/${designSystemId}`,
-      status: "in-progress",
+      status,
     },
     ownerEmail: OWNER,
     orgId: ORG,
@@ -466,5 +469,11 @@ describe("builder design-system proxy insert path", () => {
     await upsertProxy("ds_late");
 
     expect(defaultsFor(OWNER, ORG)).toEqual(["older_default"]);
+  });
+
+  it("never claims the default for a kit still mid-index", async () => {
+    await upsertProxy("ds_in_progress", "in-progress");
+
+    expect(defaultsFor(OWNER, ORG)).toEqual([]);
   });
 });

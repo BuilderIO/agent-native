@@ -1,5 +1,7 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 
+import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
+
 export type DesignSystemSummary = {
   id: string;
   title: string;
@@ -25,19 +27,28 @@ export function isViewerDefaultDesignSystem(
 
 /**
  * The source design system for a new design/template must be one the viewer
- * owns, or explicitly shared as a default — never picked because it happened
- * to be first in an org-visible list. `designSystems[0]` can be another
- * member's system, so callers resolving "the design system to use" fall back
- * through this instead of indexing the raw list directly.
+ * owns and can actually generate from, or explicitly shared as a default —
+ * never picked because it happened to be first in an org-visible list, and
+ * never a Builder-synced kit still mid-index (its placeholders would make
+ * the generation unusable). `designSystems[0]` can be another member's
+ * system, so callers resolving "the design system to use" fall back through
+ * this instead of indexing the raw list directly.
  */
 export function preferredOwnedDesignSystemId(
-  designSystems: Pick<DesignSystemSummary, "id" | "isDefault" | "accessRole">[],
-  defaultSystem: Pick<DesignSystemSummary, "id"> | undefined,
+  designSystems: Pick<
+    DesignSystemSummary,
+    "id" | "isDefault" | "accessRole" | "data"
+  >[],
+  defaultSystem: Pick<DesignSystemSummary, "id" | "data"> | undefined,
 ): string | null {
+  if (defaultSystem && isDesignSystemUsableForGeneration(defaultSystem.data)) {
+    return defaultSystem.id;
+  }
   return (
-    defaultSystem?.id ??
-    designSystems.find((ds) => ds.accessRole === "owner")?.id ??
-    null
+    designSystems.find(
+      (ds) =>
+        ds.accessRole === "owner" && isDesignSystemUsableForGeneration(ds.data),
+    )?.id ?? null
   );
 }
 

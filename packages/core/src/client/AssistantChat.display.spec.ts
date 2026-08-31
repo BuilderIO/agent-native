@@ -32,6 +32,7 @@ import {
   dedupeReconnectContentAgainstMessages,
   shouldShowReconnectOverlay,
   hoistQueuedMessageToFront,
+  promoteQueuedMessage,
   displayableUserMessageText,
   isAssistantUiRecoverableRenderError,
   isAssistantUiStaleIndexError,
@@ -475,6 +476,37 @@ describe("hoistQueuedMessageToFront", () => {
         (message) => message.id,
       ),
     ).toEqual(["a", "b"]);
+  });
+});
+
+describe("promoteQueuedMessage", () => {
+  it("marks the promoted turn sent and keeps it ahead of pending messages", () => {
+    expect(promoteQueuedMessage([{ id: "a" }, { id: "b" }], "b")).toEqual([
+      { id: "b", promoted: true },
+      { id: "a" },
+    ]);
+  });
+});
+
+describe("send-now promotion", () => {
+  it("keeps promotion optimistic and leaves the active run untouched", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const sendQueuedMessageNow = useCallback");
+    const end = source.indexOf("const visibleQueuedMessages", start);
+    const promotionSource = source.slice(start, end);
+
+    expect(promotionSource).toContain("startRun: false");
+    expect(promotionSource).toContain("promoteQueuedMessage(prev, id)");
+    expect(source).toContain("return hoistQueuedMessageToFront(messages, id)");
+    expect(promotionSource).not.toContain("stopActiveRunRef.current");
+    expect(source).toContain(
+      "const currentNext = queuedMessagesRef.current[0]",
+    );
+    expect(source).toContain("currentNext.id !== next.id");
+    expect(source).toContain("if (currentNext.promoted)");
+    expect(source).toContain("threadRuntime.startRun({");
   });
 });
 
@@ -1520,8 +1552,13 @@ describe("missing agent engine setup", () => {
     expect(source).toContain("modelCatalogConfirmsMissing");
     expect(source).toContain('agentEngineConfigured.state === "missing" &&');
     expect(source).toContain("isProviderAuthenticationError(");
-    expect(source).toContain("showRunningInUI || !shouldShowRunError");
+    expect(source).toContain("!isBuilderReconnectRunError(visibleRunError)");
+    expect(source).toContain("!showProviderAuthSetup");
+    expect(source).toContain("retryAfterRunError();");
+    expect(source).toContain("handleProviderSetupDismiss");
     expect(source).toContain("onConnected={handleProviderSetupConnected}");
+    expect(source).toContain("onDismiss={");
+    expect(source).toContain("onRetry={");
     expect(source).toMatch(
       /willQueue=\{\s*engineSetupRequired \|\| isRunning\s*\}/,
     );
@@ -2212,6 +2249,22 @@ describe("assistantChatAutoscrollStatusKey", () => {
 });
 
 describe("chat submit and stop hardening", () => {
+  it("scopes external stop state to the current assistant message", () => {
+    const chatSource = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const messageSource = readFileSync(
+      "src/client/chat/message-components.tsx",
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(chatSource).toContain("ExternalUserStoppedRunContext.Provider");
+    expect(messageSource).toContain("ExternalUserStoppedRunContext");
+    expect(messageSource).toContain("(externalUserStopped && isLast)");
+  });
+
   it("wires reconnect ownership into the inner chat and rejects stale callbacks", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
@@ -2287,8 +2340,19 @@ describe("chat submit and stop hardening", () => {
       encoding: "utf8",
     });
 
+    expect(source).toContain("onStop?: () => void | Promise<unknown>;");
+    expect(source).toContain(
+      "const handleComposerStop = useCallback(async () => {",
+    );
+    expect(source).toContain("hostStopSucceeded = (await onStop()) !== false;");
+    expect(source).toContain("hostStopSucceeded = false;");
+    expect(source).toContain("if (!hostStopSucceeded) return;");
+    expect(source).toContain(
+      "stopActiveRun({ preserveQueuedMessages: true });",
+    );
+    expect(source).toContain("onClick={handleComposerStop}");
     expect(source).toMatch(
-      /stopActiveRun\(\{\s*preserveQueuedMessages: true,\s*\}\)/,
+      /stopActiveRun\(\{\s*preserveQueuedMessages: true,?\s*\}\)/,
     );
   });
 

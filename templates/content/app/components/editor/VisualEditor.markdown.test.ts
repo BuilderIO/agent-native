@@ -10,7 +10,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Editor, getSchema } from "@tiptap/core";
 import { NodeSelection, type Transaction } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
-import { act, createElement } from "react";
+import {
+  act,
+  createElement,
+  type ComponentProps,
+  type ComponentType,
+} from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { Markdown } from "tiptap-markdown";
@@ -19,6 +24,13 @@ import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+
+type TooltipProviderProps = Omit<
+  ComponentProps<typeof TooltipProvider>,
+  "children"
+>;
+const TooltipProviderWithoutChildren =
+  TooltipProvider as ComponentType<TooltipProviderProps>;
 
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import { NotionToggle } from "./extensions/NotionExtensions";
@@ -343,16 +355,17 @@ describe("media draft persistence", () => {
     (type, src) => {
       const editor = createFullEditor();
       const persisted: string[] = [];
-      const querySelectorAll = Element.prototype.querySelectorAll;
+      const querySelectorAll = (element: Element, selector: string) =>
+        Element.prototype.querySelectorAll.call(element, selector);
       const querySelectorAllSpy = vi
         .spyOn(Element.prototype, "querySelectorAll")
         .mockImplementation(function (this: Element, selector: string) {
           try {
-            return querySelectorAll.call(this, selector);
+            return querySelectorAll(this, selector);
           } catch {
             const matches = selector.split(",").flatMap((part) => {
               try {
-                return Array.from(querySelectorAll.call(this, part));
+                return Array.from(querySelectorAll(this, part));
               } catch {
                 return [];
               }
@@ -1098,9 +1111,10 @@ describe("VisualEditor markdown round-tripping", () => {
       createElement(
         MemoryRouter,
         null,
-        createElement(TooltipProvider, {
-          delayDuration: 0,
-          children: createElement(
+        createElement(
+          TooltipProviderWithoutChildren,
+          { delayDuration: 0 },
+          createElement(
             QueryClientProvider,
             { client: queryClient },
             createElement(VisualEditor, {
@@ -1112,7 +1126,7 @@ describe("VisualEditor markdown round-tripping", () => {
               editable: true,
             }),
           ),
-        }),
+        ),
       );
 
     try {
@@ -1200,9 +1214,10 @@ describe("VisualEditor markdown round-tripping", () => {
       createElement(
         MemoryRouter,
         null,
-        createElement(TooltipProvider, {
-          delayDuration: 0,
-          children: createElement(
+        createElement(
+          TooltipProviderWithoutChildren,
+          { delayDuration: 0 },
+          createElement(
             QueryClientProvider,
             { client: queryClient },
             createElement(VisualEditor, {
@@ -1214,7 +1229,7 @@ describe("VisualEditor markdown round-tripping", () => {
               editable: true,
             }),
           ),
-        }),
+        ),
       );
 
     const editorParagraphs = () =>
@@ -1301,8 +1316,10 @@ describe("VisualEditor markdown round-tripping", () => {
           createElement(
             MemoryRouter,
             null,
-            createElement(TooltipProvider, {
-              children: createElement(
+            createElement(
+              TooltipProvider,
+              null,
+              createElement(
                 QueryClientProvider,
                 { client: queryClient },
                 createElement(VisualEditor, {
@@ -1314,7 +1331,7 @@ describe("VisualEditor markdown round-tripping", () => {
                   editable: true,
                 }),
               ),
-            }),
+            ),
           ),
         );
       });
@@ -1347,8 +1364,10 @@ describe("VisualEditor markdown round-tripping", () => {
           createElement(
             MemoryRouter,
             null,
-            createElement(TooltipProvider, {
-              children: createElement(
+            createElement(
+              TooltipProvider,
+              null,
+              createElement(
                 QueryClientProvider,
                 { client: queryClient },
                 createElement(VisualEditor, {
@@ -1360,7 +1379,7 @@ describe("VisualEditor markdown round-tripping", () => {
                   editable: true,
                 }),
               ),
-            }),
+            ),
           ),
         );
       });
@@ -1401,8 +1420,10 @@ describe("VisualEditor markdown round-tripping", () => {
           createElement(
             MemoryRouter,
             null,
-            createElement(TooltipProvider, {
-              children: createElement(
+            createElement(
+              TooltipProvider,
+              null,
+              createElement(
                 QueryClientProvider,
                 { client: queryClient },
                 createElement(VisualEditor, {
@@ -1416,7 +1437,7 @@ describe("VisualEditor markdown round-tripping", () => {
                   editable: true,
                 }),
               ),
-            }),
+            ),
           ),
         );
       });

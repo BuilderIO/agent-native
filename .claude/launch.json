@@ -680,6 +680,26 @@
         "3231"
       ],
       "port": 3231
+    },
+    {
+      "name": "ssr-watchdog-chat",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "scripts/claude-launch.ts",
+        "--name",
+        "ssr-watchdog-chat",
+        "--dir",
+        "/Users/steve/.codex/worktrees/58cf/framework/templates/chat",
+        "--env",
+        "APP_URL=http://localhost:3241",
+        "--",
+        "dev",
+        "--port",
+        "3241"
+      ],
+      "port": 3241
     }
   ]
 }

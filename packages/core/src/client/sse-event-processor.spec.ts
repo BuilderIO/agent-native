@@ -3849,6 +3849,106 @@ describe("SSE event processor error classification", () => {
     expect(terminal?.metadata?.custom?.runError?.recoverable).toBe(true);
   });
 
+  it("does not auto-continue a terminal stop message without an abort code", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error: "The agent stopped before finishing.",
+            recoverable: true,
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-stop-message",
+      ),
+    );
+
+    const terminal = results.at(-1) as
+      | {
+          status?: { type: string; reason: string };
+          metadata?: { custom?: { runError?: { recoverable?: boolean } } };
+        }
+      | undefined;
+    expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(terminal?.metadata?.custom?.runError?.recoverable).toBe(true);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          message: "The agent stopped before finishing.",
+          recoverable: true,
+        }),
+      }),
+    );
+  });
+
+  it("does not auto-continue provider credential rejection", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error:
+              "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
+            recoverable: true,
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-provider-credential",
+      ),
+    );
+
+    const terminal = results.at(-1) as
+      | {
+          status?: { type: string; reason: string };
+          metadata?: { custom?: { runError?: { recoverable?: boolean } } };
+        }
+      | undefined;
+    expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(terminal?.metadata?.custom?.runError?.recoverable).toBe(true);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          message:
+            "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
+          recoverable: true,
+        }),
+      }),
+    );
+  });
+
   it("does not auto-continue a breaker stop that preserved its underlying transient code", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });

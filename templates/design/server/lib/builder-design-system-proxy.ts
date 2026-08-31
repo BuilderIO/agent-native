@@ -33,6 +33,12 @@ type HydratedBuilderDesignSystemReference =
     completionConfirmed?: boolean;
   };
 
+export function isBuilderDesignSystemReady(
+  status: string | undefined,
+): boolean {
+  return status === "ready" || status === "complete" || status === "completed";
+}
+
 export interface BuilderProxyReconciliation {
   data: string;
   tokenCount: number;
@@ -391,7 +397,11 @@ export async function upsertBuilderProxyDesignSystem({
   } else {
     // Claim the default in the same transaction that inserts the row: several
     // sources can sync at once, and a check-then-insert let each one flag its
-    // own row as this owner's default.
+    // own row as this owner's default. An indexing proxy also has
+    // placeholders until Builder confirms completion, so a row that would
+    // otherwise claim the default only actually sets the flag once ready --
+    // never a raw "first to sync" claim -- to avoid making an unusable kit
+    // the default.
     await db.transaction(async (tx) =>
       insertDesignSystemClaimingDefault(
         tx,
@@ -404,7 +414,8 @@ export async function upsertBuilderProxyDesignSystem({
             data: proxyFields.data,
             assets: "[]",
             customInstructions: proxyFields.customInstructions,
-            isDefault: claimsDefault,
+            isDefault:
+              claimsDefault && isBuilderDesignSystemReady(result.status),
             ownerEmail,
             orgId: orgId ?? null,
             visibility: orgId ? "org" : "private",

@@ -293,7 +293,7 @@ export async function createDocsScriptEntries(): Promise<
     entries["docs-search"] = wrapCliScript(
       {
         description:
-          "Search and read agent-native framework documentation, bundled AGENTS.md, and codebase skills. Use --list to see all pages, --query to search, --slug to read a specific page. Codebase skill pages use slugs like skill-<name>.",
+          "Search and read agent-native framework documentation, bundled AGENTS.md, and codebase skills. Use --list to see all pages, --query to search, --slug to read a specific page. Codebase skill pages use slugs like skill-<name>. Use a focused lookup when needed and reuse its result for the rest of the turn; do not repeat an equivalent lookup unless the page or question is different.",
         parameters: {
           type: "object",
           properties: {

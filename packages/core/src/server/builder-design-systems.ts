@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { DesignSystemSourceInput } from "@builder.io/ai-utils";
 
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
@@ -22,6 +24,9 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 // files off a single unbounded request body.
 const GCS_CHUNK_SIZE = 16 * 1024 * 1024;
 const MAX_CHUNK_RETRIES = 5;
+const RETRYABLE_INDEX_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const INDEX_ATTEMPT_TIMEOUT_MS = 20_000;
+const INDEX_RETRY_DELAYS_MS = [600, 1800] as const;
 
 export interface BuilderDesignSystemIndexFile {
   name: string;
@@ -713,6 +718,36 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function fetchBuilderDesignSystemIndex(
+  url: string | URL,
+  init: RequestInit,
+  idempotencyKey: string,
+): Promise<Response> {
+  const headers = new Headers(init.headers);
+  headers.set("Idempotency-Key", idempotencyKey);
+  const request = { ...init, headers };
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const response = await fetchWithTimeout(
+        url,
+        request,
+        INDEX_ATTEMPT_TIMEOUT_MS,
+      );
+      if (
+        response.ok ||
+        !RETRYABLE_INDEX_STATUSES.has(response.status) ||
+        attempt >= INDEX_RETRY_DELAYS_MS.length
+      ) {
+        return response;
+      }
+      if (response.body) await response.body.cancel();
+    } catch (error) {
+      if (attempt >= INDEX_RETRY_DELAYS_MS.length) throw error;
+    }
+    await delay(INDEX_RETRY_DELAYS_MS[attempt]);
+  }
+}
+
 async function uploadToResumableUrl(
   slot: { uploadUrl: string },
   file: BuilderDesignSystemIndexFile,
@@ -1182,7 +1217,7 @@ export async function hydrateBuilderDesignSystemReference(
     docs.push(...response.docs);
     completionConfirmed ||= response.completionConfirmed;
     builderStatus = response.status ?? builderStatus;
-    if (response.docs.length < pageSize) break;
+    if (response.docs.length < pageSize || options.minimal) break;
     page += 1;
     if (pageNumber === MAX_BUILDER_DOC_PAGES - 1) {
       throw new Error(
@@ -1259,7 +1294,8 @@ export async function indexBuilderDesignSystem(
     );
   }
   const credentials = await resolveBuilderDesignSystemCredentials();
-  const index = await fetchWithTimeout(
+  const idempotencyKey = `agent-native-dsi-${randomUUID()}`;
+  const index = await fetchBuilderDesignSystemIndex(
     makeBuilderDesignSystemUrl("index", credentials),
     {
       method: "POST",
@@ -1277,6 +1313,7 @@ export async function indexBuilderDesignSystem(
           : {}),
       }),
     },
+    idempotencyKey,
   );
   await assertOk(index, "Builder design-system indexing failed");
   const indexed = (await index.json()) as IndexResponse;

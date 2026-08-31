@@ -283,7 +283,7 @@ function reportStatus(
   status: StatusName,
   extra: Record<string, unknown> = {},
 ): void {
-  chrome.runtime.sendMessage({
+  void chrome.runtime.sendMessage({
     type: "CLIPS_NATIVE_STATUS",
     sessionId,
     status,
@@ -1170,7 +1170,7 @@ async function acquire(message: AcquireMessage): Promise<{
     // can run the normal stop/finalize flow.
     const endedTrack = videoStream.getVideoTracks()[0] ?? null;
     const endedListener = () => {
-      chrome.runtime.sendMessage({
+      void chrome.runtime.sendMessage({
         type: "CLIPS_NATIVE_ENDED",
         sessionId: message.sessionId,
       });

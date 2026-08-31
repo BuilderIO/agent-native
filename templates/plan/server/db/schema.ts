@@ -163,6 +163,7 @@ export const planVersions = table("plan_versions", {
     .notNull()
     .default("agent"),
   createdAt: text("created_at").notNull(),
+  chatContext: text("chat_context"),
   // Denormalized copies of summarizePlanVersion's derived fields, populated at
   // snapshot-write time so list-plan-versions can project just these small
   // columns instead of fetching + JSON.parsing every row's full snapshot_json

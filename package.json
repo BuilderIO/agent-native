@@ -36,6 +36,7 @@
     "test:core-integration": "pnpm --filter @agent-native/core exec vitest --run src/agent/engine/translate-ai-sdk.integration.spec.ts src/agent/run-loop-with-resume.integration.spec.ts src/client/extensions/AgentNativeExtensionFrame.e2e.spec.ts src/client/session-replay-iframe.e2e.spec.ts src/scripts/db/migrate-encrypt-credentials.e2e.spec.ts src/scripts/db/scope-isolation.e2e.spec.ts src/server/csrf-plugin-ordering.integration.spec.ts src/server/embedded.integration.spec.ts --passWithNoTests",
     "test:ci-change-scope": "tsx --test scripts/ci-change-scope.test.ts",
     "test:netlify-prebuilt-workflow": "tsx --test scripts/guard-netlify-prebuilt-workflow.test.ts",
+    "test:function-size-baseline": "tsx --test scripts/check-function-size-baseline.test.ts",
     "test:package-release-workflow": "tsx --test scripts/package-release-workflow.test.ts scripts/create-release-changeset.test.ts scripts/release-everything-workflow.test.ts",
     "test:oauth-postgres": "pnpm --filter @agent-native/core exec vitest --run src/oauth-tokens/lifecycle.postgres.integration.spec.ts --config vitest.config.ts",
     "test:plan-e2e": "pnpm --filter plan exec vitest --run actions/create-visual-recap.e2e.spec.ts --passWithNoTests",
@@ -53,6 +54,7 @@
     "qa:template-routes": "tsx scripts/qa-template-route-matrix.ts",
     "qa:sign-in": "tsx scripts/qa-sign-in-matrix-smoke.ts",
     "actions:audit": "node scripts/audit-template-actions.mjs",
+    "audit:prod-env-coverage": "tsx scripts/audit-prod-env-coverage.ts",
     "test:mcp:e2e": "tsx scripts/e2e-mcp-test.ts",
     "lint": "pnpm fmt:check && pnpm oxlint && pnpm typecheck",
     "oxlint": "oxlint --config .oxlintrc.json .",
@@ -121,6 +123,7 @@
     "guard:no-boot-data-work": "node scripts/guard-no-boot-data-work.mjs",
     "guard:no-untracked-imports": "node scripts/guard-no-untracked-imports.mjs",
     "check:production-cache-contract": "node scripts/check-production-cache-contract.mjs",
+    "check:google-redirect-uris": "tsx scripts/check-google-redirect-uris.ts",
     "check:function-size-baseline": "node scripts/check-function-size-baseline.mjs",
     "guard:dead-settings-keys": "node scripts/guard-dead-settings-keys.mjs",
     "guard:serverless-function-payload": "node scripts/guard-serverless-function-payload.mjs",
@@ -160,7 +163,9 @@
     "dev:electron:apps": "node scripts/dev-electron.ts --apps",
     "e2e:beta": "playwright test --config e2e/beta/playwright.config.ts",
     "e2e:beta:capture": "tsx e2e/beta/capture-session.ts",
+    "e2e:signup": "playwright test --config e2e/signup/playwright.config.ts",
     "typecheck:e2e": "tsc --noEmit -p e2e/beta/tsconfig.json",
+    "typecheck:e2e:signup": "tsc --noEmit -p e2e/signup/tsconfig.json",
     "guard:beta-e2e-suite": "tsx scripts/guard-beta-e2e-suite.ts"
   },
   "devDependencies": {

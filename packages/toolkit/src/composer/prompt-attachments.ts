@@ -85,7 +85,8 @@ export function isInlineableAgentPromptFile(file: File): boolean {
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onload = () =>
+      resolve(typeof reader.result === "string" ? reader.result : "");
     reader.onerror = () =>
       reject(reader.error ?? new Error("Could not read file"));
     reader.readAsDataURL(file);

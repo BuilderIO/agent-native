@@ -30,9 +30,15 @@ Agent-Native 应用运行在 Nitro 上。请选择适合你要发布内容的路
 
 独立应用需要稳定的 `BETTER_AUTH_SECRET`。使用签名跨应用请求的工作区需要 `A2A_SECRET`。
 
+## 邮件发送是可选的，但建议配置 {#email-provider}
+
+电子邮件提供商不是邮箱和密码身份验证的必需项。没有提供商时，已部署的应用会使用邮箱和密码注册及登录，跳过注册时的邮箱验证，也不会提供魔法链接身份验证。
+
+如果需要魔法链接、邮箱验证、密码重置、邀请或共享通知，请在部署前连接 Resend 或 SendGrid。在部署环境中设置 `RESEND_API_KEY` 或 `SENDGRID_API_KEY`；SendGrid 还需要 `EMAIL_FROM`。有关身份验证模式，请参阅[身份验证](/docs/authentication)。
+
 ## 支持的部署目标
 
-Agent-Native 支持 [Node.js](/docs/node-js)、[Docker](/docs/docker)、[Vercel](/docs/vercel)、[Netlify](/docs/netlify)、[Cloudflare Pages](/docs/cloudflare#cloudflare-pages)、[Cloudflare Workers](/docs/cloudflare#cloudflare-workers)、[AWS Lambda](/docs/aws-lambda)、[Deno Deploy](/docs/deno-deploy)、[Azure Static Web Apps](/docs/azure-static-web-apps)、[Koyeb](/docs/koyeb) 和 [Render](/docs/render)。
+Agent-Native 支持 [Node.js](/docs/node-js)、[Docker](/docs/docker)、[Vercel](/docs/vercel)、[Netlify](/docs/netlify)、[Cloudflare Pages](/docs/cloudflare#cloudflare-pages)、[Cloudflare Workers](/docs/cloudflare#cloudflare-workers)、[AWS Amplify](/docs/aws-amplify)、[AWS Lambda](/docs/aws-lambda)、[Deno Deploy](/docs/deno-deploy)、[Azure Static Web Apps](/docs/azure-static-web-apps)、[Koyeb](/docs/koyeb) 和 [Render](/docs/render)。
 
 有关高级设置、密钥和生产值，请参阅[部署环境变量参考](/docs/deployment-environment-variables)。
 

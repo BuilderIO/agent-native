@@ -517,7 +517,8 @@ export async function getAuthUrl(
   const uri =
     redirectUri ||
     (origin ? `${origin}/_agent-native/google/callback` : undefined);
-  const oauth2 = createOAuth2Client(clientId, clientSecret, uri ?? "");
+  if (!uri) throw new Error("Google OAuth redirect URI is required.");
+  const oauth2 = createOAuth2Client(clientId, clientSecret, uri);
   return oauth2.generateAuthUrl({
     access_type: "offline",
     scope: SCOPES,
@@ -537,7 +538,8 @@ export async function exchangeCode(
   const uri =
     redirectUri ||
     (origin ? `${origin}/_agent-native/google/callback` : undefined);
-  const oauth2 = createOAuth2Client(clientId, clientSecret, uri ?? "");
+  if (!uri) throw new Error("Google OAuth redirect URI is required.");
+  const oauth2 = createOAuth2Client(clientId, clientSecret, uri);
   const tokens = await oauth2.getToken(code);
 
   // Get user email
@@ -1173,12 +1175,20 @@ export async function getFreeBusy(
         ?.map((error) => error.reason || error.domain)
         .filter(Boolean)
         .join(", ");
+      const missingCalendarError = calendar
+        ? undefined
+        : "Calendar was omitted from the Google free/busy response";
+      const error = calendarError || missingCalendarError;
       normalized[id] = {
         busy: calendar?.busy ?? [],
-        errors: calendar?.errors,
+        errors:
+          calendar?.errors ||
+          (missingCalendarError
+            ? [{ reason: missingCalendarError }]
+            : undefined),
       };
-      if (calendarError) {
-        calendarErrors.push({ email: id, error: calendarError });
+      if (error) {
+        calendarErrors.push({ email: id, error });
       }
     }
 

@@ -86,7 +86,35 @@ describe("preferredOwnedDesignSystemId", () => {
     ];
 
     expect(
-      preferredOwnedDesignSystemId(designSystems, { id: "mine-default" }),
+      preferredOwnedDesignSystemId(designSystems, {
+        id: "mine-default",
+        data: "{}",
+      }),
     ).toBe("mine-default");
+  });
+
+  it("skips a default still mid-index and falls back to a usable owned system", () => {
+    const designSystems = [
+      summary({
+        id: "mine-default",
+        isDefault: true,
+        accessRole: "owner",
+        data: JSON.stringify({
+          source: "builder",
+          builderStatus: "in-progress",
+        }),
+      }),
+      summary({ id: "mine-usable", isDefault: false, accessRole: "owner" }),
+    ];
+
+    expect(
+      preferredOwnedDesignSystemId(designSystems, {
+        id: "mine-default",
+        data: JSON.stringify({
+          source: "builder",
+          builderStatus: "in-progress",
+        }),
+      }),
+    ).toBe("mine-usable");
   });
 });

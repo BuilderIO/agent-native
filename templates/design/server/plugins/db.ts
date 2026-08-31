@@ -396,6 +396,13 @@ CREATE INDEX IF NOT EXISTS designs_normalized_owner_org_updated_idx ON designs (
     },
     {
       version: 25,
+      name: "design-version-chat-metadata",
+      sql: `ALTER TABLE design_versions ADD COLUMN IF NOT EXISTS chat_context TEXT;
+ALTER TABLE design_versions ADD COLUMN IF NOT EXISTS file_count INTEGER;
+CREATE INDEX IF NOT EXISTS design_versions_design_created_idx ON design_versions (design_id, created_at)`,
+    },
+    {
+      version: 26,
       name: "design-systems-one-default-per-scope-index",
       // `run` executes before `sql`, on the same connection the migration
       // runner picked for this entry (the direct endpoint on Postgres, since

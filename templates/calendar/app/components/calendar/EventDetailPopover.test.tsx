@@ -222,6 +222,10 @@ describe("EventDetailPopover characterization", () => {
     calendarContext.setEventDetailSidebar.mockClear();
     calendarContext.setSidebarEvent.mockClear();
     calendarContext.setFocusedEvent.mockClear();
+    updateEventMutate.mockImplementation(
+      (_input: unknown, options?: { onSettled?: () => void }) =>
+        options?.onSettled?.(),
+    );
   });
 
   afterEach(() => {
@@ -272,7 +276,32 @@ describe("EventDetailPopover characterization", () => {
       'div[class*="radix-popover-content-available-height"]',
     );
     expect(content).toBeTruthy();
-    expect(content?.className).toContain("w-[min(420px,calc(100vw-2rem))]");
+    expect(content?.className).toContain("w-[min(284px,calc(100vw-2rem))]");
+    expect(content?.innerHTML).toContain("text-[13px] font-medium");
+  });
+
+  it("makes the event options visible and scrolls to them when opened", () => {
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent()}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const optionsButton = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="eventForm.eventOptions"]',
+    );
+    expect(optionsButton).toBeTruthy();
+    act(() => optionsButton!.click());
+
+    expect(optionsButton?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector(`#event-more-options-event-1`)).toBeTruthy();
+    expect(document.body.textContent).toContain("eventForm.showAs");
   });
 
   it("keeps the fallback label out of the input when renaming an unnamed event", () => {
@@ -662,8 +691,8 @@ describe("EventDetailPopover characterization", () => {
     const endTimeTrigger = document.querySelector<HTMLButtonElement>(
       'button[aria-label="eventForm.end"]',
     );
-    expect(startTimeTrigger?.textContent).toBe("12:00 PM");
-    expect(endTimeTrigger?.textContent).toBe("1:00 PM");
+    expect(startTimeTrigger?.textContent).toBe("12 PM");
+    expect(endTimeTrigger?.textContent).toBe("1 PM");
   });
 
   it("prefers the viewer's calendar timezone over the event's stored timezone when seeding the time editor", () => {
@@ -714,8 +743,8 @@ describe("EventDetailPopover characterization", () => {
     const endTimeTrigger = document.querySelector<HTMLButtonElement>(
       'button[aria-label="eventForm.end"]',
     );
-    expect(startTimeTrigger?.textContent).toBe("12:00 PM");
-    expect(endTimeTrigger?.textContent).toBe("1:00 PM");
+    expect(startTimeTrigger?.textContent).toBe("12 PM");
+    expect(endTimeTrigger?.textContent).toBe("1 PM");
   });
 
   it("prompts for guest notification before saving when the event has guests, and only mutates after the user confirms", async () => {
@@ -789,6 +818,7 @@ describe("EventDetailPopover characterization", () => {
         location: "Room B",
         sendUpdates: "all",
       }),
+      expect.objectContaining({ onSettled: expect.any(Function) }),
     );
   });
 
@@ -846,6 +876,7 @@ describe("EventDetailPopover characterization", () => {
         location: "Room B",
         sendUpdates: "none",
       }),
+      expect.objectContaining({ onSettled: expect.any(Function) }),
     );
   });
 

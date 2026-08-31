@@ -402,14 +402,9 @@ interface OpenAiAppBridge {
     scrollToBottom?: boolean;
     mode?: McpAppHostRequestMode;
     requestMode?: McpAppHostRequestMode;
-  }) => unknown | Promise<unknown>;
-  openExternal?: (args: {
-    href: string;
-    redirectUrl?: boolean;
-  }) => unknown | Promise<unknown>;
-  requestDisplayMode?: (args: {
-    mode: McpAppDisplayMode;
-  }) => unknown | Promise<unknown>;
+  }) => unknown;
+  openExternal?: (args: { href: string; redirectUrl?: boolean }) => unknown;
+  requestDisplayMode?: (args: { mode: McpAppDisplayMode }) => unknown;
 }
 
 function readOpenAiBridge(): OpenAiAppBridge | null {

@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ElementInfo } from "../types";
+import { inferElementSizing } from "./element-classification";
 import {
   autoLayoutStylesForFlow,
   gridTemplateForTracks,
@@ -41,6 +42,35 @@ function element(overrides: Partial<ElementInfo>): ElementInfo {
 }
 
 describe("LayoutContextProperties", () => {
+  it("infers sizing modes from authored values instead of resolved pixels", () => {
+    expect(
+      inferElementSizing(
+        element({
+          inlineStyles: { width: "fit-content", height: "auto" },
+          computedStyles: {
+            display: "block",
+            width: "820px",
+            height: "135.4px",
+          },
+        }),
+        "horizontal",
+      ),
+    ).toBe("hug");
+    expect(
+      inferElementSizing(
+        element({
+          inlineStyles: { width: "100%" },
+          computedStyles: {
+            display: "block",
+            width: "820px",
+            height: "135.4px",
+          },
+        }),
+        "horizontal",
+      ),
+    ).toBe("fill");
+  });
+
   it("maps each Flow choice to one complete atomic style patch", () => {
     expect(autoLayoutStylesForFlow("normal")).toEqual({ display: "block" });
     expect(autoLayoutStylesForFlow("vertical")).toEqual({

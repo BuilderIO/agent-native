@@ -2182,7 +2182,7 @@ export function VisualEditor({
       a.setLocalStateField("user", user);
     }
     return a;
-  }, [awareness, ydoc]);
+  }, [awareness, user, ydoc]);
   const localAwareness = awareness ?? fallbackAwareness;
 
   // Update user info when it changes
@@ -2190,7 +2190,7 @@ export function VisualEditor({
     if (localAwareness && user) {
       localAwareness.setLocalStateField("user", user);
     }
-  }, [localAwareness, user?.name, user?.email, user?.color]);
+  }, [localAwareness, user]);
 
   // Clean up awareness on unmount
   useEffect(() => {
@@ -2225,9 +2225,7 @@ export function VisualEditor({
       documentId,
       ydoc,
       localAwareness,
-      user?.name,
-      user?.email,
-      user?.color,
+      user,
       onComment,
       onImageFilePickerRequest,
       onJoinTitle,
@@ -2509,7 +2507,7 @@ export function VisualEditor({
       }
       if (isActiveSlashCommandDraft(editor)) return;
       if (shouldSkipMediaDraftPersistence(editor)) return;
-      persistEditorContent(editor, {
+      void persistEditorContent(editor, {
         userInitiated,
       });
     },
@@ -2598,7 +2596,7 @@ export function VisualEditor({
         );
       }
     },
-    [editor, t],
+    [editor, persistEditorContent, t],
   );
 
   const handleImageFileInputCancel = useCallback(() => {
@@ -2825,7 +2823,7 @@ export function VisualEditor({
         activeId: activeThreadId ?? null,
       });
     },
-    [editor, pendingHighlight?.from, pendingHighlight?.to, activeThreadId],
+    [activeThreadId, editor, pendingHighlight],
   );
 
   const applyRef = useRef(applyHighlights);

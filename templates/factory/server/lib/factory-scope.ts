@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import type { getDb } from "../db/index.js";
 import {
+  factoryAuditEvents,
   factoryDefinitions,
   factoryGraphVersions,
   triageConfig,
@@ -252,6 +253,13 @@ export function orgFactoryFeedbackFilter(
   return orgFactoryFilter(triageFeedback, orgId, factoryId);
 }
 
+export function orgFactoryAuditEventFilter(
+  orgId: string,
+  factoryId: string,
+): SQL {
+  return orgFactoryFilter(factoryAuditEvents, orgId, factoryId);
+}
+
 export function resolveAutomationFactoryId(
   meta: Record<string, unknown> | object | undefined,
 ): string {
@@ -271,7 +279,7 @@ function readFrontmatterFactoryId(content: string): string | undefined {
   const match = content.slice(4, end).match(/^factoryId:\s*(.*)$/m);
   const value = match?.[1]?.trim();
   if (!value) return undefined;
-  return value.replace(/^(\"|')|((\"|')$)/g, "");
+  return value.replace(/^("|')|(("|')$)/g, "");
 }
 
 export function readAutomationFactoryId(
@@ -381,7 +389,7 @@ function readFrontmatterField(
     .match(new RegExp(`^${key}:\\s*(.*)$`, "m"));
   const value = match?.[1]?.trim();
   if (!value) return undefined;
-  return value.replace(/^(\"|')|((\"|')$)/g, "");
+  return value.replace(/^("|')|(("|')$)/g, "");
 }
 
 export function readAutomationDisplayName(content: string): string | null {

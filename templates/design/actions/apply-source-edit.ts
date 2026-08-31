@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   findSourceWorkspaceFile,
   readLiveSourceFile,
@@ -46,7 +47,10 @@ export default defineAction({
       message: "Provide either path or fileId.",
       path: ["path"],
     }),
-  run: async ({ designId, path, fileId, edit, expectedVersionHash }) => {
+  run: async (
+    { designId, path, fileId, edit, expectedVersionHash },
+    context,
+  ) => {
     const workspace = await resolveSourceWorkspace(designId, {
       includeContent: true,
     });
@@ -54,6 +58,7 @@ export default defineAction({
       throw new Error("Only inline Design files are editable in this MVP.");
     }
     const file = findSourceWorkspaceFile(workspace.files, { fileId, path });
+    await snapshotDesignBeforeAgentEdit(designId, context);
     const live = await readLiveSourceFile(file);
     if (
       expectedVersionHash !== undefined &&
