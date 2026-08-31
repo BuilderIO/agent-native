@@ -19359,6 +19359,8 @@ function DesignEditor() {
       ? handleScreenGeometryChange
       : undefined,
     pageStyles,
+    viewMode,
+    mode,
     files: documentColorFiles,
     activeTool,
     onCreateScreenFromPreset: canEditDesign

@@ -75,6 +75,7 @@ templates/slides/data/exports/
 
 # Playwright/vitest test run state
 test-results/
+playwright-report/
 e2e/.auth/
 **/.auth/
 **/.auth-debug/

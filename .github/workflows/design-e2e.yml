@@ -1,8 +1,9 @@
 name: Design E2E (browser)
 
 # Post-merge only: a red canvas suite must not block an unrelated merge, and
-# this does not gate the beta deploy. Sharded because the suite is workers:1
-# and its failing tests each burn the full retry budget.
+# this does not gate the beta deploy. Sharded because the suite is workers:1.
+# Already-broken tests carry test.fail() in the spec, so a red run here means
+# something that was passing broke.
 
 on:
   push:
@@ -12,8 +13,6 @@ on:
       - "packages/core/**"
       - "packages/toolkit/**"
       - "packages/creative-context/**"
-      - "scripts/check-design-e2e-baseline.ts"
-      - "scripts/design-e2e-baseline.json"
       - ".github/workflows/design-e2e.yml"
   workflow_dispatch:
 
@@ -74,46 +73,15 @@ jobs:
 
       - name: Run shard
         working-directory: templates/design
-        # A shard with failing tests must still upload its blob, or the report
-        # job cannot tell "failed" from "never ran".
-        continue-on-error: true
         run: |
           mkdir -p .react-router/types
-          pnpm exec playwright test --shard=${{ matrix.shard }}/6 --reporter=blob
+          pnpm exec playwright test --shard=${{ matrix.shard }}/6
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - name: Upload report on failure
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: design-e2e-blob-${{ matrix.shard }}
-          path: templates/design/blob-report
+          name: design-e2e-report-${{ matrix.shard }}
+          path: templates/design/test-results
           retention-days: 7
-          if-no-files-found: error
-
-  report:
-    name: New failures vs baseline
-    if: ${{ always() }}
-    needs: e2e
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - run: pnpm install --frozen-lockfile
-
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          path: all-blob-reports
-          pattern: design-e2e-blob-*
-          merge-multiple: true
-
-      - name: Merge shards into one JSON report
-        run: pnpm exec playwright merge-reports --reporter=json all-blob-reports > design-e2e-report.json
-
-      - name: Compare against the recorded baseline
-        run: pnpm tsx scripts/check-design-e2e-baseline.ts --report design-e2e-report.json
+          if-no-files-found: ignore

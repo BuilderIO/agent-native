@@ -47,6 +47,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import type { EditorMode } from "@/pages/design-editor/types";
 
 import { AppearanceProperties } from "./edit-panel/appearance-properties";
 import {
@@ -235,6 +236,9 @@ export function mergeOptimisticInteractionStateStyles(
 
 export type InspectorTab = "design" | "tweaks" | "comments" | "code";
 
+/** Board ("overview") vs inside one screen ("single"). */
+export type DesignViewMode = "single" | "overview";
+
 /** Floor for a typed/preset frame size. Matches the frame tool's own minimum
  *  so a frame cannot be typed smaller than it can be drawn. */
 const MIN_SCREEN_FRAME_SIZE_PX = 24;
@@ -257,8 +261,7 @@ interface EditPanelProps {
    * full-panel preset list is only reachable *before* a frame exists, so
    * without this an existing frame could never be set to a device size.
    */
-  /** Design-level canvas background — the surround, not a screen's document.
-   *  Omit onCanvasBackgroundChange to hide the Canvas section (read-only). */
+  /** Design-level canvas background — the surround, not a screen's document. */
   canvasBackground?: string | null;
   onCanvasBackgroundChange?: (value: string, meta?: StyleChangeMeta) => void;
   onScreenGeometryChange?: (
@@ -274,6 +277,10 @@ interface EditPanelProps {
   inspectorGridDebug?: boolean;
   onInspectorGridDebugChange?: (visible: boolean) => void;
   width?: number;
+  /** Board vs single screen, and which editor mode — together they select the
+   *  nothing-selected panel's background scope (resolveBackgroundPanelScope). */
+  viewMode: DesignViewMode;
+  mode: EditorMode;
   /** Viewer mode exposes inspection and comments, never editing controls. */
   readOnly?: boolean;
   activeTab?: InspectorTab;
@@ -1379,14 +1386,36 @@ function InspectorTabsHeader({
   );
 }
 
+/**
+ * Which background scope the nothing-selected panel addresses. Scope follows
+ * what you are looking at; permission only decides whether the section appears
+ * at all. Deciding by callback presence instead handed read-only viewers the
+ * live document controls and editors the board colour.
+ *
+ * `single` alone does not mean "inside a screen editing it" — standalone it is
+ * the responsive interactive view, and only a host-embedded editor stays in
+ * `edit` there. Document scope needs both.
+ */
+export function resolveBackgroundPanelScope(input: {
+  viewMode: DesignViewMode;
+  mode: EditorMode;
+  readOnly: boolean;
+}): "canvas" | "document" | null {
+  if (input.readOnly) return null;
+  if (input.viewMode === "single" && input.mode === "edit") return "document";
+  return "canvas";
+}
+
 /** Page-level properties when nothing is selected */
 function PageProperties({
+  scope,
   styles,
   onStyleChange,
   onStylesChange,
   canvasBackground,
   onCanvasBackgroundChange,
 }: {
+  scope: "canvas" | "document";
   styles: Record<string, string>;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
@@ -1413,10 +1442,7 @@ function PageProperties({
 
   return (
     <div>
-      {/* With nothing selected you are looking at the canvas, so this edits the
-          canvas surround. The section below still owns the SCREEN's own
-          document background and type defaults. */}
-      {onCanvasBackgroundChange ? (
+      {scope === "canvas" && onCanvasBackgroundChange ? (
         <PanelSection title={t("editPanel.sections.canvas")}>
           <ColorInput
             label={t("editPanel.labels.background")}
@@ -1427,7 +1453,8 @@ function PageProperties({
             allowDesignHistoryHotkeys
           />
         </PanelSection>
-      ) : (
+      ) : null}
+      {scope === "document" ? (
         <PanelSection title={t("editPanel.sections.page")}>
           <ColorInput
             label={t("editPanel.labels.background")}
@@ -1469,7 +1496,7 @@ function PageProperties({
             defaultUnit="px"
           />
         </PanelSection>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -1735,6 +1762,8 @@ export const EditPanel = memo(function EditPanel({
   onCanvasBackgroundChange,
   onScreenGeometryChange,
   pageStyles = {},
+  viewMode,
+  mode,
   headerTrailing,
   inspectorGridDebug = false,
   onInspectorGridDebugChange,
@@ -1882,6 +1911,11 @@ export const EditPanel = memo(function EditPanel({
   if (selectedCount <= 1 && inspectorElement?.sourceId) {
     lastInteractionStateSourceIdRef.current = inspectorElement.sourceId;
   }
+  const backgroundPanelScope = resolveBackgroundPanelScope({
+    viewMode,
+    mode,
+    readOnly,
+  });
   const shouldRenderInteractionStatePanel = Boolean(
     (selectedCount <= 1 && inspectorElement?.sourceId) ||
     ((interactionState !== null || interactionStateMenuOpen) &&
@@ -2273,17 +2307,18 @@ export const EditPanel = memo(function EditPanel({
                 </>
               ) : null}
 
-              {!inspectorElement && !selectedScreenGeometry && (
+              {!inspectorElement &&
+              !selectedScreenGeometry &&
+              backgroundPanelScope ? (
                 <PageProperties
+                  scope={backgroundPanelScope}
                   styles={pageStyles}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                   canvasBackground={canvasBackground}
-                  onCanvasBackgroundChange={
-                    readOnly ? undefined : onCanvasBackgroundChange
-                  }
+                  onCanvasBackgroundChange={onCanvasBackgroundChange}
                 />
-              )}
+              ) : null}
 
               {shouldRenderInteractionStatePanel ? (
                 <InteractionStatePanel
