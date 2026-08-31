@@ -1,6 +1,7 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertTriangle,
   IconCheck,
@@ -112,6 +113,7 @@ export function AutomationDetailsPanel({
   isToggling = false,
   onToggle,
 }: AutomationDetailsPanelProps) {
+  const t = useT();
   const runsQuery = useActionQuery<AutomationRun[]>(
     "list-automation-runs",
     {
@@ -131,7 +133,7 @@ export function AutomationDetailsPanel({
       : null;
   const triggerLabel =
     automation.triggerType === "webhook"
-      ? "Webhook"
+      ? t("jobs.webhook", { defaultValue: "Webhook" })
       : isScheduled
         ? "Schedule"
         : "Event";
@@ -200,7 +202,9 @@ export function AutomationDetailsPanel({
               label="Trigger"
               value={
                 automation.triggerType === "webhook"
-                  ? "Webhook-triggered"
+                  ? t("jobs.webhookTrigger", {
+                      defaultValue: "Webhook-triggered",
+                    })
                   : isScheduled
                     ? "Scheduled"
                     : "Event-triggered"
@@ -229,7 +233,7 @@ export function AutomationDetailsPanel({
               <div className="col-span-2 rounded-md border border-primary/20 bg-primary/5 p-3">
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-xs font-medium text-foreground">
-                    Webhook URL
+                    {t("jobs.webhookUrl", { defaultValue: "Webhook URL" })}
                   </span>
                   <Button
                     type="button"
@@ -250,15 +254,19 @@ export function AutomationDetailsPanel({
                     ) : (
                       <IconCopy className="size-3.5" />
                     )}
-                    {copied ? "Copied" : "Copy URL"}
+                    {copied
+                      ? t("common.copied", { defaultValue: "Copied" })
+                      : t("common.copy", { defaultValue: "Copy URL" })}
                   </Button>
                 </div>
                 <code className="mt-2 block break-all text-[11px] leading-5 text-muted-foreground">
                   {webhookUrl}
                 </code>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Paste this URL into a service that can send HTTP POST
-                  webhooks.
+                  {t("jobs.webhookUrlHint", {
+                    defaultValue:
+                      "Paste this URL into a service that sends HTTP POST webhooks.",
+                  })}
                 </p>
               </div>
             ) : null}

@@ -157,7 +157,10 @@ function ScheduleFields({
             disabled={saving}
             onChange={(event) =>
               onChange({
-                interval: Math.max(1, Number(event.target.value) || 1),
+                interval: Math.min(
+                  draft.unit === "day" ? 1 : 31,
+                  Math.max(1, Number(event.target.value) || 1),
+                ),
               })
             }
             className="h-9 bg-background text-sm"
@@ -169,7 +172,10 @@ function ScheduleFields({
             value={draft.unit}
             disabled={saving}
             onValueChange={(value) =>
-              onChange({ unit: value as AutomationScheduleUnit })
+              onChange({
+                unit: value as AutomationScheduleUnit,
+                ...(value === "day" ? { interval: 1 } : {}),
+              })
             }
           >
             <SelectTrigger className="h-9 bg-background text-sm">
@@ -180,7 +186,7 @@ function ScheduleFields({
                 {t("jobs.hours", { defaultValue: "hour(s)" })}
               </SelectItem>
               <SelectItem value="day">
-                {t("jobs.days", { defaultValue: "day(s)" })}
+                {t("jobs.day", { defaultValue: "day" })}
               </SelectItem>
               <SelectItem value="week">
                 {t("jobs.weeks", { defaultValue: "week(s)" })}
@@ -398,10 +404,15 @@ function ScheduleBuilder({
       ) : null}
       {!advanced && friendly.error ? (
         <p className="text-xs text-destructive">
-          {t("jobs.weeklyIntervalAdvanced", {
-            defaultValue:
-              "Custom weekly intervals beyond one week are available under Advanced.",
-          })}
+          {friendly.error === "daily-interval"
+            ? t("jobs.dailyIntervalAdvanced", {
+                defaultValue:
+                  "Every few days needs the Advanced cron editor below.",
+              })
+            : t("jobs.weeklyIntervalAdvanced", {
+                defaultValue:
+                  "Custom weekly intervals beyond one week are available under Advanced.",
+              })}
         </p>
       ) : null}
 

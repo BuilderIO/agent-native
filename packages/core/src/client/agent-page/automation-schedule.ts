@@ -73,7 +73,7 @@ function normalizeDraft(
 
 export function automationScheduleToCron(draft: AutomationScheduleDraft): {
   schedule?: string;
-  error?: "weekly-interval";
+  error?: "daily-interval" | "weekly-interval";
 } {
   const next = normalizeDraft(draft);
   if (next.preset === "hourly") return { schedule: "0 * * * *" };
@@ -93,8 +93,8 @@ export function automationScheduleToCron(draft: AutomationScheduleDraft): {
     };
   }
   if (next.unit === "day") {
-    const days = next.interval === 1 ? "*" : `*/${next.interval}`;
-    return { schedule: `${time} ${days} * *` };
+    if (next.interval !== 1) return { error: "daily-interval" };
+    return { schedule: `${time} * * *` };
   }
   if (next.unit === "week") {
     if (next.interval !== 1) return { error: "weekly-interval" };
@@ -198,7 +198,13 @@ export function automationScheduleDraftFromCron(
   }
 
   const dailyInterval = /^\*\/(\d+)$/.exec(dayOfMonth);
-  if (time && month === "*" && dayOfWeek === "*" && dailyInterval) {
+  if (
+    time &&
+    month === "*" &&
+    dayOfWeek === "*" &&
+    dailyInterval &&
+    Number(dailyInterval[1]) === 1
+  ) {
     return {
       draft: {
         ...fallback,

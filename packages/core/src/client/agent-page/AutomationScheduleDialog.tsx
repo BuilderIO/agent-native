@@ -268,7 +268,10 @@ export function AutomationScheduleDialog({
                     onChange={(event) =>
                       setDraft((current) => ({
                         ...current,
-                        interval: Math.max(1, Number(event.target.value) || 1),
+                        interval: Math.min(
+                          current.unit === "day" ? 1 : 31,
+                          Math.max(1, Number(event.target.value) || 1),
+                        ),
                       }))
                     }
                     className="h-9 bg-background text-sm"
@@ -285,6 +288,7 @@ export function AutomationScheduleDialog({
                       setDraft((current) => ({
                         ...current,
                         unit: value as AutomationScheduleUnit,
+                        ...(value === "day" ? { interval: 1 } : {}),
                       }))
                     }
                   >
@@ -296,7 +300,7 @@ export function AutomationScheduleDialog({
                         {t("jobs.hours", { defaultValue: "hour(s)" })}
                       </SelectItem>
                       <SelectItem value="day">
-                        {t("jobs.days", { defaultValue: "day(s)" })}
+                        {t("jobs.day", { defaultValue: "day" })}
                       </SelectItem>
                       <SelectItem value="week">
                         {t("jobs.weeks", { defaultValue: "week(s)" })}
@@ -413,6 +417,14 @@ export function AutomationScheduleDialog({
                   {t("jobs.weeklyIntervalAdvanced", {
                     defaultValue:
                       "Every few weeks needs the Advanced cron editor below.",
+                  })}
+                </p>
+              ) : null}
+              {friendly.error === "daily-interval" ? (
+                <p className="text-xs text-destructive">
+                  {t("jobs.dailyIntervalAdvanced", {
+                    defaultValue:
+                      "Every few days needs the Advanced cron editor below.",
                   })}
                 </p>
               ) : null}

@@ -765,6 +765,7 @@ const messages = {
     scheduleUnit: "Unit",
     hours: "hour(s)",
     days: "day(s)",
+    day: "day",
     weeks: "week(s)",
     months: "month(s)",
     atMinute: "At minute",
@@ -773,6 +774,8 @@ const messages = {
     atTime: "At",
     weeklyIntervalAdvanced:
       "Every few weeks needs the Advanced cron editor below.",
+    dailyIntervalAdvanced:
+      "Every few days needs the Advanced cron editor below.",
     schedulePreview: "Runs {{time}}.",
     advancedSchedule: "Advanced - cron expression",
     show: "Show",
@@ -796,6 +799,7 @@ const messages = {
     instructions: "Instructions",
     mcpTools: "Connected agent tools",
     automationEventTrigger: "On {{event}}",
+    webhook: "Webhook",
     automationWebhookDetails: "Runs when a webhook is received.",
     automationWebhookTrigger: "On webhook",
     schedulePreset: {
@@ -811,6 +815,8 @@ const messages = {
     eventTrigger: "Event-triggered",
     webhookTrigger: "Webhook-triggered",
     webhookUrl: "Webhook URL",
+    webhookUrlHint:
+      "Paste this URL into a service that sends HTTP POST webhooks.",
     deleteAutomationTitle: "Delete automation?",
     deleteAutomationDescription:
       "This permanently removes the automation and cannot be undone.",

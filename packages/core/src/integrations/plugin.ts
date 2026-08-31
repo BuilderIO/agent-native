@@ -2104,7 +2104,7 @@ export function createIntegrationsPlugin(
               setResponseStatus(event, 400);
               return { error: "Invalid automation webhook task" };
             }
-            await runWithRequestContext(
+            const webhookResult = await runWithRequestContext(
               {
                 userEmail: task.ownerEmail,
                 ...(task.orgId ? { orgId: task.orgId } : {}),
@@ -2115,6 +2115,15 @@ export function createIntegrationsPlugin(
                   taskPayload as AutomationWebhookTaskPayload,
                 ),
             );
+            if (webhookResult === "retry") {
+              await markTaskRetryable(
+                taskId,
+                "Automation is already running.",
+                { resetAttempts: true },
+              );
+              setResponseStatus(event, 202);
+              return { ok: true, taskId, retrying: "automation-active" };
+            }
             await markTaskCompleted(taskId);
             const nextTask = await getNextPendingTaskForThread(
               task.platform,

@@ -55,4 +55,19 @@ describe("automation schedule builder", () => {
       }),
     ).toEqual({ error: "weekly-interval" });
   });
+
+  it("keeps elapsed-day cadence in Advanced instead of using month-reset cron steps", () => {
+    expect(
+      automationScheduleToCron({
+        ...DEFAULT_AUTOMATION_SCHEDULE_DRAFT,
+        preset: "custom",
+        unit: "day",
+        interval: 2,
+        time: "08:30",
+      }),
+    ).toEqual({ error: "daily-interval" });
+    expect(automationScheduleDraftFromCron("30 8 */2 * *").recognized).toBe(
+      false,
+    );
+  });
 });

@@ -71,6 +71,8 @@ export interface TriggerDispatcherDeps extends BackgroundAutomationDeps {
   ) => string[] | undefined;
 }
 
+export type AutomationWebhookTaskResult = "completed" | "retry";
+
 // Track active subscriptions (eventName -> subscription id) to avoid
 // double-subscribing AND so subscriptions for events that no longer have any
 // enabled trigger can be torn down — otherwise deleted/disabled triggers leave
@@ -393,7 +395,7 @@ async function handleEvent(
  */
 export async function dispatchAutomationWebhookTask(
   task: AutomationWebhookTaskPayload,
-): Promise<void> {
+): Promise<AutomationWebhookTaskResult> {
   const deps = _deps;
   if (!deps)
     throw new Error("Automation trigger dispatcher is not initialized.");
@@ -406,11 +408,11 @@ export async function dispatchAutomationWebhookTask(
   if (meta.triggerType !== "webhook") {
     throw new Error("Webhook target is no longer a webhook automation.");
   }
-  if (!meta.enabled) return;
+  if (!meta.enabled) return "completed";
   if (!jobBelongsToApp(meta, deps.appId)) {
     throw new Error("Webhook automation belongs to a different app.");
   }
-  if (!body.trim()) return;
+  if (!body.trim()) return "completed";
 
   const resolved = await resolveAutomationExecutionIdentity(
     resource.owner,
@@ -423,27 +425,22 @@ export async function dispatchAutomationWebhookTask(
   if (!apiKey) throw new Error("No API key is available for this automation.");
 
   if (isBackgroundAutomationRunActive(meta)) {
-    await recordTriggerSkip(
-      resource,
-      "skipped",
-      "Automation is already running.",
-    );
-    return;
+    return "retry";
   }
   const matches = await evaluateCondition(meta.condition, task.payload, apiKey);
   if (!matches) {
     await recordTriggerSkip(resource, "skipped", undefined);
-    return;
+    return "completed";
   }
   if (meta.mode !== "agentic") {
     console.warn(
       `[triggers] Deterministic mode not yet implemented for "${task.path}" — skipping`,
     );
-    return;
+    return "completed";
   }
 
   const dispatchKey = `${resource.owner}:${resource.path}`;
-  if (_dispatchingTriggers.has(dispatchKey)) return;
+  if (_dispatchingTriggers.has(dispatchKey)) return "retry";
   _dispatchingTriggers.add(dispatchKey);
   try {
     await dispatchAgentic(
@@ -459,6 +456,7 @@ export async function dispatchAutomationWebhookTask(
   } finally {
     _dispatchingTriggers.delete(dispatchKey);
   }
+  return "completed";
 }
 
 async function dispatchAgentic(
