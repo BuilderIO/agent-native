@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { EmailMessage } from "@shared/types";
-import { IconLoader2, IconX } from "@tabler/icons-react";
+import { IconLoader2, IconPin, IconX } from "@tabler/icons-react";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import {
   useState,
@@ -31,6 +31,7 @@ const MIN_REMOTE_QUERY_LENGTH = 3;
 
 interface SearchBarProps {
   onClose: () => void;
+  onSaveSearch?: (query: string, name: string) => void;
   initialQuery?: string;
   autoFocus?: boolean;
   hasActiveSearch?: boolean;
@@ -38,6 +39,7 @@ interface SearchBarProps {
 
 export function SearchBar({
   onClose,
+  onSaveSearch,
   initialQuery = "",
   autoFocus = true,
   hasActiveSearch = false,
@@ -234,6 +236,14 @@ export function SearchBar({
     onClose();
   }, [onClose]);
 
+  const handleSaveSearch = useCallback(() => {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery || !onSaveSearch) return;
+    const name = window.prompt(t("mail.search.saveAsTabPrompt"), trimmedQuery);
+    if (!name?.trim()) return;
+    onSaveSearch(trimmedQuery, name.trim());
+  }, [onSaveSearch, query, t]);
+
   return (
     <div className="relative flex items-center gap-1.5">
       <div
@@ -270,6 +280,22 @@ export function SearchBar({
             hasActiveSearch && "font-medium",
           )}
         />
+        {hasActiveSearch && onSaveSearch && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={t("mail.search.saveAsTab")}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={handleSaveSearch}
+                className="flex h-5 w-5 me-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
+              >
+                <IconPin className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t("mail.search.saveAsTab")}</TooltipContent>
+          </Tooltip>
+        )}
         {(hasActiveSearch || query) && (
           <Tooltip>
             <TooltipTrigger asChild>

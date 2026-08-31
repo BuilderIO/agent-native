@@ -44,12 +44,15 @@ const messages = {
       noMatches: "没有匹配项",
       localResults: "此收件箱中",
       searchingGmail: "正在搜索 Gmail...",
+      saveAsTab: "Save as tab",
+      saveAsTabPrompt: "Name this tab",
     },
     tabSettings: {
       views: "视图",
       categories: "分类",
       rename: "重命名",
       renameTab: "重命名标签页",
+      savedFilters: "Saved filters",
       help: "勾选的项目会显示为标签页。标签邮件会从收件箱中分离。",
     },
     accounts: {

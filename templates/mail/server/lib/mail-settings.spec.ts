@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mergePinnedLabels } from "./mail-settings.js";
+import { mergePinnedLabels, normalizeMailSettings } from "./mail-settings.js";
 
 describe("mergePinnedLabels", () => {
   it("keeps concurrent additions while preserving an existing pin", () => {
@@ -57,5 +57,25 @@ describe("mergePinnedLabels", () => {
         ["inbox", "sent"],
       ),
     ).toEqual(["sent", "travel", "inbox", "archive"]);
+  });
+});
+
+describe("normalizeMailSettings", () => {
+  it("keeps only bounded, usable saved filters", () => {
+    const settings = normalizeMailSettings(
+      {
+        savedFilters: [
+          { id: " github ", name: " Github ", query: " from:github.com " },
+          { id: "github", name: "Duplicate", query: "subject:duplicate" },
+          { id: "", name: "Missing id", query: "subject:missing" },
+          "not-a-filter",
+        ] as unknown as Record<string, unknown>,
+      },
+      "owner@example.com",
+    );
+
+    expect(settings.savedFilters).toEqual([
+      { id: "github", name: "Github", query: "from:github.com" },
+    ]);
   });
 });

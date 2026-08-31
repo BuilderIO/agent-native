@@ -323,6 +323,7 @@ export function InboxPage() {
   const [searchParams] = useSearchParams();
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
+  const activeFilterId = searchParams.get("filter");
   const routeSearchSuffix = searchParams.toString()
     ? `?${searchParams.toString()}`
     : "";
@@ -358,7 +359,11 @@ export function InboxPage() {
   // the single inbox query — NOT a separate Gmail `label:` search — so the
   // tab badge count and the list it shows always agree. Non-pinned sidebar
   // labels (and label searches) still hit the server label query.
-  const searchQuery = searchParams.get("q") ?? undefined;
+  const activeSavedFilter = settings?.savedFilters?.find(
+    (filter) => filter.id === activeFilterId,
+  );
+  const searchQuery =
+    activeSavedFilter?.query ?? searchParams.get("q") ?? undefined;
   useEffect(() => {
     if (
       settingsLoading ||
@@ -371,7 +376,7 @@ export function InboxPage() {
       !isGoogleConnected
     )
       return;
-    navigate("/inbox?label=important", { replace: true });
+    void navigate("/inbox?label=important", { replace: true });
   }, [
     activeInboxTab,
     activeLabel,
@@ -509,7 +514,7 @@ export function InboxPage() {
   // extending the selection, so selection must persist across thread nav.
   useEffect(
     () => setSelectedIds(new Set()),
-    [view, activeLabel, activeInboxTab],
+    [view, activeLabel, activeInboxTab, activeFilterId],
   );
 
   // Sync current navigation state to file (write-only, so agent can read it)
@@ -725,6 +730,7 @@ export function InboxPage() {
     isError,
     hasThread,
     searchQuery,
+    isSavedFilter: Boolean(activeSavedFilter),
     threadCount: threads.length,
     hasNextPage: Boolean(hasNextPage),
   });

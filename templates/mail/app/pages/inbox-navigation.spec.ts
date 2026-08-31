@@ -38,7 +38,9 @@ describe("Inbox navigation commands", () => {
   it("clears selection when switching inbox partitions", () => {
     const source = inboxSource();
 
-    expect(source).toContain("[view, activeLabel, activeInboxTab]");
+    expect(source).toContain(
+      "[view, activeLabel, activeInboxTab, activeFilterId]",
+    );
   });
 
   it("keeps the first-use Important default on a plain inbox route", () => {
@@ -61,6 +63,18 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain(
       "useEmails(emailView, searchQuery, effectiveLabel)",
     );
+  });
+
+  it("uses the saved filter query instead of a Gmail label query", () => {
+    const source = inboxSource();
+
+    expect(source).toContain(
+      "const activeSavedFilter = settings?.savedFilters?.find(",
+    );
+    expect(source).toContain(
+      'activeSavedFilter?.query ?? searchParams.get("q") ?? undefined',
+    );
+    expect(source).toContain("isSavedFilter: Boolean(activeSavedFilter)");
   });
 
   it("syncs the active inbox partition into agent navigation state", () => {

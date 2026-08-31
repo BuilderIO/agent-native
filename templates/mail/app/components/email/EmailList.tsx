@@ -1670,7 +1670,7 @@ export function EmailList({
         </div>
       );
     }
-    if (view === "inbox" || view === "important") {
+    if (view === "inbox" || view === "important" || labelParam) {
       return <InboxZero />;
     }
     return (

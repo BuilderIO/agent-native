@@ -43,6 +43,17 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain("href: `/inbox?tab=${OTHER_INBOX_TAB_PARAM}`");
     expect(source).toContain("id: OTHER_INBOX_TAB_ID");
     expect(source).toContain('params.set("tab", tab)');
+    expect(source).toContain('params.set("filter", filter)');
+  });
+
+  it("routes saved searches through the Gmail query path", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("onSaveSearch={saveSearchAsFilter}");
+    expect(source).toContain(
+      "href: `/inbox?filter=${encodeURIComponent(filter.id)}`",
+    );
+    expect(source).toContain("savedFilters: [...savedFilters, filter]");
   });
 
   it("builds pin mutations from the resolved visible pins", () => {

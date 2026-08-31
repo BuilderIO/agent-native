@@ -44,12 +44,15 @@ const messages = {
       noMatches: "Aucun résultat",
       localResults: "Dans cette boîte de réception",
       searchingGmail: "Recherche dans Gmail...",
+      saveAsTab: "Save as tab",
+      saveAsTabPrompt: "Name this tab",
     },
     tabSettings: {
       views: "Vues",
       categories: "Catégories",
       rename: "Renommer",
       renameTab: "Renommer l’onglet",
+      savedFilters: "Saved filters",
       help: "Les éléments cochés s’affichent comme onglets. Les emails libellés sont séparés de la boîte de réception.",
     },
     accounts: {

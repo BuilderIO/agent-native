@@ -35,6 +35,16 @@ const patchSchema = z.object({
   undoSendDelay: z.coerce.number().optional(),
   pinnedLabels: z.array(z.string()).optional(),
   pinnedLabelsBase: z.array(z.string()).optional(),
+  savedFilters: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1).max(80),
+        name: z.string().trim().min(1).max(80),
+        query: z.string().trim().min(1).max(500),
+      }),
+    )
+    .max(20)
+    .optional(),
   labelAliases: z.record(z.string(), z.string()).optional(),
   imagePolicy: z.enum(["show", "block-trackers", "block-all"]).optional(),
   trustedSenders: z.array(z.string()).optional(),

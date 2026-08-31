@@ -44,12 +44,15 @@ const messages = {
       noMatches: "لا توجد نتائج",
       localResults: "في هذا البريد الوارد",
       searchingGmail: "جارٍ البحث في Gmail...",
+      saveAsTab: "Save as tab",
+      saveAsTabPrompt: "Name this tab",
     },
     tabSettings: {
       views: "وجهات النظر",
       categories: "الفئات",
       rename: "إعادة تسمية",
       renameTab: "إعادة تسمية علامة التبويب",
+      savedFilters: "Saved filters",
       help: "تظهر العناصر المحددة كعلامات تبويب. رسائل التصنيفات تنفصل عن صندوق الوارد.",
     },
     accounts: {

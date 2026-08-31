@@ -579,6 +579,7 @@ export function useEmails(
     // the inbox appear to flash/reload even though the old page is usable.
     isError: q.isError && !q.data,
     error: q.isError && !q.data ? toError(q.error) : null,
+    totalEstimate: q.data?.pages[0]?.totalEstimate,
     refetch: q.refetch,
     hasNextPage: q.hasNextPage,
     fetchNextPage: q.fetchNextPage,

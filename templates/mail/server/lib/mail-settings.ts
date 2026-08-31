@@ -1,7 +1,7 @@
 import { getUserSetting } from "@agent-native/core/settings";
 
 import { normalizeSignature } from "../../shared/signature.js";
-import type { UserSettings } from "../../shared/types.js";
+import type { SavedMailFilter, UserSettings } from "../../shared/types.js";
 
 export const DEFAULT_SETTINGS: UserSettings = {
   name: "",
@@ -104,12 +104,39 @@ export function normalizeMailSettings(
   email: string,
 ): UserSettings {
   if (data) {
+    const savedFilters = normalizeSavedFilters(data.savedFilters);
     return {
       ...DEFAULT_SETTINGS,
       ...(data as Partial<UserSettings>),
       email: (data as Partial<UserSettings>).email || email,
       signature: normalizeSignature((data as Partial<UserSettings>).signature),
+      ...(savedFilters ? { savedFilters } : {}),
     } as UserSettings;
   }
   return { ...DEFAULT_SETTINGS, email };
+}
+
+function normalizeSavedFilters(value: unknown): SavedMailFilter[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+
+  const seen = new Set<string>();
+  const filters: SavedMailFilter[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const candidate = item as Record<string, unknown>;
+    const id = typeof candidate.id === "string" ? candidate.id.trim() : "";
+    const name =
+      typeof candidate.name === "string" ? candidate.name.trim() : "";
+    const query =
+      typeof candidate.query === "string" ? candidate.query.trim() : "";
+    if (!id || !name || !query || seen.has(id)) continue;
+    seen.add(id);
+    filters.push({
+      id: id.slice(0, 80),
+      name: name.slice(0, 80),
+      query: query.slice(0, 500),
+    });
+    if (filters.length === 20) break;
+  }
+  return filters;
 }
