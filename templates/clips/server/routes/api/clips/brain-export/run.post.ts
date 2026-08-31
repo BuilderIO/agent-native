@@ -47,7 +47,12 @@ export default defineEventHandler(async (event) => {
   // clock Clips has. Run it first so Brain discovery/export failures cannot
   // starve cleanup or strand SQL scratch payloads.
   const uploads = await reapExpiredUploads();
-  const transactionalEmails = await runTransactionalEmailsOnce();
+  const transactionalEmails = await runTransactionalEmailsOnce().catch(
+    (error) => {
+      console.error("[transactional-emails] scheduled run failed:", error);
+      return null;
+    },
+  );
   await runBrainExportSweepOnce();
   return { ok: true, uploads, transactionalEmails };
 });
