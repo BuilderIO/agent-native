@@ -1084,7 +1084,6 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     set_capture_excluded(&win);
     configure_overlay_behavior(&win);
     raise_to_status_level(&win);
-    start_topmost_reassert_loop(&app, TOOLBAR_LABEL, &TOOLBAR_TOPMOST_GENERATION);
     // Deliberately NOT shown here. The renderer owns visibility through
     // `toolbar_set_visible` so the window can mount in its disabled state
     // before capture is live.
