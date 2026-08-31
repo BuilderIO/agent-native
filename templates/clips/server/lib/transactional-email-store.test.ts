@@ -70,6 +70,20 @@ describe("transactional email store", () => {
     expect(await store.listJobs()).toEqual([]);
   });
 
+  it("lists only requested job states", async () => {
+    const store = createTransactionalEmailStore();
+    await store.enqueue("first-view:pending", firstViewPayload);
+    await store.enqueue(
+      "first-view:awaiting-ai",
+      firstViewPayload,
+      "awaiting_ai",
+    );
+
+    await expect(store.listJobs(["pending"])).resolves.toMatchObject([
+      { logicalKey: "first-view:pending", state: "pending" },
+    ]);
+  });
+
   it("claims AI work once and enforces valid transitions", async () => {
     const store = createTransactionalEmailStore();
     await store.enqueue("first-view:share-1", firstViewPayload, "awaiting_ai");
@@ -163,6 +177,28 @@ describe("transactional email store", () => {
     ).resolves.toMatchObject({ reminderCursor: { id: "share-100" } });
   });
 
+  it("preserves concurrent reconciliation cursor updates", async () => {
+    const store = createTransactionalEmailStore();
+    await store.ensureEnabledAt();
+
+    await expect(
+      Promise.all([
+        store.updateReconciliationCursor("reminderCursor", {
+          createdAt: "2026-08-03T10:00:00.000Z",
+          id: "share-100",
+        }),
+        store.updateReconciliationCursor("firstViewCursor", {
+          createdAt: "2026-08-03T10:00:00.000Z",
+          id: "view-100",
+        }),
+      ]),
+    ).resolves.toHaveLength(2);
+    await expect(store.readConfig()).resolves.toMatchObject({
+      reminderCursor: { id: "share-100" },
+      firstViewCursor: { id: "view-100" },
+    });
+  });
+
   it("converges an unsent first-import job", async () => {
     const store = createTransactionalEmailStore();
     await store.enqueue("first-import:owner@example.com", {
@@ -187,5 +223,29 @@ describe("transactional email store", () => {
       created: false,
       job: { state: "pending", recordingIds: ["recording-older"] },
     });
+  });
+
+  it("does not overwrite a concurrently converged first-import job", async () => {
+    const store = createTransactionalEmailStore();
+    await store.enqueue("first-import:owner@example.com", {
+      type: "first-import",
+      recipient: "owner@example.com",
+      recordingIds: ["recording-original"],
+      requestedBy: "owner@example.com",
+    });
+
+    const results = await Promise.all([
+      store.enqueueOrConvergeFirstImport(
+        "owner@example.com",
+        "recording-first",
+        "owner@example.com",
+      ),
+      store.enqueueOrConvergeFirstImport(
+        "owner@example.com",
+        "recording-second",
+        "owner@example.com",
+      ),
+    ]);
+    expect(results[0].job).toEqual(results[1].job);
   });
 });

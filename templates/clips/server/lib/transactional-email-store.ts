@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { and, asc, eq, isNull, lte, or, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lte, or, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../db/index.js";
@@ -341,11 +341,18 @@ export function createTransactionalEmailStore(
     return row ? databaseJobToJob(row) : null;
   }
 
-  async function listJobs(): Promise<TransactionalEmailJob[]> {
+  async function listJobs(
+    states?: readonly TransactionalEmailState[],
+  ): Promise<TransactionalEmailJob[]> {
     return (
       await getDb()
         .select()
         .from(schema.transactionalEmailJobs)
+        .where(
+          states?.length
+            ? inArray(schema.transactionalEmailJobs.state, states)
+            : undefined,
+        )
         .orderBy(asc(schema.transactionalEmailJobs.createdAt))
     ).map(databaseJobToJob);
   }
@@ -437,6 +444,10 @@ export function createTransactionalEmailStore(
       and(
         eq(schema.transactionalEmailJobs.logicalKey, logicalKey),
         eq(schema.transactionalEmailJobs.state, job.state),
+        eq(
+          schema.transactionalEmailJobs.recordingIdsJson,
+          JSON.stringify(job.recordingIds),
+        ),
       ),
     );
     return {
@@ -698,29 +709,33 @@ export function createTransactionalEmailStore(
     const parsedCursorName =
       transactionalEmailCursorNameSchema.parse(cursorName);
     const parsedCursor = reconciliationCursorSchema.parse(reconciliationCursor);
-    const config = await readConfig();
-    if (!config)
-      throw new Error("Transactional email config is not initialized");
-    const nextConfig = transactionalEmailConfigSchema.parse({
-      ...config,
-      [parsedCursorName]: parsedCursor,
-    });
-    const [updated] = await getDb()
-      .update(schema.transactionalEmailConfigs)
-      .set({ configJson: JSON.stringify(nextConfig) })
-      .where(
-        and(
-          eq(schema.transactionalEmailConfigs.id, "default"),
-          eq(
-            schema.transactionalEmailConfigs.configJson,
-            JSON.stringify(config),
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const config = await readConfig();
+      if (!config)
+        throw new Error("Transactional email config is not initialized");
+      const nextConfig = transactionalEmailConfigSchema.parse({
+        ...config,
+        [parsedCursorName]: parsedCursor,
+      });
+      const [updated] = await getDb()
+        .update(schema.transactionalEmailConfigs)
+        .set({ configJson: JSON.stringify(nextConfig) })
+        .where(
+          and(
+            eq(schema.transactionalEmailConfigs.id, "default"),
+            eq(
+              schema.transactionalEmailConfigs.configJson,
+              JSON.stringify(config),
+            ),
           ),
-        ),
-      )
-      .returning();
-    if (!updated)
-      throw new Error("Transactional email config is being updated");
-    return transactionalEmailConfigSchema.parse(JSON.parse(updated.configJson));
+        )
+        .returning();
+      if (updated)
+        return transactionalEmailConfigSchema.parse(
+          JSON.parse(updated.configJson),
+        );
+    }
+    throw new Error("Transactional email config is being updated");
   }
 
   return {

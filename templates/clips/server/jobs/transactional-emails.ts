@@ -1157,7 +1157,7 @@ export async function runTransactionalEmailsOnce(
       currentTime,
     );
 
-    const jobs = await store.listJobs();
+    const jobs = await store.listJobs(["pending", "ai_dispatched"]);
     const warn = dependencies.warn ?? console.warn;
     for (const job of jobs) {
       const dispatchedAt = job.aiDispatchedAt ?? job.updatedAt;
@@ -1188,7 +1188,7 @@ export async function runTransactionalEmailsOnce(
       return result;
     }
 
-    const deliveryCandidates = (await store.listJobs())
+    const deliveryCandidates = (await store.listJobs(["ready", "sending"]))
       .filter(
         (job) =>
           (job.state === "ready" || job.state === "sending") &&
