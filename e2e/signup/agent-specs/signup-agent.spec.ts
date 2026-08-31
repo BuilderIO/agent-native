@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { collectAppPageErrors, renderedText } from "../../beta/lib/app";
 import {
@@ -105,8 +105,15 @@ for (const target of targets) {
 
     await test.step("request a sign-in link", async () => {
       const emailPromise = waitForVerificationEmail(email, emailRequestedAt);
-      await page.locator("#m-email").fill(email);
-      await page.locator("#magic-link-submit").click();
+      const emailInput = page.locator("#m-email");
+      const submit = page.locator("#magic-link-submit");
+      await emailInput.fill(email);
+      await expect(emailInput).toHaveValue(email);
+      await expect(
+        submit,
+        "email signup form never became ready after accepting the test address",
+      ).toBeEnabled();
+      await submit.click();
       // Give the app the moment a real user would give it before judging
       // whether the submit visibly did anything.
       await page.waitForTimeout(4_000);
