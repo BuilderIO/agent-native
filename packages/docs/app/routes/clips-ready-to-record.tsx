@@ -213,6 +213,12 @@ function LibrarySidebar() {
 function LibraryBackdrop() {
   return (
     <div className="library-window">
+      <div className="library-window-topbar" aria-hidden>
+        <span />
+        <span />
+        <span />
+      </div>
+      <div className="library-window-body">
       <LibrarySidebar />
       <div className="library-main">
         <div className="library-topbar">
@@ -264,6 +270,7 @@ function LibraryBackdrop() {
             </div>
           ))}
         </div>
+      </div>
       </div>
     </div>
   );
@@ -548,7 +555,10 @@ function SettingsIcon() {
 }
 
 const LIBRARY_BACKDROP_CSS = [
-  ".library-window { position: fixed; inset: 0; margin: 0 auto; max-width: 1300px; display: flex; background: #212121; color: #e6e6e6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-shadow: 0 0 0 1px #2c2c2c; }",
+  ".library-window { position: fixed; inset: 0; margin: auto; max-width: 1200px; max-height: 700px; display: flex; flex-direction: column; overflow: hidden; border-radius: 10px; background: #212121; color: #e6e6e6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-shadow: 0 0 0 1px #2c2c2c; }",
+  ".library-window-topbar { flex-shrink: 0; display: flex; align-items: center; gap: 6px; padding: 10px 12px; background: #181818; border-bottom: 1px solid #2c2c2c; }",
+  ".library-window-topbar span { width: 11px; height: 11px; border-radius: 999px; background: #4d4d4d; }",
+  ".library-window-body { flex: 1; min-height: 0; display: flex; }",
 
   ".library-sidebar { width: 216px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; padding: 14px 12px; background: #181818; border-right: 1px solid #2c2c2c; box-sizing: border-box; }",
   ".library-brand { display: flex; align-items: center; gap: 8px; padding: 4px 4px 12px; }",
