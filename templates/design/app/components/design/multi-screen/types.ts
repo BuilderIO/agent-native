@@ -3,6 +3,7 @@ import type {
   EqualGapGuide,
   FrameBounds,
 } from "@shared/canvas-math";
+import type { LayoutGridById } from "@shared/layout-grid";
 import type { PenCuspLatch, PenPath } from "@shared/pen-path";
 import type { ReactNode } from "react";
 
@@ -205,6 +206,13 @@ export interface MultiScreenCanvasProps {
    * element inside a screen, and this canvas still lists that screen in
    * `selectedIds`. Same veto `onDeleteSelection` uses. */
   onNudgeSelection?: (ids: string[]) => boolean | void;
+  /** The editor's configured small/big arrow-key steps. Board frames and
+   *  in-screen elements must nudge by the same amounts, so this comes from the
+   *  one preference rather than a second default living out here. */
+  nudgeAmounts?: { small: number; big: number };
+  /** Per-frame layout grids, keyed by frame id. A frame with no entry keeps the
+   *  whole-pixel floor. Absent entirely means the host has not loaded them. */
+  layoutGrids?: LayoutGridById;
   onZoomChange?: (zoom: number) => void;
   renderScreenContent?: (
     screen: ScreenFile,

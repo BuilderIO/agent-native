@@ -6961,8 +6961,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var currentLeft = readPx(htmlEl.style.left || cs.left);
       var currentTop = readPx(htmlEl.style.top || cs.top);
-      htmlEl.style.left = currentLeft + (oldOriginX - newOriginX) + "px";
-      htmlEl.style.top = currentTop + (oldOriginY - newOriginY) + "px";
+      htmlEl.style.left = Math.round(currentLeft + (oldOriginX - newOriginX)) + "px";
+      htmlEl.style.top = Math.round(currentTop + (oldOriginY - newOriginY)) + "px";
     }
     function prepareFlowMembersForAbsoluteDrop(members, target, startRects, gestureStartRect, pointerOffset, clientX, clientY) {
       if (!target || target.dropMode !== "absolute-container") return;
@@ -7023,8 +7023,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var localDx = (clientDx * yy - yx * clientDy) / determinant;
       var localDy = (xx * clientDy - clientDx * xy) / determinant;
-      htmlEl.style.left = baseLeft + localDx + "px";
-      htmlEl.style.top = baseTop + localDy + "px";
+      htmlEl.style.left = Math.round(baseLeft + localDx) + "px";
+      htmlEl.style.top = Math.round(baseTop + localDy) + "px";
     }
     function applyRuntimeReorder(el, target) {
       if (!el || !target || !target.anchor || !target.anchor.parentElement)
@@ -7129,6 +7129,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       postElementMarqueeSelect(members, false, ev);
     }
     var SNAP_THRESHOLD_PX = 6;
+    var layoutGridStep = 1;
+    function quantizeToLayoutGrid(value) {
+      if (!(layoutGridStep > 1)) return Math.round(value);
+      return Math.round(value / layoutGridStep) * layoutGridStep;
+    }
     var SNAP_CANDIDATE_CAP = 200;
     function rectBounds(rect) {
       return {
@@ -8486,8 +8491,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         var appliedDx = nextLeft - originLeft;
         var appliedDy = nextTop - originTop;
         memberStates.forEach(function(state) {
-          state.el.style.left = Math.round(state.originLeft + appliedDx) + "px";
-          state.el.style.top = Math.round(state.originTop + appliedDy) + "px";
+          state.el.style.left = quantizeToLayoutGrid(state.originLeft + appliedDx) + "px";
+          state.el.style.top = quantizeToLayoutGrid(state.originTop + appliedDy) + "px";
         });
         if (!duplicatedForDrag && !isGroupDrag) {
           scheduleCrossScreenDragMove(ev);
@@ -8882,10 +8887,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         var rect = nextRect(ev);
         if (rect.touchesWidth) widthTouched = true;
         if (rect.touchesHeight) heightTouched = true;
-        resizeEl.style.left = Math.round(rect.left) + "px";
-        resizeEl.style.top = Math.round(rect.top) + "px";
-        if (widthTouched) resizeEl.style.width = Math.round(rect.width) + "px";
-        if (heightTouched) resizeEl.style.height = Math.round(rect.height) + "px";
+        resizeEl.style.left = quantizeToLayoutGrid(rect.left) + "px";
+        resizeEl.style.top = quantizeToLayoutGrid(rect.top) + "px";
+        if (widthTouched)
+          resizeEl.style.width = quantizeToLayoutGrid(rect.width) + "px";
+        if (heightTouched)
+          resizeEl.style.height = quantizeToLayoutGrid(rect.height) + "px";
         if (scaleToolEnabled) {
           var kScaleFactor = rect.width / Math.max(1, origin.width);
           if (originBorderWidth > 0) {
@@ -10369,6 +10376,11 @@ export const editorChromeBridgeScript: string = `"use strict";
     window.addEventListener("message", function(e) {
       if (e.source !== window.parent) return;
       if (!e.data) return;
+      if (e.data.type === "set-layout-grid-step") {
+        var nextStep = Number(e.data.step);
+        layoutGridStep = Number.isFinite(nextStep) && nextStep >= 1 ? nextStep : 1;
+        return;
+      }
       if (e.data.type === "set-read-only") {
         var nextReadOnly = !!e.data.readOnly;
         if (readOnly === nextReadOnly) return;

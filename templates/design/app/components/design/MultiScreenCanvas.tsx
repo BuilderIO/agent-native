@@ -21,6 +21,8 @@ import {
   getNudgeDelta,
   getPanForZoomToCursor,
   getResizeCursorForHandle,
+  quantizeCanvasPoint,
+  WHOLE_PIXEL_SNAP_STEP,
   resizeFrameGroupFromDelta,
   resizeFrameGroupToBounds,
   resizeRotatedFrameFromDeltaWithSnap,
@@ -29,6 +31,7 @@ import {
   screenToCanvasPoint,
   type ArrowNudgeKey,
 } from "@shared/canvas-math";
+import { resolveLayoutGridSnapStep } from "@shared/layout-grid";
 import {
   appendPenNode,
   clonePenPath,
@@ -197,6 +200,14 @@ const MAX_WHEEL_PAN_DELTA = 240;
  *  element every gesture frame by applyViewToDom. React supplies the same
  *  number as the var's fallback, so first paint and SSR are unaffected. */
 const CHROME_SCALE_CSS_VAR = "--an-chrome-scale";
+
+/** A grid line lives inside the scaled world layer, so it needs the chrome
+ *  counter-scale to stay hairline instead of fattening as you zoom in. */
+const LAYOUT_GRID_LINE_CSS = `calc(1px * var(${CHROME_SCALE_CSS_VAR}, 1))`;
+
+/** Below this on-screen spacing the lines read as a tint, not a grid. Our own
+ *  call: Figma zoom-gates only its pixel grid and always draws layout guides. */
+const MIN_LAYOUT_GRID_SCREEN_PX = 10;
 const PIXEL_GRID_ZOOM = 800;
 
 function hasScreenChildLayers(content: string): boolean {
@@ -501,6 +512,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   frameToolDraws = "frame",
   onDeleteSelection,
   onNudgeSelection,
+  nudgeAmounts,
+  layoutGrids,
   onZoomChange,
   renderScreenContent,
   renderBreakpointContent,
@@ -581,6 +594,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const onGeometryChangeRef = useRef(onGeometryChange);
   const onGeometryCommitRef = useRef(onGeometryCommit);
   const onNudgeSelectionRef = useRef(onNudgeSelection);
+  const nudgeAmountsRef = useRef(nudgeAmounts);
+  const layoutGridsRef = useRef(layoutGrids);
   const screensRef = useRef(screens);
   const [draftPrimitives, setDraftPrimitives] = useState<DraftPrimitive[]>([]);
   const draftPrimitivesRef = useRef(draftPrimitives);
@@ -1180,6 +1195,44 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     [getScreenMetadata, metadataById, previewDeviceFrame],
   );
 
+  /** Every board<->content conversion must resolve the viewport here. A second
+   *  derivation drew cross-screen drop guides at 4x the hit-test geometry; the
+   *  live iframe size beats `resolveScreenMetadata`'s defaulted fallback. */
+  const getFrameViewportSize = useCallback(
+    (screen: ScreenFile): { width: number; height: number } => {
+      const iframe = findCanvasIframeForScreen(
+        surfaceRef.current,
+        getActiveScreenIframeId(screen),
+        boardFileId,
+      );
+      const metadata = getResolvedMetadata(screen);
+      return {
+        width: iframe?.clientWidth || metadata.width,
+        height: iframe?.clientHeight || metadata.height,
+      };
+    },
+    [boardFileId, getResolvedMetadata],
+  );
+
+  /** Board-space step for a gesture inside `frameId`. Scaled because a 1280px
+   *  screen shown as a 320px card renders at 0.25, where snapping 8 board px
+   *  would commit a 32px content offset. */
+  const resolveBoardSnapStepForFrame = useCallback(
+    (frameId: string | null | undefined): number => {
+      const grids = layoutGridsRef.current;
+      if (!grids || !frameId) return WHOLE_PIXEL_SNAP_STEP;
+      const contentStep = resolveLayoutGridSnapStep(grids, frameId);
+      if (contentStep <= WHOLE_PIXEL_SNAP_STEP) return WHOLE_PIXEL_SNAP_STEP;
+      const screen = screensRef.current.find((item) => item.id === frameId);
+      const geometry = frameGeometryRef.current[frameId];
+      if (!screen || !geometry?.width) return contentStep;
+      const viewport = getFrameViewportSize(screen);
+      const boardPerContentPx = geometry.width / Math.max(1, viewport.width);
+      return contentStep * boardPerContentPx;
+    },
+    [getFrameViewportSize],
+  );
+
   // Per-screen entry-object reuse for canvasFrames (PF21) and per-screen
   // content-node cache for screenContentById (PF21). See the definitions of
   // canvasFrames/screenContentById below for the full invalidation-key
@@ -1211,6 +1264,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     onNudgeSelectionRef.current = onNudgeSelection;
   }, [onNudgeSelection]);
+
+  useEffect(() => {
+    nudgeAmountsRef.current = nudgeAmounts;
+  }, [nudgeAmounts]);
+
+  useEffect(() => {
+    layoutGridsRef.current = layoutGrids;
+  }, [layoutGrids]);
 
   useEffect(() => {
     onPrimitiveReparentRef.current = onPrimitiveReparent;
@@ -1881,6 +1942,32 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     [activeId, getSelectableFrameEntries],
   );
 
+  /** Container hit-tests want "which screen is this object in", and an object
+   *  flush against a frame edge misses on its own corner. */
+  const frameGeometryCenter = useCallback(
+    (geometry: FrameGeometry | undefined): Point => ({
+      x: (geometry?.x ?? 0) + (geometry?.width ?? 0) / 2,
+      y: (geometry?.y ?? 0) + (geometry?.height ?? 0) / 2,
+    }),
+    [],
+  );
+
+  /** A screen frame is laid out by the board, which has no grid, so any screen
+   *  in the selection keeps the whole-pixel floor. */
+  const resolveSnapStepForTargets = useCallback(
+    (targetIds: readonly string[], center: Point): number => {
+      if (!layoutGridsRef.current) return WHOLE_PIXEL_SNAP_STEP;
+      const movesAFrame = targetIds.some(
+        (targetId) => frameGeometryRef.current[targetId] !== undefined,
+      );
+      if (movesAFrame) return WHOLE_PIXEL_SNAP_STEP;
+      return resolveBoardSnapStepForFrame(
+        getFrameEntryAtPoint(center)?.id ?? null,
+      );
+    },
+    [getFrameEntryAtPoint, resolveBoardSnapStepForFrame],
+  );
+
   // Mirrors getFrameEntryAtPoint above, but hit-tests draft primitives
   // instead of committed screens/frames — used by the alt-hover measurement
   // (Figma parity) so hovering an uncommitted draft while a selection exists
@@ -2070,26 +2157,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       crossScreenLastHitResultRef.current.clear();
     };
 
-    // Single source of truth for a target screen's "viewport" dimensions used
-    // to scale board<->iframe coordinates. MUST prefer the iframe's live
-    // clientWidth/clientHeight over resolveScreenMetadata's DEFAULTED
-    // 1280x2560 fallback (used for screens — e.g. duplicated screens — with
-    // no screenMetadata entry in designs.data). runHitTest and
-    // getTargetLocalPoint already did this correctly; requestCrossScreenDropGuide
-    // previously called getResolvedMetadata directly with no iframe fallback,
-    // so the drawn guide used different (often wrong-by-4x) geometry than the
-    // hit-test that produced it — guides rendered squashed/mispositioned for
-    // any screen missing metadata. Centralizing here keeps all three call
-    // sites in sync going forward.
+    // Routed through getFrameViewportSize so this effect, the draft-commit
+    // conversion, and grid snapping cannot disagree.
     const getTargetViewportMetadata = (
       targetScreen: (typeof screensRef.current)[number],
       targetIframe: HTMLIFrameElement | null | undefined,
-    ): { width: number; height: number } => ({
-      width:
-        targetIframe?.clientWidth || getResolvedMetadata(targetScreen).width,
-      height:
-        targetIframe?.clientHeight || getResolvedMetadata(targetScreen).height,
-    });
+    ): { width: number; height: number } =>
+      targetIframe?.clientWidth && targetIframe.clientHeight
+        ? { width: targetIframe.clientWidth, height: targetIframe.clientHeight }
+        : getFrameViewportSize(targetScreen);
 
     const runHitTest = (
       candidate: CrossScreenDragTarget,
@@ -2986,6 +3062,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     boardFrameGeometry,
     boardSurfaceRenderGeometry,
     getFrameEntryAtPoint,
+    getFrameViewportSize,
     getCanvasPoint,
     getResolvedMetadata,
     onCrossScreenElementDrop,
@@ -4758,8 +4835,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       e.preventDefault();
       e.stopPropagation();
 
-      const originCanvas = getCanvasPoint(e.clientX, e.clientY);
-      const originFrameId = getFrameEntryAtPoint(originCanvas)?.id;
+      // Quantized from the first sample: `clientPoint / zoom` is fractional at
+      // every zoom but 100%, and a new object's x/y come straight off these.
+      // The frame resolves from the raw point, which decides the step.
+      const rawOriginCanvas = getCanvasPoint(e.clientX, e.clientY);
+      const originFrameId = getFrameEntryAtPoint(rawOriginCanvas)?.id;
+      const creationSnapStep = resolveBoardSnapStepForFrame(originFrameId);
+      const originCanvas = quantizeCanvasPoint(
+        rawOriginCanvas,
+        creationSnapStep,
+      );
       const initialGeometry = getDraftPreviewGeometryForTool(
         tool,
         originCanvas,
@@ -4793,7 +4878,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const handleMouseMove = (ev: MouseEvent) => {
         const state = dragState.current;
         if (!state || state.type !== "draft-create") return;
-        const nextCanvas = getCanvasPoint(ev.clientX, ev.clientY);
+        const nextCanvas = quantizeCanvasPoint(
+          getCanvasPoint(ev.clientX, ev.clientY),
+          creationSnapStep,
+        );
         if (
           !state.hasMoved &&
           Math.hypot(
@@ -4833,7 +4921,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           return;
         }
 
-        const endCanvas = getCanvasPoint(ev.clientX, ev.clientY);
+        const endCanvas = quantizeCanvasPoint(
+          getCanvasPoint(ev.clientX, ev.clientY),
+          creationSnapStep,
+        );
         const canvasMoved =
           Math.hypot(
             endCanvas.x - state.originCanvas.x,
@@ -4947,6 +5038,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       installDragListeners,
       onActiveToolChange,
       onCreateScreenFrame,
+      resolveBoardSnapStepForFrame,
       toolProps,
     ],
   );
@@ -5054,7 +5146,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           thresholdScreenPx: DEFAULT_SNAP_THRESHOLD_SCREEN_PX,
           zoom: zoomRef.current,
           bypass: ev.metaKey || ev.ctrlKey,
-          pixelGrid: true,
+          snapStep: resolveSnapStepForTargets(
+            state.targetIds,
+            frameGeometryCenter(movingEntries[0]?.geometry),
+          ),
           lockedAxes: ev.shiftKey ? { x: dx === 0, y: dy === 0 } : undefined,
         });
 
@@ -5271,6 +5366,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       updatePrimitiveDropTarget,
       updateSelectedDraftIds,
       updateSelectedIds,
+      frameGeometryCenter,
+      resolveSnapStepForTargets,
     ],
   );
 
@@ -5381,6 +5478,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             thresholdScreenPx: DEFAULT_SNAP_THRESHOLD_SCREEN_PX,
             zoom: zoomRef.current,
             bypass: ev.metaKey || ev.ctrlKey,
+            snapStep: resolveSnapStepForTargets(
+              state.targetIds,
+              frameGeometryCenter(resized.bounds),
+            ),
           },
         );
         const resizedEntries = resizeFrameGroupToBounds(
@@ -5488,6 +5589,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       updateDraftPrimitivesRefOnly,
       updateSelectedDraftIds,
       updateSelectedIds,
+      frameGeometryCenter,
+      resolveSnapStepForTargets,
     ],
   );
 
@@ -5864,7 +5967,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           thresholdScreenPx: DEFAULT_SNAP_THRESHOLD_SCREEN_PX,
           zoom: zoomRef.current,
           bypass: ev.metaKey || ev.ctrlKey,
-          pixelGrid: true,
+          snapStep: resolveSnapStepForTargets(
+            state.targetIds,
+            frameGeometryCenter(movingEntries[0]?.geometry),
+          ),
           lockedAxes: ev.shiftKey ? { x: dx === 0, y: dy === 0 } : undefined,
         });
 
@@ -6071,6 +6177,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       updatePrimitiveDropTarget,
       updateSelectedDraftIds,
       updateSelectedIds,
+      frameGeometryCenter,
+      resolveSnapStepForTargets,
     ],
   );
 
@@ -6384,6 +6492,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             // K-scale (aspect-locked) resize away from its ratio — see
             // computeAspectPreservingResizeSnap in canvas-math.ts.
             preserveAspectRatio: lockAspectRatio,
+            snapStep: resolveSnapStepForTargets(
+              state.targetIds,
+              frameGeometryCenter(resized.bounds),
+            ),
           },
         );
         const resizedEntries = resizeFrameGroupToBounds(
@@ -6452,6 +6564,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       updateFrameGeometry,
       updateFrameGeometryRefOnly,
       updateSelectedIds,
+      frameGeometryCenter,
+      resolveSnapStepForTargets,
     ],
   );
 
@@ -7588,12 +7702,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       event.preventDefault();
       event.stopPropagation();
 
-      const nudge = getNudgeDelta(event.key, {
-        altKey: event.altKey,
-        ctrlKey: event.ctrlKey,
-        metaKey: event.metaKey,
-        shiftKey: event.shiftKey,
-      });
+      const nudge = getNudgeDelta(
+        event.key,
+        {
+          altKey: event.altKey,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+          shiftKey: event.shiftKey,
+        },
+        {
+          baseStep: nudgeAmountsRef.current?.small,
+          bigStep: nudgeAmountsRef.current?.big,
+        },
+      );
       const movingFrameEntries = targetIds.map((targetId) => {
         const origin = frameGeometryRef.current[targetId];
         return {
@@ -8103,6 +8224,24 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     selectedLayerSelectorGroupsByScreen,
   ]);
 
+  /** Uses the same content->board scale as the snap: lines that sit anywhere
+   *  other than where objects land are worse than no lines. 0 means no paint. */
+  const layoutGridBoardSizeById = useMemo(() => {
+    const sizes: Record<string, number> = {};
+    if (!layoutGrids) return sizes;
+    const scale = canvasZoom / 100;
+    for (const { screen, metadata, geometry } of canvasFrames) {
+      const grid = layoutGrids[screen.id];
+      if (!grid?.visible || !geometry.width) continue;
+      const viewport = getScreenPreviewViewport(metadata, geometry);
+      const boardSize =
+        grid.size * (geometry.width / Math.max(1, viewport.viewportWidth));
+      if (boardSize * scale < MIN_LAYOUT_GRID_SCREEN_PX) continue;
+      sizes[screen.id] = boardSize;
+    }
+    return sizes;
+  }, [canvasFrames, canvasZoom, layoutGrids]);
+
   // Resolve a bounded live-context allocation from the committed camera. The
   // overscan still makes imminent pan destinations live early; unlike the old
   // one-way hasBeenVisible Set, however, the LRU pool cannot grow forever.
@@ -8526,6 +8665,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           return (
             <Screen
               key={screen.id}
+              layoutGridBoardSize={layoutGridBoardSizeById[screen.id] ?? 0}
               screen={screen}
               metadata={metadata}
               geometry={geometry}
@@ -9951,9 +10091,13 @@ interface ScreenProps {
   ) => void;
   /** Item 8b — full-view entry for one breakpoint frame. */
   onEditBreakpoint?: (screenId: string, widthPx: number) => void;
+  /** Board-space cell size for this frame's layout grid, already converted
+   *  from content px. 0 means draw nothing. */
+  layoutGridBoardSize?: number;
 }
 
 const Screen = memo(function Screen({
+  layoutGridBoardSize = 0,
   screen,
   metadata,
   geometry,
@@ -10387,6 +10531,18 @@ const Screen = memo(function Screen({
               />
             ))
           )}
+          {layoutGridBoardSize > 0 ? (
+            <span
+              data-layout-grid={screen.id}
+              data-layout-grid-size={layoutGridBoardSize}
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 z-10"
+              style={{
+                backgroundImage: `linear-gradient(to right, var(--design-editor-layout-grid-color) ${LAYOUT_GRID_LINE_CSS}, transparent ${LAYOUT_GRID_LINE_CSS}), linear-gradient(to bottom, var(--design-editor-layout-grid-color) ${LAYOUT_GRID_LINE_CSS}, transparent ${LAYOUT_GRID_LINE_CSS})`,
+                backgroundSize: `${layoutGridBoardSize}px ${layoutGridBoardSize}px`,
+              }}
+            />
+          ) : null}
           {creationToolActive ? (
             <span
               className="pointer-events-auto absolute inset-0 z-20 cursor-crosshair"
