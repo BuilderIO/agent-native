@@ -222,6 +222,21 @@
      very different blends to land at the same visual weight. */
   --b-hero-ocean-opacity: 0.32;
 
+  /* Fluid scale for the hero only, not the shared heading/paragraph/spacing
+     tokens above: the hero's headline and padding need to grow past the
+     site's normal desktop ceiling without ever hitting the shared tokens'
+     hard mobile cliff at 768px, so each one interpolates continuously
+     between a floor (today's mobile value) and a ceiling (today's desktop
+     value, or higher for the title) instead of switching between two fixed
+     sizes. */
+  --b-hero-title-size: clamp(32px, 8vw, 64px);
+  --b-hero-body-size: clamp(16px, calc(14px + 0.5vw), 18px);
+  --b-hero-gap: clamp(24px, 6vw, 48px);
+  --b-hero-inner-gap: clamp(20px, calc(16px + 1vw), 24px);
+  --b-hero-px: clamp(24px, calc(8px + 4vw), 40px);
+  --b-hero-pt: clamp(96px, calc(-48px + 36vw), 240px);
+  --b-hero-pb: clamp(88px, calc(16px + 18vw), 160px);
+
   background: var(--b-bg-page);
   color: var(--b-text-primary);
   font-family: var(--b-font-sans);
