@@ -58,6 +58,7 @@ import {
   getNodeBuiltinNames,
   isAwsAmplifyPreset,
   isCloudflareModulePreset,
+  configureAwsAmplifyRuntimeOutput,
   isDurableBackgroundDeployEnabled,
   isIntegrationDurableDispatchDeployEnabled,
   isKeepWarmBackgroundDeployEnabled,
@@ -132,6 +133,39 @@ describe("isAwsAmplifyPreset", () => {
     expect(isAwsAmplifyPreset("aws-amplify")).toBe(true);
     expect(isAwsAmplifyPreset("awsAmplify")).toBe(true);
     expect(isAwsAmplifyPreset("node")).toBe(false);
+  });
+});
+
+describe("AWS Amplify runtime output", () => {
+  it("loads declared env keys before Nitro's compute entry", () => {
+    const appDir = makeTempDir();
+    const serverDir = path.join(appDir, "compute");
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, ".env.example"),
+      "# DECLARED_SECRET=\n# VITE_PUBLIC=value\n",
+    );
+    fs.writeFileSync(path.join(serverDir, "index.mjs"), "export {}\n");
+
+    configureAwsAmplifyRuntimeOutput(serverDir, appDir, {
+      APP_URL: "https://example.test",
+      DECLARED_SECRET: "line1\nline2",
+      VITE_PUBLIC: "public",
+      UNDECLARED_SECRET: "must-not-ship",
+      AWS_SECRET_ACCESS_KEY: "must-not-ship",
+    });
+
+    const runtimeEnv = fs.readFileSync(path.join(serverDir, ".env"), "utf8");
+    expect(runtimeEnv).toContain('APP_URL="https://example.test"');
+    expect(runtimeEnv).toContain('DECLARED_SECRET="line1\\nline2"');
+    expect(runtimeEnv).toContain('VITE_PUBLIC="public"');
+    expect(runtimeEnv).not.toContain("UNDECLARED_SECRET");
+    expect(runtimeEnv).not.toContain("AWS_SECRET_ACCESS_KEY");
+    expect(fs.readFileSync(path.join(serverDir, "server.js"), "utf8")).toBe(
+      "// Amplify Hosting exposes env vars during build, not to SSR compute.\n" +
+        'process.loadEnvFile(new URL("./.env", import.meta.url));\n' +
+        'await import("./index.mjs");\n',
+    );
   });
 });
 

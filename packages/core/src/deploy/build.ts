@@ -128,6 +128,88 @@ export function isCloudflareModulePreset(targetPreset: string): boolean {
 
 export const CLOUDFLARE_MODULE_WORKER_ENTRY = "worker.mjs";
 
+const AWS_AMPLIFY_CORE_RUNTIME_ENV_KEYS = [
+  "A2A_SECRET",
+  "AGENT_CHAT_DURABLE_BACKGROUND",
+  "AGENT_INTEGRATION_DURABLE_DISPATCH",
+  "AGENT_NATIVE_DISABLE_KEEP_WARM",
+  "AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND",
+  "AGENT_NATIVE_DISABLE_RECURRING_JOBS",
+  "AGENT_NATIVE_ENABLE_KEEP_WARM",
+  "AGENT_NATIVE_ENABLE_RECURRING_JOBS",
+  "APP_BASE_PATH",
+  "APP_NAME",
+  "APP_URL",
+  "BETTER_AUTH_SECRET",
+  "BETTER_AUTH_URL",
+  "DATABASE_AUTH_TOKEN",
+  "DATABASE_URL",
+  "DB_OP_TIMEOUT_MS",
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+  "GOOGLE_LEGACY_CLIENT_ID",
+  "GOOGLE_LEGACY_CLIENT_SECRET",
+  "GOOGLE_PICKER_APP_ID",
+  "GOOGLE_SIGN_IN_CLIENT_ID",
+  "GOOGLE_SIGN_IN_CLIENT_SECRET",
+  "OAUTH_STATE_SECRET",
+] as const;
+
+function readEnvExampleKeys(filePath: string): string[] {
+  if (!fs.existsSync(filePath)) return [];
+
+  const keys = new Set<string>();
+  for (const line of fs.readFileSync(filePath, "utf8").split(/\r?\n/)) {
+    const match = line.match(
+      /^\s*#?\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/,
+    );
+    if (match) keys.add(match[1]);
+  }
+  return [...keys];
+}
+
+/**
+ * Amplify makes build variables available to the build container but does not
+ * forward them to SSR compute. Keep Nitro's self-contained entrypoint and
+ * write only app-declared runtime keys beside it for Node's native env loader.
+ */
+export function configureAwsAmplifyRuntimeOutput(
+  serverDir: string,
+  appDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  const declaredKeys = new Set<string>([
+    ...AWS_AMPLIFY_CORE_RUNTIME_ENV_KEYS,
+    ...readEnvExampleKeys(path.join(appDir, ".env.example")),
+  ]);
+  const runtimeEnv = [...declaredKeys].sort().flatMap((key) => {
+    const value = env[key];
+    return typeof value === "string" ? [`${key}=${JSON.stringify(value)}`] : [];
+  });
+  const envPath = path.join(serverDir, ".env");
+  const serverEntryPath = path.join(serverDir, "server.js");
+  if (!fs.existsSync(path.join(serverDir, "index.mjs"))) {
+    throw new Error(
+      `[deploy] Nitro did not generate ${path.join(serverDir, "index.mjs")} for aws_amplify`,
+    );
+  }
+  fs.writeFileSync(
+    envPath,
+    runtimeEnv.length > 0 ? `${runtimeEnv.join("\n")}\n` : "",
+    { encoding: "utf8", mode: 0o600 },
+  );
+  fs.chmodSync(envPath, 0o600);
+  fs.writeFileSync(
+    serverEntryPath,
+    "// Amplify Hosting exposes env vars during build, not to SSR compute.\n" +
+      'process.loadEnvFile(new URL("./.env", import.meta.url));\n' +
+      'await import("./index.mjs");\n',
+  );
+  console.log(
+    `[deploy] Prepared Amplify runtime env with ${runtimeEnv.length} declared key(s).`,
+  );
+}
+
 export function generateCloudflareModuleWorkerEntry(): string {
   return `let handler;
 
@@ -5632,6 +5714,10 @@ export default bundle;
     writeNetlifyStaticHeaders(path.join(cwd, "dist"));
     runAppServerlessFunctionPruning(cwd);
     assertSingleTemplateNetlifyBuildOutput(cwd);
+  }
+
+  if (isAwsAmplifyPreset(preset)) {
+    configureAwsAmplifyRuntimeOutput(nitro.options.output.serverDir, cwd);
   }
 
   // Resolve remaining bare npm imports by bundling them into _libs/.
