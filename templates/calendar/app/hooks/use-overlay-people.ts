@@ -36,7 +36,9 @@ export function useAddOverlayPerson() {
         ["action", "get-overlay-people", undefined],
         data,
       );
-      queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-events"],
+      });
     },
   });
 }
@@ -67,7 +69,9 @@ export function useUpdateOverlayPersonColor() {
         ["action", "get-overlay-people", undefined],
         data,
       );
-      queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-events"],
+      });
     },
   });
 }

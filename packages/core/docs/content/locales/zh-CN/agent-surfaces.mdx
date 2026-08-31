@@ -256,22 +256,22 @@ export default function AgentRoute() {
 
 该共享页面目前提供分为两组的十二个标签页：
 
-| 分组      | 标签页            | 显示内容                                                                                                                                                                   |
-| --------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Resources | **Files**         | 用于个人或组织文件的现有 `ResourcesPanel`                                                                                                                                  |
-| Resources | **Instructions**  | 始终生效的 AGENTS.md 风格规则                                                                                                                                              |
-| Resources | **Agents**        | 自定义子 Agent 配置                                                                                                                                                        |
-| Resources | **Memory**        | 长期记忆笔记                                                                                                                                                               |
-| Resources | **Skills**        | 可复用的工作流                                                                                                                                                             |
-| Resources | **Learnings**     | 随时间积累的修正和模式                                                                                                                                                     |
-| Resources | **Remote agents** | 到其他 agent-native 应用的 A2A 连接（替代原 Connections 标签页所显示的内容）                                                                                               |
-| Agent     | **Snapshots**     | 范围预览、token 预算、按来源/治理/源分组排序的系统章节，以及最新的实时会话快照。由"Context"重命名而来；旧的 `#context` 链接将重定向至此。                                  |
-| Agent     | **Connections**   | 仅限 MCP 服务器管理                                                                                                                                                        |
-| Agent     | **Automations**   | 个人和组织的定时/事件自动化，支持暂停/恢复、详情和删除流程。兼容 URL `/agent#jobs` 保持稳定。                                                                              |
-| Agent     | **Settings**      | Agent 模型、API 密钥、限制、语音和自动化设置                                                                                                                               |
-| Agent     | **Access**        | 应用 MCP URL、可用时的 A2A agent card，以及适用于 Claude、ChatGPT、Cursor、Claude Code、Codex 等客户端的共享设置指南。链接到 `/mcp/connect` 以完成完整连接流程和令牌回退。 |
+| 分组      | 标签页            | 显示内容                                                                                                                                                                                                 |
+| --------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Resources | **Files**         | 用于个人或组织文件的现有 `ResourcesPanel`                                                                                                                                                                |
+| Resources | **Instructions**  | 始终生效的 AGENTS.md 风格规则                                                                                                                                                                            |
+| Resources | **Agents**        | 自定义子 Agent 配置                                                                                                                                                                                      |
+| Resources | **Memory**        | 长期记忆笔记                                                                                                                                                                                             |
+| Resources | **Skills**        | 可复用的工作流                                                                                                                                                                                           |
+| Resources | **Learnings**     | 随时间积累的修正和模式                                                                                                                                                                                   |
+| Resources | **Remote agents** | 到其他 agent-native 应用的 A2A 连接（替代原 Connections 标签页所显示的内容）                                                                                                                             |
+| Agent     | **Snapshots**     | 范围预览、token 预算、按来源/治理/源分组排序的系统章节，以及最新的实时会话快照。由"Context"重命名而来；旧的 `#context` 链接将重定向至此。                                                                |
+| Agent     | **Connections**   | 仅限 MCP 服务器管理                                                                                                                                                                                      |
+| Agent     | **Automations**   | 个人和组织的定时/事件自动化，支持暂停/恢复、详情和删除流程。兼容 URL `/agent#jobs` 保持稳定。                                                                                                            |
+| Agent     | **Settings**      | Agent 模型、API 密钥、限制、语音和自动化设置                                                                                                                                                             |
+| Agent     | **MCP**           | 应用 MCP URL、可用时的 A2A agent card，以及适用于 Claude、ChatGPT、Cursor、Claude Code、Codex 等客户端的共享设置指南。可在 **Settings → MCP** 中找到，或使用 `/mcp/connect` 完成完整连接流程和令牌回退。 |
 
-该页面仅显示个人（`user` 范围）数据，目前没有组织级别的切换。它是现有组件和访问检查的薄层封装，而非新的管理控制台：Connections 描述应用可以调用什么；Access 描述外部客户端如何连接到它。
+该页面仅显示个人（`user` 范围）数据，目前没有组织级别的切换。它是现有组件和访问检查的薄层封装，而非新的管理控制台：Connections 描述应用可以调用什么；MCP 描述外部客户端如何连接到它。
 
 尚未包含的功能：
 

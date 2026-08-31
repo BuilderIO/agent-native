@@ -34,10 +34,18 @@ import {
   IconPlus,
   IconSquare,
   IconTextSize,
-  IconTransitionRight,
+  IconBolt,
+  IconLayersSubtract,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 
@@ -72,6 +80,10 @@ import {
   type SlideShapeType,
 } from "./EditorActionCluster";
 import { ExportMenu, type ExportMenuHandle } from "./ExportMenu";
+export type PresentRequest = {
+  preserveNativeNavigation: true;
+};
+
 interface EditorToolbarProps {
   deck: Deck;
   deckId: string;
@@ -111,6 +123,10 @@ interface EditorToolbarProps {
   animationsOpen?: boolean;
   /** Toggle the selected-element transitions panel */
   onToggleAnimations?: () => void;
+  /** Whether the slide layers panel is open */
+  layersOpen?: boolean;
+  /** Toggle the slide layers panel */
+  onToggleLayers?: () => void;
   /** Whether the tweaks panel is open */
   tweaksOpen?: boolean;
   /** Toggle the tweaks panel */
@@ -129,7 +145,7 @@ interface EditorToolbarProps {
   onToggleTextBoxMode?: () => void;
   /** Active shape tool */
   shapeType?: SlideShapeType | null;
-  /** Arm a shape tool for the next canvas click */
+  /** Arm a shape tool for drag-to-place on the canvas */
   onSelectShape?: (shape: SlideShapeType) => void;
   /** Update the current slide's entrance transition from the overflow menu. */
   onChangeSlideTransition?: (transition: SlideTransition) => void;
@@ -141,6 +157,8 @@ interface EditorToolbarProps {
   onExportPptx?: () => Promise<void> | void;
   /** Create the deck in the user's Google Drive as native Google Slides */
   onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
+  /** Flush local edits before entering the full-screen presentation view. */
+  onPresent?: (request?: PresentRequest) => boolean | void;
   /** Inserts a blank slide directly below the active slide. Threaded through
    *  to the fallback action cluster below so an empty deck (no current
    *  slide, so the primary element-controls toolbar never mounts) still has
@@ -185,6 +203,8 @@ export default function EditorToolbar({
   currentUserEmail,
   animationsOpen,
   onToggleAnimations,
+  layersOpen,
+  onToggleLayers,
   tweaksOpen,
   onToggleTweaks,
   drawMode,
@@ -200,6 +220,7 @@ export default function EditorToolbar({
   onExportPdf,
   onExportPptx,
   onExportGoogleSlides,
+  onPresent,
   onAddEmptySlide,
   addSlideGenerating,
   canEdit = true,
@@ -424,11 +445,22 @@ export default function EditorToolbar({
         commands.push({
           id: "element-animations",
           group: "slideTools",
-          label: t("editorToolbar.elementAnimations"),
+          label: t("animations.title"),
           keywords: ["animation", "motion", "transition"],
-          icon: IconTransitionRight,
+          icon: IconBolt,
           active: animationsOpen,
           run: onToggleAnimations,
+        });
+      }
+      if (currentSlide && onToggleLayers) {
+        commands.push({
+          id: "layers",
+          group: "slideTools",
+          label: t("editorToolbar.layers"),
+          keywords: ["layers", "hierarchy", "stack"],
+          icon: IconLayersSubtract,
+          active: layersOpen,
+          run: onToggleLayers,
         });
       }
       if (onToggleTweaks) {
@@ -473,7 +505,7 @@ export default function EditorToolbar({
           group: "slideTools" as const,
           label: t(transition.labelKey),
           keywords: ["slide", "transition", transition.value],
-          icon: IconTransitionRight,
+          icon: IconBolt,
           active: activeSlideTransition === transition.value,
           run: () => onChangeSlideTransition(transition.value),
         })),
@@ -506,7 +538,7 @@ export default function EditorToolbar({
         label: t("editorExport.exportPdf"),
         keywords: ["export", "pdf", "download"],
         icon: IconFileTypePdf,
-        run: () => void onExportPdf?.(),
+        run: () => onExportPdf?.(),
       },
       {
         id: "export-pptx",
@@ -572,6 +604,7 @@ export default function EditorToolbar({
     activeSlideTransition,
     addSlideGenerating,
     animationsOpen,
+    layersOpen,
     canComment,
     canEdit,
     commentsOpen,
@@ -589,6 +622,7 @@ export default function EditorToolbar({
     onSelectShape,
     onChangeSlideTransition,
     onToggleAnimations,
+    onToggleLayers,
     onToggleComments,
     onToggleDrawMode,
     onTogglePinMode,
@@ -606,13 +640,29 @@ export default function EditorToolbar({
 
   useEffect(() => registerEditorCommands(() => editorCommandsRef.current), []);
 
+  const handlePresentClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+    if (event.button !== 0 && event.button !== 1) return;
+    const preserveNativeNavigation =
+      event.button === 1 ||
+      (event.button === 0 &&
+        (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey));
+    if (preserveNativeNavigation) {
+      if (onPresent?.({ preserveNativeNavigation: true }) === true) {
+        event.preventDefault();
+      }
+      return;
+    }
+    event.preventDefault();
+    onPresent?.();
+  };
+
   return (
     <div className="deck-editor-toolbar flex h-12 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap bg-background px-2 sm:px-3">
       {/* Back button */}
       <Tooltip>
         <TooltipTrigger asChild>
           <Link
-            to="/"
+            to="/home"
             className={`${TOOLBAR_ICON_BUTTON_CLASS} hover:bg-accent`}
             aria-label={t("editorToolbar.backToDecks")}
           >
@@ -704,7 +754,6 @@ export default function EditorToolbar({
           activeUsers={activeUsers ?? []}
           agentPresent={agentPresent}
           agentActive={agentActive}
-          showAgentEditingDot={false}
           currentUserEmail={currentUserEmail}
           className="flex-shrink-0 pl-2"
         />
@@ -733,7 +782,10 @@ export default function EditorToolbar({
             className="max-h-[90vh] w-64 overflow-y-auto"
           >
             {((canEdit &&
-              (onToggleAnimations || onToggleTweaks || onToggleDrawMode)) ||
+              (onToggleAnimations ||
+                onToggleLayers ||
+                onToggleTweaks ||
+                onToggleDrawMode)) ||
               (canComment && onTogglePinMode)) && (
               <>
                 <DropdownMenuSeparator />
@@ -750,8 +802,21 @@ export default function EditorToolbar({
                           : undefined
                       }
                     >
-                      <IconTransitionRight className="size-4" />
-                      {t("editorToolbar.elementAnimations")}
+                      <IconBolt className="size-4" />
+                      {t("animations.title")}
+                    </DropdownMenuItem>
+                  )}
+                  {canEdit && currentSlide && onToggleLayers && (
+                    <DropdownMenuItem
+                      onSelect={onToggleLayers}
+                      className={
+                        layersOpen
+                          ? "bg-accent text-accent-foreground"
+                          : undefined
+                      }
+                    >
+                      <IconLayersSubtract className="size-4" />
+                      {t("editorToolbar.layers")}
                     </DropdownMenuItem>
                   )}
                   {canEdit && onToggleTweaks && (
@@ -956,6 +1021,8 @@ export default function EditorToolbar({
       {/* Present button — matches Share trigger height (h-9) */}
       <Link
         to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
+        onClick={onPresent ? handlePresentClick : undefined}
+        onAuxClick={onPresent ? handlePresentClick : undefined}
         className="inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
       >
         <IconPlayerPlay className="w-3.5 h-3.5" />

@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 
+import { localizeDocsHref } from "../docs-locale";
 import { CardsBlock } from "./cards";
 import {
   parseCardsFromMarkdown,
@@ -43,6 +44,40 @@ describe("parseCardsFromMarkdown", () => {
 });
 
 describe("CardsBlock", () => {
+  // A card href goes straight to the router and never passes through the
+  // Markdown renderer, so the host has to hand the block its own rewrite.
+  it("canonicalizes a card href through the render context", () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <CardsBlock
+          blockId="cards"
+          ctx={{ localizeHref: (href) => localizeDocsHref(href, "de-DE") }}
+          data={{
+            cards: [{ title: "AWS", href: "/docs/aws-lambda", body: "Body." }],
+          }}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(html).toContain('href="/de-de/docs/aws-lambda/"');
+  });
+
+  it("falls back to the raw href when the host provides no rewrite", () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <CardsBlock
+          blockId="cards"
+          ctx={{}}
+          data={{
+            cards: [{ title: "AWS", href: "/docs/aws-lambda", body: "Body." }],
+          }}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(html).toContain('href="/docs/aws-lambda"');
+  });
+
   it("renders the icon for a card that has one", () => {
     const html = renderToStaticMarkup(
       <MemoryRouter>

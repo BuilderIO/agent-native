@@ -1,3 +1,4 @@
+import { getRequestRunContext } from "@agent-native/core/server";
 import { and, asc, desc, eq } from "drizzle-orm";
 
 import type {
@@ -20,6 +21,59 @@ const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000;
  * A different label, or a gap longer than this window, always starts a new row.
  */
 const BURST_COALESCE_WINDOW_MS = 90 * 1000; // 90 seconds
+
+export interface PlanVersionChatContext {
+  threadId?: string;
+  runId?: string;
+  turnId?: string;
+}
+
+function planVersionChatContextFromFields(value: {
+  threadId?: unknown;
+  runId?: unknown;
+  turnId?: unknown;
+}): PlanVersionChatContext | undefined {
+  const context: PlanVersionChatContext = {};
+  for (const key of ["threadId", "runId", "turnId"] as const) {
+    if (typeof value[key] === "string" && value[key].trim()) {
+      context[key] = value[key];
+    }
+  }
+  return context.runId || context.turnId ? context : undefined;
+}
+
+function requestPlanVersionChatContext(): PlanVersionChatContext | undefined {
+  const run = getRequestRunContext();
+  return run ? planVersionChatContextFromFields(run) : undefined;
+}
+
+export function planVersionChatContextFromRun(run: {
+  threadId?: unknown;
+  runId?: unknown;
+  turnId?: unknown;
+}): PlanVersionChatContext | undefined {
+  return planVersionChatContextFromFields(run);
+}
+
+export function parsePlanVersionChatContext(
+  raw: string | null | undefined,
+): PlanVersionChatContext | undefined {
+  if (raw == null) return undefined;
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new Error("Plan version chat metadata is not valid JSON.");
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Plan version chat metadata is invalid.");
+  }
+  const context = planVersionChatContextFromFields(
+    value as Record<string, unknown>,
+  );
+  if (!context) throw new Error("Plan version chat metadata is invalid.");
+  return context;
+}
 
 function canCoalesceBurstLabel(label: string | undefined): label is string {
   return label !== undefined && !label.startsWith("Before ");
@@ -231,6 +285,7 @@ export async function createPlanVersionSnapshot(
     force?: boolean;
     label?: string;
     createdBy?: PlanAuthor;
+    chatContext?: PlanVersionChatContext;
   } = {},
 ): Promise<{ created: boolean; id?: string; reason?: string }> {
   const db = getDb();
@@ -311,6 +366,7 @@ export async function createPlanVersionSnapshot(
   }
 
   const id = newVersionId();
+  const chatContext = options.chatContext ?? requestPlanVersionChatContext();
   await db.insert(schema.planVersions).values({
     id,
     ownerEmail: plan.ownerEmail,
@@ -320,6 +376,7 @@ export async function createPlanVersionSnapshot(
     changeLabel: options.label,
     createdBy: options.createdBy ?? "agent",
     createdAt: new Date().toISOString(),
+    ...(chatContext ? { chatContext: JSON.stringify(chatContext) } : {}),
     status: summaryColumns.status,
     source: summaryColumns.source,
     blockCount: summaryColumns.blockCount,

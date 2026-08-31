@@ -104,7 +104,7 @@ function CliCopy({
 }) {
   const [copied, setCopied] = useState(false);
   function handleCopy() {
-    navigator.clipboard.writeText(command);
+    void navigator.clipboard.writeText(command);
     setCopied(true);
     trackEvent("copy cli command", { skill: "visual-plan", location });
     setTimeout(() => setCopied(false), 2000);

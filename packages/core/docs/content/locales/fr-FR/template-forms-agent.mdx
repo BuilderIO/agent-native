@@ -1,0 +1,66 @@
+---
+title: "Formulaires : Parler à l'agent"
+description: "Ce que voit l'agent quand vous êtes dans Forms, et les invites organisées par tâche."
+---
+
+# Parler à l'agent
+
+Tout dans Forms est accessible à l'agent via les mêmes actions que celles utilisées par l'interface, si bien que tout ce que vous pouvez cliquer, vous pouvez aussi le demander en langage courant. Cette page couvre comment l'agent voit votre écran et des invites utiles par tâche. Consultez [Forms](/docs/template-forms) pour la vue d'ensemble.
+
+## Comment l'agent voit votre écran
+
+L'agent sait toujours quel formulaire ou quelle vue vous avez ouvert, jusqu'à l'onglet du navigateur près. Si vous avez un formulaire ouvert dans un onglet et la liste des réponses ouverte dans un autre, l'agent les garde séparés. C'est pourquoi vous pouvez demander « ajoute une question NPS obligatoire à ce formulaire » ou « combien de réponses a-t-il » sans nommer le formulaire. L'agent sait déjà lequel vous voulez dire. Quand vous regardez les réponses d'un formulaire, l'agent peut aussi voir un aperçu de ces réponses, selon ce que vous êtes autorisé à voir.
+
+## Invites utiles par tâche
+
+Chaque invite ci-dessous devient une véritable action sur votre formulaire réel, le même que celui que l'interface lit et écrit. Voici un exemple détaillé.
+
+<Comparison>
+
+### :blue: Vous demandez
+
+« Crée un formulaire d'inscription bêta avec le rôle, la taille de l'équipe et le cas d'utilisation prioritaire. »
+
+### :green: Ce qui se passe
+
+Ceci crée quelque chose de nouveau. L'agent construit le formulaire avec ces champs déjà en place, et il apparaît dans votre liste de formulaires tout de suite, prêt à être affiné ou publié. Rien n'a besoin d'un rafraîchissement de page. Le nouveau formulaire est simplement là.
+
+</Comparison>
+
+<Cards columns={2}>
+
+### Créer
+
+- **« Crée un formulaire d'inscription bêta avec le rôle, la taille de l'équipe et le cas d'utilisation prioritaire. »** Le nouveau formulaire apparaît dans votre liste de formulaires tout de suite, prêt à être affiné.
+- **« Ajoute une question NPS obligatoire et un suivi en texte libre. »** Les champs apparaissent sur le formulaire immédiatement.
+- **« Raccourcis ce formulaire sans perdre les champs dont nous avons besoin pour l'acheminement. »** L'agent réduit le formulaire tout en gardant les champs dont dépendent vos destinations.
+
+### Publier et protéger
+
+- **« Publie ceci et donne-moi le lien. »** Le formulaire passe en ligne et vous obtenez son URL publique tout de suite.
+- **« Crée un formulaire de retour client anonyme et donne-moi le lien public. »** Le formulaire est publié anonyme dès le départ, si bien qu'aucune information sur le répondant n'est jamais capturée.
+- **« N'autorise ce formulaire à être soumis que depuis https://example.com. »** Le formulaire commence à rejeter les soumissions venant de partout ailleurs. Ceci n'est disponible qu'en le demandant à l'agent aujourd'hui. Il n'y a pas d'interrupteur pour cela dans le générateur.
+
+### Réponses et analyses
+
+- « Combien de réponses a le formulaire d'inscription bêta ? »
+- « Qui a soumis aujourd'hui ? »
+- « Résume les soumissions de cette semaine et regroupe-les par segment de clientèle. »
+- « Trace les soumissions par jour. »
+- « Comment évoluent les soumissions sur tous mes formulaires ce mois-ci ? »
+- « Exporte ceci en CSV. »
+
+### Acheminement
+
+- **« Poste chaque nouvelle réponse sur le canal Slack du produit. »** Les nouvelles réponses commencent à apparaître dans Slack dès leur arrivée, une fois qu'une destination est connectée.
+- « Quelle est la configuration de mon formulaire d'inscription bêta ? »
+
+</Cards>
+
+## Et ensuite
+
+- [**Forms**](/docs/template-forms) — la vue d'ensemble et ce qu'il remplace
+- [**Fonctionnalités**](/docs/template-forms-features) — chaque fonctionnalité, avec les étapes de configuration pour chacune
+- [**Forms dans un espace de travail multi-apps**](/docs/template-forms-integrations) — la délégation et le point de soumission public que d'autres applications utilisent
+- [**Guide développeur**](/docs/template-forms-developers) — chaque action et le modèle de données derrière ces fonctionnalités
+  </content>

@@ -1029,7 +1029,7 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     // lands on the tray monitor (clamped so a monitor change can't strand
     // the pill off-screen).
     let default_x: i32 = mx + (mw as i32 - w as i32) / 2;
-    let default_y: i32 = my + mh as i32 - h as i32 - (48.0 * scale).round() as i32;
+    let default_y: i32 = my + mh as i32 - h as i32 - (20.0 * scale).round() as i32;
     let (x, y) = match load_toolbar_position(&app) {
         Some((sx, sy)) => (
             sx.clamp(mx, mx + mw as i32 - w as i32),
@@ -1080,19 +1080,18 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     set_capture_excluded(&win);
     configure_overlay_behavior(&win);
     raise_to_status_level(&win);
-    // Deliberately NOT shown here. The pill owns its visibility through
-    // `toolbar_set_visible`: it stays hidden through pre-record and the
-    // countdown and appears only once the recorder reports capture live —
-    // recording controls before recording exists read as a broken state.
-    dlog!("[clips-tray] toolbar created (hidden until capture is live)");
+    // Deliberately NOT shown here. The renderer owns visibility through
+    // `toolbar_set_visible` so the window can mount in its disabled state
+    // before capture is live.
+    dlog!("[clips-tray] toolbar created (hidden until renderer is ready)");
 
     Ok(())
 }
 
 /// Show or hide the recording pill without activating it. Visibility is
-/// driven entirely by the pill renderer: hidden while the recorder is
-/// preparing or counting down, visible while capture is live or the
-/// completion card is up.
+/// driven entirely by the pill renderer: visible while the recorder is
+/// preparing, counting down, or capturing, and while the completion card is
+/// up.
 #[tauri::command]
 pub async fn toolbar_set_visible(app: AppHandle, visible: bool) -> Result<(), String> {
     let Some(win) = app.get_webview_window(TOOLBAR_LABEL) else {

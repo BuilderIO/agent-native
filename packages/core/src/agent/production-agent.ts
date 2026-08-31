@@ -21,6 +21,7 @@ import {
   type ActionCaller,
   stripUnsupportedSchemaKeywords,
 } from "../action.js";
+import { getAppConfig } from "../app-config/index.js";
 import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
@@ -70,6 +71,10 @@ import {
   stepDownReasoningEffort,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
+import {
+  SYNTHETIC_TRAFFIC_BETA_E2E,
+  SYNTHETIC_TRAFFIC_HEADER,
+} from "../shared/test-traffic.js";
 import { actionPreparationContinuationNote } from "./action-continuation-guidance.js";
 import {
   drainAgentWarnings,
@@ -468,6 +473,18 @@ function normalizeBrowserTabId(value: unknown): string | undefined {
   return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? trimmed : undefined;
 }
 
+/**
+ * The usage label is caller-supplied (a template surface, an MCP host, an
+ * extension), and it lands in a usage row AND in a trace span name. Bound it
+ * and strip control characters here so a client cannot turn either into a
+ * payload channel.
+ */
+function normalizeUsageLabel(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.replace(/[\u0000-\u001f\u007f]/g, " ").trim();
+  return trimmed ? trimmed.slice(0, 120) : undefined;
+}
+
 function normalizeChatScope(
   value: unknown,
 ): { type: string; id: string; label?: string } | null | undefined {
@@ -519,6 +536,7 @@ export async function getOwnerApiKey(
   if (!ownerEmail) return undefined;
   const secretKey =
     PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
+  const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
   try {
     const { readAppSecret } = await import("../secrets/storage.js");
     const refs: Array<{
@@ -526,12 +544,12 @@ export async function getOwnerApiKey(
       scopeId: string;
     }> = [{ scope: "user", scopeId: ownerEmail }];
     const orgId = getRequestOrgId();
-    if (orgId) {
+    if (orgId && !syntheticTraffic) {
       refs.push(
         { scope: "org", scopeId: orgId },
         { scope: "workspace", scopeId: orgId },
       );
-    } else {
+    } else if (!syntheticTraffic) {
       refs.push({ scope: "workspace", scopeId: `solo:${ownerEmail}` });
     }
     for (const ref of refs) {
@@ -551,8 +569,11 @@ export async function getOwnerApiKey(
       }
     }
   } catch {
-    // app_secrets table not ready — fall through to legacy lookup.
+    // app_secrets table not ready — only non-synthetic traffic may fall through
+    // to legacy lookup. A synthetic run must never bill an alternate key.
+    if (syntheticTraffic) return undefined;
   }
+  if (syntheticTraffic) return undefined;
   try {
     const { getSetting } = await import("../settings/store.js");
     const stored = await getSetting(`user-api-key:${provider}:${ownerEmail}`);
@@ -720,10 +741,7 @@ export type { ActionRunContext, ActionCaller } from "../action.js";
 
 export interface ActionEntry {
   tool: ActionTool;
-  run: (
-    args: any,
-    context?: import("../action.js").ActionRunContext,
-  ) => Promise<any> | any;
+  run: (args: any, context?: import("../action.js").ActionRunContext) => any;
   /** Standard Schema input validator when declared through defineAction. */
   schema?: unknown;
   /** HTTP exposure config. `false` = agent-only. Omitted = auto-inferred from name. */
@@ -1536,6 +1554,10 @@ const FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS = 25_000;
 // ceiling and steps effort down a tier) instead of re-issuing the
 // exact same doomed request twice.
 const EMPTY_FINAL_RESPONSE_RETRY_LIMIT = 2;
+// A `max_tokens` stop with tool-call parts present is a tool call cut off
+// mid-arguments. Same escalation shape as the empty-final retry: each attempt
+// raises the ceiling, so re-issuing is not re-issuing the same doomed request.
+const TRUNCATED_TOOL_CALL_RETRY_LIMIT = 2;
 const MAIN_CHAT_INTERNAL_CONTINUATION_LIMIT = 6;
 const RUN_BUDGET_EXHAUSTED_ERROR_CODE = "run_budget_exhausted";
 const RUN_BUDGET_EXHAUSTED_MESSAGE =
@@ -1557,7 +1579,18 @@ const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const MAX_RESOURCE_INVENTORY_ITEMS = 40;
 const MAX_RESOURCE_INVENTORY_DESCRIPTION_CHARS = 160;
 const MAX_INLINE_SKILL_REFERENCE_CHARS = 40_000;
-const SOURCE_SWEEP_TOOL_CALL_THRESHOLD = 12;
+/**
+ * Read-only source/search tool calls one turn may make before the convergence
+ * guard tells the agent to stop sweeping and answer from what it gathered.
+ *
+ * Resolved per call rather than captured at module load: the value is declared
+ * config, so a deployment can raise it for research-shaped apps that legitimately
+ * inspect many records, and a module-level read would freeze whichever value was
+ * resolved before the app's config plugin loaded.
+ */
+export function resolveSourceSweepToolCallThreshold(): number {
+  return getAppConfig().agent.sourceSweepToolCallThreshold;
+}
 /**
  * Serialized-byte threshold at which a run reports how much tool schema
  * `expandActiveTools` has loaded on top of its starting set. Expansion is
@@ -1911,6 +1944,7 @@ export function buildUserContentWithAttachments(opts: {
   let remainingTextAttachmentChars = MAX_TEXT_ATTACHMENTS_TOTAL_CHARS;
 
   for (const att of opts.attachments ?? []) {
+    if (att.displayOnly === true) continue;
     const uploadedUrl = (att as any).url as string | undefined;
     if ((att as any).referenceOnly === true && uploadedUrl) {
       const label = att.name ? `"${att.name}"` : "A file";
@@ -2349,6 +2383,13 @@ export async function callConnectedAgentReference(input: {
       userEmail: callerAuth.userEmail,
       orgDomain: callerAuth.orgDomain,
       orgSecret: callerAuth.orgSecret,
+      ...(getRequestContext()?.isSyntheticTraffic === true
+        ? {
+            transportHeaders: {
+              [SYNTHETIC_TRAFFIC_HEADER]: SYNTHETIC_TRAFFIC_BETA_E2E,
+            },
+          }
+        : {}),
       onUpdate: relay.observePollUpdate,
     });
     const responseText =
@@ -3712,7 +3753,7 @@ function stableStringify(value: unknown): string {
 }
 
 export function toolCallCacheKey(toolName: string, input: unknown): string {
-  return `${toolName}:${stableStringify(normalizeToolCallInputForHistory(input))}`;
+  return `${toolName}:${stableStringify(normalizeToolCallInputForHistory(input, toolName))}`;
 }
 
 export function findApprovedStructuredToolCall(
@@ -3995,7 +4036,7 @@ function hasExhaustedSourceSweepBudget(opts: {
   actions: Record<string, ActionEntry>;
   threshold?: number;
 }): boolean {
-  const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
+  const threshold = opts.threshold ?? resolveSourceSweepToolCallThreshold();
   return (
     opts.priorToolCalls.filter((call) =>
       isLikelyAggregateSourceSweepTool(call.name, opts.actions[call.name]),
@@ -4074,14 +4115,15 @@ function restrictAgentTeamsAfterSourceSweep(tools: EngineTool[]): EngineTool[] {
  * tool error, and the breakers key on that text: a message that reports its own
  * tally ("already made 13 call(s)") mints a fresh key on every decline, so the
  * decline that exists to stop a spiral becomes the one thing nothing can count.
- * The fixed threshold below says the same thing without varying.
+ * The threshold is fixed for the turn, so it says the same thing without
+ * varying.
  */
 export function repeatedSourceSweepGuardMessage(opts: {
   toolName: string;
   threshold?: number;
   scope?: "tool" | "aggregate";
 }): string {
-  const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
+  const threshold = opts.threshold ?? resolveSourceSweepToolCallThreshold();
   const target =
     opts.scope === "aggregate"
       ? "read-only source/search tools"
@@ -4115,7 +4157,7 @@ export function shouldGuardRepeatedSourceSweep(opts: {
   threshold?: number;
 }): { toolName: string; priorCalls: number; message: string } | null {
   if (!isLikelySourceSweepTool(opts.toolName, opts.entry)) return null;
-  const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
+  const threshold = opts.threshold ?? resolveSourceSweepToolCallThreshold();
   const priorCalls = opts.priorToolCalls.filter(
     (call) => call.name === opts.toolName,
   ).length;
@@ -4164,7 +4206,7 @@ function seedSourceSweepToolCallsFromHistory(
       if (!isLikelySourceSweepTool(part.name, actions[part.name])) continue;
       seeded.push({
         name: part.name,
-        input: normalizeToolCallInputForHistory(part.input),
+        input: normalizeToolCallInputForHistory(part.input, part.name),
       });
     }
   }
@@ -4173,9 +4215,18 @@ function seedSourceSweepToolCallsFromHistory(
 
 function normalizeToolCallInputForHistory(
   input: unknown,
+  toolName?: string,
 ): Record<string, unknown> {
   if (input && typeof input === "object" && !Array.isArray(input)) {
-    return input as Record<string, unknown>;
+    const record = input as Record<string, unknown>;
+    if (toolName !== "docs-search" || typeof record.query !== "string") {
+      return record;
+    }
+    // docs-search lowercases and splits queries on whitespace before matching.
+    return {
+      ...record,
+      query: record.query.trim().replace(/\s+/g, " ").toLowerCase(),
+    };
   }
   return { rawInput: input };
 }
@@ -4224,6 +4275,12 @@ function toolInputSchemaErrorResult(
   input: unknown,
   error: string,
   parameters?: ActionTool["parameters"],
+  /**
+   * The model response carrying this call stopped at the output-token cap, so
+   * the arguments are truncated rather than wrong. Telling the model to match
+   * the schema here is what makes it re-send the same oversized payload.
+   */
+  outputCapTruncated = false,
 ): string {
   const signature = describeToolParameterSignature(
     parameters,
@@ -4235,7 +4292,9 @@ function toolInputSchemaErrorResult(
     (signature
       ? `Expected: ${signature} (where * = required, ? = optional). `
       : "") +
-    "The tool was not executed; retry with arguments that match the tool schema."
+    (outputCapTruncated
+      ? "The tool was not executed: the response hit the model output-token cap before these arguments finished, so they are truncated, not wrong. Retry with a smaller payload — split the work across several calls, or shorten the longest field."
+      : "The tool was not executed; retry with arguments that match the tool schema.")
   );
 }
 
@@ -4756,9 +4815,16 @@ export async function runAgentLoop(opts: {
       added.push(name);
     }
     if (added.length > 0) {
-      activeTools = (availableTools ?? tools).filter((tool) =>
+      const expandedTools = (availableTools ?? tools).filter((tool) =>
         activeToolNames.has(tool.name),
       );
+      const prioritizedNames = new Set(names);
+      // Provider adapters cap the schema list; keep search results in the
+      // prefix so the next request can actually call what it discovered.
+      activeTools = [
+        ...expandedTools.filter((tool) => prioritizedNames.has(tool.name)),
+        ...expandedTools.filter((tool) => !prioritizedNames.has(tool.name)),
+      ];
     }
     if (
       !reportedExpandedToolSchemaBytes &&
@@ -4914,6 +4980,7 @@ export async function runAgentLoop(opts: {
 
   let finalGuardRetries = 0;
   let emptyFinalResponseRetries = 0;
+  let truncatedToolCallRetries = 0;
   let iterations = 0;
   // `loop_limit` and `done` share one terminal-event slot in run-manager, so a
   // trailing `done` would overwrite the boundary the continuation logic reads.
@@ -5247,7 +5314,7 @@ export async function runAgentLoop(opts: {
           const timeoutMs = Math.max(0, deadlineAt - Date.now());
           if (timeoutMs <= 0) {
             checkpointNoProgress();
-            requestEventIteratorReturn(iterator, false);
+            void requestEventIteratorReturn(iterator, false);
             return { done: true, value: undefined };
           }
           let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -5260,7 +5327,7 @@ export async function runAgentLoop(opts: {
             const result = await Promise.race([next, timeout]);
             if (result === "timeout") {
               checkpointNoProgress();
-              requestEventIteratorReturn(iterator, false);
+              void requestEventIteratorReturn(iterator, false);
               return { done: true, value: undefined };
             }
             return result;
@@ -5587,7 +5654,7 @@ export async function runAgentLoop(opts: {
       part.type === "tool-call"
         ? {
             ...part,
-            input: normalizeToolCallInputForHistory(part.input),
+            input: normalizeToolCallInputForHistory(part.input, part.name),
           }
         : part,
     );
@@ -5739,6 +5806,36 @@ export async function runAgentLoop(opts: {
     finalGuardRetries = 0;
     emptyFinalResponseRetries = 0;
 
+    // A `max_tokens` stop is only recognised as truncation in the
+    // `toolCallParts.length === 0` branch above. A tool call cut off
+    // mid-arguments still arrives AS a tool-call part, so without this the
+    // turn reads as a normal one: the partial arguments fail schema
+    // validation, the model is told to "retry with arguments that match the
+    // tool schema", and it re-issues the same oversized payload against the
+    // same ceiling until the identical-error stop fires. The tool never runs
+    // and nothing in the transcript says the response was truncated.
+    //
+    // The tool calls still execute — the assistant turn carrying them is
+    // already in `messages`, and every tool_use needs its tool_result — but
+    // the retry gets a raised ceiling and the error text below names the real
+    // cause.
+    const toolCallTruncatedByOutputCap = terminalStopReason === "max_tokens";
+    if (toolCallTruncatedByOutputCap) {
+      if (truncatedToolCallRetries < TRUNCATED_TOOL_CALL_RETRY_LIMIT) {
+        truncatedToolCallRetries += 1;
+        effectiveMaxOutputTokens =
+          resolveEmptyResponseRetryMaxOutputTokens(model);
+      } else {
+        // Retries spent. The raised ceiling was lent to those attempts, not to
+        // the rest of the run — leaving it in place kept every later request
+        // above the configured cap.
+        effectiveMaxOutputTokens = opts.maxOutputTokens;
+      }
+    } else {
+      truncatedToolCallRetries = 0;
+      effectiveMaxOutputTokens = opts.maxOutputTokens;
+    }
+
     flushUnstreamedAssistantText();
 
     let requestedActionStop: TerminalActionStop | null = null;
@@ -5812,6 +5909,7 @@ export async function runAgentLoop(opts: {
       const wireToolInput = JSON.stringify(toolCall.input ?? {});
       const normalizedToolInput = normalizeToolCallInputForHistory(
         toolCall.input,
+        toolCall.name,
       );
       const sourceSweepGuard = shouldGuardRepeatedSourceSweep({
         toolName: toolCall.name,
@@ -6354,6 +6452,7 @@ export async function runAgentLoop(opts: {
               toolCallSchemaError.input,
               toolCallSchemaError.error,
               actionEntry?.tool.parameters,
+              toolCallTruncatedByOutputCap,
             ),
           );
           emitToolDone({
@@ -6387,6 +6486,7 @@ export async function runAgentLoop(opts: {
               toolCall.input,
               rawToolInputError,
               actionEntry.tool.parameters,
+              toolCallTruncatedByOutputCap,
             ),
           );
           emitToolDone({
@@ -8677,6 +8777,7 @@ export function createProductionAgentHandler(
       threadId,
       attachments,
       displayMessage,
+      parentId,
       queuedMessageId,
       internalContinuation,
       turnId: requestTurnId,
@@ -8688,6 +8789,12 @@ export function createProductionAgentHandler(
       harness: requestHarness,
       trackInRunsTray,
     } = body;
+    const requestParentId =
+      parentId === null
+        ? null
+        : typeof parentId === "string" && parentId.trim()
+          ? parentId.trim()
+          : undefined;
     setupMark("bodyParsed");
 
     // Durable-background marker. Present ONLY when this handler was re-entered
@@ -8953,7 +9060,9 @@ export function createProductionAgentHandler(
     if (
       hasAttachments &&
       requestAttachments.some(
-        (a) => a.type === "image" || a.type === "file" || a.type === "document",
+        (a) =>
+          a.displayOnly !== true &&
+          (a.type === "image" || a.type === "file" || a.type === "document"),
       )
     ) {
       try {
@@ -9080,6 +9189,7 @@ export function createProductionAgentHandler(
     let effectiveModel = model;
     let modelSelectionSource: AgentModelSelectionSource | "experiment" =
       modelSelection.source;
+    const turnUsageLabel = normalizeUsageLabel(body.usageLabel);
     let experimentAssignments: Array<{
       experimentId: string;
       variantId: string;
@@ -10810,8 +10920,17 @@ export function createProductionAgentHandler(
                 threadId: threadId ?? null,
                 userId: ownerEmail,
                 config: obsConfig,
+                // A caller that named its turn (a template surface, an MCP
+                // host, a background send) gets that name in the trace list;
+                // a plain chat turn stays `agent_run` so the common case
+                // still aggregates.
+                spanName:
+                  turnUsageLabel && turnUsageLabel !== "chat"
+                    ? `agent_run:${turnUsageLabel}`
+                    : undefined,
                 metadata: {
                   modelSelectionSource,
+                  ...(turnUsageLabel ? { label: turnUsageLabel } : {}),
                   ...(experimentAssignments.length > 0
                     ? { experimentAssignments }
                     : {}),
@@ -10877,7 +10996,7 @@ export function createProductionAgentHandler(
                 cacheReadTokens: turnUsage.cacheReadTokens,
                 cacheWriteTokens: turnUsage.cacheWriteTokens,
                 model: turnUsage.model,
-                label: body.usageLabel || "chat",
+                label: turnUsageLabel || "chat",
                 // token_usage has had run_id/thread_id/task_id since it was
                 // created and every row was NULL on all three, so no spend could
                 // be tied back to a run, thread, or outcome.
@@ -10919,6 +11038,7 @@ export function createProductionAgentHandler(
         // assistant message. Falls back to the runId (turn == run) when the
         // client doesn't supply a turnId.
         turnId: effectiveTurnId,
+        parentId: requestParentId,
         waitUntil: getRequestRunContext()?.waitUntil,
         // A durable background worker reaches this same call site, so keying
         // only on the foreground self-chain flag stamped every worker run

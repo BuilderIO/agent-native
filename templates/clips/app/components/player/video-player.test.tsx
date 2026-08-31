@@ -195,6 +195,141 @@ describe("VideoPlayer playback", () => {
     expect(controls.className).not.toContain("pointer-events-none");
   });
 
+  it("hides playback comments while the end CTA is visible", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            persistPlaybackPosition={false}
+            comments={[
+              {
+                id: "comment-end",
+                content: "This should stay below the CTA.",
+                videoTimestampMs: 9_900,
+              },
+            ]}
+            cta={{
+              id: "cta-1",
+              label: "Visit site",
+              url: "https://example.com",
+              color: "#000000",
+              placement: "end",
+            }}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      handleRef.current?.seek(9_900);
+    });
+
+    expect(
+      container.querySelector("[data-player-playback-comment]"),
+    ).toBeNull();
+    expect(
+      container.querySelector<HTMLElement>("[data-player-end-cta]")?.style
+        .zIndex,
+    ).toBe("60");
+    expect(container.textContent).toContain("Visit site");
+  });
+
+  it("keeps an active marker hover preview above the playback comment", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            persistPlaybackPosition={false}
+            comments={[
+              {
+                id: "comment-active",
+                content: "This is active.",
+                videoTimestampMs: 1_000,
+              },
+            ]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      handleRef.current?.seek(1_000);
+    });
+
+    const marker = container.querySelector<HTMLButtonElement>(
+      '[aria-label="1 comment"]',
+    );
+    act(() => {
+      marker?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    });
+
+    const hoverPreview = container.querySelector("[data-player-comment-hover]");
+    const playbackComment = container.querySelector(
+      "[data-player-playback-comment]",
+    );
+    expect(hoverPreview).not.toBeNull();
+    expect(playbackComment).not.toBeNull();
+    expect(hoverPreview?.className).toContain("z-50");
+    expect(playbackComment?.className).toContain("z-40");
+    expect(getPlayerControls().className).not.toContain("z-20");
+  });
+
+  it("keeps throughout CTAs above playback comments", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            persistPlaybackPosition={false}
+            comments={[
+              {
+                id: "comment-throughout",
+                content: "This is active.",
+                videoTimestampMs: 1_000,
+              },
+            ]}
+            cta={{
+              id: "cta-throughout",
+              label: "Visit site",
+              url: "https://example.com",
+              color: "#000000",
+              placement: "throughout",
+            }}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      handleRef.current?.seek(1_000);
+    });
+
+    const cta = container.querySelector<HTMLAnchorElement>(
+      'a[href="https://example.com"]',
+    );
+    expect(cta?.parentElement?.className).toContain("z-50");
+    expect(
+      container.querySelector("[data-player-playback-comment]"),
+    ).not.toBeNull();
+  });
+
   it("keeps the pause control visible on mobile after the idle timeout", () => {
     const video = getVideo();
     Object.defineProperty(video, "paused", {
@@ -473,7 +608,7 @@ describe("VideoPlayer playback", () => {
       .mockReturnValue(new Promise<void>(() => {}));
 
     act(() => {
-      handleRef.current?.play();
+      void handleRef.current?.play();
     });
 
     expect(playSpy).toHaveBeenCalledTimes(1);
@@ -528,7 +663,7 @@ describe("VideoPlayer playback", () => {
     video.currentTime = 10;
 
     act(() => {
-      handleRef.current?.play();
+      void handleRef.current?.play();
     });
 
     expect(video.currentTime).toBe(0);

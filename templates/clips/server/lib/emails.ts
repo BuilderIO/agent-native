@@ -222,9 +222,9 @@ function registerClipsEmailDefinitions(): void {
     name: "Clip comment",
     trigger:
       "Someone comments or replies on a Clip. Subject and copy differ slightly for a reply; both send under this id.",
-    recipientLabel: "Owner and thread authors",
+    recipientLabel: "Owner, mentioned members, and thread authors",
     recipient:
-      "The recording owner, plus every prior author in the thread when the comment is a reply. The list is re-checked against the recording's live ACL and filtered by each user's `emailNotifications` preference; the comment's own author never receives it.",
+      "The recording owner, mentioned organization members, plus every prior author in the thread when the comment is a reply. The list is re-checked against the recording's live ACL and filtered by each user's `emailNotifications` preference; the comment's own author never receives it.",
     senderLabel: "Agent-Native Clips",
     sender: CLIPS_SENDER,
     preview: () =>

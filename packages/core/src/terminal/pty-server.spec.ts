@@ -208,6 +208,30 @@ describe("createPtyWebSocketServer", () => {
     ws.close();
   });
 
+  it("shell-quotes trusted host command arguments", async () => {
+    const server = await createServer({
+      command: "builder",
+      getCommandArgs: () => [
+        "--mcp-config",
+        "/tmp/desktop surface.json",
+        "it's-safe",
+      ],
+    });
+    const ws = await openSocket(`ws://127.0.0.1:${server.port}/ws`);
+    await vi.waitFor(() => expect(ptys).toHaveLength(1));
+
+    expect(spawn).toHaveBeenCalledWith(
+      expect.any(String),
+      [
+        "-l",
+        "-c",
+        "builder '--mcp-config' '/tmp/desktop surface.json' 'it'\"'\"'s-safe'",
+      ],
+      expect.objectContaining({ cwd: expect.any(String) }),
+    );
+    ws.close();
+  });
+
   it("does not write env vars sent through the terminal bridge to .env", async () => {
     const appDir = mkdtempSync(path.join(os.tmpdir(), "agent-terminal-"));
     tempDirs.push(appDir);

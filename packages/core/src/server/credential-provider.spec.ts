@@ -9,6 +9,10 @@ const mockPutSetting = vi.fn();
 const mockDeleteSetting = vi.fn();
 const mockGetRequestUserEmail = vi.fn<[], string | undefined>();
 const mockGetRequestOrgId = vi.fn<[], string | undefined>();
+const mockGetRequestContext = vi.fn<
+  [],
+  { isSyntheticTraffic?: boolean } | undefined
+>();
 const mockIsLocalDatabase = vi.fn<[], boolean>();
 const mockResolveOrgIdForEmail = vi.fn<[string], Promise<string | null>>();
 const mockGetDbExec = vi.fn();
@@ -20,6 +24,7 @@ vi.mock("../secrets/storage.js", () => ({
   deleteAppSecret: (...args: any[]) => mockDeleteAppSecret(...args),
 }));
 vi.mock("./request-context.js", () => ({
+  getRequestContext: () => mockGetRequestContext(),
   getRequestUserEmail: () => mockGetRequestUserEmail(),
   getRequestOrgId: () => mockGetRequestOrgId(),
 }));
@@ -164,6 +169,7 @@ beforeEach(() => {
   mockDeleteSetting.mockResolvedValue(true);
   mockGetRequestUserEmail.mockReturnValue(undefined);
   mockGetRequestOrgId.mockReturnValue(undefined);
+  mockGetRequestContext.mockReturnValue(undefined);
   mockIsLocalDatabase.mockReturnValue(true);
   mockResolveOrgIdForEmail.mockResolvedValue(null);
   mockGetDbExec.mockReturnValue({
@@ -779,6 +785,37 @@ describe("resolveBuilderCredential", () => {
     expect(canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")).toBe(
       true,
     );
+  });
+
+  it("never uses deploy provider keys for synthetic traffic", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.OPENAI_API_KEY = "openai-deploy-key";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestContext.mockReturnValue({ isSyntheticTraffic: true });
+    mockGetRequestUserEmail.mockReturnValue("e2e@example.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
+    expect(canUseDeployCredentialFallbackForRequest("OPENAI_API_KEY")).toBe(
+      false,
+    );
+  });
+
+  it("does not fall through to shared app secrets for synthetic traffic", async () => {
+    mockGetRequestContext.mockReturnValue({ isSyntheticTraffic: true });
+    mockGetRequestUserEmail.mockReturnValue("e2e@example.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockImplementation(async ({ scope }: any) =>
+      scope === "org"
+        ? { value: "shared-key", last4: "-key", updatedAt: 1 }
+        : null,
+    );
+
+    await expect(resolveSecret("OPENAI_API_KEY")).resolves.toBeNull();
+    expect(mockReadAppSecret.mock.calls.map((call) => call[0].scope)).toEqual([
+      "user",
+    ]);
   });
 
   it("uses app-provided email env keys for signed-in production shared-database users", async () => {

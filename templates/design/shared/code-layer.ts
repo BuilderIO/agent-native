@@ -305,7 +305,7 @@ export interface CodeLayerNode {
   dataAttributes: Record<string, string>;
   classes: string[];
   textSnippet: string | null;
-  style: Partial<Record<VisualStyleProperty | string, string>>;
+  style: Partial<Record<VisualStyleProperty | (string & {}), string>>;
   styleTokens: StyleToken[];
   parentId?: string;
   children: string[];
@@ -413,7 +413,7 @@ export interface EditIntentTarget {
 export interface StyleEditIntent {
   kind: "style";
   target: EditIntentTarget;
-  property: VisualStyleProperty | string;
+  property: VisualStyleProperty | (string & {});
   value: string;
 }
 
@@ -496,6 +496,12 @@ export interface AutoLayoutEditIntent {
   kind: "autoLayout";
   targetId: string;
   enabled: boolean;
+  /**
+   * Container declarations to write instead of the flex trio, so a grid flow
+   * also reaches the child reflow below — without it the children stay
+   * pinned where they were drawn and the new layout renders as a no-op.
+   */
+  containerStyles?: Record<string, string>;
   direction?: "row" | "column";
   gap?: string;
   /**
@@ -627,7 +633,7 @@ export interface PatchNodeSummary {
   selector: string;
   tag: string;
   classes: string[];
-  style: Partial<Record<VisualStyleProperty | string, string>>;
+  style: Partial<Record<VisualStyleProperty | (string & {}), string>>;
   textSnippet: string | null;
 }
 
@@ -2246,7 +2252,12 @@ function projectionSourceKey(source: CodeLayerSource): string {
   const record = source as unknown as Record<string, unknown>;
   return Object.keys(source)
     .sort()
-    .map((field) => `${field}=${record[field] ?? ""}`)
+    .map((field) => {
+      const value = record[field];
+      const serialized =
+        typeof value === "string" ? value : (JSON.stringify(value) ?? "");
+      return `${field}=${serialized}`;
+    })
     .join("\u0000");
 }
 
@@ -3399,11 +3410,20 @@ function stripAbsolutePositioningFromChild(
   // inset utilities can remain because they are inert for a statically
   // positioned flex/grid item, and preserving them avoids needless source
   // churn if the user later makes the layer absolute again.
-  const reparsedRoot = parseHtmlElements(nextHtml).find(
-    (element) => element.parentIndex === undefined,
-  );
-  if (!reparsedRoot) return nextHtml;
-  const classes = classList(reparsedRoot);
+  // Re-find THE CHILD: this also runs against whole documents (see
+  // applyAutoLayout), where the reparse's root is the container, not the child.
+  const reparsed = parseHtmlElements(nextHtml);
+  const childNodeId = attributeValue(child, "data-agent-native-node-id");
+  const reparsedChild =
+    (childNodeId
+      ? reparsed.find(
+          (element) =>
+            attributeValue(element, "data-agent-native-node-id") ===
+            childNodeId,
+        )
+      : undefined) ?? reparsed.find((element) => element.start === child.start);
+  if (!reparsedChild) return nextHtml;
+  const classes = classList(reparsedChild);
   const flowClasses = classes.filter((token) => {
     const variants = token.split(":");
     const utility = variants[variants.length - 1]?.replace(/^!/, "");
@@ -3414,7 +3434,7 @@ function stripAbsolutePositioningFromChild(
   if (flowClasses.length === classes.length) return nextHtml;
   nextHtml = replaceOrInsertAttribute(
     nextHtml,
-    reparsedRoot,
+    reparsedChild,
     "class",
     flowClasses.join(" "),
   );
@@ -4024,9 +4044,30 @@ function applyAutoLayout(
       declarations.push({ property: prop, value: val });
     }
   };
-  setOrReplace("display", "flex");
-  setOrReplace("flex-direction", direction);
-  setOrReplace("gap", gap);
+  const containerStyles = intent.containerStyles;
+  const writtenProperties: VisualStyleProperty[] = [];
+  if (containerStyles) {
+    const declared: Array<[VisualStyleProperty, string]> = [];
+    for (const [rawProperty, rawValue] of Object.entries(containerStyles)) {
+      const property = normalizeStyleProperty(rawProperty);
+      // All or nothing: a half-written flow (a display without its tracks) is
+      // a layout nobody asked for, and it would report as applied.
+      if (!property || !isSafeStyleValue(property, rawValue)) {
+        return "needsAgent";
+      }
+      declared.push([property, rawValue.trim()]);
+    }
+    if (declared.length === 0) return "needsAgent";
+    for (const [property, value] of declared) {
+      setOrReplace(property, value);
+      writtenProperties.push(property);
+    }
+  } else {
+    setOrReplace("display", "flex");
+    setOrReplace("flex-direction", direction);
+    setOrReplace("gap", gap);
+    writtenProperties.push("display", "flex-direction", "gap");
+  }
   let result = replaceOrInsertAttribute(
     html,
     element,
@@ -4079,7 +4120,7 @@ function applyAutoLayout(
     content: result,
     capability: {
       kind: "style",
-      properties: ["display", "flex-direction", "gap"],
+      properties: writtenProperties,
       confidence: 0.88,
     },
   };

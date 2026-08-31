@@ -48,8 +48,12 @@ async function assertBetterAuthUserIdentityColumns(): Promise<void> {
  * key without touching users or sessions. The JWKS endpoint keeps expired
  * keys during its grace period, so already-issued short-lived tokens remain
  * verifiable while the new key propagates.
+ *
+ * Also invoked at runtime by `jwks-secret-rotation.ts` when a live request
+ * hits the decrypt failure — release migrations do not reach every deployed
+ * database, so the release-time pass alone cannot be relied on.
  */
-async function expireJwksKeysAfterAuthSecretRotation(): Promise<void> {
+export async function expireJwksKeysAfterAuthSecretRotation(): Promise<void> {
   const { getDbExec, isPostgres } = await import("../db/client.js");
   const now = isPostgres() ? new Date().toISOString() : Date.now();
   const table = isPostgres() ? '"jwks"' : "jwks";
@@ -289,6 +293,28 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
     name: "better-auth-jwks-key-rotation-recovery",
     sql: {},
     run: expireJwksKeysAfterAuthSecretRotation,
+  },
+  {
+    version: 5,
+    name: "better-auth-add-onboarding-role",
+    sql: {
+      postgres: `
+        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "onboarding_role" TEXT
+      `,
+      sqlite: `
+        ALTER TABLE user ADD COLUMN IF NOT EXISTS onboarding_role TEXT
+      `,
+    },
+  },
+  {
+    version: 5,
+    name: "better-auth-user-lower-email-index",
+    sql: {
+      postgres:
+        'CREATE INDEX IF NOT EXISTS better_auth_user_lower_email_idx ON "user" (LOWER(email))',
+      sqlite:
+        "CREATE INDEX IF NOT EXISTS better_auth_user_lower_email_idx ON user (LOWER(email))",
+    },
   },
 ];
 

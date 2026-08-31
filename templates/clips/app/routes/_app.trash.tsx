@@ -323,7 +323,7 @@ export default function TrashRoute() {
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => {
-                if (singlePurgeId) purgeAll([singlePurgeId]);
+                if (singlePurgeId) void purgeAll([singlePurgeId]);
                 setSinglePurgeId(null);
               }}
             >

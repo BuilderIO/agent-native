@@ -30,9 +30,15 @@ Agent-Native アプリは Nitro で動作します。デプロイするものに
 
 スタンドアロンアプリには安定した `BETTER_AUTH_SECRET` が必要です。署名付きのアプリ間リクエストを使うワークスペースには `A2A_SECRET` が必要です。
 
+## メール配信は任意ですが、推奨されます {#email-provider}
+
+メールプロバイダーはメール/パスワード認証に必須ではありません。プロバイダーがない場合、デプロイしたアプリはメール/パスワードでサインアップとサインインを行い、サインアップ時のメール確認をスキップし、マジックリンク認証を提供しません。
+
+マジックリンク、メール確認、パスワードリセット、招待、共有通知が必要な場合は、デプロイ前に Resend または SendGrid を接続してください。デプロイ環境に `RESEND_API_KEY` または `SENDGRID_API_KEY` を設定し、SendGrid では `EMAIL_FROM` も設定します。認証モードは[認証](/docs/authentication)を参照してください。
+
 ## サポートされるターゲット
 
-Agent-Native は [Node.js](/docs/node-js)、[Docker](/docs/docker)、[Vercel](/docs/vercel)、[Netlify](/docs/netlify)、[Cloudflare Pages](/docs/cloudflare#cloudflare-pages)、[Cloudflare Workers](/docs/cloudflare#cloudflare-workers)、[AWS Lambda](/docs/aws-lambda)、[Deno Deploy](/docs/deno-deploy)、[Azure Static Web Apps](/docs/azure-static-web-apps)、[Koyeb](/docs/koyeb)、[Render](/docs/render) をサポートします。
+Agent-Native は [Node.js](/docs/node-js)、[Docker](/docs/docker)、[Vercel](/docs/vercel)、[Netlify](/docs/netlify)、[Cloudflare Pages](/docs/cloudflare#cloudflare-pages)、[Cloudflare Workers](/docs/cloudflare#cloudflare-workers)、[AWS Amplify](/docs/aws-amplify)、[AWS Lambda](/docs/aws-lambda)、[Deno Deploy](/docs/deno-deploy)、[Azure Static Web Apps](/docs/azure-static-web-apps)、[Koyeb](/docs/koyeb)、[Render](/docs/render) をサポートします。
 
 高度な設定、シークレット、本番値については [デプロイ環境変数リファレンス](/docs/deployment-environment-variables) を参照してください。
 

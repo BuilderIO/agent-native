@@ -109,6 +109,8 @@ export const designVersions = table("design_versions", {
   designId: text("design_id").notNull(),
   label: text("label"),
   snapshot: text("snapshot").notNull(),
+  chatContext: text("chat_context"),
+  fileCount: integer("file_count"),
   createdAt: text("created_at").default(now()),
 });
 

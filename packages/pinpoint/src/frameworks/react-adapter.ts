@@ -202,8 +202,8 @@ export function buildComponentPath(element: Element): string {
 // Initialize bippy and element-source lazily
 if (typeof window !== "undefined") {
   const init = () => {
-    loadBippy();
-    loadElementSource();
+    void loadBippy();
+    void loadElementSource();
   };
   if (typeof requestIdleCallback !== "undefined") {
     requestIdleCallback(init);

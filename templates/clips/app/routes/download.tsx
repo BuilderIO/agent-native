@@ -1,10 +1,13 @@
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import { docsUrl } from "@agent-native/core/shared";
 import {
   IconBrandChrome,
   IconBrandApple,
   IconBrandWindows,
+  IconCheck,
   IconExternalLink,
+  IconHelpCircle,
   IconTerminal2,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
@@ -50,6 +53,10 @@ interface PlatformVariant {
 }
 
 const LATEST_JSON_URL = `${appBasePath()}/api/clips-latest.json`;
+const MANIFEST_STORAGE_KEY = "clips-download-manifest-v1";
+const CHROME_EXTENSION_DOCS_URL = docsUrl("template-clips-capture-everywhere", {
+  hash: "browser-logs-with-the-chrome-extension",
+});
 
 const VARIANTS: PlatformVariant[] = [
   {
@@ -85,6 +92,65 @@ interface Manifest {
   }[];
 }
 
+interface ConfirmedDownload {
+  asset: Manifest["assets"][number];
+  label: string;
+}
+
+function manifestStorageKey(channel: DownloadReleaseChannel): string {
+  return `${MANIFEST_STORAGE_KEY}-${channel}`;
+}
+
+function isManifest(value: unknown): value is Manifest {
+  if (!value || typeof value !== "object") return false;
+  const manifest = value as Partial<Manifest>;
+  return (
+    typeof manifest.version === "string" &&
+    typeof manifest.tag === "string" &&
+    (typeof manifest.pub_date === "string" || manifest.pub_date === null) &&
+    Array.isArray(manifest.assets) &&
+    manifest.assets.every((asset) => {
+      if (!asset || typeof asset !== "object") return false;
+      const candidate = asset as Partial<Manifest["assets"][number]>;
+      return (
+        typeof candidate.name === "string" &&
+        typeof candidate.url === "string" &&
+        typeof candidate.size === "number" &&
+        typeof candidate.kind === "string"
+      );
+    })
+  );
+}
+
+function readCachedManifest(channel: DownloadReleaseChannel): Manifest | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(manifestStorageKey(channel));
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    return isManifest(parsed) ? parsed : null;
+    // coercion-ok: an unreadable browser cache is absent; the network fetch remains authoritative.
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedManifest(
+  channel: DownloadReleaseChannel,
+  manifest: Manifest,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      manifestStorageKey(channel),
+      JSON.stringify(manifest),
+    );
+    // coercion-ok: browser storage is optional and must not block the download action.
+  } catch {
+    // Storage can be unavailable in private browsing or locked-down contexts.
+  }
+}
+
 function detectPlatform(): PlatformId | null {
   if (typeof navigator === "undefined") return null;
   const ua = navigator.userAgent;
@@ -97,11 +163,11 @@ function detectPlatform(): PlatformId | null {
 function pickAsset(
   manifest: Manifest | null,
   variant: PlatformVariant,
-): { url: string; name: string } | null {
+): Manifest["assets"][number] | null {
   if (!manifest) return null;
   for (const kind of variant.assetKinds) {
     const asset = manifest.assets.find((a) => a.kind === kind);
-    if (asset) return { url: asset.url, name: asset.name };
+    if (asset) return asset;
   }
   return null;
 }
@@ -113,6 +179,9 @@ function primaryDownloadButton(
   downloadLabel: string,
   retryLabel: string,
   onRetry: () => void,
+  downloadStarted: boolean,
+  downloadStartedLabel: string,
+  onDownload: (asset: Manifest["assets"][number]) => void,
 ) {
   const asset = pickAsset(manifest, variant);
   const Icon = variant.icon;
@@ -123,9 +192,13 @@ function primaryDownloadButton(
         size="lg"
         className="h-12 min-w-[252px] gap-2 px-6 text-base"
       >
-        <a href={asset.url} download onClick={markDesktopAppDownloaded}>
-          <Icon className="h-5 w-5" />
-          {downloadLabel}
+        <a href={asset.url} download onClick={() => onDownload(asset)}>
+          {downloadStarted ? (
+            <IconCheck className="h-5 w-5" />
+          ) : (
+            <Icon className="h-5 w-5" />
+          )}
+          {downloadStarted ? downloadStartedLabel : downloadLabel}
         </a>
       </Button>
     );
@@ -168,6 +241,8 @@ export default function DownloadPage() {
   const [manifestError, setManifestError] = useState(false);
   const [detected, setDetected] = useState<PlatformId | null>(null);
   const [manifestRequest, setManifestRequest] = useState(0);
+  const [confirmedDownload, setConfirmedDownload] =
+    useState<ConfirmedDownload | null>(null);
 
   useEffect(() => {
     setDetected(detectPlatform());
@@ -182,7 +257,8 @@ export default function DownloadPage() {
     if (!hostResolved) return;
 
     let cancelled = false;
-    setManifest(null);
+    const cachedManifest = readCachedManifest(channel);
+    setManifest(cachedManifest);
     setManifestError(false);
     const manifestUrl =
       channel === "nightly"
@@ -191,10 +267,15 @@ export default function DownloadPage() {
     fetch(manifestUrl)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${r.status}`))))
       .then((json) => {
-        if (!cancelled) setManifest(json as Manifest);
+        if (!isManifest(json)) throw new Error("Invalid manifest");
+        if (!cancelled) {
+          setManifest(json);
+          setManifestError(false);
+          writeCachedManifest(channel, json);
+        }
       })
       .catch(() => {
-        if (!cancelled) setManifestError(true);
+        if (!cancelled && !cachedManifest) setManifestError(true);
       });
     return () => {
       cancelled = true;
@@ -202,6 +283,7 @@ export default function DownloadPage() {
   }, [channel, hostResolved, manifestRequest]);
 
   const retryManifest = () => {
+    setConfirmedDownload(null);
     setManifestRequest((request) => request + 1);
   };
 
@@ -210,13 +292,27 @@ export default function DownloadPage() {
 
     setManifest(null);
     setManifestError(false);
+    setConfirmedDownload(null);
     setChannel(nextChannel);
   };
 
   const primary = VARIANTS.find((v) => v.id === detected) ?? VARIANTS[0];
+  const primaryAsset = pickAsset(manifest, primary);
+  const downloadLabel = t("downloadRoute.downloadFor", {
+    platform: primary.label,
+  });
+  const downloadStartedLabel = t("downloadRoute.downloadStarted");
+  const primaryDownloadStarted =
+    confirmedDownload?.asset.url === primaryAsset?.url;
+
+  const handleDownload = (asset: Manifest["assets"][number], label: string) => {
+    markDesktopAppDownloaded();
+    setConfirmedDownload({ asset, label });
+  };
 
   const handlePlatformChange = (nextPlatform: PlatformId) => {
     if (nextPlatform === detected) return;
+    setConfirmedDownload(null);
     setDetected(nextPlatform);
   };
 
@@ -297,9 +393,35 @@ export default function DownloadPage() {
                 primary,
                 manifest,
                 manifestError,
-                t("downloadRoute.downloadFor", { platform: primary.label }),
+                downloadLabel,
                 t("downloadRoute.retry"),
                 retryManifest,
+                primaryDownloadStarted,
+                downloadStartedLabel,
+                (asset) => handleDownload(asset, downloadLabel),
+              )}
+
+              {primaryDownloadStarted && confirmedDownload && (
+                <p
+                  aria-live="polite"
+                  className="mt-3 text-xs text-muted-foreground"
+                >
+                  <span className="sr-only">{downloadStartedLabel}</span>
+                  <a
+                    href={confirmedDownload.asset.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() =>
+                      handleDownload(
+                        confirmedDownload.asset,
+                        confirmedDownload.label,
+                      )
+                    }
+                    className="text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                  >
+                    {t("downloadRoute.downloadAgain")}
+                  </a>
+                </p>
               )}
 
               <div className="mt-5 flex justify-center">
@@ -349,25 +471,36 @@ export default function DownloadPage() {
           </div>
 
           {chromeExtensionEnabled && (
-            <section className="mt-10 w-full max-w-xl rounded-2xl border border-border bg-card p-4 text-start shadow-sm">
-              <div className="flex items-start gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <section className="mt-16 w-full max-w-md text-start">
+              <div className="flex items-center gap-2">
+                <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
                   <IconBrandChrome className="h-4 w-4" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <h2 className="text-sm font-semibold text-foreground">
                     {t("downloadRoute.chromeTitle")}
                   </h2>
-                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                    {t("downloadRoute.chromeDescription")}
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t("captureInstall.chromeDescription")}
                   </p>
                 </div>
+                <a
+                  href={CHROME_EXTENSION_DOCS_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={t("downloadRoute.chromeTitle")}
+                  title={t("downloadRoute.chromeTitle")}
+                  className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <IconHelpCircle className="size-3" aria-hidden="true" />
+                </a>
               </div>
               <Button
                 asChild={Boolean(clipsChromeExtensionUrl)}
                 disabled={!clipsChromeExtensionUrl}
                 variant="outline"
-                className="mt-4 w-full gap-2"
+                size="sm"
+                className="mt-3 w-full gap-2"
               >
                 {clipsChromeExtensionUrl ? (
                   <a

@@ -223,7 +223,7 @@ export async function touchPublicKeyLastUsedAt(
   }
   const staleBefore = new Date(parsed - LAST_USED_AT_REFRESH_MS).toISOString();
   try {
-    const db = await getDb();
+    const db = getDb();
     await db
       .update(schema.analyticsPublicKeys)
       .set({ lastUsedAt: receivedAt })

@@ -45,7 +45,7 @@ export function CardsBlock({ data, ctx }: BlockReadProps<CardsData>) {
           <li key={i} className="docs-card">
             {card.href ? (
               <Link
-                to={card.href}
+                to={ctx.localizeHref?.(card.href) ?? card.href}
                 prefetch="viewport"
                 data-an-prefetch="viewport"
                 className={`docs-card-link ${gridClass}`}

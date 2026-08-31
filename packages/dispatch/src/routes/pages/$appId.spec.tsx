@@ -8,6 +8,7 @@ const routeState = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
+  agentNativePath: (path: string) => path,
   appPath: (path: string) => path,
 }));
 

@@ -678,7 +678,9 @@ export async function retryStaleRemoteCommands(options?: {
 function parseJson(value: unknown, fallback: unknown): unknown {
   if (value == null) return fallback;
   try {
-    return JSON.parse(String(value));
+    return JSON.parse(
+      typeof value === "string" ? value : (JSON.stringify(value) ?? ""),
+    );
   } catch {
     return fallback;
   }
@@ -711,7 +713,8 @@ function affectedRows(result: {
 }
 
 function isDuplicateColumnError(error: unknown): boolean {
-  const code = String((error as { code?: unknown })?.code ?? "");
+  const codeValue = (error as { code?: unknown })?.code;
+  const code = typeof codeValue === "string" ? codeValue : "";
   const message = String((error as { message?: unknown })?.message ?? error)
     .toLowerCase()
     .trim();
@@ -723,7 +726,8 @@ function isDuplicateColumnError(error: unknown): boolean {
 }
 
 function isUniqueConstraintError(error: unknown): boolean {
-  const code = String((error as { code?: unknown })?.code ?? "");
+  const codeValue = (error as { code?: unknown })?.code;
+  const code = typeof codeValue === "string" ? codeValue : "";
   const message = String((error as { message?: unknown })?.message ?? error)
     .toLowerCase()
     .trim();

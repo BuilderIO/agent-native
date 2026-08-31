@@ -71,14 +71,45 @@ describe("parseEditorPreferences", () => {
   it("reads stored amounts", () => {
     expect(parseEditorPreferences('{"nudge":{"small":2,"big":8}}')).toEqual({
       status: "ok",
-      preferences: { nudge: { small: 2, big: 8 } },
+      preferences: {
+        nudge: { small: 2, big: 8 },
+        inspectorGridDebug: false,
+      },
     });
   });
 
   it("fills in defaults for partially stored amounts", () => {
     expect(parseEditorPreferences('{"nudge":{"big":8}}')).toEqual({
       status: "ok",
-      preferences: { nudge: { small: 1, big: 8 } },
+      preferences: {
+        nudge: { small: 1, big: 8 },
+        inspectorGridDebug: false,
+      },
+    });
+  });
+
+  it("reads the persisted inspector grid debug preference", () => {
+    expect(
+      parseEditorPreferences(
+        '{"nudge":{"small":1,"big":10},"inspectorGridDebug":true}',
+      ),
+    ).toEqual({
+      status: "ok",
+      preferences: {
+        nudge: { small: 1, big: 10 },
+        inspectorGridDebug: true,
+      },
+    });
+  });
+
+  it("rejects a non-boolean inspector grid debug preference", () => {
+    expect(
+      parseEditorPreferences(
+        '{"nudge":{"small":1,"big":10},"inspectorGridDebug":"yes"}',
+      ),
+    ).toMatchObject({
+      status: "invalid",
+      reason: "expected inspectorGridDebug to be a boolean",
     });
   });
 
@@ -94,7 +125,10 @@ describe("parseEditorPreferences", () => {
 
 describe("serializeEditorPreferences", () => {
   it("round-trips through parse", () => {
-    const preferences = { nudge: { small: 2, big: 8 } };
+    const preferences = {
+      nudge: { small: 2, big: 8 },
+      inspectorGridDebug: true,
+    };
     expect(
       parseEditorPreferences(serializeEditorPreferences(preferences)),
     ).toEqual({ status: "ok", preferences });
@@ -102,7 +136,10 @@ describe("serializeEditorPreferences", () => {
 
   it("normalizes before writing so a corrupt value never reaches the store", () => {
     expect(
-      serializeEditorPreferences({ nudge: { small: 0, big: Number.NaN } }),
-    ).toBe('{"nudge":{"small":1,"big":10}}');
+      serializeEditorPreferences({
+        nudge: { small: 0, big: Number.NaN },
+        inspectorGridDebug: false,
+      }),
+    ).toBe('{"nudge":{"small":1,"big":8},"inspectorGridDebug":false}');
   });
 });

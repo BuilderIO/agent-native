@@ -379,6 +379,60 @@ const messages = {
       newFilter: "New filter",
       noFilters: "No Gmail filters yet.",
     },
+    aiFilter: {
+      title: "AI filter",
+      subtitle: "A reversible label that learns from your decisions.",
+      lunaBadge: "Luna when available",
+      toggle: "Toggle AI filter",
+      autoFilterTitle: "Auto-filter high confidence",
+      autoFilterDescription:
+        "Move only clear matches out of Inbox; review the rest here.",
+      autoFilterToggle: "Auto-filter high-confidence mail",
+      thresholdLabel: "Auto-filter confidence threshold",
+      labelName: "Gmail label",
+      labelHelp:
+        "agent-native-filtered stays visible in Gmail and other clients. It is not Gmail Spam.",
+      reviewLabel: "Review filtered",
+      instructionsTitle: "Instructions",
+      instructionCount: "{{count}} instruction(s)",
+      instructionPlaceholder:
+        "e.g. Subjects like “question for you, Steve” are unwanted",
+      addInstruction: "Add",
+      noInstructions: "No instructions yet.",
+      instructionExample: "Try “all political campaign emails are unwanted.”",
+      toggleInstruction: "Toggle instruction: {{instruction}}",
+      deleteInstruction: "Delete instruction",
+      activityTitle: "Recent activity",
+      suggestionCount: "{{count}} to review",
+      viewAll: "View all",
+      noActivity: "No AI filter activity yet.",
+      unknownSender: "Unknown sender",
+      noSubject: "(no subject)",
+      filterTitle: "Filter with AI",
+      keepTitle: "Keep in inbox",
+      filterDescription:
+        "This archives {{count}} conversation(s) and adds the agent-native-filtered label.",
+      keepDescription:
+        "This restores {{count}} conversation(s) to Inbox and teaches the filter.",
+      labelNote:
+        "Adds the agent-native-filtered label and archives the conversation. You can undo it anytime.",
+      learningNote:
+        "Keeps the message in Inbox and teaches the filter not to repeat the mistake.",
+      rememberLabel: "Remember for future mail (optional)",
+      correctLabel: "What should it learn? (optional)",
+      rememberPlaceholder:
+        "e.g. Messages like this from political campaigns are unwanted",
+      correctPlaceholder:
+        "e.g. This sender is a customer; keep future messages in Inbox",
+      commentHint: "Your note becomes an editable rule or learning example.",
+      filterButton: "Filter",
+      keepButton: "Keep",
+      filteredToast: "Filtered {{count}} conversation(s).",
+      keptToast: "Kept {{count}} conversation(s) in Inbox.",
+      actionFailed: "Could not update the AI filter.",
+      settingsFailed: "Could not save AI filter settings.",
+      instructionFailed: "Could not save AI filter instruction.",
+    },
     draftQueue: {
       title: "Draft queue",
       queueDraft: "Queue a draft",
@@ -556,6 +610,7 @@ const messages = {
     deleteSnippetDescription:
       'Delete snippet "{{name}}"? This cannot be undone.',
     automations: "Automations",
+    aiFilter: "AI filter",
     gmailFilters: "Gmail Filters",
     aliases: "Aliases",
     tracking: "Tracking",

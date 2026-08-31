@@ -12,12 +12,24 @@
 const DEFAULT_MAX_CAUSE_LINKS = 4;
 const MAX_CAUSE_LINK_CHARS = 200;
 
+function stringifyUnknown(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "";
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return Object.prototype.toString.call(value);
+  }
+}
+
 export function describeErrorWithCauses(
   err: unknown,
   maxLinks: number = DEFAULT_MAX_CAUSE_LINKS,
 ): string {
   const head =
-    err instanceof Error ? err.message : String(err ?? "Unknown error");
+    err instanceof Error
+      ? err.message
+      : stringifyUnknown(err) || "Unknown error";
   const links: string[] = [];
   const seen = new Set<unknown>([err]);
   let cause: unknown = (err as { cause?: unknown } | null)?.cause;
@@ -25,7 +37,8 @@ export function describeErrorWithCauses(
     if (seen.has(cause)) break;
     seen.add(cause);
     const code = (cause as { code?: unknown }).code;
-    const message = cause instanceof Error ? cause.message : String(cause);
+    const message =
+      cause instanceof Error ? cause.message : stringifyUnknown(cause);
     const text = (typeof code === "string" ? `${code} ${message}` : message)
       .trim()
       .slice(0, MAX_CAUSE_LINK_CHARS);
@@ -200,7 +213,7 @@ export function classifyProviderError(
       isProviderConnectionErrorMessage(
         typeof providerError?.message === "string"
           ? providerError.message
-          : String(providerError),
+          : stringifyUnknown(providerError),
       ));
 
   const providerRetryable =

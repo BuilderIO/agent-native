@@ -515,14 +515,19 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "template-forms",
           },
           {
-            id: "template-forms-building-publishing",
-            labelKey: "formsBuildingPublishing",
-            slug: "template-forms-building-publishing",
+            id: "template-forms-features",
+            labelKey: "formsFeatures",
+            slug: "template-forms-features",
           },
           {
-            id: "template-forms-responses",
-            labelKey: "formsResponses",
-            slug: "template-forms-responses",
+            id: "template-forms-agent",
+            labelKey: "formsAgent",
+            slug: "template-forms-agent",
+          },
+          {
+            id: "template-forms-integrations",
+            labelKey: "formsIntegrations",
+            slug: "template-forms-integrations",
           },
           {
             id: "template-forms-developers",

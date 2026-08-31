@@ -11,7 +11,10 @@ import {
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import {
+  buildSignInReturnHref,
+  DefaultSpinner,
+} from "@agent-native/core/client/ui";
 import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
@@ -193,7 +196,7 @@ const WORKFLOW_MENU_ITEMS: Array<{
 
 interface GeneratedWorkflowState {
   kind?: WorkflowKind;
-  status?: "generating" | "ready" | "failed" | string;
+  status?: "generating" | "ready" | "failed" | (string & {});
   content?: string;
   recordingId?: string;
   requestedAt?: string;
@@ -419,7 +422,7 @@ export default function RecordingPage() {
     const shareParams = new URLSearchParams();
     shareParams.set(REF_PARAM, CLIP_SHARE_REF);
     shareParams.set(DASHBOARD_REDIRECT_PARAM, DASHBOARD_REDIRECT_VALUE);
-    navigate(
+    void navigate(
       `/share/${encodeURIComponent(recordingId)}?${shareParams.toString()}`,
       {
         replace: true,
@@ -927,11 +930,7 @@ export default function RecordingPage() {
   if (!recordingId) return null;
 
   if (playerDataQ.isLoading || playerDataForbidden) {
-    return (
-      <div className="flex items-center justify-center h-screen w-full bg-background">
-        <Spinner className="h-8 w-8" />
-      </div>
-    );
+    return <DefaultSpinner />;
   }
 
   if (playerDataQ.isError || !recording) {
@@ -941,11 +940,7 @@ export default function RecordingPage() {
         ? `/r/${recordingId}`
         : window.location.pathname + window.location.search;
     if (sessionLoading) {
-      return (
-        <div className="flex items-center justify-center h-screen w-full bg-background">
-          <Spinner className="h-8 w-8" />
-        </div>
-      );
+      return <DefaultSpinner />;
     }
     return (
       <div className="flex flex-col items-center justify-center h-screen w-full bg-background px-6">
@@ -1176,7 +1171,7 @@ export default function RecordingPage() {
                 return;
               }
               setProcessingTimeout(false);
-              playerDataQ.refetch();
+              void playerDataQ.refetch();
             }}
             variant="outline"
             size="sm"
@@ -1309,6 +1304,7 @@ export default function RecordingPage() {
             comments={comments}
             currentMs={playbackMs}
             currentUserEmail={session?.email}
+            currentUserName={session?.name}
             enableComments={recording.enableComments}
             canComment={canComment}
             onSeek={(ms) => playerRef.current?.seek(ms)}

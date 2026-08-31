@@ -166,7 +166,7 @@ Options:
     try {
       allColumns = await discoverColumnsSqlite(client);
     } finally {
-      client.close();
+      void client.close();
     }
   }
 

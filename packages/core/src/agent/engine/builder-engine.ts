@@ -31,7 +31,10 @@ import {
   recordBuilderGatewayAuthFailure,
   type BuilderGatewayLane,
 } from "../../server/credential-provider.js";
-import { getRequestUserEmail } from "../../server/request-context.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../../server/request-context.js";
 import { applyBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
 import {
   allowsSamplingParams,
@@ -57,6 +60,7 @@ import {
   isProviderConnectionErrorMessage,
 } from "./error-detail.js";
 import { FIRST_STREAM_EVENT_TIMEOUT_MS } from "./first-event-timeout.js";
+import { limitProviderTools } from "./limit-provider-tools.js";
 import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
 import {
   splitSystemPromptForCache,
@@ -217,17 +221,19 @@ class BuilderEngine implements AgentEngine {
       this.configuredCredentials ??
       (await resolveBuilderGatewayCredentialsDetailed());
     const ownerEmail = getRequestUserEmail();
+    const orgId = getRequestOrgId() ?? null;
     let oauthAccess: Awaited<
       ReturnType<typeof resolveBuilderOAuthRequestAccess>
     > = null;
     let hasStoredOAuth = false;
     if (ownerEmail) {
-      hasStoredOAuth = await hasBuilderOAuthSession(ownerEmail);
+      hasStoredOAuth = await hasBuilderOAuthSession(ownerEmail, orgId);
       if (hasStoredOAuth) {
         try {
           oauthAccess = await resolveBuilderOAuthRequestAccess({
             ownerEmail,
             requiredScope: BUILDER_OAUTH_SCOPE,
+            orgId,
           });
         } catch {
           // coercion-ok: unusable OAuth custody must not fall back to legacy keys.
@@ -265,11 +271,12 @@ class BuilderEngine implements AgentEngine {
         ? BUILDER_DEFAULT_MODEL
         : requestedModel;
     const toolNameMap = createProviderToolNameMap(opts.tools, opts.messages);
+    const providerTools = limitProviderTools(opts.tools);
     const messages = engineMessagesToBuilderGatewayAnthropic(
       opts.messages,
       toolNameMap,
     );
-    const tools = engineToolsToAnthropic(opts.tools, toolNameMap);
+    const tools = engineToolsToAnthropic(providerTools, toolNameMap);
     const thinkingBudget =
       opts.providerOptions?.anthropic?.thinking?.budgetTokens;
     const reasoningEffort = normalizeReasoningEffortForModel(
@@ -469,6 +476,7 @@ class BuilderEngine implements AgentEngine {
           creditsLane,
           requestShape,
           recordLegacyCredentialFailure: !oauthAccess,
+          oauthScope: oauthAccess?.scope,
         });
         return;
       }
@@ -539,6 +547,7 @@ class BuilderEngine implements AgentEngine {
         requestStartedAt: tStart,
         requestShape,
         recordLegacyCredentialFailure: !oauthAccess,
+        oauthScope: oauthAccess?.scope,
       });
     } finally {
       gatewayAbort.cleanup();
@@ -619,6 +628,7 @@ function gatewayErrorStop(
 
 async function recordAuthFailureForCurrentLane(opts: {
   recordLegacyCredentialFailure?: boolean;
+  oauthScope?: "user" | "org";
   status?: number;
   code?: string;
   message?: string;
@@ -632,7 +642,19 @@ async function recordAuthFailureForCurrentLane(opts: {
     return;
   }
   const ownerEmail = getRequestUserEmail();
-  if (ownerEmail) await markBuilderOAuthReconnectRequired(ownerEmail);
+  if (ownerEmail) {
+    if (opts.oauthScope === "org") {
+      await markBuilderOAuthReconnectRequired(
+        ownerEmail,
+        "org",
+        getRequestOrgId(),
+      );
+    } else if (opts.oauthScope === "user") {
+      await markBuilderOAuthReconnectRequired(ownerEmail, "user");
+    } else {
+      await markBuilderOAuthReconnectRequired(ownerEmail);
+    }
+  }
 }
 
 async function* emitHttpError(
@@ -641,6 +663,7 @@ async function* emitHttpError(
     creditsLane: boolean;
     requestShape?: EngineRequestShape;
     recordLegacyCredentialFailure?: boolean;
+    oauthScope?: "user" | "org";
   },
 ): AsyncIterable<EngineEvent> {
   const status = response.status;
@@ -681,6 +704,7 @@ async function* emitHttpError(
   if (status === 401 || code === "unauthorized") {
     await recordAuthFailureForCurrentLane({
       recordLegacyCredentialFailure: opts.recordLegacyCredentialFailure,
+      oauthScope: opts.oauthScope,
       status,
       code,
       message,
@@ -695,6 +719,7 @@ async function* emitHttpError(
   if (status === 403 && isBuilderCredentialAuthError(message)) {
     await recordAuthFailureForCurrentLane({
       recordLegacyCredentialFailure: opts.recordLegacyCredentialFailure,
+      oauthScope: opts.oauthScope,
       status,
       code,
       message,
@@ -782,6 +807,7 @@ async function* parseJsonlStream(
     creditsLane?: boolean;
     requestShape?: EngineRequestShape;
     recordLegacyCredentialFailure?: boolean;
+    oauthScope?: "user" | "org";
   } = {},
 ): AsyncIterable<EngineEvent> {
   const parts: EngineContentPart[] = [];
@@ -1035,6 +1061,7 @@ async function* parseJsonlStream(
               await recordAuthFailureForCurrentLane({
                 recordLegacyCredentialFailure:
                   captureContext.recordLegacyCredentialFailure,
+                oauthScope: captureContext.oauthScope,
                 code:
                   typeof gatewayErrCode === "string" ? gatewayErrCode : errCode,
                 message: String(errMsg),

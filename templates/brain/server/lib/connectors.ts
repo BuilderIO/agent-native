@@ -604,8 +604,8 @@ async function summarizeSlackPilotSource(sourceId: string) {
     rows: T[],
   ) =>
     [...rows].sort((a, b) =>
-      String(b.updatedAt ?? b.createdAt ?? "").localeCompare(
-        String(a.updatedAt ?? a.createdAt ?? ""),
+      JSON.stringify(b.updatedAt ?? b.createdAt ?? "").localeCompare(
+        JSON.stringify(a.updatedAt ?? a.createdAt ?? ""),
       ),
     );
 
@@ -747,7 +747,13 @@ function newestSlackTs(messages: SlackMessage[]): string | undefined {
 function readableJson(value: unknown): string {
   if (typeof value === "string") return value.trim();
   if (value == null) return "";
-  if (typeof value !== "object") return String(value);
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+  ) {
+    return value.toString();
+  }
   const record = value as Record<string, unknown>;
   for (const key of ["markdown", "text", "content", "summary"]) {
     const candidate = record[key];
@@ -1564,7 +1570,7 @@ function granolaSpeakerLabel(item: Record<string, unknown>): string {
     speaker.source ??
     item.speaker ??
     "speaker";
-  return String(label);
+  return typeof label === "string" ? label : JSON.stringify(label);
 }
 
 function granolaTranscriptLines(transcript: unknown): string[] {

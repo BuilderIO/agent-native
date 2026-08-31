@@ -287,7 +287,10 @@ export async function releaseAutomationSchedulerLease(input: {
 
 function fromRow(row: Record<string, unknown>): AutomationSchedulerHealth {
   return {
-    appId: String(row.app_id ?? DEFAULT_APP_ID),
+    appId:
+      typeof row.app_id === "string"
+        ? row.app_id
+        : (JSON.stringify(row.app_id ?? DEFAULT_APP_ID) ?? DEFAULT_APP_ID),
     orgId: row.org_id == null ? null : String(row.org_id),
     lastCheckedAt:
       row.last_checked_at == null ? null : Number(row.last_checked_at),

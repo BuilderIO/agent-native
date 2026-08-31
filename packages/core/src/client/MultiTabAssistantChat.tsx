@@ -13,6 +13,7 @@ import React, {
 } from "react";
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
+import type { AgentChatAttachment } from "../agent/types.js";
 import {
   DEFAULT_REASONING_EFFORT,
   isReasoningEffort,
@@ -98,11 +99,14 @@ interface ModelSelection {
 interface PendingSend {
   message: string;
   images?: string[];
+  attachments?: AgentChatAttachment[];
   submit: boolean;
   trackInRunsTray?: boolean;
   requestMode?: "act" | "plan";
   /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
   submitMessageId?: string;
+  /** See `AgentChatMessage.usageLabel`. */
+  usageLabel?: string;
 }
 
 /**
@@ -124,13 +128,21 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
     ref.prefillMessage(send.message);
     return;
   }
-  if (send.trackInRunsTray || send.requestMode || send.submitMessageId) {
+  if (
+    send.trackInRunsTray ||
+    send.requestMode ||
+    send.submitMessageId ||
+    send.attachments ||
+    send.usageLabel
+  ) {
     ref.sendMessage(send.message, send.images, {
       ...(send.trackInRunsTray ? { trackInRunsTray: true } : {}),
       ...(send.requestMode ? { requestMode: send.requestMode } : {}),
+      ...(send.attachments ? { attachments: send.attachments } : {}),
       ...(send.submitMessageId
         ? { submitMessageId: send.submitMessageId }
         : {}),
+      ...(send.usageLabel ? { usageLabel: send.usageLabel } : {}),
     });
   } else {
     ref.sendMessage(send.message, send.images);
@@ -205,19 +217,36 @@ function resolveModelSelection(
   const suppliedEngine = selection.engine?.trim()
     ? selection.engine
     : undefined;
-  const engine =
-    (groups.some((group) => group.engine === suppliedEngine)
-      ? suppliedEngine
-      : undefined) ??
-    groups.find((group) => group.models.includes(selection.model))?.engine ??
-    suppliedEngine;
-  if (!engine && groups.length > 0) return undefined;
-
-  const effort = resolveReasoningEffortSelection(
-    selection.model,
-    selection.effort,
+  const suppliedEngineGroup = suppliedEngine
+    ? groups.find((group) => group.engine === suppliedEngine)
+    : undefined;
+  const matchingConfiguredGroup = groups.find(
+    (group) => group.configured && group.models.includes(selection.model),
   );
-  const resolved: ModelSelection = { model: selection.model, effort };
+  const fallbackConfiguredGroup = groups.find((group) => group.configured);
+  const fallbackGroup = matchingConfiguredGroup ?? fallbackConfiguredGroup;
+  const engine = suppliedEngineGroup?.engine ?? fallbackGroup?.engine;
+  const model = suppliedEngineGroup
+    ? selection.model
+    : matchingConfiguredGroup?.models.includes(selection.model)
+      ? selection.model
+      : fallbackGroup?.models[0];
+  // A non-empty catalog is an availability boundary: do not keep routing a
+  // stale selection through a provider group hidden for missing credentials.
+  if (!engine || !model) {
+    if (groups.length > 0) return undefined;
+    return {
+      model: selection.model,
+      ...(suppliedEngine ? { engine: suppliedEngine } : {}),
+      effort: resolveReasoningEffortSelection(
+        selection.model,
+        selection.effort,
+      ),
+    };
+  }
+
+  const effort = resolveReasoningEffortSelection(model, selection.effort);
+  const resolved: ModelSelection = { model, effort };
   if (engine) resolved.engine = engine;
   return resolved;
 }
@@ -610,7 +639,6 @@ const STALE_THREAD_THRESHOLD_MS = 12 * 60 * 60 * 1000;
 const DEFAULT_AGENT_TEAM_POLL_MS = 3000;
 const DEFAULT_THREAD_URL_PARAM = "thread";
 const THREAD_URL_CHANGED_EVENT = "agent-chat:url-thread-changed";
-const hasOwn = Object.prototype.hasOwnProperty;
 
 // A duplicated id in `openTabIds` makes two tab-bar entries share one
 // underlying thread: closing either one filters that id out of the array
@@ -638,8 +666,10 @@ function installHistoryThreadUrlPatch(): () => void {
   if (typeof window === "undefined") return () => {};
   historyPatchRefCount += 1;
   if (historyPatchRefCount === 1) {
-    const originalPushState = window.history.pushState;
-    const originalReplaceState = window.history.replaceState;
+    const originalPushState = window.history.pushState.bind(window.history);
+    const originalReplaceState = window.history.replaceState.bind(
+      window.history,
+    );
     const dispatchUrlChange = () => {
       window.dispatchEvent(new Event(THREAD_URL_CHANGED_EVENT));
     };
@@ -703,7 +733,7 @@ function resolveThreadUrlSync(
   return {
     enabled: true,
     paramName: value.paramName?.trim() || DEFAULT_THREAD_URL_PARAM,
-    ...(hasOwn.call(value, "routeThreadId")
+    ...(Object.hasOwn(value, "routeThreadId")
       ? { routeThreadId: normalizeUrlThreadId(value.routeThreadId) }
       : {}),
     ...(value.getPath ? { getPath: value.getPath } : {}),
@@ -838,7 +868,7 @@ export function MultiTabAssistantChat({
     threadUrlSyncEnabled &&
     threadUrlSync !== true &&
     typeof threadUrlSync === "object" &&
-    hasOwn.call(threadUrlSync, "routeThreadId");
+    Object.hasOwn(threadUrlSync, "routeThreadId");
   const [urlThreadId, setUrlThreadId] = useState<string | null>(() =>
     threadUrlSyncEnabled
       ? threadRouteControlsActiveThread
@@ -1560,7 +1590,7 @@ export function MultiTabAssistantChat({
 
     // If active thread is stale, start fresh
     if (!parentMap[activeThreadId] && isStale(activeThreadId)) {
-      createThread().then((id) => {
+      void createThread().then((id) => {
         if (id) writeThreadUrl(null);
       });
     }
@@ -1637,7 +1667,7 @@ export function MultiTabAssistantChat({
     if (isLoading || autoCreatingRef.current) return;
     if (openTabIds.length === 0 && !activeThreadId) {
       autoCreatingRef.current = true;
-      createThread().then((id) => {
+      void createThread().then((id) => {
         autoCreatingRef.current = false;
         if (id) {
           newThreadIds.current.add(id);
@@ -1857,7 +1887,9 @@ export function MultiTabAssistantChat({
         background,
         submit,
         images,
+        attachments,
         submitMessageId,
+        usageLabel,
       } = parsed;
       const requestedTabId = parsed.tabId;
       const requestMode =
@@ -1886,10 +1918,12 @@ export function MultiTabAssistantChat({
       const send: PendingSend = {
         message: fullMessage,
         images,
+        attachments,
         submit,
         ...(background ? { trackInRunsTray: true } : {}),
         ...(requestMode ? { requestMode } : {}),
         ...(submitMessageId ? { submitMessageId } : {}),
+        ...(usageLabel ? { usageLabel } : {}),
       };
 
       // Resolved once, up front, and carried with the send until a thread
@@ -2453,10 +2487,10 @@ export function MultiTabAssistantChat({
 
   const handleGenerateTitle = useCallback(
     (threadId: string, message: string) => {
-      generateTitle(threadId, message).then((title) => {
+      void generateTitle(threadId, message).then((title) => {
         if (title) {
           // Persist the generated title to the server
-          saveThreadData(threadId, {
+          void saveThreadData(threadId, {
             threadData: "",
             title,
             preview: message.slice(0, 120),
@@ -2478,7 +2512,7 @@ export function MultiTabAssistantChat({
         messageCount: number;
       },
     ) => {
-      saveThreadData(threadId, data);
+      void saveThreadData(threadId, data);
       if (
         data.messageCount > 0 &&
         threadId === activeThreadIdRef.current &&
@@ -2498,7 +2532,7 @@ export function MultiTabAssistantChat({
       switch (command) {
         case "clear":
         case "new":
-          addTab();
+          void addTab();
           break;
         case "history":
           setShowHistory(true);

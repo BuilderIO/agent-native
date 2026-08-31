@@ -1107,44 +1107,102 @@ describe("openGrantedDispatchMcpApp", () => {
     });
   });
 
-  it("retries transient target MCP connection failures while pre-minting embeds", async () => {
-    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
-    mocks.managerCallTool
-      .mockRejectedValueOnce(
-        new Error(
-          'MCP server "target" is not connected: The server did not complete the Streamable HTTP MCP handshake.',
-        ),
-      )
-      .mockResolvedValueOnce({
-        structuredContent: {
-          startUrl:
-            "http://localhost:8086/_agent-native/embed/start?ticket=remote",
-        },
-      });
+  it.each([408, 429, 502, 503, 504])(
+    "retries transient typed HTTP %i target MCP failures with HTML bodies",
+    async (status) => {
+      const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+      mocks.managerCallTool
+        .mockRejectedValueOnce(
+          Object.assign(
+            new Error(
+              'MCP server "target" is not connected: That URL returned a web page instead of an MCP response. Check that you pasted the Streamable HTTP endpoint, often ending in /mcp.',
+            ),
+            { code: status },
+          ),
+        )
+        .mockResolvedValueOnce({
+          structuredContent: {
+            startUrl:
+              "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+          },
+        });
 
-    const result = await runWithRequestContext(
-      {
-        userEmail: "owner@example.test",
-        requestOrigin: "http://localhost:8092",
-      },
-      () =>
-        openGrantedDispatchMcpApp({
-          app: "analytics",
-          path: "/dashboards",
-          embed: true,
-        }),
+      const result = await runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          openGrantedDispatchMcpApp({
+            app: "analytics",
+            path: "/dashboards",
+            embed: true,
+          }),
+      );
+
+      expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
+      expect(mocks.managerStart).toHaveBeenCalledTimes(2);
+      expect(mocks.managerStop).toHaveBeenCalledTimes(2);
+      expect(mocks.managerCallTool).toHaveBeenCalledTimes(2);
+      expect(result).toMatchObject({
+        app: "analytics",
+        embedStartUrl:
+          "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+      });
+      randomSpy.mockRestore();
+    },
+  );
+
+  it("does not retry an HTML 404 whose body mentions a gateway status", async () => {
+    mocks.managerCallTool.mockRejectedValueOnce(
+      Object.assign(
+        new Error(
+          'MCP server "target" is not connected: That URL returned a web page instead of an MCP response. Cloudflare HTTP 502 is unrelated.',
+        ),
+        { code: 404 },
+      ),
     );
 
-    expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
-    expect(mocks.managerStart).toHaveBeenCalledTimes(2);
-    expect(mocks.managerStop).toHaveBeenCalledTimes(2);
-    expect(mocks.managerCallTool).toHaveBeenCalledTimes(2);
-    expect(result).toMatchObject({
-      app: "analytics",
-      embedStartUrl:
-        "http://localhost:8086/_agent-native/embed/start?ticket=remote",
-    });
-    randomSpy.mockRestore();
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/dashboards",
+          }),
+      ),
+    ).rejects.toThrow(/Cloudflare HTTP 502 is unrelated/);
+    expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry a typed permanent 4xx MCP error", async () => {
+    mocks.managerCallTool.mockRejectedValueOnce(
+      Object.assign(
+        new Error(
+          "Streamable HTTP error: Error POSTing to endpoint: <!doctype html><html>422</html>",
+        ),
+        { code: 422 },
+      ),
+    );
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/dashboards",
+          }),
+      ),
+    ).rejects.toThrow(/Streamable HTTP error/);
+    expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
   });
 
   it("returns the normal open URL when embed preminting fails", async () => {

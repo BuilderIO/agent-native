@@ -67,7 +67,7 @@ const AI_SEND_BUTTON_CLASS =
   // guard:allow-raw-color — same accent as the link Apply button below.
   "rounded p-1.5 text-[#609FF8] hover:bg-accent disabled:pointer-events-none disabled:opacity-40";
 
-export function buildReviseSelectionPrompt({
+export function buildReviseSelectionContext({
   selectedText,
   instruction,
   slideId,
@@ -249,8 +249,8 @@ export function BlockBubbleMenu({
   };
 
   const submitAiRevision = async () => {
-    const instruction = aiInstruction.trim();
-    if (!instruction || !aiTargetText || aiSending) return;
+    const instruction = aiInstruction;
+    if (!instruction.trim() || !aiTargetText || aiSending) return;
 
     // Close the inline edit first. The block is still a live contentEditable
     // session; leaving it open means the next click away serializes the old
@@ -260,7 +260,8 @@ export function BlockBubbleMenu({
     setAiSending(true);
     try {
       const delivery = await sendToAgentChatAndConfirm({
-        message: buildReviseSelectionPrompt({
+        message: instruction,
+        context: buildReviseSelectionContext({
           selectedText: aiTargetText,
           instruction,
           slideId,

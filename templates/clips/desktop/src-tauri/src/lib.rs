@@ -325,6 +325,15 @@ pub fn run() {
                 err
             })?;
 
+            // Warm the native capture snapshot while the hidden popover
+            // webview is starting so the first recording skips that lookup.
+            tauri::async_runtime::spawn(async {
+                if let Err(err) = native_screen::native_fullscreen_prefetch_capture_content().await
+                {
+                    eprintln!("[clips-tray] startup capture prefetch failed: {err}");
+                }
+            });
+
             // clips:// deep-link handler — a web "Open desktop app" click
             // launches or focuses the running tray popover (same as a second
             // launch). macOS registers the scheme via Info.plist at build time;

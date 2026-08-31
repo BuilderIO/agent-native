@@ -1,3 +1,7 @@
+import {
+  BuilderConnectPopover,
+  useBuilderConnectFlow,
+} from "@agent-native/core/client/settings";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   IconCircleCheck,
@@ -46,6 +50,18 @@ export function MakeRealDialog({
   pending: boolean;
   onConfirm: () => void;
 }) {
+  const builderConnect = useBuilderConnectFlow({
+    enabled: open,
+    popupUrl:
+      result?.status === "not-configured" &&
+      result.cta?.kind === "connect-builder"
+        ? result.cta.connectUrl
+        : undefined,
+    provisionAccount: true,
+    trackingSource: "design_make_real_dialog",
+    trackingFlow: "design_migration",
+  });
+
   return (
     <Dialog
       open={open}
@@ -75,16 +91,25 @@ export function MakeRealDialog({
                 Cancel
               </Button>
               {result.cta.connectUrl ? (
-                <Button asChild className="cursor-pointer">
-                  <a
-                    href={result.cta.connectUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {result.cta.primaryAction}
-                    <IconExternalLink className="ml-1.5 size-3.5" />
-                  </a>
-                </Button>
+                result.cta.kind === "connect-builder" ? (
+                  <BuilderConnectPopover flow={builderConnect}>
+                    <Button className="cursor-pointer">
+                      {result.cta.primaryAction}
+                      <IconExternalLink className="ml-1.5 size-3.5" />
+                    </Button>
+                  </BuilderConnectPopover>
+                ) : (
+                  <Button asChild className="cursor-pointer">
+                    <a
+                      href={result.cta.connectUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {result.cta.primaryAction}
+                      <IconExternalLink className="ml-1.5 size-3.5" />
+                    </a>
+                  </Button>
+                )
               ) : null}
             </DialogFooter>
           </>
@@ -199,7 +224,7 @@ export function MakeRealDialog({
                 Cancel
               </Button>
               <Button
-                onClick={() => void onConfirm()}
+                onClick={() => onConfirm()}
                 disabled={pending}
                 className="cursor-pointer"
               >

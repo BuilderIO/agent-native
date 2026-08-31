@@ -4,7 +4,7 @@ This guide is for development-mode agents editing this app's source code. For ap
 
 ## Framework Basics
 
-**Client-side-first rendering:** This app uses React Router v8 framework mode with `ssr: true`, but all app content renders **client-side only**. The server renders only the HTML shell (meta tags, styles, scripts) plus a loading spinner. This is enforced by the `ClientOnly` wrapper in `root.tsx` — never remove it. Browser APIs (`window`, `localStorage`, `new Date()`) are safe to use anywhere in app code because components never run on the server.
+**Public SSR, private CSR:** This app uses React Router v8 framework mode with `ssr: true`. The `/` route is a public, server-rendered marketing page and must stay free of session, cookie, and private-data reads. Authenticated app routes start at `/home` and render client-side behind the `ClientOnly` session gate in `root.tsx`; browser APIs are safe there.
 
 **Do NOT fetch data server-side** in route loaders unless the page genuinely needs SEO/OG content. The standard pattern is: SSR renders the shell, client hydrates, and React reads/writes normal app data through actions with `useActionQuery` / `useActionMutation`.
 
@@ -14,6 +14,7 @@ Create a file in `app/routes/`. The filename determines the URL path:
 
 ```
 app/routes/_index.tsx              → /
+app/routes/home.tsx                → /home
 app/routes/settings.tsx            → /settings
 app/routes/inbox.tsx               → /inbox
 app/routes/inbox.$threadId.tsx     → /inbox/:threadId
@@ -27,6 +28,7 @@ In a workspace, this app can be mounted under `/<app-id>`. React Router already 
 | Route file              | App-internal route | Mounted browser URL |
 | ----------------------- | ------------------ | ------------------- |
 | `app/routes/_index.tsx` | `/`                | `/<app-id>`         |
+| `app/routes/home.tsx`   | `/home`            | `/<app-id>/home`    |
 | `app/routes/review.tsx` | `/review`          | `/<app-id>/review`  |
 | `app/routes/$id.tsx`    | `/:id`             | `/<app-id>/:id`     |
 
@@ -45,6 +47,11 @@ export default function MyPageRoute() {
   return <MyPage />;
 }
 ```
+
+The root route is the public marketing surface. Use `MarketingHome` from
+`@agent-native/toolkit/marketing` for a reusable SSR page with value props,
+background visuals, action links, and a custom `children` escape hatch. Put
+authenticated app UI and data loads under `/home` or another private route.
 
 ## Adding App Data
 

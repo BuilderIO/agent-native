@@ -105,7 +105,9 @@ export function useCreateBooking() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["action", "list-bookings"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-bookings"],
+      });
     },
   });
 }
@@ -121,7 +123,9 @@ export function useDeleteBooking() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["action", "list-bookings"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-bookings"],
+      });
     },
   });
 }

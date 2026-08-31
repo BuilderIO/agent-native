@@ -19,7 +19,6 @@ import { nanoid } from "nanoid";
 
 import { getDb, schema } from "../db/index.js";
 import { createAssetFromBuffer } from "../lib/assets.js";
-import { seedDefaultGenerationPresets } from "../lib/generation-presets.js";
 import { nowIso, parseJson, stringifyJson } from "../lib/json.js";
 import { nativeAssetCreativeContextAdapter } from "../lib/native-creative-context.js";
 
@@ -55,7 +54,6 @@ async function ensureImportLibrary() {
     updatedAt: now,
   };
   await db.insert(schema.assetLibraries).values(row);
-  await seedDefaultGenerationPresets({ db, libraryId: row.id, now });
   return row;
 }
 

@@ -1,5 +1,24 @@
 # @agent-native/pinpoint
 
+## 0.1.33
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.32
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.31
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 4776e61: Reduce CI lint warnings with safer type narrowing, callback binding, and explicit async intent.
+
 ## 0.1.30
 
 ### Patch Changes

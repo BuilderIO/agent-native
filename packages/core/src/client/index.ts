@@ -56,6 +56,7 @@ export {
   SettingsPanel,
   SettingsTabsPage,
   SecretsSection,
+  BuilderConnectPopover,
   getAgentSettingsSearchTabs,
   openBuilderConnectPopup,
   useAgentSettingsTabs,
@@ -75,6 +76,7 @@ export {
   type SettingsSearchEntry,
   type SettingsTabItem,
   type SettingsTabsPageProps,
+  type BuilderConnectPopoverProps,
 } from "./settings/index.js";
 export {
   DevDatabaseLink,
@@ -138,6 +140,8 @@ export {
   dedupeCollabUsersByEmail,
   type UseCollaborativeDocOptions,
   type UseCollaborativeDocResult,
+  type CollabInitializationErrorCategory,
+  type CollabInitializationState,
   type CollabUser,
 } from "../collab/client.js";
 export { AGENT_CLIENT_ID } from "../collab/agent-identity.js";

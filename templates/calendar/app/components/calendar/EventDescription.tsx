@@ -51,7 +51,7 @@ export function RenderedDescription({
       <div
         onClick={onClick}
         className={cn(
-          "text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap break-words prose prose-sm dark:prose-invert prose-p:my-1 prose-a:text-primary prose-a:underline",
+          "text-[13px] leading-[18px] text-foreground/80 whitespace-pre-wrap break-words prose prose-sm dark:prose-invert prose-p:my-1 prose-a:text-primary prose-a:underline",
           editable && "cursor-text rounded -mx-1 px-1 hover:bg-muted/30",
           isCollapsed && "line-clamp-6",
           className,
@@ -144,7 +144,7 @@ export function AutoGrowTextarea({
       onKeyDown={handleKeyDown}
       placeholder={placeholder}
       rows={1}
-      className="flex-1 w-full bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/40 focus:ring-0 resize-none overflow-hidden"
+      className="flex-1 w-full bg-transparent border-none outline-none text-[13px] leading-[18px] text-foreground placeholder:text-muted-foreground/40 focus:ring-0 resize-none overflow-hidden"
     />
   );
 }

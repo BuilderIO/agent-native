@@ -110,7 +110,7 @@ function numberField(row: Record<string, unknown>, key: string): number {
 }
 
 function stringField(row: Record<string, unknown>, key: string): string {
-  return String(row[key] ?? "");
+  return stringifyValue(row[key] ?? "");
 }
 
 function nullableNumberField(
@@ -447,7 +447,7 @@ async function rowToRule(
   row: Record<string, unknown>,
   partition: ResolvedScope,
 ): Promise<UsageAlertRule> {
-  const appId = row.app_id == null ? null : String(row.app_id);
+  const appId = row.app_id == null ? null : stringifyValue(row.app_id);
   const unit = stringField(row, "unit") as UsageAlertUnit;
   const period = stringField(row, "period") as UsageAlertPeriod;
   const window = windowForPeriod(period);
@@ -635,7 +635,7 @@ export async function setUsageAlertEnabled(
     {
       scope,
       ruleId,
-      appId: existing.app_id == null ? null : String(existing.app_id),
+      appId: existing.app_id == null ? null : stringifyValue(existing.app_id),
       unit: stringField(existing, "unit") as UsageAlertUnit,
       period: stringField(existing, "period") as UsageAlertPeriod,
       limit:
@@ -681,7 +681,7 @@ export async function dismissUsageAlert(
   const listed = await listUsageAlerts(
     {
       scope,
-      appId: existing.app_id == null ? null : String(existing.app_id),
+      appId: existing.app_id == null ? null : stringifyValue(existing.app_id),
     },
     access,
   );
@@ -776,7 +776,7 @@ async function evaluateUsageAlerts(
 ): Promise<void> {
   const matches = await matchingEvaluationRows(record);
   for (const { row, partition } of matches) {
-    const appId = row.app_id == null ? null : String(row.app_id);
+    const appId = row.app_id == null ? null : stringifyValue(row.app_id);
     const unit = stringField(row, "unit") as UsageAlertUnit;
     const period = stringField(row, "period") as UsageAlertPeriod;
     const window = windowForPeriod(period);
@@ -860,4 +860,14 @@ export function _resetUsageAlertStoreForTests(): void {
 
 export async function _waitForUsageAlertEvaluationsForTests(): Promise<void> {
   await evaluationTail;
+}
+
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
 }

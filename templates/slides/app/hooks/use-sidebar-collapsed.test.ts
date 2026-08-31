@@ -4,6 +4,12 @@ import type { ReactNode } from "react";
 import { createElement } from "react";
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach } from "vitest";
+const testString = (value: unknown) =>
+  typeof value === "string"
+    ? value
+    : value instanceof URLSearchParams
+      ? value.toString()
+      : (JSON.stringify(value) ?? "");
 
 import {
   SIDEBAR_COLLAPSED_STORAGE_KEY,
@@ -38,7 +44,7 @@ function stubFetch(initialGet: MockResponse) {
 
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === "PUT") {
-      putCalls.push({ url, body: String(init.body ?? "") });
+      putCalls.push({ url, body: testString(init.body ?? "") });
       if (nextPutShouldFail) {
         nextPutShouldFail = false;
         throw new Error("network down");
@@ -146,7 +152,7 @@ describe("useSidebarCollapsed", () => {
     await waitFor(() => expect(result.current.collapsed).toBe(false));
 
     await act(async () => {
-      result.current.setCollapsed(true);
+      void result.current.setCollapsed(true);
     });
 
     await waitFor(() => expect(result.current.collapsed).toBe(true));
@@ -224,7 +230,7 @@ describe("useSidebarCollapsed", () => {
     stub.failNextPut();
     stub.setNextGet({ ok: true, body: JSON.stringify({ collapsed: false }) });
     await act(async () => {
-      result.current.setCollapsed(true);
+      void result.current.setCollapsed(true);
     });
 
     await waitFor(() => expect(stub.putCalls).toHaveLength(1));

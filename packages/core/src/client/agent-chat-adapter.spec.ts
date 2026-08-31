@@ -217,6 +217,380 @@ describe("createAgentChatAdapter", () => {
     expect(getPendingTurn("thread-pending")).toBeNull();
   });
 
+  it("consumes a 200 JSON response while checking auth errors", async () => {
+    const response = jsonResponse({ error: "Authentication required" });
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(response)
+      .mockResolvedValueOnce(
+        jsonResponse({ error: "Authentication required" }, 401),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-json-auth",
+    });
+
+    const results = await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Start a chat turn" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(response.bodyUsed).toBe(true);
+    expect(results[0]).toMatchObject({
+      status: { type: "incomplete", reason: "error" },
+    });
+  });
+
+  it("reports primitive JSON responses instead of passing them to SSE parsing", async () => {
+    const response = new Response("null", {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Run-Id": "run-json",
+      },
+    });
+    const fetchSpy = vi.fn().mockResolvedValue(response);
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-json-success",
+    });
+
+    const results = await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Start a chat turn" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(response.bodyUsed).toBe(true);
+    expect(results[0]).toMatchObject({
+      content: [
+        {
+          type: "text",
+          text: expect.stringContaining(
+            "Agent chat endpoint returned JSON instead of an event stream",
+          ),
+        },
+      ],
+      status: { type: "incomplete", reason: "error" },
+    });
+  });
+
+  it("detects a chunked top-level JSON string after leading whitespace", async () => {
+    const encoder = new TextEncoder();
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode("\n"));
+          setTimeout(() => {
+            controller.enqueue(
+              encoder.encode(JSON.stringify("Authentication required")),
+            );
+            controller.close();
+          }, 10);
+        },
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(response);
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-json-whitespace",
+    });
+
+    const results = await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Start a chat turn" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(results[0]).toMatchObject({
+      content: [
+        {
+          type: "text",
+          text: expect.stringContaining(
+            "Agent chat endpoint returned JSON instead of an event stream",
+          ),
+        },
+      ],
+      status: { type: "incomplete", reason: "error" },
+    });
+  });
+
+  it("classifies a delayed JSON response after its first body chunk", async () => {
+    const encoder = new TextEncoder();
+    let finishResponse: (() => void) | undefined;
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          finishResponse = () => {
+            try {
+              controller.enqueue(encoder.encode(JSON.stringify({ ok: true })));
+              controller.close();
+            } catch {
+              // The iterator cleanup may have already closed the response body.
+            }
+          };
+        },
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(response);
+    vi.stubGlobal("fetch", fetchSpy);
+    vi.useFakeTimers();
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-json-delayed",
+    });
+    const iterator = adapter
+      .run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Start a chat turn" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any)
+      [Symbol.asyncIterator]();
+
+    try {
+      const resultPromise = iterator.next();
+      await vi.advanceTimersByTimeAsync(1_001);
+      finishResponse?.();
+      const result = await resultPromise;
+
+      expect(result.done).toBe(false);
+      expect(result.value).toMatchObject({
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining(
+              "Agent chat endpoint returned JSON instead of an event stream",
+            ),
+          },
+        ],
+        status: { type: "incomplete", reason: "error" },
+      });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      await iterator.return?.();
+    }
+  });
+
+  it("stops a silent JSON probe for a custom caller abort reason", async () => {
+    let finishResponse: (() => void) | undefined;
+    const cancelResponse = vi.fn();
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          finishResponse = () => {
+            try {
+              controller.close();
+            } catch {
+              // The probe may have already cancelled the response body.
+            }
+          };
+        },
+        cancel: cancelResponse,
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(response);
+    vi.stubGlobal("fetch", fetchSpy);
+    const abortController = new AbortController();
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-json-abort",
+    });
+    const iterator = adapter
+      .run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Start a chat turn" }],
+          },
+        ],
+        abortSignal: abortController.signal,
+      } as any)
+      [Symbol.asyncIterator]();
+
+    const abortTimer = setTimeout(
+      () => abortController.abort(new Error("stop")),
+      0,
+    );
+    try {
+      const result = await iterator.next();
+
+      expect(result.done).toBe(true);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+      expect(cancelResponse).toHaveBeenCalledTimes(1);
+    } finally {
+      clearTimeout(abortTimer);
+      finishResponse?.();
+      await iterator.return?.();
+    }
+  });
+
+  it("waits for a slow-starting mislabeled SSE response", async () => {
+    vi.useFakeTimers();
+    const encoder = new TextEncoder();
+    let finishResponse: (() => void) | undefined;
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          setTimeout(() => {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ type: "text", text: "first" })}\n\n`,
+              ),
+            );
+            finishResponse = () => controller.close();
+          }, 2_000);
+        },
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(response);
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-mislabeled-sse-delayed",
+    });
+    const iterator = adapter
+      .run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Start a chat turn" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any)
+      [Symbol.asyncIterator]();
+
+    try {
+      const resultPromise = iterator.next();
+      await vi.advanceTimersByTimeAsync(2_001);
+      const result = await resultPromise;
+
+      expect(result.done).toBe(false);
+      expect(result.value).toMatchObject({
+        content: [{ type: "text", text: "first" }],
+      });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      finishResponse?.();
+      await iterator.return?.();
+    }
+  });
+
+  it("starts parsing a mislabeled SSE response before it closes", async () => {
+    const encoder = new TextEncoder();
+    let finishResponse: (() => void) | undefined;
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ type: "text", text: "first" })}\n\n`,
+            ),
+          );
+          finishResponse = () => {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`),
+            );
+            controller.close();
+          };
+        },
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(response);
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-mislabeled-sse",
+    });
+    const iterator = adapter
+      .run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Start a chat turn" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any)
+      [Symbol.asyncIterator]();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      const firstResult = await Promise.race([
+        iterator.next(),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error("SSE parsing waited for the body to close")),
+            1_000,
+          );
+        }),
+      ]);
+
+      expect(firstResult.done).toBe(false);
+      expect(firstResult.value).toMatchObject({
+        content: [{ type: "text", text: "first" }],
+      });
+    } finally {
+      if (timeout) clearTimeout(timeout);
+      finishResponse?.();
+      await iterator.return?.();
+    }
+  });
+
   it("posts the latest user message with attachments, references, and model selection", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -394,6 +768,42 @@ describe("createAgentChatAdapter", () => {
         detail: { isRunning: false, tabId: "chat-qa" },
       }),
     );
+  });
+
+  it("sends the assistant-ui parent when regenerating a message", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-regenerate",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "try again" }],
+          },
+          {
+            id: "assistant-original",
+            role: "assistant",
+            content: [{ type: "text", text: "Original answer." }],
+          },
+        ],
+        unstable_parentId: "user-1",
+        abortSignal: new AbortController().signal,
+        runConfig: {},
+      } as any),
+    );
+
+    expect(JSON.parse(fetchSpy.mock.calls[0][1].body)).toMatchObject({
+      parentId: "user-1",
+      message: "try again",
+      threadId: "thread-regenerate",
+    });
   });
 
   it("does not publish terminal cleanup after another run claims active state", async () => {
@@ -1660,6 +2070,46 @@ describe("createAgentChatAdapter", () => {
       threadId: "thread-bg",
       trackInRunsTray: true,
     });
+  });
+
+  it("sends the run config's usage label with the chat request", async () => {
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-label",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Enrich this record" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+        runConfig: {
+          custom: { usageLabel: "  crm:enrich-record  " },
+        },
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.usageLabel).toBe("crm:enrich-record");
   });
 
   it("keeps recovery prompts from replacing the original user request", async () => {
