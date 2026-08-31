@@ -4788,6 +4788,18 @@ export function writeSingleTemplateNetlifyRedirects(projectCwd: string): void {
 }
 
 /**
+ * Let the Netlify function own the app root. React Router's generated static
+ * index bypasses the framework auth guard, so it can publish the marketing
+ * route without the shared AuthPage or its root handoff script.
+ */
+export function removeNetlifyStaticRootShell(publishDir: string): void {
+  const indexPath = path.join(publishDir, "index.html");
+  if (!fs.existsSync(indexPath)) return;
+  fs.rmSync(indexPath);
+  console.log("[deploy] Removed static Netlify root shell; / is SSR-owned.");
+}
+
+/**
  * Whether the emitted bundle actually imports the `libsql` native addon.
  *
  * The `@libsql/client` node entry `require`s it; `@libsql/client/web` and
@@ -5809,6 +5821,7 @@ export default bundle;
     }
 
     writeSingleTemplateNetlifyRedirects(cwd);
+    removeNetlifyStaticRootShell(nitro.options.output.publicDir);
     // React Router prerendered pages bypass the SSR function and are served
     // directly from Netlify's static backing store. Keep that artifact on the
     // same public SWR policy as runtime SSR and .data responses.

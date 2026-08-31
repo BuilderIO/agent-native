@@ -205,19 +205,30 @@ export const COMPOSER = {
 } as const;
 
 /**
- * The suite opens the AgentSidebar, but some apps also render a page-level
- * composer and chat keeps inactive tabs mounted. Scope actions to the open
- * sidebar root before selecting its visible controls.
+ * Sidebar chat uses the default variant, while standalone chat pages use the
+ * hero variant. Dispatch also renders a page-level default composer, so the
+ * variant is what keeps that overview form out of the sidebar test.
  */
-const VISIBLE_AGENT_COMPOSER_ROOT =
-  '.agent-sidebar-panel[data-agent-sidebar-state="open"] [data-agent-composer-slot="root"]:visible';
+const DEFAULT_COMPOSER_ROOT =
+  '[data-agent-composer-slot="root"][data-agent-composer-variant="default"]';
+const HERO_COMPOSER_ROOT =
+  '[data-agent-composer-slot="root"][data-agent-composer-variant="hero"]';
+const VISIBLE_AGENT_COMPOSER_ROOTS = [
+  `.agent-sidebar-panel[data-agent-sidebar-state="open"] ${DEFAULT_COMPOSER_ROOT}:visible`,
+  `${HERO_COMPOSER_ROOT}:visible`,
+];
+const VISIBLE_AGENT_COMPOSER_ROOT = VISIBLE_AGENT_COMPOSER_ROOTS.join(", ");
+const visibleComposerSlot = (slot: string): string =>
+  VISIBLE_AGENT_COMPOSER_ROOTS.map((root) => `${root} ${slot}:visible`).join(
+    ", ",
+  );
 
 export const VISIBLE_COMPOSER = {
   root: VISIBLE_AGENT_COMPOSER_ROOT,
-  input: `${VISIBLE_AGENT_COMPOSER_ROOT} ${COMPOSER.input}:visible`,
-  send: `${VISIBLE_AGENT_COMPOSER_ROOT} ${COMPOSER.send}:visible`,
-  stop: `${VISIBLE_AGENT_COMPOSER_ROOT} ${COMPOSER.stop}:visible`,
-  model: `${VISIBLE_AGENT_COMPOSER_ROOT} ${COMPOSER.model}:visible`,
+  input: visibleComposerSlot(COMPOSER.input),
+  send: visibleComposerSlot(COMPOSER.send),
+  stop: visibleComposerSlot(COMPOSER.stop),
+  model: visibleComposerSlot(COMPOSER.model),
 } as const;
 
 export async function readComposerRuntimeState(page: Page): Promise<unknown> {
@@ -305,6 +316,7 @@ export const CHAT_FAILURE_PATTERNS: RegExp[] = [
   /rate-limiting this chat/i,
   /provider .*is overloaded/i,
   /AI is paused until an email address/i,
+  /Agent panel hit a glitch/i,
   // Two spellings ship for the same condition; both mean the turn produced no
   // final message.
   /stopped (?:without|before) sending a final message/i,

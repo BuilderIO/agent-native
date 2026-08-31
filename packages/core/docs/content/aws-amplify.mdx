@@ -155,6 +155,21 @@ See [SSR Caching](/docs/ssr-caching) for the shared policy and
 [Amplify's cache-key documentation](https://docs.aws.amazon.com/amplify/latest/userguide/cache-key-cookies.html)
 for the hosting setting.
 
+## Streaming requests
+
+Nitro's agent-chat and framework sync endpoints use `text/event-stream` and
+are intentionally private and non-cacheable. The framework sends a named
+keepalive frame every ten seconds on the shared sync stream so an idle
+connection stays open through CloudFront; keep these routes out of custom
+cache rules. The public SSR shell and hashed assets remain edge-cacheable.
+
+Amplify compute instances can run for up to 15 minutes, but that is the
+compute lifetime, not a guarantee that a browser connection may stay silent
+for 15 minutes. Emit progress or keepalive frames more frequently than the
+edge origin read timeout when a long operation has no user-visible output.
+See [AWS's Amplify deployment specification](https://docs.aws.amazon.com/amplify/latest/userguide/ssr-deployment-specification.html)
+and [CloudFront's origin timeout guidance](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistValuesOrigin.html).
+
 ## Verify the deployment
 
 After the first build, check the public URL and confirm that:

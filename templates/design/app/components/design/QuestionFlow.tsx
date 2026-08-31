@@ -385,9 +385,17 @@ function ColorOptions({
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
+  const t = useT();
   const options = question.options ?? question.choices ?? [];
   const multiSelect = question.multiSelect === true;
   const selectedValues = Array.isArray(value) ? value : [];
+  const otherSelected = multiSelect
+    ? selectedValues.some(isOtherGuidedAnswer)
+    : isOtherGuidedAnswer(value);
+  const otherText = multiSelect
+    ? getOtherGuidedAnswerText(selectedValues.find(isOtherGuidedAnswer))
+    : getOtherGuidedAnswerText(value);
+  const allowOther = question.allowOther !== false;
   const isSelected = (optionValue: string) =>
     multiSelect ? selectedValues.includes(optionValue) : value === optionValue;
 
@@ -403,38 +411,88 @@ function ColorOptions({
     );
   };
 
+  const toggleOther = () => {
+    if (!multiSelect) {
+      onChange(otherSelected ? "" : makeOtherGuidedAnswer());
+      return;
+    }
+    if (otherSelected) {
+      onChange(selectedValues.filter((item) => !isOtherGuidedAnswer(item)));
+      return;
+    }
+    onChange([...selectedValues, makeOtherGuidedAnswer()]);
+  };
+
+  const setOtherText = (text: string) => {
+    const nextOther = makeOtherGuidedAnswer(text);
+    if (!multiSelect) {
+      onChange(nextOther);
+      return;
+    }
+    onChange([
+      ...selectedValues.filter((item) => !isOtherGuidedAnswer(item)),
+      nextOther,
+    ]);
+  };
+
   return (
-    <div className="flex max-w-4xl flex-wrap gap-2">
-      {options.map((option) => {
-        const selected = isSelected(option.value);
-        return (
-          <button
-            type="button"
-            key={`${option.value}:${option.label}`}
-            onClick={() => toggleOption(option.value)}
-            aria-pressed={selected}
-            className={cn(
-              "group inline-flex min-h-8 min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-start transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0",
-              selected
-                ? "border-[var(--design-editor-accent-color)] bg-[var(--design-editor-selection-color)] text-foreground"
-                : "border-[var(--design-editor-control-border)] bg-[var(--design-editor-question-option-bg)] text-foreground hover:bg-[var(--design-editor-control-bg)]",
-            )}
-          >
-            <span
+    <div className="space-y-3">
+      <div className="flex max-w-4xl flex-wrap gap-2">
+        {options.map((option) => {
+          const selected = isSelected(option.value);
+          return (
+            <button
+              type="button"
+              key={`${option.value}:${option.label}`}
+              onClick={() => toggleOption(option.value)}
+              aria-pressed={selected}
               className={cn(
-                "size-5 shrink-0 rounded-full border border-[var(--design-editor-control-border)]",
-                selected &&
-                  "ring-1 ring-[var(--design-editor-accent-color)] ring-offset-1 ring-offset-[var(--design-editor-control-bg)]",
+                "group inline-flex min-h-8 min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-start transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0",
+                selected
+                  ? "border-[var(--design-editor-accent-color)] bg-[var(--design-editor-selection-color)] text-foreground"
+                  : "border-[var(--design-editor-control-border)] bg-[var(--design-editor-question-option-bg)] text-foreground hover:bg-[var(--design-editor-control-bg)]",
               )}
-              style={{ backgroundColor: option.color || option.value }}
-            />
-            <span className="min-w-0 flex-1 truncate text-[12px] font-semibold leading-4">
-              {option.label}
-            </span>
-            {selected && <IconPalette className="size-3.5 shrink-0" />}
-          </button>
-        );
-      })}
+            >
+              <span
+                className={cn(
+                  "size-5 shrink-0 rounded-full border border-[var(--design-editor-control-border)]",
+                  selected &&
+                    "ring-1 ring-[var(--design-editor-accent-color)] ring-offset-1 ring-offset-[var(--design-editor-control-bg)]",
+                )}
+                style={{ backgroundColor: option.color || option.value }}
+              />
+              <span className="min-w-0 flex-1 truncate text-[12px] font-semibold leading-4">
+                {option.label}
+              </span>
+              {selected && <IconPalette className="size-3.5 shrink-0" />}
+            </button>
+          );
+        })}
+        {allowOther && (
+          <OptionButton
+            option={{
+              label: t("questionFlow.other"),
+              value: "__other__",
+              description: t("questionFlow.otherDescription"),
+            }}
+            selected={otherSelected}
+            compact
+            multiSelect={multiSelect}
+            onClick={toggleOther}
+          />
+        )}
+      </div>
+      {allowOther && otherSelected && (
+        <Textarea
+          autoFocus
+          value={otherText}
+          onChange={(event) => setOtherText(event.target.value)}
+          placeholder={
+            question.placeholder ?? t("questionFlow.customPlaceholder")
+          }
+          className="min-h-[72px] max-w-xl resize-none rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[12px] shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+        />
+      )}
     </div>
   );
 }
