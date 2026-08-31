@@ -293,6 +293,7 @@ describe("GitHub triage client", () => {
         observedAt: "2026-08-28T12:02:00Z",
       },
     ]);
+    expect(evidence.checksCoverage).toBe("complete");
     const paths = fetchImpl.mock.calls.map(
       ([input]) => new URL(String(input)).pathname,
     );
@@ -344,6 +345,7 @@ describe("GitHub triage client", () => {
         observedAt: "2026-08-28T12:02:00Z",
       },
     ]);
+    expect(evidence.checksCoverage).toBe("partial");
     expect(
       fetchImpl.mock.calls.map(([input]) => new URL(String(input)).pathname),
     ).toEqual([

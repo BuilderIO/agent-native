@@ -1,4 +1,5 @@
 import { resolveConnectorSecret } from "../connectors/credentials.js";
+import type { TriageCoverage } from "./contracts.js";
 import type { ReviewCommentObservation } from "./pr-babysit.js";
 import type {
   PullRequestCheckObservation,
@@ -116,6 +117,7 @@ export interface GitHubPullRequestEvidence {
   commentsTruncated: boolean;
   reviews: readonly PullRequestReviewObservation[];
   checks: readonly PullRequestCheckObservation[];
+  checksCoverage: TriageCoverage;
 }
 
 interface JsonResponse {
@@ -491,6 +493,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
         parseReview(review, observedAt),
       );
       let checks: PullRequestCheckObservation[];
+      let checksCoverage: TriageCoverage = "complete";
       try {
         const checkBody = record(
           await request<unknown>(
@@ -511,8 +514,11 @@ export function createGitHubClient(options: GitHubClientOptions) {
       } catch (error) {
         if (!isChecksPermissionDenied(error)) throw error;
 
+        checksCoverage = "partial";
+
         // Fine-grained PATs expose Actions read but not Checks in GitHub's
-        // permission editor. Use workflow runs for GitHub Actions CI instead.
+        // permission editor. Use workflow runs for GitHub Actions CI as
+        // partial evidence only; required non-Actions checks remain unknown.
         const workflowBody = record(
           await request<unknown>(
             `${root}/actions/runs?head_sha=${encodeURIComponent(sha)}&per_page=${page}`,
@@ -538,6 +544,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
         commentsTruncated: comments.length >= MAX_PAGE_SIZE,
         reviews,
         checks,
+        checksCoverage,
       };
     },
 

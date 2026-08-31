@@ -463,6 +463,52 @@ describe("ask_app — honest routing metadata", () => {
     });
   });
 
+  it("reuses the MCP request idempotency key across transport retries", async () => {
+    vi.spyOn(callerAuth, "resolveA2ACallerAuth").mockResolvedValue({
+      apiKey: "signed-org-jwt",
+      userEmail: "caller@acme.com",
+      orgId: "org-1",
+      orgDomain: "acme.com",
+      orgSecret: "org-secret",
+      metadata: {},
+    });
+    const sendSpy = vi
+      .spyOn(a2aClient.A2AClient.prototype, "send")
+      .mockResolvedValue({
+        id: "task-1",
+        status: { state: "working", timestamp: "2026-06-15T00:00:00Z" },
+        history: [],
+        artifacts: [],
+      } as any);
+    const tools = getBuiltinCrossAppTools(
+      baseConfig({ appId: "mail", askAgent: async () => "unused" }),
+      { origin: "https://mail.example.com" },
+    );
+    const input = { app: "mail", message: "retry me", async: true };
+
+    await runWithRequestContext(
+      {
+        userEmail: "caller@acme.com",
+        orgId: "org-1",
+        mcpRequestId: "session-1:42",
+      },
+      () => tools.ask_app.run(input),
+    );
+    await runWithRequestContext(
+      {
+        userEmail: "caller@acme.com",
+        orgId: "org-1",
+        mcpRequestId: "session-1:42",
+      },
+      () => tools.ask_app.run(input),
+    );
+
+    expect(sendSpy).toHaveBeenCalledTimes(2);
+    expect(sendSpy.mock.calls[0]?.[1]?.idempotencyKey).toBe(
+      sendSpy.mock.calls[1]?.[1]?.idempotencyKey,
+    );
+  });
+
   it("polls hosted ask_app tasks by task id", async () => {
     vi.spyOn(callerAuth, "resolveA2ACallerAuth").mockResolvedValue({
       apiKey: "signed-org-jwt",

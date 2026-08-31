@@ -507,11 +507,13 @@ export default defineAction({
     }
 
     const checksPassed =
+      snapshot.checksCoverage === "complete" &&
       snapshot.checks.length > 0 &&
       snapshot.checks.every((check) => check.state === "passed");
     const reviewFeedback = reconcileBabysitState({
       comments: snapshot.comments,
       checks: snapshot.checks,
+      checksCoverage: snapshot.checksCoverage,
       commentsTruncated: snapshot.commentsTruncated,
       botAuthors: [
         "github-actions",
@@ -763,11 +765,13 @@ export default defineAction({
         };
       }
       const postClaimChecksPassed =
+        postClaimSnapshot.checksCoverage === "complete" &&
         postClaimSnapshot.checks.length > 0 &&
         postClaimSnapshot.checks.every((check) => check.state === "passed");
       const postClaimReviewFeedback = reconcileBabysitState({
         comments: postClaimSnapshot.comments,
         checks: postClaimSnapshot.checks,
+        checksCoverage: postClaimSnapshot.checksCoverage,
         commentsTruncated: postClaimSnapshot.commentsTruncated,
         botAuthors: [
           "github-actions",
@@ -968,6 +972,7 @@ export default defineAction({
             finalReviewSnapshot.reviews,
             pullRequest.headSha,
           ) ||
+          finalReviewSnapshot.checksCoverage !== "complete" ||
           finalReviewSnapshot.commentsTruncated ||
           hasActiveCredibleSafetyFinding(
             finalReviewSnapshot.reviews,

@@ -234,6 +234,17 @@ describe("reconcileBabysitState", () => {
     expect(result.isClean).toBe(false);
   });
 
+  it("is never clean when check evidence is partial", () => {
+    const result = reconcileBabysitState({
+      ...baseInput,
+      checks: [check("CI", "passed")],
+      checksCoverage: "partial",
+    });
+
+    expect(result.checksCoverage).toBe("partial");
+    expect(result.isClean).toBe(false);
+  });
+
   it("is clean when nothing is outstanding and nothing was truncated", () => {
     const result = reconcileBabysitState({
       ...baseInput,

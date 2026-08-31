@@ -37,6 +37,7 @@ import type { ActionTool } from "../agent/types.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import { buildDeepLink } from "../server/deep-link.js";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
@@ -453,6 +454,36 @@ async function waitForA2ATask(
   return current;
 }
 
+async function askAppIdempotencyKey(
+  route: AskAppRoute,
+  issuerApp: string,
+  issuerAudience: string,
+  message: string,
+  approvedActions?: A2AApprovedAction[],
+): Promise<string> {
+  const requestId = getRequestContext()?.mcpRequestId;
+  if (!requestId) return `ask-app:${globalThis.crypto.randomUUID()}`;
+
+  const digest = await globalThis.crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(
+      JSON.stringify({
+        requestId,
+        route,
+        issuerApp,
+        issuerAudience,
+        message,
+        approvedActions: approvedActions ?? [],
+      }),
+    ),
+  );
+  let hex = "";
+  for (const byte of new Uint8Array(digest)) {
+    hex += byte.toString(16).padStart(2, "0");
+  }
+  return `ask-app:v1:${hex}`;
+}
+
 async function submitAskAppA2ATask(
   route: AskAppRoute,
   issuerApp: string,
@@ -469,6 +500,13 @@ async function submitAskAppA2ATask(
     route.requestOrigin,
     submissionDeadline,
   );
+  const idempotencyKey = await askAppIdempotencyKey(
+    route,
+    issuerApp,
+    issuerAudience,
+    message,
+    approvedActions,
+  );
   const task = await client.send(
     {
       role: "user",
@@ -477,7 +515,7 @@ async function submitAskAppA2ATask(
     {
       async: true,
       metadata,
-      idempotencyKey: `ask-app:${globalThis.crypto.randomUUID()}`,
+      idempotencyKey,
       deadlineMs: submissionDeadline,
       ...(approvedActions?.length ? { approvedActions } : {}),
     },

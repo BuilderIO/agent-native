@@ -1893,13 +1893,17 @@ export async function createMCPServerForRequest(
    * (e.g. design `export-coding-handoff`'s signed raw-code URL) resolve the
    * correct local-workspace origin instead of a prod/localhost fallback.
    */
-  async function withCallerContext<T>(fn: () => Promise<T>): Promise<T> {
+  async function withCallerContext<T>(
+    fn: () => Promise<T>,
+    mcpRequestId?: string,
+  ): Promise<T> {
     const orgId = await orgIdPromise;
     return runWithRequestContext(
       {
         userEmail: effectiveIdentity?.userEmail,
         orgId,
         ...(requestMeta?.origin ? { requestOrigin: requestMeta.origin } : {}),
+        ...(mcpRequestId ? { mcpRequestId } : {}),
       },
       fn,
     ) as Promise<T>;
@@ -2144,6 +2148,11 @@ export async function createMCPServerForRequest(
       // Set at each failure return below so the emitted event carries the
       // reason, not just `isError: true` recovered from the rendered result.
       let failure: { errorType: string; errorMessage: string } | undefined;
+      const mcpRequestId =
+        typeof request.id === "string" ||
+        (typeof request.id === "number" && Number.isFinite(request.id))
+          ? `${ctx.sessionId ?? "stateless"}:${String(request.id)}`
+          : undefined;
       const result = await withCallerContext(async () => {
         const { name, arguments: args } = request.params;
 
@@ -2381,7 +2390,7 @@ export async function createMCPServerForRequest(
             isError: true,
           };
         }
-      });
+      }, mcpRequestId);
 
       const toolName = request.params?.name;
       const calledEntry = actions[toolName];
