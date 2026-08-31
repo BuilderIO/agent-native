@@ -36,7 +36,10 @@ import {
   parseTriageMetadata,
   serializeTriageMetadata,
 } from "../server/triage/metadata.js";
-import { reconcileBabysitState } from "../server/triage/pr-babysit.js";
+import {
+  hasCompletePassingChecks,
+  reconcileBabysitState,
+} from "../server/triage/pr-babysit.js";
 import {
   decidePullRequestGovernance,
   hasActiveCredibleSafetyFinding,
@@ -506,10 +509,7 @@ export default defineAction({
       };
     }
 
-    const checksPassed =
-      snapshot.checksCoverage === "complete" &&
-      snapshot.checks.length > 0 &&
-      snapshot.checks.every((check) => check.state === "passed");
+    const checksPassed = hasCompletePassingChecks(snapshot);
     const reviewFeedback = reconcileBabysitState({
       comments: snapshot.comments,
       checks: snapshot.checks,
@@ -765,10 +765,7 @@ export default defineAction({
             "Changed-file evidence disappeared after approval claim; no approval was posted.",
         };
       }
-      const postClaimChecksPassed =
-        postClaimSnapshot.checksCoverage === "complete" &&
-        postClaimSnapshot.checks.length > 0 &&
-        postClaimSnapshot.checks.every((check) => check.state === "passed");
+      const postClaimChecksPassed = hasCompletePassingChecks(postClaimSnapshot);
       const postClaimReviewFeedback = reconcileBabysitState({
         comments: postClaimSnapshot.comments,
         checks: postClaimSnapshot.checks,
@@ -974,7 +971,7 @@ export default defineAction({
             finalReviewSnapshot.reviews,
             pullRequest.headSha,
           ) ||
-          finalReviewSnapshot.checksCoverage !== "complete" ||
+          !hasCompletePassingChecks(finalReviewSnapshot) ||
           finalReviewSnapshot.commentsTruncated ||
           hasActiveCredibleSafetyFinding(
             finalReviewSnapshot.reviews,

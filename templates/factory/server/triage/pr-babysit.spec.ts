@@ -4,6 +4,7 @@ import {
   babysitFingerprint,
   babysitOutOfScopeClause,
   formatBabysitAuditSummary,
+  hasCompletePassingChecks,
   hasMergeConflict,
   reconcileBabysitState,
   shouldRequestBabysitWork,
@@ -33,6 +34,42 @@ const baseInput: BabysitInput = {
 };
 
 describe("reconcileBabysitState", () => {
+  it("requires complete, non-empty, all-passed check evidence", () => {
+    expect(
+      hasCompletePassingChecks({ checksCoverage: "complete", checks: [] }),
+    ).toBe(false);
+    expect(
+      hasCompletePassingChecks({
+        checksCoverage: "complete",
+        checks: [check("pending", "queued")],
+      }),
+    ).toBe(false);
+    expect(
+      hasCompletePassingChecks({
+        checksCoverage: "complete",
+        checks: [check("running", "in_progress")],
+      }),
+    ).toBe(false);
+    expect(
+      hasCompletePassingChecks({
+        checksCoverage: "complete",
+        checks: [check("failed", "failed")],
+      }),
+    ).toBe(false);
+    expect(
+      hasCompletePassingChecks({
+        checksCoverage: "complete",
+        checks: [check("cancelled", "cancelled")],
+      }),
+    ).toBe(false);
+    expect(
+      hasCompletePassingChecks({
+        checksCoverage: "complete",
+        checks: [check("passed", "passed")],
+      }),
+    ).toBe(true);
+  });
+
   it("treats a comment with no reply as unanswered", () => {
     const result = reconcileBabysitState({
       ...baseInput,

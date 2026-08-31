@@ -67,6 +67,17 @@ export function shouldRequestBabysitWork(input: BabysitWorkSignal): boolean {
   return hasMergeConflict(input) || !input.snapshot.isClean;
 }
 
+export function hasCompletePassingChecks(input: {
+  checks: readonly PullRequestCheckObservation[];
+  checksCoverage?: TriageCoverage;
+}): boolean {
+  return (
+    input.checksCoverage === "complete" &&
+    input.checks.length > 0 &&
+    input.checks.every((check) => check.state === "passed")
+  );
+}
+
 export function babysitFingerprint(input: {
   headSha: string;
   mergeable: boolean | null;
@@ -155,8 +166,7 @@ export function reconcileBabysitState(input: BabysitInput): BabysitProposal {
     checksCoverage,
     commentsTruncated,
     isClean:
-      checksCoverage === "complete" &&
-      input.checks.length > 0 &&
+      hasCompletePassingChecks(input) &&
       !commentsTruncated &&
       unansweredComments.length === 0 &&
       failingChecks.length === 0 &&
