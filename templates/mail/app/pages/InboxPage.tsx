@@ -323,6 +323,7 @@ export function InboxPage() {
   const [searchParams] = useSearchParams();
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
+  const activeFilterId = searchParams.get("filter");
   const routeSearchSuffix = searchParams.toString()
     ? `?${searchParams.toString()}`
     : "";
@@ -358,7 +359,11 @@ export function InboxPage() {
   // the single inbox query — NOT a separate Gmail `label:` search — so the
   // tab badge count and the list it shows always agree. Non-pinned sidebar
   // labels (and label searches) still hit the server label query.
-  const searchQuery = searchParams.get("q") ?? undefined;
+  const activeSavedFilter = settings?.savedFilters?.find(
+    (filter) => filter.id === activeFilterId,
+  );
+  const searchQuery =
+    activeSavedFilter?.query ?? searchParams.get("q") ?? undefined;
   useEffect(() => {
     if (
       settingsLoading ||
@@ -371,7 +376,7 @@ export function InboxPage() {
       !isGoogleConnected
     )
       return;
-    navigate("/inbox?label=important", { replace: true });
+    void navigate("/inbox?label=important", { replace: true });
   }, [
     activeInboxTab,
     activeLabel,
@@ -398,7 +403,11 @@ export function InboxPage() {
   const effectiveLabel = clientSliceTab
     ? undefined
     : (activeLabel ?? undefined);
-  const emailView = mailboxWideLabelTab ? "all" : view;
+  const emailView = activeSavedFilter
+    ? "all"
+    : mailboxWideLabelTab
+      ? "all"
+      : view;
   const {
     data: rawEmails,
     isLoading,
@@ -509,11 +518,11 @@ export function InboxPage() {
   // extending the selection, so selection must persist across thread nav.
   useEffect(
     () => setSelectedIds(new Set()),
-    [view, activeLabel, activeInboxTab],
+    [view, activeLabel, activeInboxTab, activeFilterId],
   );
 
   // Sync current navigation state to file (write-only, so agent can read it)
-  const searchQ = searchParams.get("q") ?? undefined;
+  const searchQ = searchQuery;
   useEffect(() => {
     navState.sync({
       view,
@@ -521,6 +530,7 @@ export function InboxPage() {
       focusedEmailId: focusedId ?? undefined,
       search: searchQ,
       label: activeLabel ?? undefined,
+      filter: activeFilterId ?? undefined,
       activeInboxTab: activeInboxTab ?? undefined,
       activeAccounts:
         activeAccounts.size > 0 ? Array.from(activeAccounts) : undefined,
@@ -533,6 +543,7 @@ export function InboxPage() {
     focusedId,
     searchQ,
     activeLabel,
+    activeFilterId,
     activeInboxTab,
     activeAccounts,
     selectedThreadIds,
@@ -548,6 +559,7 @@ export function InboxPage() {
     lastCommandRef.current = key;
 
     const targetView = navCommand.view || view;
+    const targetFilter = navCommand.filter;
     const targetThread = navCommand.threadId;
 
     if (navCommand.composeDraftId && !targetThread) {
@@ -572,6 +584,8 @@ export function InboxPage() {
         ? `/settings?section=${encodeURIComponent(navCommand.settingsSection)}`
         : "/settings";
       void navigate(target);
+    } else if (targetFilter) {
+      void navigate(`/inbox?filter=${encodeURIComponent(targetFilter)}`);
     } else if (targetThread) {
       void navigate(`/${targetView}/${targetThread}`);
     } else if (targetView !== view) {
@@ -725,6 +739,7 @@ export function InboxPage() {
     isError,
     hasThread,
     searchQuery,
+    isSavedFilter: Boolean(activeSavedFilter),
     threadCount: threads.length,
     hasNextPage: Boolean(hasNextPage),
   });

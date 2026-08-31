@@ -48,4 +48,109 @@ describe("emailMessageMatchesSearch", () => {
       ),
     ).toBe(true);
   });
+
+  it("matches Gmail from operators in the local mailbox fallback", () => {
+    expect(
+      emailMessageMatchesSearch(
+        message({
+          from: { name: "GitHub", email: "notifications@github.com" },
+        }),
+        "from:notifications@github.com",
+      ),
+    ).toBe(true);
+    expect(
+      emailMessageMatchesSearch(
+        message({ from: { name: "Other", email: "other@example.com" } }),
+        "from:notifications@github.com",
+      ),
+    ).toBe(false);
+  });
+
+  it("matches either side of a Gmail OR query", () => {
+    expect(
+      emailMessageMatchesSearch(
+        message({
+          from: { name: "GitHub", email: "notifications@github.com" },
+        }),
+        "from:notifications@github.com OR from:alerts@example.com",
+      ),
+    ).toBe(true);
+    expect(
+      emailMessageMatchesSearch(
+        message({ from: { name: "Alerts", email: "alerts@example.com" } }),
+        "from:notifications@github.com OR from:alerts@example.com",
+      ),
+    ).toBe(true);
+    expect(
+      emailMessageMatchesSearch(
+        message({ from: { name: "Other", email: "other@example.com" } }),
+        "from:notifications@github.com OR from:alerts@example.com",
+      ),
+    ).toBe(false);
+  });
+
+  it("matches Gmail brace groups as OR queries", () => {
+    expect(
+      emailMessageMatchesSearch(
+        message({
+          from: { name: "GitHub", email: "notifications@github.com" },
+        }),
+        "{from:notifications@github.com from:alerts@example.com}",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps quoted operator values together in brace groups", () => {
+    expect(
+      emailMessageMatchesSearch(
+        message({ from: { name: "Jane Doe", email: "jane@example.com" } }),
+        '{from:"Jane Doe" from:alerts@example.com}',
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps negated Gmail brace groups excluded as a whole", () => {
+    const query = "-{from:alerts@example.com from:news@example.com}";
+    expect(
+      emailMessageMatchesSearch(
+        message({ from: { name: "Alerts", email: "alerts@example.com" } }),
+        query,
+      ),
+    ).toBe(false);
+    expect(
+      emailMessageMatchesSearch(
+        message({ from: { name: "News", email: "news@example.com" } }),
+        query,
+      ),
+    ).toBe(false);
+    expect(
+      emailMessageMatchesSearch(
+        message({ from: { name: "Other", email: "other@example.com" } }),
+        query,
+      ),
+    ).toBe(true);
+  });
+
+  it("applies common negative and state Gmail operators", () => {
+    expect(
+      emailMessageMatchesSearch(
+        message({
+          from: { name: "GitHub", email: "notifications@github.com" },
+          isRead: false,
+          labelIds: ["inbox"],
+        }),
+        "from:notifications@github.com is:unread in:inbox",
+      ),
+    ).toBe(true);
+    expect(
+      emailMessageMatchesSearch(
+        message({
+          from: { name: "GitHub", email: "notifications@github.com" },
+          isRead: true,
+          labelIds: ["inbox"],
+        }),
+        "from:notifications@github.com -is:unread",
+      ),
+    ).toBe(true);
+  });
 });

@@ -1,7 +1,7 @@
 import { getUserSetting } from "@agent-native/core/settings";
 
 import { normalizeSignature } from "../../shared/signature.js";
-import type { UserSettings } from "../../shared/types.js";
+import type { SavedMailFilter, UserSettings } from "../../shared/types.js";
 
 export const DEFAULT_SETTINGS: UserSettings = {
   name: "",
@@ -32,6 +32,43 @@ export function mergeSettings(
       ? { signature: normalizeSignature(patch.signature) }
       : {}),
   };
+}
+
+export function mergeSavedFilters(
+  current: readonly SavedMailFilter[] | undefined,
+  next: readonly SavedMailFilter[] | undefined,
+  base?: readonly SavedMailFilter[],
+): SavedMailFilter[] | undefined {
+  if (next === undefined) return current ? [...current] : undefined;
+  if (base === undefined) return [...next].slice(0, 20);
+
+  const baseById = new Map(base.map((filter) => [filter.id, filter]));
+  const nextById = new Map(next.map((filter) => [filter.id, filter]));
+  const result = (current ?? [])
+    .filter((filter) => !baseById.has(filter.id) || nextById.has(filter.id))
+    .map((filter) => ({ ...filter }));
+  const sameFilter = (left: SavedMailFilter, right: SavedMailFilter) =>
+    left.id === right.id &&
+    left.name === right.name &&
+    left.query === right.query;
+
+  for (const filter of next) {
+    const baseFilter = baseById.get(filter.id);
+    const currentIndex = result.findIndex((item) => item.id === filter.id);
+    if (!baseFilter) {
+      if (currentIndex === -1) result.push({ ...filter });
+      continue;
+    }
+    if (!sameFilter(baseFilter, filter)) {
+      if (currentIndex === -1) result.push({ ...filter });
+      else result[currentIndex] = { ...filter };
+    }
+  }
+
+  if (result.length > 20) {
+    throw new Error("Saved filters changed in another tab; please retry.");
+  }
+  return result;
 }
 
 export function mergePinnedLabels(
@@ -104,12 +141,42 @@ export function normalizeMailSettings(
   email: string,
 ): UserSettings {
   if (data) {
+    const savedFilters = normalizeSavedFilters(data.savedFilters);
+    const { savedFilters: _rawSavedFilters, ...dataWithoutSavedFilters } =
+      data as Record<string, unknown>;
     return {
       ...DEFAULT_SETTINGS,
-      ...(data as Partial<UserSettings>),
+      ...(dataWithoutSavedFilters as Partial<UserSettings>),
       email: (data as Partial<UserSettings>).email || email,
       signature: normalizeSignature((data as Partial<UserSettings>).signature),
+      ...(savedFilters ? { savedFilters } : {}),
     } as UserSettings;
   }
   return { ...DEFAULT_SETTINGS, email };
+}
+
+function normalizeSavedFilters(value: unknown): SavedMailFilter[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+
+  const seen = new Set<string>();
+  const filters: SavedMailFilter[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const candidate = item as Record<string, unknown>;
+    const id = typeof candidate.id === "string" ? candidate.id.trim() : "";
+    const name =
+      typeof candidate.name === "string" ? candidate.name.trim() : "";
+    const query =
+      typeof candidate.query === "string" ? candidate.query.trim() : "";
+    const normalizedId = id.slice(0, 80);
+    if (!normalizedId || !name || !query || seen.has(normalizedId)) continue;
+    seen.add(normalizedId);
+    filters.push({
+      id: normalizedId,
+      name: name.slice(0, 80),
+      query: query.slice(0, 500),
+    });
+    if (filters.length === 20) break;
+  }
+  return filters;
 }
