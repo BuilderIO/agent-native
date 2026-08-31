@@ -92,6 +92,7 @@ import {
   pinnedTriageLabels,
   augmentSelfSentLabels,
   savedFilterThreadIds,
+  inboxThreadKey,
 } from "@/lib/inbox-tabs";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { cn } from "@/lib/utils";
@@ -544,7 +545,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       { latest: (typeof filtered)[0]; hasUnread: boolean }
     >();
     for (const e of filtered) {
-      const key = e.threadId || e.id;
+      const key = inboxThreadKey(e);
       const existing = threadState.get(key);
       if (!existing) {
         threadState.set(key, { latest: e, hasUnread: !e.isRead });
@@ -566,7 +567,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     // disagree with the emails it actually shows.
     const inboxRows = threadRows.filter(
       ({ latest }) =>
-        !savedFilterThreads.has(latest.threadId || latest.id) &&
+        !savedFilterThreads.has(inboxThreadKey(latest)) &&
         qualifiesForInboxTab(latest.labelIds, null, triageLabels),
     );
     total["__inboxTotal"] = threadRows.length;
@@ -582,7 +583,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       const full = pinnedLabels[i];
       const rows = threadRows.filter(
         ({ latest }) =>
-          !savedFilterThreads.has(latest.threadId || latest.id) &&
+          !savedFilterThreads.has(inboxThreadKey(latest)) &&
           qualifiesForInboxTab(latest.labelIds, full, triageLabels),
       );
       total[full] = rows.length;

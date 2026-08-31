@@ -29,6 +29,7 @@ import {
   pinnedTriageLabels,
   augmentSelfSentLabels,
   filterInboxTabEmails,
+  inboxThreadKey,
 } from "@/lib/inbox-tabs";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn } from "@/lib/utils";
@@ -479,7 +480,7 @@ export function InboxPage() {
       const latestByThread = new Map<string, (typeof filtered)[0]>();
       const labelThreadIds = new Set<string>();
       for (const e of filtered) {
-        const key = e.threadId || e.id;
+        const key = inboxThreadKey(e);
         if (hasLabel(e)) labelThreadIds.add(key);
         const existing = latestByThread.get(key);
         if (!existing || new Date(e.date) > new Date(existing.date)) {
@@ -509,7 +510,7 @@ export function InboxPage() {
           })
           .map(([threadId]) => threadId),
       );
-      return filtered.filter((e) => qualifiedThreadIds.has(e.threadId || e.id));
+      return filtered.filter((e) => qualifiedThreadIds.has(inboxThreadKey(e)));
     }
     return filtered;
   }, [

@@ -10,6 +10,8 @@ import {
   filterInboxTabEmails,
   OTHER_INBOX_TAB_PARAM,
   resolvePinnedLabels,
+  pinnedTriageLabels,
+  inboxThreadKey,
 } from "../app/lib/inbox-tabs.js";
 import { buildGmailEmailSearchQuery } from "../server/lib/gmail-query.js";
 import { gmailGetThread } from "../server/lib/google-api.js";
@@ -33,7 +35,7 @@ import { getAccessTokens, fetchLabelMap } from "./helpers.js";
 function latestPerThread(emails: any[]): any[] {
   const byThread = new Map<string, any>();
   for (const email of emails) {
-    const key = `${email.accountEmail ?? ""}:${email.threadId || email.id}`;
+    const key = inboxThreadKey(email);
     const existing = byThread.get(key);
     if (
       !existing ||
@@ -50,7 +52,7 @@ function latestPerThread(emails: any[]): any[] {
 async function fetchEmailList(
   view: string,
   search?: string,
-  _label?: string,
+  label?: string,
   activeInboxTab?: string,
   activeAccounts?: string[],
   filterId?: string,
@@ -82,7 +84,9 @@ async function fetchEmailList(
     const shouldReadSettings =
       googleConnected ||
       Boolean(requestedFilterId) ||
-      (view === "inbox" && !search && activeInboxTab === OTHER_INBOX_TAB_PARAM);
+      (view === "inbox" &&
+        !search &&
+        (activeInboxTab === OTHER_INBOX_TAB_PARAM || Boolean(label)));
     const settings = shouldReadSettings
       ? await readSettings(ownerEmail)
       : undefined;
@@ -93,12 +97,17 @@ async function fetchEmailList(
       : undefined;
     const effectiveSearch = requestedFilterId ? savedFilter?.query : search;
     const effectiveView = savedFilter ? "all" : view;
-    const shouldFilterOther =
-      effectiveView === "inbox" &&
-      !effectiveSearch &&
-      activeInboxTab === OTHER_INBOX_TAB_PARAM;
     const userPinnedLabels = settings?.pinnedLabels;
     const pinnedLabels = resolvePinnedLabels(userPinnedLabels, googleConnected);
+    const triageLabels = pinnedTriageLabels(pinnedLabels);
+    const activeTriageTab =
+      effectiveView === "inbox" && !effectiveSearch
+        ? activeInboxTab === OTHER_INBOX_TAB_PARAM
+          ? null
+          : label && triageLabels.includes(label)
+            ? label
+            : undefined
+        : undefined;
     const savedFilterQueries =
       settings?.savedFilters?.map((filter) => filter.query) ?? [];
     const hasNoteToSelf = pinnedLabels.includes("note-to-self");
@@ -115,10 +124,10 @@ async function fetchEmailList(
       return filterSelectedAccounts(augmented);
     };
     const applyActiveInboxTab = (emails: any[]) =>
-      shouldFilterOther
+      activeTriageTab !== undefined
         ? filterInboxTabEmails(
             prepareEmails(emails),
-            null,
+            activeTriageTab,
             pinnedLabels,
             savedFilterQueries,
           )

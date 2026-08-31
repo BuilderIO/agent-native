@@ -115,6 +115,8 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain("selectedAccountSet");
     expect(source).toContain("accountEmails:");
     expect(source).toContain("filterInboxTabEmails");
+    expect(source).toContain("activeTriageTab");
+    expect(source).toContain("triageLabels.includes(label)");
     expect(source).toContain("nav.activeInboxTab");
     expect(source).toContain("nav.activeAccounts");
   });

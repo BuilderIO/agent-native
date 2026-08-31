@@ -201,6 +201,31 @@ describe("filterInboxTabEmails", () => {
     ).toEqual([]);
   });
 
+  it("keeps saved-filter claims scoped to their account", () => {
+    const github = message({
+      id: "shared-github",
+      threadId: "shared-thread",
+      accountEmail: "steve@builder.io",
+      from: { name: "GitHub", email: "notifications@github.com" },
+      labelIds: ["inbox", "important"],
+    });
+    const otherAccount = message({
+      id: "shared-other",
+      threadId: "shared-thread",
+      accountEmail: "other@example.com",
+      labelIds: ["inbox", "important"],
+    });
+
+    expect(
+      filterInboxTabEmails(
+        [github, otherAccount],
+        "important",
+        ["important"],
+        ["from:notifications@github.com"],
+      ),
+    ).toEqual([otherAccount]);
+  });
+
   it("preserves the existing partition when there are no saved filters", () => {
     const important = message({ labelIds: ["inbox", "important"] });
     expect(

@@ -174,4 +174,26 @@ describe("emailMessageMatchesSearch", () => {
       emailMessageMatchesSearch(email, "after:2026/05/19 before:2026/05/21"),
     ).toBe(true);
   });
+
+  it("uses Pacific midnight for date-only Gmail operators", () => {
+    const justBeforePacificMidnight = message({
+      date: "2026-05-20T06:59:59.999Z",
+    });
+    const justAfterPacificMidnight = message({
+      date: "2026-05-20T07:00:00.001Z",
+    });
+
+    expect(
+      emailMessageMatchesSearch(justBeforePacificMidnight, "after:2026/05/20"),
+    ).toBe(false);
+    expect(
+      emailMessageMatchesSearch(justAfterPacificMidnight, "after:2026/05/20"),
+    ).toBe(true);
+    expect(
+      emailMessageMatchesSearch(justBeforePacificMidnight, "before:2026/05/20"),
+    ).toBe(true);
+    expect(
+      emailMessageMatchesSearch(justAfterPacificMidnight, "before:2026/05/20"),
+    ).toBe(false);
+  });
 });

@@ -5,6 +5,53 @@ function includesQuery(value: unknown, query: string): boolean {
   return typeof value === "string" && value.toLowerCase().includes(query);
 }
 
+const pacificDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Los_Angeles",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+function dateBoundary(raw: string): number | null {
+  if (/^\d+$/.test(raw)) return Number(raw) * 1000;
+  const parts = raw.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
+  if (!parts) return null;
+
+  const [year, month, day] = parts.slice(1).map(Number);
+  const utcDate = Date.UTC(year, month - 1, day);
+  const date = new Date(utcDate);
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  )
+    return null;
+
+  // 08:00 UTC is still in the requested Pacific calendar day in both PST
+  // and PDT, including the two DST transition dates.
+  const approximate = Date.UTC(year, month - 1, day, 8);
+  const localParts = Object.fromEntries(
+    pacificDateFormatter
+      .formatToParts(new Date(approximate))
+      .filter(({ type }) => type !== "literal")
+      .map(({ type, value }) => [type, Number(value)]),
+  );
+  const localAsUtc = Date.UTC(
+    localParts.year,
+    localParts.month - 1,
+    localParts.day,
+    localParts.hour,
+    localParts.minute,
+    localParts.second,
+  );
+  const offset = localAsUtc - approximate;
+  return utcDate - offset;
+}
+
 function addressListMatches(
   addresses: EmailMessage["to"] | undefined,
   query: string,
@@ -229,13 +276,6 @@ function operatorMatches(
   field: SearchOperator,
   value: string,
 ): boolean {
-  const dateBoundary = (raw: string): number | null => {
-    if (/^\d+$/.test(raw)) return Number(raw) * 1000;
-    const parts = raw.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
-    if (!parts) return null;
-    return Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]));
-  };
-
   switch (field) {
     case "from":
       return (

@@ -30,6 +30,12 @@ export const COLLAPSIBLE_VIEW_IDS = [
 export const OTHER_INBOX_TAB_ID = "__inbox_other__";
 export const OTHER_INBOX_TAB_PARAM = "other";
 
+export function inboxThreadKey(
+  email: Pick<EmailMessage, "accountEmail" | "threadId" | "id">,
+): string {
+  return `${email.accountEmail?.trim().toLowerCase() ?? ""}:${email.threadId || email.id}`;
+}
+
 /** Use the default Important tab only before the user has saved pin choices. */
 export function resolvePinnedLabels(
   userPinnedLabels: readonly string[] | undefined,
@@ -68,7 +74,7 @@ export function augmentSelfSentLabels(
   if (opts.hasNoteToSelf) {
     const threads = new Map<string, EmailMessage[]>();
     for (const e of emails) {
-      const key = e.threadId || e.id;
+      const key = inboxThreadKey(e);
       const thread = threads.get(key) ?? [];
       thread.push(e);
       threads.set(key, thread);
@@ -81,7 +87,7 @@ export function augmentSelfSentLabels(
   }
 
   return emails.map((e) => {
-    const key = e.threadId || e.id;
+    const key = inboxThreadKey(e);
     const isSelfSent = opts.connectedEmails.has(e.from.email.toLowerCase());
     const virtualLabel = opts.hasNoteToSelf
       ? selfNoteThreads.has(key)
@@ -132,7 +138,7 @@ export function qualifiesForInboxTab(
 function latestByThread(emails: EmailMessage[]): Map<string, EmailMessage> {
   const map = new Map<string, EmailMessage>();
   for (const e of emails) {
-    const key = e.threadId || e.id;
+    const key = inboxThreadKey(e);
     const existing = map.get(key);
     if (!existing || new Date(e.date) > new Date(existing.date)) {
       map.set(key, e);
@@ -152,7 +158,7 @@ export function savedFilterThreadIds(
   const matched = new Set<string>();
   for (const email of emails) {
     if (queries.some((query) => emailMessageMatchesSearch(email, query))) {
-      matched.add(email.threadId || email.id);
+      matched.add(inboxThreadKey(email));
     }
   }
   return matched;
@@ -184,5 +190,5 @@ export function filterInboxTabEmails(
       qualified.add(key);
     }
   }
-  return emails.filter((e) => qualified.has(e.threadId || e.id));
+  return emails.filter((e) => qualified.has(inboxThreadKey(e)));
 }
