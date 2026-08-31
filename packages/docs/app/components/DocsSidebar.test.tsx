@@ -139,9 +139,13 @@ describe("DocsSidebar", () => {
       "environment-variables",
       "agent-native-config",
     ]);
-    expect(sectionIds.indexOf("toolkits")).toBeLessThan(
-      sectionIds.indexOf("apps"),
-    );
+    expect(sectionIds.slice(0, 5)).toEqual([
+      "overview",
+      "deployment",
+      "core-architecture",
+      "toolkits",
+      "apps",
+    ]);
   });
 
   it("uses the Agent Resources section and canonical overview link", () => {
@@ -198,6 +202,7 @@ describe("DocsSidebar", () => {
     for (const item of toolkitLinks) {
       expect(html).toContain(`href="${item.to}"`);
     }
+    expect(html).not.toContain('href="/docs/custom-design-system/"');
 
     const activeLink = getLinkMarkup(html, "/docs/toolkit-collaboration/");
     expect(activeLink).toContain("is-active");

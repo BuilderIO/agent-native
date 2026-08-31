@@ -862,14 +862,9 @@ export default function CodeAgentsHub({
       ) ?? null,
     [visibleActiveChatFirstSurfaceTabId, visibleChatFirstSurfaceTabs],
   );
-  const chatFirstDefaultInitializedRef = useRef(false);
   useEffect(() => {
-    if (chatFirstDefaultInitializedRef.current) return;
-    chatFirstDefaultInitializedRef.current = true;
     closeChatFirstSessionWatch();
-    chatFirstSurfaceTabsStore.closeAll();
-    setChatFirstSurfacePanelOpen(false);
-  }, [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen]);
+  }, []);
   const chatFirstAppTakesMain =
     activeChatFirstSurfaceTab?.kind === "app" &&
     activeChatFirstSurfaceTab.placement === "main";

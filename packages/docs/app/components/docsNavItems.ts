@@ -902,11 +902,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "toolkit-ui",
       },
       {
-        id: "custom-design-system",
-        labelKey: "customDesignSystem",
-        slug: "custom-design-system",
-      },
-      {
         id: "toolkit-editors-canvases",
         labelKey: "toolkitEditorsCanvases",
         slug: "toolkit-editors-canvases",
@@ -1060,19 +1055,22 @@ function navLabel(t: Translate, key: keyof typeof enUS.nav): string {
 
 const SHOW_DRAFTS = import.meta.env.VITE_SHOW_DRAFTS === "true";
 
-// Keep the public template catalog after the framework/toolkit guidance so
+// Keep the public template catalog after the framework and toolkit guidance so
 // readers encounter architecture and reusable primitives before app examples.
 const NAV_SECTION_CONFIG_IN_DISPLAY_ORDER = (() => {
   const appsSection = NAV_SECTION_CONFIG.find(
     (section) => section.id === "apps",
   );
-  if (!appsSection) return NAV_SECTION_CONFIG;
+  const toolkitsSection = NAV_SECTION_CONFIG.find(
+    (section) => section.id === "toolkits",
+  );
+  if (!appsSection || !toolkitsSection) return NAV_SECTION_CONFIG;
 
   return NAV_SECTION_CONFIG.flatMap((section) =>
-    section.id === "apps"
+    section.id === "apps" || section.id === "toolkits"
       ? []
-      : section.id === "toolkits"
-        ? [section, appsSection]
+      : section.id === "core-architecture"
+        ? [section, toolkitsSection, appsSection]
         : [section],
   );
 })();

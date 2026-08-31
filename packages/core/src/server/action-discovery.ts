@@ -50,6 +50,7 @@ const SKIP_FILES = new Set([
   "db-connect",
   "db-status",
   "registry",
+  "migrate-production",
 ]);
 
 function isRuntimeSourceFile(filename: string): boolean {

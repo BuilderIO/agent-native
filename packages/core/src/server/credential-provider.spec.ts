@@ -225,6 +225,20 @@ describe("writeBuilderCredentials", () => {
     expect(scopes.every((s) => s === "user")).toBe(true);
   });
 
+  it("writes a personal access token at user scope", async () => {
+    const target = await writeBuilderCredentials("a@b.com", {
+      privateKey: "btk-test-token",
+      publicKey: "space",
+    });
+    expect(target).toEqual({ scope: "user", scopeId: "a@b.com" });
+    expect(mockWriteAppSecret).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "BUILDER_PRIVATE_KEY",
+        value: "btk-test-token",
+      }),
+    );
+  });
+
   it("writes at org scope for an owner of an active org", async () => {
     const target = await writeBuilderCredentials(
       "owner@b.com",
@@ -352,14 +366,16 @@ describe("writeBuilderCredentials", () => {
     );
   });
 
-  it("rejects non-private-key credentials before clearing existing rows", async () => {
+  it("rejects unsupported credentials before clearing existing rows", async () => {
     await expect(
       writeBuilderCredentials(
         "owner@b.com",
-        { privateKey: "btk-personal-access-token", publicKey: "pub" },
+        { privateKey: "not-a-builder-token", publicKey: "pub" },
         { orgId: "builder_io", role: "owner" },
       ),
-    ).rejects.toThrow("expected bpk-");
+    ).rejects.toThrow(
+      "expected a bpk- private key or btk- personal access token",
+    );
 
     expect(mockDeleteAppSecret).not.toHaveBeenCalled();
     expect(mockWriteAppSecret).not.toHaveBeenCalled();

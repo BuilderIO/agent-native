@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import type { AuthPageProps } from "../client/auth/AuthPage.js";
 import { LOCALE_STORAGE_KEY } from "../localization/shared.js";
 import {
@@ -23,6 +27,7 @@ function readAuthPageData(html: string): AuthPageProps {
 
 describe("getOnboardingHtml", () => {
   afterEach(() => {
+    resetAppConfigForTests();
     vi.unstubAllEnvs();
   });
 
@@ -607,6 +612,12 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain('src="/assets/auth-client.js"');
     expect(readAuthPageData(html).appBasePath).toBe("");
     expect(html).not.toContain("function __anNormalizeReturnPath");
+  });
+
+  it("passes the configured app home to the hydrated sign-in page", () => {
+    defineAppConfig({ app: { homePath: "/inbox" } });
+
+    expect(readAuthPageData(getOnboardingHtml()).homePath).toBe("/inbox");
   });
 
   it("uses branded first-party marketing from the request host", () => {
