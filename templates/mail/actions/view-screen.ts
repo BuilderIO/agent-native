@@ -53,16 +53,12 @@ async function fetchEmailList(
   _label?: string,
   activeInboxTab?: string,
   activeAccounts?: string[],
-  isSavedFilter = false,
+  filterId?: string,
 ): Promise<any[]> {
   try {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
-    const effectiveView = isSavedFilter ? "all" : view;
-    const shouldFilterOther =
-      effectiveView === "inbox" &&
-      !search &&
-      activeInboxTab === OTHER_INBOX_TAB_PARAM;
+    const requestedFilterId = filterId?.trim();
     const selectedAccountEmails = Array.isArray(activeAccounts)
       ? [
           ...new Set(
@@ -82,21 +78,25 @@ async function fetchEmailList(
       );
     };
 
-    if (effectiveView === "snoozed" || effectiveView === "scheduled") {
-      let emails = await getSyntheticEmailsForView(ownerEmail, effectiveView);
-      if (search) {
-        emails = emails.filter((e: any) =>
-          emailMessageMatchesSearch(e, search),
-        );
-      }
-      return filterSelectedAccounts(emails).slice(0, 50);
-    }
-
     const googleConnected = await isConnected(ownerEmail);
-    const settings =
-      googleConnected || shouldFilterOther
-        ? await readSettings(ownerEmail)
-        : undefined;
+    const shouldReadSettings =
+      googleConnected ||
+      Boolean(requestedFilterId) ||
+      (view === "inbox" && !search && activeInboxTab === OTHER_INBOX_TAB_PARAM);
+    const settings = shouldReadSettings
+      ? await readSettings(ownerEmail)
+      : undefined;
+    const savedFilter = requestedFilterId
+      ? settings?.savedFilters?.find(
+          (filter) => filter.id === requestedFilterId,
+        )
+      : undefined;
+    const effectiveSearch = requestedFilterId ? savedFilter?.query : search;
+    const effectiveView = savedFilter ? "all" : view;
+    const shouldFilterOther =
+      effectiveView === "inbox" &&
+      !effectiveSearch &&
+      activeInboxTab === OTHER_INBOX_TAB_PARAM;
     const userPinnedLabels = settings?.pinnedLabels;
     const pinnedLabels = resolvePinnedLabels(userPinnedLabels, googleConnected);
     const hasNoteToSelf = pinnedLabels.includes("note-to-self");
@@ -116,6 +116,15 @@ async function fetchEmailList(
       shouldFilterOther
         ? filterInboxTabEmails(prepareEmails(emails), null, pinnedLabels)
         : prepareEmails(emails);
+    if (effectiveView === "snoozed" || effectiveView === "scheduled") {
+      let emails = await getSyntheticEmailsForView(ownerEmail, effectiveView);
+      if (effectiveSearch) {
+        emails = emails.filter((e: any) =>
+          emailMessageMatchesSearch(e, effectiveSearch),
+        );
+      }
+      return filterSelectedAccounts(emails).slice(0, 50);
+    }
     if (googleConnected) {
       const labelMap = new Map<string, string>();
       await Promise.all(
@@ -129,10 +138,12 @@ async function fetchEmailList(
 
       const gmailQuery = buildGmailEmailSearchQuery({
         view: effectiveView,
-        q: search,
+        q: effectiveSearch,
       });
       const effectiveQuery =
-        effectiveView === "all" && !search ? "" : gmailQuery || "in:inbox";
+        effectiveView === "all" && !effectiveSearch
+          ? ""
+          : gmailQuery || "in:inbox";
       const { messages } = await listGmailMessages(
         effectiveQuery,
         50,
@@ -145,9 +156,10 @@ async function fetchEmailList(
             selectedAccountEmails.length > 0
               ? selectedAccountEmails
               : undefined,
-          threadCandidateLimit: search ? 500 : undefined,
+          threadCandidateLimit: effectiveSearch ? 500 : undefined,
           threadRecentMessageCandidateLimit:
-            !search && (effectiveView === "inbox" || effectiveView === "unread")
+            !effectiveSearch &&
+            (effectiveView === "inbox" || effectiveView === "unread")
               ? DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT
               : undefined,
         },
@@ -199,9 +211,9 @@ async function fetchEmailList(
           emails = emails.filter((e: any) => e.isTrashed);
           break;
       }
-      if (search) {
+      if (effectiveSearch) {
         emails = emails.filter((e: any) =>
-          emailMessageMatchesSearch(e, search),
+          emailMessageMatchesSearch(e, effectiveSearch),
         );
       }
       return applyActiveInboxTab(emails).slice(0, 50);
@@ -329,7 +341,7 @@ export default defineAction({
         nav.label,
         nav.activeInboxTab,
         nav.activeAccounts,
-        Boolean(nav.filter),
+        nav.filter,
       );
       const selectedThreadIds = Array.isArray(nav.selectedThreadIds)
         ? new Set(

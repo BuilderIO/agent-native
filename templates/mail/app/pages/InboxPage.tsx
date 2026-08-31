@@ -559,6 +559,7 @@ export function InboxPage() {
     lastCommandRef.current = key;
 
     const targetView = navCommand.view || view;
+    const targetFilter = navCommand.filter;
     const targetThread = navCommand.threadId;
 
     if (navCommand.composeDraftId && !targetThread) {
@@ -583,6 +584,8 @@ export function InboxPage() {
         ? `/settings?section=${encodeURIComponent(navCommand.settingsSection)}`
         : "/settings";
       void navigate(target);
+    } else if (targetFilter) {
+      void navigate(`/inbox?filter=${encodeURIComponent(targetFilter)}`);
     } else if (targetThread) {
       void navigate(`/${targetView}/${targetThread}`);
     } else if (targetView !== view) {

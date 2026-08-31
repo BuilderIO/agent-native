@@ -27,6 +27,13 @@ function viewScreenSource(): string {
   );
 }
 
+function navigateActionSource(): string {
+  return readFileSync(
+    new URL("../../actions/navigate.ts", import.meta.url),
+    "utf8",
+  );
+}
+
 describe("Inbox navigation commands", () => {
   it("focuses compose drafts opened by MCP deep links", () => {
     const source = inboxSource();
@@ -93,7 +100,9 @@ describe("Inbox navigation commands", () => {
       "activeInboxTab: nav.activeInboxTab ?? null",
     );
     expect(viewScreenSource()).toContain("filter: nav.filter ?? null");
-    expect(viewScreenSource()).toContain("Boolean(nav.filter)");
+    expect(viewScreenSource()).toContain("nav.filter,");
+    expect(navigateActionSource()).toContain("filter: z");
+    expect(navigateActionSource()).toContain("nav.filter = args.filter");
   });
 
   it("filters the view-screen snapshot to the active Other partition", () => {
