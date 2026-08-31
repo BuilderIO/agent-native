@@ -35,7 +35,6 @@ import {
   AGENT_CHAT_PROCESS_RUN_PATH,
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
-import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
@@ -74,7 +73,6 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
 } from "../shared/social-meta.js";
-import { getSsrAuthRedirectScript } from "../shared/ssr-auth-redirect.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
 import {
   createAgentNativeConfigContext,
@@ -926,11 +924,8 @@ export function generateWorkerEntry(
   // deployment-wide SSR cache policy is baked in from this build's env.
   const ssrCacheHeaders = resolveSsrCacheHeaders();
   const ssrCacheKeyHeaders = resolveSsrCacheKeyHeaders();
-  const ssrAuthRedirectScript = getSsrAuthRedirectScript(
-    frameworkSessionHintCookieName(
-      resolveAuthCookieNamespace().frameworkCookieName,
-    ),
-    resolveAppHomePath(getAppConfig().app),
+  const ssrAuthRedirectCookieName = frameworkSessionHintCookieName(
+    resolveAuthCookieNamespace().frameworkCookieName,
   );
   const routeImports: string[] = [];
   const routeRegistrations: string[] = [];
@@ -1020,7 +1015,11 @@ ${["post", "put", "delete"]
   const pluginCalls: string[] = [];
   const providedPluginStems = new Set<string>();
   pluginImports.push(
-    `import { getAppConfig as getAgentNativeAppConfig } from "${EDGE_SERVER_ENTRYPOINT}";`,
+    `import {
+  getAppConfig as getAgentNativeAppConfig,
+  getSsrAuthRedirectScript as getAgentNativeSsrAuthRedirectScript,
+  resolveAppHomePath as resolveAgentNativeAppHomePath,
+} from "${EDGE_SERVER_ENTRYPOINT}";`,
   );
 
   for (let i = 0; i < edgePlugins.length; i++) {
@@ -1468,7 +1467,7 @@ function injectHeadScript(html, script) {
 const SSR_CACHE_HEADERS = ${JSON.stringify(ssrCacheHeaders)};
 const SSR_CACHE_KEY_HEADERS = ${JSON.stringify(ssrCacheKeyHeaders)};
 const SSR_QUERY_CACHE_KEY_HEADER = ${JSON.stringify(SSR_QUERY_CACHE_KEY_HEADER)};
-const SSR_AUTH_REDIRECT_SCRIPT = ${JSON.stringify(ssrAuthRedirectScript)};
+const SSR_AUTH_REDIRECT_COOKIE_NAME = ${JSON.stringify(ssrAuthRedirectCookieName)};
 const DEFAULT_SPECULATION_RULES_PATH = ${JSON.stringify(DEFAULT_SPECULATION_RULES_PATH)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
 const IMMUTABLE_ASSET_PATHS = new Set(${JSON.stringify(
@@ -1495,6 +1494,13 @@ const AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT = ${JSON.stringify(
 const OG_IMAGE_META_RE = /<meta\\b(?=[^>]*\\bproperty=(["'])og:image\\1)[^>]*>/i;
 const TWITTER_CARD_META_RE = /<meta\\b(?=[^>]*\\bname=(["'])twitter:card\\1)[^>]*>/i;
 const TWITTER_IMAGE_META_RE = /<meta\\b(?=[^>]*\\bname=(["'])twitter:image\\1)[^>]*>/i;
+
+function getAgentNativeAuthRedirectScript() {
+  return getAgentNativeSsrAuthRedirectScript(
+    SSR_AUTH_REDIRECT_COOKIE_NAME,
+    resolveAgentNativeAppHomePath(getAgentNativeAppConfig().app),
+  );
+}
 
 function withAgentNativeSocialImageCacheBuster(image) {
   const separator = image.includes("?") ? "&" : "?";
@@ -1621,7 +1627,7 @@ async function rewriteMountedResponse(response, basePath, pathname, request) {
       getPostHogClientConfigScript(),
       getRealtimeClientConfigScript(),
       getAppOriginClientConfigScript(),
-      pathname === "/" ? SSR_AUTH_REDIRECT_SCRIPT : null,
+      pathname === "/" ? getAgentNativeAuthRedirectScript() : null,
     ]
       .filter(Boolean)
       .join("") || null;

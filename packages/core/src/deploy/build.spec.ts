@@ -690,6 +690,27 @@ export default (event) =>
     );
   });
 
+  it("resolves a custom app home from a generated config plugin", async () => {
+    const dir = makeTempDir();
+    const configPath = path.join(dir, "home-config.mjs");
+    fs.writeFileSync(
+      configPath,
+      `import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({ app: { homePath: "/inbox" } });
+`,
+    );
+
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry([], [configPath]),
+    );
+    const response = await worker.fetch(new Request("https://app.test/"));
+
+    expect(await response.text()).toContain(
+      'var homePath = (root || "") + "/inbox"',
+    );
+  });
+
   it("hard-caches SSR HTML for authenticated Cloudflare worker requests just like anonymous ones", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
