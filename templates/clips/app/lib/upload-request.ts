@@ -41,9 +41,14 @@ export async function uploadChunkRequest({
   }
   if (!sessionResponse.ok) return response;
 
-  const session = (await sessionResponse.json().catch(() => null)) as {
-    token?: unknown;
-  } | null;
+  let session: { token?: unknown } | null;
+  try {
+    session = (await sessionResponse.json()) as {
+      token?: unknown;
+    } | null;
+  } catch {
+    return response;
+  }
   if (typeof session?.token !== "string" || !session.token) return response;
 
   return request(session.token);
