@@ -241,9 +241,11 @@ specific missing reporter or product input.
 
 Before declaring the run complete, re-read every thread where this workflow
 posted a reply through the current end and inspect responses to those replies.
-Treat any response as new evidence: attempt and verify any needed fix, post the
-next disclosed update, and repeat the read-back until no unprocessed follow-up
-remains. The final recap and ship handoff must come after this pass.
+After every Slack reply, perform that complete-thread read-back before
+continuing. Treat any response as new evidence: re-investigate, attempt and
+verify any needed fix, post the next disclosed update, and read the thread
+again. Repeat until no unprocessed follow-up remains. The final recap and ship
+handoff must come after this pass.
 
 ## Resolution and ownership gate
 
