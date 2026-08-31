@@ -100,6 +100,14 @@ describe("app config store", () => {
     expect(() =>
       defineAppConfig({ app: { homePath: "https://evil.example" } }),
     ).toThrow();
+    for (const homePath of [
+      "/sign-in",
+      "/_agent-native/sign-in",
+      "/login",
+      "/signup",
+    ]) {
+      expect(() => defineAppConfig({ app: { homePath } })).toThrow();
+    }
   });
 
   it("treats an empty environment value as unset", () => {

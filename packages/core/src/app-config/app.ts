@@ -1,5 +1,16 @@
 import { z } from "zod";
 
+const AUTH_ENTRY_PATHS = new Set([
+  "/sign-in",
+  "/_agent-native/sign-in",
+  "/login",
+  "/signup",
+]);
+
+function isAuthEntryPath(value: string): boolean {
+  return AUTH_ENTRY_PATHS.has(value.replace(/\/+$/, "") || "/");
+}
+
 /**
  * App identity.
  *
@@ -67,8 +78,12 @@ export const appConfig = z.object({
       const base = "https://agent-native.invalid";
       if (!URL.canParse(value, base)) return false;
       const parsed = new URL(value, base);
-      return parsed.origin === base && parsed.pathname === value;
-    }, "must be an origin-relative path without a query or fragment")
+      return (
+        parsed.origin === base &&
+        parsed.pathname === value &&
+        !isAuthEntryPath(value)
+      );
+    }, "must be an origin-relative non-auth path without a query or fragment")
     .optional()
     .meta({
       doc: "Private app route used after authentication. First-party templates default to /home; custom apps default to /.",
