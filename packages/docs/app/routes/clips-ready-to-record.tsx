@@ -135,7 +135,24 @@ function LibrarySidebar() {
   return (
     <aside className="library-sidebar">
       <div className="library-brand">
-        <span className="library-brand-mark" aria-hidden />
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="24"
+          height="24"
+          viewBox="0 0 114 66"
+          fill="none"
+          className="library-brand-mark"
+          aria-hidden
+        >
+          <path
+            d="M24.5537 65.7695H0L15.0859 39.4619L37.708 0L60.4912 39.4619H39.6396L24.5537 65.7695Z"
+            fill="currentColor"
+          />
+          <path
+            d="M89.446 0H114L76.2921 65.7704H51.7383L89.446 0Z"
+            fill="currentColor"
+          />
+        </svg>
         <span className="library-brand-name">Clips</span>
       </div>
 
@@ -547,7 +564,7 @@ const LIBRARY_BACKDROP_CSS = [
 
   ".library-sidebar { width: 216px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; padding: 14px 12px; background: #181818; border-right: 1px solid #2c2c2c; box-sizing: border-box; }",
   ".library-brand { display: flex; align-items: center; gap: 8px; padding: 4px 4px 12px; }",
-  ".library-brand-mark { width: 18px; height: 18px; border-radius: 5px; background: linear-gradient(135deg, #6366f1, #a855f7); }",
+  ".library-brand-mark { height: 14px; width: 24px; flex-shrink: 0; color: #e6e6e6; }",
   ".library-brand-name { font-weight: 600; font-size: 13px; color: #e6e6e6; }",
   ".library-new-recording { margin: 0 0 6px; padding: 7px 0; border-radius: 6px; border: none; background: #f2f2f2; color: #171717; font-size: 12.5px; font-weight: 600; cursor: default; }",
   ".library-import { margin: 0 0 12px; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 0; border-radius: 6px; border: 1px solid #333333; background: transparent; color: #cccccc; font-size: 12.5px; cursor: default; }",
