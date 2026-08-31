@@ -35,6 +35,7 @@ import {
   AGENT_CHAT_PROCESS_RUN_PATH,
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
+import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
@@ -929,6 +930,7 @@ export function generateWorkerEntry(
     frameworkSessionHintCookieName(
       resolveAuthCookieNamespace().frameworkCookieName,
     ),
+    resolveAppHomePath(getAppConfig().app),
   );
   const routeImports: string[] = [];
   const routeRegistrations: string[] = [];

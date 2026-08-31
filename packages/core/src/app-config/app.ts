@@ -52,6 +52,27 @@ export const appConfig = z.object({
       env: ["APP_NAME"],
       doc: "User-facing display name of this app.",
     }),
+  homePath: z
+    .string()
+    .trim()
+    .min(1)
+    .refine((value) => {
+      if (
+        !value.startsWith("/") ||
+        value.startsWith("//") ||
+        /[\u0000-\u001f\u007f\\<>"'?#]/.test(value)
+      ) {
+        return false;
+      }
+      const base = "https://agent-native.invalid";
+      if (!URL.canParse(value, base)) return false;
+      const parsed = new URL(value, base);
+      return parsed.origin === base && parsed.pathname === value;
+    }, "must be an origin-relative path without a query or fragment")
+    .optional()
+    .meta({
+      doc: "Private app route used after authentication. First-party templates default to /home; custom apps default to /.",
+    }),
   logoUrl: z
     .string()
     .min(1)

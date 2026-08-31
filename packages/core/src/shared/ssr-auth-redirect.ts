@@ -7,12 +7,15 @@
  */
 export function getSsrAuthRedirectScript(
   sessionHintCookieName = "an_session_hint",
+  appHomePath = "/home",
 ): string {
+  if (appHomePath === "/") return "";
+
   return `<script data-agent-native-auth-redirect>(function () {
   if (window.__agentNativeAuthRedirectStarted) return;
   window.__agentNativeAuthRedirectStarted = true;
   var root = window.location.pathname.replace(/\\/+$/, "");
-  var homePath = (root || "") + "/home";
+  var homePath = (root || "") + ${JSON.stringify(appHomePath)};
   var sessionHintCookieName = ${JSON.stringify(sessionHintCookieName)};
   function hasSessionHint() {
     if (typeof document !== "object" || typeof document.cookie !== "string") return false;
