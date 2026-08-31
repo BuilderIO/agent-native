@@ -387,8 +387,7 @@ function isInFrame(): boolean {
 
 function configuredOAuthOrigin(
   value: string,
-  currentOrigin =
-    typeof window === "undefined" ? "" : window.location.origin,
+  currentOrigin = typeof window === "undefined" ? "" : window.location.origin,
 ): string {
   if (!value) return "";
   try {
@@ -1317,10 +1316,7 @@ export function AuthPage(props: AuthPageProps) {
       },
     );
     const target = resumeHref();
-    const oauthTarget = oauthReturnTarget(
-      target,
-      workspaceGatewayReturnOrigin,
-    );
+    const oauthTarget = oauthReturnTarget(target, workspaceGatewayReturnOrigin);
     const flowId = createFlowId();
     oauthFlowId.current = flowId;
     const flow = resolveGoogleFlow();
