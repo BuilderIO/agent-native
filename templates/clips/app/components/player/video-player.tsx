@@ -1977,7 +1977,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             aria-hidden="true"
             onError={() => setThumbnailLoadFailed(true)}
             className={cn(
-              "pointer-events-none absolute inset-0 z-[1] h-full w-full",
+              "pointer-events-none absolute inset-0 h-full w-full",
               cover ? "object-cover" : "object-contain",
             )}
           />
@@ -2093,7 +2093,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         {!hideChrome && !isLoomEmbed ? (
           <div
             className={cn(
-              "absolute inset-x-0 bottom-0 z-10 opacity-100 transition-opacity duration-200",
+              "absolute inset-x-0 bottom-0 opacity-100 transition-opacity duration-200",
               controlsVisible ? "" : "sm:opacity-0 sm:pointer-events-none",
             )}
           >
