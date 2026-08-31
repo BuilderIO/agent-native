@@ -25,6 +25,13 @@ interface TimeZoneGridProps {
   /** Hosts (owner + eligible overlay hosts) with a resolved time zone. */
   hosts: TimeZoneGridHost[];
   /**
+   * The calendar date the visitor selected (yyyy-MM-dd, in the owner's
+   * zone) — the date shown in the step header above this grid. Used to flag
+   * any row, including the visitor's own, whose local day for a given slot
+   * doesn't match that date.
+   */
+  selectedDate: string;
+  /**
    * Manually added extra time zones. Lifted to the parent so they survive
    * this component unmounting — e.g. toggling "Hide time zones" swaps this
    * component out for TimeSlotPicker, which would otherwise reset local state.
@@ -46,7 +53,7 @@ function formatInTimeZone(iso: string, timeZone: string): string {
 }
 
 // Sortable/comparable calendar-day key in a given time zone, used to detect
-// when a slot lands on a different day than the reference (browser) time zone.
+// when a slot lands on a different day than the visitor's selected date.
 function dateKeyInTimeZone(iso: string, timeZone: string): string {
   try {
     return new Intl.DateTimeFormat("en-CA", {
@@ -79,6 +86,7 @@ export function TimeZoneGrid({
   loading,
   errorMessage,
   hosts,
+  selectedDate,
   extraTimezones,
   onExtraTimezonesChange,
 }: TimeZoneGridProps) {
@@ -209,9 +217,9 @@ export function TimeZoneGrid({
                   const isSelected = selectedSlot === slot.start;
                   const isHovered = hoveredSlot === slot.start;
                   const crossesDate =
-                    !!browserTimezone &&
+                    !!selectedDate &&
                     dateKeyInTimeZone(slot.start, row.timezone) !==
-                      dateKeyInTimeZone(slot.start, browserTimezone);
+                      selectedDate;
                   return (
                     <button
                       key={slot.start}

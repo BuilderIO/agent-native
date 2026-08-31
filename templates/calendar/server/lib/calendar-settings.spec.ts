@@ -69,10 +69,14 @@ describe("readCalendarSettings", () => {
       "calendar-settings",
       expect.objectContaining({ timezone: "Pacific/Auckland" }),
     );
-    expect(putSettingMock).toHaveBeenCalledWith(
-      "calendar-settings",
-      expect.objectContaining({ timezone: "Pacific/Auckland" }),
-    );
+  });
+
+  // A different user's first-time read must never touch the shared/global
+  // key that backs another owner's already-customized public booking page.
+  it("never writes the shared global key from a read, even when persisting", async () => {
+    getUserSettingMock.mockResolvedValue(null);
+    await readCalendarSettings(EMAIL, { persistDetected: true });
+    expect(putSettingMock).not.toHaveBeenCalled();
   });
 
   it("never overwrites an existing saved record even when asked to persist", async () => {

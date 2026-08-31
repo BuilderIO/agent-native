@@ -342,6 +342,17 @@ function zonedTimeToUtc(
     utcGuess - getTimezoneOffsetMs(new Date(utcGuess), timezone),
   );
   result = new Date(utcGuess - getTimezoneOffsetMs(result, timezone));
+
+  // A spring-forward DST transition skips an hour of local wall-clock time.
+  // If the requested time falls in that gap, the offset above belongs to
+  // the wrong side of the transition and `result` silently lands an hour
+  // before the requested time instead of the requested time not existing.
+  // Detect that by round-tripping back to local time, and if it doesn't
+  // match, push forward to the first valid instant after the gap.
+  const roundTrip = getLocalDateTimeParts(result, timezone);
+  if (roundTrip.hour !== hour || roundTrip.minute !== minute) {
+    result = new Date(result.getTime() + 60 * 60 * 1000);
+  }
   return result;
 }
 

@@ -2823,15 +2823,17 @@ function BookingPreview({
                   {format(selectedDate, "EEEE, MMMM d, yyyy")}
                 </p>
               ) : null}
-              <button
-                type="button"
-                onClick={() => setShowPreviewTimeZones((prev) => !prev)}
-                className="text-[11px] font-normal text-[#00B5FF] hover:text-[#33C4FF]"
-              >
-                {showPreviewTimeZones
-                  ? t("bookingLinks.hideTimeZones")
-                  : t("bookingLinks.showTimeZones")}
-              </button>
+              {hasLiveAvailability ? (
+                <button
+                  type="button"
+                  onClick={() => setShowPreviewTimeZones((prev) => !prev)}
+                  className="text-[11px] font-normal text-[#00B5FF] hover:text-[#33C4FF]"
+                >
+                  {showPreviewTimeZones
+                    ? t("bookingLinks.hideTimeZones")
+                    : t("bookingLinks.showTimeZones")}
+                </button>
+              ) : null}
             </div>
             {showPreviewTimeZones ? (
               <TimeZoneGrid
@@ -2848,6 +2850,7 @@ function BookingPreview({
                     : undefined
                 }
                 hosts={previewTimeZoneHosts}
+                selectedDate={liveAvailabilityDate}
                 extraTimezones={previewExtraTimezones}
                 onExtraTimezonesChange={setPreviewExtraTimezones}
               />

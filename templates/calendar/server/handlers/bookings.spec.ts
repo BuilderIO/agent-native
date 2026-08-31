@@ -96,6 +96,72 @@ describe("booking availability", () => {
     ]);
   });
 
+  it("offers no slots for a schedule window entirely inside a spring-forward DST gap", () => {
+    // 2026-03-08 is the US spring-forward transition: America/New_York
+    // clocks jump from 01:59:59 EST straight to 03:00:00 EDT, so a
+    // configured 02:00-03:00 window has no real wall-clock time in it.
+    // Pin "now" ahead of the outer beforeEach's July date so the
+    // notice/advance-window check doesn't also exclude these March slots.
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    const config: AvailabilityConfig = {
+      ...availabilityConfig(),
+      timezone: "America/New_York",
+      weeklySchedule: {
+        monday: { enabled: false, slots: [] },
+        tuesday: { enabled: false, slots: [] },
+        wednesday: { enabled: false, slots: [] },
+        thursday: { enabled: false, slots: [] },
+        friday: { enabled: false, slots: [] },
+        saturday: { enabled: false, slots: [] },
+        sunday: { enabled: true, slots: [{ start: "02:00", end: "03:00" }] },
+      },
+    };
+
+    const slots = generateAvailableSlotsForDate({
+      date: "2026-03-08",
+      duration: 30,
+      config,
+      conflictItems: [],
+    });
+
+    expect(slots).toEqual([]);
+  });
+
+  it("does not offer a slot before the requested start when it falls in a DST gap", () => {
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    const config: AvailabilityConfig = {
+      ...availabilityConfig(),
+      timezone: "America/New_York",
+      weeklySchedule: {
+        monday: { enabled: false, slots: [] },
+        tuesday: { enabled: false, slots: [] },
+        wednesday: { enabled: false, slots: [] },
+        thursday: { enabled: false, slots: [] },
+        friday: { enabled: false, slots: [] },
+        saturday: { enabled: false, slots: [] },
+        sunday: { enabled: true, slots: [{ start: "01:30", end: "04:00" }] },
+      },
+    };
+
+    const slots = generateAvailableSlotsForDate({
+      date: "2026-03-08",
+      duration: 30,
+      config,
+      conflictItems: [],
+    });
+
+    // The window's real span is 01:30 EST to 04:00 EDT, i.e. 1.5 real hours
+    // (06:30Z-08:00Z) — 3 slots, none of them inside the nonexistent
+    // 02:00-03:00 local window.
+    expect(slots.map((slot) => ({ start: slot.start, end: slot.end }))).toEqual(
+      [
+        { start: "2026-03-08T06:30:00.000Z", end: "2026-03-08T07:00:00.000Z" },
+        { start: "2026-03-08T07:00:00.000Z", end: "2026-03-08T07:30:00.000Z" },
+        { start: "2026-03-08T07:30:00.000Z", end: "2026-03-08T08:00:00.000Z" },
+      ],
+    );
+  });
+
   it("offers 60-minute meetings on 30-minute start intervals", () => {
     const slots = generateAvailableSlotsForDate({
       date: "2026-07-20",

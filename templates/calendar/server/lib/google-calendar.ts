@@ -625,6 +625,26 @@ const accountTimezoneCache = new Map<
   { value: string | null; expiresAt: number }
 >();
 const ACCOUNT_TIMEZONE_CACHE_TTL_MS = 60 * 60 * 1000;
+const ACCOUNT_TIMEZONE_CACHE_MAX_ENTRIES = 500;
+
+// Only cache confirmed outcomes (has/doesn't have a resolvable time zone).
+// A thrown error (token refresh, network, provider failure) is never cached
+// — it's indistinguishable from a real "no time zone" answer, and caching it
+// would silently disable a peer's working-hours filter for the TTL even
+// right after they reconnect.
+function cacheAccountTimezone(key: string, value: string | null): void {
+  if (
+    !accountTimezoneCache.has(key) &&
+    accountTimezoneCache.size >= ACCOUNT_TIMEZONE_CACHE_MAX_ENTRIES
+  ) {
+    const oldestKey = accountTimezoneCache.keys().next().value;
+    if (oldestKey !== undefined) accountTimezoneCache.delete(oldestKey);
+  }
+  accountTimezoneCache.set(key, {
+    value,
+    expiresAt: Date.now() + ACCOUNT_TIMEZONE_CACHE_TTL_MS,
+  });
+}
 
 /**
  * Resolve a connected Google account's own reported primary-calendar time
@@ -646,33 +666,47 @@ export async function getGoogleAccountTimezone(
   if (!email) return null;
   const key = email.trim().toLowerCase();
   const cached = accountTimezoneCache.get(key);
-  if (cached && cached.expiresAt > Date.now()) return cached.value;
-
-  let value: string | null = null;
-  try {
-    const accounts = (await listOAuthAccountsByOwner("google", email)).filter(
-      (account) => hasCalendarScope(account.tokens),
-    );
-    const account = accounts.find((a) => a.accountId === email) ?? accounts[0];
-    if (account) {
-      const tokens = account.tokens as unknown as GoogleTokens;
-      const accessToken = await getValidAccessToken(
-        account.accountId,
-        tokens,
-        email,
-      );
-      const calendar = await calendarGetCalendar(accessToken, "primary");
-      value = isCalendarTimezone(calendar?.timeZone) ? calendar.timeZone : null;
-    }
-  } catch {
-    value = null;
+  if (cached) {
+    if (cached.expiresAt > Date.now()) return cached.value;
+    accountTimezoneCache.delete(key);
   }
 
-  accountTimezoneCache.set(key, {
-    value,
-    expiresAt: Date.now() + ACCOUNT_TIMEZONE_CACHE_TTL_MS,
-  });
-  return value;
+  let accounts: Awaited<ReturnType<typeof listOAuthAccountsByOwner>>;
+  try {
+    accounts = (await listOAuthAccountsByOwner("google", email)).filter(
+      (account) => hasCalendarScope(account.tokens),
+    );
+  } catch {
+    return null;
+  }
+
+  if (accounts.length === 0) {
+    cacheAccountTimezone(key, null);
+    return null;
+  }
+
+  const account =
+    accounts.find((a) => a.accountId.trim().toLowerCase() === key) ??
+    accounts[0];
+
+  let timezone: string | null;
+  try {
+    const tokens = account.tokens as unknown as GoogleTokens;
+    const accessToken = await getValidAccessToken(
+      account.accountId,
+      tokens,
+      email,
+    );
+    const calendar = await calendarGetCalendar(accessToken, "primary");
+    timezone = isCalendarTimezone(calendar?.timeZone)
+      ? calendar.timeZone
+      : null;
+  } catch {
+    return null;
+  }
+
+  cacheAccountTimezone(key, timezone);
+  return timezone;
 }
 
 export interface GoogleAccountSelection {

@@ -537,6 +537,7 @@ export default function BookingPage() {
                     slotsError ? availabilityErrorMessage : undefined
                   }
                   hosts={timeZoneHosts}
+                  selectedDate={dateStr}
                   extraTimezones={extraTimezones}
                   onExtraTimezonesChange={setExtraTimezones}
                 />

@@ -40,11 +40,11 @@ export async function readCalendarSettings(
   if (options?.persistDetected && !raw) {
     const detected = getRequestTimezone();
     if (isCalendarTimezone(detected)) {
+      // Only this user's own record — the shared/global key backs the
+      // public booking page and must only change from an explicit save
+      // (`saveCalendarSettings`), not as a side effect of any user's read.
       const record = settings as unknown as Record<string, unknown>;
-      await Promise.all([
-        putUserSetting(email, SETTINGS_KEY, record),
-        putSetting(SETTINGS_KEY, record),
-      ]);
+      await putUserSetting(email, SETTINGS_KEY, record);
     }
   }
   return settings;
