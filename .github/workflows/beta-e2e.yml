@@ -65,6 +65,10 @@ on:
         required: false
       BETA_E2E_SESSION_TOKEN_MACROS:
         required: false
+      BETA_E2E_SESSION_TOKEN_CRM:
+        required: false
+      BETA_E2E_SESSION_TOKEN_CHAT:
+        required: false
       BETA_E2E_OPENAI_API_KEY:
         required: false
       OPENAI_API_KEY:
@@ -284,6 +288,8 @@ jobs:
       BETA_E2E_EMAIL: ${{ secrets.BETA_E2E_EMAIL }}
       BETA_E2E_SESSION_TOKENS: ${{ secrets.BETA_E2E_SESSION_TOKENS }}
       BETA_E2E_SESSION_TOKEN_MACROS: ${{ secrets.BETA_E2E_SESSION_TOKEN_MACROS }}
+      BETA_E2E_SESSION_TOKEN_CRM: ${{ secrets.BETA_E2E_SESSION_TOKEN_CRM }}
+      BETA_E2E_SESSION_TOKEN_CHAT: ${{ secrets.BETA_E2E_SESSION_TOKEN_CHAT }}
       BETA_E2E_OPENAI_API_KEY: ${{ secrets.BETA_E2E_OPENAI_API_KEY }}
       # The repository-wide key is available only for an explicit shared-key
       # dispatch. Dedicated runs must not expose it to setup or test code.
