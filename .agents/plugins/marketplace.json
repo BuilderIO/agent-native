@@ -5,6 +5,10 @@
   },
   "plugins": [
     {
+      "name": "agent-native",
+      "source": { "source": "local", "path": "./agent-native" }
+    },
+    {
       "name": "agent-native-visual-plans",
       "source": { "source": "local", "path": "./agent-native-visual-plans" }
     },
