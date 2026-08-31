@@ -3289,6 +3289,11 @@ function createAuthGuardFn(
       return;
     }
 
+    // Automation webhook tokens are the public credential for this route.
+    if (/^\/_agent-native\/automations\/webhook\/[^/]+$/.test(p)) {
+      return;
+    }
+
     // Internal processor endpoint for the integration webhook fanout. The
     // webhook handler enqueues a task to SQL and dispatches a fresh HTTP POST
     // to this endpoint so the agent loop runs in its own function execution

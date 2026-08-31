@@ -9,6 +9,7 @@ const getUserSettingMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
+  getDialect: () => "sqlite",
   intType: () => "INTEGER",
   isPostgres: () => false,
 }));
@@ -23,6 +24,7 @@ vi.mock("../settings/user-settings.js", () => ({
 }));
 
 vi.mock("../resources/store.js", () => ({
+  SHARED_OWNER: "__shared__",
   organizationIdFromResourceOwner: (owner: string) =>
     owner.startsWith("__organization__:")
       ? owner.slice("__organization__:".length)
