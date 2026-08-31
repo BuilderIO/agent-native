@@ -272,6 +272,7 @@ export default defineAction({
     const proposal = reconcileBabysitState({
       comments: snapshot.comments,
       checks: snapshot.checks,
+      checksCoverage: snapshot.checksCoverage,
       commentsTruncated: snapshot.commentsTruncated,
       botAuthors: [...DEFAULT_BABYSIT_BOT_AUTHORS],
     });

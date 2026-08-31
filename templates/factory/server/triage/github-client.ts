@@ -1,4 +1,5 @@
 import { resolveConnectorSecret } from "../connectors/credentials.js";
+import type { TriageCoverage } from "./contracts.js";
 import type { ReviewCommentObservation } from "./pr-babysit.js";
 import type {
   PullRequestCheckObservation,
@@ -97,6 +98,15 @@ export class GitHubRequestError extends Error {
   }
 }
 
+function isChecksPermissionDenied(error: unknown): boolean {
+  return (
+    error instanceof GitHubRequestError &&
+    error.status === 403 &&
+    !error.rateLimited &&
+    /resource not accessible by personal access token/i.test(error.message)
+  );
+}
+
 export interface GitHubIssueCreateResult {
   number: number;
   htmlUrl: string;
@@ -107,6 +117,7 @@ export interface GitHubPullRequestEvidence {
   commentsTruncated: boolean;
   reviews: readonly PullRequestReviewObservation[];
   checks: readonly PullRequestCheckObservation[];
+  checksCoverage: TriageCoverage;
 }
 
 interface JsonResponse {
@@ -309,6 +320,27 @@ function parseCheckRun(value: unknown): PullRequestCheckObservation {
   };
 }
 
+function parseWorkflowRun(value: unknown): PullRequestCheckObservation {
+  const item = record(value);
+  const status = requiredString(item.status, "workflow-run status");
+  const conclusion =
+    item.conclusion === null || item.conclusion === undefined
+      ? undefined
+      : requiredString(item.conclusion, "workflow-run conclusion");
+  const observedAt =
+    (typeof item.updated_at === "string" && item.updated_at) ||
+    (typeof item.run_started_at === "string" && item.run_started_at) ||
+    (typeof item.created_at === "string" && item.created_at);
+  if (!observedAt) {
+    throw new Error("GitHub workflow-run response is missing created_at");
+  }
+  return {
+    name: requiredString(item.name, "workflow-run name"),
+    state: normalizeCheckState(status, conclusion),
+    observedAt,
+  };
+}
+
 function parseIssue(value: unknown): GitHubIssue | null {
   const item = record(value);
   if (item.pull_request !== undefined) return null;
@@ -445,15 +477,12 @@ export function createGitHubClient(options: GitHubClientOptions) {
       if (!sha) throw new Error("GitHub pull request head SHA is required");
       const root = repositoryPath(repository);
       const page = pageSize();
-      const [reviewPayload, commentPayload, checkPayload] = await Promise.all([
+      const [reviewPayload, commentPayload] = await Promise.all([
         request<unknown>(
           `${root}/pulls/${pullRequestNumber}/reviews?per_page=${page}`,
         ),
         request<unknown>(
           `${root}/pulls/${pullRequestNumber}/comments?per_page=${page}`,
-        ),
-        request<unknown>(
-          `${root}/commits/${encodeURIComponent(sha)}/check-runs?per_page=${page}`,
         ),
       ]);
       const observedAt = new Date().toISOString();
@@ -463,22 +492,59 @@ export function createGitHubClient(options: GitHubClientOptions) {
       const reviews = requireArray(reviewPayload, "review").map((review) =>
         parseReview(review, observedAt),
       );
-      const checkBody = record(checkPayload);
-      const checkRuns = requireArray(checkBody.check_runs, "check-run");
-      const totalCount = requiredNumber(
-        checkBody.total_count,
-        "check-run total_count",
-      );
-      if (totalCount > checkRuns.length) {
-        throw new Error(
-          "GitHub check-run page was truncated; cannot treat CI as complete.",
+      let checks: PullRequestCheckObservation[];
+      let checksCoverage: TriageCoverage = "complete";
+      try {
+        const checkBody = record(
+          await request<unknown>(
+            `${root}/commits/${encodeURIComponent(sha)}/check-runs?per_page=${page}`,
+          ),
         );
+        const checkRuns = requireArray(checkBody.check_runs, "check-run");
+        const totalCount = requiredNumber(
+          checkBody.total_count,
+          "check-run total_count",
+        );
+        if (totalCount > checkRuns.length) {
+          throw new Error(
+            "GitHub check-run page was truncated; cannot treat CI as complete.",
+          );
+        }
+        checks = checkRuns.map(parseCheckRun);
+      } catch (error) {
+        if (!isChecksPermissionDenied(error)) throw error;
+
+        checksCoverage = "partial";
+
+        // Fine-grained PATs expose Actions read but not Checks in GitHub's
+        // permission editor. Use workflow runs for GitHub Actions CI as
+        // partial evidence only; required non-Actions checks remain unknown.
+        const workflowBody = record(
+          await request<unknown>(
+            `${root}/actions/runs?head_sha=${encodeURIComponent(sha)}&per_page=${page}`,
+          ),
+        );
+        const workflowRuns = requireArray(
+          workflowBody.workflow_runs,
+          "workflow-run",
+        );
+        const totalCount = requiredNumber(
+          workflowBody.total_count,
+          "workflow-run total_count",
+        );
+        if (totalCount > workflowRuns.length) {
+          throw new Error(
+            "GitHub workflow-run page was truncated; cannot treat CI as complete.",
+          );
+        }
+        checks = workflowRuns.map(parseWorkflowRun);
       }
       return {
         comments,
         commentsTruncated: comments.length >= MAX_PAGE_SIZE,
         reviews,
-        checks: checkRuns.map(parseCheckRun),
+        checks,
+        checksCoverage,
       };
     },
 
