@@ -18,6 +18,7 @@ import {
   chunkUploadParallelism,
   chunkUploadUrl,
   pickMimeType,
+  UPLOAD_SLICE_BYTES,
   type UploadMode,
 } from "@shared/recording-core";
 import {
@@ -1338,7 +1339,6 @@ export default function RecordRoute() {
   // Netlify's effective binary function payload limit. Mirrors the recorder's
   // upload pipeline so finalize-recording handles it identically.
   // -------------------------------------------------------------------------
-  const UPLOAD_CHUNK_BYTES = 3 * 1024 * 1024;
   const UPLOAD_PARALLELISM = 4;
 
   const probeVideoMetadata = useCallback(
@@ -1591,12 +1591,12 @@ export default function RecordRoute() {
 
         const totalChunks = Math.max(
           1,
-          Math.ceil(uploadBlob.size / UPLOAD_CHUNK_BYTES),
+          Math.ceil(uploadBlob.size / UPLOAD_SLICE_BYTES),
         );
 
         const chunkDescs = Array.from({ length: totalChunks }, (_, i) => {
-          const start = i * UPLOAD_CHUNK_BYTES;
-          const end = Math.min(start + UPLOAD_CHUNK_BYTES, uploadBlob.size);
+          const start = i * UPLOAD_SLICE_BYTES;
+          const end = Math.min(start + UPLOAD_SLICE_BYTES, uploadBlob.size);
           const isFinal = i === totalChunks - 1;
           return {
             index: i,
