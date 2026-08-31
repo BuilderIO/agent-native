@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
+import { ClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import {
   VideoPlayer,
   type VideoPlayerHandle,
@@ -215,6 +216,16 @@ export default function EmbedRoute() {
 
   return (
     <div className="fixed inset-0 h-dvh w-dvw overflow-hidden bg-black">
+      <ClipAgentWebMcp
+        recordingId={recording.id}
+        agentContextUrl={
+          typeof dataQ.data?.data?.agentContextUrl === "string"
+            ? dataQ.data.data.agentContextUrl
+            : null
+        }
+        recordingStatus={recording.status}
+        frameAvailable={!isLoomEmbedBacked}
+      />
       <VideoPlayer
         ref={playerRef}
         onVideoElementChange={setTrackedVideoEl}
