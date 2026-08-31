@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { notifyWithDelivery } from "@agent-native/core/notifications";
-import { recordChange } from "@agent-native/core/server";
+import { recordChange, runWithRequestContext } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import {
   and,
@@ -17,6 +17,8 @@ import {
 } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { getFirstPartyAnalyticsBackend } from "./first-party-analytics-backend.js";
+import { queryFirstPartyAnalytics } from "./first-party-analytics.js";
 
 export type AnalyticsAlertFilterOp =
   | "equals"
@@ -967,7 +969,195 @@ export function evaluateAnalyticsAlertRuleRows(
   };
 }
 
+export function buildBigQueryAlertQuery(
+  rule: Pick<
+    AnalyticsAlertRule,
+    "eventName" | "filters" | "orgId" | "ownerEmail"
+  >,
+  windowStart: string,
+  windowEnd: string,
+): string {
+  const predicates = [
+    `event_date >= DATE(TIMESTAMP(${bigQuerySqlLiteral(windowStart)}))`,
+    `event_date <= DATE(TIMESTAMP(${bigQuerySqlLiteral(windowEnd)}))`,
+    `timestamp >= TIMESTAMP(${bigQuerySqlLiteral(windowStart)})`,
+    `timestamp <= TIMESTAMP(${bigQuerySqlLiteral(windowEnd)})`,
+    rule.orgId
+      ? `org_id = ${bigQuerySqlLiteral(rule.orgId)}`
+      : `(org_id IS NULL AND owner_email = ${bigQuerySqlLiteral(rule.ownerEmail)})`,
+    ...(rule.eventName
+      ? [`event_name = ${bigQuerySqlLiteral(rule.eventName)}`]
+      : []),
+    ...rule.filters
+      .map(bigQueryAlertFilterSql)
+      .filter((predicate): predicate is string => predicate !== null),
+  ];
+
+  return `SELECT * FROM analytics_events WHERE ${predicates.join(" AND ")} ORDER BY timestamp DESC, id DESC`;
+}
+
+function bigQuerySqlLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+function bigQueryAlertFieldExpression(field: string): string | null {
+  const normalized = field.trim();
+  if (normalized.startsWith("properties.")) {
+    const path = normalized.slice("properties.".length);
+    if (!/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(path)) {
+      return null;
+    }
+    return `JSON_VALUE(properties, ${bigQuerySqlLiteral(`$.${path}`)})`;
+  }
+  if (normalized.startsWith("context.")) {
+    const path = normalized.slice("context.".length);
+    if (!/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(path)) {
+      return null;
+    }
+    return `JSON_VALUE(context, ${bigQuerySqlLiteral(`$.${path}`)})`;
+  }
+  const columns: Record<string, string> = {
+    id: "id",
+    event_name: "event_name",
+    eventName: "event_name",
+    user_id: "user_id",
+    userId: "user_id",
+    anonymous_id: "anonymous_id",
+    anonymousId: "anonymous_id",
+    user_key: "user_key",
+    userKey: "user_key",
+    session_id: "session_id",
+    sessionId: "session_id",
+    event_date: "CAST(event_date AS STRING)",
+    eventDate: "CAST(event_date AS STRING)",
+    received_at: "CAST(received_at AS STRING)",
+    receivedAt: "CAST(received_at AS STRING)",
+    url: "url",
+    path: "path",
+    hostname: "hostname",
+    referrer: "referrer",
+    app: "app",
+    template: "template",
+    signed_in: "signed_in",
+    signedIn: "signed_in",
+  };
+  return columns[normalized] ?? null;
+}
+
+function bigQueryAlertValueLiteral(value: unknown): string | null {
+  if (typeof value === "string") return bigQuerySqlLiteral(value);
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return bigQuerySqlLiteral(String(value));
+  }
+  if (typeof value === "boolean") {
+    return bigQuerySqlLiteral(value ? "true" : "false");
+  }
+  return null;
+}
+
+function bigQueryAlertFilterSql(filter: AnalyticsAlertFilter): string | null {
+  const expression = bigQueryAlertFieldExpression(filter.field);
+  if (!expression) return null;
+  const op = filter.op ?? "equals";
+  if (op === "exists") {
+    return filter.value === false
+      ? `COALESCE(${expression}, '') = ''`
+      : `COALESCE(${expression}, '') <> ''`;
+  }
+  if (op === "in" && Array.isArray(filter.value)) {
+    if (filter.value.length === 0) return "FALSE";
+    const literals = filter.value.map(bigQueryAlertValueLiteral);
+    if (literals.some((literal) => literal === null)) return null;
+    return `${expression} IN (${literals.join(", ")})`;
+  }
+  const literal = bigQueryAlertValueLiteral(filter.value);
+  if (literal === null) {
+    return filter.value === null || filter.value === undefined ? "FALSE" : null;
+  }
+  if (op === "not_equals") {
+    return `(${expression} IS NULL OR ${expression} <> ${literal})`;
+  }
+  if (op !== "equals") return null;
+  return `${expression} = ${literal}`;
+}
+
 async function loadCandidateEvents(
+  rule: AnalyticsAlertRule,
+  windowStart: string,
+  windowEnd: string,
+): Promise<AnalyticsAlertEventRow[]> {
+  const backend = await getFirstPartyAnalyticsBackend({
+    userEmail: rule.ownerEmail,
+    orgId: rule.orgId,
+  });
+  if (backend.sink === "bigquery") {
+    return runWithRequestContext(
+      {
+        userEmail: rule.ownerEmail,
+        ...(rule.orgId ? { orgId: rule.orgId } : {}),
+      },
+      async () => {
+        const result = await queryFirstPartyAnalytics(
+          buildBigQueryAlertQuery(rule, windowStart, windowEnd),
+          { userEmail: rule.ownerEmail, orgId: rule.orgId },
+        );
+        return result.rows.map(normalizeBigQueryAlertEventRow);
+      },
+    );
+  }
+
+  return loadCandidateEventsFromSql(rule, windowStart, windowEnd);
+}
+
+function requiredBigQueryAlertString(
+  row: Record<string, unknown>,
+  field: string,
+): string {
+  const value = row[field];
+  if (typeof value !== "string" || !value) {
+    throw new Error(`BigQuery alert event is missing ${field}`);
+  }
+  return value;
+}
+
+function nullableBigQueryAlertString(
+  row: Record<string, unknown>,
+  field: string,
+): string | null {
+  const value = row[field];
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string") {
+    throw new Error(`BigQuery alert event field ${field} is not text`);
+  }
+  return value;
+}
+
+function normalizeBigQueryAlertEventRow(
+  row: Record<string, unknown>,
+): AnalyticsAlertEventRow {
+  return {
+    id: requiredBigQueryAlertString(row, "id"),
+    eventName: requiredBigQueryAlertString(row, "event_name"),
+    userId: nullableBigQueryAlertString(row, "user_id"),
+    anonymousId: nullableBigQueryAlertString(row, "anonymous_id"),
+    userKey: nullableBigQueryAlertString(row, "user_key"),
+    sessionId: nullableBigQueryAlertString(row, "session_id"),
+    timestamp: requiredBigQueryAlertString(row, "timestamp"),
+    eventDate: nullableBigQueryAlertString(row, "event_date"),
+    receivedAt: nullableBigQueryAlertString(row, "received_at"),
+    url: nullableBigQueryAlertString(row, "url"),
+    path: nullableBigQueryAlertString(row, "path"),
+    hostname: nullableBigQueryAlertString(row, "hostname"),
+    referrer: nullableBigQueryAlertString(row, "referrer"),
+    app: nullableBigQueryAlertString(row, "app"),
+    template: nullableBigQueryAlertString(row, "template"),
+    signedIn: nullableBigQueryAlertString(row, "signed_in"),
+    properties: nullableBigQueryAlertString(row, "properties"),
+    context: nullableBigQueryAlertString(row, "context"),
+  };
+}
+
+async function loadCandidateEventsFromSql(
   rule: AnalyticsAlertRule,
   windowStart: string,
   windowEnd: string,

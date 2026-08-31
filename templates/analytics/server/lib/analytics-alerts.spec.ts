@@ -11,14 +11,30 @@ const dbMocks = vi.hoisted(() => ({
   getDb: vi.fn(),
 }));
 
+const backendMocks = vi.hoisted(() => ({
+  get: vi.fn(),
+}));
+
+const firstPartyMocks = vi.hoisted(() => ({
+  query: vi.fn(),
+}));
+
 vi.mock("@agent-native/core/settings", () => settingsMocks);
 vi.mock("../db/index.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../db/index.js")>()),
   getDb: dbMocks.getDb,
 }));
+vi.mock("./first-party-analytics-backend.js", () => ({
+  getFirstPartyAnalyticsBackend: backendMocks.get,
+}));
+vi.mock("./first-party-analytics.js", () => ({
+  queryFirstPartyAnalytics: firstPartyMocks.query,
+}));
 
 import {
+  buildBigQueryAlertQuery,
   deleteAnalyticsAlertRule,
+  evaluateAndNotifyAnalyticsAlertRule,
   evaluateAnalyticsAlertRuleRows,
   ensureDefaultAnalyticsAlertRules,
   getAnalyticsAlertRuleDefaults,
@@ -133,6 +149,8 @@ describe("analytics alert evaluation", () => {
     settingsMocks.getUserSetting.mockReset();
     settingsMocks.putUserSetting.mockReset();
     dbMocks.getDb.mockReset();
+    backendMocks.get.mockReset();
+    firstPartyMocks.query.mockReset();
   });
 
   afterEach(() => {
@@ -219,6 +237,108 @@ describe("analytics alert evaluation", () => {
 
     expect(result.triggered).toBe(true);
     expect(result.observedValue).toBe(2);
+  });
+
+  it("loads candidate events from BigQuery when the scope has cut over", async () => {
+    backendMocks.get.mockResolvedValue({ sink: "bigquery", table: null });
+    firstPartyMocks.query.mockResolvedValue({
+      rows: [
+        {
+          id: "evt-1",
+          event_name: "agent_run_terminal",
+          user_id: null,
+          anonymous_id: null,
+          user_key: "user-1",
+          session_id: "session-1",
+          timestamp: "2026-08-31T12:00:00.000Z",
+          event_date: "2026-08-31",
+          received_at: "2026-08-31T12:00:01.000Z",
+          url: null,
+          path: null,
+          hostname: null,
+          referrer: null,
+          app: "chat",
+          template: "chat",
+          signed_in: "true",
+          properties: JSON.stringify({
+            status: "completed",
+            deployment_environment: "production",
+          }),
+          context: "{}",
+        },
+      ],
+      schema: [],
+    });
+    dbMocks.getDb.mockReturnValue({
+      update: () => ({
+        set: () => ({ where: async () => undefined }),
+      }),
+    });
+
+    const result = await evaluateAndNotifyAnalyticsAlertRule(
+      {
+        id: "rule-1",
+        name: "Production chat errors",
+        description: "",
+        eventName: "agent_run_terminal",
+        filters: [
+          { field: "properties.status", value: "errored" },
+          {
+            field: "properties.deployment_environment",
+            value: "production",
+          },
+        ],
+        thresholdMode: "event_count",
+        distinctBy: null,
+        threshold: 1,
+        windowMinutes: 10,
+        cooldownMinutes: 60,
+        severity: "critical",
+        channels: ["inbox"],
+        emailRecipients: [],
+        slackWebhookUrl: null,
+        webhookUrl: null,
+        enabled: true,
+        lastEvaluatedAt: null,
+        lastTriggeredAt: null,
+        lastStatus: null,
+        lastError: null,
+        createdAt: "2026-08-31T12:00:00.000Z",
+        updatedAt: "2026-08-31T12:00:00.000Z",
+        ownerEmail: "owner@example.test",
+        orgId: "org-1",
+      },
+      new Date("2026-08-31T12:05:00.000Z"),
+    );
+
+    expect(result.status).toBe("ok");
+    expect(firstPartyMocks.query).toHaveBeenCalledWith(
+      expect.stringContaining("JSON_VALUE(properties, '$.status') = 'errored'"),
+      { userEmail: "owner@example.test", orgId: "org-1" },
+    );
+  });
+
+  it("builds a scoped BigQuery query with positive alert filters", () => {
+    const query = buildBigQueryAlertQuery(
+      {
+        eventName: "agent_run_terminal",
+        filters: [
+          { field: "properties.status", value: "errored" },
+          { field: "properties.deployment_environment", value: "beta" },
+        ],
+        ownerEmail: "owner@example.test",
+        orgId: "org-1",
+      },
+      "2026-08-31T12:00:00.000Z",
+      "2026-08-31T12:10:00.000Z",
+    );
+
+    expect(query).toContain("org_id = 'org-1'");
+    expect(query).toContain("event_name = 'agent_run_terminal'");
+    expect(query).toContain("JSON_VALUE(properties, '$.status') = 'errored'");
+    expect(query).toContain(
+      "JSON_VALUE(properties, '$.deployment_environment') = 'beta'",
+    );
   });
 
   it("keeps sweep ordering fair instead of cycling only recently evaluated rules", () => {
