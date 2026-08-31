@@ -308,6 +308,10 @@ describe("signInJourney", () => {
       "/inbox#evil",
       "/inbox/../evil",
       "/sign-in",
+      "/workspace/sign-in",
+      "/workspace/_agent-native/sign-in",
+      "/workspace/login",
+      "/workspace/signup",
     ]) {
       expect(
         signInJourney({ at: SIGN_IN_ENTRY_PATH, homePath }).resumeHref,

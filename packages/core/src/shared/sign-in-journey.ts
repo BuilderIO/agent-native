@@ -163,17 +163,15 @@ function createSignInJourneyRuntime(
       pathname === ENTRY_PATH ||
       pathname.slice(-ENTRY_PATH.length) === ENTRY_PATH ||
       pathname === LEGACY_ENTRY_PATH ||
-      pathname.slice(-LEGACY_ENTRY_PATH.length) === LEGACY_ENTRY_PATH
+      pathname.slice(-LEGACY_ENTRY_PATH.length) === LEGACY_ENTRY_PATH ||
+      pathname === "/login" ||
+      pathname.slice(-"/login".length) === "/login" ||
+      pathname === "/signup" ||
+      pathname.slice(-"/signup".length) === "/signup"
     ) {
       return true;
     }
-    var rest = pathname;
-    if (base) {
-      if (rest === base) rest = "/";
-      else if (rest.slice(0, base.length + 1) === base + "/")
-        rest = rest.slice(base.length);
-    }
-    return rest === "/login" || rest === "/signup";
+    return false;
   }
 
   var homePath = normalizeHomePath(configuredHomePath);

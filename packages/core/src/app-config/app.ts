@@ -8,7 +8,11 @@ const AUTH_ENTRY_PATHS = new Set([
 ]);
 
 function isAuthEntryPath(value: string): boolean {
-  return AUTH_ENTRY_PATHS.has(value.replace(/\/+$/, "") || "/");
+  const normalized = value.replace(/\/+$/, "") || "/";
+  for (const path of AUTH_ENTRY_PATHS) {
+    if (normalized === path || normalized.endsWith(path)) return true;
+  }
+  return false;
 }
 
 /**

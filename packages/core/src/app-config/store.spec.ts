@@ -105,6 +105,10 @@ describe("app config store", () => {
       "/_agent-native/sign-in",
       "/login",
       "/signup",
+      "/workspace/sign-in",
+      "/workspace/_agent-native/sign-in",
+      "/workspace/login",
+      "/workspace/signup",
     ]) {
       expect(() => defineAppConfig({ app: { homePath } })).toThrow();
     }
