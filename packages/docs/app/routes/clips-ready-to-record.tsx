@@ -16,10 +16,24 @@
  * Clips-only theme tokens and dependencies not present in the docs package.
  */
 import {
+  IconArchive,
+  IconArrowsSort,
+  IconCalendar,
+  IconChevronDown,
+  IconFolderPlus,
+  IconInbox,
   IconLock,
+  IconMessage2,
+  IconMicrophone2,
   IconPlayerPlay,
+  IconPlus,
   IconSearch,
+  IconSettings2,
+  IconShare,
+  IconTrash,
+  IconUpload,
   IconUsersGroup,
+  IconWindow,
   IconWorld,
 } from "@tabler/icons-react";
 
@@ -102,52 +116,149 @@ function LibraryPrivacyIcon({
 }: {
   visibility: (typeof LIBRARY_RECORDINGS)[number]["visibility"];
 }) {
-  if (visibility === "public") return <IconWorld size={14} />;
-  if (visibility === "org") return <IconUsersGroup size={14} />;
-  return <IconLock size={14} />;
+  if (visibility === "public") return <IconWorld size={13} />;
+  if (visibility === "org") return <IconUsersGroup size={13} />;
+  return <IconLock size={13} />;
+}
+
+const SIDEBAR_NAV_ITEMS = [
+  { label: "Library", icon: IconInbox, count: 11, active: true },
+  { label: "Shared with me", icon: IconShare, count: 68 },
+  { label: "Spaces", icon: IconUsersGroup },
+  { label: "Meetings", icon: IconCalendar },
+  { label: "Dictate", icon: IconMicrophone2 },
+  { label: "Archive", icon: IconArchive },
+  { label: "Trash", icon: IconTrash },
+];
+
+function LibrarySidebar() {
+  return (
+    <aside className="library-sidebar">
+      <div className="library-brand">
+        <span className="library-brand-mark" aria-hidden />
+        <span className="library-brand-name">Clips</span>
+      </div>
+
+      <button type="button" className="library-new-recording">
+        New recording
+      </button>
+      <button type="button" className="library-import">
+        <IconUpload size={14} />
+        <span>Import</span>
+        <IconChevronDown size={13} className="library-import-chev" />
+      </button>
+
+      <nav className="library-nav">
+        {SIDEBAR_NAV_ITEMS.map(({ label, icon: Icon, count, active }) => (
+          <div
+            key={label}
+            className={active ? "library-nav-item is-active" : "library-nav-item"}
+          >
+            <Icon size={15} />
+            <span className="library-nav-label">{label}</span>
+            {count != null && <span className="library-nav-count">{count}</span>}
+          </div>
+        ))}
+      </nav>
+
+      <div className="library-sidebar-section">
+        <div className="library-sidebar-section-header">
+          <span>Folders</span>
+          <IconFolderPlus size={13} />
+        </div>
+        <div className="library-sidebar-empty">No folders yet</div>
+      </div>
+
+      <div className="library-sidebar-section">
+        <div className="library-sidebar-section-header">
+          <span>Spaces</span>
+          <IconPlus size={13} />
+        </div>
+        <div className="library-sidebar-empty">No spaces yet</div>
+      </div>
+
+      <div className="library-sidebar-spacer" />
+
+      <div className="library-sidebar-bottom">
+        <div className="library-nav-item">
+          <IconSettings2 size={15} />
+          <span className="library-nav-label">Settings</span>
+        </div>
+        <div className="library-nav-item">
+          <IconWindow size={15} />
+          <span className="library-nav-label">Open desktop app</span>
+        </div>
+        <div className="library-nav-item">
+          <span className="library-builder-mark" aria-hidden />
+          <span className="library-nav-label">Builder.io</span>
+        </div>
+        <div className="library-nav-item">
+          <IconMessage2 size={15} />
+          <span className="library-nav-label">Feedback</span>
+          <span className="library-beta-badge">BETA</span>
+        </div>
+        <div className="library-share-url">
+          clips.agent-native.com/shared
+        </div>
+      </div>
+    </aside>
+  );
 }
 
 function LibraryBackdrop() {
   return (
     <div className="library-window">
-      <div className="library-topbar">
-        <div className="library-brand">
-          <span className="library-brand-mark" aria-hidden />
-          <span className="library-brand-name">Clips</span>
-        </div>
-        <h1 className="library-heading">Library</h1>
-        <div className="library-search" aria-hidden>
-          <IconSearch size={15} />
-          <span>Search recordings</span>
-        </div>
-      </div>
-      <div className="library-grid">
-        {LIBRARY_RECORDINGS.map((recording) => (
-          <div className="library-card" key={recording.title}>
-            <div className="library-card-thumb">
-              <img src={recording.thumbnail} alt="" />
-              <div className="library-card-thumb-overlay">
-                <IconPlayerPlay size={28} />
-              </div>
-              <span className="library-card-duration">
-                {recording.duration}
-              </span>
+      <LibrarySidebar />
+      <div className="library-main">
+        <div className="library-topbar">
+          <h1 className="library-heading">Library</h1>
+          <div className="library-topbar-actions">
+            <div className="library-search" aria-hidden>
+              <IconSearch size={14} />
+              <span>Search recordings…</span>
             </div>
-            <div className="library-card-title">{recording.title}</div>
-            <div className="library-card-owner-row">
-              <span className="library-card-avatar">{recording.ownerInitials}</span>
-              <span className="library-card-owner-name">{recording.ownerName}</span>
-              <span aria-hidden>•</span>
-              <span>{recording.relative}</span>
-            </div>
-            <div className="library-card-meta">
-              <LibraryPrivacyIcon visibility={recording.visibility} />
-              <span className="library-card-visibility">{recording.visibility}</span>
-              <span aria-hidden>•</span>
-              <span>{recording.viewCount} views</span>
-            </div>
+            <button type="button" className="library-icon-btn" aria-label="Sort">
+              <IconArrowsSort size={16} />
+            </button>
+            <button type="button" className="library-icon-btn" aria-label="Agent">
+              <IconMessage2 size={16} />
+            </button>
           </div>
-        ))}
+        </div>
+        <div className="library-grid">
+          {LIBRARY_RECORDINGS.map((recording) => (
+            <div className="library-card" key={recording.title}>
+              <div className="library-card-thumb">
+                <img src={recording.thumbnail} alt="" />
+                <div className="library-card-thumb-overlay">
+                  <IconPlayerPlay size={26} />
+                </div>
+                <span className="library-card-duration">
+                  {recording.duration}
+                </span>
+              </div>
+              <div className="library-card-title">{recording.title}</div>
+              <div className="library-card-owner-row">
+                <span className="library-card-avatar">
+                  {recording.ownerInitials}
+                </span>
+                <span className="library-card-owner-name">
+                  {recording.ownerName}
+                </span>
+                <span aria-hidden>•</span>
+                <span>{recording.relative}</span>
+              </div>
+              <div className="library-card-meta">
+                <LibraryPrivacyIcon visibility={recording.visibility} />
+                <span className="library-card-visibility">
+                  {recording.visibility}
+                </span>
+                <span aria-hidden>•</span>
+                <span>{recording.viewCount} views</span>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -432,24 +543,47 @@ function SettingsIcon() {
 }
 
 const LIBRARY_BACKDROP_CSS = [
-  ".library-desktop { position: fixed; inset: 0; background: radial-gradient(circle at 30% 20%, #3f3f46, #18181b 70%); padding: 3.5vh 4vw; box-sizing: border-box; }",
-  ".library-window { height: 100%; width: 100%; border-radius: 14px; overflow: hidden; background: #f7f7f8; color: #18181b; box-shadow: 0 30px 60px rgba(0, 0, 0, 0.45), 0 1px 0 rgba(255, 255, 255, 0.06) inset; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; flex-direction: column; }",
-  ".library-topbar { display: flex; align-items: center; gap: 24px; padding: 18px 32px; border-bottom: 1px solid #e4e4e7; background: #ffffff; flex-shrink: 0; }",
-  ".library-brand { display: flex; align-items: center; gap: 8px; }",
-  ".library-brand-mark { width: 20px; height: 20px; border-radius: 6px; background: linear-gradient(135deg, #6366f1, #a855f7); }",
-  ".library-brand-name { font-weight: 600; font-size: 14px; color: #52525b; }",
-  ".library-heading { margin: 0; font-size: 18px; font-weight: 600; color: #18181b; }",
-  ".library-search { margin-left: auto; display: flex; align-items: center; gap: 8px; width: 260px; padding: 8px 12px; border-radius: 8px; border: 1px solid #e4e4e7; background: #f4f4f5; color: #a1a1aa; font-size: 13px; }",
-  ".library-grid { flex: 1; overflow: hidden; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; padding: 28px 32px; align-content: start; }",
-  ".library-card-thumb { position: relative; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; border: 1px solid #e4e4e7; background: #e4e4e7; }",
+  ".library-window { position: fixed; inset: 0; display: flex; background: #212121; color: #e6e6e6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }",
+
+  ".library-sidebar { width: 216px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; padding: 14px 12px; background: #181818; border-right: 1px solid #2c2c2c; box-sizing: border-box; }",
+  ".library-brand { display: flex; align-items: center; gap: 8px; padding: 4px 4px 12px; }",
+  ".library-brand-mark { width: 18px; height: 18px; border-radius: 5px; background: linear-gradient(135deg, #6366f1, #a855f7); }",
+  ".library-brand-name { font-weight: 600; font-size: 13px; color: #e6e6e6; }",
+  ".library-new-recording { margin: 0 0 6px; padding: 7px 0; border-radius: 6px; border: none; background: #f2f2f2; color: #171717; font-size: 12.5px; font-weight: 600; cursor: default; }",
+  ".library-import { margin: 0 0 12px; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 0; border-radius: 6px; border: 1px solid #333333; background: transparent; color: #cccccc; font-size: 12.5px; cursor: default; }",
+  ".library-import-chev { margin-left: 2px; opacity: 0.7; }",
+  ".library-nav { display: flex; flex-direction: column; gap: 1px; }",
+  ".library-nav-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 5px; font-size: 12.5px; color: #b3b3b3; }",
+  ".library-nav-item.is-active { background: rgba(191, 191, 191, 0.12); color: #f2f2f2; font-weight: 500; }",
+  ".library-nav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
+  ".library-nav-count { color: #808080; font-size: 11px; }",
+  ".library-sidebar-section { margin-top: 14px; }",
+  ".library-sidebar-section-header { display: flex; align-items: center; justify-content: space-between; padding: 0 8px; color: #7a7a7a; font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }",
+  ".library-sidebar-empty { padding: 6px 8px 0; color: #6b6b6b; font-size: 12px; }",
+  ".library-sidebar-spacer { flex: 1; }",
+  ".library-sidebar-bottom { display: flex; flex-direction: column; gap: 1px; border-top: 1px solid #2c2c2c; padding-top: 8px; }",
+  ".library-builder-mark { width: 15px; height: 15px; border-radius: 4px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); flex-shrink: 0; }",
+  ".library-beta-badge { padding: 1px 5px; border-radius: 4px; background: #2e2e2e; color: #999999; font-size: 9px; font-weight: 700; letter-spacing: 0.03em; }",
+  ".library-share-url { padding: 2px 8px 0; color: #5c5c5c; font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
+
+  ".library-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }",
+  ".library-topbar { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid #333333; }",
+  ".library-heading { margin: 0; font-size: 15px; font-weight: 600; color: #e6e6e6; }",
+  ".library-topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }",
+  ".library-search { display: flex; align-items: center; gap: 6px; width: 220px; height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid #3d3d3d; background: #212121; color: #808080; font-size: 12px; box-sizing: border-box; }",
+  ".library-icon-btn { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 6px; border: none; background: transparent; color: #999999; }",
+
+  ".library-grid { flex: 1; overflow: hidden; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; padding: 20px; align-content: start; }",
+  ".library-card { border-radius: 8px; overflow: hidden; background: #262626; border: 1px solid #383838; }",
+  ".library-card-thumb { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: #292929; }",
   ".library-card-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }",
   ".library-card-thumb-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.15); color: #ffffff; }",
-  ".library-card-duration { position: absolute; bottom: 6px; right: 6px; padding: 1px 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.65); color: #ffffff; font-size: 11px; font-variant-numeric: tabular-nums; }",
-  ".library-card-title { margin-top: 10px; font-size: 13px; font-weight: 500; color: #18181b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }",
-  ".library-card-owner-row { margin-top: 5px; display: flex; align-items: center; gap: 6px; color: #71717a; font-size: 11px; }",
-  ".library-card-avatar { display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 999px; background: #eef2ff; color: #6366f1; font-size: 8px; font-weight: 700; flex-shrink: 0; }",
+  ".library-card-duration { position: absolute; bottom: 6px; right: 6px; padding: 1px 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.8); color: #ffffff; font-size: 11px; font-variant-numeric: tabular-nums; }",
+  ".library-card-title { margin: 10px 12px 0; font-size: 13.5px; font-weight: 500; color: #e6e6e6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }",
+  ".library-card-owner-row { margin: 5px 12px 0; display: flex; align-items: center; gap: 6px; color: #999999; font-size: 11px; }",
+  ".library-card-avatar { display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 999px; background: #3a3a3a; color: #bfbfbf; font-size: 8px; font-weight: 700; flex-shrink: 0; }",
   ".library-card-owner-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
-  ".library-card-meta { margin-top: 3px; display: flex; align-items: center; gap: 6px; color: #a1a1aa; font-size: 11px; }",
+  ".library-card-meta { margin: 3px 12px 12px; display: flex; align-items: center; gap: 6px; color: #999999; font-size: 11px; }",
   ".library-card-visibility { text-transform: capitalize; }",
 ].join("\n");
 
@@ -463,16 +597,14 @@ export default function ClipsReadyToRecordPreview() {
       }}
     >
       <style>{LIBRARY_BACKDROP_CSS}</style>
-      <div className="library-desktop">
-        <LibraryBackdrop />
-      </div>
+      <LibraryBackdrop />
       <div
         className="app app-recorder"
         style={{
           width: 340,
           position: "fixed",
-          top: "7vh",
-          right: "10%",
+          top: 40,
+          right: 40,
           boxShadow: "var(--shadow-md)",
         }}
       >
