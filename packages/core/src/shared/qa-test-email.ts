@@ -20,7 +20,14 @@ const QA_TEST_EMAIL_PATTERNS = [
   /^qa-test-bot-[^@\s]*@/i,
   /^an-e2e-probe-[^@\s]*@/i,
   // RFC 2606 / RFC 6761 reserved TLDs. Never resolvable, never a real user.
-  /@[^@\s]*\.(?:test|invalid|example|localhost)$/i,
+  //
+  // `.test` and `.example` are deliberately NOT here. They are undeliverable
+  // in the world, but inside this repo they are how a fixture spells a REAL
+  // user: 545 `.test` and 13 `.example` addresses across packages/core stand
+  // in for people, and suppressing them silently drops the tracking those
+  // tests assert. Four spec files caught it; the rest would have kept passing
+  // while measuring nothing.
+  /@[^@\s]*\.(?:invalid|localhost)$/i,
   // Only on a reserved domain: this repo uses bare example.com addresses as
   // fixtures for REAL users, so the domain alone must never suppress.
   /^e2e-[^@\s]*@example\.(?:com|net|org)$/i,

@@ -88,6 +88,89 @@ jobs:
             esac
           done <<< "$files"
 
+      # Core is still pre-beta and its release train is patch-only. Other
+      # packages may not promote a major version unattended either.
+      - name: Refuse unattended non-patch promotions
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const { execFileSync } = require("node:child_process");
+
+          const repo = process.env.REPO;
+          const gh = (args) =>
+            execFileSync("gh", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+
+          /** Read one package.json at a ref, or null when it does not exist there. */
+          function versionAt(file, ref) {
+            let raw;
+            try {
+              raw = gh(["api", `repos/${repo}/contents/${file}?ref=${ref}`, "--jq", ".content"]);
+            } catch {
+              return null; // added in this PR, or unreadable at this ref
+            }
+            const text = Buffer.from(raw.replace(/\s/g, ""), "base64").toString("utf8");
+            let parsed;
+            try {
+              parsed = JSON.parse(text);
+            } catch {
+              throw new Error(`${file} at ${ref} is not valid JSON`);
+            }
+            return typeof parsed.version === "string" ? parsed.version : null;
+          }
+
+          const versionParts = (version) => {
+            const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+            if (!match) throw new Error(`unparseable version "${version}"`);
+            return match.slice(1).map(Number);
+          };
+
+          const files = gh([
+            "api", "--paginate", `repos/${repo}/pulls/${process.env.PR_NUMBER}/files`,
+            "--jq", ".[].filename",
+          ])
+            .split("\n")
+            .map((line) => line.trim())
+            .filter((line) => line === "package.json" || line.endsWith("/package.json"));
+
+          const promotions = [];
+          for (const file of files) {
+            const before = versionAt(file, process.env.BASE_SHA);
+            const after = versionAt(file, process.env.HEAD_SHA);
+            if (!before || !after || before === after) continue;
+            const beforeParts = versionParts(before);
+            const afterParts = versionParts(after);
+            const majorPromotion = afterParts[0] > beforeParts[0];
+            const coreNonPatchPromotion =
+              file === "packages/core/package.json" &&
+              (afterParts[0] !== 0 ||
+                afterParts[0] !== beforeParts[0] ||
+                afterParts[1] !== beforeParts[1]);
+            if (majorPromotion || coreNonPatchPromotion) {
+              promotions.push(`${file}: ${before} -> ${after}`);
+            }
+          }
+
+          if (promotions.length > 0) {
+            console.error(
+              "::error::This release PR contains a forbidden non-patch promotion:\n" +
+                promotions.map((line) => `  ${line}`).join("\n") +
+                "\n@agent-native/core is patch-only. Leaving the PR open; edit its changeset down to `patch`, or have a human handle any deliberate promotion.",
+            );
+            process.exit(1);
+          }
+          console.log(
+            files.length > 0
+              ? `No forbidden promotion in ${files.length} changed package.json file(s).`
+              : "No package.json changes in this release PR.",
+          );
+          NODE
+
       - name: Force-merge with admin bypass
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
