@@ -901,6 +901,28 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   margin-top: 2px;
 }
 
+.primary.start.start-loading {
+  position: relative;
+  overflow: hidden;
+  cursor: progress;
+}
+
+.primary.start.start-loading .start-label {
+  position: relative;
+  z-index: 1;
+}
+
+.start-loading-shimmer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  /* The CTA reverses foreground/background in dark mode; invert the shared
+     foreground shine so the sweep stays visible on either button fill. */
+  filter: invert(1);
+}
+
 /* ------------------------------------------------------------------------- */
 /* Readiness disclosure                                                       */
 /* ------------------------------------------------------------------------- */
