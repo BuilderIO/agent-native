@@ -705,6 +705,7 @@ import {
 } from "./design-editor/history";
 import {
   getBodyInlineStyles,
+  setBodyInlineStyles,
   isAbsoluteCodeLayerNode,
   warnIfPoisonedBoardCoordsNormalized,
 } from "./design-editor/html-layer-positioning";
@@ -16024,6 +16025,61 @@ function DesignEditor() {
   const selectedScreenLayoutGrid = selectedScreenGeometry
     ? (layoutGrids[selectedScreenGeometry.id] ?? null)
     : null;
+  /**
+   * A selected screen's own <body>, as an inspectable element. The frame's box
+   * comes from the board and its paint from that file's <body>; the document
+   * now fills the frame (see EMBEDDED_FRAME_FIT_STYLE), so painting the body
+   * paints the screen's actual rectangle and the two read as one object.
+   */
+  const selectedScreenElement = useMemo(() => {
+    const screenId = selectedScreenGeometry?.id;
+    if (!screenId) return null;
+    const projection = getCodeLayerProjectionForScreen(screenId);
+    const body = projection?.nodes.find((node) => node.tag === "body");
+    if (!body) return null;
+    const element = elementInfoFromCodeLayerNode(body);
+    // The projection reports authored declarations verbatim, so a `background`
+    // shorthand never reaches the Fill row's `backgroundColor` and the section
+    // renders empty over a painted screen. getBodyInlineStyles resolves through
+    // CSSStyleDeclaration, which expands shorthands; only resolved values are
+    // merged so an absent longhand cannot blank a real one.
+    const resolved = getBodyInlineStyles(
+      getProjectionContentForScreen(screenId),
+    );
+    const computedStyles = { ...element.computedStyles };
+    for (const [property, value] of Object.entries(resolved)) {
+      if (value) computedStyles[property] = value;
+    }
+    return { ...element, computedStyles };
+  }, [
+    getCodeLayerProjectionForScreen,
+    getProjectionContentForScreen,
+    selectedScreenGeometry,
+  ]);
+  const handleSelectedScreenStyleChange = useCallback(
+    (property: string, value: string, meta?: StyleChangeMeta) => {
+      const screenId = selectedScreenGeometry?.id;
+      if (!screenId || !canEditDesignRef.current) return;
+      const content = getProjectionContentForScreen(screenId);
+      const next = setBodyInlineStyles(content, { [property]: value });
+      // A URL-backed live screen has no <body> to patch. Leave it alone rather
+      // than writing a document over the route.
+      if (next === null || next === content) return;
+      // A colour drag emits a preview tick per frame; painting them without
+      // persisting keeps the canvas live without a save per tick, and the
+      // gesture's commit is what lands in history and the file.
+      const previewOnly = meta?.phase === "preview";
+      applyFileContentUpdate(screenId, next, {
+        persist: !previewOnly,
+        recordHistory: !previewOnly,
+      });
+    },
+    [
+      applyFileContentUpdate,
+      getProjectionContentForScreen,
+      selectedScreenGeometry,
+    ],
+  );
   /** Design-level canvas background (the surround, not a screen's body). */
   // ── Canvas background, screen geometry, states panel ───────────────────────
   const persistedCanvasBackground = useMemo(
@@ -19359,6 +19415,10 @@ function DesignEditor() {
       ? handleScreenGeometryChange
       : undefined,
     pageStyles,
+    selectedScreenElement,
+    onSelectedScreenStyleChange: canEditDesign
+      ? handleSelectedScreenStyleChange
+      : undefined,
     viewMode,
     mode,
     files: documentColorFiles,
@@ -20260,6 +20320,7 @@ function DesignEditor() {
                         }
                         boardFileId={boardFileId}
                         canvasBackground={canvasBackground}
+                        canvasBackgroundCommitted={persistedCanvasBackground}
                         boardIsActive={activeFileId === boardFileId}
                         boardFileContent={boardFileContent}
                         boardFrameGeometry={boardFrameGeometry}

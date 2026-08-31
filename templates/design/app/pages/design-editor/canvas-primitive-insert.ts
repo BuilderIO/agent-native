@@ -443,11 +443,8 @@ export function appendCanvasPrimitiveToHtml(
         polygonPointsForHtmlShape(primitive.kind, width, height),
       );
       polygon.setAttribute("fill", primitive.fill ?? "rgba(37, 99, 235, 0.16)");
-      polygon.setAttribute("stroke", primitive.stroke ?? "rgb(37, 99, 235)");
-      polygon.setAttribute(
-        "stroke-width",
-        String(primitive.strokeWidth ?? 1.5),
-      );
+      polygon.setAttribute("stroke", primitive.stroke ?? "none");
+      polygon.setAttribute("stroke-width", String(primitive.strokeWidth ?? 0));
       polygon.setAttribute("stroke-linejoin", "round");
       svg.setAttribute("data-agent-native-node-id", nodeId);
       svg.setAttribute("data-agent-native-layer-name", layerName);

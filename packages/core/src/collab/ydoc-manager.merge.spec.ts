@@ -24,6 +24,9 @@ const store = vi.hoisted(() => ({
     string,
     { yjs_state: string; text_snapshot: string; version: number }
   >(),
+  /** Fires once from inside the state read, to land a peer commit in the
+   *  window between a cold load's read and the cache entry it publishes. */
+  onStateRead: null as null | (() => void),
 }));
 
 const emitMock = vi.hoisted(() => ({ fn: vi.fn() }));
@@ -47,7 +50,11 @@ vi.mock("../db/client.js", () => ({
       }
       if (/^\s*SELECT yjs_state, version FROM _collab_docs/i.test(sql)) {
         const row = store.rows.get(String(args[0]));
-        return { rows: row ? [{ ...row }] : [], rowsAffected: 0 };
+        const result = { rows: row ? [{ ...row }] : [], rowsAffected: 0 };
+        const hook = store.onStateRead;
+        store.onStateRead = null;
+        hook?.();
+        return result;
       }
       if (/^\s*SELECT version FROM _collab_docs/i.test(sql)) {
         const row = store.rows.get(String(args[0]));
@@ -112,6 +119,7 @@ function storedText(docId: string, field = "content"): string {
 beforeEach(async () => {
   vi.resetModules();
   store.rows.clear();
+  store.onStateRead = null;
   emitMock.fn.mockReset();
   manager = await import("./ydoc-manager.js");
 });
@@ -272,6 +280,34 @@ describe("ydoc-manager applyText (agent full-text path)", () => {
     );
     expect(out).toBe("The quick brown fox");
     expect(storedText(docId)).toBe("The quick brown fox");
+  });
+
+  it("does not publish a cold-loaded doc a peer already moved past", async () => {
+    const docId = "design_cold:screen_a";
+    await manager.applyText(docId, "v1", "content", "seed");
+    // Drop the cache so the next read is a genuine cold load.
+    manager.releaseDoc(docId);
+
+    const durable = store.rows.get(docId)!;
+    store.onStateRead = () => {
+      // The peer's commit lands after this process read the row but before it
+      // publishes the cache entry. Pre-fix, that entry — and this request —
+      // answered "v1" while the durable row already said "v2-from-peer".
+      const peer = new Y.Doc();
+      Y.applyUpdate(peer, fromB64(durable.yjs_state));
+      peer.transact(() => {
+        const text = peer.getText("content");
+        text.delete(0, text.length);
+        text.insert(0, "v2-from-peer");
+      }, "peer");
+      store.rows.set(docId, {
+        yjs_state: b64(Y.encodeStateAsUpdate(peer)),
+        text_snapshot: "v2-from-peer",
+        version: durable.version + 1,
+      });
+    };
+
+    expect(await manager.getText(docId, "content")).toBe("v2-from-peer");
   });
 
   it("serves another process's newer durable text from an already-cached doc", async () => {

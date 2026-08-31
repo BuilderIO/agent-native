@@ -531,6 +531,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   onCrossScreenElementDrop,
   boardFileId,
   canvasBackground,
+  canvasBackgroundCommitted,
   boardFileContent,
   boardFrameGeometry,
   onBoardDrawPrimitive,
@@ -696,6 +697,26 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             .trim();
     return resolveBoardSurfaceBackground(canvasBackground, themed);
   }, [canvasBackground, resolvedTheme]);
+  /**
+   * The colour picker emits a preview tick per drag frame, and anything baked
+   * into a document string is part of that iframe's identity — so using the
+   * live value there reloaded the board on every frame and threw away
+   * in-iframe selection. The board document forces html/body transparent, so
+   * the committed value paints exactly the same and holds the identity still.
+   */
+  const boardSurfaceDocumentBackground = useMemo(() => {
+    const themed =
+      typeof window === "undefined"
+        ? ""
+        : window
+            .getComputedStyle(document.documentElement)
+            .getPropertyValue("--design-editor-canvas-bg")
+            .trim();
+    return resolveBoardSurfaceBackground(
+      canvasBackgroundCommitted ?? canvasBackground,
+      themed,
+    );
+  }, [canvasBackground, canvasBackgroundCommitted, resolvedTheme]);
 
   const boardSurfaceRenderGeometry = useMemo(() => {
     if (!boardFrameGeometry) return undefined;
@@ -8596,7 +8617,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   zoom={100}
                   deviceFrame="none"
                   boardSurface
-                  embeddedFrameBackground={boardSurfaceBackground}
+                  embeddedFrameBackground={boardSurfaceDocumentBackground}
                   embeddedFrame={{
                     viewportWidth: Math.max(1, Math.round(boardW)),
                     viewportHeight: Math.max(1, Math.round(boardH)),
@@ -9439,9 +9460,9 @@ function DraftPrimitiveContent({
             draft.geometry.height,
           )}
           fill={draft.fill ?? "hsl(var(--primary) / 0.12)"}
-          stroke={draft.stroke ?? "hsl(var(--primary))"}
+          stroke={draft.stroke ?? "none"}
           strokeLinejoin="round"
-          strokeWidth={draft.strokeWidth ?? 1.5}
+          strokeWidth={draft.strokeWidth ?? 0}
         />
       </svg>
     );

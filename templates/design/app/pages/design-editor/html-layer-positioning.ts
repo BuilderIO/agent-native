@@ -300,6 +300,54 @@ export function setCodeLayerAttributeInHtml(
   return `${content.slice(0, insertAt)}${replacement}${content.slice(insertAt)}`;
 }
 
+/**
+ * Patch the `<body>` open tag's inline styles in place. Surgical on purpose:
+ * re-serializing a parsed document rewrites attribute order, entities and
+ * self-closing tags across the user's whole file, so this only rewrites the
+ * one `style` attribute (same approach as setCodeLayerAttributeInHtml above).
+ * Returns null when there is no `<body>` to patch — a URL-backed live screen
+ * has none, and silently returning the input would look like a saved edit.
+ */
+export function setBodyInlineStyles(
+  content: string,
+  patch: Record<string, string | null>,
+): string | null {
+  const match = /<body\b[^>]*>/i.exec(content);
+  if (!match) return null;
+  const openTag = match[0];
+  const stylePattern = /\sstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/i;
+  const styleMatch = stylePattern.exec(openTag);
+  const declarations = new Map<string, string>();
+  for (const part of (styleMatch?.[1] ?? styleMatch?.[2] ?? "").split(";")) {
+    const separator = part.indexOf(":");
+    if (separator < 0) continue;
+    const property = part.slice(0, separator).trim();
+    if (!property) continue;
+    declarations.set(property, part.slice(separator + 1).trim());
+  }
+  for (const [property, value] of Object.entries(patch)) {
+    const cssProperty = property
+      .replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)
+      .toLowerCase();
+    if (value === null || value.trim() === "") {
+      declarations.delete(cssProperty);
+      continue;
+    }
+    declarations.set(cssProperty, value.trim());
+  }
+  const nextStyle = [...declarations]
+    .map(([property, value]) => `${property}: ${value}`)
+    .join("; ");
+  const replacement = nextStyle
+    ? ` style="${escapeHtmlAttributeValue(nextStyle)}"`
+    : "";
+  const nextOpenTag = styleMatch
+    ? openTag.replace(stylePattern, replacement)
+    : `${openTag.slice(0, -1)}${replacement}>`;
+  if (nextOpenTag === openTag) return content;
+  return `${content.slice(0, match.index)}${nextOpenTag}${content.slice(match.index + openTag.length)}`;
+}
+
 export function getBodyInlineStyles(content: string): Record<string, string> {
   if (typeof window === "undefined") return {};
   try {

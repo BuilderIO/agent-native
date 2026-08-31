@@ -2455,6 +2455,7 @@ export function DesignCanvas({
       transparentBackground,
       contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
       contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
+      fitBodyToFrame: !boardSurface,
     });
     let frameDocument: string;
     if (/<\/(?:body|html)\s*>/i.test(frameContent)) {
@@ -4185,6 +4186,7 @@ export function DesignCanvas({
           transparentBackground,
           contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
           contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
+          fitBodyToFrame: !boardSurface,
         }),
         selector,
         candidates,
@@ -4223,6 +4225,7 @@ export function DesignCanvas({
           transparentBackground,
           contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
           contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
+          fitBodyToFrame: !boardSurface,
         }),
         // Carry the host's committed selection so the bridge can re-anchor it
         // after the morph: without it the canvas silently deselects while the

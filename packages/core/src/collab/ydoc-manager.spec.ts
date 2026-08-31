@@ -33,6 +33,10 @@ describe("ydoc-manager", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
       return null;
     });
+    // "no row", the same answer loadYDocRecord gives above. Left unset it
+    // resolves undefined, which reads as a moved version and sends the cold
+    // load's staleness re-check round again.
+    storageMocks.loadYDocVersion.mockResolvedValue(null);
 
     const { getDoc } = await import("./ydoc-manager.js");
     const [first, second] = await Promise.all([

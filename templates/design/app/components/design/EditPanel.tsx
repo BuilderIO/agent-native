@@ -271,6 +271,12 @@ interface EditPanelProps {
     >,
   ) => void;
   pageStyles?: Record<string, string>;
+  /** The selected screen's own document element, plus the writer for it. A
+   *  screen's box comes from the board and its paint from that document, which
+   *  now fills the frame — so both halves belong in one inspector, the way a
+   *  Figma frame carries box and paint together. */
+  selectedScreenElement?: ElementInfo | null;
+  onSelectedScreenStyleChange?: StyleChangeHandler;
   zoom?: number;
   headerTrailing?: ReactNode;
   /** Draws the inspector's canonical 28-column / 8px baseline overlay. */
@@ -1762,6 +1768,8 @@ export const EditPanel = memo(function EditPanel({
   onCanvasBackgroundChange,
   onScreenGeometryChange,
   pageStyles = {},
+  selectedScreenElement,
+  onSelectedScreenStyleChange,
   viewMode,
   mode,
   headerTrailing,
@@ -2303,6 +2311,23 @@ export const EditPanel = memo(function EditPanel({
                         onLayoutGridChange(selectedScreenGeometry.id, next)
                       }
                     />
+                  ) : null}
+                  {selectedScreenElement && onSelectedScreenStyleChange ? (
+                    <>
+                      <FillProperties
+                        element={selectedScreenElement}
+                        onStyleChange={onSelectedScreenStyleChange}
+                        documentColorPalette={documentColorPalette}
+                      />
+                      <StrokeProperties
+                        element={selectedScreenElement}
+                        onStyleChange={onSelectedScreenStyleChange}
+                      />
+                      <EffectsProperties
+                        element={selectedScreenElement}
+                        onStyleChange={onSelectedScreenStyleChange}
+                      />
+                    </>
                   ) : null}
                 </>
               ) : null}

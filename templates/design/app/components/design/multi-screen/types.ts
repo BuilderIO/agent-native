@@ -336,6 +336,9 @@ export interface MultiScreenCanvasProps {
   boardFileId?: string;
   /** Host CSS vars do not reach the board iframe; omit this and coverage stays themed. */
   canvasBackground?: string | null;
+  /** The persisted canvas colour. Document strings must use this, never the
+   *  live preview value, or a colour drag reloads the board iframe per tick. */
+  canvasBackgroundCommitted?: string | null;
   /**
    * The current HTML content of the board file.
    * Passed as `content` to the board <DesignCanvas> instance.

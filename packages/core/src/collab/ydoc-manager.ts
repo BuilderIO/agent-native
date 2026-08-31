@@ -311,9 +311,22 @@ export async function getDoc(docId: string): Promise<Y.Doc> {
     }
 
     const doc = new Y.Doc();
-    const record = await loadYDocRecord(docId);
+    let record = await loadYDocRecord(docId);
     if (record && record.state.length > 0) {
       Y.applyUpdate(doc, record.state);
+    }
+    // A peer can commit between that read and publishing this entry, and the
+    // coherence check above only runs on the NEXT read — so this request would
+    // answer from text that was already stale, which is the exact failure the
+    // check exists to prevent. Re-read until the version stops moving; Yjs
+    // merges are additive, so each pass only adds what a peer committed.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const storedVersion = await loadYDocVersion(docId);
+      if (storedVersion === (record?.version ?? null)) break;
+      record = await loadYDocRecord(docId);
+      if (record && record.state.length > 0) {
+        Y.applyUpdate(doc, record.state);
+      }
     }
 
     evictIfNeeded();
@@ -376,6 +389,12 @@ export async function applyText(
      * whole document computed from the older base, so applying it would
      * overwrite the other writer rather than conflict. Reject here to keep
      * that a loud, retryable conflict.
+     *
+     * This closes the window BEFORE the diff only. A peer can still commit
+     * between it and `persistMergedState`'s CAS merge, so a caller that needs
+     * the whole write guarded must also pass `validateSnapshot`, which runs on
+     * the converged text after that merge and before anything is persisted or
+     * broadcast.
      */
     validateBase?: (base: string) => void;
     /**
