@@ -388,6 +388,7 @@ const messages = {
     automationMissingSlack: "Slack غير متصل في Dispatch",
     automationMissingGithub: "GitHub غير متصل في Dispatch",
     automationMissingSentry: "Sentry غير متصل في Dispatch",
+    automationReadinessUnavailable: "تعذر تأكيد الموصل. أعد المحاولة بعد لحظة.",
     automationAuthors: "المؤلفون",
     automationAuthorsDescription:
       "اختياري. صفِّ حسب معرّفات أعضاء Slack أو معرّفات مستخدمي GitHub الرقمية، لا الأسماء.",

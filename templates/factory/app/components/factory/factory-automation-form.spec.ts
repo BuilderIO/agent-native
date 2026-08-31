@@ -6,6 +6,7 @@ import {
   dispatchIntegrationsHref,
   emptyAutomationForm,
   formAuthorFilter,
+  isConnectorExplicitlyMissing,
   isDestinationFilled,
   isDestinationReady,
   persistAuthorFilter,
@@ -74,11 +75,23 @@ describe("factory-automation-form destination gating", () => {
     };
     expect(isDestinationFilled(slack)).toBe(true);
     expect(canCreateFactoryAutomation(slack, connected)).toBe(true);
-    expect(canCreateFactoryAutomation(slack)).toBe(false);
-    expect(canCreateFactoryAutomation(slack, disconnected)).toBe(false);
+    expect(canCreateFactoryAutomation(slack)).toBe(true);
+    expect(canCreateFactoryAutomation({ ...slack, enabled: true })).toBe(false);
+    expect(
+      canCreateFactoryAutomation({ ...slack, enabled: true }, connected),
+    ).toBe(true);
+    expect(
+      canCreateFactoryAutomation({ ...slack, enabled: true }, disconnected),
+    ).toBe(false);
     expect(
       canCreateFactoryAutomation({ ...slack, slackChannelId: "" }, connected),
     ).toBe(false);
+  });
+
+  it("treats an unknown connections payload as not explicitly missing", () => {
+    expect(isConnectorExplicitlyMissing("slack")).toBe(false);
+    expect(isConnectorExplicitlyMissing("slack", disconnected)).toBe(true);
+    expect(isConnectorExplicitlyMissing("slack", connected)).toBe(false);
   });
 
   it("lets Save disable a job when the connector is missing", () => {
@@ -98,6 +111,15 @@ describe("factory-automation-form destination gating", () => {
   });
 
   it("points workspace connect at Dispatch admin integrations", () => {
+    expect(
+      dispatchIntegrationsHref([
+        {
+          id: "dispatch",
+          isDispatch: true,
+          href: "https://beta.dispatch.agent-native.com/overview",
+        },
+      ]),
+    ).toBe("https://beta.dispatch.agent-native.com/admin/integrations");
     expect(
       dispatchIntegrationsHref([
         {

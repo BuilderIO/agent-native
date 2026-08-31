@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { isValidCron, nextOccurrence } from "@agent-native/core/jobs";
 import {
   resourceGetByPath,
@@ -7,7 +7,10 @@ import {
 import { listAutomationDefinitions } from "@agent-native/core/triggers";
 import { z } from "zod";
 
-import { assertFactoryConnectorReady } from "../server/connectors/credentials.js";
+import {
+  VaultUnavailableError,
+  assertFactoryConnectorReady,
+} from "../server/connectors/credentials.js";
 import {
   FACTORY_INBOX_LIMIT_MAX,
   FACTORY_WORK_LIMIT_MAX,
@@ -151,11 +154,16 @@ export default defineAction({
           "Configure Sentry organization and project slugs before saving this job.",
         );
       }
-      await assertFactoryConnectorReady(current.source, userEmail, {
-        orgId,
-        slackWorkspace: input.slackWorkspace ?? current.slackWorkspace,
-        verb: "saving",
-      });
+      try {
+        await assertFactoryConnectorReady(current.source, userEmail, {
+          orgId,
+          slackWorkspace: input.slackWorkspace ?? current.slackWorkspace,
+          verb: "saving",
+        });
+      } catch (error) {
+        if (error instanceof VaultUnavailableError) fail(error.message);
+        throw error;
+      }
     }
     const config = {
       ...current,

@@ -412,6 +412,8 @@ const messages = {
     automationMissingSlack: "Slack no está conectado en Dispatch",
     automationMissingGithub: "GitHub no está conectado en Dispatch",
     automationMissingSentry: "Sentry no está conectado en Dispatch",
+    automationReadinessUnavailable:
+      "No se pudo confirmar el conector. Reinténtalo en un momento.",
     automationAuthors: "Autores",
     automationAuthorsDescription:
       "Opcional. Filtre por ids de miembro de Slack o ids numéricos de GitHub, no por nombres.",

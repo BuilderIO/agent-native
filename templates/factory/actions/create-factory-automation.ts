@@ -109,16 +109,20 @@ export default defineAction({
     if (input.scheduleMode === "daily" && !input.timezone?.trim()) {
       fail("Choose a timezone for a daily schedule.");
     }
-    try {
-      await assertFactoryConnectorReady(input.source, userEmail, {
-        orgId,
-        slackWorkspace:
-          input.slackWorkspace === "secondary" ? "secondary" : "primary",
-        verb: "creating",
-      });
-    } catch (error) {
-      if (error instanceof VaultUnavailableError) fail(error.message);
-      fail(error instanceof Error ? error.message : "Connector is not ready.");
+    if (input.enabled) {
+      try {
+        await assertFactoryConnectorReady(input.source, userEmail, {
+          orgId,
+          slackWorkspace:
+            input.slackWorkspace === "secondary" ? "secondary" : "primary",
+          verb: "creating",
+        });
+      } catch (error) {
+        if (error instanceof VaultUnavailableError) fail(error.message);
+        fail(
+          error instanceof Error ? error.message : "Connector is not ready.",
+        );
+      }
     }
     const defaults = defaultAutomationConfig(input.source, input.template);
     const config: FactoryAutomationConfig = {

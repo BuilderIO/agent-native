@@ -132,6 +132,22 @@ describe("create-factory-automation", () => {
         }),
       }),
     );
+    expect(assertFactoryConnectorReadyMock).not.toHaveBeenCalled();
+  });
+
+  it("creates an enabled Slack job only when the connector is ready", async () => {
+    const { default: action } = await import("./create-factory-automation.js");
+    const result = await action.run(
+      {
+        factoryId: "support-triage",
+        displayName: "Slack feedback",
+        source: "slack",
+        slackChannelId: "C123",
+        enabled: true,
+      },
+      { userEmail: "owner@example.com" },
+    );
+    expect(result).toMatchObject({ ok: true, id: "resource-1" });
     expect(assertFactoryConnectorReadyMock).toHaveBeenCalledWith(
       "slack",
       "owner@example.com",
@@ -157,6 +173,7 @@ describe("create-factory-automation", () => {
           displayName: "Slack feedback",
           source: "slack",
           slackChannelId: "C123",
+          enabled: true,
         },
         { userEmail: "owner@example.com" },
       ),

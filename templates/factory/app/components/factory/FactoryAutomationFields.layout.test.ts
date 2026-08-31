@@ -17,6 +17,8 @@ describe("FactoryAutomationFields connection banner", () => {
     expect(source).toContain("factoryRoute.automationMissingSlack");
     expect(source).toContain("factoryRoute.automationMissingGithub");
     expect(source).toContain("factoryRoute.automationMissingSentry");
+    expect(source).toContain("factoryRoute.automationReadinessUnavailable");
+    expect(source).toContain("isConnectorExplicitlyMissing");
     expect(source).toContain("workspaceIntegrationsHref");
     expect(source).not.toContain("buildSettingsRoute");
     expect(source).toContain("disabled={disabled || !destinationReady}");

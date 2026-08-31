@@ -396,6 +396,8 @@ const messages = {
     automationMissingSlack: "Dispatch에 Slack이 연결되어 있지 않습니다",
     automationMissingGithub: "Dispatch에 GitHub이 연결되어 있지 않습니다",
     automationMissingSentry: "Dispatch에 Sentry가 연결되어 있지 않습니다",
+    automationReadinessUnavailable:
+      "커넥터를 확인할 수 없습니다. 잠시 후 다시 시도하세요.",
     automationAuthors: "작성자",
     automationAuthorsDescription:
       "선택. 이름이 아니라 Slack 멤버 ID 또는 GitHub 숫자 사용자 ID로 필터합니다.",

@@ -5,10 +5,25 @@ const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const requireWorkspaceMemberMock = vi.hoisted(() => vi.fn());
 const workspaceMemberIdentityFromContextMock = vi.hoisted(() => vi.fn());
-const assertFactoryConnectorReadyMock = vi.hoisted(() => vi.fn());
+const { assertFactoryConnectorReadyMock, VaultUnavailableError } = vi.hoisted(
+  () => {
+    class VaultUnavailableError extends Error {}
+    return {
+      assertFactoryConnectorReadyMock: vi.fn(),
+      VaultUnavailableError,
+    };
+  },
+);
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
+  fail: (message: string): never => {
+    const error = new Error(message) as Error & {
+      actionContractError: true;
+    };
+    error.actionContractError = true;
+    throw error;
+  },
 }));
 
 vi.mock("@agent-native/core/jobs", () => ({
@@ -32,6 +47,7 @@ vi.mock("../server/lib/require-workspace-member.js", () => ({
 
 vi.mock("../server/connectors/credentials.js", () => ({
   assertFactoryConnectorReady: assertFactoryConnectorReadyMock,
+  VaultUnavailableError,
 }));
 
 const existingContent = `---
@@ -152,5 +168,28 @@ describe("save-factory-automation", () => {
     expect(result).toMatchObject({ ok: true, enabled: false });
     expect(assertFactoryConnectorReadyMock).not.toHaveBeenCalled();
     expect(resourcePutIfCurrentMock).toHaveBeenCalled();
+  });
+
+  it("surfaces a vault outage as an action failure when saving an enabled job", async () => {
+    assertFactoryConnectorReadyMock.mockRejectedValue(
+      new VaultUnavailableError("vault timeout"),
+    );
+    const { default: action } = await import("./save-factory-automation.js");
+    await expect(
+      action.run(
+        {
+          factoryId: "support-triage",
+          automationId: "resource-1",
+          name: "factories/support-triage/factory-slack-feedback",
+          prompt: "Watch Slack more closely.",
+          enabled: true,
+        },
+        { userEmail: "teammate@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      message: "vault timeout",
+      actionContractError: true,
+    });
+    expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
   });
 });

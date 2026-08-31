@@ -388,6 +388,8 @@ const messages = {
     automationMissingSlack: "Dispatch में Slack कनेक्ट नहीं है",
     automationMissingGithub: "Dispatch में GitHub कनेक्ट नहीं है",
     automationMissingSentry: "Dispatch में Sentry कनेक्ट नहीं है",
+    automationReadinessUnavailable:
+      "कनेक्टर की पुष्टि नहीं हो सकी। थोड़ी देर बाद फिर कोशिश करें।",
     automationAuthors: "लेखक",
     automationAuthorsDescription:
       "वैकल्पिक। नाम नहीं, Slack सदस्य आईडी या GitHub संख्यात्मक यूज़र आईडी से फ़िल्टर करें।",

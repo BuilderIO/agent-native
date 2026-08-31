@@ -1284,6 +1284,7 @@ function AutomationsView({
               <FactoryAutomationFields
                 form={automationToForm(draft)}
                 connections={configQuery.data?.connections}
+                readinessError={Boolean(configQuery.error)}
                 workspaceIntegrationsHref={workspaceIntegrationsHref}
                 onChange={(next) => {
                   const authors = persistAuthorFilter(

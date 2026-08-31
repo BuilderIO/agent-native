@@ -17,6 +17,7 @@ describe("CreateFactoryAutomationView destination gating", () => {
     expect(source).toContain(
       "workspaceIntegrationsHref={workspaceIntegrationsHref}",
     );
+    expect(source).toContain("readinessError={Boolean(configQuery.error)}");
     expect(source).toContain(
       "disabled={createMutation.isPending || !canCreate}",
     );

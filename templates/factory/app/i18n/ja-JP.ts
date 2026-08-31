@@ -401,6 +401,8 @@ const messages = {
     automationMissingSlack: "Dispatch で Slack が未接続です",
     automationMissingGithub: "Dispatch で GitHub が未接続です",
     automationMissingSentry: "Dispatch で Sentry が未接続です",
+    automationReadinessUnavailable:
+      "コネクタを確認できませんでした。しばらくしてから再試行してください。",
     automationAuthors: "作者",
     automationAuthorsDescription:
       "任意。名前ではなく Slack メンバー ID か GitHub の数値ユーザー ID で絞り込みます。",

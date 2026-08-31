@@ -374,6 +374,7 @@ const messages = {
     automationMissingSlack: "Dispatch 中未連接 Slack",
     automationMissingGithub: "Dispatch 中未連接 GitHub",
     automationMissingSentry: "Dispatch 中未連接 Sentry",
+    automationReadinessUnavailable: "無法確認連接器。請稍後再試。",
     automationAuthors: "作者",
     automationAuthorsDescription:
       "選填。依 Slack 成員 ID 或 GitHub 數字使用者 ID 篩選，不要用名稱。",

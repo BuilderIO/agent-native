@@ -166,6 +166,7 @@ export function CreateFactoryAutomationView({
         form={form}
         onChange={setForm}
         connections={connections}
+        readinessError={Boolean(configQuery.error)}
         workspaceIntegrationsHref={workspaceIntegrationsHref}
         showGuardrails
         guardrails={t("factoryRoute.automationGuardrailsSummary", {

@@ -129,6 +129,20 @@ export function isDestinationReady(
   return connections[source] === true;
 }
 
+export function isConnectorExplicitlyMissing(
+  source: AutomationSource | null,
+  connections?: FactoryAutomationConnections,
+  slackWorkspace: "primary" | "secondary" = "primary",
+): boolean {
+  if (!source || !connections) return false;
+  if (source === "slack") {
+    return slackWorkspace === "secondary"
+      ? connections.slackSecondary === false
+      : connections.slack === false;
+  }
+  return connections[source] === false;
+}
+
 export function isDestinationFilled(
   form: Pick<
     FactoryAutomationFormState,
@@ -158,10 +172,9 @@ export function canCreateFactoryAutomation(
   if (form.authorFilter === "include" && form.authorIds.length === 0) {
     return false;
   }
-  return (
-    isDestinationReady(form.source, connections, form.slackWorkspace) &&
-    isDestinationFilled(form)
-  );
+  if (!isDestinationFilled(form)) return false;
+  if (!form.enabled) return true;
+  return isDestinationReady(form.source, connections, form.slackWorkspace);
 }
 
 export function canSaveFactoryAutomation(
@@ -185,8 +198,18 @@ export function dispatchIntegrationsHref(apps: unknown): string {
       typeof entry === "object" &&
       "isDispatch" in entry &&
       (entry as { isDispatch?: boolean }).isDispatch === true,
-  ) as { url?: string | null; path?: string } | undefined;
-  const raw = dispatch?.url?.trim() || dispatch?.path?.trim() || "/dispatch";
+  ) as
+    | {
+        href?: string | null;
+        url?: string | null;
+        path?: string | null;
+      }
+    | undefined;
+  const raw =
+    dispatch?.href?.trim() ||
+    dispatch?.url?.trim() ||
+    dispatch?.path?.trim() ||
+    "/dispatch";
   try {
     const absolute = /^https?:\/\//.test(raw);
     const url = new URL(raw, "https://workspace.local");

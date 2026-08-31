@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 
 import {
   INTERVAL_MINUTES,
+  isConnectorExplicitlyMissing,
   isDestinationReady,
   timezoneOptions,
   type AutomationAuthorFilter,
@@ -25,8 +26,8 @@ function WorkspaceConnectionBanner({
   href,
 }: {
   title: string;
-  actionLabel: string;
-  href: string;
+  actionLabel?: string;
+  href?: string;
 }) {
   return (
     <div
@@ -37,11 +38,13 @@ function WorkspaceConnectionBanner({
         <IconAlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
         <p className="text-sm font-medium text-destructive">{title}</p>
       </div>
-      <Button asChild type="button" size="sm" className="shrink-0">
-        <a href={href} target="_blank" rel="noreferrer">
-          {actionLabel}
-        </a>
-      </Button>
+      {actionLabel && href ? (
+        <Button asChild type="button" size="sm" className="shrink-0">
+          <a href={href} target="_blank" rel="noreferrer">
+            {actionLabel}
+          </a>
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -50,6 +53,7 @@ export function FactoryAutomationFields({
   form,
   onChange,
   connections,
+  readinessError = false,
   workspaceIntegrationsHref: workspaceIntegrationsHrefProp,
   sourcePicker,
   startFrom,
@@ -69,6 +73,7 @@ export function FactoryAutomationFields({
   form: FactoryAutomationFormState;
   onChange: (next: FactoryAutomationFormState) => void;
   connections?: FactoryAutomationConnections;
+  readinessError?: boolean;
   workspaceIntegrationsHref?: string;
   sourcePicker?: ReactNode;
   startFrom?: ReactNode;
@@ -125,7 +130,13 @@ export function FactoryAutomationFields({
               actionLabel: t("factoryRoute.automationConnectSentry"),
             }
           : null;
-  const showMissingBanner = Boolean(missingBanner && !destinationReady);
+  const showMissingBanner = Boolean(
+    missingBanner &&
+    isConnectorExplicitlyMissing(form.source, connections, form.slackWorkspace),
+  );
+  const showReadinessErrorBanner = Boolean(
+    form.source && readinessError && !connections,
+  );
 
   function addAuthorId() {
     const id = authorDraft.trim();
@@ -180,6 +191,12 @@ export function FactoryAutomationFields({
             />
           ) : null}
         </SettingsGroup>
+      ) : null}
+
+      {showReadinessErrorBanner ? (
+        <WorkspaceConnectionBanner
+          title={t("factoryRoute.automationReadinessUnavailable")}
+        />
       ) : null}
 
       {showMissingBanner && missingBanner ? (
