@@ -921,7 +921,10 @@ describe("EventDetailPopover characterization", () => {
     expect(allEventsOption).toBeTruthy();
     act(() => allEventsOption!.click());
 
-    const confirmButton = findByExactText("button", "eventForm.updateEvent");
+    const confirmButton = findByExactText<HTMLButtonElement>(
+      "button",
+      "eventForm.updateEvent",
+    );
     expect(confirmButton).toBeTruthy();
     await act(async () => {
       confirmButton!.click();
