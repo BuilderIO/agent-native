@@ -1581,6 +1581,15 @@ const messages = {
       "Öffne Clips über die Menüleiste, um diesen gespeicherten Upload erneut zu versuchen; keine neue Aufnahme nötig.",
     removeFailedClip: "Diesen fehlgeschlagenen Clip entfernen.",
     remove: "Entfernen",
+    statusStalled: "stockt",
+    uploadAtRisk: "Dauert länger als gewöhnlich",
+    uploadAtRiskDetail:
+      "Wir versuchen weiterhin, diesen Clip zu speichern. Das kann einige Minuten dauern.",
+    retry: "Wiederholen",
+    retrying: "Wird wiederholt…",
+    retryFailed: "Dieser Upload konnte nicht wiederholt werden.",
+    retryUnavailableHere:
+      "Ein erneuter Versuch ist nur auf dem Gerät oder Browser möglich, auf dem diese Aufnahme erstellt wurde.",
     viewsCount: "{{count}} Aufrufe",
     recordingMenu: "Aufnahmemenü",
     moveToFolder: "In Ordner verschieben",

@@ -1573,6 +1573,15 @@ const messages = {
       "Ouvrez Clips depuis la barre des menus pour réessayer cet envoi enregistré ; inutile de réenregistrer.",
     removeFailedClip: "Supprimer ce clip en échec.",
     remove: "Supprimer",
+    statusStalled: "bloqué",
+    uploadAtRisk: "Cela prend plus de temps que d'habitude",
+    uploadAtRiskDetail:
+      "Nous essayons toujours d'enregistrer ce clip. Cela peut prendre quelques minutes.",
+    retry: "Réessayer",
+    retrying: "Nouvelle tentative…",
+    retryFailed: "Impossible de réessayer cet envoi.",
+    retryUnavailableHere:
+      "Réessayer n'est possible que sur l'appareil ou le navigateur ayant servi à l'enregistrement.",
     viewsCount: "{{count}} vues",
     recordingMenu: "Menu de l’enregistrement",
     moveToFolder: "Déplacer vers un dossier",

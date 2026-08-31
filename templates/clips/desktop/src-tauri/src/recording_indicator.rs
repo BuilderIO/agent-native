@@ -26,7 +26,7 @@
 //!     position so the next show reopens at the same spot.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -36,11 +36,13 @@ use tauri::{
 
 use crate::dlog;
 use crate::util::{
-    build_overlay_url, configure_overlay_behavior, set_capture_excluded, show_without_activation,
-    tray_monitor_physical_rect,
+    build_overlay_url, configure_overlay_behavior, raise_to_status_level, set_capture_excluded,
+    show_without_activation, start_topmost_reassert_loop, tray_monitor_physical_rect,
 };
 
 const PILL_LABEL: &str = "recording-pill";
+/// Supersedes stale pill topmost loops after window recreation.
+static PILL_TOPMOST_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// Detached-mode flag. Toggled from JS via `recording_pill_set_detached` —
 /// the renderer flips it when the main app loses focus. We store it as a
@@ -519,7 +521,9 @@ pub async fn recording_pill_show(
         );
         configure_overlay_behavior(&existing);
         show_without_activation(&existing);
+        raise_to_status_level(&existing);
         start_pill_hover_tracking(&app);
+        start_topmost_reassert_loop(&app, PILL_LABEL, &PILL_TOPMOST_GENERATION);
         return Ok(());
     }
 
@@ -527,7 +531,9 @@ pub async fn recording_pill_show(
     let win = build_pill_window(&app, false)?;
     configure_overlay_behavior(&win);
     show_without_activation(&win);
+    raise_to_status_level(&win);
     start_pill_hover_tracking(&app);
+    start_topmost_reassert_loop(&app, PILL_LABEL, &PILL_TOPMOST_GENERATION);
 
     // Tell the freshly-mounted React side which mode + meeting_id to render.
     use tauri::Emitter;
