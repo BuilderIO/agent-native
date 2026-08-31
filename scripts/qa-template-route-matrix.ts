@@ -101,6 +101,14 @@ for (const template of publicMarketingTemplates) {
   );
 }
 
+for (const template of ["assets", "chat"]) {
+  assertContains(
+    `templates/${template}/app/routes/chat.$threadId.tsx`,
+    'from "./home"',
+    `${template} chat thread routes must render the private chat home, not the public marketing route`,
+  );
+}
+
 assertFilesExist("slides", [
   "_index.tsx",
   "deck.$id.tsx",

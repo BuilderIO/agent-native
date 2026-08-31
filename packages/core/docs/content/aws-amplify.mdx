@@ -50,6 +50,64 @@ variable is `AMPLIFY_MONOREPO_APP_ROOT=templates/calendar`.
 The framework sets Nitro's `awsAmplify.runtime` to `nodejs24.x`, matching the
 Node 24 build phase and the repository's server runtime requirements.
 
+## Runtime variables and CLI
+
+Amplify exposes environment variables to the build container but does not
+automatically expose them to every SSR runtime. The Agent-Native Amplify
+adapter writes only keys declared by the app's `.env.example` plus the core
+deployment keys into the Nitro compute bundle. Its generated `server.js` loads
+that file with Node's native `process.loadEnvFile()` before starting Nitro.
+
+The file is inside `compute/default`, not the public `static` directory. It
+still travels with the server artifact, so do not commit a populated `.env` or
+grant artifact access more broadly than necessary. Prefer Amplify secret
+management or an external secret store for production credentials.
+
+You can configure app-level variables with the AWS CLI. Amplify's update
+commands replace the complete environment-variable map, so retrieve the
+current map and merge overrides before updating. Keep these JSON files outside
+the repository and remove them after the update:
+
+```json filename="amplify-env-overrides.json"
+{
+  "APP_URL": "https://calendar.example.com",
+  "DATABASE_URL": "<persistent-database-url>",
+  "BETTER_AUTH_SECRET": "<stable-auth-secret>"
+}
+```
+
+```bash
+aws amplify get-app \
+  --app-id <app-id> \
+  --query 'app.environmentVariables' \
+  --output json > amplify-env-current.json
+jq -s '.[0] * .[1]' amplify-env-current.json amplify-env-overrides.json \
+  > amplify-env-next.json
+aws amplify update-app \
+  --app-id <app-id> \
+  --environment-variables file://amplify-env-next.json
+
+aws amplify get-branch \
+  --app-id <app-id> \
+  --branch-name <branch-name> \
+  --query 'branch.environmentVariables' \
+  --output json > amplify-branch-env-current.json
+jq -s '.[0] * .[1]' amplify-branch-env-current.json amplify-env-overrides.json \
+  > amplify-branch-env-next.json
+aws amplify update-branch \
+  --app-id <app-id> \
+  --branch-name <branch-name> \
+  --environment-variables file://amplify-branch-env-next.json
+aws amplify start-job \
+  --app-id <app-id> \
+  --branch-name <branch-name> \
+  --job-type RELEASE
+```
+
+App-level values apply to branches by default. Use `update-branch` when a
+branch needs an explicit override. The build must run again after an env
+change so Nitro can include the declared runtime values.
+
 ## Configure the app
 
 Amplify Hosting compute is serverless. Configure a persistent SQL database and
@@ -96,6 +154,21 @@ policy.
 See [SSR Caching](/docs/ssr-caching) for the shared policy and
 [Amplify's cache-key documentation](https://docs.aws.amazon.com/amplify/latest/userguide/cache-key-cookies.html)
 for the hosting setting.
+
+## Streaming requests
+
+Nitro's agent-chat and framework sync endpoints use `text/event-stream` and
+are intentionally private and non-cacheable. The framework sends a named
+keepalive frame every ten seconds on the shared sync stream so an idle
+connection stays open through CloudFront; keep these routes out of custom
+cache rules. The public SSR shell and hashed assets remain edge-cacheable.
+
+Amplify compute instances can run for up to 15 minutes, but that is the
+compute lifetime, not a guarantee that a browser connection may stay silent
+for 15 minutes. Emit progress or keepalive frames more frequently than the
+edge origin read timeout when a long operation has no user-visible output.
+See [AWS's Amplify deployment specification](https://docs.aws.amazon.com/amplify/latest/userguide/ssr-deployment-specification.html)
+and [CloudFront's origin timeout guidance](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistValuesOrigin.html).
 
 ## Verify the deployment
 

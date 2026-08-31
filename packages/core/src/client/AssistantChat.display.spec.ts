@@ -72,6 +72,19 @@ describe("shouldShowAssistantChatModelSelector", () => {
 });
 
 describe("AssistantChat thread restore and composer recovery", () => {
+  it("keeps recovery-card fork snapshots compact", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const snapshotStart = source.lastIndexOf("exportThreadSnapshot()");
+    const snapshotEnd = source.indexOf("      },", snapshotStart);
+    const snapshotSource = source.slice(snapshotStart, snapshotEnd);
+
+    expect(snapshotSource).toContain(
+      "threadData: JSON.stringify(stripBase64FromRepo(repo))",
+    );
+  });
+
   it("only suppresses unauthenticated restore failures for desktop chat", () => {
     expect(
       shouldSuppressUnauthenticatedDesktopThreadRestore("desktop", 401),
@@ -1541,6 +1554,9 @@ describe("missing agent engine setup", () => {
       "if (!hideUserMessage) resumeFollowingRef.current()",
     );
     expect(messageScroller).toContain('"agentChat.composer.scrollToBottom"');
+    expect(messageScroller).toContain(
+      '"relative flex min-h-0 flex-1 flex-col overflow-hidden"',
+    );
     expect(source).toContain("<MessageScrollerButton />");
     expect(source).toMatch(/<MessageScrollerProvider[\s\S]*?\bautoScroll\b/);
     expect(source).not.toContain("autoScroll={false}");

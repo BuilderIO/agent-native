@@ -1119,6 +1119,32 @@ describe("calendar recurring event updates", () => {
     );
   });
 
+  it("clears Google Meet data when removing a conference", async () => {
+    await updateEvent(
+      "event-1",
+      { accountEmail: "steve@example.com" },
+      {
+        account: {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
+        },
+        removeGoogleMeet: true,
+      },
+    );
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "event-1",
+      { conferenceData: null },
+      {
+        sendUpdates: undefined,
+        conferenceDataVersion: 1,
+        supportsAttachments: undefined,
+      },
+    );
+  });
+
   it("removes selected and later materialized exceptions when deleting this and following", async () => {
     calendarGetEventMock
       .mockResolvedValueOnce({

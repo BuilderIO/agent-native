@@ -3,6 +3,18 @@
 All notable user-facing changes to Agent-Native Plan are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-08-29
+
+### Improved
+
+- Plan loading states now use an even more subtle whole-surface shine.
+
+## 2026-08-28
+
+### Improved
+
+- Plan loading placeholders now use a softer whole-surface shine.
+
 ## 2026-08-22
 
 ### Fixed

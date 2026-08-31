@@ -167,6 +167,8 @@ import {
   resolveSlideObjectContainingBlock,
   resizeSlideObjectMembers,
   resolveSlideClipboardElement,
+  restoreSlideObjectStyle,
+  setSlideObjectDimension,
   SLIDE_OBJECT_PASTE_OFFSET,
   snapSlideObjectMove,
   stripTransientSlideLayoutSpacers,
@@ -3829,7 +3831,11 @@ export default function SlideEditor({
         ) {
           continue;
         }
-        element.style.setProperty(stylePropertyName(property), value);
+        if (property === "width" || property === "height") {
+          setSlideObjectDimension(element, property, value);
+        } else {
+          element.style.setProperty(stylePropertyName(property), value);
+        }
       }
 
       if (
@@ -4377,11 +4383,20 @@ export default function SlideEditor({
   );
 
   const applyObjectGeometry = useCallback(
-    (element: HTMLElement, geometry: SlideObjectGeometry) => {
+    (
+      element: HTMLElement,
+      geometry: SlideObjectGeometry,
+      { overrideImageSizing = false }: { overrideImageSizing?: boolean } = {},
+    ) => {
       element.style.left = `${geometry.x}px`;
       element.style.top = `${geometry.y}px`;
-      element.style.width = `${geometry.width}px`;
-      element.style.height = `${geometry.height}px`;
+      if (overrideImageSizing) {
+        setSlideObjectDimension(element, "width", `${geometry.width}px`);
+        setSlideObjectDimension(element, "height", `${geometry.height}px`);
+      } else {
+        element.style.width = `${geometry.width}px`;
+        element.style.height = `${geometry.height}px`;
+      }
     },
     [],
   );
@@ -4651,7 +4666,7 @@ export default function SlideEditor({
         if (promotedToFreeform) {
           restorePromotedElement();
         } else {
-          if (!clone && origin) applyObjectGeometry(element, origin);
+          if (!clone && origin) restoreSlideObjectStyle(element, originalStyle);
           if (originalObjectId) {
             element.setAttribute("data-slide-object-id", originalObjectId);
           } else {
@@ -4929,7 +4944,9 @@ export default function SlideEditor({
           if (gesture.kind !== "resize")
             return { handled: false, reason: "unhandled" };
           ensureSlideObjectId(element);
-          applyObjectGeometry(element, gesture.rect);
+          applyObjectGeometry(element, gesture.rect, {
+            overrideImageSizing: true,
+          });
           const currentSelector = getBuilderSelector(element);
           if (currentSelector) {
             selectElementForStyling(element, currentSelector, "resizing");
@@ -4957,7 +4974,7 @@ export default function SlideEditor({
         cancel: () => {
           if (promotedToFreeform) restorePromotedElement();
           else {
-            applyObjectGeometry(element, resizeOrigin);
+            restoreSlideObjectStyle(element, originalStyle);
             if (originalObjectId) {
               element.setAttribute("data-slide-object-id", originalObjectId);
             } else {
@@ -5085,10 +5102,20 @@ export default function SlideEditor({
           .map((member) => member.element.getAttribute("data-builder-id"))
           .filter((id): id is string => Boolean(id)),
       );
+      const originalStyles = new Map(
+        members.map((member) => [
+          member.objectId,
+          member.element.getAttribute("style"),
+        ]),
+      );
       const applyPlan = (plan: Map<string, SlideObjectGeometry>) => {
         for (const member of members) {
           const geometry = plan.get(member.objectId);
-          if (geometry) applyObjectGeometry(member.element, geometry);
+          if (geometry) {
+            applyObjectGeometry(member.element, geometry, {
+              overrideImageSizing: true,
+            });
+          }
         }
       };
 
@@ -5135,6 +5162,12 @@ export default function SlideEditor({
           applyPlan(
             new Map(members.map((member) => [member.objectId, member.start])),
           );
+          for (const member of members) {
+            restoreSlideObjectStyle(
+              member.element,
+              originalStyles.get(member.objectId) ?? null,
+            );
+          }
           refreshMultiSelectionRects(selectedIds);
           return { handled: true };
         },
@@ -6529,7 +6562,11 @@ export default function SlideEditor({
         ) {
           continue;
         }
-        element.style.setProperty(stylePropertyName(property), value);
+        if (property === "width" || property === "height") {
+          setSlideObjectDimension(element, property, value);
+        } else {
+          element.style.setProperty(stylePropertyName(property), value);
+        }
       }
 
       if (

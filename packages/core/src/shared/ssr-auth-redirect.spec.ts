@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { getSsrAuthRedirectScript } from "./ssr-auth-redirect.js";
 
-function scriptBody(sessionHintCookieName?: string): string {
-  const script = getSsrAuthRedirectScript(sessionHintCookieName);
+function scriptBody(
+  sessionHintCookieName?: string,
+  appHomePath?: string,
+): string {
+  const script = getSsrAuthRedirectScript(sessionHintCookieName, appHomePath);
   return script.slice(script.indexOf(">") + 1, script.lastIndexOf("</script>"));
 }
 
@@ -11,6 +14,7 @@ function runScript({
   session,
   cookie = "",
   sessionHintCookieName,
+  appHomePath = "/home",
   pathname = "/",
   search = "",
   hash = "",
@@ -21,6 +25,7 @@ function runScript({
   session: Record<string, unknown> | null;
   cookie?: string;
   sessionHintCookieName?: string;
+  appHomePath?: string;
   pathname?: string;
   search?: string;
   hash?: string;
@@ -65,7 +70,7 @@ function runScript({
     "window",
     "document",
     "fetch",
-    scriptBody(sessionHintCookieName),
+    scriptBody(sessionHintCookieName, appHomePath),
   )(window, document, fetch);
 
   return Object.assign(result, { window, fetchCount });
@@ -83,6 +88,29 @@ describe("getSsrAuthRedirectScript", () => {
     });
 
     expect(result.redirectedTo).toBe("/docs/home?from=hero#start");
+    expect(result.fetchCount).toBe(0);
+  });
+
+  it("supports a configured private app home path", () => {
+    const result = runScript({
+      session: null,
+      cookie: "an_session_slides_hint=1",
+      sessionHintCookieName: "an_session_slides_hint",
+      appHomePath: "/inbox",
+      pathname: "/docs/",
+    });
+
+    expect(result.redirectedTo).toBe("/docs/inbox");
+    expect(result.fetchCount).toBe(0);
+  });
+
+  it("omits the redirect for apps whose private home is the root", () => {
+    const result = runScript({
+      session: { email: "person@example.test" },
+      appHomePath: "/",
+    });
+
+    expect(result.redirectedTo).toBeNull();
     expect(result.fetchCount).toBe(0);
   });
 

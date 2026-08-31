@@ -201,7 +201,7 @@ export default defineAction({
       // the proxy throws rather than silently building wrong SQL. The subquery
       // filters out NULLs so NOT IN doesn't collapse to an empty result under
       // SQL NULL semantics.
-      const resolvedDb = db;
+      const resolvedDb = await Promise.resolve(db);
       const meetingRecordingIds = resolvedDb
         .select({ id: schema.meetings.recordingId })
         .from(schema.meetings)

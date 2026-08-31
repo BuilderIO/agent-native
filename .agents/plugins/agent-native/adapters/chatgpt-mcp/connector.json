@@ -1,0 +1,7 @@
+{
+  "name": "agent-native-dispatch",
+  "title": "Agent-Native",
+  "url": "https://dispatch.agent-native.com/mcp",
+  "auth": "oauth",
+  "surfaces": [{ "id": "agent-native-app", "path": "/", "mediaTypes": [] }]
+}

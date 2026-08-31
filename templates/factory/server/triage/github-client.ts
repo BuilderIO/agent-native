@@ -1,4 +1,9 @@
 import { resolveConnectorSecret } from "../connectors/credentials.js";
+import type { ReviewCommentObservation } from "./pr-babysit.js";
+import type {
+  PullRequestCheckObservation,
+  PullRequestReviewObservation,
+} from "./pr-monitor.js";
 
 const DEFAULT_BASE_URL = "https://api.github.com";
 const MAX_PAGE_SIZE = 100;
@@ -43,6 +48,7 @@ export interface GitHubIssue {
   state: string;
   htmlUrl: string;
   userLogin: string;
+  userId: string;
   labels: readonly string[];
   createdAt: string;
   updatedAt: string;
@@ -89,6 +95,18 @@ export class GitHubRequestError extends Error {
     super(message);
     this.name = "GitHubRequestError";
   }
+}
+
+export interface GitHubIssueCreateResult {
+  number: number;
+  htmlUrl: string;
+}
+
+export interface GitHubPullRequestEvidence {
+  comments: readonly ReviewCommentObservation[];
+  commentsTruncated: boolean;
+  reviews: readonly PullRequestReviewObservation[];
+  checks: readonly PullRequestCheckObservation[];
 }
 
 interface JsonResponse {
@@ -168,6 +186,129 @@ function parsePullRequest(value: unknown): GitHubPullRequest {
   };
 }
 
+function requireArray(value: unknown, field: string): unknown[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`GitHub ${field} response was not an array`);
+  }
+  return value;
+}
+
+function loginFromUser(value: unknown, field: string): string {
+  if (value === null) {
+    throw new Error(`GitHub ${field} has no user`);
+  }
+  return requiredString(record(value).login, `${field} user login`);
+}
+
+function requirePositivePullRequestNumber(pullRequestNumber: number): void {
+  if (!Number.isInteger(pullRequestNumber) || pullRequestNumber < 1) {
+    throw new Error("GitHub pull request number must be a positive integer");
+  }
+}
+
+function normalizeReviewState(
+  state: string,
+): PullRequestReviewObservation["state"] {
+  switch (state) {
+    case "APPROVED":
+      return "approved";
+    case "CHANGES_REQUESTED":
+      return "changes_requested";
+    case "PENDING":
+      return "pending";
+    case "DISMISSED":
+      return "dismissed";
+    default:
+      return "commented";
+  }
+}
+
+function normalizeCheckState(
+  status: string,
+  conclusion?: string,
+): PullRequestCheckObservation["state"] {
+  if (status !== "completed") {
+    return status === "in_progress" ? "in_progress" : "queued";
+  }
+  switch (conclusion) {
+    case "success":
+      return "passed";
+    case "cancelled":
+    case "timed_out":
+      return "cancelled";
+    default:
+      return "failed";
+  }
+}
+
+function parseReviewComment(value: unknown): ReviewCommentObservation {
+  const item = record(value);
+  const inReplyToId = item.in_reply_to_id;
+  const line = item.line ?? item.original_line;
+  return {
+    id: String(requiredNumber(item.id, "review comment id")),
+    author: loginFromUser(item.user, "review comment"),
+    inReplyToId:
+      inReplyToId == null
+        ? null
+        : String(requiredNumber(inReplyToId, "in_reply_to_id")),
+    body:
+      typeof item.body === "string"
+        ? item.body
+        : requiredString(item.body, "review comment body"),
+    path:
+      typeof item.path === "string" && item.path.length > 0
+        ? item.path
+        : undefined,
+    line: typeof line === "number" && Number.isFinite(line) ? line : undefined,
+    createdAt: requiredString(item.created_at, "review comment created time"),
+  };
+}
+
+function parseReview(
+  value: unknown,
+  fallbackObservedAt: string,
+): PullRequestReviewObservation {
+  const item = record(value);
+  const submittedAt =
+    (typeof item.submitted_at === "string" && item.submitted_at) ||
+    fallbackObservedAt;
+  return {
+    author: loginFromUser(item.user, "review"),
+    state: normalizeReviewState(
+      requiredString(item.state, "review state").toUpperCase(),
+    ),
+    ...(typeof item.commit_id === "string" && item.commit_id.trim()
+      ? { commitSha: item.commit_id }
+      : {}),
+    ...(typeof item.html_url === "string" && item.html_url
+      ? { htmlUrl: item.html_url }
+      : {}),
+    ...(typeof item.body === "string" ? { body: item.body } : {}),
+    observedAt: submittedAt,
+  };
+}
+
+function parseCheckRun(value: unknown): PullRequestCheckObservation {
+  const item = record(value);
+  const status = requiredString(item.status, "check-run status");
+  const conclusion =
+    item.conclusion === null || item.conclusion === undefined
+      ? undefined
+      : requiredString(item.conclusion, "check-run conclusion");
+  const observedAt =
+    (typeof item.completed_at === "string" && item.completed_at) ||
+    (typeof item.started_at === "string" && item.started_at);
+  if (!observedAt) {
+    throw new Error("GitHub check-run response is missing started_at");
+  }
+  return {
+    name: requiredString(item.name, "check-run name"),
+    state: normalizeCheckState(status, conclusion),
+    observedAt,
+  };
+}
+
 function parseIssue(value: unknown): GitHubIssue | null {
   const item = record(value);
   if (item.pull_request !== undefined) return null;
@@ -182,6 +323,7 @@ function parseIssue(value: unknown): GitHubIssue | null {
     state: requiredString(item.state, "issue state"),
     htmlUrl: requiredString(item.html_url, "issue URL"),
     userLogin: requiredString(user.login, "issue author"),
+    userId: String(requiredNumber(user.id, "issue author id")),
     labels: labels.map((label) =>
       requiredString(record(label).name, "issue label"),
     ),
@@ -276,15 +418,96 @@ export function createGitHubClient(options: GitHubClientOptions) {
       });
     },
 
+    async listPullRequestReviewComments(
+      repository: GitHubRepositoryRef,
+      pullRequestNumber: number,
+    ) {
+      requirePositivePullRequestNumber(pullRequestNumber);
+      const comments = requireArray(
+        await request<unknown>(
+          `${repositoryPath(repository)}/pulls/${pullRequestNumber}/comments?per_page=${pageSize()}`,
+        ),
+        "review comment",
+      ).map(parseReviewComment);
+      return {
+        comments,
+        commentsTruncated: comments.length >= MAX_PAGE_SIZE,
+      };
+    },
+
+    async getPullRequestEvidence(
+      repository: GitHubRepositoryRef,
+      pullRequestNumber: number,
+      headSha: string,
+    ): Promise<GitHubPullRequestEvidence> {
+      requirePositivePullRequestNumber(pullRequestNumber);
+      const sha = headSha.trim();
+      if (!sha) throw new Error("GitHub pull request head SHA is required");
+      const root = repositoryPath(repository);
+      const page = pageSize();
+      const [reviewPayload, commentPayload, checkPayload] = await Promise.all([
+        request<unknown>(
+          `${root}/pulls/${pullRequestNumber}/reviews?per_page=${page}`,
+        ),
+        request<unknown>(
+          `${root}/pulls/${pullRequestNumber}/comments?per_page=${page}`,
+        ),
+        request<unknown>(
+          `${root}/commits/${encodeURIComponent(sha)}/check-runs?per_page=${page}`,
+        ),
+      ]);
+      const observedAt = new Date().toISOString();
+      const comments = requireArray(commentPayload, "review comment").map(
+        parseReviewComment,
+      );
+      const reviews = requireArray(reviewPayload, "review").map((review) =>
+        parseReview(review, observedAt),
+      );
+      const checkBody = record(checkPayload);
+      const checkRuns = requireArray(checkBody.check_runs, "check-run");
+      const totalCount = requiredNumber(
+        checkBody.total_count,
+        "check-run total_count",
+      );
+      if (totalCount > checkRuns.length) {
+        throw new Error(
+          "GitHub check-run page was truncated; cannot treat CI as complete.",
+        );
+      }
+      return {
+        comments,
+        commentsTruncated: comments.length >= MAX_PAGE_SIZE,
+        reviews,
+        checks: checkRuns.map(parseCheckRun),
+      };
+    },
+
+    async listPullRequestChangedFiles(
+      repository: GitHubRepositoryRef,
+      pullRequestNumber: number,
+    ): Promise<readonly string[]> {
+      requirePositivePullRequestNumber(pullRequestNumber);
+      const files = requireArray(
+        await request<unknown>(
+          `${repositoryPath(repository)}/pulls/${pullRequestNumber}/files?per_page=${pageSize()}`,
+        ),
+        "pull request file",
+      );
+      if (files.length >= MAX_PAGE_SIZE) {
+        throw new Error(
+          "GitHub pull-request file page was truncated; cannot treat the diff as complete.",
+        );
+      }
+      return files.map((file) =>
+        requiredString(record(file).filename, "pull request filename"),
+      );
+    },
+
     async getPullRequestSummary(
       repository: GitHubRepositoryRef,
       pullRequestNumber: number,
     ) {
-      if (!Number.isInteger(pullRequestNumber) || pullRequestNumber < 1) {
-        throw new Error(
-          "GitHub pull request number must be a positive integer",
-        );
-      }
+      requirePositivePullRequestNumber(pullRequestNumber);
       const item = record(
         await request<unknown>(
           `${repositoryPath(repository)}/pulls/${pullRequestNumber}`,
@@ -442,6 +665,54 @@ export function createGitHubClient(options: GitHubClientOptions) {
         state: "APPROVED",
         htmlUrl: requiredString(item.html_url, "approval URL"),
       };
+    },
+
+    async createIssue(
+      repository: GitHubRepositoryRef,
+      input: { title: string; body: string },
+    ): Promise<GitHubIssueCreateResult> {
+      const title = input.title.trim();
+      const body = input.body.trim();
+      if (!title) throw new Error("GitHub issue title is required");
+      if (!body) throw new Error("GitHub issue body is required");
+      const item = record(
+        await request<unknown>(`${repositoryPath(repository)}/issues`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: title.slice(0, 256),
+            body: body.slice(0, 65_536),
+          }),
+        }),
+      );
+      return {
+        number: requiredNumber(item.number, "issue number"),
+        htmlUrl: requiredString(item.html_url, "issue URL"),
+      };
+    },
+
+    async addIssueReaction(
+      repository: GitHubRepositoryRef,
+      issueNumber: number,
+      content: string,
+    ): Promise<{ added: boolean; already_present: boolean }> {
+      if (!Number.isInteger(issueNumber) || issueNumber < 1) {
+        throw new Error("GitHub issue number must be a positive integer");
+      }
+      try {
+        await request<unknown>(
+          `${repositoryPath(repository)}/issues/${issueNumber}/reactions`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content }),
+          },
+        );
+        return { added: true, already_present: false };
+      } catch (error) {
+        if (!String(error).includes("HTTP 422")) throw error;
+        return { added: false, already_present: true };
+      }
     },
 
     async createIssueComment(
