@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { Button } from "../ui/button.js";
 import { cn } from "../utils.js";
+import { Starfield } from "./Starfield.js";
 
 export interface MarketingValueProp {
   title: React.ReactNode;
@@ -42,7 +43,7 @@ export function MarketingHome({
   tagline,
   description,
   valueProps = [],
-  background,
+  background = <Starfield />,
   primaryAction,
   secondaryAction,
   auth,

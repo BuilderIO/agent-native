@@ -153,6 +153,9 @@ export default defineAction({
     addGoogleMeet: cliBoolean
       .optional()
       .describe("Generate and attach a Google Meet link to the event"),
+    removeGoogleMeet: cliBoolean
+      .optional()
+      .describe("Remove an attached Google Meet link from the event"),
     addZoom: cliBoolean
       .optional()
       .describe(
@@ -196,6 +199,11 @@ export default defineAction({
     const ownerEmail = requireActionUserEmail();
     if (args.addGoogleMeet && args.addZoom) {
       throw new Error("Choose either Google Meet or Zoom, not both.");
+    }
+    if (args.addGoogleMeet && args.removeGoogleMeet) {
+      throw new Error(
+        "Choose either adding or removing Google Meet, not both.",
+      );
     }
     if (args.attendees !== undefined && args.addAttendees !== undefined) {
       throw new Error("Use either attendees or addAttendees, not both.");
@@ -258,6 +266,7 @@ export default defineAction({
       attendeesToAdd !== undefined ||
       Object.keys(reminderFields).length > 0 ||
       args.addGoogleMeet === true ||
+      args.removeGoogleMeet === true ||
       args.addZoom === true ||
       hasWorkingLocationPatch;
 
@@ -334,6 +343,7 @@ export default defineAction({
         args.reminderMinutes !== undefined ||
         args.reminderMethod !== undefined ||
         args.addGoogleMeet !== undefined ||
+        args.removeGoogleMeet !== undefined ||
         args.addZoom !== undefined ||
         args.recurrence !== undefined ||
         args.attendees !== undefined ||
@@ -625,6 +635,7 @@ export default defineAction({
             ? "all"
             : undefined),
         addGoogleMeet: args.addGoogleMeet,
+        removeGoogleMeet: args.removeGoogleMeet,
         scope: args.scope,
       });
     }
@@ -672,6 +683,7 @@ export default defineAction({
       hangoutLink: result.meetLink,
       meetingLink: zoomMeetingLink,
       conferenceData: result.conferenceData,
+      ...(args.removeGoogleMeet ? { removedGoogleMeet: true } : {}),
       ...returnedPatch,
       ...(guestNotification ? { guestNotification } : {}),
     };

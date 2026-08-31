@@ -791,6 +791,38 @@ export function endsAfterCompletedToolWithoutAssistantFinal(
   return completedToolAfterLastAssistantText;
 }
 
+/**
+ * A model can emit a lead-in before it starts assembling an action input. If
+ * the run ends in that preparation phase, `done` is not a successful turn.
+ */
+export function endsDuringActionPreparation(run: ActiveRun): boolean {
+  let preparingAction = false;
+  for (const { event } of run.events) {
+    if (
+      isPreparingActionActivityEvent(event) ||
+      event.type === "tool_input_start" ||
+      event.type === "tool_input_delta"
+    ) {
+      preparingAction = true;
+      continue;
+    }
+    if (
+      (event.type === "text" && event.text.trim().length > 0) ||
+      event.type === "tool_start" ||
+      event.type === "tool_done" ||
+      event.type === "approval_required" ||
+      event.type === "clear" ||
+      event.type === "error" ||
+      event.type === "missing_api_key" ||
+      event.type === "auto_continue" ||
+      event.type === "loop_limit"
+    ) {
+      preparingAction = false;
+    }
+  }
+  return preparingAction;
+}
+
 function terminalEventForcesErroredStatus(event: AgentChatEvent | null) {
   return event?.type === "error" || event?.type === "missing_api_key";
 }
@@ -2031,21 +2063,22 @@ export function startRun(
               terminalEventForcesErroredStatus(terminalEvent)
             ? "errored"
             : "completed";
-      const shouldAutoContinueAfterCompletedTool =
+      const shouldAutoContinueAfterUnfinishedTurn =
         finalStatus === "completed" &&
-        endsAfterCompletedToolWithoutAssistantFinal(run) &&
+        (endsAfterCompletedToolWithoutAssistantFinal(run) ||
+          endsDuringActionPreparation(run)) &&
         (!terminalEventForCompletion ||
           (terminalEventForCompletion.event.type === "done" &&
             terminalEventForCompletion.event.reason !== "user"));
-      const completedToolContinuationEvent =
-        shouldAutoContinueAfterCompletedTool
+      const unfinishedTurnContinuationEvent =
+        shouldAutoContinueAfterUnfinishedTurn
           ? ({
               type: "auto_continue" as const,
               reason: "stream_ended" as const,
             } satisfies Extract<AgentChatEvent, { type: "auto_continue" }>)
           : null;
-      if (completedToolContinuationEvent) {
-        terminalEvent = completedToolContinuationEvent;
+      if (unfinishedTurnContinuationEvent) {
+        terminalEvent = unfinishedTurnContinuationEvent;
       }
       const terminalReason = terminalReasonForRun(
         finalStatus,
@@ -2083,7 +2116,7 @@ export function startRun(
         // re-stamp the seq at emit time (max-seq+1) just below.
         const terminalEventToEmit: AgentChatEvent =
           finalStatus === "completed"
-            ? (completedToolContinuationEvent ??
+            ? (unfinishedTurnContinuationEvent ??
               terminalEventForCompletion?.event ?? { type: "done" })
             : terminalEventForCompletion?.event.type === "error" ||
                 terminalEventForCompletion?.event.type === "missing_api_key"

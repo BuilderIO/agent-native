@@ -3,7 +3,18 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-08-29
+
+### Improved
+
+- Slides chat can import attached PDF and PPTX files when requested, while ordinary attachments remain reference material.
+- Slides loading states now use an even more subtle whole-surface shine.
+
 ## 2026-08-28
+
+### Improved
+
+- Slides loading placeholders and AI editing previews now use a softer whole-surface shine.
 
 ### Fixed
 

@@ -1480,6 +1480,17 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         chrome: "full",
       },
     );
+    // Regression: the target MCP connection must use the home origin, not
+    // the discovered agent URL, which can be a deep share link
+    // (https://clips.agent-native.com/share/deep-link) that turns "/mcp"
+    // into a query-string suffix and hits Clips' HTML page instead of MCP.
+    expect(mocks.managerConstructor).toHaveBeenCalledWith({
+      servers: {
+        target: expect.objectContaining({
+          url: "https://clips.agent-native.com/mcp",
+        }),
+      },
+    });
     expect(result).toMatchObject({
       app: "clips",
       startUrl:

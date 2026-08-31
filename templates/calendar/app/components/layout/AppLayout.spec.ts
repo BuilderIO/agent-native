@@ -7,6 +7,12 @@ function appLayoutSource(): string {
 }
 
 describe("Calendar app navigation", () => {
+  it("lets the calendar page own the /home toolbar", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain('pathname === "/" || pathname === "/home"');
+  });
+
   it("collapses the native sidebar while the per-app chat is open", () => {
     const source = appLayoutSource();
 

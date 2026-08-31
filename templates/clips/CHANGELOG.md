@@ -3,6 +3,20 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-08-29
+
+### Improved
+
+- Clips loading states now use an even more subtle whole-surface shine.
+
+## 2026-08-28
+
+### Improved
+
+- The Chrome extension download option keeps a concise browser-log explanation and links to setup docs.
+- Clips loading placeholders now use a softer whole-surface shine.
+- The shared comment composer now has a cleaner borderless presentation.
+
 ## 2026-08-26
 
 ### Fixed

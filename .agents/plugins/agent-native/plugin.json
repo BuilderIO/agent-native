@@ -1,0 +1,17 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "agent-native",
+  "version": "1.0.0+codex.2780eb8dd3b5",
+  "description": "Open and operate granted Agent-Native apps through Dispatch MCP, with inline app surfaces and current browser screen state.",
+  "author": { "name": "Agent-Native", "url": "https://agent-native.com" },
+  "homepage": "https://dispatch.agent-native.com",
+  "repository": "https://github.com/BuilderIO/agent-native",
+  "license": "MIT",
+  "keywords": [
+    "agent-native",
+    "agent-native",
+    "mcp",
+    "skills",
+    "app-backed-skill"
+  ]
+}

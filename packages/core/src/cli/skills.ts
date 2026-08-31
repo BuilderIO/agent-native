@@ -42,6 +42,8 @@ import { PR_VISUAL_RECAP_SETUP, writePrVisualRecapWorkflow } from "./recap.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
 import {
   ASSETS_SKILL_MD,
+  AN_COMMAND_MD,
+  AN_SKILL_MD,
   CANVAS_REFERENCE_MD,
   CONNECTION_REFERENCE_MD,
   CONTENT_SKILL_MD,
@@ -76,6 +78,54 @@ export {
 };
 
 export const BUILT_IN_APP_SKILLS = {
+  "agent-native": {
+    skillName: "an",
+    manifest: normalizeAppSkillManifest({
+      schemaVersion: 1,
+      id: "agent-native",
+      displayName: "Agent-Native",
+      description:
+        "Open and operate granted Agent-Native apps through Dispatch MCP, with inline app surfaces and current browser screen state.",
+      hosted: {
+        url: "https://dispatch.agent-native.com",
+        mcpUrl: "https://dispatch.agent-native.com/mcp",
+      },
+      mcp: {
+        serverName: "agent-native-dispatch",
+        aliases: ["dispatch"],
+      },
+      auth: {
+        mode: "oauth",
+        setup:
+          "Authenticate the Dispatch MCP connector in the host app. The app's embedded browser owns the user's sign-in session; no credentials are stored in the skill.",
+      },
+      surfaces: [
+        {
+          id: "agent-native-app",
+          path: "/",
+          description:
+            "Open a granted Agent-Native app or focused app route inline in a compatible MCP host.",
+        },
+      ],
+      skills: [
+        {
+          path: "skills/an",
+          visibility: "exported",
+          exportAs: "an",
+        },
+      ],
+      hostAdapters: [
+        "codex-plugin",
+        "claude-marketplace",
+        "vercel-skills",
+        "plain-skill",
+        "claude-skill",
+        "chatgpt-mcp",
+        "generic-mcp",
+      ],
+    }),
+    skillMarkdown: AN_SKILL_MD,
+  },
   assets: {
     skillName: "assets",
     manifest: normalizeAppSkillManifest({
@@ -410,6 +460,11 @@ type ModeAwareAppSkillId = "visual-plans" | "content";
 export const AGENT_NATIVE_SKILL_METADATA_FILE = "agent-native-skill.json";
 
 const BUILT_IN_APP_SKILL_ALIASES = {
+  an: "agent-native",
+  "agent-native": "agent-native",
+  "agent-native-apps": "agent-native",
+  dispatch: "agent-native",
+  "dispatch-mcp": "agent-native",
   assets: "assets",
   asset: "assets",
   "asset-generation": "assets",
@@ -462,6 +517,7 @@ const BUILT_IN_APP_SKILL_ALIASES = {
 } satisfies Record<string, BuiltInAppSkillId>;
 
 const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
+  "agent-native": ["an", "agent-native-apps", "dispatch", "dispatch-mcp"],
   assets: ["images", "image-generation", "agent-native-images"],
   content: [
     "docs",
@@ -1404,6 +1460,9 @@ function builtInCommandsRootForAgent(
 }
 
 function slashCommandForBuiltInSkill(skillName: string): string | null {
+  if (skillName === "an") {
+    return AN_COMMAND_MD;
+  }
   if (skillName === "visual-plan") {
     return `---
 description: Create an interactive Agent-Native visual plan for the current task.
@@ -2324,6 +2383,11 @@ const DEFAULT_PUBLIC_SKILLS_SOURCE = "BuilderIO/skills";
 const PUBLIC_SKILL_TARGET_PREFIX = "public-skills:";
 
 const BUILT_IN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
+  {
+    value: "an",
+    label: "an",
+    hint: BUILT_IN_APP_SKILLS["agent-native"].manifest.description,
+  },
   {
     value: "visual-plan",
     label: "visual-plan",
@@ -4097,6 +4161,9 @@ function targetsInstallMcp(
 }
 
 function instructionContentForSkill(skillName: string): string | null {
+  if (skillName === "an") {
+    return "When a user invokes /an or asks to open or operate an Agent-Native app, use the /an skill and Dispatch MCP.";
+  }
   if (skillName === "quick-recap") {
     return "When writing final response status indicators, use the /quick-recap skill always.";
   }
