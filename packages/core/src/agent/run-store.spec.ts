@@ -1170,6 +1170,38 @@ describe("run store", () => {
     );
   });
 
+  it("readLedgerEntry filters malformed receipt elements without hiding the completed result", async () => {
+    ledgerRows = [
+      {
+        result_summary: "completed with one valid receipt",
+        artifacts_json: JSON.stringify([
+          null,
+          {},
+          { kind: "image", id: "asset-valid", url: "/asset/asset-valid" },
+        ]),
+      },
+    ];
+
+    await expect(
+      readLedgerEntry("thread-invalid-elements", "write-tool:{}"),
+    ).resolves.toEqual({
+      result: "completed with one valid receipt",
+      artifacts: [
+        { kind: "image", id: "asset-valid", url: "/asset/asset-valid" },
+      ],
+    });
+    expect(mockCaptureError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("contains invalid receipts"),
+      }),
+      expect.objectContaining({
+        tags: expect.objectContaining({
+          operation: "parse-tool-ledger-artifacts",
+        }),
+      }),
+    );
+  });
+
   it("readLedgerEntry preserves a completed result when receipts are undefined", async () => {
     ledgerRows = [{ result_summary: "pre-receipt output" }];
 

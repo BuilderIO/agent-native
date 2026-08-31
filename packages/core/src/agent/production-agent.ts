@@ -2542,6 +2542,7 @@ export interface AgentLoopToolResultSummary {
   name: string;
   content: string;
   isError: boolean;
+  artifacts?: ArtifactReceipt[];
 }
 
 export interface AgentLoopFinalResponseGuardContext {
@@ -5939,11 +5940,16 @@ export async function runAgentLoop(opts: {
         name: toolCall.name,
         input: normalizedToolInput,
       });
-      const recordToolResult = (content: string, isError: boolean) => {
+      const recordToolResult = (
+        content: string,
+        isError: boolean,
+        artifacts?: ArtifactReceipt[],
+      ) => {
         toolResultHistory.push({
           name: toolCall.name,
           content,
           isError,
+          ...(artifacts?.length ? { artifacts } : {}),
         });
       };
       const finalizeToolErrorResult = (rawResult: string): string => {
@@ -6298,8 +6304,11 @@ export async function runAgentLoop(opts: {
             input: toolCall.input as Record<string, unknown>,
             result,
             completedSideEffect: true,
+            ...(journaled.artifacts?.length
+              ? { artifacts: journaled.artifacts }
+              : {}),
           });
-          recordToolResult(result, false);
+          recordToolResult(result, false, journaled.artifacts);
           noteToolCallSucceeded(actionEntry);
           return {
             type: "tool-result" as const,
@@ -6360,7 +6369,7 @@ export async function runAgentLoop(opts: {
                 : {}),
               ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
             });
-            recordToolResult(result, false);
+            recordToolResult(result, false, ledgerResult.artifacts);
             noteToolCallSucceeded(actionEntry);
             return {
               type: "tool-result" as const,
@@ -6898,7 +6907,7 @@ export async function runAgentLoop(opts: {
           ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
           ...(toolArtifacts.length > 0 ? { artifacts: toolArtifacts } : {}),
         });
-        recordToolResult(result, isError);
+        recordToolResult(result, isError, toolArtifacts);
         if (!isError) {
           noteToolCallSucceeded(actionEntry);
           if (cacheKey) {

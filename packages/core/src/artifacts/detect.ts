@@ -18,9 +18,44 @@ export interface ArtifactReceipt {
 type ArtifactKind = ArtifactReceipt["kind"];
 export type ArtifactReferenceKind = Exclude<ArtifactKind, "monitor" | "form">;
 
+const ARTIFACT_KINDS: ReadonlySet<ArtifactKind> = new Set([
+  "document",
+  "deck",
+  "dashboard",
+  "analysis",
+  "image",
+  "design",
+  "monitor",
+  "form",
+]);
+
 export interface ArtifactReference {
   kind: ArtifactReferenceKind;
   id: string;
+}
+
+export function isArtifactReceipt(value: unknown): value is ArtifactReceipt {
+  const candidate = asRecord(value);
+  if (!candidate) return false;
+  if (
+    typeof candidate.kind !== "string" ||
+    !ARTIFACT_KINDS.has(candidate.kind as ArtifactKind) ||
+    typeof candidate.id !== "string" ||
+    !candidate.id.trim()
+  ) {
+    return false;
+  }
+  for (const key of ["url", "title", "runId"] as const) {
+    if (candidate[key] !== undefined && typeof candidate[key] !== "string") {
+      return false;
+    }
+  }
+  return (
+    candidate.fileCount === undefined ||
+    (typeof candidate.fileCount === "number" &&
+      Number.isInteger(candidate.fileCount) &&
+      candidate.fileCount >= 0)
+  );
 }
 
 // This map attributes unreadable truncated results and preserves legacy sparse

@@ -7,7 +7,10 @@ import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   TURN_RUN_LEDGER_SLACK,
 } from "../app-config/run-lifecycle-invariants.js";
-import type { ArtifactReceipt } from "../artifacts/detect.js";
+import {
+  isArtifactReceipt,
+  type ArtifactReceipt,
+} from "../artifacts/detect.js";
 import type { DbExec } from "../db/client.js";
 import { getDbExec, intType, isPostgres } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
@@ -739,8 +742,23 @@ function parseLedgerArtifacts(
   if (artifactsJson === null || artifactsJson === undefined) return [];
   try {
     const parsed: unknown = JSON.parse(artifactsJson);
-    if (Array.isArray(parsed)) return parsed as ArtifactReceipt[];
-    throw new Error("agent_tool_ledger.artifacts_json is not an array");
+    if (!Array.isArray(parsed)) {
+      throw new Error("agent_tool_ledger.artifacts_json is not an array");
+    }
+    const artifacts = parsed.filter(isArtifactReceipt);
+    if (artifacts.length !== parsed.length) {
+      captureError(
+        new Error("agent_tool_ledger.artifacts_json contains invalid receipts"),
+        {
+          tags: {
+            component: "agent-run-store",
+            operation: "parse-tool-ledger-artifacts",
+          },
+          extra: { threadId, toolKey },
+        },
+      );
+    }
+    return artifacts;
   } catch (error) {
     captureError(error, {
       tags: {

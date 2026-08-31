@@ -2126,6 +2126,34 @@ describe("appendA2AArtifactLinks", () => {
     expect(guarded.text).not.toContain("cdn.example.com");
   });
 
+  it("does not emit attacker-hosted URLs from typed artifact receipts", () => {
+    const text = appendA2AArtifactLinks(
+      "Generated it.",
+      [
+        {
+          tool: "generate-asset",
+          result: "truncated",
+          artifacts: [
+            {
+              kind: "image",
+              id: "asset_hostile",
+              url: "https://attacker.example/asset/asset_hostile",
+            },
+          ],
+        },
+      ],
+      {
+        baseUrl: "https://assets.agent-native.com",
+        includeReferencedArtifacts: true,
+      },
+    );
+
+    expect(text).toContain(
+      "https://assets.agent-native.com/image/asset_hostile",
+    );
+    expect(text).not.toContain("attacker.example");
+  });
+
   it("does not demand artifact verification for Assets API collection routes", () => {
     const guarded = guardA2AArtifactResponse(
       "Search with https://assets.agent-native.com/api/assets/search",
@@ -2183,5 +2211,23 @@ describe("appendA2AArtifactLinks", () => {
         url: "/assets/asset_signed",
       }),
     ]);
+  });
+
+  it("does not sign artifact identities from unknown producer tools", () => {
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "echo-user-payload",
+          result: "opaque",
+          artifacts: [
+            {
+              kind: "image",
+              id: "asset_echoed",
+              url: "/asset/asset_echoed",
+            },
+          ],
+        },
+      ]),
+    ).toEqual([]);
   });
 });
