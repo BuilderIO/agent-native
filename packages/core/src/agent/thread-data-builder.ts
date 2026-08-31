@@ -1,4 +1,5 @@
 import type { ActionChatUIConfig } from "../action-ui.js";
+import type { ArtifactReceipt } from "../artifacts/detect.js";
 import {
   formatChatErrorText,
   normalizeChatError,
@@ -30,6 +31,7 @@ interface ContentPart {
   /** Mirrors the client ContentPart marker in client/sse-event-processor.ts. */
   outcome?: "unknown";
   completedSideEffect?: boolean;
+  artifacts?: ArtifactReceipt[];
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   activity?: boolean;
@@ -291,6 +293,7 @@ export function buildAssistantMessage(
         if (event.completedSideEffect !== undefined) {
           part.completedSideEffect = event.completedSideEffect;
         }
+        if (event.artifacts !== undefined) part.artifacts = event.artifacts;
         if (event.mcpApp) part.mcpApp = event.mcpApp;
         if (event.chatUI) part.chatUI = event.chatUI;
       }

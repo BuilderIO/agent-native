@@ -2256,6 +2256,7 @@ export function createAgentChatPlugin(
                     result: event.result,
                     isError: event.isError,
                     completedSideEffect: event.completedSideEffect,
+                    artifacts: event.artifacts,
                   });
                   const artifactBaseUrl = resolveArtifactBaseUrl(context.event);
                   const recoverableArtifactMessage =
@@ -2733,6 +2734,7 @@ export function createAgentChatPlugin(
                       result: event.result,
                       isError: event.isError,
                       completedSideEffect: event.completedSideEffect,
+                      artifacts: event.artifacts,
                     });
                   }
                 },

@@ -7,6 +7,7 @@ import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   TURN_RUN_LEDGER_SLACK,
 } from "../app-config/run-lifecycle-invariants.js";
+import type { ArtifactReceipt } from "../artifacts/detect.js";
 import type { DbExec } from "../db/client.js";
 import { getDbExec, intType, isPostgres } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
@@ -414,6 +415,7 @@ export async function ensureRunTables(): Promise<void> {
           thread_id TEXT NOT NULL,
           tool_key TEXT NOT NULL,
           result_summary TEXT NOT NULL,
+          artifacts_json TEXT,
           completed_at ${intType()} NOT NULL,
           PRIMARY KEY (thread_id, tool_key)
         )
@@ -506,6 +508,11 @@ export async function ensureRunTables(): Promise<void> {
           `ALTER TABLE agent_run_events ADD COLUMN IF NOT EXISTS event_at ${intType()}`,
         );
         await ensureTableExists("agent_tool_ledger", agentToolLedgerCreateSql);
+        await ensureColumnExists(
+          "agent_tool_ledger",
+          "artifacts_json",
+          `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS artifacts_json TEXT`,
+        );
         await ensureTableExists(
           "agent_run_outcome_daily",
           agentRunOutcomeDailyCreateSql,
@@ -612,6 +619,16 @@ export async function ensureRunTables(): Promise<void> {
         // Column already exists — ignore
       }
       await client.execute(agentToolLedgerCreateSql);
+      try {
+        await client.execute(
+          `ALTER TABLE agent_tool_ledger ADD COLUMN artifacts_json TEXT`,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/duplicate column name|column .* already exists/i.test(message)) {
+          throw error;
+        }
+      }
       await client.execute(agentRunOutcomeDailyCreateSql);
       // Widen millisecond-timestamp columns that older deployments created as
       // 32-bit `INTEGER`. `insertRun()` writes `Date.now()` into `started_at`
@@ -661,6 +678,7 @@ export async function writeLedgerEntry(
   threadId: string,
   toolKey: string,
   resultSummary: string,
+  artifacts: ArtifactReceipt[] = [],
 ): Promise<void> {
   try {
     await ensureRunTables();
@@ -671,12 +689,13 @@ export async function writeLedgerEntry(
           `\n...[ledger truncated at ${LEDGER_RESULT_MAX_CHARS} chars]`
         : resultSummary;
     await client.execute({
-      sql: `INSERT INTO agent_tool_ledger (thread_id, tool_key, result_summary, completed_at)
-            VALUES (?, ?, ?, ?)
+      sql: `INSERT INTO agent_tool_ledger (thread_id, tool_key, result_summary, artifacts_json, completed_at)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT (thread_id, tool_key) DO UPDATE SET
               result_summary = excluded.result_summary,
+              artifacts_json = excluded.artifacts_json,
               completed_at = excluded.completed_at`,
-      args: [threadId, toolKey, capped, Date.now()],
+      args: [threadId, toolKey, capped, JSON.stringify(artifacts), Date.now()],
     });
   } catch {
     // Ledger is best-effort; never surface failures to the caller.
@@ -690,19 +709,47 @@ export async function writeLedgerEntry(
 export async function readLedgerEntry(
   threadId: string,
   toolKey: string,
-): Promise<string | null> {
+): Promise<{ result: string; artifacts: ArtifactReceipt[] } | null> {
   try {
     await ensureRunTables();
     const client = getDbExec();
     const { rows } = await client.execute({
-      sql: `SELECT result_summary FROM agent_tool_ledger WHERE thread_id = ? AND tool_key = ?`,
+      sql: `SELECT result_summary, artifacts_json FROM agent_tool_ledger WHERE thread_id = ? AND tool_key = ?`,
       args: [threadId, toolKey],
     });
     if (rows.length === 0) return null;
-    const row = rows[0] as { result_summary: string };
-    return row.result_summary;
+    const row = rows[0] as {
+      result_summary: string;
+      artifacts_json?: string | null;
+    };
+    return {
+      result: row.result_summary,
+      artifacts: parseLedgerArtifacts(row.artifacts_json, threadId, toolKey),
+    };
   } catch {
     return null;
+  }
+}
+
+function parseLedgerArtifacts(
+  artifactsJson: string | null | undefined,
+  threadId: string,
+  toolKey: string,
+): ArtifactReceipt[] {
+  if (artifactsJson === null || artifactsJson === undefined) return [];
+  try {
+    const parsed: unknown = JSON.parse(artifactsJson);
+    if (Array.isArray(parsed)) return parsed as ArtifactReceipt[];
+    throw new Error("agent_tool_ledger.artifacts_json is not an array");
+  } catch (error) {
+    captureError(error, {
+      tags: {
+        component: "agent-run-store",
+        operation: "parse-tool-ledger-artifacts",
+      },
+      extra: { threadId, toolKey },
+    });
+    return [];
   }
 }
 
