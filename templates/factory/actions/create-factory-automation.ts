@@ -34,7 +34,7 @@ const templateSchema = z.enum([
 
 export default defineAction({
   description:
-    "Create one Factory automation for Slack, GitHub, or Sentry. Pass author ids (Slack U/W member ids or GitHub numeric user ids), not names. Include mode requires at least one id. Limits are enforced by poll and list-triage-items, not by prompt text.",
+    "Create one Factory automation for Slack, GitHub, or Sentry. Hosted jobs need a workspace connection granted to Factory or a vault token, plus a Slack channel id, GitHub repository, or Sentry org and project. Pass author ids (Slack U/W member ids or GitHub numeric user ids), not names. Include mode requires at least one id. Limits are enforced by poll and list-triage-items, not by prompt text.",
   schema: z.object({
     factoryId: factoryIdSchema,
     displayName: z.string().trim().min(1).max(120),

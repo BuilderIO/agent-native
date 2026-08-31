@@ -1,9 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import { isLocalDatabase } from "@agent-native/core/db";
 import { getEmailReadiness } from "@agent-native/core/server";
-import { listWorkspaceConnectionsForApp } from "@agent-native/core/workspace-connections";
 import { z } from "zod";
 
+import { resolveFactoryConnectorReadiness } from "../server/connectors/credentials.js";
 import { getDb } from "../server/db/index.js";
 import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
 import {
@@ -24,28 +23,13 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   run: async ({ factoryId }, context) => {
-    const { orgId } = await requireWorkspaceMember(
+    const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
     const emailReadiness = await getEmailReadiness();
-    const localFallback = isLocalDatabase();
-    const [slackConnections, githubConnections, sentryConnections] =
-      await Promise.all([
-        listWorkspaceConnectionsForApp({ appId: "factory", provider: "slack" }),
-        listWorkspaceConnectionsForApp({
-          appId: "factory",
-          provider: "github",
-        }),
-        listWorkspaceConnectionsForApp({
-          appId: "factory",
-          provider: "sentry",
-        }),
-      ]);
-    const connections = {
-      slack: localFallback || slackConnections.length > 0,
-      github: localFallback || githubConnections.length > 0,
-      sentry: localFallback || sentryConnections.length > 0,
-    };
+    const connections = await resolveFactoryConnectorReadiness(userEmail, {
+      orgId,
+    });
     const row = await readTriageConfigRow(getDb(), orgId, factoryId);
     if (!row) {
       return {

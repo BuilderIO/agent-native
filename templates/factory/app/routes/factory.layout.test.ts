@@ -45,6 +45,10 @@ describe("Factory route factory switching", () => {
     expect(source).toContain("automationEditorTitle");
     expect(source).toContain("text-lg font-semibold");
     expect(source).toContain("showSource={false}");
+    expect(source).toContain("connections={configQuery.data?.connections}");
+    expect(source).toContain(
+      "workspaceIntegrationsHref={workspaceIntegrationsHref}",
+    );
     expect(source).toContain("bg-emerald-500");
     expect(source).toContain('title={t("factoryRoute.pastRuns")}');
   });

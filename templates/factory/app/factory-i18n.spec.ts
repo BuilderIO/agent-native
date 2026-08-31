@@ -68,6 +68,9 @@ const requiredKeys = [
   "factoryRoute.createAutomation",
   "factoryRoute.automationInboxLimit",
   "factoryRoute.automationWorkLimit",
+  "factoryRoute.automationMissingSlack",
+  "factoryRoute.automationMissingGithub",
+  "factoryRoute.automationMissingSentry",
 ] as const;
 
 function readKey(source: Record<string, any>, key: string) {

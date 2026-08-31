@@ -384,7 +384,10 @@ const messages = {
     automationConnectGithub: "GitHub कनेक्ट करें",
     automationConnectSentry: "Sentry कनेक्ट करें",
     automationConnectDescription:
-      "इस स्रोत को जोड़ने के लिए वर्कस्पेस इंटीग्रेशन खोलें, फिर यहाँ लौटें।",
+      "Dispatch इंटीग्रेशन में इस स्रोत को जोड़ें, फिर यहाँ लौटें।",
+    automationMissingSlack: "Dispatch में Slack कनेक्ट नहीं है",
+    automationMissingGithub: "Dispatch में GitHub कनेक्ट नहीं है",
+    automationMissingSentry: "Dispatch में Sentry कनेक्ट नहीं है",
     automationAuthors: "लेखक",
     automationAuthorsDescription:
       "वैकल्पिक। नाम नहीं, Slack सदस्य आईडी या GitHub संख्यात्मक यूज़र आईडी से फ़िल्टर करें।",

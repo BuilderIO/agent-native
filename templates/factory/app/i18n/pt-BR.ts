@@ -403,7 +403,10 @@ const messages = {
     automationConnectGithub: "Conectar GitHub",
     automationConnectSentry: "Conectar Sentry",
     automationConnectDescription:
-      "Abra as integrações do workspace para conectar esta origem e volte aqui.",
+      "Conecte esta origem nas integrações do Dispatch e volte aqui.",
+    automationMissingSlack: "Slack não está conectado no Dispatch",
+    automationMissingGithub: "GitHub não está conectado no Dispatch",
+    automationMissingSentry: "Sentry não está conectado no Dispatch",
     automationAuthors: "Autores",
     automationAuthorsDescription:
       "Opcional. Filtre por ids de membro Slack ou ids numéricos do GitHub, não por nomes.",

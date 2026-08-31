@@ -369,7 +369,11 @@ const messages = {
     automationConnectSlack: "連接 Slack",
     automationConnectGithub: "連接 GitHub",
     automationConnectSentry: "連接 Sentry",
-    automationConnectDescription: "開啟工作區整合以連接此來源，然後返回這裡。",
+    automationConnectDescription:
+      "在 Dispatch 整合中連接此來源，然後返回這裡。",
+    automationMissingSlack: "Dispatch 中未連接 Slack",
+    automationMissingGithub: "Dispatch 中未連接 GitHub",
+    automationMissingSentry: "Dispatch 中未連接 Sentry",
     automationAuthors: "作者",
     automationAuthorsDescription:
       "選填。依 Slack 成員 ID 或 GitHub 數字使用者 ID 篩選，不要用名稱。",

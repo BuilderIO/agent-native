@@ -392,7 +392,10 @@ const messages = {
     automationConnectGithub: "GitHub 연결",
     automationConnectSentry: "Sentry 연결",
     automationConnectDescription:
-      "워크스페이스 연동을 열어 이 소스를 연결한 뒤 여기로 돌아오세요.",
+      "Dispatch 연동에서 이 소스를 연결한 뒤 여기로 돌아오세요.",
+    automationMissingSlack: "Dispatch에 Slack이 연결되어 있지 않습니다",
+    automationMissingGithub: "Dispatch에 GitHub이 연결되어 있지 않습니다",
+    automationMissingSentry: "Dispatch에 Sentry가 연결되어 있지 않습니다",
     automationAuthors: "작성자",
     automationAuthorsDescription:
       "선택. 이름이 아니라 Slack 멤버 ID 또는 GitHub 숫자 사용자 ID로 필터합니다.",

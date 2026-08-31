@@ -24,6 +24,7 @@ import { toast } from "sonner";
 
 import { CreateFactoryAutomationView } from "@/components/factory/CreateFactoryAutomationView";
 import {
+  dispatchIntegrationsHref,
   emptyAutomationForm,
   formAuthorFilter,
   formatDailyTime,
@@ -31,6 +32,7 @@ import {
   persistAuthorFilter,
   type AutomationAuthorMode,
   type AutomationSource,
+  type FactoryAutomationConnections,
   type FactoryAutomationFormState,
 } from "@/components/factory/factory-automation-form";
 import { FactoryAgentsView } from "@/components/factory/FactoryAgentsView";
@@ -899,6 +901,13 @@ function AutomationsView({
     { factoryId },
     { refetchInterval: Object.keys(queuedRuns).length > 0 ? 1_000 : false },
   );
+  const configQuery = useActionQuery<{
+    connections?: FactoryAutomationConnections;
+  }>("get-triage-config", { factoryId });
+  const appsQuery = useActionQuery("list-workspace-apps", {
+    includeAgentCards: false,
+  });
+  const workspaceIntegrationsHref = dispatchIntegrationsHref(appsQuery.data);
   const saveMutation = useActionMutation("save-factory-automation");
   const runMutation = useActionMutation<
     RunFactoryAutomationResult,
@@ -1260,6 +1269,8 @@ function AutomationsView({
             <>
               <FactoryAutomationFields
                 form={automationToForm(draft)}
+                connections={configQuery.data?.connections}
+                workspaceIntegrationsHref={workspaceIntegrationsHref}
                 onChange={(next) => {
                   const authors = persistAuthorFilter(
                     next.authorFilter,

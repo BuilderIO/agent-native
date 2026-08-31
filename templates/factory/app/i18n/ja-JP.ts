@@ -397,7 +397,10 @@ const messages = {
     automationConnectGithub: "GitHub を接続",
     automationConnectSentry: "Sentry を接続",
     automationConnectDescription:
-      "ワークスペース連携を開いてこのソースを接続し、ここに戻ってください。",
+      "Dispatch の連携でこのソースを接続してから、ここに戻ってください。",
+    automationMissingSlack: "Dispatch で Slack が未接続です",
+    automationMissingGithub: "Dispatch で GitHub が未接続です",
+    automationMissingSentry: "Dispatch で Sentry が未接続です",
     automationAuthors: "作者",
     automationAuthorsDescription:
       "任意。名前ではなく Slack メンバー ID か GitHub の数値ユーザー ID で絞り込みます。",

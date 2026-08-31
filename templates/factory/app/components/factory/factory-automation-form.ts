@@ -12,6 +12,12 @@ export type AutomationTemplateId =
 
 export const INTERVAL_MINUTES = [5, 10, 15, 30, 60] as const;
 
+export type FactoryAutomationConnections = {
+  slack: boolean;
+  github: boolean;
+  sentry: boolean;
+};
+
 export type FactoryAutomationFormState = {
   displayName: string;
   source: AutomationSource | null;
@@ -106,6 +112,77 @@ export function parseDailyTime(value: string): {
 
 export function formatDailyTime(hour: number, minute: number): string {
   return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+export function isDestinationReady(
+  source: AutomationSource | null,
+  connections?: FactoryAutomationConnections,
+): boolean {
+  if (!source) return false;
+  return connections?.[source] !== false;
+}
+
+export function isDestinationFilled(
+  form: Pick<
+    FactoryAutomationFormState,
+    | "source"
+    | "slackChannelId"
+    | "repository"
+    | "sentryOrgSlug"
+    | "sentryProjectSlug"
+  >,
+): boolean {
+  if (form.source === "slack") return Boolean(form.slackChannelId.trim());
+  if (form.source === "github") return Boolean(form.repository.trim());
+  if (form.source === "sentry") {
+    return (
+      Boolean(form.sentryOrgSlug.trim()) &&
+      Boolean(form.sentryProjectSlug.trim())
+    );
+  }
+  return false;
+}
+
+export function canCreateFactoryAutomation(
+  form: FactoryAutomationFormState,
+  connections?: FactoryAutomationConnections,
+): boolean {
+  if (!form.source || !form.displayName.trim()) return false;
+  if (form.authorFilter === "include" && form.authorIds.length === 0) {
+    return false;
+  }
+  return (
+    isDestinationReady(form.source, connections) && isDestinationFilled(form)
+  );
+}
+
+function stripDispatchLeaf(href: string): string {
+  return href.replace(/\/(?:overview|apps)\/?$/, "");
+}
+
+export function dispatchIntegrationsHref(apps: unknown): string {
+  const list = Array.isArray(apps) ? apps : [];
+  const dispatch = list.find(
+    (entry) =>
+      entry &&
+      typeof entry === "object" &&
+      "isDispatch" in entry &&
+      (entry as { isDispatch?: boolean }).isDispatch === true,
+  ) as { url?: string | null; path?: string } | undefined;
+  const raw = dispatch?.url?.trim() || dispatch?.path?.trim() || "/dispatch";
+  try {
+    const absolute = /^https?:\/\//.test(raw);
+    const url = new URL(raw, "https://workspace.local");
+    const basePath = stripDispatchLeaf(url.pathname).replace(/\/+$/, "");
+    url.pathname = `${basePath || (absolute ? "" : "/dispatch")}/admin/integrations`;
+    url.search = "";
+    url.hash = "";
+    if (absolute) return url.toString();
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    const basePath = stripDispatchLeaf(raw).replace(/\/+$/, "");
+    return `${basePath || "/dispatch"}/admin/integrations`;
+  }
 }
 
 export function timezoneOptions(): string[] {

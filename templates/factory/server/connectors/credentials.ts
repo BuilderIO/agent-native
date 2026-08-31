@@ -224,3 +224,35 @@ export async function resolveConnectorSecret(
 
   return undefined;
 }
+
+const FACTORY_CONNECTOR_KEYS = {
+  slack: ["SLACK_BOT_TOKEN", "SLACK_BOT_TOKEN_2"],
+  github: ["GITHUB_TOKEN"],
+  sentry: ["SENTRY_SERVER_TOKEN", "SENTRY_AUTH_TOKEN"],
+} as const;
+
+/** Presence only — never return the secret value to callers. */
+export async function hasConnectorSecret(
+  keys: string | readonly string[],
+  ownerEmail: string,
+  options: ResolveConnectorSecretOptions = {},
+): Promise<boolean> {
+  const list = typeof keys === "string" ? [keys] : keys;
+  for (const key of list) {
+    const value = await resolveConnectorSecret(key, ownerEmail, options);
+    if (value) return true;
+  }
+  return false;
+}
+
+export async function resolveFactoryConnectorReadiness(
+  ownerEmail: string,
+  options: ResolveConnectorSecretOptions = {},
+): Promise<{ slack: boolean; github: boolean; sentry: boolean }> {
+  const [slack, github, sentry] = await Promise.all([
+    hasConnectorSecret(FACTORY_CONNECTOR_KEYS.slack, ownerEmail, options),
+    hasConnectorSecret(FACTORY_CONNECTOR_KEYS.github, ownerEmail, options),
+    hasConnectorSecret(FACTORY_CONNECTOR_KEYS.sentry, ownerEmail, options),
+  ]);
+  return { slack, github, sentry };
+}

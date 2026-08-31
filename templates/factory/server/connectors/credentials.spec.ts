@@ -30,7 +30,12 @@ vi.mock("../db/index.js", () => ({
   getDb: () => ({ select: mocks.select }),
 }));
 
-import { resolveConnectorSecret } from "./credentials.js";
+import {
+  VaultUnavailableError,
+  hasConnectorSecret,
+  resolveConnectorSecret,
+  resolveFactoryConnectorReadiness,
+} from "./credentials.js";
 
 const HOSTED_RUNTIME_ENV_KEYS = [
   "NETLIFY",
@@ -289,5 +294,82 @@ describe("resolveConnectorSecret", () => {
         orgId: "active-org",
       }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("resolveFactoryConnectorReadiness", () => {
+  const userEmail = "owner@example.com";
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.unstubAllEnvs();
+    stubCleanLocalRuntimeEnv();
+    mocks.readAppSecret.mockResolvedValue(null);
+    mocks.resolveCredential.mockResolvedValue(undefined);
+    mocks.resolveWorkspaceConnectionCredentialForApp.mockResolvedValue({
+      available: false,
+      value: undefined,
+    });
+    mocks.resolveOrgIdForEmail.mockResolvedValue("active-org");
+    mocks.isLocalDatabase.mockReturnValue(false);
+    mocks.select.mockReturnValue({
+      from: () => ({
+        where: async () => [{ orgId: "active-org" }],
+      }),
+    });
+  });
+
+  it("treats a granted workspace connection as ready", async () => {
+    mocks.resolveWorkspaceConnectionCredentialForApp.mockImplementation(
+      async ({ provider }) =>
+        provider === "slack"
+          ? { available: true, value: "xoxb-connected" }
+          : { available: false, value: undefined },
+    );
+
+    await expect(
+      resolveFactoryConnectorReadiness(userEmail, { orgId: "active-org" }),
+    ).resolves.toEqual({ slack: true, github: false, sentry: false });
+  });
+
+  it("falls back to the org vault when no workspace connection exists", async () => {
+    mocks.readAppSecret.mockImplementation(async ({ key, scope, scopeId }) =>
+      key === "SLACK_BOT_TOKEN" && scope === "org" && scopeId === "active-org"
+        ? { value: "xoxb-vault" }
+        : null,
+    );
+
+    await expect(
+      hasConnectorSecret("SLACK_BOT_TOKEN", userEmail, { orgId: "active-org" }),
+    ).resolves.toBe(true);
+    await expect(
+      resolveFactoryConnectorReadiness(userEmail, { orgId: "active-org" }),
+    ).resolves.toEqual({ slack: true, github: false, sentry: false });
+  });
+
+  it("reads local sqlite .env only in pnpm dev", async () => {
+    mocks.isLocalDatabase.mockReturnValue(true);
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("SLACK_BOT_TOKEN", "xoxb-local-token");
+
+    await expect(
+      resolveFactoryConnectorReadiness(userEmail, { orgId: "active-org" }),
+    ).resolves.toEqual({ slack: true, github: false, sentry: false });
+  });
+
+  it("does not treat hosted deployment env as ready", async () => {
+    vi.stubEnv("SLACK_BOT_TOKEN", "xoxb-hosted-token");
+
+    await expect(
+      resolveFactoryConnectorReadiness(userEmail, { orgId: "active-org" }),
+    ).resolves.toEqual({ slack: false, github: false, sentry: false });
+  });
+
+  it("does not coerce a vault outage into disconnected", async () => {
+    mocks.readAppSecret.mockRejectedValue(new Error("vault timeout"));
+
+    await expect(
+      hasConnectorSecret("SLACK_BOT_TOKEN", userEmail, { orgId: "active-org" }),
+    ).rejects.toBeInstanceOf(VaultUnavailableError);
   });
 });

@@ -384,7 +384,10 @@ const messages = {
     automationConnectGithub: "ربط GitHub",
     automationConnectSentry: "ربط Sentry",
     automationConnectDescription:
-      "افتح تكاملات مساحة العمل لربط هذا المصدر ثم عد إلى هنا.",
+      "اربط هذا المصدر في تكاملات Dispatch ثم عد إلى هنا.",
+    automationMissingSlack: "Slack غير متصل في Dispatch",
+    automationMissingGithub: "GitHub غير متصل في Dispatch",
+    automationMissingSentry: "Sentry غير متصل في Dispatch",
     automationAuthors: "المؤلفون",
     automationAuthorsDescription:
       "اختياري. صفِّ حسب معرّفات أعضاء Slack أو معرّفات مستخدمي GitHub الرقمية، لا الأسماء.",
