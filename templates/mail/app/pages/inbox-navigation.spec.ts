@@ -121,6 +121,26 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain("nav.activeAccounts");
   });
 
+  it("keeps saved-filter threads out of a plain inbox route", () => {
+    const source = inboxSource();
+
+    expect(source).toContain(
+      'if (view === "inbox" && !searchQuery && savedFilterQueries.length > 0)',
+    );
+    expect(source).toContain(
+      "const savedFilterThreads = savedFilterThreadIds(",
+    );
+    expect(source).toContain(
+      "return filtered.filter((e) => !savedFilterThreads.has(inboxThreadKey(e)))",
+    );
+  });
+
+  it("keeps ordinary pinned labels mailbox-wide in agent snapshots", () => {
+    const source = viewScreenSource();
+
+    expect(source).toContain("isInboxScopedAppLabel(label)");
+  });
+
   it("filters full Gmail threads before collapsing the agent snapshot", () => {
     const source = viewScreenSource();
 

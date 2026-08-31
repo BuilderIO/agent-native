@@ -30,6 +30,7 @@ import {
   augmentSelfSentLabels,
   filterInboxTabEmails,
   inboxThreadKey,
+  savedFilterThreadIds,
 } from "@/lib/inbox-tabs";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn } from "@/lib/utils";
@@ -511,6 +512,13 @@ export function InboxPage() {
           .map(([threadId]) => threadId),
       );
       return filtered.filter((e) => qualifiedThreadIds.has(inboxThreadKey(e)));
+    }
+    if (view === "inbox" && !searchQuery && savedFilterQueries.length > 0) {
+      const savedFilterThreads = savedFilterThreadIds(
+        filtered,
+        savedFilterQueries,
+      );
+      return filtered.filter((e) => !savedFilterThreads.has(inboxThreadKey(e)));
     }
     return filtered;
   }, [

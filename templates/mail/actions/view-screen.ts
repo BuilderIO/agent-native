@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getSetting } from "@agent-native/core/settings";
+import { isInboxScopedAppLabel } from "@shared/gmail-labels.js";
 import { emailMessageMatchesSearch } from "@shared/search.js";
 import { z } from "zod";
 
@@ -104,7 +105,9 @@ async function fetchEmailList(
       effectiveView === "inbox" && !effectiveSearch
         ? activeInboxTab === OTHER_INBOX_TAB_PARAM
           ? null
-          : label && triageLabels.includes(label)
+          : label &&
+              triageLabels.includes(label) &&
+              isInboxScopedAppLabel(label)
             ? label
             : undefined
         : undefined;
