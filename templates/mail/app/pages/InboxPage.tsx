@@ -403,7 +403,11 @@ export function InboxPage() {
   const effectiveLabel = clientSliceTab
     ? undefined
     : (activeLabel ?? undefined);
-  const emailView = mailboxWideLabelTab ? "all" : view;
+  const emailView = activeSavedFilter
+    ? "all"
+    : mailboxWideLabelTab
+      ? "all"
+      : view;
   const {
     data: rawEmails,
     isLoading,

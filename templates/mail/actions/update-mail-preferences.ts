@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import {
   mergePinnedLabels,
+  mergeSavedFilters,
   mergeSettings,
   normalizeMailSettings,
 } from "../server/lib/mail-settings.js";
@@ -21,6 +22,11 @@ const mobileActionId = z.enum([
   "prev",
   "next",
 ]);
+const savedFilterSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  name: z.string().trim().min(1).max(80),
+  query: z.string().trim().min(1).max(500),
+});
 
 const patchSchema = z.object({
   name: z.string().optional(),
@@ -35,16 +41,8 @@ const patchSchema = z.object({
   undoSendDelay: z.coerce.number().optional(),
   pinnedLabels: z.array(z.string()).optional(),
   pinnedLabelsBase: z.array(z.string()).optional(),
-  savedFilters: z
-    .array(
-      z.object({
-        id: z.string().trim().min(1).max(80),
-        name: z.string().trim().min(1).max(80),
-        query: z.string().trim().min(1).max(500),
-      }),
-    )
-    .max(20)
-    .optional(),
+  savedFilters: z.array(savedFilterSchema).max(20).optional(),
+  savedFiltersBase: z.array(savedFilterSchema).max(20).optional(),
   labelAliases: z.record(z.string(), z.string()).optional(),
   imagePolicy: z.enum(["show", "block-trackers", "block-all"]).optional(),
   trustedSenders: z.array(z.string()).optional(),
@@ -68,7 +66,8 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("Unauthorized");
 
-    const { requestSource, pinnedLabelsBase, ...patch } = args;
+    const { requestSource, pinnedLabelsBase, savedFiltersBase, ...patch } =
+      args;
     const updated = await mutateUserSetting(
       ownerEmail,
       "mail-settings",
@@ -80,6 +79,13 @@ export default defineAction({
             base.pinnedLabels,
             patch.pinnedLabels,
             pinnedLabelsBase,
+          );
+        }
+        if ("savedFilters" in patch) {
+          next.savedFilters = mergeSavedFilters(
+            base.savedFilters,
+            patch.savedFilters,
+            savedFiltersBase,
           );
         }
         return next as unknown as Record<string, unknown>;

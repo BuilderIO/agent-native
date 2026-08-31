@@ -34,6 +34,40 @@ export function mergeSettings(
   };
 }
 
+export function mergeSavedFilters(
+  current: readonly SavedMailFilter[] | undefined,
+  next: readonly SavedMailFilter[] | undefined,
+  base?: readonly SavedMailFilter[],
+): SavedMailFilter[] | undefined {
+  if (next === undefined) return current ? [...current] : undefined;
+  if (base === undefined) return [...next].slice(0, 20);
+
+  const baseById = new Map(base.map((filter) => [filter.id, filter]));
+  const nextById = new Map(next.map((filter) => [filter.id, filter]));
+  const result = (current ?? [])
+    .filter((filter) => !baseById.has(filter.id) || nextById.has(filter.id))
+    .map((filter) => ({ ...filter }));
+  const sameFilter = (left: SavedMailFilter, right: SavedMailFilter) =>
+    left.id === right.id &&
+    left.name === right.name &&
+    left.query === right.query;
+
+  for (const filter of next) {
+    const baseFilter = baseById.get(filter.id);
+    const currentIndex = result.findIndex((item) => item.id === filter.id);
+    if (!baseFilter) {
+      if (currentIndex === -1) result.push({ ...filter });
+      continue;
+    }
+    if (!sameFilter(baseFilter, filter)) {
+      if (currentIndex === -1) result.push({ ...filter });
+      else result[currentIndex] = { ...filter };
+    }
+  }
+
+  return result.slice(0, 20);
+}
+
 export function mergePinnedLabels(
   current: readonly string[] | undefined,
   next: readonly string[] | undefined,

@@ -53,12 +53,16 @@ async function fetchEmailList(
   _label?: string,
   activeInboxTab?: string,
   activeAccounts?: string[],
+  isSavedFilter = false,
 ): Promise<any[]> {
   try {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
+    const effectiveView = isSavedFilter ? "all" : view;
     const shouldFilterOther =
-      view === "inbox" && !search && activeInboxTab === OTHER_INBOX_TAB_PARAM;
+      effectiveView === "inbox" &&
+      !search &&
+      activeInboxTab === OTHER_INBOX_TAB_PARAM;
     const selectedAccountEmails = Array.isArray(activeAccounts)
       ? [
           ...new Set(
@@ -78,8 +82,8 @@ async function fetchEmailList(
       );
     };
 
-    if (view === "snoozed" || view === "scheduled") {
-      let emails = await getSyntheticEmailsForView(ownerEmail, view);
+    if (effectiveView === "snoozed" || effectiveView === "scheduled") {
+      let emails = await getSyntheticEmailsForView(ownerEmail, effectiveView);
       if (search) {
         emails = emails.filter((e: any) =>
           emailMessageMatchesSearch(e, search),
@@ -123,9 +127,12 @@ async function fetchEmailList(
         }),
       );
 
-      const gmailQuery = buildGmailEmailSearchQuery({ view, q: search });
+      const gmailQuery = buildGmailEmailSearchQuery({
+        view: effectiveView,
+        q: search,
+      });
       const effectiveQuery =
-        view === "all" && !search ? "" : gmailQuery || "in:inbox";
+        effectiveView === "all" && !search ? "" : gmailQuery || "in:inbox";
       const { messages } = await listGmailMessages(
         effectiveQuery,
         50,
@@ -140,7 +147,7 @@ async function fetchEmailList(
               : undefined,
           threadCandidateLimit: search ? 500 : undefined,
           threadRecentMessageCandidateLimit:
-            !search && (view === "inbox" || view === "unread")
+            !search && (effectiveView === "inbox" || effectiveView === "unread")
               ? DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT
               : undefined,
         },
@@ -159,7 +166,7 @@ async function fetchEmailList(
     const data = await getSetting("local-emails");
     if (data && Array.isArray((data as any).emails)) {
       let emails = (data as any).emails;
-      switch (view) {
+      switch (effectiveView) {
         case "inbox":
           emails = emails.filter(
             (e: any) =>
@@ -322,6 +329,7 @@ export default defineAction({
         nav.label,
         nav.activeInboxTab,
         nav.activeAccounts,
+        Boolean(nav.filter),
       );
       const selectedThreadIds = Array.isArray(nav.selectedThreadIds)
         ? new Set(

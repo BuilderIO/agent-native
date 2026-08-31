@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { mergePinnedLabels, normalizeMailSettings } from "./mail-settings.js";
+import {
+  mergePinnedLabels,
+  mergeSavedFilters,
+  normalizeMailSettings,
+} from "./mail-settings.js";
 
 describe("mergePinnedLabels", () => {
   it("keeps concurrent additions while preserving an existing pin", () => {
@@ -77,5 +81,33 @@ describe("normalizeMailSettings", () => {
     expect(settings.savedFilters).toEqual([
       { id: "github", name: "Github", query: "from:github.com" },
     ]);
+  });
+});
+
+describe("mergeSavedFilters", () => {
+  const filter = (id: string) => ({
+    id,
+    name: id,
+    query: `subject:${id}`,
+  });
+
+  it("keeps concurrent additions while applying a local removal", () => {
+    expect(
+      mergeSavedFilters(
+        [filter("one"), filter("two"), filter("three")],
+        [filter("one"), filter("three")],
+        [filter("one"), filter("two")],
+      ),
+    ).toEqual([filter("one"), filter("three")]);
+  });
+
+  it("does not overwrite a concurrent filter addition", () => {
+    expect(
+      mergeSavedFilters(
+        [filter("one"), filter("remote")],
+        [filter("one"), filter("local")],
+        [filter("one")],
+      ),
+    ).toEqual([filter("one"), filter("remote"), filter("local")]);
   });
 });

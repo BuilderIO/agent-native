@@ -401,7 +401,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const {
     data: activeFilterEmails = [],
     totalEstimate: activeFilterTotalEstimate,
-  } = useEmails("inbox", activeSavedFilter?.query, undefined, {
+    hasNextPage: activeFilterHasNextPage,
+  } = useEmails("all", activeSavedFilter?.query, undefined, {
     enabled: Boolean(activeSavedFilter),
   });
   const {
@@ -608,9 +609,16 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         typeof activeFilterTotalEstimate === "number"
           ? activeFilterTotalEstimate
           : threadUnread.size,
-      unread: [...threadUnread.values()].filter(Boolean).length,
+      unread: activeFilterHasNextPage
+        ? undefined
+        : [...threadUnread.values()].filter(Boolean).length,
     };
-  }, [activeAccounts, activeFilterEmails, activeFilterTotalEstimate]);
+  }, [
+    activeAccounts,
+    activeFilterEmails,
+    activeFilterHasNextPage,
+    activeFilterTotalEstimate,
+  ]);
 
   // Tabs to show in the bar: pinned triage filters first, then the inbox
   // remainder as "Other". Without pinned filters, the inbox is just "Inbox".
@@ -645,9 +653,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     }
 
     const seenLabels = new Set<string>(["inbox"]);
-    const savedFilterNames = new Set(
-      savedFilters.map((filter) => filter.name.trim().toLowerCase()),
-    );
     for (const id of pinnedLabels) {
       // Check if it's a system view
       const sysView = collapsibleViews.find((v) => v.id === id);
@@ -681,7 +686,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         const rawName = shortLabelName(lbl.name);
         const aliasedName = labelAliases[lbl.id] || labelAliases[id] || rawName;
         const displayKey = aliasedName.toLowerCase();
-        if (savedFilterNames.has(displayKey)) continue;
         if (seenLabels.has(displayKey)) continue;
         seenLabels.add(displayKey);
         tabs.push({

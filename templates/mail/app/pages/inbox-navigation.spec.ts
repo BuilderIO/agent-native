@@ -58,7 +58,7 @@ describe("Inbox navigation commands", () => {
 
     expect(source).toContain("const mailboxWideLabelTab =");
     expect(source).toContain(
-      'const emailView = mailboxWideLabelTab ? "all" : view;',
+      'const emailView = activeSavedFilter\n    ? "all"',
     );
     expect(source).toContain(
       "useEmails(emailView, searchQuery, effectiveLabel)",
@@ -93,6 +93,7 @@ describe("Inbox navigation commands", () => {
       "activeInboxTab: nav.activeInboxTab ?? null",
     );
     expect(viewScreenSource()).toContain("filter: nav.filter ?? null");
+    expect(viewScreenSource()).toContain("Boolean(nav.filter)");
   });
 
   it("filters the view-screen snapshot to the active Other partition", () => {

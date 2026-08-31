@@ -57,6 +57,10 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain("savedFilters.length >= 20");
     expect(source).toContain("filtersLimitReached");
     expect(source).toContain("activeAccounts.size > 0");
+    expect(source).toContain(
+      'useEmails("all", activeSavedFilter?.query, undefined,',
+    );
+    expect(source).toContain("activeFilterHasNextPage");
   });
 
   it("does not show a false count for an inactive saved filter", () => {
