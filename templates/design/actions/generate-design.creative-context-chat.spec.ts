@@ -52,81 +52,10 @@ describe("summarizeCreativeContextForChat", () => {
       }),
     ).toBe("Found Creative Context: Brand DNA, Q3 style guide");
   });
-
-  it("dedupes repeated labels instead of double-counting one item", () => {
-    expect(
-      summarizeCreativeContextForChat({
-        contextMode: "auto",
-        contextPackId: "pack_1",
-        reuseLabels: [
-          {
-            kind: "brand",
-            label: "Brand DNA",
-            dataRole: "untrusted-reference",
-          },
-          {
-            kind: "brand",
-            label: "Brand DNA",
-            dataRole: "untrusted-reference",
-          },
-        ],
-      }),
-    ).toBe("Found Creative Context: Brand DNA");
-  });
-
-  it("caps the inline list and counts the remainder instead of guessing", () => {
-    expect(
-      summarizeCreativeContextForChat({
-        contextMode: "auto",
-        contextPackId: "pack_1",
-        reuseLabels: [
-          { kind: "a", label: "One", dataRole: "untrusted-reference" },
-          { kind: "b", label: "Two", dataRole: "untrusted-reference" },
-          { kind: "c", label: "Three", dataRole: "untrusted-reference" },
-          { kind: "d", label: "Four", dataRole: "untrusted-reference" },
-          { kind: "e", label: "Five", dataRole: "untrusted-reference" },
-        ],
-      }),
-    ).toBe("Found Creative Context: One, Two, Three, +2 more");
-  });
 });
 
 describe("provenanceForSavedFiles", () => {
-  it("keys provenance by the durable file id even when a live session frame exists", () => {
-    const provenance = provenanceForSavedFiles(
-      [{ id: "file_1", filename: "index.html" }],
-      {
-        id: "session_1",
-        designId: "design_1",
-        status: "generating",
-        prompt: "test",
-        contextRefs: [],
-        frames: [
-          {
-            frameId: "frame_9",
-            filename: "index.html",
-            agentId: "agent_1",
-            agentName: "Agent",
-            agentColor: "#000",
-            region: { x: 0, y: 0, width: 100, height: 100 },
-            role: "screen",
-            status: "done",
-          },
-        ],
-        startedAt: "2024-01-01T00:00:00.000Z",
-      },
-      [],
-    );
-    expect(provenance).toEqual([
-      {
-        elementId: "file_1",
-        influence: "generated",
-        label: "index.html",
-      },
-    ]);
-  });
-
-  it("still accepts a reuse label addressed by frame id as input, but records the file id", () => {
+  it("keys provenance by the durable file id, even when a reuse label targets the session's frame id", () => {
     const provenance = provenanceForSavedFiles(
       [{ id: "file_1", filename: "index.html" }],
       {

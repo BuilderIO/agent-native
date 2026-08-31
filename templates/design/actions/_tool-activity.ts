@@ -6,13 +6,8 @@ function canEmitToolActivity(
   return context?.caller === "tool" && typeof context.send === "function";
 }
 
-/**
- * Emit one activity line into the live chat transcript, e.g. announcing the
- * start or result of a discrete sub-step (a Creative Context lookup) rather
- * than a long-running operation's periodic "still working" ping. A no-op
- * outside the agent tool loop (no `context`, or a non-"tool" caller such as
- * `frontend`/`http`), matching the assets template's `withToolActivity` gate.
- */
+// No-op outside the agent tool loop (no `context`, or a non-"tool" caller
+// such as `frontend`/`http`), matching the assets template's gate.
 export function sendToolActivity(
   context: ActionRunContext | undefined,
   label: string,

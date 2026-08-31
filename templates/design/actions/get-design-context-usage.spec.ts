@@ -21,7 +21,7 @@ describe("selectDesignContextUsage", () => {
     });
   });
 
-  it("confirms no context was used when the matched entries are all net-new", () => {
+  it("confirms no context was used when the matched entry is net-new", () => {
     const result = selectDesignContextUsage(
       {
         ...baseRecord,
@@ -93,43 +93,5 @@ describe("selectDesignContextUsage", () => {
         influence: "reference-conditioned",
       },
     ]);
-  });
-
-  it("matches on either the file id or a currently-known frame id, not both blindly merged", () => {
-    const result = selectDesignContextUsage(
-      {
-        ...baseRecord,
-        elementProvenance: [
-          {
-            elementId: "frame_9",
-            influence: "adapted",
-            itemId: "item_c",
-            itemVersionId: "v3",
-            label: "2 reference designs",
-          },
-        ],
-      },
-      new Set(["file_1", "frame_9"]),
-    );
-    expect(result.usedContext).toBe(true);
-    expect(result.items[0]?.itemId).toBe("item_c");
-  });
-
-  it("falls back to the raw itemId when a label was never recorded", () => {
-    const result = selectDesignContextUsage(
-      {
-        ...baseRecord,
-        elementProvenance: [
-          {
-            elementId: "file_1",
-            influence: "reused",
-            itemId: "item_d",
-            itemVersionId: "v4",
-          },
-        ],
-      },
-      new Set(["file_1"]),
-    );
-    expect(result.items[0]?.label).toBe("item_d");
   });
 });

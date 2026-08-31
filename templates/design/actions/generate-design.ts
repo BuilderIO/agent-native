@@ -317,12 +317,8 @@ async function resolveDesignCreativeContext(input: {
   };
 }
 
-/**
- * Chat-facing summary of resolveDesignCreativeContext's outcome — the same
- * provenance recorded to the generation record below, not a second guess at
- * what the lookup found. Returns null when there is nothing worth announcing
- * (e.g. a repeat call with no new information).
- */
+// Mirrors the same provenance recorded to the generation record below, so
+// chat never reports a different answer than what actually gets persisted.
 export function summarizeCreativeContextForChat(
   provenance: DesignCreativeContextProvenance,
 ): string {
@@ -356,14 +352,9 @@ export function provenanceForSavedFiles(
     const frame = generationSession?.frames.find(
       (candidate) => candidate.filename === file.filename,
     );
-    // Always key provenance by the durable design_files.id, matching
-    // edit-design.ts's identical elementProvenance construction — a frame id
-    // only exists for the lifetime of the in-flight generation session's
-    // application-state record, so keying by it here would make every
-    // recorded entry unrecoverable the moment that session is replaced by
-    // the next generation. Input reuseLabels may still address a screen by
-    // its frame id below; that is just an accepted alternate identifier for
-    // matching input, not what gets persisted.
+    // Key by the durable design_files.id, not the frame id: a frame id only
+    // lives as long as the current generation session, so persisting it would
+    // make this entry unrecoverable once that session is replaced.
     const elementId = file.id;
     const labels = reuseLabels.filter(
       (label) =>

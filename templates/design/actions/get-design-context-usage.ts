@@ -31,13 +31,8 @@ export interface DesignContextUsageResult {
   items: DesignContextUsageItem[];
 }
 
-/**
- * Element ids that could identify `fileId` in a recorded generation's
- * elementProvenance: the file id itself, plus the frameId a still-live
- * generation session assigned it (see provenanceForSavedFiles in
- * generate-design.ts). A session that has since moved on to a new prompt no
- * longer carries the old frameId mapping — a known gap, not a guess.
- */
+// Older records may key an entry by a session's ephemeral frameId instead
+// of the durable file id, so match on both.
 function candidateElementIds(
   fileId: string,
   filename: string,
@@ -60,14 +55,9 @@ export function selectDesignContextUsage(
   const matches = record.elementProvenance.filter((entry) =>
     elementIds.has(entry.elementId),
   );
-  // generate-design.ts always writes at least one entry per saved file (a
-  // "generated" placeholder when nothing else matched), so zero matches here
-  // means this specific file has no tracked entry in the design's latest
-  // merged record at all — e.g. it was generated under a different
-  // contextMode/contextPackId than the one currently recorded, which resets
-  // the merge chain and drops earlier files' entries (see
-  // finalizeGenerationForSavedFiles). That is a genuinely unknown state, not
-  // a confirmed "no context used" — the two must stay distinguishable.
+  // No tracked entry for this file is an unknown state (e.g. it was
+  // generated under a merge chain that has since been reset), not a
+  // confirmed "no context used" — the two must stay distinguishable.
   if (matches.length === 0) {
     return { available: false, usedContext: false, items: [] };
   }
@@ -126,18 +116,12 @@ export default defineAction({
       .limit(1);
     if (!file) return { available: false, usedContext: false, items: [] };
 
-    // This lookup is now only a legacy fallback: provenance recorded before
-    // generate-design.ts started keying every entry by the durable file id
-    // instead of an ephemeral frame id. Losing it degrades to
-    // `available: false` (unknown) below, never a false "confirmed no
-    // context used".
+    // Legacy fallback for records keyed by frame id; a missed match here
+    // only degrades to `available: false`, never a false negative.
     const rawSession = (await readAppState(
       designGenerationSessionKey(designId),
-      // coercion-ok: readAppState throws when there is no authenticated
-      // session (e.g. a signed-out visitor on a public design, which
-      // assertAccess above legitimately allows), not only on a real read
-      // failure — the same expected case generate-design.ts's identical read
-      // already swallows.
+      // coercion-ok: readAppState throws for a signed-out visitor on a public
+      // design, which assertAccess above legitimately allows.
     ).catch(() => null)) as DesignGenerationSession | null;
     const session = rawSession?.designId === designId ? rawSession : null;
 
