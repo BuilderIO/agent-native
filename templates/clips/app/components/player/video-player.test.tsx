@@ -191,6 +191,7 @@ describe("VideoPlayer playback", () => {
     });
 
     const controls = getPlayerControls();
+    expect(controls.className).toContain("z-10");
     expect(controls.className).toContain("opacity-100");
     expect(controls.className).not.toContain("pointer-events-none");
   });
