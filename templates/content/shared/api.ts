@@ -52,7 +52,7 @@ export interface Document {
 
 export interface DocumentSourceInfo {
   mode: "database" | "local-files";
-  kind?: "file" | "folder" | string;
+  kind?: "file" | "folder" | (string & {});
   path?: string;
   absolutePath?: string;
   rootName?: string;
@@ -214,6 +214,8 @@ export interface DocumentProperty {
 export interface DocumentPropertiesResponse {
   documentId: string;
   databaseId: string | null;
+  canEditValues?: boolean;
+  canManageSchema?: boolean;
   properties: DocumentProperty[];
 }
 
@@ -273,7 +275,7 @@ export interface ContentDatabase {
 export type ContentDatabaseSortDirection = "asc" | "desc";
 
 export interface ContentDatabaseSort {
-  key: "name" | string;
+  key: "name" | (string & {});
   label: string;
   direction: ContentDatabaseSortDirection;
 }
@@ -293,7 +295,7 @@ export type ContentDatabaseFilterOperator =
   | "is_not_empty";
 
 export interface ContentDatabaseFilter {
-  key: "name" | string;
+  key: "name" | (string & {});
   label: string;
   operator: ContentDatabaseFilterOperator;
   value: string;
@@ -423,10 +425,10 @@ export interface UpdateContentDatabasePersonalViewRequest {
 }
 
 export interface ContentDatabaseMembership {
-  databaseId: string;
-  databaseDocumentId: string;
-  databaseTitle: string;
-  position: number;
+  databaseId: string | null;
+  databaseDocumentId: string | null;
+  databaseTitle: string | null;
+  position: number | null;
   sourceId?: string | null;
   bodyHydration?: ContentDatabaseBodyHydration;
 }
@@ -801,7 +803,7 @@ export interface ContentDatabaseSource {
     writeMode?: ContentDatabaseSourceWriteMode;
     allowPublicationTransitions?: boolean;
     notes?: string | null;
-    readMode?: "fixture" | "builder-api" | string | null;
+    readMode?: "fixture" | "builder-api" | (string & {}) | null;
     connectionId?: string | null;
     connectionLabel?: string | null;
     truthPolicy?: ContentDatabaseSourceTruthPolicy;

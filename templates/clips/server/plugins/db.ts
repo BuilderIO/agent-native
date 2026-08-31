@@ -1159,6 +1159,11 @@ export const migrations = runMigrations(
       name: "recording-media-updated-at",
       sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS media_updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
     },
+    {
+      version: 66,
+      name: "recording-comment-mentions",
+      sql: `ALTER TABLE recording_comments ADD COLUMN IF NOT EXISTS mentions_json TEXT`,
+    },
   ],
   { table: "clips_migrations" },
 );

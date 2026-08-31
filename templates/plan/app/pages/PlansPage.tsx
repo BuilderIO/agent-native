@@ -5,7 +5,7 @@ import {
   useAgentEngineConfigured,
   type AgentSidebarStateChangeDetail,
 } from "@agent-native/core/client/agent-chat";
-import { track } from "@agent-native/core/client/analytics";
+import { track, trackEvent } from "@agent-native/core/client/analytics";
 import { appPath, agentNativePath } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
@@ -2256,6 +2256,15 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   );
   const planQuery = usePlan(localPlanMode ? undefined : selectedId);
   const bundle = localPlanMode ? localPlanData : planQuery.data;
+  useEffect(() => {
+    if (!bundle) return;
+    trackEvent("app.first_action", {
+      action: "plan_viewed",
+      surface: "plan_reader",
+      resource_type: "plan",
+      resource_id: bundle.plan.id,
+    });
+  }, [bundle?.plan.id]);
   const localPlanBundle =
     localPlanMode && bundle && "localOnly" in bundle
       ? (bundle as LocalPlanBundle)
@@ -3069,7 +3078,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     (cta: string) => {
       if (!isLoggedOutPublicPlanView) return;
       try {
-        void track("share_cta_click", {
+        void trackEvent("share_cta_click", {
           surface: PLAN_SHARE_SURFACE,
           plan_id: selectedId ?? "",
           cta,
@@ -3096,7 +3105,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     if (shareViewFiredRef.current) return;
     shareViewFiredRef.current = true;
     try {
-      void track("share_view", {
+      void trackEvent("share_view", {
         surface: PLAN_SHARE_SURFACE,
         plan_id: selectedId ?? "",
         ref: shareAttribution.ref,
@@ -7401,11 +7410,11 @@ function PlanSkillDemoVideo({ demo }: { demo: PlanSkillDemo }) {
         />
         <div
           aria-hidden
-          className={`pointer-events-none absolute inset-0 bg-muted transition-opacity duration-300 ${
+          className={`skeleton-shimmer pointer-events-none absolute inset-0 bg-muted transition-opacity duration-300 ${
             isLoaded ? "opacity-0" : "opacity-100"
           }`}
         >
-          <div className="flex size-full animate-pulse flex-col justify-between p-4">
+          <div className="flex size-full flex-col justify-between p-4">
             <div className="space-y-2">
               <div className="h-3 w-1/3 rounded-full bg-border" />
               <div className="h-2.5 w-2/3 rounded-full bg-border/80" />

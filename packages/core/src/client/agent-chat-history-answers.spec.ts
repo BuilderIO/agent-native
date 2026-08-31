@@ -37,6 +37,14 @@ function question(text: string): GuidedQuestion {
   return { id: "q1", type: "text-options", question: text };
 }
 
+describe("appendAgentChatContextToMessage", () => {
+  it("preserves the visible message while appending hidden context", () => {
+    expect(
+      appendAgentChatContextToMessage("  Make this deck  ", "Hidden context"),
+    ).toBe("  Make this deck  \n\n<context>\nHidden context\n</context>");
+  });
+});
+
 /** The assistant turn `ask-question` produces: one tool call, no prose. */
 function askTurn(id: string, text: string) {
   return {

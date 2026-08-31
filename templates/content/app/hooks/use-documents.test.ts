@@ -886,6 +886,8 @@ describe("seedDatabaseItemDocumentCaches", () => {
     ).toEqual({
       documentId: "row-page",
       databaseId: "database",
+      canEditValues: false,
+      canManageSchema: false,
       properties: item.properties,
     });
   });
@@ -993,6 +995,8 @@ describe("seedDatabaseItemDocumentCaches", () => {
     ).toEqual({
       documentId: "row-page",
       databaseId: "database",
+      canEditValues: false,
+      canManageSchema: false,
       properties: [],
     });
   });
@@ -1041,6 +1045,8 @@ describe("seedDatabaseItemDocumentCaches", () => {
     ).toEqual({
       documentId: "row-page",
       databaseId: "database",
+      canEditValues: false,
+      canManageSchema: false,
       properties: [],
     });
   });

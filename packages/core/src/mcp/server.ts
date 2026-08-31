@@ -7,10 +7,12 @@ import {
   getRequestHeader,
 } from "h3";
 
+import { getAppConfig } from "../app-config/store.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import { isLoopbackRequest } from "../server/auth.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { readBody } from "../server/h3-helpers.js";
+import { trackMcpInitialize } from "./analytics.js";
 import {
   createMCPServerForRequest,
   verifyAuth,
@@ -95,6 +97,7 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
     origin,
     ...(basePath ? { basePath } : {}),
     target,
+    transport: "http",
     clientName,
     clientHint,
     ...(fullCatalog ? { fullCatalog } : {}),
@@ -310,24 +313,36 @@ export async function handleMcpRequest(
   // consumes the request stream a second time.
   const body = method === "POST" ? await readBody(event) : undefined;
 
+  // The handshake is the only message that carries the client's own name and
+  // version, and the stateless mount builds a fresh server per request — so
+  // `$mcp_initialize` is emitted here rather than from a handler, and the
+  // catalog/call events fall back to the per-request `_meta` and user agent.
+  const initializeRequest = body
+    ? (Array.isArray(body) ? body : [body]).find(
+        (
+          m,
+        ): m is {
+          params?: {
+            capabilities?: unknown;
+            clientInfo?: { name?: unknown; version?: unknown };
+            protocolVersion?: unknown;
+          };
+        } =>
+          typeof m === "object" &&
+          m !== null &&
+          (m as { method?: unknown }).method === "initialize",
+      )
+    : undefined;
+
   // Optional diagnostics for host capability negotiation. Keep disabled by
   // default because initialize payloads can include client-specific metadata.
-  if (process.env.MCP_DEBUG_INIT && body) {
-    const msgs = Array.isArray(body) ? body : [body];
-    const init = msgs.find(
-      (m): m is { params?: { capabilities?: unknown; clientInfo?: unknown } } =>
-        typeof m === "object" &&
-        m !== null &&
-        (m as { method?: unknown }).method === "initialize",
+  if (getAppConfig().observability.mcpDebugInitialize && initializeRequest) {
+    console.error(
+      "[MCP_DEBUG_INIT] clientInfo=",
+      JSON.stringify(initializeRequest.params?.clientInfo),
+      "capabilities=",
+      JSON.stringify(initializeRequest.params?.capabilities),
     );
-    if (init) {
-      console.error(
-        "[MCP_DEBUG_INIT] clientInfo=",
-        JSON.stringify(init.params?.clientInfo),
-        "capabilities=",
-        JSON.stringify(init.params?.capabilities),
-      );
-    }
   }
 
   const serverRequestMeta: MCPRequestMeta = {
@@ -342,6 +357,30 @@ export async function handleMcpRequest(
     // "full" JWT claim), bypass the connector-catalog tier filter.
     ...(authResult.fullCatalog === true ? { fullCatalog: true } : {}),
   };
+  if (initializeRequest) {
+    const clientInfo = initializeRequest.params?.clientInfo;
+    const protocolVersion = initializeRequest.params?.protocolVersion;
+    trackMcpInitialize({
+      source: "http",
+      serverName: config.name,
+      serverVersion: config.version ?? "1.0.0",
+      ...(config.appId ? { appId: config.appId } : {}),
+      ...(typeof clientInfo?.name === "string"
+        ? { clientName: clientInfo.name }
+        : {}),
+      ...(typeof clientInfo?.version === "string"
+        ? { clientVersion: clientInfo.version }
+        : {}),
+      ...(requestMeta.clientName
+        ? { clientUserAgent: requestMeta.clientName }
+        : {}),
+      ...(typeof protocolVersion === "string" ? { protocolVersion } : {}),
+      ...(authResult.identity?.userEmail
+        ? { userId: authResult.identity.userEmail }
+        : {}),
+    });
+  }
+
   const { createMcpHandler } = await import("@modelcontextprotocol/server");
   const handler = createMcpHandler(
     () =>

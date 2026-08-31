@@ -81,7 +81,7 @@ function listTasksOptimisticLifecycle(queryClient: QueryClient) {
       );
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: LIST_TASKS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: LIST_TASKS_QUERY_KEY });
     },
   };
 }
@@ -273,7 +273,7 @@ export function useReorderTasks() {
   const queryClient = useQueryClient();
   return useActionMutation("reorder-tasks", {
     onSettled: () => {
-      invalidateTasks(queryClient);
+      void invalidateTasks(queryClient);
     },
   });
 }

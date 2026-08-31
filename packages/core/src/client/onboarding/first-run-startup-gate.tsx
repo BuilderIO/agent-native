@@ -10,6 +10,7 @@ import React, {
 import { DefaultSpinner } from "../DefaultSpinner.js";
 import { isFirstRunOnboardingEnabled } from "./first-run-enabled.js";
 import { fetchFirstRunOnboardingStatus } from "./first-run-status.js";
+import { trackOnboardingEvent } from "./use-onboarding.js";
 import { useOnboardingPreviewMode } from "./use-preview-mode.js";
 
 const FirstRunOnboarding = lazy(() =>
@@ -45,6 +46,7 @@ export function FirstRunOnboardingStartupGate({
 
     let cancelled = false;
     const handleFirstRunCompleted = () => {
+      trackOnboardingEvent("onboarding_app_entered", { flow: "first_run" });
       cancelled = true;
       setDecision("ineligible");
     };
@@ -72,11 +74,17 @@ export function FirstRunOnboardingStartupGate({
 
   const ownsSurface = decision === "eligible";
   const hideApp = decision !== "ineligible";
-  const app = hideApp ? (
+  // Keep the app at one React tree position while the async eligibility check
+  // settles. Switching between a wrapper and a bare child remounts stateful
+  // app chrome; a consumed one-shot URL preference then cannot be restored.
+  const app = shouldResolve ? (
     <div
-      aria-hidden="true"
-      data-first-run-app-hidden="true"
-      style={{ display: "contents", visibility: "hidden" }}
+      aria-hidden={hideApp ? "true" : undefined}
+      data-first-run-app-hidden={hideApp ? "true" : undefined}
+      style={{
+        display: "contents",
+        ...(hideApp ? { visibility: "hidden" } : {}),
+      }}
     >
       {children}
     </div>

@@ -205,6 +205,12 @@ const messages = {
       successMessage: "Mensaje de éxito",
       defaultSuccessMessage: "Gracias! Tu respuesta se ha registrado.",
       redirectUrl: "URL de redirección (opcional)",
+      completionMode: "Después del envío",
+      completionMessage: "Mostrar mensaje hasta actualizar",
+      completionRedirect: "Redirigir a una URL",
+      completionMessageThenRefresh: "Mostrar mensaje y después actualizar",
+      completionRefresh: "Actualizar con un formulario nuevo",
+      completionRefreshSeconds: "Actualizar después de (segundos)",
       anonymousResponses: "Respuestas anónimas",
       anonymousResponsesDescription:
         "No conservar direcciones IP, identidad del remitente ni metadatos de origen.",

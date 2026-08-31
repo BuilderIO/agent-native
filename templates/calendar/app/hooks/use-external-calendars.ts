@@ -33,10 +33,12 @@ export function useAddExternalCalendar() {
           (old) => (old ? [...old, created] : [created]),
         );
       }
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-external-calendars"],
       });
-      queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-events"],
+      });
     },
   });
 }
@@ -68,7 +70,9 @@ export function useUpdateExternalCalendarColor() {
         ["action", "list-external-calendars", undefined],
         data,
       );
-      queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-events"],
+      });
     },
   });
 }
@@ -129,7 +133,7 @@ export function useRemoveExternalCalendar() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-external-calendars"],
       });
     },

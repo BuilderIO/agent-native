@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  isLocalDatabase: vi.fn(() => false),
+  getDatabaseUrl: vi.fn(() => "postgres://db.example/app"),
+  getAppConfig: vi.fn(() => ({
+    migration: { deployContext: undefined as string | undefined },
+  })),
   runMigrations: vi.fn(() => vi.fn(async () => {})),
   runBetterAuthMigrations: vi.fn(async () => {}),
   runAutomationRunMigrations: vi.fn(async () => {}),
@@ -39,6 +44,13 @@ vi.mock("../agent/observational-memory/migrations.js", () => ({
 vi.mock("../agent/tool-approval-migrations.js", () => ({
   AGENT_TOOL_APPROVAL_MIGRATIONS: mocks.agentToolApprovalMigrations,
   AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE: "_agent_tool_approval_migrations",
+}));
+vi.mock("../app-config/index.js", () => ({
+  getAppConfig: mocks.getAppConfig,
+}));
+vi.mock("../db/client.js", () => ({
+  isLocalDatabase: mocks.isLocalDatabase,
+  getDatabaseUrl: mocks.getDatabaseUrl,
 }));
 vi.mock("../db/migrations.js", () => ({
   runMigrations: mocks.runMigrations,
@@ -79,6 +91,13 @@ import { runFrameworkReleaseMigrations } from "./release-migrations.js";
 describe("runFrameworkReleaseMigrations", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // clearAllMocks() resets calls but keeps implementations, so restore the
+    // healthy defaults or one test's masked url leaks into the next.
+    mocks.getAppConfig.mockReturnValue({
+      migration: { deployContext: undefined },
+    });
+    mocks.isLocalDatabase.mockReturnValue(false);
+    mocks.getDatabaseUrl.mockReturnValue("postgres://db.example/app");
     mocks.order.length = 0;
     mocks.runFrameworkSchemaEnsures.mockImplementation(async () => {
       mocks.order.push("schema-ensures");
@@ -133,5 +152,59 @@ describe("runFrameworkReleaseMigrations", () => {
         "_usage_alert_migrations",
       ]),
     );
+  });
+
+  // CRM published green for weeks while its release migrations were applied to
+  // a throwaway SQLite file in the build container, so its `jwks`/`user` tables
+  // never existed on the database the deployed functions use.
+  it("fails a production release migration that resolved to a local database", async () => {
+    mocks.getAppConfig.mockReturnValue({
+      migration: { deployContext: "production" },
+    });
+    mocks.isLocalDatabase.mockReturnValue(true);
+
+    await expect(runFrameworkReleaseMigrations(null)).rejects.toThrow(
+      /unusable database/,
+    );
+    expect(mocks.runFrameworkSchemaEnsures).not.toHaveBeenCalled();
+    expect(mocks.runBetterAuthMigrations).not.toHaveBeenCalled();
+  });
+
+  // The beta lane runs release migrations under a branch-deploy context against
+  // masked site secrets; its databases are migrated by their production twin.
+  it("allows a local database on a beta branch-deploy build", async () => {
+    mocks.getAppConfig.mockReturnValue({
+      migration: { deployContext: "branch-deploy" },
+    });
+    mocks.isLocalDatabase.mockReturnValue(true);
+
+    await expect(runFrameworkReleaseMigrations(null)).resolves.toBeUndefined();
+    expect(mocks.runBetterAuthMigrations).toHaveBeenCalled();
+  });
+
+  // Netlify hands the CLI a masked secret outside its own build infra. That is
+  // neither empty nor a file: URL, so isLocalDatabase() calls it "not local"
+  // while it is unconnectable — factory published green off exactly this.
+  it("fails when the production database url is a masked secret", async () => {
+    mocks.getAppConfig.mockReturnValue({
+      migration: { deployContext: "production" },
+    });
+    mocks.isLocalDatabase.mockReturnValue(false);
+    mocks.getDatabaseUrl.mockReturnValue("****************uire");
+
+    await expect(runFrameworkReleaseMigrations(null)).rejects.toThrow(
+      /masked secret/,
+    );
+    expect(mocks.runBetterAuthMigrations).not.toHaveBeenCalled();
+  });
+
+  it("allows a production release migration against a remote database", async () => {
+    mocks.getAppConfig.mockReturnValue({
+      migration: { deployContext: "production" },
+    });
+    mocks.isLocalDatabase.mockReturnValue(false);
+
+    await expect(runFrameworkReleaseMigrations(null)).resolves.toBeUndefined();
+    expect(mocks.runBetterAuthMigrations).toHaveBeenCalled();
   });
 });

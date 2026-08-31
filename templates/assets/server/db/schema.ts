@@ -70,6 +70,31 @@ export const assetGenerationPresets = table("image_generation_presets", {
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
+// Generation presets are retained as a legacy migration source. New reads and
+// writes use templates so a reusable recipe can exist without a Brand Kit.
+export const assetTemplates = table("asset_templates", {
+  id: text("id").primaryKey(),
+  libraryId: text("library_id"),
+  collectionId: text("collection_id"),
+  title: text("title").notNull(),
+  description: text("description"),
+  category: text("category").notNull().default("style-only"),
+  mediaType: text("media_type").notNull().default("image"),
+  promptTemplate: text("prompt_template"),
+  aspectRatio: text("aspect_ratio").notNull().default("16:9"),
+  imageSize: text("image_size").notNull().default("2K"),
+  model: text("model").notNull().default("gemini-3.1-flash-image"),
+  textPolicy: text("text_policy").notNull().default(""),
+  referencePolicy: text("reference_policy").notNull().default("auto"),
+  settings: text("settings").notNull().default("{}"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+  ...ownableColumns(),
+});
+
+export const assetTemplateShares = createSharesTable("asset_template_shares");
+
 export const assetGenerationSessions = table("image_generation_sessions", {
   id: text("id").primaryKey(),
   libraryId: text("library_id").notNull(),

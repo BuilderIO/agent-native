@@ -318,7 +318,7 @@ export function useComposeState() {
       // Auto-save to persistent drafts if there's any content
       if (draft && hasDraftContent(draft)) {
         void saveDraftToEmailsBestEffort(draft).then((draftId) => {
-          if (draftId) qc.invalidateQueries({ queryKey: ["emails"] });
+          if (draftId) void qc.invalidateQueries({ queryKey: ["emails"] });
         });
       }
 
@@ -357,10 +357,10 @@ export function useComposeState() {
 
       // Delete the Gmail draft if one was auto-saved
       if (draft?.savedDraftId) {
-        fetch(appApiPath(`/api/emails/draft/${draft.savedDraftId}`), {
+        void fetch(appApiPath(`/api/emails/draft/${draft.savedDraftId}`), {
           method: "DELETE",
         }).then(() => {
-          qc.invalidateQueries({ queryKey: ["emails"] });
+          void qc.invalidateQueries({ queryKey: ["emails"] });
         });
       }
 
@@ -389,7 +389,7 @@ export function useComposeState() {
     for (const draft of currentDrafts) {
       if (hasDraftContent(draft)) {
         void saveDraftToEmailsBestEffort(draft).then((draftId) => {
-          if (draftId) qc.invalidateQueries({ queryKey: ["emails"] });
+          if (draftId) void qc.invalidateQueries({ queryKey: ["emails"] });
         });
       }
     }

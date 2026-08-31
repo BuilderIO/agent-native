@@ -108,6 +108,7 @@ export default function SettingsIndexRoute() {
   const connectRequestedRef = useRef(false);
   const builderConnect = useBuilderConnectFlow({
     popupUrl: builderStatus.status?.connectUrl,
+    provisionAccount: true,
     trackingSource: "clips_settings",
     trackingFlow: "clips_setup",
     onConnected: async () => {
@@ -134,7 +135,7 @@ export default function SettingsIndexRoute() {
     useState<ClipsDefaultVisibility>(DEFAULT_CLIPS_RECORDING_VISIBILITY);
   useEffect(() => {
     let cancelled = false;
-    loadSettings().then((v) => {
+    void loadSettings().then((v) => {
       if (cancelled) return;
       setDefaultSpeed(v.defaultPlaybackSpeed ?? "1.2");
       setEmailNotifications(v.emailNotifications ?? true);
@@ -166,6 +167,7 @@ export default function SettingsIndexRoute() {
       connecting: builderConnect.connecting,
       orgName: builderConnect.orgName ?? builderStatus.status?.orgName ?? null,
       start: startBuilderConnect,
+      connectFlow: builderConnect,
     }),
     [builderConnect, builderStatus, startBuilderConnect, storageStatus],
   );

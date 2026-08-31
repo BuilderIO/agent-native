@@ -103,6 +103,8 @@ export interface PtyServerOptions {
   port?: number;
   /** Auth check for WebSocket upgrade requests. Return false to reject. */
   authCheck?: (req: IncomingMessage) => boolean | Promise<boolean>;
+  /** Trusted host arguments appended to each validated CLI command. */
+  getCommandArgs?: (command: string) => string[] | Promise<string[]>;
   /** Log prefix for console output. Defaults to '[terminal]' */
   logPrefix?: string;
 }
@@ -124,6 +126,7 @@ export async function createPtyWebSocketServer(
     command: defaultCommand = "claude",
     port = 0,
     authCheck,
+    getCommandArgs,
     logPrefix = "[terminal]",
   } = options;
 
@@ -231,14 +234,29 @@ export async function createPtyWebSocketServer(
       }
     }
 
+    let commandArgs: string[] = [];
+    try {
+      if (getCommandArgs) commandArgs = await getCommandArgs(command);
+    } catch (error) {
+      sendStatus(
+        "failed",
+        error instanceof Error
+          ? error.message
+          : "The terminal command could not be configured.",
+      );
+      if (ws.readyState === WebSocket.OPEN) ws.close();
+      return;
+    }
+
     // Build the command — use npx if CLI not found locally
     const baseCommand = useNpx
       ? `npx --yes ${CLI_REGISTRY[command].installPackage}`
       : command;
-    const fullCommand = extraFlags
-      ? `${baseCommand} ${extraFlags}`
-      : baseCommand;
-    console.log(`${logPrefix} Spawning PTY: ${fullCommand}`);
+    const generatedFlags = commandArgs.map(shellQuote).join(" ");
+    const fullCommand = [baseCommand, generatedFlags, extraFlags]
+      .filter(Boolean)
+      .join(" ");
+    console.log(`${logPrefix} Spawning PTY for ${command}`);
 
     // Build env, stripping CLI-specific nesting vars
     const registry = CLI_REGISTRY[command];
@@ -263,7 +281,7 @@ export async function createPtyWebSocketServer(
       console.error(`${logPrefix} Failed to spawn PTY:`, err);
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(
-          `\r\n\x1b[31m${logPrefix} Failed to spawn PTY: ${err}\x1b[0m\r\n`,
+          `\r\n\x1b[31m${logPrefix} Failed to spawn PTY: ${err instanceof Error ? err.message : String(err)}\x1b[0m\r\n`,
         );
         ws.close();
       }
@@ -356,7 +374,7 @@ export async function createPtyWebSocketServer(
         `${logPrefix} WebSocket closed, killing PTY tree (pid: ${ptyProcess.pid})`,
       );
       activePtys.delete(ptyProcess);
-      killProcessTree(ptyProcess.pid, logPrefix);
+      void killProcessTree(ptyProcess.pid, logPrefix);
     });
   });
 
@@ -377,7 +395,7 @@ export async function createPtyWebSocketServer(
         port: actualPort,
         close: () => {
           for (const p of activePtys) {
-            killProcessTree(p.pid, logPrefix);
+            void killProcessTree(p.pid, logPrefix);
           }
           activePtys.clear();
           wss.close();
@@ -386,4 +404,8 @@ export async function createPtyWebSocketServer(
       });
     });
   });
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }

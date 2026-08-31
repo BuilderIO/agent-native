@@ -31,6 +31,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   prepareInlineSourceEdit,
   writeInlineSourceFile,
@@ -353,20 +354,24 @@ export default defineAction({
           "Required when currentContent is supplied.",
       ),
   }),
-  run: async ({
-    designId,
-    fileId: fileIdInput,
-    timelineId,
-    sourceRef,
-    tracks,
-    durationMs,
-    playbackMode,
-    defaultEase,
-    includeContent,
-    currentContent: currentContentInput,
-    revision,
-  }) => {
+  run: async (
+    {
+      designId,
+      fileId: fileIdInput,
+      timelineId,
+      sourceRef,
+      tracks,
+      durationMs,
+      playbackMode,
+      defaultEase,
+      includeContent,
+      currentContent: currentContentInput,
+      revision,
+    },
+    context,
+  ) => {
     const access = await assertAccess("design", designId, "editor");
+    await snapshotDesignBeforeAgentEdit(designId, context);
 
     const db = getDb();
     const now = new Date().toISOString();

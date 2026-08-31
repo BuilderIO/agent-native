@@ -656,10 +656,10 @@ export function runRedo({
   let prunedRedoHistory = 0;
   const redoContent = (scope: "any" | "local" | "global" = "any") => {
     if (scope !== "global" && um?.canRedo()) {
-      const beforeRedoContent = ydoc?.getText("content").toString();
+      const beforeRedoContent = ydoc?.getText("content").toJSON();
       um.redo();
       if (ydoc && activeFile) {
-        const next = ydoc.getText("content").toString();
+        const next = ydoc.getText("content").toJSON();
         markPendingLocalFileContent(activeFile.id, next, activeFile.updatedAt);
         lastLocalContentRef.current = next;
         queueFileContentSave(activeFile.id, next, {
@@ -953,7 +953,7 @@ export function runRedo({
           }
           fileHistoryMutationPendingRef.current = false;
           syncUndoRedoState();
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
         },

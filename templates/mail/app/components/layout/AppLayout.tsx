@@ -88,6 +88,7 @@ import {
   OTHER_INBOX_TAB_ID,
   OTHER_INBOX_TAB_PARAM,
   qualifiesForInboxTab,
+  resolvePinnedLabels,
   pinnedTriageLabels,
   augmentSelfSentLabels,
 } from "@/lib/inbox-tabs";
@@ -271,7 +272,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     if (!next.has(COMPOSE_FULLSCREEN_PARAM)) return;
     next.delete(COMPOSE_FULLSCREEN_PARAM);
     const search = next.toString();
-    navigate(
+    void navigate(
       {
         pathname: location.pathname,
         search: search ? `?${search}` : "",
@@ -317,15 +318,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     }
     prevSearchQueryRef.current = activeSearchQuery;
   }, [activeSearchQuery]);
-  const {
-    data: labelsData,
-    isLoading: labelsLoading,
-    isError: labelsError,
-    error: labelsQueryError,
-    isFetching: labelsFetching,
-    refetch: refetchLabels,
-  } = useLabels();
-  const labels = labelsData ?? EMPTY_LABELS;
   const { data: settings, isLoading: settingsLoading } = useSettings();
   const updateSettings = useUpdateSettings();
   const googleStatus = useGoogleAuthStatus();
@@ -362,6 +354,15 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       );
     }
   }, [activeAccounts]);
+  const {
+    data: labelsData,
+    isLoading: labelsLoading,
+    isError: labelsError,
+    error: labelsQueryError,
+    isFetching: labelsFetching,
+    refetch: refetchLabels,
+  } = useLabels(activeAccounts.size > 0 ? [...activeAccounts] : undefined);
+  const labels = labelsData ?? EMPTY_LABELS;
   const [tabSettingsOpen, setTabSettingsOpen] = useState(false);
   const [labelSearch, setLabelSearch] = useState("");
   // Spin the refresh icon only when the user clicked the button — background
@@ -374,11 +375,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     () => new Set(accounts.map((a) => a.email.toLowerCase())),
     [accounts],
   );
-  // Important is always on and always first when Google is connected
-  const userPinnedLabels = settings?.pinnedLabels ?? [];
-  const pinnedLabels = isGoogleConnected
-    ? ["important", ...userPinnedLabels.filter((id) => id !== "important")]
-    : userPinnedLabels;
+  // Keep the pinned label order exactly as stored so the settings checkbox can
+  // actually turn Important off.
+  const userPinnedLabels = settings?.pinnedLabels;
+  const pinnedLabels = useMemo(
+    () => resolvePinnedLabels(userPinnedLabels, isGoogleConnected),
+    [isGoogleConnected, userPinnedLabels],
+  );
   const hasNoteToSelf = pinnedLabels.includes("note-to-self");
   const labelAliases = settings?.labelAliases ?? {};
   const {
@@ -775,9 +778,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         }
       } catch {}
     };
-    fetchNav();
+    void fetchNav();
     // Re-check when palette opens
-    if (paletteOpen) fetchNav();
+    if (paletteOpen) void fetchNav();
   }, [threadId, paletteOpen]);
 
   const targetEmail = useMemo(() => {
@@ -844,13 +847,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   const togglePinned = useCallback(
     (id: string) => {
-      const current = settings?.pinnedLabels ?? [];
+      const current = pinnedLabels;
       const next = current.includes(id)
         ? current.filter((x) => x !== id)
         : [...current, id];
       updateSettings.mutate({ pinnedLabels: next });
     },
-    [settings?.pinnedLabels, updateSettings],
+    [pinnedLabels, updateSettings],
   );
 
   // Drag-to-reorder tab handlers
@@ -879,7 +882,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   const handleTabDrop = useCallback(() => {
     if (!dragPinnedId || !dropIndicator) return;
-    const current = settings?.pinnedLabels ?? [];
+    const current = pinnedLabels;
     if (!current.includes(dragPinnedId)) return;
 
     const targetTab = visibleTabs[dropIndicator.tabIndex];
@@ -888,9 +891,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     const without = current.filter((id) => id !== dragPinnedId);
     let insertAt: number;
 
-    if (targetTab.pinnedId === "important") {
-      insertAt = 0;
-    } else if (!targetTab.pinnedId) {
+    if (!targetTab.pinnedId) {
       insertAt = without.length;
     } else {
       const targetIdx = without.indexOf(targetTab.pinnedId);
@@ -905,13 +906,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     updateSettings.mutate({ pinnedLabels: without });
     setDragPinnedId(null);
     setDropIndicator(null);
-  }, [
-    dragPinnedId,
-    dropIndicator,
-    settings?.pinnedLabels,
-    visibleTabs,
-    updateSettings,
-  ]);
+  }, [dragPinnedId, dropIndicator, pinnedLabels, visibleTabs, updateSettings]);
 
   const handleTabDragEnd = useCallback(() => {
     setDragPinnedId(null);
@@ -927,7 +922,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       const nextIdx =
         (activeIdx === -1 ? 0 : activeIdx + delta + visibleTabs.length) %
         visibleTabs.length;
-      navigate(visibleTabs[nextIdx].href);
+      void navigate(visibleTabs[nextIdx].href);
     },
     [visibleTabs, navigate],
   );
@@ -1007,7 +1002,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         setSearchFocused(false);
         (document.getElementById("mail-search") as HTMLInputElement)?.blur();
         if (activeSearchQuery) {
-          navigate(restorePreSearchPath());
+          void navigate(restorePreSearchPath());
         }
       },
     },
@@ -1026,9 +1021,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     {
       keys: ["g", "i"],
       handler: () => {
-        navigate("/inbox");
-        qc.invalidateQueries({ queryKey: ["emails"] });
-        qc.invalidateQueries({ queryKey: ["labels"] });
+        void navigate("/inbox");
+        void qc.invalidateQueries({ queryKey: ["emails"] });
+        void qc.invalidateQueries({ queryKey: ["labels"] });
       },
     },
     { keys: ["g", "s"], handler: () => navigate("/starred") },
@@ -1054,14 +1049,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     );
   };
 
-  const useServerLabelCounts = activeAccounts.size === 0;
-
-  // Gmail totals overlap across labels, while these tabs are an exclusive
-  // partition of the loaded inbox. Keep their badges tied to that partition.
+  // Gmail category tabs partition the inbox; regular labels span the mailbox.
+  // Keep only the former tied to the loaded inbox partition.
   const inboxPartitionTabIds = new Set<string>([OTHER_INBOX_TAB_ID]);
   for (const pinnedId of pinnedTriageLabels(pinnedLabels)) {
-    inboxPartitionTabIds.add(pinnedId);
     const label = resolveLabelForCount(pinnedId);
+    if (!isInboxScopedAppLabel(label?.id ?? pinnedId)) continue;
+    inboxPartitionTabIds.add(pinnedId);
     if (label) inboxPartitionTabIds.add(label.id);
   }
 
@@ -1080,9 +1074,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     const localCounts = localCountsForKind(kind);
     const serverCount = inboxLabel?.[countField];
     const localCount = localCounts["__inboxTotal"] ?? 0;
-    return typeof serverCount === "number" && useServerLabelCounts
-      ? serverCount
-      : localCount;
+    return typeof serverCount === "number" ? serverCount : localCount;
   };
 
   const getOtherCount = (kind: CountKind) => {
@@ -1106,9 +1098,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       localCounts[viewId] ?? (label ? (localCounts[label.id] ?? 0) : 0);
     if (inboxPartitionTabIds.has(viewId)) return localCount;
     const serverCount = label?.[countField];
-    return typeof serverCount === "number" && useServerLabelCounts
-      ? serverCount
-      : localCount;
+    return typeof serverCount === "number" ? serverCount : localCount;
   };
   const getTopBarCount = (viewId: string) => getTabCount(viewId, "total");
   const getUnreadCount = (viewId: string) => getTabCount(viewId, "unread");
@@ -1214,8 +1204,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   const tabIndex = visibleIndex >= 0 ? visibleIndex : idx;
                   const count = getTopBarCount(tab.id);
                   const isDragging = dragPinnedId === tab.pinnedId;
-                  const canDrag =
-                    !!tab.pinnedId && tab.pinnedId !== "important";
+                  const canDrag = !!tab.pinnedId;
                   const showLeft =
                     dropIndicator?.tabIndex === tabIndex &&
                     dropIndicator.side === "left";
@@ -1366,7 +1355,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 setSearchFocused(false);
                 setSearchQuery("");
                 if (activeSearchQuery) {
-                  navigate(restorePreSearchPath());
+                  void navigate(restorePreSearchPath());
                 }
               }}
             />
@@ -1406,8 +1395,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   if (inboxIsFetching) return;
                   setIsManuallyRefreshing(true);
                   markExternalEmailRefresh();
-                  qc.invalidateQueries({ queryKey: ["emails"] });
-                  qc.invalidateQueries({ queryKey: ["labels"] });
+                  void qc.invalidateQueries({ queryKey: ["emails"] });
+                  void qc.invalidateQueries({ queryKey: ["labels"] });
                   window.setTimeout(() => setIsManuallyRefreshing(false), 800);
                 }}
                 disabled={inboxIsFetching}
@@ -1832,7 +1821,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   </div>
 
                   <div className="shrink-0">
-                    <div className="px-3 py-2">
+                    <div className="px-3 py-2 empty:hidden">
                       <OrgSwitcher />
                     </div>
 
@@ -1968,7 +1957,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     label: "DELETE DRAFT",
                     onClick: () => {
                       if (snapshot.savedDraftId) {
-                        fetch(
+                        void fetch(
                           appApiPath(`/api/emails/${snapshot.savedDraftId}`),
                           {
                             method: "DELETE",
@@ -2003,7 +1992,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     onClick: () => {
                       for (const snap of snapshots) {
                         if (snap.savedDraftId) {
-                          fetch(
+                          void fetch(
                             appApiPath(`/api/emails/${snap.savedDraftId}`),
                             {
                               method: "DELETE",
@@ -2262,7 +2251,7 @@ function StandardLayout({ children }: AppLayoutProps) {
           </div>
 
           <div className="shrink-0">
-            <div className="px-3 py-2">
+            <div className="px-3 py-2 empty:hidden">
               <OrgSwitcher />
             </div>
 
@@ -2377,7 +2366,7 @@ function TabSettingsPopover({
     : systemViews;
 
   // Split labels into Gmail categories and regular user labels
-  // "important" is excluded — it's always on and not toggleable
+  // Keep Important with regular labels so it can be toggled like any other tab.
   const gmailCategoryIds = new Set([
     "note-to-self",
     "promotions",

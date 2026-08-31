@@ -15,7 +15,7 @@ import {
   setFrameworkSessionCookie,
 } from "@agent-native/core/server";
 import { createClient } from "@supabase/supabase-js";
-import { defineEventHandler, getMethod } from "h3";
+import { createError, defineEventHandler, getMethod } from "h3";
 
 // Above a normal Neon serverless cold-wake (~1-2s) but well under both the
 // core DB op timeout and Netlify's function limit, so a slow-but-fine lookup
@@ -68,7 +68,7 @@ document.getElementById('f').onsubmit=async e=>{
 e.preventDefault();const b=document.getElementById('b'),err=document.getElementById('e');
 b.disabled=true;b.textContent='Signing in...';err.style.display='none';
 try{const r=await fetch(appPath('/_agent-native/auth/supabase-login'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('email').value,password:document.getElementById('password').value})});
-const d=await r.json();if(d.ok)window.location.href=appPath('/');else{err.textContent=d.error||'Sign in failed';err.style.display='block'}}
+const d=await r.json();if(d.ok)window.location.href=appPath('/home');else{err.textContent=d.error||'Sign in failed';err.style.display='block'}}
 catch{err.textContent='Network error';err.style.display='block'}
 finally{b.disabled=false;b.textContent='Sign in'}};
 </script></body></html>`;
@@ -82,7 +82,7 @@ function jsonResponse(body: object, status = 200) {
 
 async function getSessionEmailWithTimeout(
   token: string,
-): Promise<string | null | "timeout"> {
+): Promise<"timeout" | (string & {}) | null> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
@@ -102,6 +102,7 @@ async function getSessionEmailWithTimeout(
 export default (nitroApp: any) => {
   const authInit = createAuthPlugin({
     loginHtml: LOGIN_HTML,
+    workspaceAppPublicPaths: ["/"],
     // Resolve sessions from the framework's legacy session table, where
     // supabase-login stores them via addSession(). Providing a custom
     // getSession marks this template as BYOA — the framework will not
@@ -113,11 +114,12 @@ export default (nitroApp: any) => {
       for (const cookie of cookies) {
         const email = await getSessionEmailWithTimeout(cookie);
         if (email === "timeout") {
-          // Transient slow/cold DB — do NOT destroy a possibly-valid
-          // session. Treat this request as unauthenticated (the framework
-          // serves the login page instead of hanging), but keep the cookie
-          // so the next request succeeds once the DB warms.
-          return null;
+          // Keep the cookie and make the retryable infrastructure failure
+          // visible. Returning null turns an unreadable session into a guest.
+          throw createError({
+            statusCode: 503,
+            statusMessage: "Session lookup timed out",
+          });
         }
         if (email) return { email, token: cookie };
       }

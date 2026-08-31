@@ -2437,7 +2437,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       captureExtensionError(err, {
         tags: {
           surface: "background",
-          messageType: String((message as { type?: unknown })?.type ?? ""),
+          messageType:
+            typeof (message as { type?: unknown })?.type === "string"
+              ? (message as { type: string }).type
+              : "",
         },
       });
       response = {

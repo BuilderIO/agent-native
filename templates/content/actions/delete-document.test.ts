@@ -259,12 +259,14 @@ describe("deleteDocumentRecursive", () => {
       "owner-a@example.com",
     );
 
-    expect(deleted.sort()).toEqual(["child-1", "child-2", "doc-1"].sort());
+    expect(deleted.sort((a, b) => a.localeCompare(b))).toEqual(
+      ["child-1", "child-2", "doc-1"].sort((a, b) => a.localeCompare(b)),
+    );
     const commentDeleteDocIds = deleteCalls
       .filter((c) => c.table === "documentComments")
       .flatMap((c: any) => c.cond.__and[0].__inArray[1]);
-    expect(commentDeleteDocIds.sort()).toEqual(
-      ["child-1", "child-2", "doc-1"].sort(),
+    expect(commentDeleteDocIds.sort((a, b) => a.localeCompare(b))).toEqual(
+      ["child-1", "child-2", "doc-1"].sort((a, b) => a.localeCompare(b)),
     );
   });
 

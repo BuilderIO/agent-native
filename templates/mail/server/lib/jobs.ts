@@ -90,11 +90,7 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
     try {
       const { clientId, clientSecret } =
         await getOAuth2Credentials(accountEmail);
-      const oauth = createOAuth2Client(
-        clientId,
-        clientSecret,
-        "http://localhost:8080/_agent-native/google/callback",
-      );
+      const oauth = createOAuth2Client(clientId, clientSecret, "");
       const refreshed = await oauth.refreshToken(tokens.refresh_token);
       const updated = {
         ...tokens,

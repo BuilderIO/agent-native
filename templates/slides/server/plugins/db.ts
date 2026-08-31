@@ -302,6 +302,30 @@ CREATE UNIQUE INDEX IF NOT EXISTS deck_shares_resource_user_principal_uidx
 ON deck_shares (resource_id, LOWER(principal_id))
 WHERE principal_type = 'user'`,
     },
+    {
+      version: 25,
+      name: "slides-comment-canvas-anchors",
+      sql: `CREATE TABLE IF NOT EXISTS slide_comments (
+    id TEXT PRIMARY KEY,
+    deck_id TEXT NOT NULL,
+    slide_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    parent_id TEXT,
+    content TEXT NOT NULL,
+    quoted_text TEXT,
+    author_email TEXT NOT NULL,
+    author_name TEXT,
+    resolved INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  ALTER TABLE slide_comments ADD COLUMN IF NOT EXISTS anchor TEXT`,
+    },
+    {
+      version: 26,
+      name: "slides-deck-version-chat-context",
+      sql: `ALTER TABLE deck_versions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
+    },
   ],
   { table: "slides_migrations" },
 );

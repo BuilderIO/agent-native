@@ -6,11 +6,13 @@ import {
   IconCalendarTime,
   IconBrandZoom,
   IconChevronDown,
+  IconClock,
+  IconMapPin,
   IconMessage,
   IconPlus,
-  IconSettings2,
   IconVideo,
   IconUsers,
+  IconX,
 } from "@tabler/icons-react";
 import { differenceInMinutes, format } from "date-fns";
 import { useId, useState, useEffect, useMemo, useRef } from "react";
@@ -27,7 +29,11 @@ import {
   ReminderControls,
 } from "@/components/calendar/EventOptionControls";
 import { FindTimeTakeover } from "@/components/calendar/FindTimePanel";
-import { RepeatPicker } from "@/components/calendar/InlineEventPickers";
+import {
+  DatePickerPopover,
+  RepeatPicker,
+  TimePickerPopover,
+} from "@/components/calendar/InlineEventPickers";
 import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { Button } from "@/components/ui/button";
 import {
@@ -91,6 +97,12 @@ import {
   validateAttachmentDrafts,
 } from "@/lib/event-form-utils";
 import { buildDeleteEventMutationInput } from "@/lib/event-mutation-inputs";
+import {
+  eventPopoverHeader,
+  eventPopoverHeaderButton,
+  eventPopoverHeaderTitle,
+  eventPopoverShell,
+} from "@/lib/event-popover-style";
 
 type VideoProvider = "none" | "google_meet" | "zoom";
 type EventType = "default" | "outOfOffice" | "focusTime" | "workingLocation";
@@ -119,6 +131,17 @@ function addMinutesToTimeString(time: string, minutes: number) {
     .padStart(2, "0");
   const mm = (total % 60).toString().padStart(2, "0");
   return `${hh}:${mm}`;
+}
+
+function formatDurationLabel(minutes: number, t: ReturnType<typeof useT>) {
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  if (hours === 0) return t("bookingLinks.minutesShort", { count: remainder });
+  if (remainder === 0) return t("bookingLinks.hoursShort", { count: hours });
+  return `${t("bookingLinks.hoursShort", { count: hours })} ${t(
+    "bookingLinks.minutesShort",
+    { count: remainder },
+  )}`;
 }
 
 function uniqueAttendees(attendees: AttendeeRecipient[]) {
@@ -287,11 +310,14 @@ export function CreateEventPopover({
   const [attachments, setAttachments] = useState<AttachmentDraft[]>(() => [
     createAttachmentDraft(),
   ]);
+  const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [workingLocationType, setWorkingLocationType] =
     useState<WorkingLocationType>("customLocation");
   const [videoProvider, setVideoProvider] = useState<VideoProvider>("none");
   const [videoProviderTouched, setVideoProviderTouched] = useState(false);
   const [attendees, setAttendees] = useState<AttendeeRecipient[]>([]);
+  const [descriptionOpen, setDescriptionOpen] = useState(false);
+  const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [accountEmail, setAccountEmail] = useState<string>();
   const [findTimeOpen, setFindTimeOpen] = useState(false);
   const isOutOfOffice = eventType === "outOfOffice";
@@ -317,6 +343,9 @@ export function CreateEventPopover({
 
   useEffect(() => {
     if (!open) {
+      setDescriptionOpen(false);
+      setAttachmentsOpen(false);
+      setShowMoreOptions(false);
       if (preserveInitializationOnCloseRef.current) {
         preserveInitializationOnCloseRef.current = false;
         return;
@@ -361,6 +390,7 @@ export function CreateEventPopover({
 
       setTitle(draft.title || "");
       setDescription(draft.description || "");
+      setDescriptionOpen(Boolean(draft.description?.trim()));
       setDate(startParts?.date || nextDate);
       setEndDate(
         draft.fullDay
@@ -393,6 +423,7 @@ export function CreateEventPopover({
       setReminderMode(reminderState.mode);
       setReminders(reminderState.reminders);
       setAttachments(attachmentsToDrafts(draft.attachments));
+      setAttachmentsOpen(Boolean(draft.attachments?.length));
       setWorkingLocationType(draft.workingLocationType ?? "customLocation");
       setVideoProvider(
         draft.addGoogleMeet ? "google_meet" : draft.addZoom ? "zoom" : "none",
@@ -415,6 +446,7 @@ export function CreateEventPopover({
 
     setTitle("");
     setDescription("");
+    setDescriptionOpen(false);
     setDate(nextDate);
     setEndDate(nextDate);
     setStartTime(defaultStart || fallbackStart);
@@ -433,6 +465,7 @@ export function CreateEventPopover({
     setReminderMode("default");
     setReminders([createReminderDraft()]);
     setAttachments([createAttachmentDraft()]);
+    setAttachmentsOpen(false);
     setWorkingLocationType("customLocation");
     setVideoProvider("none");
     setVideoProviderTouched(false);
@@ -472,7 +505,7 @@ export function CreateEventPopover({
     if (!open || !draftId) return;
 
     const fullDayOutOfOffice = isOutOfOffice && allDay;
-    const effectiveAllDay = allDay && !isOutOfOffice && !timedOnlyStatus;
+    const effectiveAllDay = allDay && !timedOnlyStatus;
     if (!date || !endDate || (!allDay && (!startTime || !endTime))) {
       return;
     }
@@ -505,8 +538,10 @@ export function CreateEventPopover({
       description: isOutOfOffice ? "" : description,
       start: startValue,
       end: endValue,
-      startTimeZone: effectiveAllDay ? undefined : eventTimezone,
-      endTimeZone: effectiveAllDay ? undefined : eventTimezone,
+      startTimeZone:
+        effectiveAllDay && !isOutOfOffice ? undefined : eventTimezone,
+      endTimeZone:
+        effectiveAllDay && !isOutOfOffice ? undefined : eventTimezone,
       location: isOutOfOffice ? "" : location,
       allDay: effectiveAllDay,
       fullDay: fullDayOutOfOffice,
@@ -605,6 +640,7 @@ export function CreateEventPopover({
   }
 
   function handleDraftDescription() {
+    setDescriptionOpen(true);
     sendToAgentChat({
       message: t("eventForm.ai.descriptionMessage", {
         title: title || t("eventForm.ai.untitledEvent"),
@@ -671,7 +707,7 @@ export function CreateEventPopover({
     );
   }
 
-  const effectiveAllDay = allDay && !isOutOfOffice && !timedOnlyStatus;
+  const effectiveAllDay = allDay && !timedOnlyStatus;
   const currentStartISO =
     !effectiveAllDay && date && startTime
       ? dateTimeInTimezoneToIso(date, startTime, eventTimezone)
@@ -739,7 +775,7 @@ export function CreateEventPopover({
     }
 
     const fullDayOutOfOffice = isOutOfOffice && allDay;
-    const effectiveAllDay = allDay && !isOutOfOffice && !timedOnlyStatus;
+    const effectiveAllDay = allDay && !timedOnlyStatus;
     const allDayEnd = new Date(`${endDate}T00:00:00`);
     allDayEnd.setDate(allDayEnd.getDate() + 1);
     const startValue = fullDayOutOfOffice
@@ -807,8 +843,10 @@ export function CreateEventPopover({
       description: isOutOfOffice ? "" : description,
       start: startValue,
       end: endValue,
-      startTimeZone: effectiveAllDay ? undefined : eventTimezone,
-      endTimeZone: effectiveAllDay ? undefined : eventTimezone,
+      startTimeZone:
+        effectiveAllDay && !isOutOfOffice ? undefined : eventTimezone,
+      endTimeZone:
+        effectiveAllDay && !isOutOfOffice ? undefined : eventTimezone,
       location: isOutOfOffice ? "" : location,
       accountEmail,
       allDay: effectiveAllDay,
@@ -894,292 +932,146 @@ export function CreateEventPopover({
         align="end"
         sideOffset={8}
         collisionPadding={16}
-        className="flex max-h-[var(--radix-popover-content-available-height)] w-[calc(100vw-2rem)] flex-col overflow-hidden p-0 sm:w-80"
+        className={`${eventPopoverShell} w-[calc(100vw-2rem)] sm:w-[284px]`}
         onInteractOutside={(event) => {
           if (findTimeOpen) {
             event.preventDefault();
             return;
           }
           const target = event.target as HTMLElement;
-          if (target.closest("[data-attendee-autocomplete]")) {
+          if (
+            target.closest("[data-attendee-autocomplete]") ||
+            target.closest("[data-time-picker-popover]")
+          ) {
             event.preventDefault();
           }
         }}
       >
-        <div className="shrink-0 px-4 pb-3 pt-4 text-sm font-semibold">
-          {draft ? t("eventForm.reviewInvite") : t("eventForm.newEvent")}
-        </div>
         <form
           ref={formRef}
           onSubmit={handleSubmit}
           onKeyDown={handleFormKeyDown}
           className="flex min-h-0 flex-1 flex-col"
         >
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pb-3">
+          <div className={eventPopoverHeader}>
+            <span className={eventPopoverHeaderTitle}>
+              {draft ? t("eventForm.reviewInvite") : t("eventForm.event")}
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={eventPopoverHeaderButton}
+              aria-label={t("eventForm.cancel")}
+              onClick={() => onOpenChange(false)}
+            >
+              <IconX className="size-4" />
+            </Button>
+          </div>
+
+          <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-4 py-2">
             {!isOutOfOffice && (
-              <div className="space-y-1.5">
-                <Label htmlFor="event-title" className="text-xs">
-                  {t("eventForm.title")}
-                </Label>
-                <Input
-                  id="event-title"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder={t("eventForm.eventTitlePlaceholder")}
-                  autoFocus
-                  className="h-8 text-sm"
-                />
-              </div>
+              <Input
+                id="event-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder={t("eventForm.eventTitlePlaceholder")}
+                aria-label={t("eventForm.title")}
+                autoFocus
+                className="h-[30px] rounded-md border-0 bg-muted/40 px-2 py-1.5 text-[13px] font-normal shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
+              />
             )}
 
-            {shouldShowEventAccountSelector(connectedAccounts) &&
-              accountEmail && (
-                <div className="space-y-1.5">
-                  <Label htmlFor="event-calendar" className="text-xs">
-                    {t("navigation.calendar")}
-                  </Label>
-                  <Select value={accountEmail} onValueChange={setAccountEmail}>
-                    <SelectTrigger
-                      id="event-calendar"
-                      aria-label={t("navigation.calendar")}
-                      className="h-8 text-sm"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {connectedAccounts.map((account) => (
-                          <SelectItem key={account.email} value={account.email}>
-                            <span className="flex min-w-0 items-center gap-2">
-                              <span
-                                className="size-2.5 shrink-0 rounded-full"
-                                style={{
-                                  backgroundColor:
-                                    viewPrefs.accountColors[account.email] ??
-                                    viewPrefs.singleColor ??
-                                    defaultColorForAccount(
-                                      account.email,
-                                      connectedAccountEmails,
-                                    ),
-                                }}
-                              />
-                              <span className="truncate">{account.email}</span>
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
-            <div className="space-y-1.5">
-              <Label htmlFor="event-type" className="text-xs">
-                {t("eventForm.type")}
-              </Label>
-              <Select
-                value={eventType}
-                onValueChange={(value) =>
-                  handleEventTypeChange(value as EventType)
-                }
-              >
-                <SelectTrigger id="event-type" className="h-8 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="default">
-                    {t("eventForm.event")}
-                  </SelectItem>
-                  <SelectItem value="outOfOffice">
-                    {t("eventForm.outOfOffice")}
-                  </SelectItem>
-                  <SelectItem value="focusTime">
-                    {t("eventForm.focusTime")}
-                  </SelectItem>
-                  <SelectItem value="workingLocation">
-                    {t("eventForm.workingLocation")}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {eventType === "workingLocation" && (
-              <div className="space-y-1.5">
-                <Label htmlFor="working-location-type" className="text-xs">
-                  {t("eventForm.workingFrom")}
-                </Label>
-                <Select
-                  value={workingLocationType}
-                  onValueChange={(value) =>
-                    setWorkingLocationType(value as WorkingLocationType)
-                  }
-                >
-                  <SelectTrigger
-                    id="working-location-type"
-                    className="h-8 text-sm"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="homeOffice">
-                      {t("eventForm.home")}
-                    </SelectItem>
-                    <SelectItem value="officeLocation">
-                      {t("eventForm.office")}
-                    </SelectItem>
-                    <SelectItem value="customLocation">
-                      {t("eventForm.custom")}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {!isOutOfOffice && (
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <Label htmlFor="event-description" className="text-xs">
-                    {t("eventForm.description")}
-                  </Label>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground"
-                    onClick={handleDraftDescription}
-                  >
-                    <IconMessage className="h-3 w-3" />
-                    {t("eventForm.askAi")}
-                  </Button>
-                </div>
-                <Textarea
-                  id="event-description"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder={t("eventForm.optionalDescription")}
-                  rows={2}
-                  className="text-sm"
-                />
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="event-date" className="text-xs">
-                  {t("eventForm.startDate")}
-                </Label>
-                <Input
-                  id="event-date"
-                  type="date"
-                  value={date}
-                  onChange={(e) => handleDateChange(e.target.value)}
-                  className="h-8 text-sm"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="event-end-date" className="text-xs">
-                  {t("eventForm.endDate")}
-                </Label>
-                <Input
-                  id="event-end-date"
-                  type="date"
-                  min={date}
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value || date)}
-                  className="h-8 text-sm"
-                />
-              </div>
-            </div>
-
-            {timedOnlyStatus ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex w-fit items-center gap-2">
-                    <Switch
-                      id="all-day"
-                      checked={false}
-                      onCheckedChange={setAllDay}
-                      disabled
+            <div className="flex items-start gap-2 pt-1">
+              <IconClock className="mt-1.5 size-[18px] shrink-0 text-muted-foreground" />
+              <div className="min-w-0 flex-1">
+                {!allDay ? (
+                  <div className="flex flex-wrap items-baseline gap-1">
+                    <TimePickerPopover
+                      value={startTime}
+                      label={t("eventForm.start")}
+                      className="px-1.5 py-1"
+                      onChange={setStartTime}
                     />
-                    <Label
-                      htmlFor="all-day"
-                      className="text-xs text-muted-foreground"
-                    >
-                      {t("eventForm.allDay")}
-                    </Label>
+                    <span className="text-muted-foreground/60">→</span>
+                    <TimePickerPopover
+                      value={endTime}
+                      label={t("eventForm.end")}
+                      className="px-1.5 py-1"
+                      getOptionMeta={(value) => {
+                        const duration = differenceInMinutes(
+                          new Date(
+                            dateTimeInTimezoneToIso(
+                              endDate,
+                              value,
+                              eventTimezone,
+                            ),
+                          ),
+                          new Date(
+                            dateTimeInTimezoneToIso(
+                              date,
+                              startTime,
+                              eventTimezone,
+                            ),
+                          ),
+                        );
+                        return duration > 0
+                          ? formatDurationLabel(duration, t)
+                          : undefined;
+                      }}
+                      onChange={(value) => {
+                        setEndTime(value);
+                        if (endDate === date && value <= startTime) {
+                          setEndDate(addDaysToDateString(date, 1));
+                        }
+                      }}
+                    />
+                    <span className="text-xs text-muted-foreground/70">
+                      {formatDurationLabel(findTimeDurationMinutes, t)}
+                    </span>
                   </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {t("eventForm.focusTimeTimedOnly")}
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="all-day"
-                  checked={allDay}
-                  onCheckedChange={setAllDay}
-                />
-                <Label htmlFor="all-day" className="text-xs">
-                  {t("eventForm.allDay")}
-                </Label>
-              </div>
-            )}
-
-            {!allDay && (
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="start-time" className="text-xs">
-                    {t("eventForm.start")}
-                  </Label>
-                  <Input
-                    id="start-time"
-                    type="time"
-                    value={startTime}
-                    onChange={(e) => setStartTime(e.target.value)}
-                    className="h-8 text-sm"
+                ) : (
+                  <span className="text-muted-foreground">
+                    {t("eventForm.allDay")}
+                  </span>
+                )}
+                <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                  <DatePickerPopover
+                    value={date}
+                    label={t("eventForm.startDate")}
+                    className="px-1.5 py-1"
+                    onChange={handleDateChange}
                   />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="end-time" className="text-xs">
-                    {t("eventForm.end")}
-                  </Label>
-                  <Input
-                    id="end-time"
-                    type="time"
-                    value={endTime}
-                    onChange={(e) => {
-                      const next = e.target.value;
-                      setEndTime(next);
-                      if (endDate === date && next <= startTime) {
-                        setEndDate(addDaysToDateString(date, 1));
-                      }
-                    }}
-                    className="h-8 text-sm"
+                  <span className="text-muted-foreground/50">→</span>
+                  <DatePickerPopover
+                    value={endDate}
+                    label={t("eventForm.endDate")}
+                    className="px-1.5 py-1"
+                    onChange={(value) =>
+                      setEndDate(value < date ? date : value || date)
+                    }
                   />
                 </div>
               </div>
-            )}
+            </div>
 
             {!isOutOfOffice && !effectiveAllDay && (
               <Button
                 type="button"
-                variant="outline"
+                variant="ghost"
                 size="sm"
-                className="h-8 w-full justify-center gap-1.5 text-xs"
+                className="h-[30px] gap-1.5 px-1.5 text-muted-foreground"
                 onClick={() => setFindTimeOpen(true)}
               >
-                <IconCalendarTime className="h-3.5 w-3.5" />
+                <IconCalendarTime className="size-3.5" />
                 {t("eventForm.findTime")}
               </Button>
             )}
 
             {!isOutOfOffice && (
               <>
-                <div className="space-y-1.5">
-                  <Label htmlFor="event-attendees" className="text-xs">
-                    {t("eventForm.attendees")}
-                  </Label>
+                <div className="flex items-center gap-2 py-1">
+                  <IconUsers className="size-[18px] shrink-0 text-muted-foreground" />
                   <AttendeeAutocomplete
                     ref={attendeeAutocompleteRef}
                     attendees={attendees}
@@ -1188,28 +1080,30 @@ export function CreateEventPopover({
                     onToggleOptional={toggleAttendeeOptional}
                     inputId="event-attendees"
                     placeholder={t("eventForm.attendeesPlaceholder")}
+                    variant="inline"
+                    className="min-w-0 flex-1"
+                    inputClassName=""
                     onEmptyEnter={() => formRef.current?.requestSubmit()}
                   />
-                  {attendees.length > 0 && (
-                    <p className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                      <IconUsers className="h-3 w-3" />
-                      {t("eventForm.invitedNotice", {
-                        count: attendees.length,
-                      })}
-                    </p>
-                  )}
                 </div>
+                {attendees.length > 0 && (
+                  <p className="-mt-2 flex items-center gap-1 pl-7 text-[10px] text-muted-foreground">
+                    <IconUsers className="size-3" />
+                    {t("eventForm.invitedNotice", {
+                      count: attendees.length,
+                    })}
+                  </p>
+                )}
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="event-location" className="text-xs">
-                    {t("eventForm.location")}
-                  </Label>
+                <div className="flex items-center gap-2 py-1">
+                  <IconMapPin className="size-[18px] shrink-0 text-muted-foreground" />
                   <Input
                     id="event-location"
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
                     placeholder={t("eventForm.optionalLocation")}
-                    className="h-8 text-sm"
+                    aria-label={t("eventForm.location")}
+                    className="h-[30px] border-0 bg-transparent px-0 shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
                     list={
                       locationSuggestions.length > 0
                         ? locationSuggestionsId
@@ -1225,12 +1119,10 @@ export function CreateEventPopover({
                   )}
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="event-video-provider" className="text-xs">
-                    {t("eventForm.video")}
-                  </Label>
+                <div className="flex items-center gap-2 py-1">
+                  <IconVideo className="size-[18px] shrink-0 text-muted-foreground" />
                   <Select
-                    value={videoProvider}
+                    value={videoProvider === "none" ? "" : videoProvider}
                     onValueChange={(value) => {
                       setVideoProvider(value as VideoProvider);
                       setVideoProviderTouched(true);
@@ -1238,83 +1130,273 @@ export function CreateEventPopover({
                   >
                     <SelectTrigger
                       id="event-video-provider"
-                      className="h-8 text-sm"
+                      aria-label={t("bookingLinks.conferencing")}
+                      className="h-[30px] flex-1 border-0 bg-transparent px-0 shadow-none focus:ring-0 data-[placeholder]:text-muted-foreground/60"
                     >
-                      <SelectValue />
+                      <SelectValue
+                        placeholder={t("bookingLinks.conferencing")}
+                      />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">
-                        {t("eventForm.noVideo")}
+                        {t("bookingLinks.noConferencing")}
                       </SelectItem>
                       <SelectItem value="google_meet">
                         <span className="flex items-center gap-2">
-                          <IconVideo className="h-3.5 w-3.5" />
+                          <IconVideo className="size-3.5" />
                           {t("eventForm.googleMeet")}
                         </span>
                       </SelectItem>
                       <SelectItem value="zoom">
                         <span className="flex items-center gap-2">
-                          <IconBrandZoom className="h-3.5 w-3.5" />
+                          <IconBrandZoom className="size-3.5" />
                           {t("eventForm.zoom")}
                         </span>
                       </SelectItem>
                     </SelectContent>
                   </Select>
-                  {videoProvider === "zoom" && !zoomStatus.data?.connected && (
-                    <div className="rounded-md border border-border bg-muted/30 p-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs text-muted-foreground">
-                          {zoomStatus.data?.configured === false
-                            ? t("eventForm.zoomNotConfigured")
-                            : t("eventForm.connectZoomBeforeCreate")}
-                        </p>
-                        {zoomStatus.data?.configured !== false && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-7 shrink-0 gap-1.5 text-xs"
-                            disabled={connectZoom.isPending}
-                            onClick={() =>
-                              connectZoom.mutate(undefined, {
-                                onSuccess: () =>
-                                  toast(t("eventForm.zoomConnectionOpened")),
-                                onError: (error) =>
-                                  toast.error(
-                                    error instanceof Error
-                                      ? error.message
-                                      : t("eventForm.zoomConnectFailed"),
-                                  ),
-                              })
-                            }
-                          >
-                            <IconBrandZoom className="h-3.5 w-3.5" />
-                            {t("common.connect")}
-                          </Button>
-                        )}
+                </div>
+                {eventType === "default" && (
+                  <div className="flex items-center justify-between gap-2 py-1 ps-[26px]">
+                    <Label
+                      htmlFor="event-availability"
+                      className="text-muted-foreground"
+                    >
+                      {t("eventForm.showAs")}
+                    </Label>
+                    <Select
+                      value={availability}
+                      onValueChange={(value) =>
+                        setAvailability(value as Availability)
+                      }
+                    >
+                      <SelectTrigger
+                        id="event-availability"
+                        className="h-[30px] w-28"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="opaque">
+                          {t("eventForm.busy")}
+                        </SelectItem>
+                        <SelectItem value="transparent">
+                          {t("eventForm.free")}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {videoProvider === "zoom" && !zoomStatus.data?.connected && (
+                  <div className="ms-[26px] rounded-md border border-border/60 bg-muted/20 p-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs text-muted-foreground">
+                        {zoomStatus.data?.configured === false
+                          ? t("eventForm.zoomNotConfigured")
+                          : t("eventForm.connectZoomBeforeCreate")}
+                      </p>
+                      {zoomStatus.data?.configured !== false && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 shrink-0 gap-1.5 text-xs"
+                          disabled={connectZoom.isPending}
+                          onClick={() =>
+                            connectZoom.mutate(undefined, {
+                              onSuccess: () =>
+                                toast(t("eventForm.zoomConnectionOpened")),
+                              onError: (error) =>
+                                toast.error(
+                                  error instanceof Error
+                                    ? error.message
+                                    : t("eventForm.zoomConnectFailed"),
+                                ),
+                            })
+                          }
+                        >
+                          <IconBrandZoom className="size-3.5" />
+                          {t("common.connect")}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {descriptionOpen ? (
+                  <div className="flex items-start gap-2 py-1">
+                    <IconMessage className="mt-1.5 size-[18px] shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start gap-2">
+                        <Textarea
+                          id="event-description"
+                          value={description}
+                          onChange={(e) => setDescription(e.target.value)}
+                          placeholder={t("eventForm.optionalDescription")}
+                          rows={2}
+                          className="min-h-16 resize-none border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 shrink-0 text-muted-foreground"
+                          aria-label={t("eventForm.askAi")}
+                          onClick={handleDraftDescription}
+                        >
+                          <IconMessage className="size-3.5" />
+                        </Button>
                       </div>
                     </div>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded-md py-1 text-left text-muted-foreground/60 transition-colors hover:bg-muted/50 hover:text-foreground"
+                    onClick={() => setDescriptionOpen(true)}
+                  >
+                    <IconMessage className="size-4 shrink-0" />
+                    {t("eventForm.description")}
+                  </button>
+                )}
               </>
             )}
 
-            <Collapsible>
+            <Collapsible
+              open={showMoreOptions}
+              onOpenChange={setShowMoreOptions}
+            >
               <CollapsibleTrigger asChild>
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
-                  className="h-7 w-full justify-between px-0 text-xs text-muted-foreground hover:bg-transparent hover:text-foreground"
+                  className="h-9 w-full justify-between px-3 font-normal text-muted-foreground"
+                  aria-label={t("eventForm.eventOptions")}
                 >
-                  <span className="flex items-center gap-1.5">
-                    <IconSettings2 className="h-3.5 w-3.5" />
-                    {t("eventForm.eventOptions")}
+                  <span className="truncate">
+                    {t("eventForm.allDay")} · {t("eventForm.timezone")} ·{" "}
+                    {t("eventForm.repeat")}
                   </span>
-                  <IconChevronDown className="h-3.5 w-3.5" />
+                  <IconChevronDown
+                    className={`size-4 shrink-0 transition-transform ${showMoreOptions ? "rotate-180" : ""}`}
+                  />
                 </Button>
               </CollapsibleTrigger>
-              <CollapsibleContent className="space-y-3">
+              <CollapsibleContent className="mt-2 space-y-3 rounded-md border border-border/60 bg-muted/20 p-3">
+                {shouldShowEventAccountSelector(connectedAccounts) &&
+                  accountEmail && (
+                    <div className="space-y-1.5">
+                      <Label htmlFor="event-calendar" className="text-xs">
+                        {t("navigation.calendar")}
+                      </Label>
+                      <Select
+                        value={accountEmail}
+                        onValueChange={setAccountEmail}
+                      >
+                        <SelectTrigger
+                          id="event-calendar"
+                          aria-label={t("navigation.calendar")}
+                          className="h-[30px]"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            {connectedAccounts.map((account) => (
+                              <SelectItem
+                                key={account.email}
+                                value={account.email}
+                              >
+                                <span className="flex min-w-0 items-center gap-2">
+                                  <span
+                                    className="size-2.5 shrink-0 rounded-full"
+                                    style={{
+                                      backgroundColor:
+                                        viewPrefs.accountColors[
+                                          account.email
+                                        ] ??
+                                        viewPrefs.singleColor ??
+                                        defaultColorForAccount(
+                                          account.email,
+                                          connectedAccountEmails,
+                                        ),
+                                    }}
+                                  />
+                                  <span className="truncate">
+                                    {account.email}
+                                  </span>
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="event-type" className="text-xs">
+                    {t("eventForm.type")}
+                  </Label>
+                  <Select
+                    value={eventType}
+                    onValueChange={(value) =>
+                      handleEventTypeChange(value as EventType)
+                    }
+                  >
+                    <SelectTrigger id="event-type" className="h-[30px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">
+                        {t("eventForm.event")}
+                      </SelectItem>
+                      <SelectItem value="outOfOffice">
+                        {t("eventForm.outOfOffice")}
+                      </SelectItem>
+                      <SelectItem value="focusTime">
+                        {t("eventForm.focusTime")}
+                      </SelectItem>
+                      <SelectItem value="workingLocation">
+                        {t("eventForm.workingLocation")}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {eventType === "workingLocation" && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="working-location-type" className="text-xs">
+                      {t("eventForm.workingFrom")}
+                    </Label>
+                    <Select
+                      value={workingLocationType}
+                      onValueChange={(value) =>
+                        setWorkingLocationType(value as WorkingLocationType)
+                      }
+                    >
+                      <SelectTrigger
+                        id="working-location-type"
+                        className="h-[30px]"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="homeOffice">
+                          {t("eventForm.home")}
+                        </SelectItem>
+                        <SelectItem value="officeLocation">
+                          {t("eventForm.office")}
+                        </SelectItem>
+                        <SelectItem value="customLocation">
+                          {t("eventForm.custom")}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
                 {isOutOfOffice && (
                   <>
                     <div className="space-y-1.5">
@@ -1326,7 +1408,7 @@ export function CreateEventPopover({
                         value={title}
                         onChange={(event) => setTitle(event.target.value)}
                         placeholder={t("eventForm.outOfOffice")}
-                        className="h-8 text-sm"
+                        className="h-[30px]"
                       />
                     </div>
                     <div className="space-y-1.5">
@@ -1341,7 +1423,7 @@ export function CreateEventPopover({
                       >
                         <SelectTrigger
                           id="event-auto-decline"
-                          className="h-8 text-sm"
+                          className="h-[30px]"
                         >
                           <SelectValue />
                         </SelectTrigger>
@@ -1373,143 +1455,146 @@ export function CreateEventPopover({
                             setDeclineMessage(event.target.value)
                           }
                           rows={2}
-                          className="text-sm"
                         />
                       </div>
                     )}
                   </>
                 )}
 
-                {!isOutOfOffice && (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="event-availability" className="text-xs">
-                        {t("eventForm.showAs")}
-                      </Label>
-                      <Select
-                        value={
-                          eventType === "workingLocation"
-                            ? "transparent"
-                            : eventType === "default"
-                              ? availability
-                              : "opaque"
-                        }
-                        onValueChange={(value) =>
-                          setAvailability(value as Availability)
-                        }
-                        disabled={eventType !== "default"}
-                      >
-                        <SelectTrigger
-                          id="event-availability"
-                          className="h-8 text-sm"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="opaque">
-                            {t("eventForm.busy")}
-                          </SelectItem>
-                          <SelectItem value="transparent">
-                            {t("eventForm.free")}
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
+                <>
+                  {timedOnlyStatus ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex items-center justify-between gap-2">
+                          <Label
+                            htmlFor="all-day"
+                            className="text-muted-foreground"
+                          >
+                            {t("eventForm.allDay")}
+                          </Label>
+                          <Switch id="all-day" checked={false} disabled />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t("eventForm.focusTimeTimedOnly")}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="all-day">{t("eventForm.allDay")}</Label>
+                      <Switch
+                        id="all-day"
+                        checked={allDay}
+                        onCheckedChange={setAllDay}
+                      />
                     </div>
+                  )}
 
-                    <div className="space-y-1.5">
-                      <Label htmlFor="event-visibility" className="text-xs">
-                        {t("eventForm.visibility")}
-                      </Label>
-                      <Select
-                        value={
-                          eventType === "workingLocation"
-                            ? "public"
-                            : visibility
-                        }
-                        onValueChange={(value) =>
-                          setVisibility(value as Visibility)
-                        }
-                        disabled={eventType === "workingLocation"}
-                      >
-                        <SelectTrigger
-                          id="event-visibility"
-                          className="h-8 text-sm"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="default">
-                            {t("eventForm.default")}
-                          </SelectItem>
-                          <SelectItem value="public">
-                            {t("eventForm.public")}
-                          </SelectItem>
-                          <SelectItem value="private">
-                            {t("eventForm.private")}
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                )}
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="event-recurrence" className="text-xs">
-                    {t("eventForm.repeats")}
-                  </Label>
-                  <RepeatPicker
-                    preset={recurrencePreset}
-                    referenceDate={
-                      effectiveAllDay ? date : currentStartISO || date
-                    }
-                    onChange={setRecurrencePreset}
-                    onCustomChange={setCustomRecurrence}
-                  />
-                </div>
-
-                {(!allDay || isOutOfOffice) && (
                   <div className="space-y-1.5">
-                    <Label htmlFor="event-timezone" className="text-xs">
-                      {t("eventForm.timezone")}
+                    <Label htmlFor="event-recurrence" className="text-xs">
+                      {t("eventForm.repeats")}
                     </Label>
-                    <TimezoneCombobox
-                      id="event-timezone"
-                      value={timezone}
-                      onChange={setTimezone}
+                    <RepeatPicker
+                      preset={recurrencePreset}
+                      referenceDate={
+                        effectiveAllDay ? date : currentStartISO || date
+                      }
+                      onChange={setRecurrencePreset}
+                      onCustomChange={setCustomRecurrence}
                     />
                   </div>
-                )}
 
-                <div className="space-y-1.5">
-                  <Label className="text-xs">{t("eventForm.color")}</Label>
-                  <EventColorSwatches
-                    value={colorId}
-                    onChange={setColorId}
-                    includeDefault
-                  />
-                </div>
+                  {(!allDay || isOutOfOffice) && (
+                    <div className="space-y-1.5">
+                      <Label htmlFor="event-timezone" className="text-xs">
+                        {t("eventForm.timezone")}
+                      </Label>
+                      <TimezoneCombobox
+                        id="event-timezone"
+                        value={timezone}
+                        onChange={setTimezone}
+                      />
+                    </div>
+                  )}
 
-                <div className="space-y-1.5">
-                  <Label className="text-xs">{t("eventForm.alerts")}</Label>
-                  <ReminderControls
-                    idPrefix="event"
-                    mode={reminderMode}
-                    reminders={reminders}
-                    onModeChange={setReminderMode}
-                    onRemindersChange={setReminders}
-                  />
-                </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="event-visibility" className="text-xs">
+                      {t("eventForm.visibility")}
+                    </Label>
+                    <Select
+                      value={
+                        eventType === "workingLocation" ? "public" : visibility
+                      }
+                      onValueChange={(value) =>
+                        setVisibility(value as Visibility)
+                      }
+                      disabled={eventType === "workingLocation"}
+                    >
+                      <SelectTrigger id="event-visibility" className="h-[30px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">
+                          {t("eventForm.default")}
+                        </SelectItem>
+                        <SelectItem value="public">
+                          {t("eventForm.public")}
+                        </SelectItem>
+                        <SelectItem value="private">
+                          {t("eventForm.private")}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                <div className="space-y-1.5">
-                  <Label className="text-xs">
-                    {t("eventForm.attachments")}
-                  </Label>
-                  <AttachmentControls
-                    idPrefix="event"
-                    attachments={attachments}
-                    onChange={setAttachments}
-                  />
-                </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">{t("eventForm.color")}</Label>
+                    <EventColorSwatches
+                      value={colorId}
+                      onChange={setColorId}
+                      includeDefault
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">{t("eventForm.alerts")}</Label>
+                    <ReminderControls
+                      idPrefix="event"
+                      mode={reminderMode}
+                      reminders={reminders}
+                      onModeChange={setReminderMode}
+                      onRemindersChange={setReminders}
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">
+                      {t("eventForm.attachments")}
+                    </Label>
+                    {attachmentsOpen ||
+                    attachments.some(
+                      (attachment) =>
+                        attachment.title.trim() || attachment.fileUrl.trim(),
+                    ) ? (
+                      <AttachmentControls
+                        idPrefix="event"
+                        attachments={attachments}
+                        onChange={setAttachments}
+                      />
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-1.5 text-xs text-muted-foreground"
+                        onClick={() => setAttachmentsOpen(true)}
+                      >
+                        <IconPlus className="mr-1 size-3.5" />
+                        {t("eventForm.addAttachment")}
+                      </Button>
+                    )}
+                  </div>
+                </>
               </CollapsibleContent>
             </Collapsible>
           </div>
@@ -1534,41 +1619,33 @@ export function CreateEventPopover({
             onRemoveAttendee={removeAttendee}
           />
 
-          <div className="flex shrink-0 items-center justify-between border-t border-border bg-popover px-4 py-3">
-            <p className="text-[10px] text-muted-foreground/60">
-              <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                ↵
-              </kbd>{" "}
-              {t("eventForm.toSave")}
-            </p>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => {
-                  initializedKeyRef.current = null;
-                  onOpenChange(false);
-                }}
-              >
-                {t("eventForm.cancel")}
-              </Button>
-              <Button
-                type="submit"
-                size="sm"
-                className="h-7 text-xs"
-                disabled={
-                  createEvent.isPending ||
-                  !accountEmail ||
-                  (videoProvider === "zoom" && !zoomStatus.data?.connected)
-                }
-              >
-                {createEvent.isPending
-                  ? t("eventForm.creating")
-                  : t("eventForm.create")}
-              </Button>
-            </div>
+          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border/60 bg-popover px-4 py-2.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-[30px]"
+              onClick={() => {
+                initializedKeyRef.current = null;
+                onOpenChange(false);
+              }}
+            >
+              {t("eventForm.cancel")}
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              className="h-[30px]"
+              disabled={
+                createEvent.isPending ||
+                !accountEmail ||
+                (videoProvider === "zoom" && !zoomStatus.data?.connected)
+              }
+            >
+              {createEvent.isPending
+                ? t("eventForm.creating")
+                : t("eventForm.create")}
+            </Button>
           </div>
         </form>
       </PopoverContent>

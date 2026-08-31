@@ -334,7 +334,7 @@ export function runDeleteFiles(
       (result): result is PromiseRejectedResult => result.status === "rejected",
     );
     if (failedFiles.length > 0) {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-design"],
       });
       if (rejected) {

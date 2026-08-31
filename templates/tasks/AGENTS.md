@@ -40,7 +40,8 @@ Default navigation shape on `/tasks`:
 - `includeDone` mirrors the task-list filter toggle (incomplete only vs show all).
 - `taskId` highlights a row when opened from a deep link; MVP has no detail page.
 - `fieldId` highlights a custom field when opened from a deep link; the Fields page manages definitions.
-- Chat lives at `/chat`. Root `/` redirects to `/tasks`.
+- Chat lives at `/chat`. The public root `/` is the SSR marketing page, while
+  private app entry `/home` redirects to `/tasks`.
 
 ## Actions
 

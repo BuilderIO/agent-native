@@ -3,6 +3,12 @@
 All notable user-facing changes to Assets are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-08-26
+
+### Added
+
+- Templates are now their own surface and can be used across brand kits.
+
 ## 2026-08-22
 
 ### Fixed

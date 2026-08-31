@@ -4,4 +4,4 @@ import { initCrmDataPrograms } from "./_crm-data-program-actions.js";
 
 initCrmDataPrograms();
 
-runScript();
+void runScript();

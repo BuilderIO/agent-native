@@ -295,11 +295,11 @@ export function AgentTerminal({
       }
 
       // Build WebSocket URL with query params
-      const qs = new URLSearchParams();
-      if (resolvedCommand) qs.set("command", resolvedCommand);
-      if (flags) qs.set("flags", flags);
-      const qsStr = qs.toString();
-      const fullWsUrl = qsStr ? `${wsUrl}?${qsStr}` : wsUrl;
+      const fullWsUrl = new URL(wsUrl);
+      if (resolvedCommand) {
+        fullWsUrl.searchParams.set("command", resolvedCommand);
+      }
+      if (flags) fullWsUrl.searchParams.set("flags", flags);
 
       term.write(
         `\x1b[2m[terminal] Starting ${resolvedCommand || "CLI"}...\x1b[0m\r\n`,
@@ -452,7 +452,7 @@ export function AgentTerminal({
       submitPromptRef.current = submitPrompt;
       const initialRequest = pendingSubmitRequestRef.current;
       if (initialRequest) submitPrompt(initialRequest);
-      connect(fullWsUrl);
+      connect(fullWsUrl.toString());
 
       // Store cleanup references
       return () => {
@@ -469,7 +469,7 @@ export function AgentTerminal({
     }
 
     let cleanup: (() => void) | undefined;
-    init().then((fn) => {
+    void init().then((fn) => {
       cleanup = fn;
     });
 

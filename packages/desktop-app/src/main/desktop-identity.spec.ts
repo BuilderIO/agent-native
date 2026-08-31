@@ -35,7 +35,7 @@ function cookieStore(
       return cookies.filter((cookie) => matchesUrl(cookie, filter?.url));
     }),
     set: vi.fn(async (cookie: Electron.CookiesSetDetails) => {
-      cookies.push({
+      const nextCookie: Electron.Cookie = {
         name: cookie.name!,
         value: cookie.value!,
         domain: new URL(cookie.url).hostname,
@@ -48,7 +48,15 @@ function cookieStore(
         ...(cookie.expirationDate
           ? { expirationDate: cookie.expirationDate }
           : {}),
-      });
+      };
+      const existingIndex = cookies.findIndex(
+        (candidate) =>
+          candidate.name === nextCookie.name &&
+          candidate.domain === nextCookie.domain &&
+          candidate.path === nextCookie.path,
+      );
+      if (existingIndex >= 0) cookies[existingIndex] = nextCookie;
+      else cookies.push(nextCookie);
     }),
     remove: vi.fn(async (url: string, name: string) => {
       const index = cookies.findIndex(
@@ -263,6 +271,12 @@ describe("Desktop identity navigation boundaries", () => {
     ).toBe(false);
     expect(
       isDesktopIdentityAppConfigEligible(custom, { canonical: true }),
+    ).toBe(true);
+    expect(
+      isDesktopIdentityAppConfigEligible(
+        { id: "dispatch", enabled: false, mode: "prod" },
+        { allowDisabled: true, canonical: true },
+      ),
     ).toBe(true);
     expect(isDesktopIdentityOriginEligible("https://custom.example")).toBe(
       true,
@@ -2144,6 +2158,32 @@ describe("DesktopIdentityBroker", () => {
     }
   });
 
+  it("retries child sessions while the parent identity remains signed in", async () => {
+    const authority = authorityFixture();
+    const mail = appFixture();
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore(),
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) =>
+        id === authority.id ? authority : id === mail.id ? mail : null,
+      listApps: () => [authority, mail],
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+    broker.setStatusForSetting("signed-in");
+    const ensureAppSession = vi
+      .spyOn(broker, "ensureAppSession")
+      .mockResolvedValue(true);
+
+    await expect(broker.retryAppSessionFanout()).resolves.toBe(true);
+
+    expect(ensureAppSession).toHaveBeenNthCalledWith(1, authority.id);
+    expect(ensureAppSession).toHaveBeenNthCalledWith(2, mail.id);
+  });
+
   it("does not remint a verified modern child on repeated status notifications", async () => {
     const authority = authorityFixture();
     const mail = appFixture();
@@ -2289,7 +2329,8 @@ describe("DesktopIdentityBroker", () => {
               url: mail.origin,
               name: "an_embed_session",
               value: "workspace-embed-session",
-            });
+              partitionKey: "https://dispatch.agent-native.com",
+            } as Electron.CookiesSetDetails & { partitionKey: string });
             return new Response("<html></html>", { status: 200 });
           }
           return new Response(null, { status: 404 });
@@ -2315,6 +2356,12 @@ describe("DesktopIdentityBroker", () => {
 
     await expect(broker.ensureAppSession(mail.id)).resolves.toBe(true);
     await expect(broker.ensureAppSession(mail.id)).resolves.toBe(true);
+
+    const embedCookieWrites = mailCookies.set.mock.calls.filter(
+      ([cookie]) => cookie.name === "an_embed_session",
+    );
+    expect(embedCookieWrites).toHaveLength(2);
+    expect(embedCookieWrites.at(-1)?.[0]).not.toHaveProperty("partitionKey");
 
     expect(
       identityFetch.mock.calls.filter(

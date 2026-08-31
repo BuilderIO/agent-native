@@ -672,7 +672,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
    */
   function getDb(): LibSQLDatabase<T> {
     if (_db) return _db;
-    startInit();
+    void startInit();
     if (_db) return _db;
 
     return createLazyProxy(_dbReady!, []) as LibSQLDatabase<T>;

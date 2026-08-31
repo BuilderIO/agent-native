@@ -159,7 +159,7 @@ export function GoogleDriveConnectionCta({
         <Button
           type="button"
           size="sm"
-          onClick={() => void connect()}
+          onClick={() => connect()}
           disabled={connecting}
           aria-busy={connecting}
           className="h-7 shrink-0 gap-1.5 rounded-md px-2.5 text-[11px] disabled:cursor-wait"

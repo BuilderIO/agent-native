@@ -9,7 +9,7 @@ export interface DispatchAutomationItem {
   orgId?: string;
   scope?: "personal" | "organization";
   canUpdate?: boolean;
-  triggerType?: "schedule" | "event" | string;
+  triggerType?: "schedule" | "event" | (string & {});
   event?: string;
   schedule?: string;
   scheduleDescription?: string;
