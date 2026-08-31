@@ -75,6 +75,7 @@ import {
   nitroNoExternalsForPreset,
   patchCloudflareModuleNitroEntry,
   pruneServerlessFunctionDeadWeight,
+  removeNetlifyStaticRootShell,
   resolveNitroBundledYjsEntry,
   resolveNitroBuildReplacements,
   runNitroBuildPipeline,
@@ -564,6 +565,20 @@ describe("Netlify static cache headers", () => {
     expect(headers).toContain("/*\n  Cache-Control: no-store");
     expect(headers).toContain("/_agent-native/*");
     expect(headers).toContain("max-age=31536000, immutable");
+  });
+});
+
+describe("Netlify static root shell", () => {
+  it("leaves the root request to the SSR auth handler", () => {
+    const publishDir = makeTempDir();
+    fs.writeFileSync(path.join(publishDir, "index.html"), "<html></html>");
+    fs.mkdirSync(path.join(publishDir, "assets"));
+    fs.writeFileSync(path.join(publishDir, "assets", "app.js"), "export {};");
+
+    removeNetlifyStaticRootShell(publishDir);
+
+    expect(fs.existsSync(path.join(publishDir, "index.html"))).toBe(false);
+    expect(fs.existsSync(path.join(publishDir, "assets", "app.js"))).toBe(true);
   });
 });
 
