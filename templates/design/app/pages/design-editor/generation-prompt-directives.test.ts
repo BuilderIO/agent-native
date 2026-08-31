@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  designTemplateRefinementDirectives,
-  structuralReferenceDirectives,
-} from "./generation-prompt-directives";
   designIntakeQuestionDirectives,
   designTemplateRefinementDirectives,
+  structuralReferenceDirectives,
 } from "./generation-prompt-directives";
 import type { IntakeTopicCoverage } from "./intake-question-topics";
 
