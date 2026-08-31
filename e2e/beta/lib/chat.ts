@@ -213,17 +213,22 @@ const DEFAULT_COMPOSER_ROOT =
   '[data-agent-composer-slot="root"][data-agent-composer-variant="default"]';
 const HERO_COMPOSER_ROOT =
   '[data-agent-composer-slot="root"][data-agent-composer-variant="hero"]';
-const VISIBLE_AGENT_COMPOSER_ROOT = [
+const VISIBLE_AGENT_COMPOSER_ROOTS = [
   `.agent-sidebar-panel[data-agent-sidebar-state="open"] ${DEFAULT_COMPOSER_ROOT}:visible`,
   `${HERO_COMPOSER_ROOT}:visible`,
-].join(", ");
+];
+const VISIBLE_AGENT_COMPOSER_ROOT = VISIBLE_AGENT_COMPOSER_ROOTS.join(", ");
+const visibleComposerSlot = (slot: string): string =>
+  VISIBLE_AGENT_COMPOSER_ROOTS.map((root) => `${root} ${slot}:visible`).join(
+    ", ",
+  );
 
 export const VISIBLE_COMPOSER = {
   root: VISIBLE_AGENT_COMPOSER_ROOT,
-  input: `${VISIBLE_AGENT_COMPOSER_ROOT} ${COMPOSER.input}:visible`,
-  send: `${VISIBLE_AGENT_COMPOSER_ROOT} ${COMPOSER.send}:visible`,
-  stop: `${VISIBLE_AGENT_COMPOSER_ROOT} ${COMPOSER.stop}:visible`,
-  model: `${VISIBLE_AGENT_COMPOSER_ROOT} ${COMPOSER.model}:visible`,
+  input: visibleComposerSlot(COMPOSER.input),
+  send: visibleComposerSlot(COMPOSER.send),
+  stop: visibleComposerSlot(COMPOSER.stop),
+  model: visibleComposerSlot(COMPOSER.model),
 } as const;
 
 export async function readComposerRuntimeState(page: Page): Promise<unknown> {
