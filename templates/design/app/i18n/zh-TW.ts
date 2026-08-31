@@ -1472,6 +1472,11 @@ const messages = {
       saving: "儲存...",
       saveChanges: "儲存更改",
     },
+    preview: {
+      title: "預覽",
+      description:
+        "此設計系統由 Builder 設計系統智慧管理。開啟連結的專案即可查看完整的設計系統，包括所有代符、元件和使用指南。",
+    },
     tokenPreview: {
       title: "代幣預覽",
       description: "目前儲存的顏色、型別、間距和資源的快照。",
