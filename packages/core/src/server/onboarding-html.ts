@@ -9,7 +9,7 @@
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 
-import { getAppConfig } from "../app-config/index.js";
+import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import {
   AuthPage,
   type AuthPageProps,
@@ -1177,6 +1177,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const configuredAppBasePath = getAppBasePathFromViteEnv();
   const appBasePath =
     configuredAppBasePath || workspaceBasePathFromRequest(opts.requestPath);
+  const appHomePath = resolveAppHomePath(getAppConfig().app);
   const workspaceRuntime = isWorkspaceRuntime();
   const trackingApp =
     getAppConfig().app.slug ??
@@ -1412,6 +1413,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     initialPrompt: simplifiedAuth,
     initialView: initialAuthView(opts, authMode, googleOnly),
     appBasePath,
+    homePath: appHomePath,
     workspaceRuntime,
     trackingApp,
     defaultLocale: DEFAULT_LOCALE,

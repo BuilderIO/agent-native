@@ -84,6 +84,8 @@ export interface SignInJourneyInput {
   legacyReturn?: string | null;
   /** App base path, `""` for root deploys. */
   basePath?: string;
+  /** Configured app home path, without the app base path. */
+  homePath?: string;
 }
 
 /**
@@ -94,7 +96,10 @@ export interface SignInJourneyInput {
  * code instead of a hand-transcribed copy. A reference to anything outside
  * this function body would be undefined inside the emitted script.
  */
-function createSignInJourneyRuntime(basePath: string) {
+function createSignInJourneyRuntime(
+  basePath: string,
+  configuredHomePath = "/home",
+) {
   var PARAM = "c";
   var LEGACY_PARAM = "return";
   var ENTRY_PATH = "/sign-in";
@@ -118,6 +123,38 @@ function createSignInJourneyRuntime(basePath: string) {
     return false;
   }
 
+  function normalizeHomePath(raw: string | null | undefined): string {
+    if (typeof raw !== "string" || !raw) return "/home";
+    var value = String(raw).trim();
+    if (value === "/") return "/";
+    if (
+      value.charAt(0) !== "/" ||
+      value.charAt(1) === "/" ||
+      value.indexOf("\\") >= 0 ||
+      value.indexOf("?") >= 0 ||
+      value.indexOf("#") >= 0 ||
+      hasControlCharacter(value)
+    ) {
+      return "/home";
+    }
+    var parsed;
+    try {
+      parsed = new URL(value, SENTINEL);
+    } catch (e) {
+      return "/home";
+    }
+    if (
+      parsed.origin !== SENTINEL ||
+      parsed.pathname !== value ||
+      parsed.search ||
+      parsed.hash ||
+      parsed.pathname.startsWith("//")
+    ) {
+      return "/home";
+    }
+    return value;
+  }
+
   function isAuthEntryPath(pathname: string): boolean {
     // Suffix match rather than equality so this holds under any base path,
     // including one this process was not configured with (a workspace host
@@ -138,6 +175,9 @@ function createSignInJourneyRuntime(basePath: string) {
     }
     return rest === "/login" || rest === "/signup";
   }
+
+  var homePath = normalizeHomePath(configuredHomePath);
+  if (isAuthEntryPath(homePath)) homePath = "/home";
 
   /**
    * The shared validator. Returns a full same-origin app path, or `null` —
@@ -216,7 +256,7 @@ function createSignInJourneyRuntime(basePath: string) {
   }
 
   function homeHref(): string {
-    return base + "/home";
+    return homePath === "/" ? base || "/" : base + homePath;
   }
 
   function signInJourney(input: {
@@ -279,11 +319,14 @@ type SignInJourneyRuntime = ReturnType<typeof createSignInJourneyRuntime>;
 
 const runtimeCache = new Map<string, SignInJourneyRuntime>();
 
-function runtime(basePath: string | undefined): SignInJourneyRuntime {
-  const key = basePath ?? "";
+function runtime(
+  basePath: string | undefined,
+  homePath: string | undefined = "/home",
+): SignInJourneyRuntime {
+  const key = `${basePath ?? ""}\u0000${homePath}`;
   let cached = runtimeCache.get(key);
   if (!cached) {
-    cached = createSignInJourneyRuntime(key);
+    cached = createSignInJourneyRuntime(basePath ?? "", homePath);
     runtimeCache.set(key, cached);
   }
   return cached;
@@ -319,7 +362,7 @@ export function decodeContinuation(
 }
 
 export function signInJourney(input: SignInJourneyInput): SignInJourney {
-  return runtime(input.basePath).signInJourney(input);
+  return runtime(input.basePath, input.homePath).signInJourney(input);
 }
 
 /**

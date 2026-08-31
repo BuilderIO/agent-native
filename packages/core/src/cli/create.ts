@@ -2326,6 +2326,7 @@ export {
   rewriteTrackingAppId as _rewriteTrackingAppId,
   rewriteAgentChatAppId as _rewriteAgentChatAppId,
   applyScaffoldIdentity as _applyScaffoldIdentity,
+  ensureScaffoldEmailBrandingConfig as _ensureScaffoldEmailBrandingConfig,
   fixWebManifestName as _fixWebManifestName,
   copyDir as _copyDir,
   localTemplateSourceKind as _localTemplateSourceKind,
@@ -3371,10 +3372,17 @@ function ensureScaffoldEmailBrandingConfig(
   const sourceTemplate = JSON.stringify(
     trackingTemplateName(templateName) ?? templateName,
   );
+  const homePathConfig =
+    scaffoldGuidanceForTemplate(templateName) === "default"
+      ? [
+          "    // Keep the template's authenticated entry explicit after renaming the app.",
+          '    homePath: "/home",',
+        ].join("\n") + "\n"
+      : "";
 
   fs.writeFileSync(
     configPath,
-    `import { defineAppConfig } from "@agent-native/core/server";\n\nexport default defineAppConfig({\n  app: {\n    // This name appears in transactional emails. Change it to your product name.\n    name: ${appTitle},\n    // The source template keeps a renamed app from inheriting first-party email branding.\n    sourceTemplate: ${sourceTemplate},\n    // Keep the template's authenticated entry explicit after renaming the app.\n    homePath: "/home",\n    // Optional: use your own absolute HTTPS logo URL in transactional emails.\n    // logoUrl: "https://example.com/logo.png",\n  },\n});\n`,
+    `import { defineAppConfig } from "@agent-native/core/server";\n\nexport default defineAppConfig({\n  app: {\n    // This name appears in transactional emails. Change it to your product name.\n    name: ${appTitle},\n    // The source template keeps a renamed app from inheriting first-party email branding.\n    sourceTemplate: ${sourceTemplate},\n${homePathConfig}    // Optional: use your own absolute HTTPS logo URL in transactional emails.\n    // logoUrl: "https://example.com/logo.png",\n  },\n});\n`,
   );
 }
 

@@ -3404,6 +3404,7 @@ function createAuthGuardFn(
           continuation: query.get(SIGN_IN_CONTINUATION_PARAM),
           legacyReturn: query.get(SIGN_IN_LEGACY_RETURN_PARAM),
           basePath: getAppBasePath(),
+          homePath: resolveAppHomePath(getAppConfig().app),
         });
         const autoSession = await maybeAutoCreateDevSession(event, resumeHref);
         if (autoSession) return autoSession;
@@ -3499,6 +3500,7 @@ function createAuthGuardFn(
         const { resumeHref } = signInJourney({
           at: url,
           basePath: getAppBasePath(),
+          homePath: resolveAppHomePath(getAppConfig().app),
         });
         const autoSession = await maybeAutoCreateDevSession(event, resumeHref);
         if (autoSession) return autoSession;
