@@ -90,7 +90,7 @@ export const appConfig = z.object({
     }, "must be an origin-relative non-auth path without a query or fragment")
     .optional()
     .meta({
-      doc: "Private app route used after authentication. First-party templates default to /home; custom apps default to /.",
+      doc: "Private app route used after authentication. Apps default to /home; set this to / to keep the app at the root.",
     }),
   logoUrl: z
     .string()
