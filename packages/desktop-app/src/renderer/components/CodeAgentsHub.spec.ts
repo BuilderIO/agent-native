@@ -253,6 +253,15 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
   });
 
+  it("preserves persisted chat-first tabs when the desktop hub mounts", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).not.toContain("chatFirstDefaultInitializedRef");
+  });
+
   it("moves the active app beside CLI tabs and restores it for UI tabs", () => {
     const hubSource = readFileSync(
       "src/renderer/components/CodeAgentsHub.tsx",
