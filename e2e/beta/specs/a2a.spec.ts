@@ -8,8 +8,8 @@ import {
 } from "../lib/authed";
 import {
   assertNoChatFailure,
-  COMPOSER,
   sendPromptAndAwaitTurn,
+  VISIBLE_COMPOSER,
   watchChatRequests,
 } from "../lib/chat";
 import {
@@ -67,7 +67,7 @@ test.describe("slides -> analytics delegation", () => {
           timeout: 45_000,
         },
       );
-      await expect(page.locator(COMPOSER.input).first()).toBeVisible({
+      await expect(page.locator(VISIBLE_COMPOSER.input).first()).toBeVisible({
         timeout: 60_000,
       });
 
