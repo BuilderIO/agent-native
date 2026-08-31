@@ -99,6 +99,8 @@ async function fetchEmailList(
       activeInboxTab === OTHER_INBOX_TAB_PARAM;
     const userPinnedLabels = settings?.pinnedLabels;
     const pinnedLabels = resolvePinnedLabels(userPinnedLabels, googleConnected);
+    const savedFilterQueries =
+      settings?.savedFilters?.map((filter) => filter.query) ?? [];
     const hasNoteToSelf = pinnedLabels.includes("note-to-self");
     const clients = googleConnected ? await getClients(ownerEmail) : [];
     const connectedEmails = new Set(
@@ -114,7 +116,12 @@ async function fetchEmailList(
     };
     const applyActiveInboxTab = (emails: any[]) =>
       shouldFilterOther
-        ? filterInboxTabEmails(prepareEmails(emails), null, pinnedLabels)
+        ? filterInboxTabEmails(
+            prepareEmails(emails),
+            null,
+            pinnedLabels,
+            savedFilterQueries,
+          )
         : prepareEmails(emails);
     if (effectiveView === "snoozed" || effectiveView === "scheduled") {
       let emails = await getSyntheticEmailsForView(ownerEmail, effectiveView);

@@ -1,4 +1,5 @@
 import { mailLabelsInclude, mailLabelsIncludeAny } from "@shared/gmail-labels";
+import { emailMessageMatchesSearch } from "@shared/search";
 import { isSelfAddressedThread } from "@shared/self-notes";
 import type { EmailMessage } from "@shared/types";
 
@@ -140,6 +141,23 @@ function latestByThread(emails: EmailMessage[]): Map<string, EmailMessage> {
   return map;
 }
 
+/** Threads claimed by saved query tabs, with Gmail's thread-level membership. */
+export function savedFilterThreadIds(
+  emails: EmailMessage[],
+  savedFilterQueries: readonly string[] = [],
+): Set<string> {
+  const queries = savedFilterQueries
+    .map((query) => query.trim())
+    .filter(Boolean);
+  const matched = new Set<string>();
+  for (const email of emails) {
+    if (queries.some((query) => emailMessageMatchesSearch(email, query))) {
+      matched.add(email.threadId || email.id);
+    }
+  }
+  return matched;
+}
+
 /**
  * Filter a flat inbox message list down to the messages of every thread that
  * belongs to `tab` (or the "Other" remainder when `tab` is null). Returns all
@@ -152,12 +170,17 @@ export function filterInboxTabEmails(
   emails: EmailMessage[],
   tab: string | null,
   pinnedLabels: readonly string[],
+  savedFilterQueries: readonly string[] = [],
 ): EmailMessage[] {
   const triage = pinnedTriageLabels(pinnedLabels);
   const latest = latestByThread(emails);
+  const savedFilterThreads = savedFilterThreadIds(emails, savedFilterQueries);
   const qualified = new Set<string>();
   for (const [key, latestMsg] of latest) {
-    if (qualifiesForInboxTab(latestMsg.labelIds, tab, triage)) {
+    if (
+      !savedFilterThreads.has(key) &&
+      qualifiesForInboxTab(latestMsg.labelIds, tab, triage)
+    ) {
       qualified.add(key);
     }
   }

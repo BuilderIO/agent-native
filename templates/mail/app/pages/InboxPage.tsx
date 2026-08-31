@@ -362,6 +362,10 @@ export function InboxPage() {
   const activeSavedFilter = settings?.savedFilters?.find(
     (filter) => filter.id === activeFilterId,
   );
+  const savedFilterQueries = useMemo(
+    () => (settings?.savedFilters ?? []).map((filter) => filter.query),
+    [settings?.savedFilters],
+  );
   const searchQuery =
     activeSavedFilter?.query ?? searchParams.get("q") ?? undefined;
   useEffect(() => {
@@ -447,11 +451,21 @@ export function InboxPage() {
     // membership rule the badge uses (qualifiesForInboxTab). This is what
     // keeps the tab number equal to the emails listed under it.
     if (clientSliceTab && activeLabel) {
-      return filterInboxTabEmails(filtered, activeLabel, pinnedLabels);
+      return filterInboxTabEmails(
+        filtered,
+        activeLabel,
+        pinnedLabels,
+        savedFilterQueries,
+      );
     }
     // "Other" tab — the inbox remainder, same partition as its badge.
     if (isOtherTab) {
-      return filterInboxTabEmails(filtered, null, pinnedLabels);
+      return filterInboxTabEmails(
+        filtered,
+        null,
+        pinnedLabels,
+        savedFilterQueries,
+      );
     }
 
     if (activeLabel) {
@@ -511,6 +525,7 @@ export function InboxPage() {
     isGoogleConnected,
     connectedEmails,
     hasNoteToSelf,
+    savedFilterQueries,
   ]);
 
   // Clear multi-selection when switching views or label tabs. Do NOT clear on

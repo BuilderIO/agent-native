@@ -91,6 +91,7 @@ import {
   resolvePinnedLabels,
   pinnedTriageLabels,
   augmentSelfSentLabels,
+  savedFilterThreadIds,
 } from "@/lib/inbox-tabs";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { cn } from "@/lib/utils";
@@ -395,6 +396,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const hasNoteToSelf = pinnedLabels.includes("note-to-self");
   const labelAliases = settings?.labelAliases ?? {};
   const savedFilters = settings?.savedFilters ?? EMPTY_SAVED_FILTERS;
+  const savedFilterQueries = useMemo(
+    () => savedFilters.map((filter) => filter.query),
+    [savedFilters],
+  );
   const activeSavedFilter = savedFilters.find(
     (filter) => filter.id === activeFilterId,
   );
@@ -552,11 +557,17 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     }
     const threadRows = [...threadState.values()];
     const triageLabels = pinnedTriageLabels(pinnedLabels);
+    const savedFilterThreads = savedFilterThreadIds(
+      filtered,
+      savedFilterQueries,
+    );
     // "Other" = the inbox remainder. Shared with the rendered list
     // (InboxPage) via qualifiesForInboxTab so a tab's badge can never
     // disagree with the emails it actually shows.
-    const inboxRows = threadRows.filter(({ latest }) =>
-      qualifiesForInboxTab(latest.labelIds, null, triageLabels),
+    const inboxRows = threadRows.filter(
+      ({ latest }) =>
+        !savedFilterThreads.has(latest.threadId || latest.id) &&
+        qualifiesForInboxTab(latest.labelIds, null, triageLabels),
     );
     total["__inboxTotal"] = threadRows.length;
     unread["__inboxTotal"] = threadRows.filter(
@@ -569,8 +580,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     // exclusive of any other pinned tab.
     for (let i = 0; i < pinnedLabels.length; i++) {
       const full = pinnedLabels[i];
-      const rows = threadRows.filter(({ latest }) =>
-        qualifiesForInboxTab(latest.labelIds, full, triageLabels),
+      const rows = threadRows.filter(
+        ({ latest }) =>
+          !savedFilterThreads.has(latest.threadId || latest.id) &&
+          qualifiesForInboxTab(latest.labelIds, full, triageLabels),
       );
       total[full] = rows.length;
       unread[full] = rows.filter(({ hasUnread }) => hasUnread).length;
@@ -588,7 +601,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       }
     }
     return { total, unread };
-  }, [inboxEmails, pinnedLabels, activeAccounts, labels]);
+  }, [inboxEmails, pinnedLabels, activeAccounts, labels, savedFilterQueries]);
 
   const activeFilterCounts = useMemo(() => {
     const threadUnread = new Map<string, boolean>();

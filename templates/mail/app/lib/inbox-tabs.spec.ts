@@ -150,3 +150,61 @@ describe("resolvePinnedLabels", () => {
     expect(resolvePinnedLabels(["archive"], true)).toEqual(["archive"]);
   });
 });
+
+describe("filterInboxTabEmails", () => {
+  it("keeps saved-filter threads out of pinned tabs and Other", () => {
+    const github = message({
+      id: "github",
+      from: { name: "GitHub", email: "notifications@github.com" },
+      labelIds: ["inbox", "important"],
+    });
+    const ordinary = message({
+      id: "ordinary",
+      threadId: "ordinary-thread",
+      labelIds: ["inbox", "important"],
+    });
+    const queries = ["from:notifications@github.com"];
+
+    expect(
+      filterInboxTabEmails(
+        [github, ordinary],
+        "important",
+        ["important"],
+        queries,
+      ),
+    ).toEqual([ordinary]);
+    expect(
+      filterInboxTabEmails([github, ordinary], null, ["important"], queries),
+    ).toEqual([]);
+  });
+
+  it("claims a whole thread when an older message matches the saved filter", () => {
+    const olderGithub = message({
+      id: "older-github",
+      date: "2026-05-20T00:00:00.000Z",
+      from: { name: "GitHub", email: "notifications@github.com" },
+      labelIds: ["inbox"],
+    });
+    const latestReply = message({
+      id: "latest-reply",
+      date: "2026-05-21T00:00:00.000Z",
+      labelIds: ["inbox", "important"],
+    });
+
+    expect(
+      filterInboxTabEmails(
+        [olderGithub, latestReply],
+        "important",
+        ["important"],
+        ["from:notifications@github.com"],
+      ),
+    ).toEqual([]);
+  });
+
+  it("preserves the existing partition when there are no saved filters", () => {
+    const important = message({ labelIds: ["inbox", "important"] });
+    expect(
+      filterInboxTabEmails([important], "important", ["important"]),
+    ).toEqual([important]);
+  });
+});
