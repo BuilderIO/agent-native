@@ -616,8 +616,8 @@ export default function ClipsReadyToRecordPreview() {
         style={{
           width: 340,
           position: "fixed",
-          top: 40,
-          right: 40,
+          top: 53,
+          left: 1000,
           boxShadow: "var(--shadow-md)",
         }}
       >
