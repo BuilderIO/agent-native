@@ -1441,7 +1441,9 @@ function getAppOriginClientConfigScript() {
         env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON,
       ),
     );
+  const appHomePath = resolveAgentNativeAppHomePath(getAgentNativeAppConfig().app);
   const config = {
+    appHomePath,
     ...(appUrl ? { appUrl } : {}),
     ...(workspaceGatewayUrl ? { workspaceGatewayUrl } : {}),
     ...(workspaceOAuthOrigin ? { workspaceOAuthOrigin } : {}),

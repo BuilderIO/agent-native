@@ -705,10 +705,10 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
       generateWorkerEntry([], [configPath]),
     );
     const response = await worker.fetch(new Request("https://app.test/"));
+    const html = await response.text();
 
-    expect(await response.text()).toContain(
-      'var homePath = (root || "") + "/inbox"',
-    );
+    expect(html).toContain('var homePath = (root || "") + "/inbox"');
+    expect(html).toContain('"appHomePath":"/inbox"');
   });
 
   it("hard-caches SSR HTML for authenticated Cloudflare worker requests just like anonymous ones", async () => {
