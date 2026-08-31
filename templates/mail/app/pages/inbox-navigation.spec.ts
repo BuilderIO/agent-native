@@ -121,6 +121,18 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain("nav.activeAccounts");
   });
 
+  it("keeps saved-filter threads out of the agent plain Inbox snapshot", () => {
+    const source = viewScreenSource();
+
+    expect(source).toContain(
+      'effectiveView !== "inbox" || effectiveSearch || label',
+    );
+    expect(source).toContain(
+      "const savedFilterThreads = savedFilterThreadIds(",
+    );
+    expect(source).toContain("!savedFilterThreads.has(inboxThreadKey(email))");
+  });
+
   it("keeps saved-filter threads out of a plain inbox route", () => {
     const source = inboxSource();
 

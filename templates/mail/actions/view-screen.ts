@@ -13,6 +13,7 @@ import {
   resolvePinnedLabels,
   pinnedTriageLabels,
   inboxThreadKey,
+  savedFilterThreadIds,
 } from "../app/lib/inbox-tabs.js";
 import { buildGmailEmailSearchQuery } from "../server/lib/gmail-query.js";
 import { gmailGetThread } from "../server/lib/google-api.js";
@@ -126,15 +127,28 @@ async function fetchEmailList(
       });
       return filterSelectedAccounts(augmented);
     };
-    const applyActiveInboxTab = (emails: any[]) =>
-      activeTriageTab !== undefined
-        ? filterInboxTabEmails(
-            prepareEmails(emails),
-            activeTriageTab,
-            pinnedLabels,
-            savedFilterQueries,
-          )
-        : prepareEmails(emails);
+    const applyActiveInboxTab = (emails: any[]) => {
+      const prepared = prepareEmails(emails);
+      const filtered =
+        activeTriageTab !== undefined
+          ? filterInboxTabEmails(
+              prepared,
+              activeTriageTab,
+              pinnedLabels,
+              savedFilterQueries,
+            )
+          : prepared;
+      if (effectiveView !== "inbox" || effectiveSearch || label) {
+        return filtered;
+      }
+      const savedFilterThreads = savedFilterThreadIds(
+        filtered,
+        savedFilterQueries,
+      );
+      return filtered.filter(
+        (email) => !savedFilterThreads.has(inboxThreadKey(email)),
+      );
+    };
     if (effectiveView === "snoozed" || effectiveView === "scheduled") {
       let emails = await getSyntheticEmailsForView(ownerEmail, effectiveView);
       if (effectiveSearch) {
