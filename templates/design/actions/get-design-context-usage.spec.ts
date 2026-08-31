@@ -36,6 +36,29 @@ describe("selectDesignContextUsage", () => {
     expect(result.items).toEqual([]);
   });
 
+  it("is unknown, not confirmed-empty, when the record has no entry for this file", () => {
+    const result = selectDesignContextUsage(
+      {
+        ...baseRecord,
+        elementProvenance: [
+          {
+            elementId: "file_2",
+            influence: "reused",
+            itemId: "item_b",
+            itemVersionId: "v2",
+            label: "Q3 style guide",
+          },
+        ],
+      },
+      new Set(["file_1"]),
+    );
+    expect(result).toEqual({
+      available: false,
+      usedContext: false,
+      items: [],
+    });
+  });
+
   it("returns exactly the items recorded for the matched element, not other files' entries", () => {
     const result = selectDesignContextUsage(
       {

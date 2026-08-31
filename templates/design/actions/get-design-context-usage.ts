@@ -60,6 +60,17 @@ export function selectDesignContextUsage(
   const matches = record.elementProvenance.filter((entry) =>
     elementIds.has(entry.elementId),
   );
+  // generate-design.ts always writes at least one entry per saved file (a
+  // "generated" placeholder when nothing else matched), so zero matches here
+  // means this specific file has no tracked entry in the design's latest
+  // merged record at all — e.g. it was generated under a different
+  // contextMode/contextPackId than the one currently recorded, which resets
+  // the merge chain and drops earlier files' entries (see
+  // finalizeGenerationForSavedFiles). That is a genuinely unknown state, not
+  // a confirmed "no context used" — the two must stay distinguishable.
+  if (matches.length === 0) {
+    return { available: false, usedContext: false, items: [] };
+  }
   const items = matches
     .filter(
       (
@@ -115,11 +126,18 @@ export default defineAction({
       .limit(1);
     if (!file) return { available: false, usedContext: false, items: [] };
 
+    // This lookup is now only a legacy fallback: provenance recorded before
+    // generate-design.ts started keying every entry by the durable file id
+    // instead of an ephemeral frame id. Losing it degrades to
+    // `available: false` (unknown) below, never a false "confirmed no
+    // context used".
     const rawSession = (await readAppState(
       designGenerationSessionKey(designId),
-      // coercion-ok: an absent/unreadable session falls back to matching by
-      // fileId alone (see generate-design.ts's identical read); this lookup
-      // only narrows the real generation record read below.
+      // coercion-ok: readAppState throws when there is no authenticated
+      // session (e.g. a signed-out visitor on a public design, which
+      // assertAccess above legitimately allows), not only on a real read
+      // failure — the same expected case generate-design.ts's identical read
+      // already swallows.
     ).catch(() => null)) as DesignGenerationSession | null;
     const session = rawSession?.designId === designId ? rawSession : null;
 

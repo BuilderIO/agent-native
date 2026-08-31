@@ -347,7 +347,7 @@ export function summarizeCreativeContextForChat(
   );
 }
 
-function provenanceForSavedFiles(
+export function provenanceForSavedFiles(
   savedFiles: readonly { id: string; filename: string }[],
   generationSession: DesignGenerationSession | null,
   reuseLabels: readonly CreativeContextReuseLabel[],
@@ -356,7 +356,15 @@ function provenanceForSavedFiles(
     const frame = generationSession?.frames.find(
       (candidate) => candidate.filename === file.filename,
     );
-    const elementId = frame?.frameId ?? file.id;
+    // Always key provenance by the durable design_files.id, matching
+    // edit-design.ts's identical elementProvenance construction — a frame id
+    // only exists for the lifetime of the in-flight generation session's
+    // application-state record, so keying by it here would make every
+    // recorded entry unrecoverable the moment that session is replaced by
+    // the next generation. Input reuseLabels may still address a screen by
+    // its frame id below; that is just an accepted alternate identifier for
+    // matching input, not what gets persisted.
+    const elementId = file.id;
     const labels = reuseLabels.filter(
       (label) =>
         !label.elementId ||

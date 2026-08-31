@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { summarizeCreativeContextForChat } from "./generate-design.js";
+import {
+  provenanceForSavedFiles,
+  summarizeCreativeContextForChat,
+} from "./generate-design.js";
 
 describe("summarizeCreativeContextForChat", () => {
   it("reports Creative Context as off without listing any items", () => {
@@ -85,5 +88,87 @@ describe("summarizeCreativeContextForChat", () => {
         ],
       }),
     ).toBe("Found Creative Context: One, Two, Three, +2 more");
+  });
+});
+
+describe("provenanceForSavedFiles", () => {
+  it("keys provenance by the durable file id even when a live session frame exists", () => {
+    const provenance = provenanceForSavedFiles(
+      [{ id: "file_1", filename: "index.html" }],
+      {
+        id: "session_1",
+        designId: "design_1",
+        status: "generating",
+        prompt: "test",
+        contextRefs: [],
+        frames: [
+          {
+            frameId: "frame_9",
+            filename: "index.html",
+            agentId: "agent_1",
+            agentName: "Agent",
+            agentColor: "#000",
+            region: { x: 0, y: 0, width: 100, height: 100 },
+            role: "screen",
+            status: "done",
+          },
+        ],
+        startedAt: "2024-01-01T00:00:00.000Z",
+      },
+      [],
+    );
+    expect(provenance).toEqual([
+      {
+        elementId: "file_1",
+        influence: "generated",
+        label: "index.html",
+      },
+    ]);
+  });
+
+  it("still accepts a reuse label addressed by frame id as input, but records the file id", () => {
+    const provenance = provenanceForSavedFiles(
+      [{ id: "file_1", filename: "index.html" }],
+      {
+        id: "session_1",
+        designId: "design_1",
+        status: "generating",
+        prompt: "test",
+        contextRefs: [],
+        frames: [
+          {
+            frameId: "frame_9",
+            filename: "index.html",
+            agentId: "agent_1",
+            agentName: "Agent",
+            agentColor: "#000",
+            region: { x: 0, y: 0, width: 100, height: 100 },
+            role: "screen",
+            status: "done",
+          },
+        ],
+        startedAt: "2024-01-01T00:00:00.000Z",
+      },
+      [
+        {
+          itemId: "item_a",
+          itemVersionId: "v1",
+          kind: "brand",
+          label: "Brand DNA",
+          dataRole: "untrusted-reference",
+          elementId: "frame_9",
+          influence: "reused",
+        },
+      ],
+    );
+    expect(provenance).toEqual([
+      {
+        elementId: "file_1",
+        influence: "reused",
+        itemId: "item_a",
+        itemVersionId: "v1",
+        label: "Brand DNA",
+      },
+    ]);
   });
 });
