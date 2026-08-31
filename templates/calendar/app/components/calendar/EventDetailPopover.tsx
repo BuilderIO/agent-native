@@ -307,6 +307,7 @@ type ReminderValue =
 
 type EventUpdatePatch = Partial<CalendarEvent> & {
   addGoogleMeet?: boolean;
+  removeGoogleMeet?: boolean;
   addZoom?: boolean;
   addAttendees?: CalendarEvent["attendees"];
   targetAccountEmail?: string;
@@ -764,6 +765,15 @@ export function EventDetailPopover({
   }, [editingField]);
 
   const meetingLink = extractMeetingLink(event);
+  const canRemoveGoogleMeet =
+    !isOverlay &&
+    meetingLink?.type === "meet" &&
+    (!!event.hangoutLink ||
+      event.conferenceData?.entryPoints?.some(
+        (entryPoint) =>
+          entryPoint.entryPointType === "video" &&
+          entryPoint.uri.includes("meet.google.com"),
+      ));
   // On a draft, a chosen provider isn't created until the event is saved. Show
   // it as already attached (with a remove control) rather than as a placeholder.
   const pendingConferenceProvider =
@@ -1083,6 +1093,38 @@ export function EventDetailPopover({
     if (!event.id) return;
     onDraftUpdate?.(event.id, { addGoogleMeet: false, addZoom: false });
   }, [event.id, onDraftUpdate]);
+
+  const handleRemoveGoogleMeet = useCallback(() => {
+    if (!event.id || updateEvent.isPending || !beginAction()) return;
+    void (async () => {
+      try {
+        const updates = { removeGoogleMeet: true };
+        const guestNotification = await promptGuestNotification({
+          event,
+          action: "update",
+          updates,
+        });
+        if (!guestNotification) {
+          endAction();
+          return;
+        }
+        updateEvent.mutate(
+          {
+            id: event.id,
+            accountEmail: event.accountEmail,
+            ...updates,
+            ...guestNotification,
+          },
+          {
+            onError: () => toast.error(t("eventForm.updateFailed")),
+            onSettled: endAction,
+          },
+        );
+      } catch {
+        endAction();
+      }
+    })();
+  }, [beginAction, endAction, event, promptGuestNotification, t, updateEvent]);
 
   const handleSaveDescription = useCallback(() => {
     const trimmed = editDescription.trim();
@@ -2058,23 +2100,39 @@ export function EventDetailPopover({
                 <>
                   <div className={eventPopoverDivider} />
                   <div className="px-4 py-1.5">
-                    <a
-                      href={meetingLink.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`${eventPopoverPrimaryAction} relative bg-conference text-conference-foreground hover:bg-conference/90`}
-                    >
-                      <IconVideo className="mr-2 size-4 opacity-80" />
-                      <span>{getMeetingLabel(meetingLink.type, t)}</span>
-                      <span className="absolute right-2 hidden items-center gap-1 opacity-70 sm:flex">
-                        <kbd className="inline-flex size-4 items-center justify-center rounded bg-conference-foreground/20 text-[11px] font-medium">
-                          {shortcutModifierLabel()}
-                        </kbd>
-                        <kbd className="inline-flex size-4 items-center justify-center rounded bg-conference-foreground/20 text-[11px] font-medium">
-                          J
-                        </kbd>
-                      </span>
-                    </a>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={meetingLink.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`${eventPopoverPrimaryAction} relative min-w-0 flex-1 bg-conference text-conference-foreground hover:bg-conference/90`}
+                      >
+                        <IconVideo className="mr-2 size-4 opacity-80" />
+                        <span>{getMeetingLabel(meetingLink.type, t)}</span>
+                        <span className="absolute right-2 hidden items-center gap-1 opacity-70 sm:flex">
+                          <kbd className="inline-flex size-4 items-center justify-center rounded bg-conference-foreground/20 text-[11px] font-medium">
+                            {shortcutModifierLabel()}
+                          </kbd>
+                          <kbd className="inline-flex size-4 items-center justify-center rounded bg-conference-foreground/20 text-[11px] font-medium">
+                            J
+                          </kbd>
+                        </span>
+                      </a>
+                      {canRemoveGoogleMeet && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="size-9 shrink-0"
+                          aria-label={`${t("eventForm.delete")} ${t("eventForm.googleMeet")}`}
+                          title={`${t("eventForm.delete")} ${t("eventForm.googleMeet")}`}
+                          disabled={mutationPending}
+                          onClick={handleRemoveGoogleMeet}
+                        >
+                          <IconX className="size-4" />
+                        </Button>
+                      )}
+                    </div>
                     {(meetingLink.pin || meetingLink.passcode) && (
                       <div className="mt-1.5 text-xs text-muted-foreground/60">
                         {meetingLink.pin && (

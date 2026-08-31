@@ -24,6 +24,18 @@ re-read it before finishing and verify the invoking identity posted **Fixed**,
 ownership and must be revisited; an eye, bot forward, or other person's reply
 alone is never enough.
 
+## Per-parent eye ledger
+
+The start cursor is not a stop cursor. After selecting it, continue newest to
+oldest through the entire declared bounded window. Every eligible clear-bug
+parent that this run addresses, investigates, verifies, groups, or uses as
+evidence gets the invoking identity's `👀` reaction before investigation, a
+reaction read-back, and its own final disposition. Grouping symptoms never
+substitutes a representative reaction: each parent keeps its own eye and
+reply-ledger row. Before reporting completion, re-read every ledger parent and
+its reactions; no eligible clear-bug parent may be left without the invoking
+identity's eye and an auditable invoking-identity disposition.
+
 ## Scope: clear bugs only
 
 This is a bug sweep, not a general UX review. “Comprehensive” means covering
@@ -448,8 +460,8 @@ queried and the cursor and filters are stated.
 
 When multiple source items were grouped into one similar-feedback cluster, name
 the representative item and list the grouped source links in that row. Record
-one Builder dispatch for the cluster, while preserving the disposition of every
-individual report.
+one Builder dispatch for the cluster, while preserving the eye reaction,
+reply-ledger result, and disposition of every individual report.
 
 ## Related skills
 

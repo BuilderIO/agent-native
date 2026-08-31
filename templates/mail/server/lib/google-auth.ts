@@ -1738,13 +1738,62 @@ function getHeader(
 
 function parseEmailAddress(raw: string): { name: string; email: string } {
   const match = raw.match(/^(.+?)\s*<(.+?)>$/);
-  if (match) return { name: match[1].trim(), email: match[2].trim() };
+  if (match) {
+    const name = match[1].trim();
+    return {
+      name:
+        name.startsWith('"') && name.endsWith('"')
+          ? name.slice(1, -1).replace(/\\"/g, '"')
+          : name,
+      email: match[2].trim(),
+    };
+  }
   return { name: raw, email: raw };
+}
+
+function splitAddressList(raw: string): string[] {
+  const addresses: string[] = [];
+  let start = 0;
+  let inQuotes = false;
+  let inAngleBrackets = false;
+  let escaped = false;
+
+  for (let index = 0; index < raw.length; index += 1) {
+    const character = raw[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === "\\" && inQuotes) {
+      escaped = true;
+      continue;
+    }
+    if (character === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (!inQuotes && character === "<") {
+      inAngleBrackets = true;
+      continue;
+    }
+    if (!inQuotes && character === ">") {
+      inAngleBrackets = false;
+      continue;
+    }
+    if (!inQuotes && !inAngleBrackets && character === ",") {
+      addresses.push(raw.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+
+  const last = raw.slice(start).trim();
+  if (last) addresses.push(last);
+  return addresses;
 }
 
 function parseAddressList(raw: string): Array<{ name: string; email: string }> {
   if (!raw) return [];
-  return raw.split(",").map((a) => parseEmailAddress(a.trim()));
+  return splitAddressList(raw).map(parseEmailAddress);
 }
 
 function getBody(payload: any): string {
