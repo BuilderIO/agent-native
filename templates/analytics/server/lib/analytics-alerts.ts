@@ -988,9 +988,7 @@ export function buildBigQueryAlertQuery(
     ...(rule.eventName
       ? [`event_name = ${bigQuerySqlLiteral(rule.eventName)}`]
       : []),
-    ...rule.filters
-      .map(bigQueryAlertFilterSql)
-      .filter((predicate): predicate is string => predicate !== null),
+    ...rule.filters.map(bigQueryAlertFilterSql),
   ];
 
   return `SELECT * FROM analytics_events WHERE ${predicates.join(" AND ")} ORDER BY timestamp DESC, id DESC`;
@@ -1002,19 +1000,9 @@ function bigQuerySqlLiteral(value: string): string {
 
 function bigQueryAlertFieldExpression(field: string): string | null {
   const normalized = field.trim();
-  if (normalized.startsWith("properties.")) {
-    const path = normalized.slice("properties.".length);
-    if (!/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(path)) {
-      return null;
-    }
-    return `JSON_VALUE(properties, ${bigQuerySqlLiteral(`$.${path}`)})`;
-  }
-  if (normalized.startsWith("context.")) {
-    const path = normalized.slice("context.".length);
-    if (!/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(path)) {
-      return null;
-    }
-    return `JSON_VALUE(context, ${bigQuerySqlLiteral(`$.${path}`)})`;
+  const jsonPath = bigQueryAlertJsonPath(normalized);
+  if (jsonPath) {
+    return `JSON_VALUE(${jsonPath.column}, ${bigQuerySqlLiteral(jsonPath.path)})`;
   }
   const columns: Record<string, string> = {
     id: "id",
@@ -1044,6 +1032,22 @@ function bigQueryAlertFieldExpression(field: string): string | null {
   return columns[normalized] ?? null;
 }
 
+function bigQueryAlertJsonPath(
+  field: string,
+): { column: "properties" | "context"; path: string } | null {
+  const match = /^(properties|context)\.(.+)$/.exec(field);
+  if (
+    !match ||
+    !/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(match[2])
+  ) {
+    return null;
+  }
+  return {
+    column: match[1] as "properties" | "context",
+    path: `$.${match[2]}`,
+  };
+}
+
 function bigQueryAlertValueLiteral(value: unknown): string | null {
   if (typeof value === "string") return bigQuerySqlLiteral(value);
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -1057,27 +1061,54 @@ function bigQueryAlertValueLiteral(value: unknown): string | null {
 
 function bigQueryAlertFilterSql(filter: AnalyticsAlertFilter): string | null {
   const expression = bigQueryAlertFieldExpression(filter.field);
-  if (!expression) return null;
+  if (!expression) {
+    throw new Error(
+      `BigQuery alert filter uses an unsupported field: ${filter.field}`,
+    );
+  }
   const op = filter.op ?? "equals";
   if (op === "exists") {
+    const jsonPath = bigQueryAlertJsonPath(filter.field.trim());
+    const existsExpression = jsonPath
+      ? `COALESCE(NULLIF(JSON_VALUE(${jsonPath.column}, ${bigQuerySqlLiteral(jsonPath.path)}), ''), NULLIF(JSON_QUERY(${jsonPath.column}, ${bigQuerySqlLiteral(jsonPath.path)}), '""'))`
+      : `NULLIF(${expression}, '')`;
     return filter.value === false
-      ? `COALESCE(${expression}, '') = ''`
-      : `COALESCE(${expression}, '') <> ''`;
+      ? `${existsExpression} IS NULL`
+      : `${existsExpression} IS NOT NULL`;
   }
-  if (op === "in" && Array.isArray(filter.value)) {
-    if (filter.value.length === 0) return "FALSE";
-    const literals = filter.value.map(bigQueryAlertValueLiteral);
-    if (literals.some((literal) => literal === null)) return null;
-    return `${expression} IN (${literals.join(", ")})`;
+  if (op === "in") {
+    if (!Array.isArray(filter.value)) {
+      throw new Error("BigQuery alert IN filters require an array value");
+    }
+    const hasNull = filter.value.some((value) => value === null);
+    const nonNullLiterals = filter.value
+      .filter((value) => value !== null)
+      .map(bigQueryAlertValueLiteral);
+    if (nonNullLiterals.some((literal) => literal === null)) {
+      throw new Error("BigQuery alert filter contains an unsupported value");
+    }
+    const predicates = nonNullLiterals.length
+      ? [`${expression} IN (${nonNullLiterals.join(", ")})`]
+      : [];
+    if (hasNull) predicates.push(`${expression} IS NULL`);
+    return predicates.length ? `(${predicates.join(" OR ")})` : "FALSE";
   }
   const literal = bigQueryAlertValueLiteral(filter.value);
   if (literal === null) {
-    return filter.value === null || filter.value === undefined ? "FALSE" : null;
+    if (filter.value === null || filter.value === undefined) {
+      if (op === "equals") return `${expression} IS NULL`;
+      if (op === "not_equals") return `${expression} IS NOT NULL`;
+    }
+    throw new Error("BigQuery alert filter contains an unsupported value");
   }
   if (op === "not_equals") {
     return `(${expression} IS NULL OR ${expression} <> ${literal})`;
   }
-  if (op !== "equals") return null;
+  if (op !== "equals") {
+    throw new Error(
+      `BigQuery alert filter uses an unsupported operator: ${op}`,
+    );
+  }
   return `${expression} = ${literal}`;
 }
 

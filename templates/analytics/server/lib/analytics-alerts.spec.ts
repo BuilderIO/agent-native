@@ -356,6 +356,57 @@ describe("analytics alert evaluation", () => {
     expect(query).toContain("LOWER(owner_email) = LOWER('Owner@Example.Test')");
   });
 
+  it("preserves null and structured JSON filter semantics in BigQuery", () => {
+    const query = buildBigQueryAlertQuery(
+      {
+        eventName: "agent_run_terminal",
+        filters: [
+          { field: "user_id", value: null },
+          { field: "properties.tags", op: "exists", value: true },
+          { field: "properties.status", op: "in", value: [null, "errored"] },
+        ],
+        ownerEmail: "owner@example.test",
+        orgId: "org-1",
+      },
+      "2026-08-31T12:00:00.000Z",
+      "2026-08-31T12:10:00.000Z",
+    );
+
+    expect(query).toContain("user_id IS NULL");
+    expect(query).toContain("JSON_QUERY(properties, '$.tags')");
+    expect(query).toContain("JSON_VALUE(properties, '$.status') IS NULL");
+  });
+
+  it("fails closed for unsupported BigQuery alert filters", () => {
+    expect(() =>
+      buildBigQueryAlertQuery(
+        {
+          eventName: "agent_run_terminal",
+          filters: [
+            { field: "properties.message", op: "contains", value: "bug" },
+          ],
+          ownerEmail: "owner@example.test",
+          orgId: "org-1",
+        },
+        "2026-08-31T12:00:00.000Z",
+        "2026-08-31T12:10:00.000Z",
+      ),
+    ).toThrow("unsupported operator");
+
+    expect(() =>
+      buildBigQueryAlertQuery(
+        {
+          eventName: "agent_run_terminal",
+          filters: [{ field: "properties.message[0]", value: "bug" }],
+          ownerEmail: "owner@example.test",
+          orgId: "org-1",
+        },
+        "2026-08-31T12:00:00.000Z",
+        "2026-08-31T12:10:00.000Z",
+      ),
+    ).toThrow("unsupported field");
+  });
+
   it("fails loudly when BigQuery returns truncated alert results", async () => {
     backendMocks.get.mockResolvedValue({ sink: "bigquery", table: null });
     firstPartyMocks.query.mockResolvedValue({
