@@ -1,5 +1,3 @@
-import { mkdtemp, rm } from "node:fs/promises";
-
 import { createClient, type Client } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
