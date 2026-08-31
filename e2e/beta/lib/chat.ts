@@ -205,29 +205,23 @@ export const COMPOSER = {
 } as const;
 
 /**
- * Apps may keep responsive composer trees mounted together. Browser actions
- * must target the rendered tree, not whichever hidden tree happens to come
- * first in the DOM.
+ * The suite opens the AgentSidebar, but some apps also render a page-level
+ * composer and chat keeps inactive tabs mounted. Scope actions to the open
+ * sidebar root before selecting its visible controls.
  */
+const VISIBLE_AGENT_COMPOSER_ROOT =
+  '.agent-sidebar-panel[data-agent-sidebar-state="open"] [data-agent-composer-slot="root"]:visible';
+
 export const VISIBLE_COMPOSER = {
-  input: `${COMPOSER.input}:visible`,
-  send: `${COMPOSER.send}:visible`,
-  stop: `${COMPOSER.stop}:visible`,
-  model: `${COMPOSER.model}:visible`,
+  root: VISIBLE_AGENT_COMPOSER_ROOT,
+  input: `${VISIBLE_AGENT_COMPOSER_ROOT} ${COMPOSER.input}:visible`,
+  send: `${VISIBLE_AGENT_COMPOSER_ROOT} ${COMPOSER.send}:visible`,
+  stop: `${VISIBLE_AGENT_COMPOSER_ROOT} ${COMPOSER.stop}:visible`,
+  model: `${VISIBLE_AGENT_COMPOSER_ROOT} ${COMPOSER.model}:visible`,
 } as const;
 
 export async function readComposerRuntimeState(page: Page): Promise<unknown> {
   return page.evaluate(() => {
-    const inputs = Array.from(
-      document.querySelectorAll<HTMLElement>(
-        '[data-agent-composer-slot="editor-input"]',
-      ),
-    );
-    const sends = Array.from(
-      document.querySelectorAll<HTMLButtonElement>(
-        '[data-agent-composer-slot="send-button"]',
-      ),
-    );
     const isVisible = (element: Element): boolean => {
       const style = window.getComputedStyle(element);
       return (
@@ -236,11 +230,32 @@ export async function readComposerRuntimeState(page: Page): Promise<unknown> {
         element.getClientRects().length > 0
       );
     };
+    const panel = document.querySelector<HTMLElement>(
+      '.agent-sidebar-panel[data-agent-sidebar-state="open"]',
+    );
+    const roots = Array.from(
+      (panel ?? document).querySelectorAll<HTMLElement>(
+        '[data-agent-composer-slot="root"]',
+      ),
+    );
+    const root = roots.find(isVisible) ?? roots[0];
+    const surface = root ?? panel ?? document;
+    const inputs = Array.from(
+      surface.querySelectorAll<HTMLElement>(
+        '[data-agent-composer-slot="editor-input"]',
+      ),
+    );
+    const sends = Array.from(
+      surface.querySelectorAll<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      ),
+    );
     const input = inputs.find(isVisible) ?? inputs[0];
     const send = sends.find(isVisible) ?? sends[0];
-    const panel = document.querySelector<HTMLElement>(".agent-sidebar-panel");
     return {
       href: window.location.href,
+      composerRootCount: roots.length,
+      visibleComposerRootCount: roots.filter(isVisible).length,
       inputCount: inputs.length,
       visibleInputCount: inputs.filter(isVisible).length,
       input: input
