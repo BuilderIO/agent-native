@@ -4,6 +4,10 @@ import { getDispatchConfig } from "../index.js";
 
 const DEFAULT_MARKETING = {
   appName: "Dispatch",
+  screenshotPath: "/auth-marketing/dispatch.webp",
+  screenshotWidth: 914,
+  screenshotHeight: 818,
+  learnMoreUrl: "https://agent-native.com/apps/dispatch",
   tagline:
     "Your AI agent manages secrets, orchestrates other agents, and routes messages across your workspace.",
   features: [

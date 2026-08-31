@@ -181,6 +181,8 @@ const EN_AUTH_COPY = {
   localDevFailed: "Local development sign-in is unavailable.",
   localDevFullOptions: "Show full sign in options",
   openSource: "100% free and open source",
+  newToApp: "New to {appName}?",
+  learnMore: "Learn more",
   useOwnGoogleClient: "Use your own Google OAuth client:",
   copyCommand: "Copy command",
   copied: "Copied",
@@ -267,6 +269,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "本地开发登录不可用。",
     localDevFullOptions: "显示完整登录选项",
     openSource: "100% 免费且开源",
+    newToApp: "第一次使用 {appName}？",
+    learnMore: "了解更多",
     useOwnGoogleClient: "使用你自己的 Google OAuth 客户端：",
     copyCommand: "复制命令",
     copied: "已复制",
@@ -341,6 +345,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "本機開發登入無法使用。",
     localDevFullOptions: "顯示完整登入選項",
     openSource: "100% 免費且開源",
+    newToApp: "第一次使用 {appName}？",
+    learnMore: "深入瞭解",
     useOwnGoogleClient: "使用你自己的 Google OAuth 用戶端：",
     copyCommand: "複製指令",
     copied: "已複製",
@@ -419,6 +425,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "El inicio de sesión de desarrollo local no está disponible.",
     localDevFullOptions: "Mostrar todas las opciones de inicio de sesión",
     openSource: "100% gratis y de código abierto",
+    newToApp: "¿Nuevo en {appName}?",
+    learnMore: "Más información",
     useOwnGoogleClient: "Usa tu propio cliente de Google OAuth:",
     copyCommand: "Copiar comando",
     copied: "Copiado",
@@ -503,6 +511,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "La connexion de développement local est indisponible.",
     localDevFullOptions: "Afficher toutes les options de connexion",
     openSource: "100 % gratuit et open source",
+    newToApp: "Nouveau sur {appName} ?",
+    learnMore: "En savoir plus",
     useOwnGoogleClient: "Utilisez votre propre client Google OAuth :",
     copyCommand: "Copier la commande",
     copied: "Copié",
@@ -588,6 +598,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "Die lokale Entwicklungsanmeldung ist nicht verfügbar.",
     localDevFullOptions: "Alle Anmeldeoptionen anzeigen",
     openSource: "100 % kostenlos und Open Source",
+    newToApp: "Neu bei {appName}?",
+    learnMore: "Mehr erfahren",
     useOwnGoogleClient: "Eigenen Google-OAuth-Client verwenden:",
     copyCommand: "Befehl kopieren",
     copied: "Kopiert",
@@ -671,6 +683,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "ローカル開発のサインインは利用できません。",
     localDevFullOptions: "完全なサインイン オプションを表示",
     openSource: "100% 無料でオープンソース",
+    newToApp: "{appName} は初めてですか？",
+    learnMore: "詳細を見る",
     useOwnGoogleClient: "自分の Google OAuth クライアントを使用:",
     copyCommand: "コマンドをコピー",
     copied: "コピーしました",
@@ -753,6 +767,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "로컬 개발 로그인을 사용할 수 없습니다.",
     localDevFullOptions: "전체 로그인 옵션 보기",
     openSource: "100% 무료 오픈 소스",
+    newToApp: "{appName}이(가) 처음이신가요?",
+    learnMore: "자세히 알아보기",
     useOwnGoogleClient: "내 Google OAuth 클라이언트 사용:",
     copyCommand: "명령 복사",
     copied: "복사됨",
@@ -833,6 +849,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "O login de desenvolvimento local não está disponível.",
     localDevFullOptions: "Mostrar todas as opções de login",
     openSource: "100% grátis e open source",
+    newToApp: "Novo no {appName}?",
+    learnMore: "Saiba mais",
     useOwnGoogleClient: "Use seu próprio cliente Google OAuth:",
     copyCommand: "Copiar comando",
     copied: "Copiado",
@@ -914,6 +932,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "स्थानीय विकास साइन-इन उपलब्ध नहीं है।",
     localDevFullOptions: "साइन-इन के सभी विकल्प दिखाएं",
     openSource: "100% मुफ्त और open source",
+    newToApp: "{appName} पर नए हैं?",
+    learnMore: "और जानें",
     useOwnGoogleClient: "अपना Google OAuth client उपयोग करें:",
     copyCommand: "कमांड कॉपी करें",
     copied: "कॉपी हो गया",
@@ -992,6 +1012,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed: "تسجيل دخول التطوير المحلي غير متاح.",
     localDevFullOptions: "عرض خيارات تسجيل الدخول الكاملة",
     openSource: "مجاني ومفتوح المصدر 100%",
+    newToApp: "هل أنت جديد على {appName}؟",
+    learnMore: "معرفة المزيد",
     useOwnGoogleClient: "استخدم عميل Google OAuth الخاص بك:",
     copyCommand: "نسخ الأمر",
     copied: "تم النسخ",
@@ -1107,6 +1129,10 @@ export interface OnboardingHtmlOptions {
     tagline: string;
     description?: string;
     features?: string[];
+    screenshotPath?: string;
+    screenshotWidth?: number;
+    screenshotHeight?: number;
+    learnMoreUrl?: string;
     /** @deprecated Local execution is no longer offered from auth pages. */
     runLocalCommand?: string;
   };
@@ -1282,6 +1308,36 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     max-width: 1100px;
     margin: 0 auto;
   }
+  .auth-marketing-learn-more {
+    position: fixed;
+    top: max(1.5rem, env(safe-area-inset-top));
+    inset-inline-end: max(4rem, calc(env(safe-area-inset-right) + 3.5rem));
+    z-index: 3;
+    color: hsl(var(--foreground, 0 0% 90%));
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .auth-marketing-learn-more:hover { color: hsl(var(--foreground, 0 0% 90%)); }
+  .auth-marketing-learn-more-link { color: hsl(var(--primary, 195 100% 50%)); }
+  .auth-marketing-screenshot-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100vh - 3rem);
+  }
+  .auth-marketing-screenshot {
+    display: block;
+    width: auto;
+    max-width: 100%;
+    height: auto;
+    max-height: calc(100vh - 3rem);
+    object-fit: contain;
+  }
   .marketing-panel {
     flex: 1;
     display: flex;
@@ -1383,6 +1439,11 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   .form-panel .card { max-width: 400px; }
   .form-panel .local-note { max-width: 400px; }
   @media (max-width: 900px) {
+    .auth-marketing-learn-more {
+      top: max(1rem, env(safe-area-inset-top));
+      inset-inline-end: max(3.5rem, calc(env(safe-area-inset-right) + 3rem));
+      font-size: 0.75rem;
+    }
     .split { flex-direction: column; min-height: auto; }
     .marketing-panel { padding: 4.25rem 1.5rem 1.5rem; }
     .app-name { font-size: 1.375rem; }
@@ -1424,7 +1485,25 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       value: locale,
       label: localeDisplayName(locale),
     })),
-    marketing: hasMarketing && marketing ? marketing : undefined,
+    marketing:
+      hasMarketing && marketing
+        ? {
+            appName: marketing.appName,
+            tagline: marketing.tagline,
+            description: marketing.description,
+            features: marketing.features,
+            screenshotSrc: marketing.screenshotPath
+              ? withAppBasePath(marketing.screenshotPath, appBasePath)
+              : undefined,
+            screenshotWidth: marketing.screenshotWidth,
+            screenshotHeight: marketing.screenshotHeight,
+            learnMoreUrl:
+              marketing.learnMoreUrl ??
+              (marketingSlug
+                ? `https://agent-native.com/apps/${marketingSlug}`
+                : undefined),
+          }
+        : undefined,
     marketingLocales: authMarketingLocales,
     brandMarkSrc,
     githubUrl: "https://github.com/BuilderIO/agent-native",
@@ -2069,12 +2148,14 @@ ${embeddedAuthCss}
   .auth-root { width: 100%; }
   .auth-marketing-home { width: 100%; padding: 0; position: relative; overflow-x: hidden; }
   .auth-marketing-shell { padding: 0; }
-  .auth-marketing-home .split { width: 100%; }
+  .auth-marketing-home .split { width: 100%; max-width: none; margin: 0; }
   .auth-marketing-home .marketing-panel { min-width: 0; }
+  .auth-marketing-home.has-product-screenshot .marketing-panel { padding-inline: 0 3.5rem; }
   .auth-marketing-home .form-panel { min-width: 0; }
   .auth-marketing-home [data-agent-native-starfield] { position: fixed; inset: 0; width: 100%; height: 100%; }
   @media (max-width: 900px) {
     .auth-marketing-home .auth-marketing-shell { display: block; }
+    .auth-marketing-home.has-product-screenshot .marketing-panel { display: none; }
   }
 `;
   const authClientScriptPath = `${appBasePath}/assets/auth-client.js`;
