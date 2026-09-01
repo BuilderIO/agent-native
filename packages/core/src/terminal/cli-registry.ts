@@ -36,7 +36,9 @@ export async function terminalPath(
       })()
     : [];
   const entries = [
-    ...(environment.PATH ?? "").split(path.delimiter).filter(Boolean),
+    ...(environment.PATH ?? environment.Path ?? "")
+      .split(path.delimiter)
+      .filter(Boolean),
     environment.PNPM_HOME,
     home ? path.join(home, ".local", "bin") : undefined,
     home ? path.join(home, ".local", "share", "pnpm") : undefined,
@@ -96,7 +98,8 @@ export async function resolveCommandPath(
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<string | null> {
   const { spawnSync } = await import("node:child_process");
-  const result = spawnSync("which", [cmd], {
+  const resolver = process.platform === "win32" ? "where.exe" : "which";
+  const result = spawnSync(resolver, [cmd], {
     encoding: "utf8",
     env: { ...environment, PATH: await terminalPath(environment) },
     stdio: ["ignore", "pipe", "ignore"],

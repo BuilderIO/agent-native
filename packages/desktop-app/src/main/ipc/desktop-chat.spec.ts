@@ -218,6 +218,45 @@ describe("desktop chat relay target URLs", () => {
     }
   });
 
+  it("aborts an active streamed MCP response when the relay closes", async () => {
+    let resolveRequestClosed!: () => void;
+    const requestClosed = new Promise<void>((resolve) => {
+      resolveRequestClosed = resolve;
+    });
+    const upstream = createServer((request, response) => {
+      request.once("close", resolveRequestClosed);
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.write('data: {"jsonrpc":"2.0","id":1}\n\n');
+    });
+    await new Promise<void>((resolve) =>
+      upstream.listen(0, "127.0.0.1", resolve),
+    );
+    const address = upstream.address();
+    if (!address || typeof address === "string") throw new Error("no port");
+
+    const relay = new DesktopTerminalMcpRelay(
+      `http://127.0.0.1:${address.port}/mcp`,
+      {},
+    );
+    try {
+      const registration = await relay.start();
+      const response = await fetch(registration.url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${registration.bearerToken}`,
+          "content-type": "application/json",
+        },
+        body: '{"jsonrpc":"2.0","id":1,"method":"tools/list"}',
+      });
+      expect(response.status).toBe(200);
+      await relay.close();
+      await expect(requestClosed).resolves.toBeUndefined();
+    } finally {
+      await relay.close();
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    }
+  });
+
   it("rejects dot-segment traversal after URL normalization", () => {
     expect(
       resolveTargetUrl(

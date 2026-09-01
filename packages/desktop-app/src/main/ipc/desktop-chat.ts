@@ -7,6 +7,7 @@ import {
 } from "node:http";
 import path from "node:path";
 import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 
 import { createPtyWebSocketServer } from "@agent-native/core/terminal/server";
@@ -178,6 +179,43 @@ export default function (pi) {
     return data && data !== "[DONE]" ? JSON.parse(data) : null;
   }
 
+  async function readResponsePayload(response, requestId) {
+    const contentType = (response.headers.get("content-type") || "").toLowerCase();
+    if (!contentType.includes("text/event-stream") || !response.body) {
+      return parseBody(await response.text());
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        buffer += decoder.decode(chunk.value || new Uint8Array(), {
+          stream: !chunk.done,
+        });
+        const events = buffer.split(/\r?\n\r?\n/);
+        buffer = events.pop() || "";
+        for (const event of events) {
+          const data = event
+            .split(/\r?\n/)
+            .filter((line) => line.startsWith("data:"))
+            .map((line) => line.slice(5).trim())
+            .join("\n");
+          if (!data || data === "[DONE]") continue;
+          const payload = JSON.parse(data);
+          if (requestId == null || payload?.id === requestId) return payload;
+        }
+        if (chunk.done) return parseBody(buffer);
+      }
+    } finally {
+      await reader.cancel().catch(() => {
+        // coercion-ok: cancellation is best-effort after the response is consumed.
+      });
+      reader.releaseLock();
+    }
+  }
+
   async function request(server, body, signal, sessionId) {
     const headers = {
       ...server.headers,
@@ -192,7 +230,7 @@ export default function (pi) {
       body: JSON.stringify(body),
       signal,
     });
-    const payload = parseBody(await response.text());
+    const payload = await readResponsePayload(response, body.id);
     if (!response.ok) {
       const message =
         payload && payload.error && payload.error.message
@@ -331,7 +369,10 @@ export default function (pi) {
 export class DesktopTerminalMcpRelay {
   private readonly bearerToken = randomBytes(32).toString("base64url");
   private readonly bearerHash = hashTerminalToken(this.bearerToken);
-  private readonly activeControllers = new Set<AbortController>();
+  private readonly activeRequests = new Map<
+    AbortController,
+    { request: IncomingMessage; response: ServerResponse }
+  >();
   private server?: ReturnType<typeof createServer>;
   private url?: string;
 
@@ -367,8 +408,11 @@ export class DesktopTerminalMcpRelay {
   }
 
   async close(): Promise<void> {
-    for (const controller of this.activeControllers) controller.abort();
-    this.activeControllers.clear();
+    for (const [controller, { request, response }] of this.activeRequests) {
+      controller.abort();
+      request.destroy();
+      response.destroy();
+    }
     const server = this.server;
     this.server = undefined;
     this.url = undefined;
@@ -414,12 +458,13 @@ export class DesktopTerminalMcpRelay {
     }
 
     const controller = new AbortController();
-    this.activeControllers.add(controller);
+    this.activeRequests.set(controller, { request, response });
     const abort = () => controller.abort();
-    request.once("aborted", abort);
-    response.once("close", () => {
+    const abortResponse = () => {
       if (!response.writableEnded) controller.abort();
-    });
+    };
+    request.once("aborted", abort);
+    response.once("close", abortResponse);
     try {
       const headers = new Headers();
       for (const [name, value] of Object.entries(request.headers)) {
@@ -450,7 +495,8 @@ export class DesktopTerminalMcpRelay {
         response.end();
         return;
       }
-      Readable.fromWeb(upstream.body as unknown as NodeReadableStream).pipe(
+      await pipeline(
+        Readable.fromWeb(upstream.body as unknown as NodeReadableStream),
         response,
       );
     } catch (error) {
@@ -462,8 +508,9 @@ export class DesktopTerminalMcpRelay {
       response.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
       response.end("The active app MCP connection failed.");
     } finally {
-      this.activeControllers.delete(controller);
+      this.activeRequests.delete(controller);
       request.removeListener("aborted", abort);
+      response.removeListener("close", abortResponse);
     }
   }
 }
