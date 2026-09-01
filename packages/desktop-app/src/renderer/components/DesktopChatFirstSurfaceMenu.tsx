@@ -1,44 +1,31 @@
-import type { ChatFirstAppItem } from "@agent-native/core/client/chat-first";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@agent-native/toolkit/ui";
 import {
-  IconApps,
   IconDotsVertical,
   IconLayoutSidebarRightCollapse,
   IconMessageCircle,
   IconTerminal2,
 } from "@tabler/icons-react";
-import type { ReactNode } from "react";
 
 export interface DesktopChatFirstSurfaceMenuProps {
   sidebarOpen?: boolean;
-  apps?: readonly ChatFirstAppItem[];
   onToggleSidebar?: () => void;
-  onOpenApp?: (app: ChatFirstAppItem) => void;
-  renderAppIcon?: (app: ChatFirstAppItem) => ReactNode;
   onNewCliTab?: () => void;
   onNewUiTab?: () => void;
 }
 
 export function DesktopChatFirstSurfaceMenuItems({
   sidebarOpen = false,
-  apps = [],
   onToggleSidebar,
-  onOpenApp,
-  renderAppIcon,
   onNewCliTab,
   onNewUiTab,
 }: DesktopChatFirstSurfaceMenuProps) {
-  const hasAppPicker = apps.length > 0 && Boolean(onOpenApp);
-  if (!onToggleSidebar && !hasAppPicker && !onNewCliTab && !onNewUiTab) {
+  if (!onToggleSidebar && !onNewCliTab && !onNewUiTab) {
     return null;
   }
 
@@ -50,33 +37,9 @@ export function DesktopChatFirstSurfaceMenuItems({
           {sidebarOpen ? "Hide sidebar" : "Open sidebar"}
         </DropdownMenuItem>
       ) : null}
-      {hasAppPicker ? (
-        <>
-          {onToggleSidebar ? <DropdownMenuSeparator /> : null}
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <IconApps size={14} className="shrink-0" />
-              Open app in sidebar
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-56">
-              {apps.map((app) => (
-                <DropdownMenuItem
-                  key={app.id}
-                  onSelect={() => onOpenApp?.(app)}
-                >
-                  {renderAppIcon?.(app) ?? (
-                    <IconApps size={14} className="shrink-0" />
-                  )}
-                  <span className="min-w-0 truncate">{app.name}</span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-        </>
-      ) : null}
       {onNewCliTab || onNewUiTab ? (
         <>
-          {(onToggleSidebar || hasAppPicker) && <DropdownMenuSeparator />}
+          {onToggleSidebar && <DropdownMenuSeparator />}
           {onNewCliTab ? (
             <DropdownMenuItem onSelect={onNewCliTab}>
               <IconTerminal2 size={14} className="shrink-0" />
