@@ -39,6 +39,7 @@ import {
   resolveRecurringJobsBuildMarker,
 } from "../server/agent-chat/recurring-jobs-runtime.js";
 import { verifyEmbedSessionToken } from "../server/embed-session.js";
+import { resolveAgentNativeBuildId } from "../shared/build-id.js";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_TOKEN_QUERY_PARAM,
@@ -3740,13 +3741,7 @@ function createAgentNativeConfig(
           deployment: { environment: inferredDeploymentEnvironment },
         }
       : appConfig;
-  const buildId =
-    process.env.DEPLOY_ID?.trim() ||
-    process.env.COMMIT_REF?.trim() ||
-    process.env.VERCEL_GIT_COMMIT_SHA?.trim() ||
-    process.env.CF_PAGES_COMMIT_SHA?.trim() ||
-    process.env.AGENT_NATIVE_BUILD_SHA?.trim() ||
-    "development";
+  const buildId = resolveAgentNativeBuildId(process.env, "development");
   const packageVersions = resolveAgentNativePackageVersions(cwd);
 
   // Preload workspace-root .env into process.env so Nitro server code sees

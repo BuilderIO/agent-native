@@ -28,6 +28,10 @@ export default createAuthPlugin({
   ],
   marketing: {
     appName: "Mail",
+    screenshotPath: "/auth-marketing/mail.webp",
+    screenshotWidth: 927,
+    screenshotHeight: 818,
+    learnMoreUrl: "https://agent-native.com/apps/mail",
     tagline: "Your AI agent reads, drafts, and organizes email alongside you.",
     features: [
       "Replies that match your tone and style",

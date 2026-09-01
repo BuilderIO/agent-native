@@ -201,6 +201,12 @@ interface PendingNativeUpload {
 
 type PendingDesktopUpload = PendingNativeUpload | PendingBrowserRecordingUpload;
 
+type AuthCheckResult =
+  | { state: "authenticated"; token?: string }
+  | { state: "anonymous" }
+  | { state: "unavailable" }
+  | { state: "stale" };
+
 type NativeUploadProgress = {
   message?: string;
 };
@@ -1234,9 +1240,9 @@ export function App({
   const [recordingFlowActive, setRecordingFlowActive] = useState(false);
   const [recordingStopFinalizing, setRecordingStopFinalizing] = useState(false);
   const [, setLastRecordingId] = useState<string | null>(null);
-  const [authStatus, setAuthStatus] = useState<"unknown" | "authed" | "anon">(
-    "unknown",
-  );
+  const [authStatus, setAuthStatus] = useState<
+    "unknown" | "authed" | "anon" | "unavailable"
+  >("unknown");
   // "Could not reach the server" is not the same state as "signed out", and the
   // fix is different: one needs a correct server URL, the other needs sign-in.
   const [serverReachable, setServerReachable] = useState(true);
@@ -1258,6 +1264,9 @@ export function App({
   // Ref-based lock so two fast clicks cannot start competing desktop auth
   // (state updates are async; refs are synchronous).
   const signInInflightRef = useRef(false);
+  const authCheckGenerationRef = useRef(0);
+  const authServerUrlRef = useRef(serverUrl);
+  authServerUrlRef.current = serverUrl;
   // Stored so Cancel can stop the polling loop.
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const signInVisibilityRef = useRef<(() => void) | null>(null);
@@ -1475,21 +1484,27 @@ export function App({
   // The Tauri WebView has its own cookie jar (separate from the user's
   // browser). Before anything else, check whether we have a session cookie
   // for the Clips server; if not, surface a Sign in button.
-  const checkAuth = useCallback(async () => {
+  const checkAuth = useCallback(async (): Promise<AuthCheckResult> => {
+    const requestServerUrl = serverUrl;
+    const requestId = ++authCheckGenerationRef.current;
+    const isCurrentRequest = () =>
+      requestId === authCheckGenerationRef.current &&
+      authServerUrlRef.current === requestServerUrl;
     try {
       const res = await fetch(
-        `${serverUrl.replace(/\/+$/, "")}/_agent-native/auth/session`,
+        `${requestServerUrl.replace(/\/+$/, "")}/_agent-native/auth/session`,
         { credentials: "include", cache: "no-store" },
       );
+      if (!isCurrentRequest()) return { state: "stale" };
       // Any HTTP answer, including 401, means the server is there.
       setServerReachable(true);
       if (!res.ok) {
         if (res.status === 401 || res.status === 403) {
-          clearDesktopAuthToken(serverUrl);
+          clearDesktopAuthToken(requestServerUrl);
         }
         setAuthStatus("anon");
         setSignedInAs(null);
-        return false;
+        return { state: "anonymous" };
       }
       const json = (await res.json().catch(() => null)) as {
         email?: string;
@@ -1497,22 +1512,27 @@ export function App({
         error?: string;
       } | null;
       if (json?.email) {
-        if (json.token) saveDesktopAuthToken(serverUrl, json.token);
+        if (!isCurrentRequest()) return { state: "stale" };
+        const token = json.token?.trim() || undefined;
+        if (token) saveDesktopAuthToken(requestServerUrl, token);
         setAuthStatus("authed");
         setSignedInAs(json.email);
-        return true;
+        return { state: "authenticated", ...(token ? { token } : {}) };
       }
+      if (!isCurrentRequest()) return { state: "stale" };
       setAuthStatus("anon");
       setSignedInAs(null);
-      clearDesktopAuthToken(serverUrl);
-      return false;
+      clearDesktopAuthToken(requestServerUrl);
+      return { state: "anonymous" };
     } catch {
       // Network-level failure: nothing answered, so we know nothing about the
       // session. Record that separately so the UI can offer the right fix.
+      if (!isCurrentRequest()) return { state: "stale" };
       setServerReachable(false);
-      setAuthStatus("anon");
-      setSignedInAs(null);
-      return false;
+      setAuthStatus((current) =>
+        current === "authed" ? current : "unavailable",
+      );
+      return { state: "unavailable" };
     }
   }, [serverUrl]);
 
@@ -2376,12 +2396,16 @@ export function App({
           signInInflightRef.current = false;
           setSignInPending(null);
           setMagicLinkEmail(null);
-          const ok = await checkAuth();
-          if (!ok) {
+          const authResult = await checkAuth();
+          if (authResult.state === "anonymous") {
             setSignInError(
               kind === "magic-link"
                 ? "Signed in, but Clips couldn't keep the session. Try again."
                 : "Signed in with Google, but Clips couldn't keep the session. Try again.",
+            );
+          } else if (authResult.state === "unavailable") {
+            setSignInError(
+              "Signed in, but Clips couldn't reach the server to verify it. Try again.",
             );
           }
         } else if (Date.now() - start > TIMEOUT_MS) {
@@ -3202,7 +3226,19 @@ export function App({
     retryUploadAbortRef.current = abortController;
     retryingUploadKindRef.current = upload.kind;
     try {
-      const authToken = loadDesktopAuthToken(targetServerUrl);
+      let authToken = loadDesktopAuthToken(targetServerUrl);
+      if (
+        upload.kind === "native" &&
+        originForServer(targetServerUrl) === originForServer(serverUrl)
+      ) {
+        const authResult = await checkAuth();
+        if (authResult.state === "anonymous") {
+          throw new Error("Sign in to retry this upload.");
+        }
+        if (authResult.state === "authenticated" && authResult.token) {
+          authToken = authResult.token;
+        }
+      }
       if (upload.kind === "native") {
         const result = await invoke<{ verificationPending?: boolean }>(
           "native_fullscreen_recording_retry_upload",
@@ -4051,6 +4087,8 @@ export function App({
   const recordingReadinessPending =
     localRecordingMode === "off" &&
     (authStatus !== "authed" || videoStorageStatus === "checking");
+  const startButtonLoading =
+    recordingReadinessPending && !recordingStopFinalizing;
 
   const pendingUploadBanner =
     authStatus === "authed" ? (
@@ -4373,7 +4411,7 @@ export function App({
   // the same webview that reads it on the next /auth/session poll.
   // Google verification uses a popup in the bound WebView, while magic-link
   // verification uses the system browser and password stays inline here.
-  if (authStatus === "anon") {
+  if (authStatus === "anon" || authStatus === "unavailable") {
     return (
       <div className="app" ref={appRef}>
         {/* Signed out, the only job on this screen is signing in. Capture
@@ -4428,7 +4466,12 @@ export function App({
               serverUrl={serverUrl}
               onSignedIn={async () => {
                 setSignInError(null);
-                await checkAuth();
+                const authResult = await checkAuth();
+                if (authResult.state === "unavailable") {
+                  setSignInError(
+                    "Signed in, but Clips couldn't reach the server to verify it. Try again.",
+                  );
+                }
               }}
               onUseBrowser={signInExternal}
               onMagicLink={requestMagicLink}
@@ -4574,7 +4617,10 @@ export function App({
 
         {!isRecording ? (
           <button
-            className="primary start"
+            className={cn(
+              "primary start",
+              startButtonLoading && "start-loading",
+            )}
             disabled={recordingReadinessPending || recordingStopFinalizing}
             aria-busy={recordingReadinessPending || recordingStopFinalizing}
             aria-label={
@@ -4586,18 +4632,19 @@ export function App({
             }
             onClick={() => beginRecording()}
           >
-            {recordingStopFinalizing ? (
-              "Finishing last recording..."
-            ) : recordingReadinessPending ? (
+            <span className="start-label">
+              {recordingStopFinalizing
+                ? "Finishing last recording..."
+                : localRecordingMode === "off"
+                  ? "Start recording"
+                  : "Start local recording"}
+            </span>
+            {startButtonLoading ? (
               <span
                 aria-hidden="true"
-                className="skeleton-shimmer inline-block h-4 w-32 rounded bg-muted"
+                className="start-loading-shimmer skeleton-shimmer"
               />
-            ) : localRecordingMode === "off" ? (
-              "Start recording"
-            ) : (
-              "Start local recording"
-            )}
+            ) : null}
           </button>
         ) : null}
 

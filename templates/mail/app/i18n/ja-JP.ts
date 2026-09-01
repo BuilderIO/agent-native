@@ -44,12 +44,18 @@ const messages = {
       noMatches: "一致する結果はありません",
       localResults: "この受信トレイ内",
       searchingGmail: "Gmail を検索中...",
+      saveAsTab: "タブとして保存",
+      saveAsTabPrompt: "このタブに名前を付ける",
+      saveAsTabFailed:
+        "このタブを保存できませんでした。もう一度お試しください。",
+      filtersLimitReached: "保存できるフィルターは最大20件です。",
     },
     tabSettings: {
       views: "ビュー",
       categories: "カテゴリ",
       rename: "名前を変更",
       renameTab: "タブ名を変更",
+      savedFilters: "保存したフィルター",
       help: "チェックした項目はタブとして表示されます。ラベル付きメールは受信トレイから分離されます。",
     },
     accounts: {

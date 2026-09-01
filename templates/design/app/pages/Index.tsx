@@ -33,8 +33,6 @@ import {
   IconTrash,
   IconCopy,
   IconCode,
-  IconStack2,
-  IconUserCircle,
   IconX,
   IconPencil,
 } from "@tabler/icons-react";
@@ -945,7 +943,6 @@ export default function Index() {
           aria-label={t("home.showMineDesigns")}
           className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
         >
-          <IconUserCircle className="me-1.5 h-3.5 w-3.5" />
           {t("home.mine")}
         </ToggleGroupItem>
         <ToggleGroupItem
@@ -953,7 +950,6 @@ export default function Index() {
           aria-label={t("home.showAllDesigns")}
           className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
         >
-          <IconStack2 className="me-1.5 h-3.5 w-3.5" />
           {t("home.all")}
         </ToggleGroupItem>
       </ToggleGroup>

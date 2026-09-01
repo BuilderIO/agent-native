@@ -119,6 +119,7 @@ export default function MailTemplate() {
             </span>
           </>
         }
+        customizeTemplate={template}
         description={
           <p className="m-0">
             Superhuman-style keyboard shortcuts, AI triage, smart search, and

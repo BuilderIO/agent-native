@@ -7,6 +7,7 @@ import {
   IconLoader2,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
+  IconShare,
   IconX,
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
@@ -34,6 +35,7 @@ import {
   streamMeetingAsk,
 } from "../lib/meeting-ask";
 import { isDirectPillClick, type ScreenPoint } from "../lib/pill-interaction";
+import { writeClipboardText } from "../lib/recording-link";
 import { speakerFor, type TranscriptLine } from "../lib/transcription-engine";
 import { loadStoredServerUrl } from "../lib/url";
 import { AskSteps } from "./ask-steps";
@@ -727,7 +729,7 @@ export function MeetingPill() {
       .map((l) => `${speakerFor(l.source)}: ${l.text}`)
       .join("\n");
     try {
-      await navigator.clipboard.writeText(text);
+      if (!(await writeClipboardText(text))) return;
       setTranscriptCopied(true);
       setTimeout(() => setTranscriptCopied(false), 1500);
     } catch {
@@ -1290,6 +1292,35 @@ export function MeetingPill() {
                   <IconCopy size={14} />
                 )}
               </button>
+            ) : null}
+            {finished ? (
+              <>
+                <button
+                  type="button"
+                  data-no-drag
+                  className="pill-copy-btn"
+                  onClick={handleCopyTranscript}
+                  disabled={!hasTranscriptLines}
+                  aria-label="Copy transcript"
+                  title="Copy transcript"
+                >
+                  {transcriptCopied ? (
+                    <IconCheck size={14} />
+                  ) : (
+                    <IconCopy size={14} />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => closeFinished(true)}
+                  data-no-drag
+                  className="pill-copy-btn"
+                  aria-label="Share meeting"
+                  title="Share meeting"
+                >
+                  <IconShare size={15} />
+                </button>
+              </>
             ) : null}
             {finished ? (
               <button

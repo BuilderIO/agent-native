@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { labelTabHref } from "./AppLayout";
+import { buildLabelDisplayNames, labelTabHref } from "./AppLayout";
 
 function appLayoutSource(): string {
   return readFileSync(new URL("./AppLayout.tsx", import.meta.url), "utf8");
@@ -26,6 +26,32 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain('const localCount = localCounts["__inboxTotal"]');
   });
 
+  it("uses the saved-filter-exclusive local count for a plain Inbox", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("if (savedFilterQueries.length > 0)");
+    expect(source).toContain('return localCounts["__inboxExclusive"] ?? 0;');
+    expect(source).toContain('total["__inboxExclusive"]');
+    expect(source).toContain(
+      "const savedFilterThreads = savedFilterThreadIds(",
+    );
+    expect(source).toContain(
+      "filtered.filter((e) => !savedFilterThreads.has(inboxThreadKey(e)))",
+    );
+  });
+
+  it("groups badge rows with the rendered list's thread identity", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'import { groupIntoThreads } from "@/lib/threads";',
+    );
+    expect(source).toContain("const threadRows = groupIntoThreads(filtered);");
+    expect(source).toContain(
+      "filterInboxTabEmails(filtered, null, pinnedLabels, savedFilterQueries)",
+    );
+  });
+
   it("collapses the native rail while the per-app chat is open", () => {
     const source = appLayoutSource();
 
@@ -43,6 +69,30 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain("href: `/inbox?tab=${OTHER_INBOX_TAB_PARAM}`");
     expect(source).toContain("id: OTHER_INBOX_TAB_ID");
     expect(source).toContain('params.set("tab", tab)');
+    expect(source).toContain('params.set("filter", filter)');
+  });
+
+  it("routes saved searches through the Gmail query path", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("onSaveSearch={saveSearchAsFilter}");
+    expect(source).toContain(
+      "href: `/inbox?filter=${encodeURIComponent(filter.id)}`",
+    );
+    expect(source).toContain("savedFilters: [...savedFilters, filter]");
+    expect(source).toContain("savedFilters.length >= 20");
+    expect(source).toContain("filtersLimitReached");
+    expect(source).toContain("activeAccounts.size > 0");
+    expect(source).toContain(
+      'useEmails("all", activeSavedFilter?.query, undefined,',
+    );
+    expect(source).toContain("activeFilterHasNextPage");
+  });
+
+  it("does not show a false count for an inactive saved filter", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("? activeFilterCounts[kind]\n        : undefined");
   });
 
   it("builds pin mutations from the resolved visible pins", () => {
@@ -150,5 +200,25 @@ describe("labelTabHref", () => {
     // inbox, so they keep the client-slice-of-inbox behavior on purpose.
     expect(labelTabHref("important")).toBe("/inbox?label=important");
     expect(labelTabHref("updates")).toBe("/inbox?label=updates");
+  });
+});
+
+describe("buildLabelDisplayNames", () => {
+  it("disambiguates labels that share a short name", () => {
+    const displayNames = buildLabelDisplayNames([
+      { id: "top", name: "automated notifications", type: "user" },
+      {
+        id: "nested",
+        name: "[Superhuman]/AI/Automated_notifications",
+        type: "user",
+      },
+      { id: "pitch", name: "[Superhuman]/AI/Pitch", type: "user" },
+    ]);
+
+    expect(displayNames.get("top")).toBe("automated notifications");
+    expect(displayNames.get("nested")).toBe(
+      "[Superhuman]/AI/Automated notifications",
+    );
+    expect(displayNames.get("pitch")).toBe("Pitch");
   });
 });

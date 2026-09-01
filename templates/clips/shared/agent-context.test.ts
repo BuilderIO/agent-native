@@ -28,11 +28,38 @@ describe("agent clip context helpers", () => {
     expect(payload.instructions).toMatch(/still uploading/i);
     expect(payload.instructions).toMatch(/wait 15 seconds/i);
     expect(payload.instructions).not.toMatch(/JPEG frame URLs/i);
+    expect(payload.webmcp.tools.map((tool) => tool.name)).toEqual([
+      "clips-get-context",
+      "clips-get-transcript",
+      "clips-get-frame",
+    ]);
   });
 
   it("scopes private agent access tokens separately from media tokens", () => {
     expect(agentAccessTokenResourceId("rec-1")).toBe(
       "clip-agent-context:rec-1",
+    );
+  });
+
+  it("keeps browser-independent HTTP access first-class", () => {
+    const payload = buildAgentDiscoveryPayload({
+      recordingId: "rec-1",
+      title: "Clip",
+      status: "ready",
+      agentContextUrl:
+        "https://clips.example.com/api/agent-context.json?id=rec-1",
+    });
+
+    expect(payload.instructions).toContain("this works without a browser");
+    expect(payload.webmcp.instructions).toContain(
+      "For browser-independent access from any HTTP client",
+    );
+    expect(payload.webmcp.instructions).toContain(
+      "For a complete transcript, use the HTTP apis.transcript URL",
+    );
+    expect(payload.webmcp.instructions).toContain("bounded read-only access");
+    expect(payload.webmcp.instructions).toContain(
+      "its sourceUrl points to the HTTP transcript",
     );
   });
 

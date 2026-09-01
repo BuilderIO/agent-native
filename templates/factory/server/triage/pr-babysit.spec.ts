@@ -4,6 +4,7 @@ import {
   babysitFingerprint,
   babysitOutOfScopeClause,
   formatBabysitAuditSummary,
+  hasCompletePassingChecks,
   hasMergeConflict,
   reconcileBabysitState,
   shouldRequestBabysitWork,
@@ -28,10 +29,47 @@ const comment = (
 
 const baseInput: BabysitInput = {
   comments: [],
-  checks: [],
+  checks: [check("ci", "passed")],
+  checksCoverage: "complete",
 };
 
 describe("reconcileBabysitState", () => {
+  it("requires complete, non-empty, all-passed check evidence", () => {
+    expect(
+      hasCompletePassingChecks({ checksCoverage: "complete", checks: [] }),
+    ).toBe(false);
+    expect(
+      hasCompletePassingChecks({
+        checksCoverage: "complete",
+        checks: [check("pending", "queued")],
+      }),
+    ).toBe(false);
+    expect(
+      hasCompletePassingChecks({
+        checksCoverage: "complete",
+        checks: [check("running", "in_progress")],
+      }),
+    ).toBe(false);
+    expect(
+      hasCompletePassingChecks({
+        checksCoverage: "complete",
+        checks: [check("failed", "failed")],
+      }),
+    ).toBe(false);
+    expect(
+      hasCompletePassingChecks({
+        checksCoverage: "complete",
+        checks: [check("cancelled", "cancelled")],
+      }),
+    ).toBe(false);
+    expect(
+      hasCompletePassingChecks({
+        checksCoverage: "complete",
+        checks: [check("passed", "passed")],
+      }),
+    ).toBe(true);
+  });
+
   it("treats a comment with no reply as unanswered", () => {
     const result = reconcileBabysitState({
       ...baseInput,
@@ -234,15 +272,35 @@ describe("reconcileBabysitState", () => {
     expect(result.isClean).toBe(false);
   });
 
-  it("is clean when nothing is outstanding and nothing was truncated", () => {
+  it("is never clean when check evidence is partial", () => {
     const result = reconcileBabysitState({
       ...baseInput,
+      checks: [check("CI", "passed")],
+      checksCoverage: "partial",
+    });
+
+    expect(result.checksCoverage).toBe("partial");
+    expect(result.isClean).toBe(false);
+  });
+
+  it("requires explicit complete, non-empty check evidence", () => {
+    const missingCoverage = reconcileBabysitState({
       comments: [],
       checks: [],
     });
+    expect(missingCoverage.checksCoverage).toBe("unknown");
+    expect(missingCoverage.isClean).toBe(false);
 
-    expect(result.commentsTruncated).toBe(false);
-    expect(result.isClean).toBe(true);
+    const emptyCompleteCoverage = reconcileBabysitState({
+      comments: [],
+      checks: [],
+      checksCoverage: "complete",
+    });
+    expect(emptyCompleteCoverage.isClean).toBe(false);
+
+    const complete = reconcileBabysitState(baseInput);
+    expect(complete.commentsTruncated).toBe(false);
+    expect(complete.isClean).toBe(true);
   });
 });
 

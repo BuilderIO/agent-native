@@ -7,6 +7,7 @@ import type { RefObject } from "react";
 
 import type { ElementInfo } from "@/components/design/types";
 import { nodeRepromptSubtreeExcerpt } from "@/lib/node-reprompt";
+import { structuralReferenceDirectives } from "@/pages/design-editor/generation-prompt-directives";
 import { shouldMirrorSelectedElementToAgentChat } from "@/pages/design-editor/selection-state";
 import type { DesignData, DesignFile } from "@/pages/design-editor/types";
 
@@ -17,6 +18,7 @@ export interface MirrorSelectionToAgentChatArgs {
   design: DesignData | null;
   id: string | undefined;
   isSignedIn: boolean;
+  mirroredExcerptRef: RefObject<string | null>;
   mirroredSelectionIdRef: RefObject<string | null>;
   selectedCodeLayerNode: CodeLayerNode | null;
   selectedElement: ElementInfo | null;
@@ -30,6 +32,7 @@ export function runMirrorSelectionToAgentChat({
   design,
   id,
   isSignedIn,
+  mirroredExcerptRef,
   mirroredSelectionIdRef,
   selectedCodeLayerNode,
   selectedElement,
@@ -39,36 +42,46 @@ export function runMirrorSelectionToAgentChat({
   if (!isSignedIn) return;
   if (!id || !shouldMirrorSelectedElementToAgentChat(selectedElement)) {
     mirroredSelectionIdRef.current = null;
+    mirroredExcerptRef.current = null;
     sentSelectionIdRef.current = null;
     removeAgentChatContextItem(key);
     return;
   }
 
   const selectionId = `${activeFile?.id ?? ""}::${selectedElement.sourceId ?? selectedElement.selector}`;
+  // Excerpted from the SOURCE projection, not the rendered DOM: this is the
+  // exact text edit-design's search/replace has to match, and it lets us
+  // detect when a still-selected node's own markup has changed (e.g. via a
+  // live inspector edit) so stale reference context doesn't linger unsent.
+  const selectedNodeSpan = selectedCodeLayerNode?.source;
+  const outerHtmlExcerpt = selectedNodeSpan
+    ? nodeRepromptSubtreeExcerpt(
+        activeProjectionContent.slice(
+          selectedNodeSpan.start,
+          selectedNodeSpan.end,
+        ),
+      )
+    : "";
+
   if (selectionId !== mirroredSelectionIdRef.current) {
-    // A genuinely new/changed selection always (re)attaches, regardless of
-    // whether the previous one was marked sent.
     sentSelectionIdRef.current = null;
   } else if (
     sentSelectionIdRef.current === selectionId ||
     !composerContextHasOurKeyRef.current
   ) {
-    // Same selection as before, and either it was already marked sent, or
-    // the shared store no longer carries our key (a send just cleared it,
-    // observed by the bookkeeping effect below) — stay cleared. Critically:
-    // do nothing else here, so this branch never calls
-    // setAgentChatContextItem for a selection that hasn't changed.
+    // A selection that's already been sent must not be resurrected once the
+    // composer clears it, or every re-render would re-attach the same chip.
     if (!composerContextHasOurKeyRef.current) {
       sentSelectionIdRef.current = selectionId;
     }
     return;
-  } else {
-    // Same selection, still present in the shared store, nothing to do —
-    // avoid republishing (and thus avoid the feedback loop above) when
-    // nothing about the selection actually changed.
+  } else if (outerHtmlExcerpt === mirroredExcerptRef.current) {
+    // Nothing changed since the last mirror — avoid republishing (and the
+    // feedback loop that would cause) for no reason.
     return;
   }
   mirroredSelectionIdRef.current = selectionId;
+  mirroredExcerptRef.current = outerHtmlExcerpt;
 
   const labelSource =
     selectedElement.textContent?.trim() ||
@@ -85,19 +98,6 @@ export function runMirrorSelectionToAgentChat({
     null;
   const targetSelector =
     selectedCodeLayerNode?.selector ?? selectedElement.selector ?? null;
-  // Excerpt the outerHTML out of the SOURCE projection rather than the
-  // rendered DOM: this is the exact text edit-design's search/replace has
-  // to match, so an edit anchored to it cannot drift onto a child or
-  // sibling that merely measures the same on canvas.
-  const selectedNodeSpan = selectedCodeLayerNode?.source;
-  const outerHtmlExcerpt = selectedNodeSpan
-    ? nodeRepromptSubtreeExcerpt(
-        activeProjectionContent.slice(
-          selectedNodeSpan.start,
-          selectedNodeSpan.end,
-        ),
-      )
-    : "";
   const contextLines = [
     `Selected design element in design "${design?.title ?? id}".`,
     `designId: ${id}`,
@@ -114,6 +114,10 @@ export function runMirrorSelectionToAgentChat({
     selectedElement.textContent?.trim()
       ? `Text: ${selectedElement.textContent.trim()}`
       : "",
+    // Whether this selection is a "reference" is left to the agent to infer
+    // from the user's message — a client-side keyword guess would miss real
+    // phrasings and misfire on ordinary edits.
+    ...structuralReferenceDirectives(shortLabel),
     outerHtmlExcerpt
       ? `--- selected element (outerHTML excerpt, truncated) ---\n${outerHtmlExcerpt}`
       : "",
@@ -124,10 +128,8 @@ export function runMirrorSelectionToAgentChat({
     title: shortLabel,
     context: contextLines.join("\n"),
     openSidebar: false,
-    // Mirror the selection into chat context without stealing focus: this
-    // effect re-fires on every selection change and on each get-design poll
-    // during an agent run, and focusing the composer here would blur (and
-    // tear down) an in-progress inline text edit on the canvas.
+    // Focusing here would blur (and tear down) an in-progress inline text
+    // edit on the canvas.
     focus: false,
   });
   composerContextHasOurKeyRef.current = true;

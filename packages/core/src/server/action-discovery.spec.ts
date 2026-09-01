@@ -115,6 +115,20 @@ describe("action discovery", () => {
     expect(registry["safe-write"].parallelSafe).toBe(true);
   });
 
+  it("preserves explicit endsTurn metadata", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "show-questions": {
+        default: {
+          tool: { description: "Show questions", parameters: {} },
+          endsTurn: true,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["show-questions"].endsTurn).toBe(true);
+  });
+
   it("preserves explicit duplicate-read opt-out metadata", () => {
     const registry = loadActionsFromStaticRegistry({
       "poll-run": {

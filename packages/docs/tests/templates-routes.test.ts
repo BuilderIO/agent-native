@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER } from "@agent-native/core/shared";
 import { describe, expect, it } from "vitest";
 
+import { communityApps } from "../app/components/community-apps";
 import { loadDoc } from "../app/components/docs-content";
 import {
   canonicalPathForPath,
@@ -13,6 +14,10 @@ import {
 import { NAV_SECTIONS, type NavItem } from "../app/components/docsNavItems";
 import { getTemplateDocsPath } from "../app/components/template-docs";
 import { featuredTemplates, templates } from "../app/components/TemplateCard";
+import {
+  loader as communityAppLoader,
+  meta as communityAppMeta,
+} from "../app/routes/apps.community.$slug";
 import { meta as localizedDocsMeta } from "../app/routes/docs.$locale.$slug";
 import { meta as docsSlugMeta } from "../app/routes/docs.$slug";
 import { meta as docsIndexMeta } from "../app/routes/docs._index";
@@ -82,6 +87,27 @@ describe("template routes", () => {
       loader({
         params: { slug: "starter" },
       } as unknown as Parameters<typeof loader>[0]),
+    ).toThrow(expect.objectContaining({ status: 404 }));
+  });
+
+  it("accepts every reviewed community app slug on its detail route", () => {
+    for (const app of communityApps) {
+      expect(() =>
+        communityAppLoader({
+          params: { slug: app.slug },
+        } as unknown as Parameters<typeof communityAppLoader>[0]),
+      ).not.toThrow();
+      expect(communityAppMeta({ params: { slug: app.slug } })).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ title: `${app.name} - Community App` }),
+        ]),
+      );
+    }
+
+    expect(() =>
+      communityAppLoader({
+        params: { slug: "not-a-real-community-app" },
+      } as unknown as Parameters<typeof communityAppLoader>[0]),
     ).toThrow(expect.objectContaining({ status: 404 }));
   });
 
@@ -239,6 +265,9 @@ describe("template routes", () => {
 
     for (const template of templates) {
       expect(paths).toContain(`/apps/${template.slug}/`);
+    }
+    for (const app of communityApps) {
+      expect(paths).toContain(`/apps/community/${app.slug}/`);
     }
 
     expect(paths).toContain("/zh-cn/docs/internationalization/");

@@ -42,7 +42,7 @@ import { getDbExec, isPostgres } from "../db/client.js";
 import {
   getDialect,
   getCloudflareD1Binding,
-  getDatabaseUrl,
+  getRuntimeDatabaseUrl,
   getDatabaseAuthToken,
   closePgliteClients,
   getPgliteClient,
@@ -2025,15 +2025,16 @@ async function createBetterAuthInstance(
     },
     plugins: [
       magicLinkPlugin,
-      // JWT: issue tokens for A2A calls, JWKS endpoint for verification.
-      // Wrapped so a rotated BETTER_AUTH_SECRET (which orphans the encrypted
-      // jwks row) heals in place instead of 500ing every get-session.
+      // JWT: issue tokens for A2A calls, JWKS endpoint for verification. The
+      // optional response header signs on every session check; it must not
+      // turn a valid cookie session into a 500 when a key is stale.
       withJwksRotationRecovery(
         jwt({
           jwt: {
             issuer: appUrl,
             expirationTime: "15m",
           },
+          disableSettingJwtHeader: true,
         }),
       ),
       // Bearer: accept Bearer tokens on API requests
@@ -2072,7 +2073,7 @@ export async function buildDatabaseConfig(
   dialect: string,
 ): Promise<BetterAuthOptions["database"]> {
   if (dialect === "postgres") {
-    const url = getDatabaseUrl();
+    const url = getRuntimeDatabaseUrl();
     const {
       buildResilientNeonPool,
       buildResilientPostgresJsClient,
@@ -2157,7 +2158,7 @@ export async function buildDatabaseConfig(
   }
 
   // SQLite / libsql
-  const url = getDatabaseUrl("file:./data/app.db");
+  const url = getRuntimeDatabaseUrl("file:./data/app.db");
 
   if (url.startsWith("file:") || !url.includes("://")) {
     // Local SQLite via better-sqlite3

@@ -5,6 +5,7 @@ const mockStat = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn());
 const mockStreamFile = vi.hoisted(() => vi.fn());
 const mockGetRouterParam = vi.hoisted(() => vi.fn());
+const mockSetResponseHeader = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockIsEnabled = vi.hoisted(() => vi.fn());
 const mockMimeType = vi.hoisted(() => vi.fn());
@@ -26,6 +27,7 @@ vi.mock("@agent-native/core/server", () => ({
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getRouterParam: (...args: unknown[]) => mockGetRouterParam(...args),
+  setResponseHeader: (...args: unknown[]) => mockSetResponseHeader(...args),
   setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),
 }));
 
@@ -57,6 +59,15 @@ describe("GET /api/qa-figma-import-assets/:assetId", () => {
     mockIsEnabled.mockReturnValue(true);
     mockGetRouterParam.mockImplementation(
       (event: { assetId?: string }) => event.assetId,
+    );
+    mockSetResponseHeader.mockImplementation(
+      (
+        event: { headers: Map<string, string> },
+        name: string,
+        value: string,
+      ) => {
+        event.headers.set(name, value);
+      },
     );
     mockSetResponseStatus.mockImplementation(
       (event: { status: number }, status: number) => {
