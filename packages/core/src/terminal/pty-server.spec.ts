@@ -213,6 +213,19 @@ describe("createPtyWebSocketServer", () => {
     await vi.waitFor(() => expect(ptys[0]?.kill).toHaveBeenCalledTimes(1));
   });
 
+  it("does not force-kill a parent PID after natural PTY exit", async () => {
+    const processKill = vi.spyOn(process, "kill");
+    const server = await createServer({ command: "builder" });
+    const ws = await openSocket(`ws://127.0.0.1:${server.port}/ws`);
+    await vi.waitFor(() => expect(ptys).toHaveLength(1));
+
+    ptys[0].emitExit(0);
+    await new Promise((resolve) => setTimeout(resolve, 550));
+
+    expect(processKill).not.toHaveBeenCalledWith(ptys[0].pid, "SIGKILL");
+    ws.close();
+  });
+
   it("cleans up active PTYs when the server closes", async () => {
     const server = await createServer({ command: "builder" });
     await openSocket(`ws://127.0.0.1:${server.port}/ws`);

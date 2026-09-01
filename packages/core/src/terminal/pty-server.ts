@@ -103,10 +103,15 @@ async function killProcessTree(
   pid: number,
   _logPrefix: string,
   killParent?: () => void,
+  isParentExited: () => boolean = () => false,
 ): Promise<void> {
   const cp = await getChildProcess();
 
   if (os.platform() === "win32") {
+    if (isParentExited()) {
+      killParent?.();
+      return;
+    }
     try {
       cp.execSync(`taskkill /pid ${pid} /T /F`, { stdio: "ignore" });
     } catch {}
@@ -159,9 +164,11 @@ async function killProcessTree(
         process.kill(childPid, "SIGKILL");
       } catch {}
     }
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch {}
+    if (!isParentExited()) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {}
+    }
   }, 500);
 }
 
@@ -405,6 +412,7 @@ export async function createPtyWebSocketServer(
     }
 
     let disposed = false;
+    let parentExited = false;
     const dispose = () => {
       if (disposed) return;
       disposed = true;
@@ -416,7 +424,12 @@ export async function createPtyWebSocketServer(
           console.warn(`${logPrefix} PTY cleanup failed:`, err);
         }
       };
-      void killProcessTree(ptyProcess.pid, logPrefix, killPty).catch((err) => {
+      void killProcessTree(
+        ptyProcess.pid,
+        logPrefix,
+        killPty,
+        () => parentExited,
+      ).catch((err) => {
         console.warn(`${logPrefix} PTY tree cleanup failed:`, err);
         killPty();
       });
@@ -432,6 +445,7 @@ export async function createPtyWebSocketServer(
 
     ptyProcess.onExit(({ exitCode }) => {
       console.log(`${logPrefix} PTY exited with code ${exitCode}`);
+      parentExited = true;
       dispose();
       if (exitCode === 127 && ws.readyState === WebSocket.OPEN) {
         ws.send(
