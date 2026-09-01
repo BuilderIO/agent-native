@@ -26,7 +26,7 @@ describe("login document session probe", () => {
     process.env.AGENT_NATIVE_BUILD_ID = "deploy-123";
     try {
       expect(getOnboardingHtml()).toContain(
-        'src="/assets/auth-client.js?v=deploy-123"',
+        'src="/assets/auth-client.js?__an_build=deploy-123"',
       );
     } finally {
       if (previousBuildId === undefined) {
