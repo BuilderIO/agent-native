@@ -109,6 +109,8 @@ function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+const MAX_ADDITIONAL_BOOKING_GUESTS = 5;
+
 export async function resolveBookingCalendarAccount({
   booking,
   hostEmail,
@@ -988,6 +990,20 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     const cancelToken = nanoid();
     const attendeeName = stripCrlf(body.name);
     const attendeeEmail = stripCrlf(body.email).toLowerCase();
+    if (
+      body.additionalGuestEmails !== undefined &&
+      !Array.isArray(body.additionalGuestEmails)
+    ) {
+      setResponseStatus(event, 400);
+      return { error: "additionalGuestEmails must be an array" };
+    }
+    const additionalGuestEmails: string[] = Array.isArray(
+      body.additionalGuestEmails,
+    )
+      ? body.additionalGuestEmails
+          .map((email: unknown) => stripCrlf(email))
+          .filter(Boolean)
+      : [];
     const notes = String(body.notes ?? "").trim();
 
     // Validate required fields
@@ -998,6 +1014,16 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     if (!isValidEmail(attendeeEmail)) {
       setResponseStatus(event, 400);
       return { error: "Enter a valid email address" };
+    }
+    if (additionalGuestEmails.length > MAX_ADDITIONAL_BOOKING_GUESTS) {
+      setResponseStatus(event, 400);
+      return {
+        error: `You can add up to ${MAX_ADDITIONAL_BOOKING_GUESTS} guests`,
+      };
+    }
+    if (additionalGuestEmails.some((email) => !isValidEmail(email))) {
+      setResponseStatus(event, 400);
+      return { error: "Enter valid email addresses for additional guests" };
     }
     const requestedSlug = stripCrlf(body.slug);
 
@@ -1327,6 +1353,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
             attendeeEmail,
             attendeeName,
             hostEmails: coHostEmails,
+            additionalGuestEmails,
           }),
           createdAt: now,
           updatedAt: now,
