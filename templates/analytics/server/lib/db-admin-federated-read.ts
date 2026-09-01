@@ -9,6 +9,8 @@ import {
 
 const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const NUMERIC_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
+const TEMPORAL_RE =
+  /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
 const MUTATING_WORD_RE =
   /(^|[^A-Za-z_])(insert|update|delete|replace|create|alter|drop|truncate|merge)(?=[^A-Za-z_]|$)/i;
 const MAX_SOURCE_ROWS = 500;
@@ -133,9 +135,28 @@ function canonicalNumeric(value: string): string | null {
   return `${sign}${integer}${fraction ? `.${fraction}` : ""}`;
 }
 
+function canonicalTemporal(value: string | Date): string | null {
+  if (value instanceof Date && Number.isNaN(value.getTime())) return null;
+  const text = value instanceof Date ? value.toISOString() : value.trim();
+  if (!TEMPORAL_RE.test(text)) return null;
+  const normalized = text.includes("T") ? text : text.replace(" ", "T");
+  const withZone =
+    normalized.length === 10 || /(?:Z|[+-]\d{2}:?\d{2})$/.test(normalized)
+      ? normalized
+      : `${normalized}Z`;
+  const parsed = new Date(withZone);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
 function rowKey(value: unknown): string | null {
   if (value === null || value === undefined) return null;
+  if (value instanceof Date) {
+    const temporal = canonicalTemporal(value);
+    return temporal ? `t:${temporal}` : `j:${JSON.stringify(value)}`;
+  }
   if (typeof value === "string") {
+    const temporal = canonicalTemporal(value);
+    if (temporal) return `t:${temporal}`;
     const numeric = canonicalNumeric(value);
     return numeric ? `n:${numeric}` : `s:${value}`;
   }
@@ -186,12 +207,29 @@ export const federatedDbAdminProjectionSchema = z.object({
   as: z.string().trim().min(1).optional(),
 });
 
-export const federatedDbAdminReadSchema = z.object({
-  sources: z.array(federatedDbAdminSourceSchema).min(1).max(2),
-  join: federatedDbAdminJoinSchema.optional(),
-  projections: z.array(federatedDbAdminProjectionSchema).max(50).optional(),
-  limit: z.coerce.number().int().min(1).max(500).optional(),
-});
+export const federatedDbAdminReadSchema = z
+  .object({
+    sources: z.array(federatedDbAdminSourceSchema).min(1).max(2),
+    join: federatedDbAdminJoinSchema.optional(),
+    projections: z.array(federatedDbAdminProjectionSchema).max(50).optional(),
+    limit: z.coerce.number().int().min(1).max(500).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.sources.length === 1 && value.join) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["join"],
+        message: "A join requires two sources.",
+      });
+    }
+    if (value.sources.length === 2 && !value.join) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["join"],
+        message: "A join is required when two sources are supplied.",
+      });
+    }
+  });
 
 type FederatedDbAdminReadArgs = z.infer<typeof federatedDbAdminReadSchema>;
 
@@ -201,6 +239,7 @@ type SourceResult = {
   rows: Record<string, unknown>[];
   columns: string[];
   truncated: boolean;
+  truncatedCells: number;
 };
 
 type NormalizedProjection = {
@@ -260,6 +299,7 @@ function buildRows(
   limit: number,
 ): { rows: Record<string, unknown>[]; truncated: boolean } {
   if (sources.length === 1) {
+    if (join) throw new Error("A join requires two sources.");
     const [source] = sources;
     const projectedColumns =
       projections?.map((projection) => projection.as) ??
@@ -293,6 +333,12 @@ function buildRows(
 
   if (!join) {
     throw new Error("A join is required when two sources are supplied.");
+  }
+
+  if (sources.some((source) => source.truncatedCells > 0)) {
+    throw new Error(
+      "Cannot join a source with truncated large-cell values; project a shorter join key.",
+    );
   }
 
   const leftSourceId = normalizeSourceId(
@@ -495,6 +541,7 @@ export async function runDbAdminFederatedRead(
             rows: result.rows.slice(0, MAX_SOURCE_ROWS),
             columns: pickRowColumns(result.rows[0], result.columns),
             truncated: result.rows.length > MAX_SOURCE_ROWS,
+            truncatedCells: result.truncatedCells ?? 0,
           } satisfies SourceResult;
         },
       ),

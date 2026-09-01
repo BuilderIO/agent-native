@@ -9,6 +9,7 @@ import {
 } from "../server/lib/db-admin-connections";
 
 const MAX_DATABASES_PER_CATALOG = 20;
+const MAX_TABLE_ROW_COUNTS = 100;
 
 export default defineAction({
   description:
@@ -41,7 +42,9 @@ export default defineAction({
   grounding: true,
   run: async ({ connectionIds }, ctx) => {
     const admin = await requireDbAdminContextFromRequest(ctx);
-    const connections = await listDbAdminConnections(admin);
+    const connections = await listDbAdminConnections(admin, {
+      includeSecretMetadata: false,
+    });
     if (
       (!connectionIds || connectionIds.length === 0) &&
       connections.length > MAX_DATABASES_PER_CATALOG
@@ -70,7 +73,9 @@ export default defineAction({
             admin,
             connection.id,
             async (runtime) => {
-              const overview = await listTables(runtime);
+              const overview = await listTables(runtime, {
+                maxRowCounts: MAX_TABLE_ROW_COUNTS,
+              });
               return {
                 id: connection.id,
                 name: connection.name,

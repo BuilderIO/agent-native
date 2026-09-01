@@ -13,7 +13,7 @@ vi.mock("../server/lib/db-admin-connections", () => ({
   withDbAdminConnectionRuntime: mocks.withDbAdminConnectionRuntime,
 }));
 
-const { runDbAdminFederatedRead } =
+const { federatedDbAdminReadSchema, runDbAdminFederatedRead } =
   await import("../server/lib/db-admin-federated-read");
 
 describe("db-admin-federated-read", () => {
@@ -52,6 +52,19 @@ describe("db-admin-federated-read", () => {
       }
       throw new Error(`unexpected sql: ${sql}`);
     });
+  });
+
+  it("rejects a join supplied with only one source", () => {
+    expect(
+      federatedDbAdminReadSchema.safeParse({
+        sources: [{ connectionId: "conn-users", sql: "SELECT id FROM users" }],
+        join: {
+          kind: "inner",
+          leftColumn: "id",
+          rightColumn: "id",
+        },
+      }),
+    ).toMatchObject({ success: false });
   });
 
   it("joins two read-only sources and keeps source metadata", async () => {
@@ -308,6 +321,78 @@ describe("db-admin-federated-read", () => {
 
     expect(result.summary).toMatchObject({ truncated: false });
     expect(result.table.rows).toEqual([{ "users.id": 1, "users.name": "Ada" }]);
+  });
+
+  it("normalizes timestamp strings and Date values to the same join key", async () => {
+    mocks.runSql.mockImplementation(async (sql: string) =>
+      sql.includes("FROM users")
+        ? {
+            columns: ["created_at", "name"],
+            rows: [
+              { created_at: new Date("2026-01-02T03:04:05.000Z"), name: "Ada" },
+            ],
+            rowsAffected: 0,
+            durationMs: 1,
+          }
+        : {
+            columns: ["created_at", "total"],
+            rows: [{ created_at: "2026-01-02 03:04:05", total: 10 }],
+            rowsAffected: 0,
+            durationMs: 1,
+          },
+    );
+
+    const result = await runDbAdminFederatedRead(
+      { userEmail: "alice@example.com", orgId: "org_1", role: "admin" },
+      {
+        sources: [
+          {
+            connectionId: "conn-users",
+            sourceId: "users",
+            sql: "SELECT created_at, name FROM users",
+          },
+          {
+            connectionId: "conn-orders",
+            sourceId: "orders",
+            sql: "SELECT created_at, total FROM orders",
+          },
+        ],
+        join: {
+          kind: "inner",
+          leftColumn: "created_at",
+          rightColumn: "created_at",
+        },
+        projections: [
+          { sourceId: "users", column: "name", as: "user_name" },
+          { sourceId: "orders", column: "total" },
+        ],
+      },
+    );
+
+    expect(result.table.rows).toEqual([{ user_name: "Ada", total: 10 }]);
+  });
+
+  it("rejects joins when a source contains previewed large cells", async () => {
+    mocks.runSql.mockResolvedValue({
+      columns: ["id", "payload"],
+      rows: [{ id: 1, payload: "preview" }],
+      rowsAffected: 0,
+      durationMs: 1,
+      truncatedCells: 1,
+    });
+
+    await expect(
+      runDbAdminFederatedRead(
+        { userEmail: "alice@example.com", orgId: "org_1", role: "admin" },
+        {
+          sources: [
+            { connectionId: "conn-users", sql: "SELECT id FROM users" },
+            { connectionId: "conn-orders", sql: "SELECT id FROM orders" },
+          ],
+          join: { kind: "inner", leftColumn: "id", rightColumn: "id" },
+        },
+      ),
+    ).rejects.toThrow(/truncated large-cell/i);
   });
 
   it("reports the hard source cap as truncation", async () => {
