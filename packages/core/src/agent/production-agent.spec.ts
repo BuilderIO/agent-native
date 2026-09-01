@@ -8410,6 +8410,101 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("reports the item defect, not 'must be array', for a JSON-encoded array whose items are invalid", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "tool-call-error",
+            id: "stringified-items-call",
+            name: "show-questions",
+            input: {
+              questions:
+                '[{"id":"page-type","options":[{"label":"Landing page"}]}]',
+            },
+            error: "input/questions must be array",
+          };
+          yield { type: "assistant-content", parts: [] };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Done." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const run = vi.fn(async () => "shown");
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "show-questions": {
+          tool: {
+            description: "Show questions",
+            parameters: {
+              type: "object",
+              properties: {
+                questions: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      id: { type: "string" },
+                      options: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            label: { type: "string" },
+                            value: { type: "string" },
+                          },
+                          required: ["label", "value"],
+                        },
+                      },
+                    },
+                    required: ["id", "options"],
+                  },
+                },
+              },
+              required: ["questions"],
+            },
+          },
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const toolDone = events.find(
+      (event) => event.type === "tool_done" && event.tool === "show-questions",
+    ) as Extract<AgentChatEvent, { type: "tool_done" }> | undefined;
+    expect(toolDone?.isError).toBe(true);
+    expect(toolDone?.result).toContain("required property 'value'");
+    expect(toolDone?.result).not.toContain("questions must be array");
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("marks MCP isError results as errored tool results for the next model turn", async () => {
     let streamCalls = 0;
     const seenMessages: any[] = [];

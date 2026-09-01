@@ -547,7 +547,7 @@ const esES = {
     communityTitle: "Aplicaciones de la comunidad",
     communityDescription:
       "Descubre aplicaciones mantenidas por sus autores. Prueba una versión alojada cuando esté disponible o revisa el código fuente y personalízala.",
-    submitCommunityTemplate: "Abrir el formulario de GitHub",
+    submitCommunityTemplate: "Enviar una aplicación",
     communityEmpty:
       "El catálogo de la comunidad está abierto. Publica una aplicación Agent-Native enfocada y envíala al catálogo.",
     publishGuide: "Leer la guía de publicación",
@@ -586,15 +586,19 @@ const esES = {
     communitySubmissionRepository: "Repositorio de GitHub (opcional)",
     communitySubmissionRepositoryPlaceholder:
       "https://github.com/owner/repository",
-    communitySubmissionScreenshots: "URLs de capturas (opcional)",
-    communitySubmissionScreenshotsPlaceholder:
-      "Una URL de imagen pública por línea",
-    communitySubmissionSubmit: "Continuar a GitHub",
+    communitySubmissionScreenshots: "Capturas (opcional)",
+    communitySubmissionScreenshotsPlaceholder: "Arrastra hasta 5 imágenes aquí",
+    communitySubmissionScreenshotDropHint:
+      "PNG, JPG o WebP. Máximo 1,5 MB cada una.",
+    communitySubmissionScreenshotSlot: "Captura {{index}}",
+    communitySubmissionScreenshotsAdd: "Añadir capturas",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 seleccionadas",
+    communitySubmissionScreenshotRemove: "Eliminar captura {{index}}",
+    communitySubmissionSubmit: "Enviar aplicación",
     communitySubmissionReady:
-      "El borrador de tu issue de GitHub está listo. Termina el envío allí.",
-    communitySubmissionOpenDraft: "Abrir el borrador",
+      "Gracias. Revisaremos tu aplicación antes de publicarla.",
     communitySubmissionValidation:
-      "Añade un nombre, una descripción y una URL de aplicación válida. Las URL opcionales también deben ser válidas.",
+      "Añade un nombre, una descripción y una URL de aplicación válida. Sube imágenes PNG, JPG o WebP de hasta 1,5 MB cada una.",
   },
   buildFromScratch: {
     title: "Crear desde cero",

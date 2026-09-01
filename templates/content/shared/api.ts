@@ -452,7 +452,21 @@ export interface ContentDatabaseBodyHydration {
   attemptedAt: string | null;
   error: string | null;
   version: string | null;
+  reason?: ContentDatabaseBodyHydrationReason | null;
+  providerStatus?: string | null;
+  attemptCount?: number;
+  retryable?: boolean | null;
 }
+
+export type ContentDatabaseBodyHydrationReason =
+  | "empty_body"
+  | "not_found"
+  | "auth_failed"
+  | "access_denied"
+  | "transient_read_failure"
+  | "malformed_body"
+  | "unsupported_content"
+  | "conversion_failed";
 
 export interface ContentDatabaseBodyHydrationSummary {
   pending: number;
@@ -460,6 +474,7 @@ export interface ContentDatabaseBodyHydrationSummary {
   hydrated: number;
   unavailable?: number;
   error: number;
+  retryableErrors?: number;
   total: number;
 }
 
@@ -1482,6 +1497,7 @@ export interface ProcessBuilderBodyHydrationRequest {
   sourceId: string;
   documentId?: string;
   limit?: number;
+  retryFailed?: boolean;
 }
 
 export interface ProcessBuilderBodyHydrationResponse {
@@ -1490,4 +1506,6 @@ export interface ProcessBuilderBodyHydrationResponse {
   succeeded: number;
   failed: number;
   remaining: number;
+  ready: number;
+  nextAttemptAt: string | null;
 }

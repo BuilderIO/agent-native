@@ -82,8 +82,12 @@ jobs:
             gh issue create --repo "$GITHUB_REPOSITORY" --title "$issue_title" --body "$body"
           fi
 
+      - name: Report inconclusive provider result
+        if: ${{ needs.signup-e2e.result == 'success' && needs.signup-e2e.outputs.signup_outcome == 'inconclusive' }}
+        run: echo "The signup E2E run was inconclusive because Mailosaur was rate-limited; no recovery or page action was taken." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Close the open issue after recovery
-        if: ${{ needs.signup-e2e.result == 'success' }}
+        if: ${{ needs.signup-e2e.result == 'success' && needs.signup-e2e.outputs.signup_outcome == 'success' }}
         run: |
           set -euo pipefail
 
@@ -95,7 +99,7 @@ jobs:
           fi
 
       - name: Resolve PagerDuty after recovery
-        if: ${{ needs.signup-e2e.result == 'success' && env.PAGERDUTY_ROUTING_KEY != '' }}
+        if: ${{ needs.signup-e2e.result == 'success' && needs.signup-e2e.outputs.signup_outcome == 'success' && env.PAGERDUTY_ROUTING_KEY != '' }}
         run: |
           set -euo pipefail
           jq -n \
