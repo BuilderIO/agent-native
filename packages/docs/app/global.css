@@ -2117,7 +2117,8 @@ html.dark .shiki span {
 .template-detail-page button,
 .template-detail-page .primary-button,
 .template-detail-page .secondary-button,
-.template-detail-page .template-detail-cta-actions a {
+.template-detail-page .template-detail-cta-actions a,
+.templates-index-page .secondary-button {
   text-transform: uppercase;
 }
 

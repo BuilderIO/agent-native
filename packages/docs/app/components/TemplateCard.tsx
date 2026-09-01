@@ -188,13 +188,14 @@ function TemplateLaunchButton({ template }: { template: Template }) {
         location="card"
         className="secondary-button flex-1 whitespace-nowrap"
       />
-      <div className="flex-1">
-        <TemplateDocsLink
-          template={template}
-          location="card"
-          className="secondary-button w-full whitespace-nowrap"
-        />
-      </div>
+      {/* A direct flex item rather than a link inside a flex-1 wrapper: the
+          wrapper stretched to the row height but the link kept its own content
+          height, which is what left this one shorter than its siblings. */}
+      <TemplateDocsLink
+        template={template}
+        location="card"
+        className="secondary-button flex-1 whitespace-nowrap"
+      />
     </div>
   );
 }
