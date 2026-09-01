@@ -16,7 +16,7 @@ const UPLOAD_URL =
 
 function isGoogleReconnectError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return /unauthorized|invalid_grant|invalid_client|expired|reconnect/i.test(
+  return /invalid_grant|connection expired|token(?: has been)? expired|please reconnect/i.test(
     message,
   );
 }
@@ -116,10 +116,22 @@ export default defineEventHandler(async (event) => {
   const result = (await response.json().catch(() => null)) as {
     id?: string;
     webViewLink?: string;
-    error?: { message?: string };
+    error?: {
+      message?: string;
+      errors?: Array<{ reason?: string }>;
+    };
   } | null;
 
-  if (response.status === 401) {
+  const hasInsufficientPermissions =
+    response.status === 403 &&
+    (result?.error?.errors?.some(
+      ({ reason }) => reason === "insufficientPermissions",
+    ) ||
+      /insufficient(?:permissions| permission| scope)/i.test(
+        result?.error?.message ?? "",
+      ));
+
+  if (response.status === 401 || hasInsufficientPermissions) {
     setResponseStatus(event, 409);
     return {
       error:

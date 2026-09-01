@@ -203,7 +203,7 @@ async function refreshGoogleDocsToken(
   }
 
   if (!data?.access_token) {
-    if (isPermanentGoogleRefreshError(data?.error)) {
+    if (data?.error === "invalid_grant") {
       await deleteOAuthTokens(provider, accountId, owner);
     }
     throw new Error(
