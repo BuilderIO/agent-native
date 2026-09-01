@@ -62,7 +62,7 @@ describe("docs popover controls", () => {
     fireEvent.click(screen.getByRole("button", { name: "Customize It" }));
 
     const customizeOnline = screen.getByRole("button", {
-      name: "Customize online",
+      name: /^Online/,
     });
     const content = customizeOnline.closest("[role=dialog]");
     expect(content).not.toBeNull();
@@ -99,7 +99,7 @@ describe("docs popover controls", () => {
     renderWithProviders(<TemplateCard template={templates[0]} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Customize It" }));
-    fireEvent.click(screen.getByRole("button", { name: "Customize online" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Online/ }));
     fireEvent.change(screen.getByRole("textbox", { name: "Email" }), {
       target: { value: "reader@example.com" },
     });
