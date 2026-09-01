@@ -43,7 +43,6 @@ import {
   IconArrowLeft,
   IconChevronDown,
   IconCalendar,
-  IconScissors,
   IconAlertTriangle,
   IconHelpCircle,
   IconClipboardCopy,
@@ -1457,7 +1456,6 @@ export default function RecordingPage() {
               )}
               onClick={() => setEditing((v) => !v)}
             >
-              <IconScissors className="h-4 w-4" />
               {editing ? t("recordingPage.done") : t("recordingPage.edit")}
             </Button>
           ) : null}
