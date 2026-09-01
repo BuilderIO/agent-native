@@ -288,6 +288,8 @@ export interface Booking {
   id: string;
   name: string;
   email: string;
+  /** Additional invitees included on the booking */
+  additionalGuestEmails?: string[];
   eventTitle: string;
   start: string; // ISO 8601
   end: string; // ISO 8601

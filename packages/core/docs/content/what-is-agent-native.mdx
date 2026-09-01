@@ -5,30 +5,41 @@ description: "What Agent-Native is, how its shared action architecture works, an
 
 # What is Agent-Native?
 
-Agent-Native is an open-source TypeScript framework for building apps that
-serve both people and AI agents. You define your app's functionality once as
-[actions](/docs/actions-overview)—typed functions that your React UI calls
-from code and agents use as tools.
+Agent-Native is an open-source TypeScript framework for building autonomous
+agents with intuitive UIs. You define each capability once as an
+[action](/docs/actions-overview)—a typed function the agent uses as a tool and
+the UI calls from code.
 
-## Why build apps this way
+## Why build agents with UIs
 
-Most applications are designed around a person working through the UI. Adding
-an agent introduces another way to use the product. For both to work as one
-product, three things need to be true:
+<WireframeBlock id="doc-block-agent-ui-why">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:minmax(0,1fr) 54px minmax(0,1.15fr);gap:18px;align-items:center;padding:28px;min-height:420px;box-sizing:border-box'><section style='display:flex;flex-direction:column;gap:14px;align-items:center'><strong style='font-size:20px'>Agent with only a text box</strong><div class='wf-card' style='width:100%;min-height:250px;display:flex;flex-direction:column;gap:18px;padding:20px;box-sizing:border-box;border-radius:calc(var(--wf-radius) * 0.45)'><span class='wf-muted'>Agent</span><div style='flex:1;display:flex;align-items:center;justify-content:center'><div class='wf-box' style='width:72%;height:42px;border-radius:calc(var(--wf-radius) * 0.45)'></div></div></div><span class='wf-muted'>What can this do?</span></section><div aria-hidden='true' style='font-size:32px;text-align:center'>&rarr;</div><section style='display:flex;flex-direction:column;gap:14px;align-items:center'><strong style='font-size:20px'>Agent with a UI</strong><div class='wf-card' style='width:100%;min-height:250px;display:flex;flex-direction:column;gap:10px;padding:16px;box-sizing:border-box;border-radius:calc(var(--wf-radius) * 0.45)'><strong>Launch deck</strong><div style='display:flex;gap:7px'><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>Outline</span><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>Slides</span><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>Review</span></div><div style='display:grid;grid-template-columns:minmax(0,1fr) 104px;gap:10px;flex:1;min-height:0'><div style='display:grid;grid-template-columns:42px minmax(0,1fr);gap:8px;min-width:0'><div style='display:flex;flex-direction:column;gap:7px'><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;padding:12px;text-align:center;border-radius:calc(var(--wf-radius) * 0.45)'><strong>Q3 product launch</strong></div></div><aside class='wf-box' style='display:flex;flex-direction:column;gap:8px;padding:10px;min-width:0;border-radius:calc(var(--wf-radius) * 0.45)'><strong>Agent</strong><div style='flex:1'></div><div style='display:flex;align-items:center;gap:6px'><div class='wf-box' style='height:26px;flex:1;border-radius:calc(var(--wf-radius) * 0.45)'></div><button aria-hidden='true' tabindex='-1' style='width:26px;height:26px;padding:0;border-radius:calc(var(--wf-radius) * 0.45)'>&uarr;</button></div></aside></div></div><span class='wf-muted'>Agent and UI in one workspace</span></section></div>"
+    }
+  />
+</WireframeBlock>
 
-- **The agent needs access to the product.** If it receives a smaller, separate
-  set of tools, it remains constrained. You also end up maintaining two
-  implementations that drift as the application changes.
-- **People still need an application UI.** Chat works well for delegating work,
-  but not always for browsing information, comparing options, reviewing
-  changes, or sharing results with a team.
-- **Work needs to move between them.** A person should be able to inspect or
-  change the agent's work, and the agent should be able to continue from there
-  without starting over.
+Coding agents can make a text box seem like enough. But the text box is only
+one part of their working environment. The codebase provides context, tools
+give them clear ways to act, and files, tests, and previews make the results
+visible.
 
-Agent-Native architecture is built around these requirements. People can work
-directly through the UI or delegate an outcome to the agent, then move between
-the two without losing progress.
+Most knowledge work does not come with that structure. In a blank text box,
+people have to guess what the agent can do, what context it has, and what they
+should ask.
+
+A UI provides what the text box is missing. It makes the agent's capabilities
+visible, brings context and workflows into the experience, and lets people see
+and shape the work as it develops.
+
+Agent-Native lets you build agents this way. The UI gives people clear starting
+points without reducing the agent to a fixed workflow. Because the agent and UI
+use the same capabilities, people can delegate work to the agent, inspect or
+change it in the UI, and move between the two without losing progress.
+
+## How Agent-Native works
 
 <Video
   src="https://cdn.builder.io/o/assets%2Fc5b47d20f6a943e485717e5895739988%2Fc88d506c160142ae9b8618616ceedcea%2Fcompressed?apiKey=c5b47d20f6a943e485717e5895739988&token=c88d506c160142ae9b8618616ceedcea&alt=media&optimized=true"
@@ -37,40 +48,21 @@ the two without losing progress.
   caption="Watch a four-minute introduction to Agent-Native architecture."
 />
 
-## How Agent-Native works
+Agent-Native connects the agent and UI through three shared foundations:
 
-An Agent-Native application gives people and agents two ways to work with the
-same product:
+- **[Shared actions](/docs/actions-overview).** You define each capability once.
+  The agent calls it as a tool, and the UI calls it from code. Both paths use
+  the same validation, permissions, and implementation.
+- **[Shared data](/docs/server-database).** Actions read and update the same
+  data, so work done by the agent appears in the UI, and work done in the UI is
+  available to the agent.
+- **[Shared application state](/docs/context-awareness).** Application state
+  describes what is happening in the UI, such as the current page, selected
+  record, or active view. Agent-Native gives the relevant state to the agent as
+  context, so it understands what the person is working with.
 
-- **The UI** gives people a familiar way to browse, edit, review, and share
-  work.
-- **The agent** handles work people delegate to it.
-
-Three shared foundations make this possible:
-
-- **Shared operations.** People trigger them through the UI, while agents call
-  them directly. Agent-Native defines each operation once as an
-  [action](/docs/actions-overview).
-- **[Shared data](/docs/server-database)** holds the work and information the
-  application needs to preserve. Depending on the application, that might be
-  customer records, project plans, conversations, or reports. The UI and agent
-  both read and update this shared data.
-- **[Shared application state](/docs/context-awareness)** describes what is
-  happening right now, such as the current page, selected record, or active
-  view. The framework gives relevant state to the agent as context, so it knows
-  what the person is working with.
-
-```mermaid
-graph TD
-  UI[UI] --> App[One application]
-  Agent[Agent] --> App
-  App --- Operations[Shared operations]
-  App --- Data[Shared data]
-  App --- State[Shared application state]
-```
-
-The agent does not click through the UI. It calls the same actions as the UI,
-with the same validation, permissions, and implementation.
+The agent does not click through the UI. It works through the same action layer
+as the UI.
 
 For example, a person can assign a support ticket through the UI or ask the
 agent to do it. Both paths run the same action and update the same ticket. The
@@ -81,13 +73,15 @@ from there.
 
 Agent-Native is a good fit when:
 
-- The agent should do real work in the app, not only answer questions.
-- People need a UI to inspect, edit, approve, or share the work.
-- Work should move between the UI and agent without losing progress or context.
+- The agent should do real work, not only answer questions.
+- People need a UI to see what the agent can do and to inspect, edit, approve,
+  or share its work.
+- People should be able to move between the agent and UI without losing
+  progress or context.
 
-If you only need one generated response, call a model directly. If the workflow
+If you only need a single generated response, call a model directly. If the work
 follows a fixed, predictable sequence, ordinary application logic or automation
-is simpler. Use Agent-Native when the UI and agent both need an ongoing role in
+is simpler. Use Agent-Native when the agent and UI both need an ongoing role in
 the same work.
 
 ## Next steps

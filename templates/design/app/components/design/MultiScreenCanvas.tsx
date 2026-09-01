@@ -10294,7 +10294,7 @@ const Screen = memo(function Screen({
             maxWidth: labelInfoMaxWidth,
             transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
             transformOrigin: "left center",
-            transition: getChromeLabelTransition(),
+            transition: getChromeLabelTransition(chromeSettling),
           }}
         >
           {/* B5-3: the leading dot/bullet before the screen label was pure
@@ -10366,7 +10366,7 @@ const Screen = memo(function Screen({
             maxWidth: fullViewMaxWidth,
             transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
             transformOrigin: "right center",
-            transition: getChromeLabelTransition(),
+            transition: getChromeLabelTransition(chromeSettling),
           }}
           aria-label={frameActionLabel}
           title={frameActionLabel}
@@ -10961,7 +10961,7 @@ function BreakpointPreviewRow({
                 style={{
                   transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
                   transformOrigin: "left center",
-                  transition: getChromeLabelTransition(),
+                  transition: getChromeLabelTransition(chromeSettling),
                 }}
               >
                 <span

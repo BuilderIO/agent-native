@@ -7,6 +7,7 @@ export interface AuthMarketingContent {
   screenshotWidth?: number;
   screenshotHeight?: number;
   learnMoreUrl?: string;
+  learnMorePlacement?: "top-right" | "bottom-right";
   /** @deprecated Local execution is no longer offered from auth pages. */
   runLocalCommand?: string;
   signupLocalModeNote?: {
@@ -59,6 +60,7 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
       "Manages availability and booking links automatically",
       "Answers schedule questions and resolves conflicts instantly",
     ],
+    learnMorePlacement: "bottom-right",
   },
   clips: {
     appName: "Agent-Native Clips",

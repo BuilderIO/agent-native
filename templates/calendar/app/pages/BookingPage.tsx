@@ -148,6 +148,7 @@ export default function BookingPage() {
   const [bookingForm, setBookingForm] = useState<BookingFormValue>({
     name: "",
     email: "",
+    additionalGuestEmails: [],
     notes: "",
     fieldResponses: {},
   });
@@ -278,6 +279,7 @@ export default function BookingPage() {
   function handleBookingSubmit(data: {
     name: string;
     email: string;
+    additionalGuestEmails?: string[];
     notes?: string;
     captchaToken?: string;
     fieldResponses?: Record<string, string | boolean>;
@@ -291,6 +293,7 @@ export default function BookingPage() {
       {
         name: data.name,
         email: data.email,
+        additionalGuestEmails: data.additionalGuestEmails,
         notes: data.notes,
         captchaToken: data.captchaToken,
         fieldResponses: data.fieldResponses,
@@ -326,6 +329,7 @@ export default function BookingPage() {
     setBookingForm({
       name: signedInName,
       email: signedInEmail,
+      additionalGuestEmails: [],
       notes: "",
       fieldResponses: {},
     });

@@ -9,6 +9,10 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Clip editing uses a text-only Edit button for a cleaner toolbar.
 
+### Fixed
+
+- Clips camera bubbles now close reliably when the popover is dismissed.
+
 ## 2026-08-29
 
 ### Improved

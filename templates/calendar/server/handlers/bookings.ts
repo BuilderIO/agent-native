@@ -113,6 +113,8 @@ function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+const MAX_ADDITIONAL_BOOKING_GUESTS = 5;
+
 export async function resolveBookingCalendarAccount({
   booking,
   hostEmail,
@@ -139,7 +141,7 @@ export async function resolveBookingCalendarAccount({
   return googleCalendar.getDefaultAccountSelection(ownerEmail);
 }
 
-async function deleteGoogleEventForBooking({
+export async function deleteGoogleEventForBooking({
   booking,
   hostEmail,
 }: {
@@ -158,7 +160,7 @@ async function deleteGoogleEventForBooking({
     });
     if (!account) return;
     await googleCalendar.deleteEvent(booking.googleEventId, account, {
-      sendUpdates: "none",
+      sendUpdates: "all",
     });
   } catch (error) {
     console.warn(
@@ -1188,6 +1190,23 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     const cancelToken = nanoid();
     const attendeeName = stripCrlf(body.name);
     const attendeeEmail = stripCrlf(body.email).toLowerCase();
+    if (
+      body.additionalGuestEmails !== undefined &&
+      !Array.isArray(body.additionalGuestEmails)
+    ) {
+      setResponseStatus(event, 400);
+      return { error: "additionalGuestEmails must be an array" };
+    }
+    const normalizedAdditionalGuestEmails: string[] = Array.isArray(
+      body.additionalGuestEmails,
+    )
+      ? (body.additionalGuestEmails as unknown[]).map((email) =>
+          stripCrlf(email).toLowerCase(),
+        )
+      : [];
+    const additionalGuestEmails: string[] = Array.from(
+      new Set(normalizedAdditionalGuestEmails.filter((email) => email.length)),
+    ).filter((email) => email !== attendeeEmail);
     const notes = String(body.notes ?? "").trim();
 
     // Validate required fields
@@ -1198,6 +1217,16 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     if (!isValidEmail(attendeeEmail)) {
       setResponseStatus(event, 400);
       return { error: "Enter a valid email address" };
+    }
+    if (additionalGuestEmails.length > MAX_ADDITIONAL_BOOKING_GUESTS) {
+      setResponseStatus(event, 400);
+      return {
+        error: `You can add up to ${MAX_ADDITIONAL_BOOKING_GUESTS} guests`,
+      };
+    }
+    if (additionalGuestEmails.some((email) => !isValidEmail(email))) {
+      setResponseStatus(event, 400);
+      return { error: "Enter valid email addresses for additional guests" };
     }
     const requestedSlug = stripCrlf(body.slug);
 
@@ -1405,6 +1434,10 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         id,
         name: attendeeName,
         email: attendeeEmail,
+        additionalGuestEmails:
+          additionalGuestEmails.length > 0
+            ? JSON.stringify(additionalGuestEmails)
+            : null,
         start: requestedRange.start.toISOString(),
         end: requestedRange.end.toISOString(),
         slug: requestedSlug,
@@ -1527,6 +1560,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
             attendeeEmail,
             attendeeName,
             hostEmails: coHostEmails,
+            additionalGuestEmails,
           }),
           createdAt: now,
           updatedAt: now,
@@ -1573,6 +1607,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       id,
       name: attendeeName,
       email: attendeeEmail,
+      additionalGuestEmails:
+        additionalGuestEmails.length > 0 ? additionalGuestEmails : undefined,
       start: requestedRange.start.toISOString(),
       end: requestedRange.end.toISOString(),
       slug: requestedSlug,
@@ -1958,10 +1994,14 @@ function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
       fieldResponses = JSON.parse(row.fieldResponses);
     } catch {}
   }
+  const additionalGuestEmails = parseAdditionalGuestEmails(
+    row.additionalGuestEmails,
+  );
   return {
     id: row.id,
     name: row.name,
     email: row.email,
+    additionalGuestEmails,
     start: row.start,
     end: row.end,
     slug: row.slug,
@@ -1973,4 +2013,21 @@ function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
     status: row.status,
     createdAt: row.createdAt,
   };
+}
+
+function parseAdditionalGuestEmails(
+  value: string | null | undefined,
+): string[] | undefined {
+  if (!value) return undefined;
+  const parsed: unknown = JSON.parse(value);
+  if (!Array.isArray(parsed)) {
+    throw new Error("Invalid stored additional guest emails");
+  }
+  const emails = parsed.filter(
+    (email): email is string => typeof email === "string",
+  );
+  if (emails.length !== parsed.length) {
+    throw new Error("Invalid stored additional guest emails");
+  }
+  return emails;
 }

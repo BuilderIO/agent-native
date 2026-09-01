@@ -130,6 +130,7 @@ export const createBookingLink = defineEventHandler(async (event: H3Event) => {
           isActive: body.isActive ?? true,
           ownerEmail,
           orgId: getRequestOrgId(),
+          visibility: "private",
           createdAt: now,
           updatedAt: now,
         });
