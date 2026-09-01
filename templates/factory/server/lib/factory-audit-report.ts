@@ -337,8 +337,7 @@ function inboxItemIds(events: FactoryAuditEventRecord[]): Set<string> {
   }
   for (const event of events) {
     if (!isPollEvent(event) || !event.itemId) continue;
-    if (isEmptyObservation(event)) continue;
-    ids.add(event.itemId);
+    if (event.details.added === true) ids.add(event.itemId);
   }
   return ids;
 }
@@ -513,14 +512,6 @@ function eventItemIds(event: FactoryAuditEventRecord): string[] {
   return raw.filter(
     (value): value is string => typeof value === "string" && value.length > 0,
   );
-}
-
-function uniqueItemIds(events: FactoryAuditEventRecord[]): Set<string> {
-  const ids = new Set<string>();
-  for (const event of events) {
-    for (const itemId of eventItemIds(event)) ids.add(itemId);
-  }
-  return ids;
 }
 
 function latestRunsByItem(

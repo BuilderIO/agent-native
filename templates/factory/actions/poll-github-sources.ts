@@ -37,6 +37,7 @@ type NewlyObservedSource = {
   sourceUrl: string;
   summary: string;
   number: number;
+  added: boolean;
 };
 
 function githubPollRollupSummary(
@@ -158,6 +159,7 @@ export default defineAction({
             sourceUrl: issue.htmlUrl,
             summary: issue.title,
             number: issue.number,
+            added: !existing,
           });
         }
         await tx
@@ -258,6 +260,7 @@ export default defineAction({
             sourceUrl: pullRequest.htmlUrl,
             summary: pullRequest.title,
             number: pullRequest.number,
+            added: !existing,
           });
         }
         await tx
@@ -347,9 +350,11 @@ export default defineAction({
             added,
             updated,
             authorFiltered: 0,
-            newlyObserved: newlyObserved.length,
+            newlyObserved: newlyObserved.filter((item) => item.added).length,
             truncated: added + updated < issues.length + pullRequests.length,
-            itemIds: newlyObserved.map((item) => item.itemId),
+            itemIds: newlyObserved
+              .filter((item) => item.added)
+              .map((item) => item.itemId),
           },
         },
         factoryId,
@@ -365,7 +370,11 @@ export default defineAction({
             source: item.source,
             sourceUrl: item.sourceUrl,
             summary: item.summary,
-            details: { repository: repositoryName, number: item.number },
+            details: {
+              repository: repositoryName,
+              number: item.number,
+              added: item.added,
+            },
           },
           factoryId,
         );

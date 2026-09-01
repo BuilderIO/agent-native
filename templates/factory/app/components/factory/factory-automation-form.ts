@@ -164,21 +164,24 @@ export function isDestinationFilled(
   return false;
 }
 
-export function factoryAutomationConnectionsFromConfig(query: {
+type FactoryAutomationConfigQuery = {
   error?: unknown;
   data?: {
     connections?: FactoryAutomationConnections;
     readinessError?: string | null;
   };
-}): FactoryAutomationConnections | undefined {
+};
+
+export function factoryAutomationConnectionsFromConfig(
+  query: FactoryAutomationConfigQuery,
+): FactoryAutomationConnections | undefined {
   if (query.error || query.data?.readinessError) return undefined;
   return query.data?.connections;
 }
 
-export function factoryAutomationReadinessFailed(query: {
-  error?: unknown;
-  data?: { readinessError?: string | null };
-}): boolean {
+export function factoryAutomationReadinessFailed(
+  query: FactoryAutomationConfigQuery,
+): boolean {
   return Boolean(query.error || query.data?.readinessError);
 }
 

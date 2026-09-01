@@ -34,6 +34,7 @@ describe("projectFactoryAuditReport", () => {
           kind: "observed",
           summary: "`Analytics` stuck in an infinite re-confirmation loop",
           createdAt: "2026-08-21T23:01:21.000Z",
+          details: { added: true },
         }),
         event({
           id: "list-1",
@@ -213,6 +214,7 @@ describe("projectFactoryAuditReport", () => {
           sourceUrl: "https://github.com/example/repo/pull/3917",
           summary: "Fix inbox filters",
           createdAt: "2026-08-28T23:00:00.000Z",
+          details: { added: true },
         }),
         event({
           id: "scan-pr",
@@ -290,6 +292,7 @@ describe("projectFactoryAuditReport", () => {
         source: "github",
         summary: "Fix inbox filters",
         createdAt: "2026-08-28T23:00:01.000Z",
+        details: { added: true },
       }),
     ]);
     expect(report.counts.newlyObserved).toBe(1);
@@ -414,6 +417,45 @@ describe("projectFactoryAuditReport", () => {
     expect(report.work[1]?.builderAlreadyStarted).toBe(true);
     expect(report.work[1]?.listedStatus).toBe("automation_started");
     expect(report.actions).toHaveLength(0);
+  });
+
+  it("does not treat source-changed GitHub observations as inbox additions", () => {
+    const report = projectFactoryAuditReport([
+      event({
+        id: "rollup",
+        action: "poll-github-sources",
+        kind: "observed",
+        source: "github",
+        summary: "Polled 2 open pull requests.",
+        details: {
+          added: 0,
+          newlyObserved: 0,
+          updated: 1,
+          itemIds: [],
+        },
+      }),
+      event({
+        id: "changed-pr",
+        itemId: "item-pr-1",
+        action: "poll-github-sources",
+        kind: "observed",
+        source: "github",
+        summary: "Fix inbox filters",
+        details: { added: false, number: 1 },
+      }),
+      event({
+        id: "ingest",
+        itemId: "item-pr-1",
+        action: "ingest-github-observation",
+        kind: "observed",
+        source: "github",
+        summary: "Fix inbox filters",
+        details: { reviewCount: 2, checkCount: 4 },
+      }),
+    ]);
+
+    expect(report.counts.added).toBe(0);
+    expect(report.inbox).toHaveLength(0);
   });
 });
 
