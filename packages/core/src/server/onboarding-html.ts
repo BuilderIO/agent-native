@@ -1169,6 +1169,12 @@ function serializeAuthPageData(value: unknown): string {
     .replaceAll("\u2029", "\\u2029");
 }
 
+function authClientAssetPath(appBasePath: string): string {
+  const buildId = process.env.AGENT_NATIVE_BUILD_ID?.trim();
+  const cacheBuster = buildId ? `?v=${encodeURIComponent(buildId)}` : "";
+  return `${appBasePath}/assets/auth-client.js${cacheBuster}`;
+}
+
 export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const showGoogle = hasGoogleOAuth();
   const googleOnly = !!opts.googleOnly;
@@ -2077,7 +2083,7 @@ ${embeddedAuthCss}
     .auth-marketing-home .auth-marketing-shell { display: block; }
   }
 `;
-  const authClientScriptPath = `${appBasePath}/assets/auth-client.js`;
+  const authClientScriptPath = authClientAssetPath(appBasePath);
   const title = hasMarketing
     ? `${marketing!.appName} — ${t("pageTitleSignIn")}`
     : t("pageTitleWelcome");
@@ -2275,7 +2281,7 @@ export function getResetPasswordHtml(requestPath?: string): string {
         }),
         createElement("script", {
           type: "module",
-          src: `${appBasePath}/assets/auth-client.js`,
+          src: authClientAssetPath(appBasePath),
         }),
       ),
       createElement(

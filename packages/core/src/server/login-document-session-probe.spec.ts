@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { shouldRetryAuthSessionProbe } from "../client/auth/AuthPage.js";
 import { getOnboardingHtml } from "./onboarding-html.js";
@@ -19,5 +19,16 @@ describe("login document session probe", () => {
     const html = getOnboardingHtml();
     expect(html).toContain('id="agent-native-auth-root"');
     expect(html).toContain('src="/assets/auth-client.js"');
+  });
+
+  it("cache-busts the auth client for a deployed build", () => {
+    vi.stubEnv("AGENT_NATIVE_BUILD_ID", "deploy-123");
+    try {
+      expect(getOnboardingHtml()).toContain(
+        'src="/assets/auth-client.js?v=deploy-123"',
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
