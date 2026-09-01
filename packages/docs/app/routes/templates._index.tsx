@@ -64,7 +64,7 @@ export default function TemplatesPage() {
                 column rules are drawn as a border inside that measure, and this
                 band's own background would otherwise paint over them for its
                 whole height. */}
-            <div className="-mx-[15px] grid min-w-0 gap-5 border-y border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] p-5 sm:-mx-[23px] sm:grid-cols-2 lg:grid-cols-3">
+            <div className="-mx-[15px] grid min-w-0 gap-5 border-b border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] p-5 sm:-mx-[23px] sm:grid-cols-2 lg:grid-cols-3">
               {featuredTemplates.map((template) => (
                 <TemplateCard key={template.name} template={template} />
               ))}
