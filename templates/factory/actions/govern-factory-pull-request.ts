@@ -36,7 +36,10 @@ import {
   parseTriageMetadata,
   serializeTriageMetadata,
 } from "../server/triage/metadata.js";
-import { reconcileBabysitState } from "../server/triage/pr-babysit.js";
+import {
+  hasCompletePassingChecks,
+  reconcileBabysitState,
+} from "../server/triage/pr-babysit.js";
 import {
   decidePullRequestGovernance,
   hasActiveCredibleSafetyFinding,
@@ -506,12 +509,11 @@ export default defineAction({
       };
     }
 
-    const checksPassed =
-      snapshot.checks.length > 0 &&
-      snapshot.checks.every((check) => check.state === "passed");
+    const checksPassed = hasCompletePassingChecks(snapshot);
     const reviewFeedback = reconcileBabysitState({
       comments: snapshot.comments,
       checks: snapshot.checks,
+      checksCoverage: snapshot.checksCoverage,
       commentsTruncated: snapshot.commentsTruncated,
       botAuthors: [
         "github-actions",
@@ -549,6 +551,7 @@ export default defineAction({
       openNonDraft: pullRequest.state === "open" && !pullRequest.draft,
       internalBuilderMember: internalMember.isMember,
       factoryTriggered,
+      checksCoverage: snapshot.checksCoverage,
     });
 
     await recordFactoryAudit(
@@ -762,12 +765,11 @@ export default defineAction({
             "Changed-file evidence disappeared after approval claim; no approval was posted.",
         };
       }
-      const postClaimChecksPassed =
-        postClaimSnapshot.checks.length > 0 &&
-        postClaimSnapshot.checks.every((check) => check.state === "passed");
+      const postClaimChecksPassed = hasCompletePassingChecks(postClaimSnapshot);
       const postClaimReviewFeedback = reconcileBabysitState({
         comments: postClaimSnapshot.comments,
         checks: postClaimSnapshot.checks,
+        checksCoverage: postClaimSnapshot.checksCoverage,
         commentsTruncated: postClaimSnapshot.commentsTruncated,
         botAuthors: [
           "github-actions",
@@ -799,6 +801,7 @@ export default defineAction({
         openNonDraft: pullRequest.state === "open" && !pullRequest.draft,
         internalBuilderMember: postClaimInternalMember.isMember,
         factoryTriggered,
+        checksCoverage: postClaimSnapshot.checksCoverage,
       });
       if (!postClaimGovernance.autoApprove) {
         await reconcileClaim(
@@ -968,6 +971,7 @@ export default defineAction({
             finalReviewSnapshot.reviews,
             pullRequest.headSha,
           ) ||
+          !hasCompletePassingChecks(finalReviewSnapshot) ||
           finalReviewSnapshot.commentsTruncated ||
           hasActiveCredibleSafetyFinding(
             finalReviewSnapshot.reviews,

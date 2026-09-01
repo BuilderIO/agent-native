@@ -114,6 +114,7 @@ export default function CalendarTemplate() {
             </span>
           </>
         }
+        customizeTemplate={template}
         description={
           <p className="m-0">{t("templateLanding.calendar.s007")}</p>
         }

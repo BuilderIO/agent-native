@@ -123,6 +123,16 @@ describe("defineAction", () => {
     expect(action.parallelSafe).toBe(true);
   });
 
+  it("preserves explicit endsTurn metadata", () => {
+    const action = defineAction({
+      description: "puts a question form on screen",
+      parameters: { x: { type: "string" } },
+      endsTurn: true,
+      run: async () => "ok",
+    });
+    expect(action.endsTurn).toBe(true);
+  });
+
   it("preserves explicit duplicate-read opt-out metadata", () => {
     const action = defineAction({
       description: "volatile polling read",

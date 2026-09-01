@@ -79,12 +79,12 @@ describe("deriveAppIdentity", () => {
     ).toBe(true);
   });
 
-  it("keeps first-party app homes while custom apps default to the root", () => {
+  it("defaults apps to /home while allowing an explicit root opt-out", () => {
     expect(
       resolveAppHomePath({ ...base, packageName: "mail", slug: "mail" }),
     ).toBe("/home");
     expect(resolveAppHomePath({ ...base, packageName: "customer-crm" })).toBe(
-      "/",
+      "/home",
     );
     expect(
       resolveAppHomePath({
@@ -92,7 +92,7 @@ describe("deriveAppIdentity", () => {
         packageName: "test-standalone",
         sourceTemplate: "chat",
       }),
-    ).toBe("/");
+    ).toBe("/home");
     expect(
       resolveAppHomePath({
         ...base,
@@ -101,6 +101,13 @@ describe("deriveAppIdentity", () => {
         homePath: "/inbox",
       }),
     ).toBe("/inbox");
+    expect(
+      resolveAppHomePath({
+        ...base,
+        packageName: "customer-crm",
+        homePath: "/",
+      }),
+    ).toBe("/");
   });
 
   it("runs on the resolved config, so APP_NAME still wins", () => {

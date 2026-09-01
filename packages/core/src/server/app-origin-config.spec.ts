@@ -38,8 +38,8 @@ describe("app origin client config", () => {
   });
 
   it("projects the default public app home when no origin is configured", () => {
-    expect(resolvePublicAppOriginConfig()).toEqual({ appHomePath: "/" });
-    expect(getAppOriginClientConfigScript()).toContain('"appHomePath":"/"');
+    expect(resolvePublicAppOriginConfig()).toEqual({ appHomePath: "/home" });
+    expect(getAppOriginClientConfigScript()).toContain('"appHomePath":"/home"');
   });
 
   it("projects the declared origins into the shell", () => {
@@ -48,7 +48,7 @@ describe("app origin client config", () => {
     process.env.WORKSPACE_OAUTH_ORIGIN = "https://oauth.example.com";
 
     expect(resolvePublicAppOriginConfig()).toEqual({
-      appHomePath: "/",
+      appHomePath: "/home",
       appUrl: "https://app.example.com",
       workspaceGatewayUrl: "https://gateway.example.com",
       workspaceOAuthOrigin: "https://oauth.example.com",
@@ -62,7 +62,7 @@ describe("app origin client config", () => {
     process.env.VITE_WORKSPACE_GATEWAY_URL = "https://vite-gw.example.com";
 
     expect(resolvePublicAppOriginConfig()).toEqual({
-      appHomePath: "/",
+      appHomePath: "/home",
       appUrl: "https://vite.example.com",
       workspaceGatewayUrl: "https://vite-gw.example.com",
     });
@@ -72,7 +72,7 @@ describe("app origin client config", () => {
     process.env.AGENT_NATIVE_WORKSPACE = "true";
 
     expect(resolvePublicAppOriginConfig()).toEqual({
-      appHomePath: "/",
+      appHomePath: "/home",
       workspaceRuntime: true,
     });
   });

@@ -22,6 +22,7 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { sentryPollObservationSummary } from "../server/lib/sentry-poll-summary.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
 import { mergeTriageMetadata } from "../server/triage/metadata.js";
@@ -108,6 +109,8 @@ export default defineAction({
       ? triageConfigUpdateRowId(config, orgId, factoryId)
       : null;
     let added = 0;
+    let updated = 0;
+    const addedIds: string[] = [];
     const nextSentrySeenAt =
       observedIssues.reduce<string | null>((latest, issue) => {
         if (!latest) return issue.firstSeen;
@@ -131,7 +134,12 @@ export default defineAction({
             .limit(1)
         )[0];
         if (!existing && added >= inboxLimit) continue;
-        if (!existing) added += 1;
+        if (!existing) {
+          added += 1;
+          addedIds.push(id);
+        } else {
+          updated += 1;
+        }
         const metadata = mergeTriageMetadata(existing?.metadataJson ?? "{}", {
           kind: "sentry_issue",
           sentryIssueId: issue.id,
@@ -233,32 +241,42 @@ export default defineAction({
       );
     });
 
-    if (observedIssues.length === 0) {
-      await recordFactoryAudit(
-        context,
-        { userEmail, orgId },
-        {
-          action: "poll-sentry-errors",
-          kind: "observed",
-          source: "sentry",
-          summary: "No unresolved Sentry errors were observed.",
-          details: { sentryOrgSlug },
+    await recordFactoryAudit(
+      context,
+      { userEmail, orgId },
+      {
+        action: "poll-sentry-errors",
+        kind: "observed",
+        source: "sentry",
+        summary: sentryPollObservationSummary(observedIssues.length, added),
+        details: {
+          sentryOrgSlug,
+          inboxLimit,
+          added,
+          updated,
+          authorFiltered: 0,
+          newlyObserved: added,
+          truncated: added + updated < observedIssues.length,
+          itemIds: addedIds,
         },
-        factoryId,
-      );
-    } else {
+      },
+      factoryId,
+    );
+    if (observedIssues.length > 0) {
       for (const issue of observedIssues) {
+        const itemId = itemDedupeKey(
+          { source: "sentry", externalId: issue.id },
+          orgId,
+          factoryId,
+        );
+        if (!addedIds.includes(itemId)) continue;
         await recordFactoryAudit(
           context,
           { userEmail, orgId },
           {
             action: "poll-sentry-errors",
             kind: "observed",
-            itemId: itemDedupeKey(
-              { source: "sentry", externalId: issue.id },
-              orgId,
-              factoryId,
-            ),
+            itemId,
             source: "sentry",
             sourceUrl: issue.permalink,
             summary: issue.title,
@@ -267,6 +285,7 @@ export default defineAction({
               level: issue.level,
               count: issue.count,
               projectSlug: issue.projectSlug,
+              added: true,
             },
           },
           factoryId,

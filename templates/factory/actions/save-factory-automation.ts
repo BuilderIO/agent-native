@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { isValidCron, nextOccurrence } from "@agent-native/core/jobs";
 import {
   resourceGetByPath,
@@ -7,6 +7,10 @@ import {
 import { listAutomationDefinitions } from "@agent-native/core/triggers";
 import { z } from "zod";
 
+import {
+  VaultUnavailableError,
+  assertFactoryConnectorReady,
+} from "../server/connectors/credentials.js";
 import {
   FACTORY_INBOX_LIMIT_MAX,
   FACTORY_WORK_LIMIT_MAX,
@@ -117,29 +121,63 @@ export default defineAction({
     if (scheduleMode === "daily" && !timezone) {
       throw new Error("Choose a timezone for a daily schedule.");
     }
+    const nextSlackChannelId =
+      input.slackChannelId !== undefined
+        ? input.slackChannelId.trim() || null
+        : current.slackChannelId;
+    const nextRepository =
+      input.repository !== undefined
+        ? input.repository.trim() || null
+        : current.repository;
+    const nextSentryOrgSlug =
+      input.sentryOrgSlug !== undefined
+        ? input.sentryOrgSlug.trim() || null
+        : current.sentryOrgSlug;
+    const nextSentryProjectSlug =
+      input.sentryProjectSlug !== undefined
+        ? input.sentryProjectSlug.trim() || null
+        : current.sentryProjectSlug;
+    if (input.enabled) {
+      if (current.source === "slack" && !nextSlackChannelId) {
+        throw new Error("Configure a Slack channel before saving this job.");
+      }
+      if (current.source === "github" && !nextRepository) {
+        throw new Error(
+          "Configure a GitHub repository before saving this job.",
+        );
+      }
+      if (
+        current.source === "sentry" &&
+        (!nextSentryOrgSlug || !nextSentryProjectSlug)
+      ) {
+        throw new Error(
+          "Configure Sentry organization and project slugs before saving this job.",
+        );
+      }
+      try {
+        await assertFactoryConnectorReady(current.source, userEmail, {
+          orgId,
+          slackWorkspace: input.slackWorkspace ?? current.slackWorkspace,
+          verb: "saving",
+        });
+      } catch (error) {
+        if (error instanceof VaultUnavailableError) fail(error.message);
+        fail(
+          error instanceof Error ? error.message : "Connector is not ready.",
+        );
+      }
+    }
     const config = {
       ...current,
       slackWorkspace: input.slackWorkspace ?? current.slackWorkspace,
-      slackChannelId:
-        input.slackChannelId !== undefined
-          ? input.slackChannelId.trim() || null
-          : current.slackChannelId,
+      slackChannelId: nextSlackChannelId,
       slackChannelName:
         input.slackChannelName !== undefined
           ? input.slackChannelName.trim() || null
           : current.slackChannelName,
-      repository:
-        input.repository !== undefined
-          ? input.repository.trim() || null
-          : current.repository,
-      sentryOrgSlug:
-        input.sentryOrgSlug !== undefined
-          ? input.sentryOrgSlug.trim() || null
-          : current.sentryOrgSlug,
-      sentryProjectSlug:
-        input.sentryProjectSlug !== undefined
-          ? input.sentryProjectSlug.trim() || null
-          : current.sentryProjectSlug,
+      repository: nextRepository,
+      sentryOrgSlug: nextSentryOrgSlug,
+      sentryProjectSlug: nextSentryProjectSlug,
       sentryEnvironment:
         input.sentryEnvironment !== undefined
           ? input.sentryEnvironment.trim() || null
