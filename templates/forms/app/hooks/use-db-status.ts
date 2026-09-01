@@ -19,8 +19,13 @@ export function useDbStatus() {
     staleTime: 30_000,
   });
 
-  const dbUrlEntry = data?.find((e) => e.key === "DATABASE_URL");
-  const configured = dbUrlEntry?.configured ?? false;
+  const configured =
+    data?.some(
+      (entry) =>
+        (entry.key === "DATABASE_URL" ||
+          entry.key === "NETLIFY_DATABASE_URL") &&
+        entry.configured,
+    ) ?? false;
 
   return {
     configured,
