@@ -183,6 +183,23 @@ describe("createPtyWebSocketServer", () => {
     ws.close();
   });
 
+  it("reports PTY spawn failures as terminal setup errors", async () => {
+    spawn.mockImplementationOnce(() => {
+      throw new Error("posix_spawnp failed");
+    });
+    const server = await createServer({ command: "builder" });
+    const { ws, message: rawMessage } = await openSocketAndMessage(
+      `ws://127.0.0.1:${server.port}/ws`,
+    );
+
+    expect(JSON.parse(rawMessage)).toEqual({
+      type: "setup-status",
+      status: "failed",
+      message: "Failed to spawn PTY: posix_spawnp failed",
+    });
+    ws.close();
+  });
+
   it("pipes terminal input and clamps resize messages", async () => {
     const server = await createServer({ command: "builder" });
     const ws = await openSocket(`ws://127.0.0.1:${server.port}/ws`);
