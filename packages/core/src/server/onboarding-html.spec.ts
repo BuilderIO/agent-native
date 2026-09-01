@@ -88,6 +88,21 @@ describe("getOnboardingHtml", () => {
     });
   });
 
+  it("version-stamps the auth client when the deployment build id is available", () => {
+    vi.stubGlobal("__AGENT_NATIVE_BUILD_ID__", "deploy-auth-client-123");
+
+    try {
+      expect(getOnboardingHtml()).toContain(
+        'src="/assets/auth-client.js?__an_build=deploy-auth-client-123"',
+      );
+      expect(getResetPasswordHtml()).toContain(
+        'src="/assets/auth-client.js?__an_build=deploy-auth-client-123"',
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("renders deep-link tab selection in the initial SSR view", () => {
     expect(
       readAuthPageData(getOnboardingHtml({ requestPath: "/sign-in?tab=login" }))
