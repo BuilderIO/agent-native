@@ -57,6 +57,7 @@ import { cn } from "@/lib/utils";
 import { AttachmentStrip } from "./AttachmentStrip";
 import {
   getCurrentDraftBodyFromEditor,
+  isSameScheduledDraft,
   splitQuotedContent,
 } from "./compose-draft-context";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
@@ -201,6 +202,8 @@ export function ComposeModal({
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const sendingIdsRef = useRef<Set<string>>(new Set());
   const schedulingRef = useRef(false);
+  const draftsRef = useRef(drafts);
+  draftsRef.current = drafts;
 
   // Reset CC/BCC visibility and quote expansion when switching tabs
   useEffect(() => {
@@ -346,8 +349,13 @@ export function ComposeModal({
         runAt,
       });
 
-      // Job created successfully — now discard the draft
-      onDiscard(schedulingId);
+      // Preserve edits made while the scheduling request was in flight.
+      const currentDraft = draftsRef.current.find(
+        (draft) => draft.id === schedulingId,
+      );
+      if (currentDraft && isSameScheduledDraft(currentDraft, draftSnapshot)) {
+        onDiscard(schedulingId);
+      }
 
       const scheduledDate = new Date(runAt).toLocaleString("en-US", {
         weekday: "short",
