@@ -555,6 +555,7 @@ const jaJP = {
     tryCommunityDemo: "デモを試す",
     customizeDescription: "このコードはすべてカスタマイズできます。",
     customizeOnline: "オンラインでカスタマイズ",
+    customizeOnlineBadge: "ウェイトリストに登録",
     customizeLocally: "ローカルでカスタマイズ",
     communityNew: "新着",
     communityComingSoon: "近日公開",

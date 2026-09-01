@@ -551,6 +551,7 @@ const arSA = {
     tryCommunityDemo: "تجربة العرض",
     customizeDescription: "يمكنك تخصيص هذه الشيفرة بالكامل.",
     customizeOnline: "تخصيص عبر الإنترنت",
+    customizeOnlineBadge: "انضم إلى قائمة الانتظار",
     customizeLocally: "تخصيص محليًا",
     communityNew: "جديد",
     communityComingSoon: "قريبًا",

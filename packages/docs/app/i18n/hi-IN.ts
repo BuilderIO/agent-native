@@ -551,6 +551,7 @@ const hiIN = {
     tryCommunityDemo: "डेमो आज़माएँ",
     customizeDescription: "आप इस कोड को पूरी तरह customize कर सकते हैं।",
     customizeOnline: "ऑनलाइन customize करें",
+    customizeOnlineBadge: "वेटलिस्ट में शामिल हों",
     customizeLocally: "लोकल customize करें",
     communityNew: "नया",
     communityComingSoon: "जल्द आ रहा है",

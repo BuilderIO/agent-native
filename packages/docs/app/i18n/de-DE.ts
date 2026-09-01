@@ -557,6 +557,7 @@ const deDE = {
     tryCommunityDemo: "Demo testen",
     customizeDescription: "Du kannst diesen Code vollständig anpassen.",
     customizeOnline: "Online anpassen",
+    customizeOnlineBadge: "Warteliste beitreten",
     customizeLocally: "Lokal anpassen",
     communityNew: "Neu",
     communityComingSoon: "Demnächst",

@@ -554,6 +554,7 @@ const enUS = {
     tryCommunityDemo: "Try demo",
     customizeDescription: "You can customize this code completely.",
     customizeOnline: "Customize online",
+    customizeOnlineBadge: "Join waitlist",
     customizeLocally: "Customize locally",
     communityNew: "New",
     communityComingSoon: "Coming soon",

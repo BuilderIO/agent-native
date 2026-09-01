@@ -543,6 +543,7 @@ const messages = {
     tryCommunityDemo: "體驗示範",
     customizeDescription: "你可以完全自訂這份程式碼。",
     customizeOnline: "線上自訂",
+    customizeOnlineBadge: "加入候補名單",
     customizeLocally: "本機自訂",
     communityNew: "新應用程式",
     communityComingSoon: "即將推出",

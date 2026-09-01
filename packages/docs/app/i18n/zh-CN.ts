@@ -545,6 +545,7 @@ const zhCN = {
     tryCommunityDemo: "体验演示",
     customizeDescription: "你可以完全自定义这份代码。",
     customizeOnline: "在线定制",
+    customizeOnlineBadge: "加入等候名单",
     customizeLocally: "本地定制",
     communityNew: "新应用",
     communityComingSoon: "即将推出",

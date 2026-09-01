@@ -558,6 +558,7 @@ const esES = {
     tryCommunityDemo: "Probar demo",
     customizeDescription: "Puedes personalizar completamente este código.",
     customizeOnline: "Personalizar en línea",
+    customizeOnlineBadge: "Unirse a la lista de espera",
     customizeLocally: "Personalizar localmente",
     communityNew: "Nueva",
     communityComingSoon: "Próximamente",

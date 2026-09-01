@@ -557,6 +557,7 @@ const frFR = {
     tryCommunityDemo: "Essayer la démo",
     customizeDescription: "Vous pouvez personnaliser entièrement ce code.",
     customizeOnline: "Personnaliser en ligne",
+    customizeOnlineBadge: "Rejoindre la liste d'attente",
     customizeLocally: "Personnaliser localement",
     communityNew: "Nouveau",
     communityComingSoon: "Bientôt disponible",

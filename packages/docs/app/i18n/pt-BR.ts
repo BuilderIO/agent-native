@@ -554,6 +554,7 @@ const ptBR = {
     tryCommunityDemo: "Experimentar demo",
     customizeDescription: "Você pode personalizar completamente este código.",
     customizeOnline: "Personalizar online",
+    customizeOnlineBadge: "Entrar na lista de espera",
     customizeLocally: "Personalizar localmente",
     communityNew: "Novo",
     communityComingSoon: "Em breve",
