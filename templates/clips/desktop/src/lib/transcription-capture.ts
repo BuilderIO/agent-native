@@ -494,6 +494,10 @@ export async function startTranscriptionCapture(
           await stopTranscriptionEngine(nextEngine).catch(() => {});
           throw err;
         }
+        if (disposed) {
+          await stopTranscriptionEngine(nextEngine).catch(() => {});
+          return;
+        }
         engine = nextEngine;
         timeline.resume();
         paused = false;

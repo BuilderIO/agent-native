@@ -230,6 +230,41 @@ describe("local recording transcription", () => {
     ).toHaveBeenLastCalledWith("whisper", 28_000);
   });
 
+  it("stops a resumed engine when cleanup wins during timeline rebasing", async () => {
+    let finishReset!: () => void;
+    transcriptionEngineMocks.onFinalTranscript.mockResolvedValue(() => {});
+    transcriptionEngineMocks.startTranscriptionEngine
+      .mockResolvedValueOnce("whisper")
+      .mockResolvedValueOnce("macos-native");
+    transcriptionEngineMocks.stopTranscriptionEngine.mockResolvedValue(
+      undefined,
+    );
+    transcriptionEngineMocks.resetTranscriptionTimeline.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishReset = resolve;
+        }),
+    );
+
+    const capture = await startTranscriptionCapture();
+    expect(capture).not.toBeNull();
+    await capture?.pause();
+
+    const resume = capture?.resume();
+    await vi.waitFor(() => {
+      expect(
+        transcriptionEngineMocks.resetTranscriptionTimeline,
+      ).toHaveBeenCalledWith("macos-native", expect.any(Number));
+    });
+    await capture?.cancel();
+    finishReset();
+    await resume;
+
+    expect(
+      transcriptionEngineMocks.stopTranscriptionEngine,
+    ).toHaveBeenLastCalledWith("macos-native");
+  });
+
   it("keeps the timeline paused when the native resume fails", async () => {
     let now = 1_000;
     vi.spyOn(Date, "now").mockImplementation(() => now);
