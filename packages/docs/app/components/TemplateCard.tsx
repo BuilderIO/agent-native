@@ -8,6 +8,7 @@ import { CustomizeTemplatePopover } from "./CustomizeTemplatePopover";
 import { sitePathForLocale } from "./docs-locale";
 import { applyFirstTouchAttributionToLink } from "./marketing-attribution";
 import { TemplateDocsLink } from "./template-docs";
+import { APP_ART } from "./website-redesign/app-art";
 import { Button } from "./website-redesign/ds/button";
 
 export { trackEvent };
@@ -223,13 +224,14 @@ export function TemplateCard({ template }: { template: Template }) {
     heroCopy?.replaces ?? t(`templates.${template.slug}.replaces`);
   const description =
     heroCopy?.description ?? t(`templates.${template.slug}.description`);
+  const art = APP_ART[template.slug];
 
   return (
     <article className="group flex min-w-0 flex-col overflow-hidden border border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)]">
       <Link
         data-an-prefetch="viewport"
         to={templatePath}
-        className="flex aspect-[320/256] items-center justify-center overflow-hidden border-b border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-raised)] transition-opacity hover:opacity-90"
+        className="relative flex aspect-[320/256] items-center justify-center overflow-hidden border-b border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-raised)]"
         onClick={() =>
           trackEvent("click template", {
             template: template.slug,
@@ -237,18 +239,46 @@ export function TemplateCard({ template }: { template: Template }) {
           })
         }
       >
-        {template.screenshot ? (
+        {art ? (
+          <>
+            <BuilderImage
+              src={art.imageDark}
+              crossOrigin="anonymous"
+              alt={t("templateCard.screenshotAlt", { name: template.name })}
+              loading="lazy"
+              decoding="async"
+              className="theme-img-dark relative h-full w-full object-cover"
+            />
+            <BuilderImage
+              src={art.imageLight}
+              crossOrigin="anonymous"
+              alt={t("templateCard.screenshotAlt", { name: template.name })}
+              loading="lazy"
+              decoding="async"
+              className="theme-img-light absolute inset-0 h-full w-full object-cover"
+            />
+            {/* Decorative on purpose: the illustration beneath already carries
+                the alt text, and both layers stay mounted so the reveal is a
+                CSS fade rather than a swapped src. */}
+            {art.hoverImage ? (
+              <BuilderImage
+                src={art.hoverImage}
+                crossOrigin="anonymous"
+                alt=""
+                loading="lazy"
+                decoding="async"
+                className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+              />
+            ) : null}
+          </>
+        ) : template.screenshot ? (
           <BuilderImage
-            src={
-              template.slug === "clips"
-                ? "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Febc2a7d837664382853cbfb481592b31?format=webp&width=800&height=1200"
-                : template.screenshot
-            }
+            src={template.screenshot}
             crossOrigin="anonymous"
             alt={t("templateCard.screenshotAlt", { name: template.name })}
             loading="lazy"
             decoding="async"
-            className="h-full w-full object-cover object-top"
+            className="h-full w-full object-cover object-top transition-opacity hover:opacity-90"
           />
         ) : (
           <div
