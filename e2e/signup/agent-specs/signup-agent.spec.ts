@@ -26,7 +26,10 @@ const REVIEW_SURFACE_LOADING_SELECTOR =
 
 type PostLinkState = "onboarding" | "app" | "unresolved";
 
-async function waitForPostLinkState(page: Page): Promise<PostLinkState> {
+async function waitForPostLinkState(
+  page: Page,
+  pendingRequests?: Map<string, number>,
+): Promise<PostLinkState> {
   const deadline = Date.now() + REVIEW_SURFACE_TIMEOUT_MS;
   while (Date.now() < deadline) {
     if (
@@ -44,7 +47,8 @@ async function waitForPostLinkState(page: Page): Promise<PostLinkState> {
     if (
       bodyText.trim().length >= 40 &&
       (await appHidden.count()) === 0 &&
-      (await loadingSurface.count()) === 0
+      (await loadingSurface.count()) === 0 &&
+      (pendingRequests?.size ?? 0) === 0
     ) {
       return "app";
     }
@@ -333,7 +337,7 @@ for (const target of targets) {
       const message = await emailPromise;
       const link = verificationLinkFor(message, target.origin);
       await page.goto(link, { waitUntil: "domcontentloaded" });
-      const postLinkState = await waitForPostLinkState(page);
+      const postLinkState = await waitForPostLinkState(page, pendingRequests);
       steps.push(
         await capture(
           page,
@@ -345,7 +349,7 @@ for (const target of targets) {
       );
       if (postLinkState === "onboarding") {
         await completeFirstRunOnboarding(page);
-        await waitForPostLinkState(page);
+        await waitForPostLinkState(page, pendingRequests);
         steps.push(
           await capture(
             page,
@@ -360,7 +364,7 @@ for (const target of targets) {
 
     await test.step("reload the way a stuck user would", async () => {
       await page.reload({ waitUntil: "domcontentloaded" });
-      await waitForPostLinkState(page);
+      await waitForPostLinkState(page, pendingRequests);
       steps.push(
         await capture(
           page,
