@@ -31,6 +31,7 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("void dataQ.refetch();");
     expect(route).toContain("dataQ.data.status === 401");
     expect(route).toContain("dataQ.data.status === 404");
+    expect(route).toContain("!needsPassword &&");
     expect(route).toContain(
       "h-[var(--agent-native-viewport-height,100vh)] min-h-0",
     );

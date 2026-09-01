@@ -874,10 +874,11 @@ export default function ShareRoute() {
   }
 
   const shareNeedsSession =
-    !dataQ.data ||
-    dataQ.data.status === 401 ||
-    dataQ.data.status === 404 ||
-    !dataQ.data.data?.recording;
+    !needsPassword &&
+    (!dataQ.data ||
+      dataQ.data.status === 401 ||
+      dataQ.data.status === 404 ||
+      !dataQ.data.data?.recording);
   const sessionNeedsRetry =
     sessionStatus === "loading" ||
     sessionStatus === "signing-out" ||
