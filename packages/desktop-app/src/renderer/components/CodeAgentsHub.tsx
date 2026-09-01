@@ -2892,6 +2892,23 @@ export default function CodeAgentsHub({
     (!chatFirstAppSelected || activeChatFirstSurfaceTab?.placement === "side");
   const canToggleChatFirstSurfacePanel =
     canRenderChatFirstSurfacePanel && !chatFirstAppSelected;
+  const activeTerminalApp = useMemo(() => {
+    if (activeChatFirstSurfaceTab?.kind !== "app") return undefined;
+    const app = surfaceApps.find(
+      (candidate) => candidate.id === activeChatFirstSurfaceTab.appId,
+    );
+    if (!app) return undefined;
+    return {
+      id: app.id,
+      name: app.name,
+      ...(activeChatFirstSurfaceTab.path
+        ? { path: activeChatFirstSurfaceTab.path }
+        : {}),
+      ...(activeChatFirstSurfaceTab.view
+        ? { view: activeChatFirstSurfaceTab.view }
+        : {}),
+    };
+  }, [activeChatFirstSurfaceTab, surfaceApps]);
   return (
     <QueryClientProvider client={codeAgentsQueryClient}>
       <div
@@ -2968,6 +2985,7 @@ export default function CodeAgentsHub({
               <DesktopTerminalSurface
                 agent={terminalPreferences.agent}
                 theme={theme}
+                activeApp={activeTerminalApp}
                 submitRequest={terminalPromptRequest ?? undefined}
                 onPromptSubmitted={handleTerminalPromptSubmitted}
                 onNewUiTab={handleNewUiTab}
