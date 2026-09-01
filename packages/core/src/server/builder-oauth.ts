@@ -356,7 +356,14 @@ export async function hasBuilderOAuthSession(
     // An unreadable encrypted row parses as `{}`. It is still retained for
     // disconnect/reconnect handling, but it cannot claim the OAuth lane and
     // block a usable org-scoped Builder key pair.
-    if (stored !== null && Object.keys(stored).length > 0) return true;
+    if (
+      stored !== null &&
+      typeof stored === "object" &&
+      !Array.isArray(stored) &&
+      Object.keys(stored).length > 0
+    ) {
+      return true;
+    }
   }
   return false;
 }

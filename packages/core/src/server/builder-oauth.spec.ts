@@ -361,6 +361,13 @@ describe("Builder hosted user OAuth", () => {
     await expect(hasBuilderOAuthSession(ownerEmail)).resolves.toBe(false);
   });
 
+  it("does not treat a non-record token bundle as OAuth custody", async () => {
+    resolveOrgMock.mockResolvedValue("org-acme");
+    getRawTokensMock.mockResolvedValue("not-a-token-bundle");
+
+    await expect(hasBuilderOAuthSession(ownerEmail)).resolves.toBe(false);
+  });
+
   it("shares one org-scoped credential across members of the same org", async () => {
     resolveOrgMock.mockResolvedValue("org-acme");
     getRawTokensMock.mockImplementation(
