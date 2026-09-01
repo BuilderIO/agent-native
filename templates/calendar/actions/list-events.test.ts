@@ -602,9 +602,7 @@ describe("list-events inventory contract", () => {
     listGoogleEventsMock.mockResolvedValue({ events: [], errors: [] });
     listOverlayEventsMock.mockResolvedValue({
       events: [],
-      errors: [
-        { email: "person@example.com", error: "Refresh token revoked" },
-      ],
+      errors: [{ email: "person@example.com", error: "Refresh token revoked" }],
       accountErrors: [
         { email: "steve@example.com", error: "Refresh token revoked" },
       ],

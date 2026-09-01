@@ -181,6 +181,7 @@ const enUS = {
     otherCalendars: "Other Calendars",
     otherCalendarsDescription:
       "Add a teammate's calendar or subscribe to a public calendar URL",
+    overlayCalendarUnavailable: "Couldn't load {{email}}'s calendar right now",
     previousYear: "Previous year",
     showCalendar: "Show calendar",
   },
