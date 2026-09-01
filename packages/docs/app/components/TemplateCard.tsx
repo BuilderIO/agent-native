@@ -8,8 +8,21 @@ import { BuilderImage } from "./builder-image";
 import { BuilderWaitlistContent } from "./BuilderWaitlistPopover";
 import { sitePathForLocale } from "./docs-locale";
 import { applyFirstTouchAttributionToLink } from "./marketing-attribution";
-import { TemplateDocsLink } from "./template-docs";
+import { getTemplateDocsPath } from "./template-docs";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { APP_ART } from "./website-redesign/app-art";
+import { Button } from "./website-redesign/ds/button";
+
+// The /apps grid is three 433px columns of the 1300px site max width, halving
+// to two and then one at the `mobile` and `narrow` breakpoints.
+const CARD_IMAGE_SIZES =
+  "(max-width: 480px) 100vw, (max-width: 768px) 50vw, (max-width: 1300px) 33vw, 433px";
+
+const CARD_HEADING_CLASS =
+  "m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]";
+
+const CARD_BODY_CLASS =
+  "m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]";
 
 export { trackEvent };
 
@@ -236,6 +249,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
     "menu" | "editOnline" | "runLocally"
   >("menu");
   const t = useT();
+  const { locale } = useLocale();
   const hasDemoUrl = "demoUrl" in template && template.demoUrl;
 
   function handleCustomizeOpenChange(open: boolean) {
@@ -267,9 +281,14 @@ function TemplateLaunchButton({ template }: { template: Template }) {
   }
 
   return (
-    <div className="mt-auto flex flex-col gap-2 pt-3">
+    // Wraps rather than shrinks: the ds Button labels are whitespace-nowrap, so
+    // in a one-column card the three of them stack instead of overflowing.
+    <div className="mt-auto flex w-full flex-wrap gap-[var(--spacing-2)] pt-[var(--spacing-2)]">
       {hasDemoUrl ? (
-        <a
+        <Button
+          variant="white"
+          icon={IconExternalLink}
+          compact
           href={template.demoUrl}
           target="_blank"
           rel="noopener noreferrer"
@@ -280,69 +299,79 @@ function TemplateLaunchButton({ template }: { template: Template }) {
               location: "card",
             });
           }}
-          className="primary-button template-card-primary-button w-full"
+          className="uppercase"
         >
-          <IconExternalLink className="size-4" aria-hidden="true" />
           {t("common.tryIt")}
-        </a>
+        </Button>
       ) : null}
-      <div className="flex gap-2">
-        <Popover open={showCustomize} onOpenChange={handleCustomizeOpenChange}>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              className="secondary-button flex-1 whitespace-nowrap"
-            >
-              {t("common.customizeIt")}
-            </button>
-          </PopoverTrigger>
-          <PopoverContent
-            align="start"
-            sideOffset={6}
-            collisionPadding={16}
-            className={
-              customizeMode === "runLocally"
-                ? "w-max max-w-[calc(100vw-32px)]"
-                : customizeMode === "editOnline"
-                  ? "w-[min(100vw-32px,360px)] p-4"
-                  : "w-[min(100vw-32px,220px)] p-1"
-            }
-          >
-            {customizeMode === "runLocally" ? (
-              <CliPopoverContent template={template} />
-            ) : customizeMode === "editOnline" ? (
-              <BuilderWaitlistContent
-                location="card"
-                template={template.slug}
-                source="docs_template_card"
-                useCase="docs_edit_online_waitlist"
-              />
-            ) : (
-              <div className="flex flex-col">
-                <button
-                  type="button"
-                  onClick={showEditOnline}
-                  className="rounded-md px-3 py-2 text-left text-sm font-medium text-[var(--fg)] transition hover:bg-[var(--bg-secondary)]"
-                >
-                  {t("common.editOnline")}
-                </button>
-                <button
-                  type="button"
-                  onClick={showRunLocally}
-                  className="rounded-md px-3 py-2 text-left text-sm font-medium text-[var(--fg)] transition hover:bg-[var(--bg-secondary)]"
-                >
-                  {t("common.runLocally")}
-                </button>
-              </div>
-            )}
-          </PopoverContent>
-        </Popover>
-        <TemplateDocsLink
-          template={template}
-          location="card"
-          className="secondary-button flex-1 whitespace-nowrap"
-        />
-      </div>
+      <Popover open={showCustomize} onOpenChange={handleCustomizeOpenChange}>
+        <PopoverTrigger asChild>
+          {/* Caps come from CSS, not the label: an all-caps string becomes
+              the accessible name and screen readers spell it out. */}
+          <Button variant="secondary" icon={null} compact className="uppercase">
+            {t("common.customizeIt")}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          sideOffset={6}
+          collisionPadding={16}
+          className={
+            customizeMode === "runLocally"
+              ? "w-max max-w-[calc(100vw-32px)]"
+              : customizeMode === "editOnline"
+                ? "w-[min(100vw-32px,360px)] p-4"
+                : "w-[min(100vw-32px,220px)] p-1"
+          }
+        >
+          {customizeMode === "runLocally" ? (
+            <CliPopoverContent template={template} />
+          ) : customizeMode === "editOnline" ? (
+            <BuilderWaitlistContent
+              location="card"
+              template={template.slug}
+              source="docs_template_card"
+              useCase="docs_edit_online_waitlist"
+            />
+          ) : (
+            <div className="flex flex-col">
+              <button
+                type="button"
+                onClick={showEditOnline}
+                className="rounded-md px-3 py-2 text-left text-sm font-medium text-[var(--fg)] transition hover:bg-[var(--bg-secondary)]"
+              >
+                {t("common.editOnline")}
+              </button>
+              <button
+                type="button"
+                onClick={showRunLocally}
+                className="rounded-md px-3 py-2 text-left text-sm font-medium text-[var(--fg)] transition hover:bg-[var(--bg-secondary)]"
+              >
+                {t("common.runLocally")}
+              </button>
+            </div>
+          )}
+        </PopoverContent>
+      </Popover>
+      {/* The ds Button directly rather than TemplateDocsLink, whose className
+          prop replaces its styling outright — routing it through there would
+          mean pasting the button's whole class list at the call site. */}
+      <Button
+        variant="secondary"
+        icon={null}
+        compact
+        href={sitePathForLocale(getTemplateDocsPath(template), locale)}
+        data-an-prefetch="viewport"
+        onClick={() =>
+          trackEvent("click view docs", {
+            template: template.slug,
+            location: "card",
+          })
+        }
+        className="uppercase"
+      >
+        {t("common.viewDocs")}
+      </Button>
     </div>
   );
 }
@@ -371,12 +400,19 @@ export function TemplateCard({ template }: { template: Template }) {
   const description =
     heroCopy?.description ?? t(`templates.${template.slug}.description`);
 
+  const art = APP_ART[template.slug];
+  const screenshotAlt = t("templateCard.screenshotAlt", {
+    name: template.name,
+  });
+
   return (
-    <div className="feature-card flex flex-col gap-3 overflow-hidden">
+    <div className="group flex flex-col bg-[var(--b-bg-page)] transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)]">
+      {/* `relative` anchors the theme-img-light overlay, which is absolutely
+          positioned so it sits exactly on top of the in-flow dark variant. */}
       <Link
         data-an-prefetch="viewport"
         to={templatePath}
-        className="-mx-[24px] -mt-[24px] mb-1 flex aspect-[924/729] items-center justify-center overflow-hidden border-b border-[var(--docs-border)] bg-[var(--bg-secondary)] transition hover:opacity-90"
+        className="relative flex aspect-[320/256] items-center justify-center overflow-hidden no-underline"
         onClick={() =>
           trackEvent("click template", {
             template: template.slug,
@@ -384,18 +420,50 @@ export function TemplateCard({ template }: { template: Template }) {
           })
         }
       >
-        {template.screenshot ? (
+        {art ? (
+          <>
+            {/* Both variants stay mounted with real geometry (theme-img-*
+                toggles opacity, not display) so loading="lazy" still fetches
+                whichever one is currently hidden. */}
+            <BuilderImage
+              className="theme-img-dark relative h-full w-full object-cover"
+              src={art.imageDark}
+              alt={screenshotAlt}
+              sizes={CARD_IMAGE_SIZES}
+              crossOrigin="anonymous"
+              loading="lazy"
+              decoding="async"
+            />
+            <BuilderImage
+              className="theme-img-light absolute inset-0 h-full w-full object-cover"
+              src={art.imageLight}
+              alt={screenshotAlt}
+              sizes={CARD_IMAGE_SIZES}
+              crossOrigin="anonymous"
+              loading="lazy"
+              decoding="async"
+            />
+            {art.hoverImage && (
+              <BuilderImage
+                className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+                src={art.hoverImage}
+                alt=""
+                sizes={CARD_IMAGE_SIZES}
+                crossOrigin="anonymous"
+                loading="lazy"
+                decoding="async"
+              />
+            )}
+          </>
+        ) : template.screenshot ? (
           <BuilderImage
-            src={
-              template.slug === "clips"
-                ? "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Febc2a7d837664382853cbfb481592b31?format=webp&width=800&height=1200"
-                : template.screenshot
-            }
+            className="h-full w-full object-cover object-top"
+            src={template.screenshot}
+            alt={screenshotAlt}
+            sizes={CARD_IMAGE_SIZES}
             crossOrigin="anonymous"
-            alt={t("templateCard.screenshotAlt", { name: template.name })}
             loading="lazy"
             decoding="async"
-            className="h-full w-full object-cover object-top"
           />
         ) : (
           <div
@@ -404,26 +472,24 @@ export function TemplateCard({ template }: { template: Template }) {
               background: `linear-gradient(135deg, ${template.color}, ${template.color}22)`,
             }}
           >
-            <span className="rounded-lg bg-[var(--bg)]/80 px-4 py-2 text-sm font-semibold text-[var(--fg)] shadow-sm">
-              {template.name}
-            </span>
+            <span className={CARD_HEADING_CLASS}>{template.name}</span>
           </div>
         )}
       </Link>
-      <h3 className="text-base font-semibold">
-        <Link
-          data-an-prefetch="viewport"
-          to={templatePath}
-          className="text-[var(--fg)] no-underline hover:text-[var(--docs-accent)]"
-        >
-          {template.name}
-        </Link>
-      </h3>
-      <p className="m-0 text-xs text-[var(--docs-accent)]">{replaces}</p>
-      <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-        {description}
-      </p>
-      <TemplateLaunchButton template={template} />
+      <div className="flex flex-auto flex-col items-start gap-[var(--spacing-3)] p-[var(--spacing-5)]">
+        <h3 className={CARD_HEADING_CLASS}>
+          <Link
+            data-an-prefetch="viewport"
+            to={templatePath}
+            className="text-inherit no-underline"
+          >
+            {template.name}
+          </Link>
+        </h3>
+        <p className={`${CARD_BODY_CLASS} font-medium`}>{replaces}</p>
+        <p className={CARD_BODY_CLASS}>{description}</p>
+        <TemplateLaunchButton template={template} />
+      </div>
     </div>
   );
 }

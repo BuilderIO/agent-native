@@ -1904,10 +1904,6 @@ html.dark .shiki span {
 }
 
 /* Feature cards */
-.templates-index-page :where(.grid) > * {
-  min-width: 0;
-}
-
 .feature-card {
   border: 1px solid var(--docs-border);
   border-radius: 6px;
@@ -2119,15 +2115,6 @@ html.dark .shiki span {
 .template-detail-page .secondary-button,
 .template-detail-page .template-detail-cta-actions a {
   text-transform: uppercase;
-}
-
-.template-card-primary-button {
-  min-height: 32px;
-  padding: 0 12px;
-  font-family: var(--font-sans);
-  font-size: 14px;
-  font-weight: 400;
-  letter-spacing: normal;
 }
 
 /* Mobile docs nav dropdown */
