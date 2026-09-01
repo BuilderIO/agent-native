@@ -201,19 +201,6 @@ export function TemplateCard({ template }: { template: Template }) {
                 decoding="async"
                 className="theme-img-light absolute inset-0 h-full w-full object-cover"
               />
-              {/* Decorative on purpose: the illustration beneath already carries
-                the alt text, and both layers stay mounted so the reveal is a
-                CSS fade rather than a swapped src. */}
-              {art.hoverImage ? (
-                <BuilderImage
-                  src={art.hoverImage}
-                  crossOrigin="anonymous"
-                  alt=""
-                  loading="lazy"
-                  decoding="async"
-                  className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-                />
-              ) : null}
             </>
           ) : template.screenshot ? (
             <BuilderImage

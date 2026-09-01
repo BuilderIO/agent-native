@@ -190,17 +190,6 @@ export function TemplateShowcase() {
                           loading="lazy"
                           decoding="async"
                         />
-                        {art.hoverImage && (
-                          <BuilderImage
-                            className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-                            src={art.hoverImage}
-                            alt=""
-                            sizes={CARD_IMAGE_SIZES}
-                            crossOrigin="anonymous"
-                            loading="lazy"
-                            decoding="async"
-                          />
-                        )}
                       </>
                     ) : (
                       <ImgPlaceholder

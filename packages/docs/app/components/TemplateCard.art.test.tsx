@@ -40,19 +40,14 @@ function imageClasses(container: HTMLElement) {
 }
 
 describe("TemplateCard artwork", () => {
-  it("shows the wireframe by default and reveals the screenshot on hover", () => {
+  it("shows only the wireframe, with no image swap on hover", () => {
     const { container } = renderCard("clips");
 
     const classes = imageClasses(container);
-    expect(classes).toHaveLength(3);
+    expect(classes).toHaveLength(2);
     expect(classes[0]).toContain("theme-img-dark");
     expect(classes[1]).toContain("theme-img-light");
-
-    // The screenshot sits on top at zero opacity until the card is hovered,
-    // which is the whole effect: no hover, no screenshot.
-    expect(classes[2]).toContain("opacity-0");
-    expect(classes[2]).toContain("group-hover:opacity-100");
-    expect(container.querySelector("article")?.className).toContain("group");
+    expect(classes.join(" ")).not.toContain("group-hover:opacity-100");
   });
 
   it("leaves apps without wireframe art on their plain screenshot", () => {
