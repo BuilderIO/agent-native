@@ -5,6 +5,12 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-09-01
 
+### Fixed
+
+- Calendar reconnects wait for Google to finish before refreshing meetings.
+
+## 2026-09-01
+
 ### Improved
 
 - Clip editing uses a text-only Edit button for a cleaner toolbar.

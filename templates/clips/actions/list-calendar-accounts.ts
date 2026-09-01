@@ -44,6 +44,7 @@ export default defineAction({
         status: schema.calendarAccounts.status,
         lastSyncedAt: schema.calendarAccounts.lastSyncedAt,
         lastSyncError: schema.calendarAccounts.lastSyncError,
+        updatedAt: schema.calendarAccounts.updatedAt,
         createdAt: schema.calendarAccounts.createdAt,
         ownerEmail: schema.calendarAccounts.ownerEmail,
       })

@@ -8,11 +8,7 @@ import {
   IconExternalLink,
   IconLoader2,
   IconMicrophone2,
-  IconPlugConnected,
-  IconPlugOff,
-  IconPlus,
   IconSearch,
-  IconSettings,
   IconX,
 } from "@tabler/icons-react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
@@ -54,8 +50,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import enMessages from "@/i18n/en-US";
+import { isCalendarConnectionComplete } from "@/lib/calendar-connection";
 import {
   buildMeetingHistoryQuery,
   MEETING_HISTORY_PAGE_SIZE,
@@ -122,7 +120,12 @@ interface CalendarAccount {
   status?: "connected" | "needs-reauth" | "disconnected" | (string & {});
   lastSyncedAt?: string | null;
   lastSyncError?: string | null;
+  updatedAt?: string | null;
 }
+
+type CalendarConnectedHandler = (
+  previousAccounts?: CalendarAccount[],
+) => void | Promise<void>;
 
 async function requestDisconnectCalendar(accountId: string): Promise<void> {
   const r = await fetch(
@@ -277,7 +280,7 @@ function CalendarConnectionAction({
   variant = "default",
 }: {
   label: string;
-  onConnected?: () => void | Promise<void>;
+  onConnected?: CalendarConnectedHandler;
   variant?: "default" | "outline" | "secondary";
 }) {
   const [error, setError] = useState<string | null>(null);
@@ -287,7 +290,7 @@ function CalendarConnectionAction({
     setError(null);
     setPending(true);
     startCalendarOAuth()
-      .then(() => onConnected?.())
+      .then(() => onConnected?.([]))
       .then(() => setPending(false))
       .catch((e: Error) => {
         setError(e.message);
@@ -342,7 +345,7 @@ function MeetingNotesSteps() {
 function ConnectCalendarEmptyState({
   onConnected,
 }: {
-  onConnected?: () => void | Promise<void>;
+  onConnected?: CalendarConnectedHandler;
 }) {
   const t = useT();
   return (
@@ -381,7 +384,7 @@ function CalendarAccountMenu({
   onDisconnected,
 }: {
   accounts: CalendarAccount[];
-  onConnected?: () => void | Promise<void>;
+  onConnected?: CalendarConnectedHandler;
   onDisconnected?: () => void;
 }) {
   const t = useT();
@@ -395,9 +398,10 @@ function CalendarAccountMenu({
   );
 
   const handleConnect = () => {
+    const previousAccounts = accounts.map((account) => ({ ...account }));
     setConnectPending(true);
     startCalendarOAuth()
-      .then(() => onConnected?.())
+      .then(() => onConnected?.(previousAccounts))
       .then(() => {
         setConnectPending(false);
       })
@@ -435,28 +439,25 @@ function CalendarAccountMenu({
         <DropdownMenuTrigger asChild>
           <Button
             size="sm"
-            variant="outline"
-            className="h-8 shrink-0 gap-1.5 cursor-pointer"
+            variant="ghost"
+            className="h-8 shrink-0 px-2.5 font-medium cursor-pointer"
             aria-label={t("meetingsRoute.calendarSettings")}
           >
-            <IconSettings className="h-4 w-4" />
             {t("meetingsRoute.calendarAccountsButton", {
               defaultValue: "Calendars",
             })}
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-72">
-          <DropdownMenuLabel className="flex items-center gap-2">
-            {accounts.length > 0 ? (
-              <IconPlugConnected className="h-4 w-4 text-muted-foreground" />
-            ) : (
-              <IconPlugOff className="h-4 w-4 text-muted-foreground" />
-            )}
-            Google Calendar
+        <DropdownMenuContent
+          align="end"
+          className="w-80 max-w-[calc(100vw-2rem)] p-1.5"
+        >
+          <DropdownMenuLabel className="px-2.5 py-2 text-sm font-semibold text-foreground">
+            Google Calendar {/* i18n-ignore -- stable provider name */}
           </DropdownMenuLabel>
           {accounts.length > 0 ? (
-            <div className="space-y-1.5 px-2 pb-1">
-              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="flex flex-col gap-1.5 px-2.5 pb-1">
+              <div className="mb-1 text-xs font-medium text-muted-foreground">
                 {t("meetingsRoute.connectedAccounts", {
                   defaultValue: "Connected accounts",
                 })}
@@ -464,15 +465,8 @@ function CalendarAccountMenu({
               {accounts.map((account) => (
                 <div
                   key={account.id}
-                  className="flex min-w-0 items-center gap-2 text-xs"
+                  className="flex min-w-0 items-center gap-3 rounded-md bg-muted/40 px-2.5 py-2 text-xs"
                 >
-                  {account.status === "needs-reauth" ? (
-                    <IconAlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
-                  ) : account.status === "disconnected" ? (
-                    <IconPlugOff className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  ) : (
-                    <IconPlugConnected className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  )}
                   <span className="min-w-0 flex-1 truncate">
                     {calendarAccountLabel(account)}
                   </span>
@@ -504,7 +498,7 @@ function CalendarAccountMenu({
               ))}
             </div>
           ) : (
-            <div className="px-2 pb-1 text-xs text-muted-foreground">
+            <div className="px-2.5 pb-1 text-xs text-muted-foreground">
               {t("meetingsRoute.connectCalendarReminder")}
             </div>
           )}
@@ -515,12 +509,11 @@ function CalendarAccountMenu({
                 event.preventDefault();
                 handleConnect();
               }}
+              className="px-2.5"
               disabled={connectPending}
             >
-              {connectPending ? (
-                <IconLoader2 className="me-2 h-4 w-4 animate-spin" />
-              ) : (
-                <IconExternalLink className="me-2 h-4 w-4" />
+              {connectPending && (
+                <IconLoader2 className="h-4 w-4 animate-spin" />
               )}
               {t("meetingsRoute.reconnectCalendar", {
                 defaultValue: "Reconnect calendar",
@@ -532,13 +525,10 @@ function CalendarAccountMenu({
               event.preventDefault();
               handleConnect();
             }}
+            className="px-2.5"
             disabled={connectPending}
           >
-            {connectPending ? (
-              <IconLoader2 className="me-2 h-4 w-4 animate-spin" />
-            ) : (
-              <IconPlus className="me-2 h-4 w-4" />
-            )}
+            {connectPending && <IconLoader2 className="h-4 w-4 animate-spin" />}
             {accounts.length > 0
               ? t("meetingsRoute.addAnotherCalendarAccount", {
                   defaultValue: "Add another account",
@@ -550,7 +540,7 @@ function CalendarAccountMenu({
           {accounts.length > 0 && (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuLabel className="text-[11px] text-muted-foreground">
+              <DropdownMenuLabel className="px-2.5 text-xs text-muted-foreground">
                 {t("meetingsRoute.disconnectCalendarAccount", {
                   defaultValue: "Disconnect an account",
                 })}
@@ -562,9 +552,8 @@ function CalendarAccountMenu({
                     event.preventDefault();
                     setDisconnectTarget(account);
                   }}
-                  className="text-destructive focus:text-destructive"
+                  className="px-2.5 text-destructive focus:text-destructive"
                 >
-                  <IconPlugOff className="me-2 h-4 w-4" />
                   Disconnect {calendarAccountLabel(account)}
                 </DropdownMenuItem>
               ))}
@@ -615,7 +604,7 @@ function MeetingsHeader({
   query: string;
   onQueryChange: (next: string) => void;
   calendarAccounts: CalendarAccount[];
-  onConnected?: () => void | Promise<void>;
+  onConnected?: CalendarConnectedHandler;
   onDisconnected?: () => void;
 }) {
   const t = useT();
@@ -751,63 +740,44 @@ export default function MeetingsIndexRoute() {
     { enabled: isSearching, retry: false },
   );
 
-  const clearCalendarConnectionWarnings = useCallback(() => {
-    queryClient.setQueriesData<{ accounts: CalendarAccount[] } | undefined>(
-      { queryKey: ["action", "list-calendar-accounts"] },
-      (prev) => {
-        if (!prev?.accounts) return prev;
-        const connectedAt = new Date().toISOString();
-        return {
-          ...prev,
-          accounts: prev.accounts.map((account) => ({
-            ...account,
-            status: "connected",
-            lastSyncError: null,
-            lastSyncedAt: account.lastSyncedAt ?? connectedAt,
-          })),
-        };
-      },
-    );
-    queryClient.setQueriesData<any>(
-      { queryKey: ["action", "list-meetings"] },
-      (prev: any) => {
-        // This key prefix also matches the paged history query, whose cache
-        // entry is {pages, pageParams}. Only patch an actual list-meetings
-        // response, or the patch silently grafts a field onto the wrong shape.
-        if (!prev || !Array.isArray(prev.meetings)) return prev;
-        return { ...prev, calendarErrors: [] };
-      },
-    );
-  }, [queryClient]);
-
   // After the OAuth popup closes, poll the account action briefly. The
   // callback writes `calendar_accounts` just before the popup closes, but the
-  // browser can observe the close before React Query has seen the new row.
-  const handleCalendarConnected = useCallback(async () => {
-    clearCalendarConnectionWarnings();
-    try {
-      let connected = false;
-      for (let attempt = 0; attempt < 10; attempt += 1) {
-        const result = await accounts.refetch();
-        connected = (result.data?.accounts?.length ?? 0) > 0;
-        if (connected) break;
-        await new Promise((resolve) => window.setTimeout(resolve, 500));
+  // browser can observe the close before React Query has seen the updated row.
+  const [isRefreshingCalendar, setIsRefreshingCalendar] = useState(false);
+  const handleCalendarConnected = useCallback(
+    async (previousAccounts: CalendarAccount[] = []) => {
+      setIsRefreshingCalendar(true);
+      try {
+        let connected = false;
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+          const result = await accounts.refetch();
+          connected = isCalendarConnectionComplete(
+            previousAccounts,
+            result.data?.accounts ?? [],
+          );
+          if (connected) break;
+          await new Promise((resolve) => window.setTimeout(resolve, 500));
+        }
+        if (connected) {
+          await Promise.all([history.refetch(), agendaQuery.refetch()]);
+          toast.success(t("meetingsRoute.calendarConnected"));
+        }
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : "Couldn't refresh your calendar",
+        );
+      } finally {
+        setIsRefreshingCalendar(false);
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "list-calendar-accounts"],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "list-meetings"],
+        });
       }
-      await history.refetch();
-      if (connected) toast.success(t("meetingsRoute.calendarConnected"));
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Couldn't refresh your calendar",
-      );
-    } finally {
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-calendar-accounts"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-meetings"],
-      });
-    }
-  }, [accounts, clearCalendarConnectionWarnings, history, queryClient, t]);
+    },
+    [accounts, agendaQuery, history, queryClient, t],
+  );
 
   const historyMeetings: Meeting[] = useMemo(
     () => (history.data?.pages ?? []).flatMap((page) => page?.meetings ?? []),
@@ -834,7 +804,7 @@ export default function MeetingsIndexRoute() {
     return map;
   }, [searchResults]);
 
-  const calendarAccounts = accounts.data?.accounts ?? [];
+  const calendarAccounts: CalendarAccount[] = accounts.data?.accounts ?? [];
   const hasCalendar = calendarAccounts.length > 0;
 
   const handleCalendarDisconnected = useCallback(() => {
@@ -847,14 +817,18 @@ export default function MeetingsIndexRoute() {
   }, [queryClient]);
 
   const handleReconnectCalendar = useCallback(() => {
+    const previousAccounts = calendarAccounts.map((account) => ({
+      ...account,
+    }));
     startCalendarOAuth()
-      .then(() => handleCalendarConnected())
+      .then(() => handleCalendarConnected(previousAccounts))
       .catch((err: Error) =>
         toast.error(err.message || "Couldn't reconnect calendar"),
       );
-  }, [handleCalendarConnected]);
+  }, [calendarAccounts, handleCalendarConnected]);
 
-  const isLoading = accounts.isLoading || history.isLoading;
+  const isLoading =
+    accounts.isLoading || history.isLoading || isRefreshingCalendar;
 
   const calendarLoadError = accounts.isError
     ? "Couldn't check your calendar connection. Try again in a moment."
@@ -875,7 +849,7 @@ export default function MeetingsIndexRoute() {
   // entirely, so the only signal is the account's own status. Cover both.
   const needsCalendarReauth =
     calendarErrors.some((e) => e.needsReauth) ||
-    calendarAccounts.some((a: any) => a.status === "needs-reauth");
+    calendarAccounts.some((account) => account.status === "needs-reauth");
 
   if (isLoading) {
     return (
@@ -884,9 +858,10 @@ export default function MeetingsIndexRoute() {
           <h1 className="truncate text-base font-semibold tracking-tight">
             {t("meetingsRoute.title")}
           </h1>
+          <Skeleton className="ms-auto h-8 w-24" />
         </PageHeader>
-        <div className="mx-auto w-full max-w-3xl p-6">
-          <div className="mb-6 h-9 animate-pulse rounded-md bg-muted/70" />
+        <div className="mx-auto w-full max-w-3xl p-6" aria-busy="true">
+          <Skeleton className="mb-6 h-9 w-full" />
           <AgendaCardSkeleton />
           <div className="mt-8 space-y-1">
             {Array.from({ length: 8 }).map((_, i) => (
