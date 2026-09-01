@@ -21,6 +21,7 @@ import {
   canUseDeployCredentialFallbackForRequest,
   getBuilderCredentialAuthFailure,
   getProviderCredentialAuthFailure,
+  prefetchSecrets,
   readDeployCredentialEnv,
   resolveBuilderCredentialsDetailed,
   resolveBuilderGatewayCredentialsDetailed,
@@ -719,6 +720,23 @@ export async function detectEngineFromUserSecrets(
     }
     return true;
   };
+
+  // Warm the per-request memo before the probe loops below. `resolveSecret`
+  // walks user/org/workspace/solo per key, so probing one key at a time is a
+  // serial read per (scope, key) — and every provider package ships installed
+  // in most templates, so nothing short-circuits. `readAppSecrets` memoizes
+  // absent keys too, which is what makes the no-provider-configured case (the
+  // common one) collapse rather than stay at full cost.
+  await prefetchSecrets([
+    ...new Set(
+      [..._registry.values()]
+        .filter(
+          (entry) =>
+            entry.name !== "builder" && isAgentEnginePackageInstalled(entry),
+        )
+        .flatMap((entry) => entry.requiredEnvVars),
+    ),
+  ]);
 
   const preferByo = getAppConfig().agent.preferBringYourOwnKey;
 

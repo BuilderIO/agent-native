@@ -256,6 +256,7 @@ describe("AgentEngine registry", () => {
       })),
       resolveSecret: vi.fn(async () => null),
       getProviderCredentialAuthFailure: vi.fn(async () => null),
+      prefetchSecrets: vi.fn(async () => {}),
     }));
 
     const { registerAgentEngine, isResolvedEngineUsableForRequest } =
@@ -2643,6 +2644,56 @@ describe("AgentEngine registry", () => {
       expect(detected?.name).toBe("builder");
     });
 
+    it("reads every candidate provider key in one batch per scope", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      const readAppSecret = vi.fn(async () => null);
+      const readAppSecrets = vi.fn(readAppSecretsFromSingles(readAppSecret));
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret,
+        readAppSecrets,
+      }));
+
+      const { registerAgentEngine, detectEngineFromUserSecrets } =
+        await import("./registry.js");
+
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: vi.fn() as any,
+      });
+      registerAgentEngine({
+        name: "ai-sdk:groq",
+        label: "Groq",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "groq-1",
+        supportedModels: [],
+        requiredEnvVars: ["GROQ_API_KEY"],
+        create: vi.fn() as any,
+      });
+
+      await detectEngineFromUserSecrets();
+
+      // The prefetch must cover both engines' keys up front. Probing per engine
+      // instead costs a read per (scope, key), which is what made the status
+      // endpoint issue ~50 serial reads per poll.
+      const batched = readAppSecrets.mock.calls.find(
+        ([args]: any) =>
+          args.keys.includes("OPENAI_API_KEY") &&
+          args.keys.includes("GROQ_API_KEY"),
+      );
+      expect(batched).toBeDefined();
+    });
+
     it("resolveEngine still honors a stored BYOK provider when Builder is not connected", async () => {
       vi.doMock("../../settings/store.js", () => ({
         getSetting: vi.fn().mockResolvedValue({
@@ -2828,6 +2879,7 @@ describe("AgentEngine registry", () => {
         canUseDeployCredentialFallbackForRequest: vi.fn(() => true),
         getBuilderCredentialAuthFailure: vi.fn(async () => null),
         getProviderCredentialAuthFailure: vi.fn(async () => null),
+        prefetchSecrets: vi.fn(async () => {}),
         readDeployCredentialEnv: vi.fn(() => "https://deploy.example/v1"),
         resolveBuilderCredentialsDetailed: vi.fn(async () => ({
           privateKey: null,
