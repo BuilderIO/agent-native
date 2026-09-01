@@ -192,12 +192,27 @@ async function notifyDbAdminChange(runtime?: DbAdminRuntime): Promise<void> {
 // listTables
 // ---------------------------------------------------------------------------
 
-export async function listTables(runtime?: DbAdminRuntime): Promise<{
+export async function listTables(
+  runtime?: DbAdminRuntime,
+  options: { maxRowCounts?: number } = {},
+): Promise<{
   dialect: DbAdminDialect;
   tables: DbAdminTableSummary[];
 }> {
   const client = db(runtime);
   const summaries: DbAdminTableSummary[] = [];
+  const maxRowCounts = Number.isFinite(options.maxRowCounts)
+    ? Math.max(0, Math.floor(options.maxRowCounts!))
+    : Number.POSITIVE_INFINITY;
+  let rowCountQueries = 0;
+  const rowCount = async (
+    name: string,
+    type: "table" | "view",
+  ): Promise<number | null> => {
+    if (type === "view" || rowCountQueries >= maxRowCounts) return null;
+    rowCountQueries += 1;
+    return safeRowCount(name, runtime);
+  };
 
   if (isPostgresRuntime(runtime)) {
     const res = await client.execute(
@@ -213,7 +228,7 @@ export async function listTables(runtime?: DbAdminRuntime): Promise<{
       summaries.push({
         name,
         type,
-        rowCount: type === "view" ? null : await safeRowCount(name, runtime),
+        rowCount: await rowCount(name, type),
       });
     }
   } else {
@@ -229,7 +244,7 @@ export async function listTables(runtime?: DbAdminRuntime): Promise<{
       summaries.push({
         name,
         type,
-        rowCount: type === "view" ? null : await safeRowCount(name, runtime),
+        rowCount: await rowCount(name, type),
       });
     }
   }
