@@ -751,7 +751,9 @@ async function resolveGoogleAccountTimezone(
         : null;
       resolved = true;
     } catch {
-      // Retried once above; if it still fails, fall through below.
+      // coercion-ok: retried once above; the final failure after both
+      // attempts is handled distinctly (never cached) by the
+      // `if (!resolved)` branch right after this loop.
     }
   }
   if (!resolved) {
