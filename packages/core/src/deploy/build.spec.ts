@@ -350,6 +350,17 @@ describe("resolveNitroBuildReplacements", () => {
       replacements["process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT"],
     ).toBe(JSON.stringify("beta"));
   });
+
+  it("falls back to the source revision for the server build id", () => {
+    const replacements = resolveNitroBuildReplacements({
+      COMMIT_REF: "commit-auth-client-123",
+    });
+
+    expect(replacements["process.env.AGENT_NATIVE_BUILD_ID"]).toBe(
+      JSON.stringify("commit-auth-client-123"),
+    );
+  });
+
   it("embeds only the app's runtime package declarations for bundled engine checks", () => {
     const projectCwd = fs.mkdtempSync(
       path.join(process.cwd(), ".tmp-engine-package-marker-"),

@@ -5644,13 +5644,20 @@ export function resolveNitroBuildReplacements(
   const configuredDeploymentEnvironment =
     deploymentEnvironment?.trim() ||
     env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT?.trim();
+  const buildId =
+    env.DEPLOY_ID?.trim() ||
+    env.AGENT_NATIVE_BUILD_ID?.trim() ||
+    env.COMMIT_REF?.trim() ||
+    env.NETLIFY_COMMIT_REF?.trim() ||
+    env.VERCEL_GIT_COMMIT_SHA?.trim() ||
+    env.CF_PAGES_COMMIT_SHA?.trim() ||
+    env.AGENT_NATIVE_BUILD_SHA?.trim() ||
+    "";
   return {
     // Netlify exposes DEPLOY_ID only while building. Embed it into the Nitro
     // function so preview OAuth relays can target this immutable deployment
     // even though the value is unavailable in the function runtime.
-    "process.env.AGENT_NATIVE_BUILD_ID": JSON.stringify(
-      env.DEPLOY_ID?.trim() || env.AGENT_NATIVE_BUILD_ID?.trim() || "",
-    ),
+    "process.env.AGENT_NATIVE_BUILD_ID": JSON.stringify(buildId),
     "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
       env.GA_MEASUREMENT_ID?.trim() || "",
     ),

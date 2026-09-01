@@ -2692,6 +2692,11 @@ export function AuthPage(props: AuthPageProps) {
             alt={`${marketingCopy.appName} preview`}
             width={marketingCopy.screenshotWidth}
             height={marketingCopy.screenshotHeight}
+            style={{
+              maxWidth: marketingCopy.screenshotWidth
+                ? `${marketingCopy.screenshotWidth}px`
+                : undefined,
+            }}
             fetchPriority="high"
             decoding="async"
           />
