@@ -777,7 +777,10 @@ describe("integration webhook handler engine resolution", () => {
           stream: vi.fn(),
         });
       runAgentLoopMock
-        .mockRejectedValueOnce(rejected)
+        .mockImplementationOnce(async ({ send }) => {
+          send({ type: "model_stream", status: "start" });
+          throw rejected;
+        })
         .mockImplementationOnce(async ({ send }) => {
           send({ type: "text", text: "fallback completed" });
         });
@@ -786,7 +789,6 @@ describe("integration webhook handler engine resolution", () => {
         adapter: createAdapter(sendResponse),
         systemPrompt: "system",
         actions: {},
-        engine: "builder",
         apiKey: "",
         ownerEmail: "integration@fake",
         orgId: "org-qa",
@@ -810,6 +812,50 @@ describe("integration webhook handler engine resolution", () => {
         idempotencyKey: "integration-response:task-qa",
       });
       expect(stageTaskDeliveryPayloadMock).toHaveBeenCalled();
+    },
+  );
+
+  it(
+    "does not replace a user-principal provider after credential rejection",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+      }));
+      const rejected = Object.assign(new Error("Unauthorized"), {
+        errorCode: "http_401",
+      });
+      getConfiguredEngineNameForRequestMock.mockResolvedValue("ai-sdk:openai");
+      resolveOwnerEngineApiKeyMock.mockResolvedValue({
+        apiKey: "user-selected-test-key",
+        apiKeyEnvVar: "OPENAI_API_KEY",
+      });
+      resolveEngineMock.mockResolvedValue({
+        name: "ai-sdk:openai",
+        defaultModel: "gpt-5.6-sol",
+        stream: vi.fn(),
+      });
+      runAgentLoopMock.mockRejectedValueOnce(rejected);
+
+      await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "",
+        ownerEmail: "person@fake",
+        orgId: "org-qa",
+        principalType: "user",
+        appId: "dispatch",
+      });
+
+      expect(runAgentLoopMock).toHaveBeenCalledOnce();
+      expect(resolveOwnerEngineApiKeyMock).toHaveBeenCalledOnce();
+      expect(resolveEngineMock).toHaveBeenCalledOnce();
+      expect(sendResponse).toHaveBeenCalledOnce();
+      expect(sendResponse.mock.calls[0]?.[0].text).toContain(
+        "Settings > Agent > AI providers",
+      );
     },
   );
 

@@ -341,8 +341,15 @@ async function resolveIntegrationEngineOption(
   // plugin default; org/user Agent settings should override that default just
   // as they do in web chat.
   if (engineOption && typeof engineOption === "object") return engineOption;
-  if (!includeConfiguredSelection) return engineOption;
+  // Managed service-principal recovery must bypass the rejected persisted
+  // selection. Integrations without an explicit engine use the hosted Builder
+  // gateway as their distinct managed fallback.
+  if (!includeConfiguredSelection) return engineOption ?? "builder";
   return (await getConfiguredEngineNameForRequest({ appId })) ?? engineOption;
+}
+
+function isMeaningfulIntegrationAgentEvent(event: AgentChatEvent): boolean {
+  return !["stream_keepalive", "activity", "model_stream"].includes(event.type);
 }
 
 function collectToolResultSummaries(
@@ -1372,10 +1379,7 @@ async function processIncomingMessage(
                     messages,
                     actions: runnableActions,
                     send: async (event) => {
-                      if (
-                        event.type !== "stream_keepalive" &&
-                        event.type !== "activity"
-                      ) {
+                      if (isMeaningfulIntegrationAgentEvent(event)) {
                         emittedAgentEvent = true;
                       }
                       if (progress) {
@@ -1413,6 +1417,7 @@ async function processIncomingMessage(
               } catch (error) {
                 if (
                   attempt > 0 ||
+                  opts.principalType !== "service" ||
                   emittedAgentEvent ||
                   !isLlmCredentialError(error)
                 ) {
