@@ -84,7 +84,10 @@ export class NotionApiError extends Error {
 }
 
 function getOrigin(event: H3Event): string {
-  return getRequestURL(event, { xForwardedHost: true }).origin;
+  return getRequestURL(event, {
+    xForwardedHost: true,
+    xForwardedProto: true,
+  }).origin;
 }
 
 /**
