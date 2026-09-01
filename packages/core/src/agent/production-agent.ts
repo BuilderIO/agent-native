@@ -3744,18 +3744,6 @@ function stringifyToolInput(input: unknown): string {
   }
 }
 
-function debugStringify(value: unknown, limit: number): string {
-  try {
-    const str = JSON.stringify(redactSensitiveFields(value), null, 2);
-    if (!str) return String(value);
-    return str.length > limit
-      ? `${str.slice(0, limit)}… [+${str.length - limit}]`
-      : str;
-  } catch {
-    return String(value);
-  }
-}
-
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value);
@@ -4304,13 +4292,6 @@ function toolInputSchemaErrorResult(
     parameters,
     schemaErrorPropertyNames(error),
   );
-  console.warn("[tool-schema-reject]", {
-    tool: toolName,
-    error: sanitizeToolErrorText(error),
-    outputCapTruncated,
-    expected: signature || null,
-    received: debugStringify(input, 4_000),
-  });
   return (
     `Invalid action parameters for ${toolName}: ${sanitizeToolErrorText(error)}. ` +
     `Received: ${stringifyToolInput(input)}. ` +
@@ -5790,27 +5771,6 @@ export async function runAgentLoop(opts: {
           typeof guard === "string"
             ? 1
             : Math.max(0, Math.min(3, Math.trunc(guard.maxRetries ?? 1)));
-        console.warn("[final-response-guard]", {
-          model,
-          retryCount: finalGuardRetries,
-          maxGuardRetries,
-          outcome:
-            finalGuardRetries < maxGuardRetries ? "retry" : "fallback-to-user",
-          requestText: String(finalResponseGuardRequestText ?? "").slice(
-            0,
-            400,
-          ),
-          assistantText: collectTextParts(assistantContentForHistory).slice(
-            0,
-            400,
-          ),
-          toolCallsThisTurn: toolCallHistory.map((call) => call.name),
-          toolResultsThisTurn: toolResultHistory.map((result) => ({
-            name: result.name,
-            isError: result.isError === true,
-            content: String(result.content ?? "").slice(0, 300),
-          })),
-        });
         if (finalGuardRetries < maxGuardRetries) {
           // Compact starter catalogs are an optimization for the first model
           // request. Once a guard rejects a final answer, preserving that
