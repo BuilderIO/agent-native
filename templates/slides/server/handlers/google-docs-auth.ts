@@ -49,52 +49,55 @@ export const getGoogleDocsAuthUrlHandler = defineEventHandler(
       return { error: "not_authenticated" };
     }
 
-    if (!(await isGoogleDocsOAuthConfigured(owner))) {
-      setResponseStatus(event, 422);
-      return {
-        error: "missing_credentials",
-        message:
-          "Google OAuth credentials are not configured. Save GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in settings.",
-      };
-    }
-
     try {
-      const q = getQuery(event);
-      const redirectUri = resolveOAuthRedirectUri(
-        event,
-        "/_agent-native/google-docs/callback",
-      );
-      if (!redirectUri) {
-        setResponseStatus(event, 400);
-        return {
-          error: "invalid_redirect_uri",
-          message: "redirect_uri must stay on this app's _agent-native routes.",
-        };
-      }
+      return await withSlidesRequestContext(event, async () => {
+        if (!(await isGoogleDocsOAuthConfigured(owner))) {
+          setResponseStatus(event, 422);
+          return {
+            error: "missing_credentials",
+            message:
+              "Google OAuth credentials are not configured. Save GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in settings.",
+          };
+        }
 
-      const desktop =
-        isElectron(event) || q.desktop === "1" || q.desktop === "true";
-      const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
-      const requestedReturn =
-        typeof q.return === "string" ? safeReturnPath(q.return) : "/home";
-      const returnUrl = requestedReturn !== "/" ? requestedReturn : undefined;
-      const state = encodeOAuthState({
-        redirectUri,
-        owner,
-        desktop,
-        addAccount: true,
-        app: OAUTH_STATE_APP_ID,
-        returnUrl,
-        flowId,
-      });
-      const url = await getGoogleDocsAuthUrl(redirectUri, state, owner);
-      if (q.redirect === "1") {
-        return new Response(null, {
-          status: 302,
-          headers: { Location: url },
+        const q = getQuery(event);
+        const redirectUri = resolveOAuthRedirectUri(
+          event,
+          "/_agent-native/google-docs/callback",
+        );
+        if (!redirectUri) {
+          setResponseStatus(event, 400);
+          return {
+            error: "invalid_redirect_uri",
+            message:
+              "redirect_uri must stay on this app's _agent-native routes.",
+          };
+        }
+
+        const desktop =
+          isElectron(event) || q.desktop === "1" || q.desktop === "true";
+        const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
+        const requestedReturn =
+          typeof q.return === "string" ? safeReturnPath(q.return) : "/home";
+        const returnUrl = requestedReturn !== "/" ? requestedReturn : undefined;
+        const state = encodeOAuthState({
+          redirectUri,
+          owner,
+          desktop,
+          addAccount: true,
+          app: OAUTH_STATE_APP_ID,
+          returnUrl,
+          flowId,
         });
-      }
-      return { url };
+        const url = await getGoogleDocsAuthUrl(redirectUri, state, owner);
+        if (q.redirect === "1") {
+          return new Response(null, {
+            status: 302,
+            headers: { Location: url },
+          });
+        }
+        return { url };
+      });
     } catch (error) {
       setResponseStatus(event, 500);
       return { error: formatGoogleOAuthError(error) };
@@ -134,11 +137,13 @@ export const handleGoogleDocsCallback = defineEventHandler(
         return oauthErrorPage("Session expired. Please log in and try again.");
       }
 
-      const account = await exchangeGoogleDocsCode({
-        code,
-        redirectUri: state.redirectUri,
-        owner,
-      });
+      const account = await withSlidesRequestContext(event, () =>
+        exchangeGoogleDocsCode({
+          code,
+          redirectUri: state.redirectUri,
+          owner,
+        }),
+      );
 
       return oauthCallbackResponse(event, account.email, {
         desktop,
@@ -163,41 +168,43 @@ export const getGoogleDocsStatus = defineEventHandler(
     }
 
     try {
-      const accounts = await listGoogleDocsAccounts(owner);
-      let googleSlidesUrlImportError: string | undefined;
-      if (
-        !accounts.some((account) => hasGoogleDriveExportScope(account.scope))
-      ) {
-        try {
-          const managed = await withSlidesRequestContext(event, () =>
-            resolveManagedGoogleDriveAccount(),
-          );
-          if (managed) {
-            accounts.push({
-              email: managed.email,
-              scope: managed.scope,
-              shared: true,
-            });
+      return await withSlidesRequestContext(event, async () => {
+        const accounts = await listGoogleDocsAccounts(owner);
+        let googleSlidesUrlImportError: string | undefined;
+        if (
+          !accounts.some((account) => hasGoogleDriveExportScope(account.scope))
+        ) {
+          try {
+            const managed = await withSlidesRequestContext(event, () =>
+              resolveManagedGoogleDriveAccount(),
+            );
+            if (managed) {
+              accounts.push({
+                email: managed.email,
+                scope: managed.scope,
+                shared: true,
+              });
+            }
+          } catch (error) {
+            // Keep the status response actionable so a revoked managed token can
+            // still be repaired through the Connect Google CTA.
+            googleSlidesUrlImportError = formatGoogleOAuthError(error);
           }
-        } catch (error) {
-          // Keep the status response actionable so a revoked managed token can
-          // still be repaired through the Connect Google CTA.
-          googleSlidesUrlImportError = formatGoogleOAuthError(error);
         }
-      }
-      const picker = await getGooglePickerConfig(owner);
-      return {
-        configured: await isGoogleDocsOAuthConfigured(owner),
-        connected: accounts.length > 0,
-        googleSlidesUrlImportReady: accounts.some((account) =>
-          hasGoogleDriveExportScope(account.scope),
-        ),
-        googleSlidesUrlImportError,
-        accounts,
-        pickerConfigured: !!(picker.apiKey && picker.appId),
-        pickerApiKey: picker.apiKey,
-        pickerAppId: picker.appId,
-      };
+        const picker = await getGooglePickerConfig(owner);
+        return {
+          configured: await isGoogleDocsOAuthConfigured(owner),
+          connected: accounts.length > 0,
+          googleSlidesUrlImportReady: accounts.some((account) =>
+            hasGoogleDriveExportScope(account.scope),
+          ),
+          googleSlidesUrlImportError,
+          accounts,
+          pickerConfigured: !!(picker.apiKey && picker.appId),
+          pickerApiKey: picker.apiKey,
+          pickerAppId: picker.appId,
+        };
+      });
     } catch (error) {
       setResponseStatus(event, 500);
       return { error: formatGoogleOAuthError(error) };
@@ -212,41 +219,41 @@ export const getGoogleDocsPickerToken = defineEventHandler(
       return { error: "not_authenticated" };
     }
 
-    if (!(await isGoogleDocsOAuthConfigured(owner))) {
-      setResponseStatus(event, 422);
-      return {
-        error: "missing_credentials",
-        message:
-          "Google OAuth credentials are not configured. Save GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in settings.",
-      };
-    }
-
-    const picker = await getGooglePickerConfig(owner);
-    if (!picker.apiKey || !picker.appId) {
-      setResponseStatus(event, 422);
-      return {
-        error: "missing_picker_config",
-        message:
-          "Google Picker is not configured. Save GOOGLE_PICKER_API_KEY and GOOGLE_PICKER_APP_ID in settings.",
-      };
-    }
-
     try {
-      const token = await withSlidesRequestContext(event, () =>
-        getAvailableGoogleDocsAccessToken(owner),
-      );
-      if (!token) {
-        setResponseStatus(event, 401);
+      return await withSlidesRequestContext(event, async () => {
+        if (!(await isGoogleDocsOAuthConfigured(owner))) {
+          setResponseStatus(event, 422);
+          return {
+            error: "missing_credentials",
+            message:
+              "Google OAuth credentials are not configured. Save GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in settings.",
+          };
+        }
+
+        const picker = await getGooglePickerConfig(owner);
+        if (!picker.apiKey || !picker.appId) {
+          setResponseStatus(event, 422);
+          return {
+            error: "missing_picker_config",
+            message:
+              "Google Picker is not configured. Save GOOGLE_PICKER_API_KEY and GOOGLE_PICKER_APP_ID in settings.",
+          };
+        }
+
+        const token = await getAvailableGoogleDocsAccessToken(owner);
+        if (!token) {
+          setResponseStatus(event, 401);
+          return {
+            error: "not_connected",
+            message: "Connect Google Docs before choosing a document.",
+          };
+        }
         return {
-          error: "not_connected",
-          message: "Connect Google Docs before choosing a document.",
+          ...token,
+          apiKey: picker.apiKey,
+          appId: picker.appId,
         };
-      }
-      return {
-        ...token,
-        apiKey: picker.apiKey,
-        appId: picker.appId,
-      };
+      });
     } catch (error) {
       setResponseStatus(event, 401);
       return { error: formatGoogleOAuthError(error) };

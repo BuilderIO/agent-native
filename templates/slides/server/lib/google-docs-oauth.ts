@@ -134,7 +134,10 @@ export async function getGooglePickerConfig(owner?: string): Promise<{
       null,
   });
   return owner
-    ? runWithRequestContext({ userEmail: owner }, resolve)
+    ? runWithRequestContext(
+        { userEmail: owner, orgId: getRequestOrgId() },
+        resolve,
+      )
     : await resolve();
 }
 
