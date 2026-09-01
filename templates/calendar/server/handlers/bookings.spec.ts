@@ -13,6 +13,7 @@ import {
 vi.mock("../lib/google-calendar.js", () => ({
   getFreeBusy: vi.fn(),
   getDefaultAccountSelection: vi.fn(),
+  getOwnedAccountEmails: vi.fn(),
   isConnected: vi.fn(),
   listEvents: vi.fn(),
 }));
@@ -42,6 +43,9 @@ describe("booking availability", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-01T12:00:00.000Z"));
     vi.mocked(googleCalendar.isConnected).mockResolvedValue(true);
+    vi.mocked(googleCalendar.getOwnedAccountEmails).mockResolvedValue([
+      "viewer@example.com",
+    ]);
     vi.mocked(googleCalendar.getFreeBusy).mockResolvedValue({
       calendars: {
         "host@example.com": { busy: [] },
@@ -258,6 +262,41 @@ describe("booking availability", () => {
         },
       ],
     });
+    expect(googleCalendar.getOwnedAccountEmails).toHaveBeenCalledWith(
+      "viewer@example.com",
+    );
+    expect(googleCalendar.listEvents).toHaveBeenLastCalledWith(
+      "2026-07-20T07:00:00.000Z",
+      "2026-07-21T07:00:00.000Z",
+      "viewer@example.com",
+      { accountEmails: ["viewer@example.com"] },
+    );
+  });
+
+  it("does not use a managed calendar as a viewer's personal conflict source", async () => {
+    vi.mocked(googleCalendar.getOwnedAccountEmails).mockResolvedValue([]);
+    const db = {
+      select: () => ({
+        from: () => ({
+          where: () => Promise.resolve([]),
+        }),
+      }),
+    } as any;
+
+    const result = await getConflictItems({
+      db,
+      ownerEmail: "host@example.com",
+      hostEmails: ["host@example.com"],
+      conflictSlugs: ["meeting-45"],
+      viewerEmail: "viewer@example.com",
+      viewerOrgId: "org-1",
+      rangeStartIso: "2026-07-20T07:00:00.000Z",
+      rangeEndIso: "2026-07-21T07:00:00.000Z",
+      timezone: "America/Los_Angeles",
+    });
+
+    expect(result).toEqual({ items: [] });
+    expect(googleCalendar.listEvents).toHaveBeenCalledTimes(1);
   });
 
   it("marks availability unavailable when a Google calendar response contains a per-calendar error", async () => {

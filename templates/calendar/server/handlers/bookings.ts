@@ -710,21 +710,15 @@ export async function getConflictItems({
   }
 
   if (viewerEmail && !requiredHosts.includes(viewerEmail)) {
-    let viewerConnected = false;
     try {
-      viewerConnected = await googleCalendar.isConnected(viewerEmail);
-    } catch {
-      return {
-        items: [],
-        unavailableReason: formatAvailabilityUnavailableReason(viewerEmail),
-      };
-    }
-    if (viewerConnected) {
-      try {
+      const viewerAccounts =
+        await googleCalendar.getOwnedAccountEmails(viewerEmail);
+      if (viewerAccounts.length > 0) {
         const viewerEvents = await googleCalendar.listEvents(
           rangeStartIso,
           rangeEndIso,
           viewerEmail,
+          { accountEmails: viewerAccounts },
         );
         if (viewerEvents.errors.length > 0) {
           return {
@@ -742,12 +736,12 @@ export async function getConflictItems({
               end: event.end,
             })),
         );
-      } catch {
-        return {
-          items: [],
-          unavailableReason: formatAvailabilityUnavailableReason(viewerEmail),
-        };
       }
+    } catch {
+      return {
+        items: [],
+        unavailableReason: formatAvailabilityUnavailableReason(viewerEmail),
+      };
     }
   }
 
