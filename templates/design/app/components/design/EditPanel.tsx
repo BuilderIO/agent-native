@@ -277,6 +277,10 @@ interface EditPanelProps {
    *  Figma frame carries box and paint together. */
   selectedScreenElement?: ElementInfo | null;
   onSelectedScreenStyleChange?: StyleChangeHandler;
+  /** Batched sibling of the above. Gradients and image fills patch several
+   *  properties at once; without this they degrade to one-at-a-time writes
+   *  that each rebuild from the same stale projection. */
+  onSelectedScreenStylesChange?: StylesChangeHandler;
   zoom?: number;
   headerTrailing?: ReactNode;
   /** Draws the inspector's canonical 28-column / 8px baseline overlay. */
@@ -1770,6 +1774,7 @@ export const EditPanel = memo(function EditPanel({
   pageStyles = {},
   selectedScreenElement,
   onSelectedScreenStyleChange,
+  onSelectedScreenStylesChange,
   viewMode,
   mode,
   headerTrailing,
@@ -2317,15 +2322,18 @@ export const EditPanel = memo(function EditPanel({
                       <FillProperties
                         element={selectedScreenElement}
                         onStyleChange={onSelectedScreenStyleChange}
+                        onStylesChange={onSelectedScreenStylesChange}
                         documentColorPalette={documentColorPalette}
                       />
                       <StrokeProperties
                         element={selectedScreenElement}
                         onStyleChange={onSelectedScreenStyleChange}
+                        onStylesChange={onSelectedScreenStylesChange}
                       />
                       <EffectsProperties
                         element={selectedScreenElement}
                         onStyleChange={onSelectedScreenStyleChange}
+                        onStylesChange={onSelectedScreenStylesChange}
                       />
                     </>
                   ) : null}
@@ -2426,7 +2434,10 @@ export const EditPanel = memo(function EditPanel({
                   ) : null}
                 </>
               )}
-              {onExport ? (
+              {/* Export acts on a selection. With nothing selected there is
+                  nothing to export, so the section was pure chrome on the
+                  empty-canvas panel. */}
+              {onExport && (inspectorElement || selectedScreenGeometry) ? (
                 <PanelSection title={t("editPanel.sections.export")}>
                   <ExportSettingsPanel
                     key={selectedElementKey}

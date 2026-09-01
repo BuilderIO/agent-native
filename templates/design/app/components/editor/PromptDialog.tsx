@@ -11,6 +11,7 @@ import {
 } from "@agent-native/core/embedding/react";
 import {
   IconApps,
+  IconArtboard,
   IconBrain,
   IconCheck,
   IconComponents,
@@ -18,6 +19,7 @@ import {
   IconPalette,
   IconPhoto,
   IconPlus,
+  IconSparkles,
   IconTemplate,
   IconUpload,
   IconX,
@@ -322,6 +324,9 @@ interface PromptPopoverProps {
    * competing close-state navigation after the handoff completes. */
   onSkip?: () => void | boolean | Promise<void | boolean>;
   skipLabel?: string;
+  /** Open on a two-way choice — blank canvas or AI — instead of dropping the
+   *  user straight into a prompt with the blank path hidden in a corner link. */
+  offerStartChoice?: boolean;
   onSubmit: (
     prompt: string,
     files: UploadedFile[],
@@ -368,6 +373,9 @@ export interface PromptDesignSystemOption {
   title: string;
   description?: string | null;
   isDefault?: boolean;
+  /** The system's own palette, so the row can be picked by colour rather than
+   *  by reading a list of near-identical names. */
+  colors?: string[];
 }
 export interface PromptCreativeContextOption {
   id: string;
@@ -432,6 +440,7 @@ export default function PromptPopover({
   placeholder,
   onSkip,
   skipLabel,
+  offerStartChoice = false,
   onSubmit,
   loading = false,
   anchorRef,
@@ -454,6 +463,7 @@ export default function PromptPopover({
   draftScope,
 }: PromptPopoverProps) {
   const t = useT();
+  const [showStartChoice, setShowStartChoice] = useState(offerStartChoice);
   const [skipInFlight, setSkipInFlight] = useState(false);
   const skipInFlightRef = useRef(false);
   const [pickedAssets, setPickedAssets] = useState<UploadedFile[]>([]);
@@ -480,6 +490,7 @@ export default function PromptPopover({
   }, []);
   useEffect(() => {
     if (open) return;
+    setShowStartChoice(offerStartChoice);
     skipInFlightRef.current = false;
     setSkipInFlight(false);
   }, [open]);
@@ -657,12 +668,17 @@ export default function PromptPopover({
       const allFiles = [...files, ...selectedUploadFiles];
       submittingRef.current = true;
       setSubmitting(true);
+      // The work continues in the caller and the editor shows its own loading
+      // state, so holding the popover open until the round trip finishes just
+      // leaves a dead panel over the result. Reopened below if it fails.
+      onOpenChange(false);
       let uploaded: UploadedFile[];
       try {
         uploaded = await uploadFiles(allFiles);
       } catch (error) {
         setSubmitting(false);
         submittingRef.current = false;
+        onOpenChange(true);
         restorePromptText(text);
         toast.error(
           error instanceof Error
@@ -683,6 +699,7 @@ export default function PromptPopover({
         discardFiles(allFiles);
         setSubmitting(false);
         submittingRef.current = false;
+        onOpenChange(true);
         restorePromptText(text);
         toast.error(
           error instanceof Error
@@ -694,6 +711,7 @@ export default function PromptPopover({
     [
       commitFiles,
       discardFiles,
+      onOpenChange,
       onSubmit,
       pickedAssets,
       retainFiles,
@@ -882,7 +900,58 @@ export default function PromptPopover({
           ) : null}
         </div>
 
-        <div className="px-2 pb-2">
+        {showStartChoice ? (
+          <div className="grid grid-cols-2 gap-2 px-3.5 pt-1 pb-3.5">
+            <button
+              type="button"
+              data-start-with-ai
+              disabled={loading}
+              onClick={() => setShowStartChoice(false)}
+              className="flex cursor-pointer flex-col gap-1.5 rounded-lg border border-transparent bg-[var(--design-editor-accent-color)] px-3 py-3 text-left text-[color:var(--design-editor-accent-contrast-color)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <IconSparkles className="size-5 shrink-0" />
+              <span className="text-sm font-medium">
+                {t("promptDialog.startWithAi")}
+              </span>
+              <span className="text-xs leading-snug opacity-80">
+                {t("promptDialog.startWithAiHint")}
+              </span>
+            </button>
+            <button
+              type="button"
+              data-start-blank-canvas
+              disabled={loading || skipInFlight}
+              onClick={() => {
+                if (loading || skipInFlightRef.current) return;
+                skipInFlightRef.current = true;
+                setSkipInFlight(true);
+                // Close on commit rather than after the design is created and
+                // navigated to — the editor owns the loading state from here.
+                onOpenChange(false);
+                void (async () => {
+                  try {
+                    await onSkip?.();
+                  } catch {
+                    skipInFlightRef.current = false;
+                    setSkipInFlight(false);
+                    onOpenChange(true);
+                  }
+                })();
+              }}
+              className="flex cursor-pointer flex-col gap-1.5 rounded-lg border border-border px-3 py-3 text-left transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <IconArtboard className="size-5 shrink-0 text-muted-foreground" />
+              <span className="text-sm font-medium text-foreground">
+                {t("promptDialog.startBlankCanvas")}
+              </span>
+              <span className="text-xs leading-snug text-muted-foreground">
+                {t("promptDialog.startBlankCanvasHint")}
+              </span>
+            </button>
+          </div>
+        ) : null}
+
+        <div className={cn("px-2 pb-2", showStartChoice && "hidden")}>
           <PromptComposer
             key={placeholder ?? t("home.describeBuild")}
             autoFocus
@@ -904,185 +973,211 @@ export default function PromptPopover({
           />
         </div>
 
-        {(onTemplateChange || onDesignSystemChange || onCreateDesignSystem) && (
-          <div className="grid grid-cols-[minmax(0,1fr)_2.25rem] gap-2 border-t border-border px-3.5 py-2.5">
-            {onTemplateChange ? (
-              <>
-                <TemplatePickerControl
-                  open={templatePickerOpen}
-                  onOpenChange={setTemplatePickerOpen}
-                  options={templateOptions}
-                  loading={templatesLoading}
-                  selectedId={selectedTemplateId ?? null}
-                  onChange={onTemplateChange}
-                />
-                <span aria-hidden="true" className="size-9" />
-              </>
-            ) : null}
-            {onDesignSystemChange || onCreateDesignSystem ? (
-              <>
-                {designSystemsLoading ? (
-                  <Skeleton className="h-9 w-full rounded-md" />
-                ) : designSystems.length > 0 ? (
-                  <Select
-                    value={selectedDesignSystemId ?? "none"}
-                    onValueChange={(value) =>
-                      onDesignSystemChange?.(value === "none" ? null : value)
-                    }
-                    onOpenChange={(nextOpen) => {
-                      if (!nextOpen) markNestedSelectJustClosed();
-                    }}
-                  >
-                    <SelectTrigger className="h-9 min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto">
-                      <IconComponents className="size-4 shrink-0 text-muted-foreground" />
-                      <span
-                        className="min-w-0 flex-1 truncate text-start"
-                        title={
-                          selectedDesignSystem?.title ??
-                          t("promptDialog.noDesignSystem")
-                        }
-                      >
-                        {selectedDesignSystem?.title ??
-                          t("promptDialog.noDesignSystem")}
-                      </span>
-                    </SelectTrigger>
-                    <SelectContent data-agent-native-prompt-select>
-                      <SelectItem value="none" className="text-xs">
-                        {t("promptDialog.noDesignSystem")}
-                      </SelectItem>
-                      {designSystems.map((system) => (
-                        <SelectItem
-                          key={system.id}
-                          value={system.id}
-                          className="text-xs"
-                        >
-                          {system.title}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <div className="flex h-9 min-w-0 items-center gap-2 rounded-md border border-input px-2.5 text-xs text-muted-foreground">
-                    <IconComponents className="size-4 shrink-0" />
-                    <span className="truncate">
-                      {t("promptDialog.noDesignSystem")}
-                    </span>
-                  </div>
-                )}
-                {onCreateDesignSystem ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        className="size-9 shrink-0"
-                        onClick={onCreateDesignSystem}
-                        aria-label={t("promptDialog.createDesignSystem")}
-                      >
-                        <IconPlus className="size-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t("promptDialog.createDesignSystem")}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : (
+        {!showStartChoice &&
+          (onTemplateChange ||
+            onDesignSystemChange ||
+            onCreateDesignSystem) && (
+            <div className="grid grid-cols-[minmax(0,1fr)_2.25rem] gap-2 border-t border-border px-3.5 py-2.5">
+              {onTemplateChange ? (
+                <>
+                  <TemplatePickerControl
+                    open={templatePickerOpen}
+                    onOpenChange={setTemplatePickerOpen}
+                    options={templateOptions}
+                    loading={templatesLoading}
+                    selectedId={selectedTemplateId ?? null}
+                    onChange={onTemplateChange}
+                  />
                   <span aria-hidden="true" className="size-9" />
-                )}
-              </>
-            ) : null}
-            {showCreativeContextPicker ? (
-              <>
-                {creativeContextsLoading ? (
-                  <Skeleton className="h-9 w-full rounded-md" />
-                ) : (
-                  <Select
-                    value={selectedCreativeContextId ?? "none"}
-                    onValueChange={(value) =>
-                      onCreativeContextChange?.(value === "none" ? null : value)
-                    }
-                    onOpenChange={(nextOpen) => {
-                      if (!nextOpen) markNestedSelectJustClosed();
-                    }}
-                  >
-                    <SelectTrigger className="h-9 min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto">
-                      <IconBrain className="size-4 shrink-0 text-muted-foreground" />
-                      <span
-                        className="min-w-0 flex-1 truncate text-start"
-                        title={
-                          selectedCreativeContext?.name ??
-                          t("creativeContext.automatic")
-                        }
-                      >
-                        {selectedCreativeContext?.name ??
-                          t("creativeContext.automatic")}
-                      </span>
-                    </SelectTrigger>
-                    <SelectContent data-agent-native-prompt-select>
-                      <SelectItem value="none" className="text-xs">
-                        {t("creativeContext.automatic")}
-                      </SelectItem>
-                      {creativeContexts.map((context) => (
-                        <SelectItem
-                          key={context.id}
-                          value={context.id}
-                          className="text-xs"
+                </>
+              ) : null}
+              {onDesignSystemChange || onCreateDesignSystem ? (
+                <>
+                  {designSystemsLoading ? (
+                    <Skeleton className="h-9 w-full rounded-md" />
+                  ) : designSystems.length > 0 ? (
+                    <Select
+                      value={selectedDesignSystemId ?? "none"}
+                      onValueChange={(value) =>
+                        onDesignSystemChange?.(value === "none" ? null : value)
+                      }
+                      onOpenChange={(nextOpen) => {
+                        if (!nextOpen) markNestedSelectJustClosed();
+                      }}
+                    >
+                      <SelectTrigger className="h-9 min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto">
+                        <IconComponents className="size-4 shrink-0 text-muted-foreground" />
+                        <span
+                          className="min-w-0 flex-1 truncate text-start"
+                          title={
+                            selectedDesignSystem?.title ??
+                            t("promptDialog.noDesignSystem")
+                          }
                         >
-                          {context.name}
+                          {selectedDesignSystem?.title ??
+                            t("promptDialog.noDesignSystem")}
+                        </span>
+                      </SelectTrigger>
+                      <SelectContent data-agent-native-prompt-select>
+                        <SelectItem value="none" className="text-xs">
+                          {t("promptDialog.noDesignSystem")}
                         </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                <span aria-hidden="true" className="size-9" />
-              </>
-            ) : null}
-          </div>
-        )}
+                        {designSystems.map((system) => (
+                          <SelectItem
+                            key={system.id}
+                            value={system.id}
+                            className="py-2 text-xs"
+                          >
+                            <span className="flex min-w-0 items-center gap-2.5">
+                              {system.colors && system.colors.length > 0 ? (
+                                <span
+                                  className="flex shrink-0 items-center gap-1"
+                                  data-design-system-swatches
+                                >
+                                  {system.colors.map((color, index) => (
+                                    <span
+                                      key={`${system.id}-${index}-${color}`}
+                                      className="size-3 rounded-full border border-border/60"
+                                      style={{ background: color }}
+                                    />
+                                  ))}
+                                </span>
+                              ) : null}
+                              <span className="min-w-0 truncate">
+                                {system.title}
+                              </span>
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="flex h-9 min-w-0 items-center gap-2 rounded-md border border-input px-2.5 text-xs text-muted-foreground">
+                      <IconComponents className="size-4 shrink-0" />
+                      <span className="truncate">
+                        {t("promptDialog.noDesignSystem")}
+                      </span>
+                    </div>
+                  )}
+                  {onCreateDesignSystem ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="size-9 shrink-0"
+                          onClick={onCreateDesignSystem}
+                          aria-label={t("promptDialog.createDesignSystem")}
+                        >
+                          <IconPlus className="size-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t("promptDialog.createDesignSystem")}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <span aria-hidden="true" className="size-9" />
+                  )}
+                </>
+              ) : null}
+              {showCreativeContextPicker ? (
+                <>
+                  {creativeContextsLoading ? (
+                    <Skeleton className="h-9 w-full rounded-md" />
+                  ) : (
+                    <Select
+                      value={selectedCreativeContextId ?? "none"}
+                      onValueChange={(value) =>
+                        onCreativeContextChange?.(
+                          value === "none" ? null : value,
+                        )
+                      }
+                      onOpenChange={(nextOpen) => {
+                        if (!nextOpen) markNestedSelectJustClosed();
+                      }}
+                    >
+                      <SelectTrigger className="h-9 min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto">
+                        <IconBrain className="size-4 shrink-0 text-muted-foreground" />
+                        <span
+                          className="min-w-0 flex-1 truncate text-start"
+                          title={
+                            selectedCreativeContext?.name ??
+                            t("creativeContext.automatic")
+                          }
+                        >
+                          {selectedCreativeContext?.name ??
+                            t("creativeContext.automatic")}
+                        </span>
+                      </SelectTrigger>
+                      <SelectContent data-agent-native-prompt-select>
+                        <SelectItem value="none" className="text-xs">
+                          {t("creativeContext.automatic")}
+                        </SelectItem>
+                        {creativeContexts.map((context) => (
+                          <SelectItem
+                            key={context.id}
+                            value={context.id}
+                            className="text-xs"
+                          >
+                            {context.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <span aria-hidden="true" className="size-9" />
+                </>
+              ) : null}
+            </div>
+          )}
 
-        {(selectedUploadFiles.length > 0 || pickedAssets.length > 0) && (
-          <div className="flex flex-wrap items-center gap-2 border-t border-border px-3.5 py-2">
-            {selectedUploadFiles.map((file, index) => (
-              <span
-                key={`${file.name}:${file.lastModified}:${file.size}:${index}`}
-                className="inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-md border border-border bg-muted/60 pl-2 pr-1 text-xs text-muted-foreground"
-              >
-                <span className="truncate">{file.name}</span>
-                <button
-                  type="button"
-                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
-                  aria-label={t("promptDialog.removeAttachment", {
-                    name: file.name,
-                  })}
-                  onClick={() => removeSelectedUploadFile(index)}
+        {!showStartChoice &&
+          (selectedUploadFiles.length > 0 || pickedAssets.length > 0) && (
+            <div className="flex flex-wrap items-center gap-2 border-t border-border px-3.5 py-2">
+              {selectedUploadFiles.map((file, index) => (
+                <span
+                  key={`${file.name}:${file.lastModified}:${file.size}:${index}`}
+                  className="inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-md border border-border bg-muted/60 pl-2 pr-1 text-xs text-muted-foreground"
                 >
-                  <IconX className="h-3.5 w-3.5" />
-                </button>
-              </span>
-            ))}
-            {pickedAssets.map((asset) => (
-              <span
-                key={asset.path}
-                className="inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-md border border-border bg-muted/60 pl-2 pr-1 text-xs text-muted-foreground"
-              >
-                <span className="truncate">{asset.originalName}</span>
-                <button
-                  type="button"
-                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
-                  aria-label={t("promptDialog.removeAttachment", {
-                    name: asset.originalName,
-                  })}
-                  onClick={() => removePickedAsset(asset.path)}
+                  <span className="truncate">{file.name}</span>
+                  <button
+                    type="button"
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
+                    aria-label={t("promptDialog.removeAttachment", {
+                      name: file.name,
+                    })}
+                    onClick={() => removeSelectedUploadFile(index)}
+                  >
+                    <IconX className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              ))}
+              {pickedAssets.map((asset) => (
+                <span
+                  key={asset.path}
+                  className="inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-md border border-border bg-muted/60 pl-2 pr-1 text-xs text-muted-foreground"
                 >
-                  <IconX className="h-3.5 w-3.5" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
+                  <span className="truncate">{asset.originalName}</span>
+                  <button
+                    type="button"
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
+                    aria-label={t("promptDialog.removeAttachment", {
+                      name: asset.originalName,
+                    })}
+                    onClick={() => removePickedAsset(asset.path)}
+                  >
+                    <IconX className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
 
-        {onSkip && (
+        {/* The chooser already offers the blank path as a peer, so the corner
+            link would be a second, quieter way to do the same thing. */}
+        {onSkip && !offerStartChoice && (
           <div className="flex justify-end border-t border-border px-3.5 py-2">
             <button
               type="button"
@@ -1153,7 +1248,7 @@ function TemplatePickerControl({
       value={`${template.title} ${template.description ?? ""} ${template.category ?? ""}`}
       onSelect={() => choose(template.id)}
       data-template-option={template.id}
-      className="min-h-12 py-2"
+      className="min-h-12 gap-3 px-3 py-2"
     >
       <TemplatePreview
         html={template.previewHtml}

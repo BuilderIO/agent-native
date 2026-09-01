@@ -204,6 +204,41 @@ export default function Index() {
     isLoading: designSystemsLoading,
   } = useDesignSystems();
 
+  /**
+   * The picker showed a column of near-identical names ("Builder indexed
+   * design system" three times over). Each system already carries its palette
+   * in `data`, so the row can show it and be chosen by colour.
+   */
+  const designSystemOptions = useMemo(
+    () =>
+      designSystems.map((system) => {
+        let colors: string[] | undefined;
+        try {
+          const parsed = JSON.parse(system.data || "{}") as {
+            colors?: Record<string, unknown>;
+          };
+          const values = Object.values(parsed.colors ?? {}).filter(
+            (value): value is string =>
+              typeof value === "string" && value.trim().length > 0,
+          );
+          colors = values.length > 0 ? values.slice(0, 5) : undefined;
+          // coercion-ok: a design system with unparseable data still belongs in
+          // the list; it just loses its swatches, which the row renders as
+          // absent rather than as a wrong colour.
+        } catch {
+          colors = undefined;
+        }
+        return {
+          id: system.id,
+          title: system.title,
+          description: system.description,
+          isDefault: system.isDefault,
+          colors,
+        };
+      }),
+    [designSystems],
+  );
+
   const designs = useMemo(
     () => designsData?.designs ?? [],
     [designsData?.designs],
@@ -1297,6 +1332,7 @@ export default function Index() {
             : t("home.describeBuild")
         }
         onSkip={handleSkipToEditor}
+        offerStartChoice
         skipLabel={
           selectedTemplate
             ? t("templatesPage.useTemplate")
@@ -1308,7 +1344,7 @@ export default function Index() {
         templatesLoading={templatesLoading}
         selectedTemplateId={newTemplateId}
         onTemplateChange={handleTemplateChange}
-        designSystems={designSystems}
+        designSystems={designSystemOptions}
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={newDesignSystemId ?? null}
         onDesignSystemChange={handleNewDesignSystemChange}

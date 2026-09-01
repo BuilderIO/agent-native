@@ -376,7 +376,7 @@ describe("ydoc-manager applyText (agent full-text path)", () => {
     expect(await manager.getText(docId)).toBe("human");
   });
 
-  it("rejects a concurrently merged snapshot before persisting or emitting it", async () => {
+  it("rejects a peer commit that lands after the base was validated", async () => {
     const docId = "design_t5:screen_a";
     await manager.applyText(docId, "The quick fox", "content", "seed");
     emitMock.fn.mockReset();
@@ -409,11 +409,12 @@ describe("ydoc-manager applyText (agent full-text path)", () => {
           }
         },
       }),
-    ).rejects.toThrow("invalid concurrent merge");
+    ).rejects.toThrow(/moved from version/);
 
-    // The invalid merged candidate was neither durable nor visible, and the
-    // poisoned local cache was discarded so the next read reloads the human's
-    // last valid state.
+    // Pinning the validated base version turns this into a conflict BEFORE the
+    // merge: the peer's commit is never merged with, so there is no garbled
+    // candidate for validateSnapshot to catch. Nothing durable or visible
+    // changed, and the human's edit stands.
     expect(storedText(docId)).toBe("human wrote this instead");
     expect(emitMock.fn).not.toHaveBeenCalled();
     expect(await manager.getText(docId)).toBe("human wrote this instead");

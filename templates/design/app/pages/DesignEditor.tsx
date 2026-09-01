@@ -3997,6 +3997,20 @@ function DesignEditor() {
     queryClient,
   ]);
 
+  /**
+   * Generate belongs to an empty design, not to the empty-state placeholder:
+   * drawing anything creates a file, the placeholder disappears, and the
+   * option went with it. It stays until the design actually has something in
+   * it, and hands off to the agent rather than reopening the prompt popover.
+   */
+  const openGenerateInAgent = useCallback(() => {
+    setRetryablePrompt(null);
+    // The agent-panel:open listener above already opens the panel and puts the
+    // caret in the composer; going through it keeps one focus path instead of
+    // a second copy that drifts.
+    window.dispatchEvent(new Event("agent-panel:open"));
+  }, []);
+
   const overviewScreens = useMemo(() => {
     return deriveOverviewScreens({
       designDataJson,
@@ -15627,6 +15641,23 @@ function DesignEditor() {
     return nodes.length > 0 ? nodes : undefined;
   }, [boardFileId, codeLayerModelByFileId, lockedLayerIds, hiddenLayerIds]);
 
+  /**
+   * The starting placeholder used to vanish the moment any file existed, which
+   * is immediately — so a blank canvas lost the Generate option straight away.
+   * It now survives until the design has something in it or the user reaches
+   * for a tool, which is the deliberate act that says "I am drawing this
+   * myself".
+   */
+  const [canvasEngaged, setCanvasEngaged] = useState(false);
+  useEffect(() => {
+    if (activeTool !== "move") setCanvasEngaged(true);
+  }, [activeTool]);
+
+  const designIsEmpty = useMemo(
+    () => overviewScreens.length === 0 && (boardElements?.length ?? 0) === 0,
+    [boardElements, overviewScreens.length],
+  );
+
   const activeLayerPanelNodes = useMemo<LayersPanelNode[]>(() => {
     const activeTree = activeFile?.id
       ? (codeLayerModelByFileId.get(activeFile.id)?.tree ?? activeCodeLayerTree)
@@ -16026,44 +16057,29 @@ function DesignEditor() {
     ? (layoutGrids[selectedScreenGeometry.id] ?? null)
     : null;
   /**
-   * A selected screen's own <body>, as an inspectable element. The frame's box
-   * comes from the board and its paint from that file's <body>; the document
-   * now fills the frame (see EMBEDDED_FRAME_FIT_STYLE), so painting the body
-   * paints the screen's actual rectangle and the two read as one object.
+   * A screen whose source is a live URL keeps that URL as its authoritative
+   * content; the projection hands back a fetched snapshot that does have a
+   * <body>, so patching it would write a document over the route. Only inline
+   * screens own their markup.
    */
-  const selectedScreenElement = useMemo(() => {
+  const selectedScreenOwnsItsMarkup = useMemo(() => {
     const screenId = selectedScreenGeometry?.id;
-    if (!screenId) return null;
-    const projection = getCodeLayerProjectionForScreen(screenId);
-    const body = projection?.nodes.find((node) => node.tag === "body");
-    if (!body) return null;
-    const element = elementInfoFromCodeLayerNode(body);
-    // The projection reports authored declarations verbatim, so a `background`
-    // shorthand never reaches the Fill row's `backgroundColor` and the section
-    // renders empty over a painted screen. getBodyInlineStyles resolves through
-    // CSSStyleDeclaration, which expands shorthands; only resolved values are
-    // merged so an absent longhand cannot blank a real one.
-    const resolved = getBodyInlineStyles(
-      getProjectionContentForScreen(screenId),
-    );
-    const computedStyles = { ...element.computedStyles };
-    for (const [property, value] of Object.entries(resolved)) {
-      if (value) computedStyles[property] = value;
-    }
-    return { ...element, computedStyles };
-  }, [
-    getCodeLayerProjectionForScreen,
-    getProjectionContentForScreen,
-    selectedScreenGeometry,
-  ]);
-  const handleSelectedScreenStyleChange = useCallback(
-    (property: string, value: string, meta?: StyleChangeMeta) => {
+    if (!screenId) return false;
+    return externalPreviewUrlForContent(getScreenContent(screenId)) === null;
+  }, [getScreenContent, selectedScreenGeometry]);
+  /**
+   * One patch, one write. Fill/Stroke/Effects emit multi-property changes
+   * (a gradient sets image, size, repeat and position together); applying them
+   * one property at a time recomputes each from the same pre-event projection,
+   * so the last write drops the earlier ones.
+   */
+  const commitSelectedScreenStyles = useCallback(
+    (patch: Record<string, string>, meta?: StyleChangeMeta) => {
       const screenId = selectedScreenGeometry?.id;
       if (!screenId || !canEditDesignRef.current) return;
+      if (!selectedScreenOwnsItsMarkup) return;
       const content = getProjectionContentForScreen(screenId);
-      const next = setBodyInlineStyles(content, { [property]: value });
-      // A URL-backed live screen has no <body> to patch. Leave it alone rather
-      // than writing a document over the route.
+      const next = setBodyInlineStyles(content, patch);
       if (next === null || next === content) return;
       // A colour drag emits a preview tick per frame; painting them without
       // persisting keeps the canvas live without a save per tick, and the
@@ -16078,7 +16094,18 @@ function DesignEditor() {
       applyFileContentUpdate,
       getProjectionContentForScreen,
       selectedScreenGeometry,
+      selectedScreenOwnsItsMarkup,
     ],
+  );
+  const handleSelectedScreenStyleChange = useCallback(
+    (property: string, value: string, meta?: StyleChangeMeta) =>
+      commitSelectedScreenStyles({ [property]: value }, meta),
+    [commitSelectedScreenStyles],
+  );
+  const handleSelectedScreenStylesChange = useCallback(
+    (styles: Record<string, string>, meta?: StyleChangeMeta) =>
+      commitSelectedScreenStyles(styles, meta),
+    [commitSelectedScreenStyles],
   );
   /** Design-level canvas background (the surround, not a screen's body). */
   // ── Canvas background, screen geometry, states panel ───────────────────────
@@ -16205,6 +16232,38 @@ function DesignEditor() {
     codeLayerOwnerByNodeId,
     schedulePendingOverviewLayerSelectionClear,
     selectedLayerIdsState,
+  ]);
+  /**
+   * A selected screen's own <body>, as an inspectable element. The frame's box
+   * comes from the board and its paint from that file's <body>; the document
+   * now fills the frame (see EMBEDDED_FRAME_FIT_STYLE), so painting the body
+   * paints the screen's actual rectangle and the two read as one object.
+   */
+  const selectedScreenElement = useMemo(() => {
+    const screenId = selectedScreenGeometry?.id;
+    if (!screenId || !selectedScreenOwnsItsMarkup) return null;
+    const projection = getCodeLayerProjectionForScreen(screenId);
+    const body = projection?.nodes.find((node) => node.tag === "body");
+    if (!body) return null;
+    const element = elementInfoFromCodeLayerNode(body);
+    // The projection reports authored declarations verbatim, so a `background`
+    // shorthand never reaches the Fill row's `backgroundColor` and the section
+    // renders empty over a painted screen. getBodyInlineStyles resolves through
+    // CSSStyleDeclaration, which expands shorthands; only resolved values are
+    // merged so an absent longhand cannot blank a real one.
+    const resolved = getBodyInlineStyles(
+      getProjectionContentForScreen(screenId),
+    );
+    const computedStyles = { ...element.computedStyles };
+    for (const [property, value] of Object.entries(resolved)) {
+      if (value) computedStyles[property] = value;
+    }
+    return { ...element, computedStyles };
+  }, [
+    getCodeLayerProjectionForScreen,
+    getProjectionContentForScreen,
+    selectedScreenGeometry,
+    selectedScreenOwnsItsMarkup,
   ]);
 
   useEffect(() => {
@@ -19419,6 +19478,9 @@ function DesignEditor() {
     onSelectedScreenStyleChange: canEditDesign
       ? handleSelectedScreenStyleChange
       : undefined,
+    onSelectedScreenStylesChange: canEditDesign
+      ? handleSelectedScreenStylesChange
+      : undefined,
     viewMode,
     mode,
     files: documentColorFiles,
@@ -19808,7 +19870,11 @@ function DesignEditor() {
           !uiHidden &&
           !responsiveInteractActive &&
           designBottomToolbarMode === "editor" &&
-          activeFile &&
+          // Not gated on activeFile: a new design has no file rows at all, so
+          // waiting for one held the toolbar back on exactly the first load
+          // where a user needs it. The draw tools create the file they write
+          // to, and `design` is enough to know the editor is real.
+          design &&
           !questionFlowActive && (
             <DesignBottomToolbar
               mode={mode}
@@ -20099,7 +20165,7 @@ function DesignEditor() {
             onToggleUi={handleToggleUi}
             onToggleComments={handleToggleComments}
           >
-            {activeFile ? (
+            {activeFile && (!designIsEmpty || canvasEngaged) ? (
               <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
                 {/* Interact's device chrome sits inside the canvas column so
                     the workspace rails stay put — Interact is a different view
@@ -20824,10 +20890,7 @@ function DesignEditor() {
                           variant={retryablePrompt ? "ghost" : "outline"}
                           size="sm"
                           className="h-8 cursor-pointer rounded-md"
-                          onClick={() => {
-                            setRetryablePrompt(null);
-                            handlePromptOpenChange(true);
-                          }}
+                          onClick={openGenerateInAgent}
                         >
                           <IconPlus className="h-3.5 w-3.5" />
                           {retryablePrompt

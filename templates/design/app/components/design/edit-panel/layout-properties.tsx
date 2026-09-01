@@ -518,6 +518,12 @@ function FlexContainerControls({
         onClipContentChange={(clipContent) =>
           onStyleChange("overflow", clipContent ? "hidden" : "visible")
         }
+        // Only containers own clipping: a drawn frame, or the screen's own
+        // document. A rectangle or a text node has no children to clip.
+        clipContentSupported={
+          element.primitiveKind === "frame" ||
+          element.tagName?.toLowerCase() === "body"
+        }
         onDistribute={
           displayMode === "grid"
             ? undefined

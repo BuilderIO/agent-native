@@ -1,4 +1,5 @@
 import {
+  CollabBaseVersionConflictError,
   hasCollabState,
   getText,
   applyText,
@@ -402,6 +403,13 @@ export async function writeInlineSourceFile(args: {
               }),
           });
         } catch (error) {
+          // A peer that commits after the base check now fails the persistence
+          // CAS by name; it is the same retryable conflict, not a bad edit.
+          if (error instanceof CollabBaseVersionConflictError) {
+            throw new SourceWorkspaceEditConflictError(
+              "Source file changed while the edit was being applied. Re-read the file and retry.",
+            );
+          }
           if (!isDesignHtmlIntegrityError(error)) throw error;
           // The caller's candidate already passed the integrity check above.
           // A failure here therefore came from concurrent CRDT convergence,

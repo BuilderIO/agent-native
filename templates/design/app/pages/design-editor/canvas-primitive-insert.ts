@@ -81,6 +81,10 @@ export function blankScreenHtml(title: string): string {
     body {
       margin: 0;
       min-height: 100vh;
+      /* A screen is a page: content past its edge is out of frame, not
+         spilling onto the board. Frames stay unclipped by default so drawing
+         over their edge keeps working. */
+      overflow: hidden;
       background: var(--color-bg, #ffffff);
       color: var(--color-text, #111827);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;

@@ -41,6 +41,19 @@ import { applyTextToYDoc, initYDocWithText } from "./text-to-yjs.js";
 import { searchAndReplaceInYXml, extractTextFromYXml } from "./xml-ops.js";
 
 const DEFAULT_FIELD = "content";
+
+/**
+ * A peer committed between a caller's base validation and this write's CAS.
+ * Its own error type so a caller can map it to a retryable conflict instead of
+ * mistaking it for invalid content.
+ */
+export class CollabBaseVersionConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CollabBaseVersionConflictError";
+  }
+}
+
 const MAX_CACHE = 50;
 
 /**
@@ -197,6 +210,14 @@ async function persistMergedState(
   doc: Y.Doc,
   getTextSnapshot: () => string,
   validateTextSnapshot?: (snapshot: string) => void,
+  /**
+   * The row version a caller's base was validated against. Supplied only by
+   * whole-document writers: their `newText` is built on that exact base, so a
+   * peer commit arriving before this CAS must surface as a conflict rather
+   * than be merged with — the merge would silently absorb the other edit and
+   * still pass a syntax check.
+   */
+  validatedBaseVersion?: number | null,
 ): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt++) {
     // One DB read per persist attempt. On first attempt this is the only read
@@ -204,6 +225,14 @@ async function persistMergedState(
     // before the update was applied). On retry attempts it re-reads to get the
     // latest version after a CAS conflict.
     const latest = await loadYDocRecord(docId);
+    if (validatedBaseVersion !== undefined) {
+      const currentVersion = latest?.version ?? null;
+      if (currentVersion !== validatedBaseVersion) {
+        throw new CollabBaseVersionConflictError(
+          `Document ${docId} moved from version ${String(validatedBaseVersion)} to ${String(currentVersion)} while the edit was being applied.`,
+        );
+      }
+    }
     if (latest?.state && latest.state.length > 0) {
       Y.applyUpdate(doc, latest.state);
     }
@@ -390,11 +419,10 @@ export async function applyText(
      * overwrite the other writer rather than conflict. Reject here to keep
      * that a loud, retryable conflict.
      *
-     * This closes the window BEFORE the diff only. A peer can still commit
-     * between it and `persistMergedState`'s CAS merge, so a caller that needs
-     * the whole write guarded must also pass `validateSnapshot`, which runs on
-     * the converged text after that merge and before anything is persisted or
-     * broadcast.
+     * Supplying this also pins the row version the base was read at: the
+     * persistence CAS then rejects a peer commit that lands before the write
+     * (CollabBaseVersionConflictError) rather than merging with it, since the
+     * merge would absorb the other edit and still pass a syntax check.
      */
     validateBase?: (base: string) => void;
     /**
@@ -409,6 +437,11 @@ export async function applyText(
   return withDocWriteLock(docId, async () => {
     const doc = await getDoc(docId);
     const oldText = doc.getText(fieldName).toString();
+    // Pin the version the base was validated against, so the CAS below can
+    // reject a peer commit instead of merging with it.
+    const validatedBaseVersion = options.validateBase
+      ? await loadYDocVersion(docId)
+      : undefined;
     options.validateBase?.(oldText);
     const update = applyTextToYDoc(doc, fieldName, newText, "server");
 
@@ -429,6 +462,7 @@ export async function applyText(
         doc,
         () => doc.getText(fieldName).toString(),
         options.validateSnapshot,
+        validatedBaseVersion,
       );
     } catch (error) {
       if (options.validateSnapshot) {
