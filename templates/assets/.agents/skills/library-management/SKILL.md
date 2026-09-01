@@ -78,6 +78,17 @@ made:
   arguments is not a boundary. `selectReferences` takes a required `draftScope`
   so a new generation path cannot forget it: the automatic pool scores every
   asset in the kit, candidates included.
+- Sessions and run history narrow the same way. `sessionReadFilter` /
+  `canReadSession` keep `list-generation-sessions` and `get-generation-session`
+  to the sessions a below-approver caller created (and strip items, candidates,
+  and runs they cannot read), and `runReadFilter` / `canReadRun` do the same for
+  `list-generation-runs` and `get-generation-run`. Reading one by id is not a
+  way around the list rule.
+- Deleting a draft goes through `deleteDraftAssetIfUnchanged`, never a bare
+  delete-by-id. Authorization comes from a prior read, so the predicate lets an
+  editor's concurrent approval win, and the confirming re-read keeps the answer
+  portable. `delete-asset` reports the refusal; `dismiss-variant-slots` counts
+  it in `assetsRetained`.
 - Paging happens after the filter, not before. `draftReadFilter` turns the scope
   into a WHERE clause for `list-draft-assets`; filtering post-`limit` silently
   drops the caller's own older drafts behind other people's newer ones.

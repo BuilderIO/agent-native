@@ -29,10 +29,12 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
   ForbiddenError: forbiddenErrorClass,
 }));
+const deleteDraftMock = vi.hoisted(() => vi.fn(async () => true));
 const unrestrictedScope = vi.hoisted(() => ({
   unrestricted: true,
   approvableLibraryIds: new Set<string>(),
   ownRunIds: new Set<string>(),
+  callerEmail: "viewer@example.test",
 }));
 
 vi.mock("../server/lib/library-access.js", () => ({
@@ -50,6 +52,10 @@ vi.mock("../server/lib/library-access.js", () => ({
   canReadDraftAsset: vi.fn(() => true),
   canReadRun: vi.fn(() => true),
   draftReadFilter: vi.fn(() => undefined),
+  runReadFilter: vi.fn(() => undefined),
+  sessionReadFilter: vi.fn(() => undefined),
+  canReadSession: vi.fn(() => true),
+  deleteDraftAssetIfUnchanged: deleteDraftMock,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -94,13 +100,12 @@ function draftAsset(id: string, overrides: Partial<AssetRow> = {}): AssetRow {
 }
 
 /**
- * A live table, not a call recorder: the action deletes conditionally and then
- * re-reads the row, so the mock has to model both or the race test proves
- * nothing. `onBeforeDelete` is the hook that simulates a concurrent save.
+ * Serves the authorization reads the action makes per slot. The conditional
+ * delete itself is `deleteDraftAssetIfUnchanged`, mocked above and tested
+ * against a live table in `server/lib/library-access.spec.ts`.
  */
 function createDb(
   assets: AssetRow[] = [draftAsset("asset-1"), draftAsset("asset-2")],
-  onBeforeDelete?: (byId: Map<string, AssetRow>) => void,
 ) {
   const byId = new Map(assets.map((asset) => [asset.id, asset]));
   const columnKeys: Record<string, keyof AssetRow> = {
@@ -123,7 +128,6 @@ function createDb(
       ?.value;
   };
   const deleteWhere = vi.fn(async (condition: any) => {
-    onBeforeDelete?.(byId);
     const id = idOf(condition);
     const asset = id ? byId.get(id) : undefined;
     if (asset && equals(asset, condition)) byId.delete(asset.id);
@@ -152,6 +156,7 @@ describe("dismiss-variant-slots", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     libraryAccessMock.mockResolvedValue({ role: "owner", canApprove: true });
+    deleteDraftMock.mockResolvedValue(true);
     assertAccessMock.mockResolvedValue(undefined);
     deleteAppStateMock.mockResolvedValue(true);
   });
@@ -174,8 +179,10 @@ describe("dismiss-variant-slots", () => {
 
     // Discarding a draft is drafting-class work, not approving.
     expect(libraryAccessMock).toHaveBeenCalledWith("lib-1");
-    expect(db.delete).toHaveBeenCalledTimes(2);
-    expect(db.remainingIds()).toEqual([]);
+    expect(deleteDraftMock).toHaveBeenCalledTimes(2);
+    expect(
+      deleteDraftMock.mock.calls.map(([asset]: any[]) => asset.id),
+    ).toEqual(["asset-1", "asset-2"]);
     expect(deleteAppStateMock).toHaveBeenCalledWith("asset-variants");
     expect(deleteAppStateMock).toHaveBeenCalledWith("image-variants");
     expect(writeAppStateMock).not.toHaveBeenCalled();
@@ -209,8 +216,11 @@ describe("dismiss-variant-slots", () => {
 
     const result = await action.run({ scope: "all" });
 
-    expect(db.delete).toHaveBeenCalledTimes(1);
-    expect(db.remainingIds()).toEqual(["asset-saved", "asset-other-kit"]);
+    // Only the caller's own unsaved draft in this kit reaches the delete.
+    expect(deleteDraftMock).toHaveBeenCalledTimes(1);
+    expect((deleteDraftMock.mock.calls[0] as any[])[0]).toMatchObject({
+      id: "asset-mine",
+    });
     expect(result).toEqual({
       dismissed: 3,
       assetsDeleted: 1,
@@ -240,7 +250,7 @@ describe("dismiss-variant-slots", () => {
 
     const result = await action.run({ scope: "all" });
 
-    expect(db.delete).not.toHaveBeenCalled();
+    expect(deleteDraftMock).not.toHaveBeenCalled();
     expect(result).toEqual({
       dismissed: 1,
       assetsDeleted: 0,
@@ -272,13 +282,11 @@ describe("dismiss-variant-slots", () => {
     expect(db.delete).not.toHaveBeenCalled();
   });
 
-  it("leaves a candidate an editor saved mid-dismissal in the kit", async () => {
-    // The authorizing SELECT saw a draft; by the time the delete runs an editor
-    // has approved it. The save has to win.
-    const db = createDb([draftAsset("asset-1")], (byId) => {
-      const saved = byId.get("asset-1");
-      if (saved) byId.set("asset-1", { ...saved, status: "saved" });
-    });
+  it("counts a candidate an editor saved mid-dismissal as retained", async () => {
+    // The conditional delete lives in library-access and has its own tests; the
+    // action's job is to report the refusal as retained, never as deleted.
+    deleteDraftMock.mockResolvedValueOnce(false);
+    const db = createDb([draftAsset("asset-1")]);
     getDbMock.mockReturnValue(db);
     readAppStateMock.mockResolvedValueOnce({
       runId: "run-1",
@@ -290,7 +298,6 @@ describe("dismiss-variant-slots", () => {
 
     const result = await action.run({ scope: "all" });
 
-    expect(db.remainingIds()).toEqual(["asset-1"]);
     expect(result).toEqual({
       dismissed: 1,
       assetsDeleted: 0,
@@ -320,8 +327,10 @@ describe("dismiss-variant-slots", () => {
 
     const result = await action.run({ scope: "failed" });
 
-    expect(db.delete).toHaveBeenCalledTimes(1);
-    expect(db.remainingIds()).toEqual(["asset-1"]);
+    expect(deleteDraftMock).toHaveBeenCalledTimes(1);
+    expect((deleteDraftMock.mock.calls[0] as any[])[0]).toMatchObject({
+      id: "asset-2",
+    });
     expect(writeAppStateMock).toHaveBeenCalledWith(
       "asset-variants",
       expect.objectContaining({

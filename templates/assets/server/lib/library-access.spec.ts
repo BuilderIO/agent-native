@@ -22,6 +22,12 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 vi.mock("../db/index.js", () => ({
   getDb: getDbMock,
   schema: {
+    assets: {
+      id: "image_assets.id",
+      libraryId: "image_assets.library_id",
+      role: "image_assets.role",
+      status: "image_assets.status",
+    },
     assetGenerationRuns: {
       id: "image_generation_runs.id",
       ownerEmail: "image_generation_runs.owner_email",
@@ -34,6 +40,7 @@ vi.mock("drizzle-orm", async (importOriginal) => ({
   ...(await importOriginal<typeof import("drizzle-orm")>()),
   eq: vi.fn((column, value) => ({ column, value })),
   inArray: vi.fn((column, values) => ({ column, values })),
+  and: vi.fn((...conditions) => ({ conditions })),
 }));
 
 import {
@@ -45,8 +52,12 @@ import {
   assertCanUseRuns,
   canReadDraftAsset,
   canReadRun,
+  canReadSession,
+  deleteDraftAssetIfUnchanged,
   draftReadFilter,
   resolveDraftReadScope,
+  runReadFilter,
+  sessionReadFilter,
   unrestrictedDraftReadScope,
 } from "./library-access.js";
 
@@ -192,6 +203,7 @@ describe("library-access", () => {
     const scope = await resolveDraftReadScope(["lib-1"]);
 
     expect(scope.unrestricted).toBe(true);
+    expect(scope.callerEmail).toBe("viewer@example.test");
     expect(getDbMock).not.toHaveBeenCalled();
     expect(
       canReadDraftAsset(scope, {
@@ -270,8 +282,110 @@ describe("library-access", () => {
       unrestricted: false,
       approvableLibraryIds: new Set<string>(),
       ownRunIds: new Set<string>(),
+      callerEmail: "viewer@example.test",
     };
     expect(draftReadFilter(emptyScope, table)).toBeDefined();
+  });
+
+  it("keeps a below-approver caller to the sessions they created", async () => {
+    // The predicate reads the caller off the scope, not off ambient request
+    // context: a row check that runs outside the resolving context would
+    // otherwise answer "not yours" for the caller's own rows.
+    grantRole("viewer");
+    dbWithRuns([]);
+    const scope = await resolveDraftReadScope(["lib-1"]);
+
+    expect(
+      canReadSession(scope, {
+        libraryId: "lib-1",
+        createdBy: "viewer@example.test",
+      }),
+    ).toBe(true);
+    expect(
+      canReadSession(scope, {
+        libraryId: "lib-1",
+        createdBy: "someone@example.test",
+      }),
+    ).toBe(false);
+    // A legacy session with no recorded author is not the caller's.
+    expect(canReadSession(scope, { libraryId: "lib-1", createdBy: null })).toBe(
+      false,
+    );
+    expect(
+      canReadSession(unrestrictedDraftReadScope(), {
+        libraryId: "lib-1",
+        createdBy: "someone@example.test",
+      }),
+    ).toBe(true);
+  });
+
+  it("narrows run and session queries in SQL, not after the limit", async () => {
+    grantRole("viewer");
+    dbWithRuns([{ id: "run-mine", ownerEmail: "viewer@example.test" }]);
+    const scope = await resolveDraftReadScope(["lib-1"]);
+
+    expect(
+      runReadFilter(scope, {
+        id: "image_generation_runs.id",
+        libraryId: "image_generation_runs.library_id",
+      } as never),
+    ).toBeDefined();
+    expect(
+      sessionReadFilter(scope, {
+        libraryId: "image_generation_sessions.library_id",
+        createdBy: "image_generation_sessions.created_by",
+      } as never),
+    ).toBeDefined();
+    expect(
+      runReadFilter(unrestrictedDraftReadScope(), {
+        id: "image_generation_runs.id",
+        libraryId: "image_generation_runs.library_id",
+      } as never),
+    ).toBeUndefined();
+  });
+
+  it("lets a concurrent approval survive a draft delete", async () => {
+    // The row is deleted only while it still matches the state that authorized
+    // it, and the outcome is confirmed by re-reading rather than by a row count.
+    const table = new Map<string, { id: string; status: string }>([
+      ["asset-1", { id: "asset-1", status: "candidate" }],
+    ]);
+    const deleteWhere = vi.fn(async (condition: any) => {
+      const clauses = condition?.conditions ?? [];
+      const wantsCandidate = clauses.some(
+        (clause: any) =>
+          clause?.column === "image_assets.status" &&
+          clause?.value === "candidate",
+      );
+      const row = table.get("asset-1");
+      if (row && wantsCandidate && row.status === "candidate") {
+        table.delete("asset-1");
+      }
+    });
+    getDbMock.mockReturnValue({
+      delete: () => ({ where: deleteWhere }),
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: async () => {
+              const row = table.get("asset-1");
+              return row ? [row] : [];
+            },
+          }),
+        }),
+      }),
+    });
+
+    await expect(
+      deleteDraftAssetIfUnchanged({ id: "asset-1", libraryId: "lib-1" }),
+    ).resolves.toBe(true);
+
+    // Now an editor has approved it first: the delete must not match.
+    table.set("asset-1", { id: "asset-1", status: "saved" });
+    await expect(
+      deleteDraftAssetIfUnchanged({ id: "asset-1", libraryId: "lib-1" }),
+    ).resolves.toBe(false);
+    expect(table.get("asset-1")).toEqual({ id: "asset-1", status: "saved" });
   });
 
   it("lets a draft author discard their own unsaved candidate only", async () => {

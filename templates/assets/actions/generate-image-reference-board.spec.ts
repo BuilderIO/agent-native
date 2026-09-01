@@ -34,10 +34,12 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
   resolveAccess: vi.fn(async () => ({ role: "owner" })),
 }));
+const deleteDraftMock = vi.hoisted(() => vi.fn(async () => true));
 const unrestrictedScope = vi.hoisted(() => ({
   unrestricted: true,
   approvableLibraryIds: new Set<string>(),
   ownRunIds: new Set<string>(),
+  callerEmail: "viewer@example.test",
 }));
 
 vi.mock("../server/lib/library-access.js", () => ({
@@ -55,6 +57,10 @@ vi.mock("../server/lib/library-access.js", () => ({
   canReadDraftAsset: vi.fn(() => true),
   canReadRun: vi.fn(() => true),
   draftReadFilter: vi.fn(() => undefined),
+  runReadFilter: vi.fn(() => undefined),
+  sessionReadFilter: vi.fn(() => undefined),
+  canReadSession: vi.fn(() => true),
+  deleteDraftAssetIfUnchanged: deleteDraftMock,
 }));
 
 vi.mock("@agent-native/creative-context/server", () => ({

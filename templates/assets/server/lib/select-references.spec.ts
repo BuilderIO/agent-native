@@ -442,6 +442,7 @@ describe("selectReferences draft scope", () => {
     unrestricted: false,
     approvableLibraryIds: new Set<string>(),
     ownRunIds: new Set(["run-mine"]),
+    callerEmail: "viewer@example.test",
   };
 
   beforeEach(() => {

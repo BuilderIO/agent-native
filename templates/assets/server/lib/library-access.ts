@@ -5,7 +5,15 @@ import {
   roleSatisfies,
   type ShareRole,
 } from "@agent-native/core/sharing";
-import { eq, inArray, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import {
+  and,
+  eq,
+  inArray,
+  or,
+  sql,
+  type AnyColumn,
+  type SQL,
+} from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -136,6 +144,13 @@ export interface DraftReadScope {
   approvableLibraryIds: Set<string>;
   /** The caller's own generation runs in the kits they cannot approve. */
   ownRunIds: Set<string>;
+  /**
+   * Captured when the scope is resolved, so every predicate below is a pure
+   * function of the scope. Reading it from the ambient request context instead
+   * makes a row check silently answer "not yours" whenever it runs outside the
+   * context that resolved the scope.
+   */
+  callerEmail: string | null;
 }
 
 export async function resolveDraftReadScope(
@@ -152,13 +167,23 @@ export async function resolveDraftReadScope(
   for (const [id, canApprove] of roles) {
     if (canApprove) approvableLibraryIds.add(id);
   }
+  const caller = normalizeEmail(getRequestUserEmail());
   const restricted = uniqueIds.filter((id) => !approvableLibraryIds.has(id));
   if (restricted.length === 0) {
-    return { unrestricted: true, approvableLibraryIds, ownRunIds: new Set() };
+    return {
+      unrestricted: true,
+      approvableLibraryIds,
+      ownRunIds: new Set(),
+      callerEmail: caller,
+    };
   }
-  const caller = normalizeEmail(getRequestUserEmail());
   if (!caller) {
-    return { unrestricted: false, approvableLibraryIds, ownRunIds: new Set() };
+    return {
+      unrestricted: false,
+      approvableLibraryIds,
+      ownRunIds: new Set(),
+      callerEmail: null,
+    };
   }
   const rows = await getDb()
     .select({
@@ -172,7 +197,12 @@ export async function resolveDraftReadScope(
       .filter((row) => normalizeEmail(row.ownerEmail) === caller)
       .map((row) => row.id),
   );
-  return { unrestricted: false, approvableLibraryIds, ownRunIds };
+  return {
+    unrestricted: false,
+    approvableLibraryIds,
+    ownRunIds,
+    callerEmail: caller,
+  };
 }
 
 /**
@@ -184,6 +214,7 @@ export function unrestrictedDraftReadScope(): DraftReadScope {
     unrestricted: true,
     approvableLibraryIds: new Set(),
     ownRunIds: new Set(),
+    callerEmail: normalizeEmail(getRequestUserEmail()),
   };
 }
 
@@ -248,6 +279,98 @@ export function draftReadFilter(
   // through to an unfiltered read.
   if (!clauses.length) return sql`1 = 0`;
   return clauses.length === 1 ? clauses[0] : or(...clauses);
+}
+
+/**
+ * The scope as a WHERE clause for run history. Runs carry the prompts and
+ * settings behind a draft, so they narrow to their author the same way.
+ */
+export function runReadFilter(
+  scope: DraftReadScope,
+  table: { id: AnyColumn; libraryId: AnyColumn },
+): SQL | undefined {
+  if (scope.unrestricted) return undefined;
+  const clauses: SQL[] = [];
+  if (scope.approvableLibraryIds.size) {
+    clauses.push(
+      inArray(table.libraryId, Array.from(scope.approvableLibraryIds)),
+    );
+  }
+  if (scope.ownRunIds.size) {
+    clauses.push(inArray(table.id, Array.from(scope.ownRunIds)));
+  }
+  if (!clauses.length) return sql`1 = 0`;
+  return clauses.length === 1 ? clauses[0] : or(...clauses);
+}
+
+/**
+ * Handoff sessions hold a brief, feedback, and references to candidates, so a
+ * below-approver caller sees only the sessions they created. Filtering in SQL
+ * rather than after `limit` keeps a caller's own sessions from being paged out
+ * behind other people's.
+ */
+export function sessionReadFilter(
+  scope: DraftReadScope,
+  table: { libraryId: AnyColumn; createdBy: AnyColumn },
+): SQL | undefined {
+  if (scope.unrestricted) return undefined;
+  const clauses: SQL[] = [];
+  if (scope.approvableLibraryIds.size) {
+    clauses.push(
+      inArray(table.libraryId, Array.from(scope.approvableLibraryIds)),
+    );
+  }
+  if (scope.callerEmail) {
+    // Case-insensitive to match how core's own access filter compares emails.
+    clauses.push(sql`lower(${table.createdBy}) = ${scope.callerEmail}`);
+  }
+  if (!clauses.length) return sql`1 = 0`;
+  return clauses.length === 1 ? clauses[0] : or(...clauses);
+}
+
+/** The row-level counterpart of `sessionReadFilter`, for reads by id. */
+export function canReadSession(
+  scope: DraftReadScope,
+  session: { libraryId: string; createdBy?: string | null },
+): boolean {
+  if (scope.unrestricted) return true;
+  if (scope.approvableLibraryIds.has(session.libraryId)) return true;
+  return Boolean(
+    scope.callerEmail &&
+    scope.callerEmail === normalizeEmail(session.createdBy),
+  );
+}
+
+/**
+ * Delete a draft against the state that authorized it.
+ *
+ * Authorization comes from a prior read, so an editor can approve the candidate
+ * in between. The predicate makes that save win, and the confirming re-read
+ * keeps the answer portable — row counts are adapter-specific. Returns false
+ * when the row survived, which callers must treat as "not deleted" rather than
+ * as success.
+ */
+export async function deleteDraftAssetIfUnchanged(asset: {
+  id: string;
+  libraryId: string;
+}): Promise<boolean> {
+  const db = getDb();
+  await db
+    .delete(schema.assets)
+    .where(
+      and(
+        eq(schema.assets.id, asset.id),
+        eq(schema.assets.libraryId, asset.libraryId),
+        eq(schema.assets.role, "generated"),
+        eq(schema.assets.status, "candidate"),
+      ),
+    );
+  const [survivor] = await db
+    .select({ id: schema.assets.id })
+    .from(schema.assets)
+    .where(eq(schema.assets.id, asset.id))
+    .limit(1);
+  return !survivor;
 }
 
 /**
