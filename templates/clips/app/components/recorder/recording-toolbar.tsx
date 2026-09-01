@@ -96,6 +96,7 @@ export function RecordingToolbar({
   const posRef = useRef(pos);
   posRef.current = pos;
   const dragPositionRef = useRef(pos);
+  const activePointerIdRef = useRef<number | null>(null);
   const [dragging, setDragging] = useState(false);
   const dragOffsetRef = useRef({ dx: 0, dy: 0 });
   const [toolbarLayout, setToolbarLayout] = useState<RecordingPlayheadLayout>(
@@ -185,12 +186,13 @@ export function RecordingToolbar({
       dx: e.clientX - rect.left,
       dy: e.clientY - rect.top,
     };
-    setDragging(true);
     rootRef.current.setPointerCapture(e.pointerId);
+    activePointerIdRef.current = e.pointerId;
+    setDragging(true);
   }
 
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
-    if (!dragging) return;
+    if (activePointerIdRef.current !== e.pointerId) return;
     const { dx, dy } = dragOffsetRef.current;
     const orientation = posRef.current.orientation;
     const layout = playheadSizesRef.current[orientation];
@@ -217,11 +219,12 @@ export function RecordingToolbar({
   }
 
   function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
-    if (!rootRef.current) return;
-    if (rootRef.current.hasPointerCapture(e.pointerId)) {
-      rootRef.current.releasePointerCapture(e.pointerId);
-    }
+    if (activePointerIdRef.current !== e.pointerId) return;
+    activePointerIdRef.current = null;
     setDragging(false);
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
     const current = dockRecordingPlayhead(
       dragPositionRef.current.left,
       dragPositionRef.current.top,
