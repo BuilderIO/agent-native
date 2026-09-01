@@ -1329,15 +1329,31 @@ pub async fn hide_recording_chrome(
 /// stable. At that point the bubble webview is freshly spawned, acquires
 /// the camera cleanly, and there's no cross-webview contention because
 /// MediaRecorder doesn't touch the camera after start.
-#[tauri::command]
-pub async fn close_bubble(app: AppHandle) -> Result<(), String> {
+fn close_bubble_window(app: &AppHandle) {
     let _ = app.emit("clips:release-camera", ());
     if let Some(w) = app.get_webview_window(BUBBLE_LABEL) {
-        dlog!("[clips-tray] close_bubble — destroying bubble webview");
+        // Hide first so a slow WebKit teardown cannot leave the last frame
+        // composited on-screen while the window is being destroyed.
+        let _ = w.hide();
+        dlog!("[clips-tray] close_bubble - destroying bubble webview");
         let _ = w.close();
     } else {
-        dlog!("[clips-tray] close_bubble — no bubble window to close");
+        dlog!("[clips-tray] close_bubble - no bubble window to close");
     }
+}
+
+/// Close the camera bubble whenever the popover is no longer visible, except
+/// while recording owns it independently of the popover.
+pub fn close_bubble_if_idle(app: &AppHandle) {
+    if is_recording_active(app) {
+        return;
+    }
+    close_bubble_window(app);
+}
+
+#[tauri::command]
+pub async fn close_bubble(app: AppHandle) -> Result<(), String> {
+    close_bubble_window(&app);
     Ok(())
 }
 
@@ -2009,13 +2025,14 @@ fn remembered_voice_target_bundle(app: &AppHandle) -> Option<String> {
 mod tests {
     use super::{
         overlay_labels_to_hide, strip_trailing_period_for_messaging, text_insertion_strategy,
-        TextInsertionStrategy, FINALIZING_LABEL,
+        TextInsertionStrategy, BUBBLE_LABEL, FINALIZING_LABEL,
     };
 
     #[test]
     fn overlay_cleanup_can_preserve_finalizing_progress() {
         assert!(!overlay_labels_to_hide(true).any(|label| label == FINALIZING_LABEL));
         assert!(overlay_labels_to_hide(false).any(|label| label == FINALIZING_LABEL));
+        assert!(overlay_labels_to_hide(false).any(|label| label == BUBBLE_LABEL));
     }
 
     #[test]
@@ -2783,6 +2800,7 @@ pub fn toggle_popover(app: &AppHandle) {
         window.is_visible().unwrap_or(false) && !voice_woken && !is_pinhole_popover(&window);
     if user_visible {
         let _ = window.hide();
+        close_bubble_if_idle(app);
         let _ = app.emit("clips:popover-visible", false);
         return;
     }

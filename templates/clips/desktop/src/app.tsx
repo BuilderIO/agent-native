@@ -2829,6 +2829,12 @@ export function App({
           return;
         }
         await loadDevices();
+        if (cancelled) {
+          // The popover closed while device enumeration was in flight. Do not
+          // create a native bubble for an effect that has already ended.
+          s.getTracks().forEach((t) => t.stop());
+          return;
+        }
         stream = s;
         bubbleStreamRef.current = s;
         // Open the bubble window. It's a pure renderer — the bubble
@@ -2842,6 +2848,13 @@ export function App({
           console.error("[clips-popover] show_bubble failed:", err);
         }
         if (cancelled) {
+          // show_bubble can finish after cleanup. Close only when this effect
+          // no longer belongs to a recording or a replacement bubble session.
+          if (!recordingFlowGateRef.current && !bubbleActiveRef.current) {
+            await invoke("close_bubble").catch((err) =>
+              console.error("[clips-popover] late bubble cleanup failed:", err),
+            );
+          }
           s.getTracks().forEach((t) => t.stop());
           return;
         }
