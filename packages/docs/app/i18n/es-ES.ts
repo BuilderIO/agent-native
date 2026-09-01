@@ -578,13 +578,12 @@ const esES = {
     communitySubmissionName: "Nombre de la aplicación",
     communitySubmissionNamePlaceholder: "Centro de atención al cliente",
     communitySubmissionUrl: "URL de la aplicación",
-    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com o https://example.com",
     communitySubmissionDescriptionLabel: "Descripción",
     communitySubmissionDescriptionPlaceholder:
       "¿Qué hace la aplicación y para quién es?",
     communitySubmissionRepository: "Repositorio de GitHub (opcional)",
-    communitySubmissionRepositoryPlaceholder:
-      "https://github.com/owner/repository",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
     communitySubmissionScreenshots: "Capturas (opcional)",
     communitySubmissionScreenshotsPlaceholder: "Arrastra hasta 5 imágenes aquí",
     communitySubmissionScreenshotDropHint:
@@ -597,7 +596,7 @@ const esES = {
     communitySubmissionReady:
       "Gracias. Revisaremos tu aplicación antes de publicarla.",
     communitySubmissionValidation:
-      "Añade un nombre, una descripción y una URL de aplicación válida. Sube imágenes PNG, JPG o WebP de hasta 1,5 MB cada una.",
+      "Añade un nombre y una descripción, y después introduce un enlace de aplicación como example.com. Añadiremos https:// por ti. Si añades un repositorio, usa un enlace de github.com. Sube imágenes PNG, JPG o WebP de hasta 1,5 MB cada una.",
   },
   buildFromScratch: {
     title: "Crear desde cero",
