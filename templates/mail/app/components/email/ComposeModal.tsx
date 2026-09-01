@@ -200,6 +200,7 @@ export function ComposeModal({
   const editorRef = useRef<ComposeEditorHandle>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const sendingIdsRef = useRef<Set<string>>(new Set());
+  const schedulingRef = useRef(false);
 
   // Reset CC/BCC visibility and quote expansion when switching tabs
   useEffect(() => {
@@ -321,12 +322,13 @@ export function ComposeModal({
   };
 
   const handleSendLater = async (runAt: number) => {
-    if (!activeDraft || !activeId) return;
+    if (!activeDraft || !activeId || schedulingRef.current) return;
     if (!activeDraft.to.trim()) {
       toast.error(t("mail.toasts.pleaseAddRecipient"));
       return;
     }
 
+    schedulingRef.current = true;
     const draftSnapshot = { ...activeDraft };
 
     try {
@@ -356,6 +358,8 @@ export function ComposeModal({
       toast(`Scheduled for ${scheduledDate}`);
     } catch {
       toast.error(t("mail.toasts.failedToScheduleEmailDraftKeptOpen"));
+    } finally {
+      schedulingRef.current = false;
     }
   };
 
@@ -965,6 +969,7 @@ export function ComposeModal({
                 onSendLater={handleSendLater}
                 disabled={!activeDraft.to.trim()}
                 isSending={sendEmail.isPending}
+                isScheduling={scheduleEmail.isPending}
               />
             </div>
           </div>
