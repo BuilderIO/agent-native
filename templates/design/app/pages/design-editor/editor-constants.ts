@@ -47,6 +47,8 @@ export const NO_LOCALHOST_WRITE_PATH_MESSAGE =
   "Can't determine the source file for this screen."; /* i18n-ignore */
 export const TWEAK_CONTROLS_EDIT_ACCESS_MESSAGE =
   "You need edit access to add tweak controls."; /* i18n-ignore */
+export const ADD_TO_CONTEXT_LABEL =
+  "Add to Context"; /* i18n-ignore prominent context entry point */
 
 export const PENDING_STRUCTURE_VERIFICATION_TIMEOUT_MS = 60_000;
 export const PENDING_STRUCTURE_RUNTIME_TIMEOUT_MS = 15_000;

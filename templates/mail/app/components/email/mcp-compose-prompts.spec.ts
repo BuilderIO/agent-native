@@ -1,8 +1,12 @@
 import { readFileSync } from "node:fs";
 
+import type { ComposeState } from "@shared/types";
 import { describe, expect, it } from "vitest";
 
-import { mergeEditorMarkdownIntoDraftBody } from "./compose-draft-context";
+import {
+  isSameScheduledDraft,
+  mergeEditorMarkdownIntoDraftBody,
+} from "./compose-draft-context";
 
 function source(path: string): string {
   return readFileSync(new URL(path, import.meta.url), "utf8");
@@ -54,5 +58,28 @@ describe("Mail MCP compose prompts", () => {
         signature: "Best,\nSteve",
       }),
     ).toBe("Fresh body\n\nBest,\nSteve\n\n— On Tue wrote:\nQuoted");
+  });
+
+  it("detects edits made while a draft is being scheduled", () => {
+    const snapshot: ComposeState = {
+      id: "draft-1",
+      to: "friend@example.com",
+      subject: "Hello",
+      body: "Original body",
+      mode: "compose",
+    };
+
+    expect(
+      isSameScheduledDraft(
+        { ...snapshot, savedDraftId: "gmail-draft-1" },
+        snapshot,
+      ),
+    ).toBe(true);
+    expect(
+      isSameScheduledDraft(
+        { ...snapshot, body: "Edited while scheduling" },
+        snapshot,
+      ),
+    ).toBe(false);
   });
 });

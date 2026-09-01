@@ -71,6 +71,7 @@ export default defineAction({
     "design prompts: create/open the design shell, call show-design-questions " +
     "with tailored questions, then stop and wait for the user's answers before " +
     "calling generate-design or present-design-variants.",
+  endsTurn: true,
   schema: z.object({
     designId: z.string().describe("Design project ID to show questions for"),
     title: z

@@ -156,7 +156,6 @@ import {
   isProductionServerlessFunctionRuntime,
   isTransientDatabaseError,
 } from "../db/client.js";
-import { isFeatureFlagEnabled } from "../feature-flags/index.js";
 import {
   filterFrameworkToolGroups,
   resolveFrameworkTools,
@@ -336,6 +335,7 @@ import {
   filterDirectA2AActions,
   filterReadOnlyActions,
   isSelectedA2AReceiver,
+  shouldSelectedA2AReceiverOwnObjective,
   resolveInitialToolNames,
   runA2AAgentLoop,
   runMCPAgentLoop,
@@ -2004,17 +2004,12 @@ export function createAgentChatPlugin(
           const extra = await resolveExtraContext(context.event, owner);
 
           const correlation = sanitizeA2ACorrelationMetadata(context.metadata);
-          const receiverOwnsObjective =
-            isSelectedA2AReceiver(
-              correlation.selectedReceiverApp,
-              options?.appId,
-            ) &&
-            !!options?.a2aReceiverOwnershipFlag &&
-            (await isFeatureFlagEnabled(options.a2aReceiverOwnershipFlag, {
-              userEmail,
-              userKey: userEmail,
-              orgId: getRequestOrgId() ?? undefined,
-            }));
+          const receiverOwnsObjective = shouldSelectedA2AReceiverOwnObjective({
+            authenticatedCallerEmail: userEmail,
+            enabled: !!options?.selectedA2AReceiverOwnsObjective,
+            selectedReceiverApp: correlation.selectedReceiverApp,
+            appId: options?.appId,
+          });
           const a2aStoredModel = await getStoredModelForEngine(a2aEngine, {
             appId: options?.appId,
           });
@@ -2270,6 +2265,7 @@ export function createAgentChatPlugin(
                     result: event.result,
                     isError: event.isError,
                     completedSideEffect: event.completedSideEffect,
+                    artifacts: event.artifacts,
                   });
                   const artifactBaseUrl = resolveArtifactBaseUrl(context.event);
                   const recoverableArtifactMessage =
@@ -2747,6 +2743,7 @@ export function createAgentChatPlugin(
                       result: event.result,
                       isError: event.isError,
                       completedSideEffect: event.completedSideEffect,
+                      artifacts: event.artifacts,
                     });
                   }
                 },
