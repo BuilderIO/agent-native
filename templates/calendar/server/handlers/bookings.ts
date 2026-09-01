@@ -536,6 +536,46 @@ function dateEndIso(date: string, timezone: string): string {
   ).toISOString();
 }
 
+const BOUNDARY_SKIP_SEARCH_DAYS = 3;
+
+// The requested date itself may not exist locally (a whole-date DST skip);
+// in that case there is no valid lower bound at that date, so walk back to
+// the nearest earlier date that does exist. That date's start is always an
+// earlier (and therefore still safe) lower bound for a conflict window.
+function safeRangeStartIso(date: string, timezone: string): string {
+  let cursor = date;
+  for (let i = 0; i <= BOUNDARY_SKIP_SEARCH_DAYS; i++) {
+    try {
+      return dateStartIso(cursor, timezone);
+    } catch (error) {
+      if (!(error instanceof SkippedLocalDateError)) throw error;
+      cursor = addDateString(cursor, -1);
+    }
+  }
+  throw new SkippedLocalDateError(
+    `No valid local date found near ${date} in time zone ${timezone}`,
+  );
+}
+
+// dateEndIso's boundary is exclusive (the start of the *next* date), which
+// can itself be a date the time zone skips even though `date` is perfectly
+// valid. Walk forward to the nearest later date that exists - it's still a
+// safe (only slightly wider) upper bound for a conflict window.
+function safeRangeEndIso(date: string, timezone: string): string {
+  let cursor = date;
+  for (let i = 0; i <= BOUNDARY_SKIP_SEARCH_DAYS; i++) {
+    try {
+      return dateEndIso(cursor, timezone);
+    } catch (error) {
+      if (!(error instanceof SkippedLocalDateError)) throw error;
+      cursor = addDateString(cursor, 1);
+    }
+  }
+  throw new SkippedLocalDateError(
+    `No valid local date found near ${date} in time zone ${timezone}`,
+  );
+}
+
 function formatAvailabilityUnavailableReason(email?: string): string {
   return email
     ? `Calendar availability unavailable for ${email}`
@@ -892,9 +932,21 @@ function getScheduleWindowsOverlappingRange(
     cursor <= endDate;
     cursor = addDateString(cursor, 1)
   ) {
-    windows.push(
-      ...getScheduleWindowsForLocalDate(cursor, timezone, weeklySchedule),
-    );
+    let dayWindows: ScheduleWindow[];
+    try {
+      dayWindows = getScheduleWindowsForLocalDate(
+        cursor,
+        timezone,
+        weeklySchedule,
+      );
+    } catch (error) {
+      if (!(error instanceof SkippedLocalDateError)) throw error;
+      // This padding day doesn't exist in the host's own time zone (e.g.
+      // a whole-date DST skip) - it contributes no schedule window, so
+      // just move on instead of discarding the whole surrounding range.
+      continue;
+    }
+    windows.push(...dayWindows);
   }
   return windows.filter(
     (window) => window.end > rangeStart && window.start < rangeEnd,
@@ -1626,15 +1678,20 @@ async function getAvailableSlotsForQuery(
         conflictSlugs: context.conflictSlugs,
         viewerEmail: viewer?.email,
         viewerOrgId: viewer?.orgId,
-        rangeStartIso: dateStartIso(rangeStart, timezone),
-        rangeEndIso: dateEndIso(rangeEnd, timezone),
+        // The literal rangeStart/rangeEnd dates can themselves be skipped
+        // by the time zone (or, for rangeEnd, the exclusive day-after
+        // boundary can be). Widen to the nearest valid neighboring date
+        // rather than failing the whole range - the per-day loop below
+        // still correctly excludes any individual skipped day.
+        rangeStartIso: safeRangeStartIso(rangeStart, timezone),
+        rangeEndIso: safeRangeEndIso(rangeEnd, timezone),
         timezone,
       });
     } catch (error) {
       if (!(error instanceof SkippedLocalDateError)) throw error;
-      // The requested range's own start/end date is one a time zone
-      // skipped entirely - there is no valid conflict window to compute,
-      // so report no available dates instead of failing the whole request.
+      // Only reachable if several consecutive local dates near the range
+      // boundary are all skipped - an extreme edge case with no valid
+      // conflict window to compute.
       return { dates: [] };
     }
     if (conflictResult.unavailableReason) {
@@ -1679,8 +1736,12 @@ async function getAvailableSlotsForQuery(
       conflictSlugs: context.conflictSlugs,
       viewerEmail: viewer?.email,
       viewerOrgId: viewer?.orgId,
+      // `date` itself not existing is a genuine "no availability" case,
+      // caught below. The exclusive day-after boundary used for
+      // `rangeEndIso` can be skipped even when `date` is perfectly valid,
+      // so widen that side instead of discarding the requested date.
       rangeStartIso: dateStartIso(date, timezone),
-      rangeEndIso: dateEndIso(date, timezone),
+      rangeEndIso: safeRangeEndIso(date, timezone),
       timezone,
     });
     if (conflictResult.unavailableReason) {

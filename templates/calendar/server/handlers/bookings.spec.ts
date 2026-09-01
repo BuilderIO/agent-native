@@ -227,6 +227,57 @@ describe("booking availability", () => {
     ).toThrow(/does not exist/);
   });
 
+  it("does not discard an otherwise-valid day when a peer's padding day is skipped", () => {
+    // The owner's own day (2011-12-31, UTC) is perfectly valid. But scanning
+    // a peer host's schedule pads +/-1 day and walks calendar-date strings
+    // in the peer's own time zone (Pacific/Apia) to cover it, which passes
+    // straight through "2011-12-30" — a date string that zone's whole-day
+    // skip has no matching offset for. That padding day should simply
+    // contribute no schedule window, not blow up the owner's entire day.
+    vi.setSystemTime(new Date("2011-11-01T00:00:00.000Z"));
+    const fullWeek = {
+      monday: { enabled: true, slots: [{ start: "00:00", end: "23:59" }] },
+      tuesday: { enabled: true, slots: [{ start: "00:00", end: "23:59" }] },
+      wednesday: { enabled: true, slots: [{ start: "00:00", end: "23:59" }] },
+      thursday: { enabled: true, slots: [{ start: "00:00", end: "23:59" }] },
+      friday: { enabled: true, slots: [{ start: "00:00", end: "23:59" }] },
+      saturday: { enabled: true, slots: [{ start: "00:00", end: "23:59" }] },
+      sunday: { enabled: true, slots: [{ start: "00:00", end: "23:59" }] },
+    };
+    const config: AvailabilityConfig = {
+      ...availabilityConfig(),
+      timezone: "UTC",
+      weeklySchedule: {
+        monday: { enabled: false, slots: [] },
+        tuesday: { enabled: false, slots: [] },
+        wednesday: { enabled: false, slots: [] },
+        thursday: { enabled: false, slots: [] },
+        friday: { enabled: false, slots: [] },
+        saturday: {
+          enabled: true,
+          slots: [{ start: "09:00", end: "17:00" }],
+        },
+        sunday: { enabled: false, slots: [] },
+      },
+    };
+
+    expect(() =>
+      generateAvailableSlotsForDate({
+        date: "2011-12-31",
+        duration: 30,
+        config,
+        conflictItems: [],
+        hostSchedules: [
+          {
+            email: "peer@example.com",
+            timezone: "Pacific/Apia",
+            weeklySchedule: fullWeek,
+          },
+        ],
+      }),
+    ).not.toThrow();
+  });
+
   it("offers 60-minute meetings on 30-minute start intervals", () => {
     const slots = generateAvailableSlotsForDate({
       date: "2026-07-20",
