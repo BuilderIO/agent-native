@@ -360,10 +360,10 @@ fn install_sleep_watcher(_app: &AppHandle) {}
 
 // --- call-ended heuristic --------------------------------------------------
 
-#[cfg(target_os = "macos")]
-const CALL_END_POLL: Duration = Duration::from_secs(2);
 const CALL_END_AUDIO_CONFIRM: Duration = Duration::from_secs(5);
 const CALL_MIC_RELEASE_CONFIRM: Duration = Duration::from_secs(5);
+#[cfg(target_os = "macos")]
+const CALL_END_POLL: Duration = Duration::from_secs(2);
 
 #[cfg(target_os = "macos")]
 fn install_call_ended_watcher(app: &AppHandle) {

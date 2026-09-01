@@ -558,9 +558,10 @@ export function useMeetingTranscription({
         // the engine choice was already made below). Rust prefers one combined
         // SCK stream and uses bypassed VoiceProcessingIO only for legacy/failure
         // fallback, so the transcript stays live without changing call volume.
-        const startAudio = async () => {
+        const startAudio = async (): Promise<TranscriptionEngine> => {
+          const engine = session.engine;
           await restartTranscriptionEngine(
-            session.engine,
+            engine,
             {
               deviceId: selectedMicId,
               label: selectedMicLabel,
@@ -568,6 +569,7 @@ export function useMeetingTranscription({
             true,
             false,
           );
+          return engine;
         };
 
         const stopStaleAudioTransition = async () => {
@@ -618,8 +620,9 @@ export function useMeetingTranscription({
                 if (!sessionIsActive()) return;
                 session.paused = true;
               } else {
+                let resumedEngine: TranscriptionEngine;
                 try {
-                  await startAudio();
+                  resumedEngine = await startAudio();
                 } catch (err) {
                   console.warn(
                     "[clips-popover] meeting audio resume failed; staying paused:",
@@ -631,6 +634,11 @@ export function useMeetingTranscription({
                   return;
                 }
                 if (!sessionIsActive()) {
+                  // stopTranscription waits for this transition before a
+                  // replacement can claim the global audio engine. Keep the
+                  // concrete engine returned by the resume so a late start
+                  // cannot be orphaned during that handoff.
+                  await stopTranscriptionEngine(resumedEngine).catch(() => {});
                   await stopStaleAudioTransition();
                   return;
                 }
