@@ -588,9 +588,6 @@ const arSA = {
     communitySubmissionScreenshotsCount: "{{count}} / 5 محددة",
     communitySubmissionScreenshotRemove: "إزالة لقطة الشاشة {{index}}",
     communitySubmissionSubmit: "إرسال التطبيق",
-    communitySubmissionSubmitting: "جارٍ الإرسال...",
-    communitySubmissionError:
-      "تعذّر إرسال تطبيقك. تحقّق من اتصالك وحاول مرة أخرى.",
     communitySubmissionReady: "شكرًا. سنراجع تطبيقك قبل نشره.",
     communitySubmissionValidation:
       "أضف اسمًا ووصفًا ورابط تطبيق صالحًا. ارفع صور PNG أو JPG أو WebP بحد أقصى 1.5 ميجابايت لكل صورة.",

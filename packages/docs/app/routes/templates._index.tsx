@@ -165,15 +165,15 @@ export default function TemplatesPage() {
 
             {/* Breaks out of the section padding so the divider spans the full
                 measure, then restores it so the copy stays on the page grid. */}
-            <div className="-mx-4 border-t border-solid border-[var(--b-border-default)] px-4 pt-10 sm:-mx-6 sm:px-6">
-              <div className="max-w-[720px]">
+            <div className="-mx-4 border-t border-solid border-[var(--b-border-default)] px-4 sm:-mx-6 sm:px-6">
+              <div className="flex flex-col items-center gap-[var(--spacing-4)] py-16 text-center">
                 <h3 className={`m-0 ${SECTION_HEADING_CLASS}`}>
                   {t("templatesPage.communitySubmissionTitle")}
                 </h3>
-                <p className="mt-3 mb-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+                <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
                   {t("templatesPage.communitySubmissionDescription")}
                 </p>
-                <div className="mt-5 flex flex-wrap items-center gap-4">
+                <div className="mt-[var(--spacing-2)] flex flex-col items-center gap-[var(--spacing-4)]">
                   <CommunityAppSubmissionDialog />
                   {submissionReceived ? (
                     <p
