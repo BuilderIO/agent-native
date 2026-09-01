@@ -115,6 +115,21 @@ describe("list-triage-items automation limits", () => {
       },
     );
     expect(result.items).toHaveLength(3);
+    expect(recordFactoryAuditMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        details: expect.objectContaining({
+          limit: 3,
+          listedItems: [
+            { itemId: "a", status: "pr_observed", outcome: null },
+            { itemId: "b", status: "pr_observed", outcome: null },
+            { itemId: "c", status: "pr_observed", outcome: null },
+          ],
+        }),
+      }),
+      expect.anything(),
+    );
     expect(result.items.every((entry: { author: string }) => true)).toBe(true);
     expect(
       result.items.every((entry: { id: string }) =>

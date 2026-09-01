@@ -239,6 +239,7 @@ export default function ClipsTemplate() {
             </span>
           </>
         }
+        customizeTemplate={template}
         headingAction={
           <a
             href="https://clips.agent-native.com"

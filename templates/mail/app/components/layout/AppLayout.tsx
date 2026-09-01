@@ -87,12 +87,15 @@ import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 import {
   OTHER_INBOX_TAB_ID,
   OTHER_INBOX_TAB_PARAM,
-  qualifiesForInboxTab,
   resolvePinnedLabels,
   pinnedTriageLabels,
   augmentSelfSentLabels,
+  filterInboxTabEmails,
+  inboxThreadKey,
+  savedFilterThreadIds,
 } from "@/lib/inbox-tabs";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+import { groupIntoThreads } from "@/lib/threads";
 import { cn } from "@/lib/utils";
 import { isKnownMailView } from "@/routes/$view";
 
@@ -395,6 +398,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const hasNoteToSelf = pinnedLabels.includes("note-to-self");
   const labelAliases = settings?.labelAliases ?? {};
   const savedFilters = settings?.savedFilters ?? EMPTY_SAVED_FILTERS;
+  const savedFilterQueries = useMemo(
+    () => savedFilters.map((filter) => filter.query),
+    [savedFilters],
+  );
   const activeSavedFilter = savedFilters.find(
     (filter) => filter.id === activeFilterId,
   );
@@ -533,47 +540,41 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             (e) => e.accountEmail && activeAccounts.has(e.accountEmail),
           )
         : inboxEmails;
-    // Find the latest message + unread state per thread.
-    const threadState = new Map<
-      string,
-      { latest: (typeof filtered)[0]; hasUnread: boolean }
-    >();
-    for (const e of filtered) {
-      const key = e.threadId || e.id;
-      const existing = threadState.get(key);
-      if (!existing) {
-        threadState.set(key, { latest: e, hasUnread: !e.isRead });
-      } else {
-        existing.hasUnread ||= !e.isRead;
-        if (new Date(e.date) > new Date(existing.latest.date)) {
-          existing.latest = e;
-        }
-      }
-    }
-    const threadRows = [...threadState.values()];
-    const triageLabels = pinnedTriageLabels(pinnedLabels);
+    const threadRows = groupIntoThreads(filtered);
     // "Other" = the inbox remainder. Shared with the rendered list
-    // (InboxPage) via qualifiesForInboxTab so a tab's badge can never
-    // disagree with the emails it actually shows.
-    const inboxRows = threadRows.filter(({ latest }) =>
-      qualifiesForInboxTab(latest.labelIds, null, triageLabels),
+    // (InboxPage) so a tab's badge can never disagree with the emails it
+    // actually shows. Group after filtering so counts use the same bare
+    // thread identity as the rendered list.
+    const inboxRows = groupIntoThreads(
+      filterInboxTabEmails(filtered, null, pinnedLabels, savedFilterQueries),
+    );
+    const savedFilterThreads = savedFilterThreadIds(
+      filtered,
+      savedFilterQueries,
+    );
+    const savedFilterExclusiveRows = groupIntoThreads(
+      filtered.filter((e) => !savedFilterThreads.has(inboxThreadKey(e))),
     );
     total["__inboxTotal"] = threadRows.length;
     unread["__inboxTotal"] = threadRows.filter(
-      ({ hasUnread }) => hasUnread,
+      (thread) => thread.hasUnread,
     ).length;
     total["inbox"] = inboxRows.length;
-    unread["inbox"] = inboxRows.filter(({ hasUnread }) => hasUnread).length;
+    unread["inbox"] = inboxRows.filter((thread) => thread.hasUnread).length;
+    total["__inboxExclusive"] = savedFilterExclusiveRows.length;
+    unread["__inboxExclusive"] = savedFilterExclusiveRows.filter(
+      (thread) => thread.hasUnread,
+    ).length;
     // Count threads per pinned label using the exact same membership rule as
     // the rendered list: latest message has the label; "important" is
     // exclusive of any other pinned tab.
     for (let i = 0; i < pinnedLabels.length; i++) {
       const full = pinnedLabels[i];
-      const rows = threadRows.filter(({ latest }) =>
-        qualifiesForInboxTab(latest.labelIds, full, triageLabels),
+      const rows = groupIntoThreads(
+        filterInboxTabEmails(filtered, full, pinnedLabels, savedFilterQueries),
       );
       total[full] = rows.length;
-      unread[full] = rows.filter(({ hasUnread }) => hasUnread).length;
+      unread[full] = rows.filter((thread) => thread.hasUnread).length;
       // Also index by the canonical label.id (which uses spaces, not
       // underscores) so count lookups find it for nested labels.
       const canonical = labels.find(
@@ -588,7 +589,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       }
     }
     return { total, unread };
-  }, [inboxEmails, pinnedLabels, activeAccounts, labels]);
+  }, [inboxEmails, pinnedLabels, activeAccounts, labels, savedFilterQueries]);
 
   const activeFilterCounts = useMemo(() => {
     const threadUnread = new Map<string, boolean>();
@@ -1185,9 +1186,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   // loaded rows is useful for local/demo mail, but merging the two with
   // Math.max makes badges grow as more pages happen to be loaded.
   const getInboxCount = (kind: CountKind) => {
+    const localCounts = localCountsForKind(kind);
+    if (savedFilterQueries.length > 0) {
+      return localCounts["__inboxExclusive"] ?? 0;
+    }
     const inboxLabel = resolveLabelForCount("inbox");
     const countField = countFieldForKind(kind);
-    const localCounts = localCountsForKind(kind);
     const serverCount = inboxLabel?.[countField];
     const localCount = localCounts["__inboxTotal"] ?? 0;
     return typeof serverCount === "number" ? serverCount : localCount;

@@ -539,21 +539,60 @@ const deDE = {
     eyebrow:
       "Starte mit einer funktionierenden App und lass sie vom Agenten weiterentwickeln.",
     body: "Du kannst alles anpassen.",
+    firstPartyTitle: "Von Agent-Native erstellt",
     community:
       "Du möchtest lieber eine leere App? Starte von Grund auf mit dem Framework-Guide.",
     createYourOwn: "Von Grund auf starten",
-    communityTitle: "Community-Vorlagen",
+    communityTitle: "Community-Apps",
     communityDescription:
-      "Unabhängige Apps, die von ihren Autorinnen und Autoren gepflegt werden. Installiere sie aus einem öffentlichen GitHub-Repository oder teste eine gehostete Version, falls verfügbar.",
-    submitCommunityTemplate: "Eigene Vorlage einreichen",
+      "Entdecke Apps, die von ihren Autorinnen und Autoren gepflegt werden. Teste eine gehostete Version oder prüfe den Quellcode und passe ihn selbst an.",
+    submitCommunityTemplate: "GitHub-Formular öffnen",
     communityEmpty:
-      "Die Community-Liste ist offen. Veröffentliche eine fokussierte Agent-Native-App in einem öffentlichen Repository und reiche sie für den Katalog ein.",
+      "Die Community-Liste ist offen. Veröffentliche eine fokussierte Agent-Native-App und reiche sie für den Katalog ein.",
     publishGuide: "Veröffentlichungsleitfaden lesen",
     communityTrust:
-      "Community-Vorlagen sind Code von Drittanbietern. Prüfe Repository, Lizenz, Abhängigkeiten und Installationsskripte vor der Ausführung.",
+      "Community-Apps sind Code von Drittanbietern. Prüfe Quellcode, Lizenz, Abhängigkeiten und Installationsskripte vor der Ausführung.",
     copyCommunityInstallCommand: "Installationsbefehl kopieren",
     viewRepository: "Repository ansehen",
     tryCommunityDemo: "Demo testen",
+    customizeDescription: "Du kannst diesen Code vollständig anpassen.",
+    customizeOnline: "Online anpassen",
+    customizeLocally: "Lokal anpassen",
+    communityNew: "Neu",
+    communityComingSoon: "Demnächst",
+    communityGithubStars: "{{count}} GitHub-Sterne",
+    tryCommunityApp: "App testen",
+    viewCommunitySource: "Quellcode ansehen",
+    communityEyebrow: "Community-App",
+    communityScreenshots: "Screenshots",
+    previousScreenshot: "Vorheriger Screenshot",
+    nextScreenshot: "Nächster Screenshot",
+    communityNoScreenshots: "Screenshots erscheinen hier nach der Prüfung.",
+    communityScreenshotAlt: "{{name}} Screenshot {{index}}",
+    communityNoHostedVersion:
+      "Eine gehostete Version folgt bald. Verfolge die Entwicklung über den Quellcode.",
+    communitySubmissionTitle: "Community-App teilen",
+    communitySubmissionDescription:
+      "Zeige uns, wo deine App zu finden ist und was sie macht. Wir prüfen die Angaben vor der Veröffentlichung.",
+    communitySubmissionName: "App-Name",
+    communitySubmissionNamePlaceholder: "Kundensupport-Zentrale",
+    communitySubmissionUrl: "App-URL",
+    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionDescriptionLabel: "Beschreibung",
+    communitySubmissionDescriptionPlaceholder:
+      "Was macht die App und für wen ist sie gedacht?",
+    communitySubmissionRepository: "GitHub-Repository (optional)",
+    communitySubmissionRepositoryPlaceholder:
+      "https://github.com/owner/repository",
+    communitySubmissionScreenshots: "Screenshot-URLs (optional)",
+    communitySubmissionScreenshotsPlaceholder:
+      "Eine öffentliche Bild-URL pro Zeile",
+    communitySubmissionSubmit: "Weiter zu GitHub",
+    communitySubmissionReady:
+      "Dein GitHub-Issue-Entwurf ist bereit. Schließe die Einreichung dort ab.",
+    communitySubmissionOpenDraft: "Entwurf öffnen",
+    communitySubmissionValidation:
+      "Füge einen Namen, eine Beschreibung und eine gültige App-URL hinzu. Optionale URLs müssen ebenfalls gültig sein.",
   },
   buildFromScratch: {
     title: "Von Grund auf bauen",

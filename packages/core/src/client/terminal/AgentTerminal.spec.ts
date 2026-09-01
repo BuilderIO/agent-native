@@ -172,6 +172,56 @@ describe("AgentTerminal", () => {
     );
   });
 
+  it("disposes stale setup when the provider changes during discovery", async () => {
+    let resolveFirstResponse: ((response: Response) => void) | undefined;
+    let resolveSecondResponse: ((response: Response) => void) | undefined;
+    const firstResponse = new Promise<Response>((resolve) => {
+      resolveFirstResponse = resolve;
+    });
+    const secondResponse = new Promise<Response>((resolve) => {
+      resolveSecondResponse = resolve;
+    });
+    vi.mocked(fetch)
+      .mockImplementationOnce(() => firstResponse)
+      .mockImplementationOnce(() => secondResponse);
+
+    const terminalInfoResponse = () =>
+      ({
+        json: async () => ({ available: true, wsPort: 12345 }),
+      }) as Response;
+
+    renderTerminal({ command: "codex" });
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(fetch).toHaveBeenCalledOnce();
+        expect(terminals).toHaveLength(1);
+      });
+    });
+
+    renderTerminal({ command: "claude" });
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(fetch).toHaveBeenCalledTimes(2);
+        expect(terminals).toHaveLength(2);
+      });
+    });
+
+    resolveFirstResponse?.(terminalInfoResponse());
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(terminals[0]?.dispose).toHaveBeenCalledOnce(),
+      );
+    });
+    expect(MockWebSocket.instances).toHaveLength(0);
+
+    resolveSecondResponse?.(terminalInfoResponse());
+    await flushTimers();
+    await waitForSocketCount(1);
+
+    expect(MockWebSocket.instances[0].url).toContain("command=claude");
+    expect(terminals[1]?.dispose).not.toHaveBeenCalled();
+  });
+
   it("keeps host authentication when adding the CLI command", async () => {
     renderTerminal({
       wsUrl: "ws://127.0.0.1:12345/ws?token=desktop-secret",

@@ -4,6 +4,8 @@ import {
 } from "@agent-native/core/server/request-context";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { writeFactoryPollCursor } from "../server/lib/factory-poll-cursors.js";
+
 const getDbMock = vi.hoisted(() => vi.fn());
 const pollSlackChannelMock = vi.hoisted(() => vi.fn());
 const requireFactoryAutomationMock = vi.hoisted(() => vi.fn());
@@ -187,5 +189,51 @@ describe("poll-slack-channel action", () => {
       observed: 0,
       nextLastSlackTs: "11.0",
     });
+  });
+
+  it("advances the Slack history cursor after author-filtered pages", async () => {
+    readCallingFactoryAutomationMock.mockResolvedValue({
+      name: "factory-slack-feedback",
+      content: "",
+      config: {
+        source: "slack",
+        slackChannelId: "C123",
+        authorMode: "exclude",
+        authorIds: ["U123"],
+        inboxLimit: 25,
+      },
+    });
+    pollSlackChannelMock.mockResolvedValue({
+      envelopes: [
+        {
+          source: "slack",
+          externalId: "msg-1",
+          title: "skip me",
+          metadata: { authorId: "U123", messageTs: "11.0" },
+        },
+      ],
+      hasMore: false,
+      nextHistoryCursor: "page-2",
+      nextLastSlackTs: "11.0",
+    });
+
+    const { default: action } = await import("./poll-slack-channel.js");
+    await expect(
+      action.run(
+        { factoryId: "product-feedback" },
+        {
+          caller: "automation",
+          userEmail: "Owner@Example.com",
+          orgId: "org-1",
+        },
+      ),
+    ).resolves.toMatchObject({
+      ok: true,
+      nextHistoryCursor: "page-2",
+    });
+    expect(writeFactoryPollCursor).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ slackHistoryCursor: "page-2" }),
+    );
   });
 });

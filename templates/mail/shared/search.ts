@@ -5,6 +5,53 @@ function includesQuery(value: unknown, query: string): boolean {
   return typeof value === "string" && value.toLowerCase().includes(query);
 }
 
+const pacificDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Los_Angeles",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+function dateBoundary(raw: string): number | null {
+  if (/^\d+$/.test(raw)) return Number(raw) * 1000;
+  const parts = raw.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
+  if (!parts) return null;
+
+  const [year, month, day] = parts.slice(1).map(Number);
+  const utcDate = Date.UTC(year, month - 1, day);
+  const date = new Date(utcDate);
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  )
+    return null;
+
+  // 08:00 UTC is still in the requested Pacific calendar day in both PST
+  // and PDT, including the two DST transition dates.
+  const approximate = Date.UTC(year, month - 1, day, 8);
+  const localParts = Object.fromEntries(
+    pacificDateFormatter
+      .formatToParts(new Date(approximate))
+      .filter(({ type }) => type !== "literal")
+      .map(({ type, value }) => [type, Number(value)]),
+  );
+  const localAsUtc = Date.UTC(
+    localParts.year,
+    localParts.month - 1,
+    localParts.day,
+    localParts.hour,
+    localParts.minute,
+    localParts.second,
+  );
+  const offset = localAsUtc - approximate;
+  return utcDate - offset;
+}
+
 function addressListMatches(
   addresses: EmailMessage["to"] | undefined,
   query: string,
@@ -23,7 +70,14 @@ type SearchOperator =
   | "subject"
   | "label"
   | "in"
-  | "is";
+  | "is"
+  | "category"
+  | "has"
+  | "filename"
+  | "after"
+  | "before"
+  | "newer"
+  | "older";
 
 type ParsedSearch = {
   operators: Array<{
@@ -34,6 +88,11 @@ type ParsedSearch = {
   terms: string[];
   excludedTerms: string[];
 };
+
+/** Attachment operators need Gmail's MIME parts, which metadata responses omit. */
+export function searchQueryNeedsAttachmentMetadata(query: string): boolean {
+  return /(?:^|[\s({])-?(?:has|filename):/i.test(query);
+}
 
 function splitSearchOr(query: string): string[] | undefined {
   const clauses: string[] = [];
@@ -164,7 +223,7 @@ function expandSearchDisjunction(query: string): string[] | undefined {
 function parseSearch(query: string): ParsedSearch {
   const operators: ParsedSearch["operators"] = [];
   const operatorPattern =
-    /(^|[\s({])(-?)(from|to|cc|bcc|subject|label|in|is):\s*(?:"([^"]+)"|(\S+))/gi;
+    /(^|[\s({])(-?)(from|to|cc|bcc|subject|label|in|is|category|has|filename|after|before|newer|older):\s*(?:"([^"]+)"|(\S+))/gi;
   const residual = query.replace(
     operatorPattern,
     (
@@ -216,6 +275,8 @@ function operatorMatches(
     | "isTrashed"
     | "isDraft"
     | "isSent"
+    | "date"
+    | "attachments"
   >,
   field: SearchOperator,
   value: string,
@@ -273,6 +334,27 @@ function operatorMatches(
         default:
           return false;
       }
+    case "category":
+      return mailLabelsInclude(
+        email.labelIds,
+        value === "primary" ? "personal" : value,
+      );
+    case "has":
+      return value === "attachment" && (email.attachments?.length ?? 0) > 0;
+    case "filename":
+      return (email.attachments ?? []).some((attachment) =>
+        includesQuery(attachment.filename, value),
+      );
+    case "after":
+    case "newer": {
+      const boundary = dateBoundary(value);
+      return boundary !== null && new Date(email.date).getTime() > boundary;
+    }
+    case "before":
+    case "older": {
+      const boundary = dateBoundary(value);
+      return boundary !== null && new Date(email.date).getTime() < boundary;
+    }
   }
 }
 
@@ -293,6 +375,8 @@ function matchesSimpleSearch(
     | "isTrashed"
     | "isDraft"
     | "isSent"
+    | "date"
+    | "attachments"
   >,
   query: string,
 ): boolean {
@@ -343,6 +427,8 @@ export function emailMessageMatchesSearch(
     | "isTrashed"
     | "isDraft"
     | "isSent"
+    | "date"
+    | "attachments"
   >,
   query: string,
 ): boolean {

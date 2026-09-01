@@ -166,17 +166,17 @@
     background: transparent;
   }
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background: hsl(var(--border));
+    background: hsl(var(--muted-foreground) / 0.22);
     border-radius: 3px;
   }
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground));
+    background: hsl(var(--muted-foreground) / 0.34);
   }
   .scrollbar-dark::-webkit-scrollbar-thumb {
-    background: hsl(var(--sidebar-border));
+    background: hsl(var(--sidebar-border) / 0.22);
   }
   .scrollbar-dark::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--sidebar-muted));
+    background: hsl(var(--sidebar-muted) / 0.34);
   }
 }
 

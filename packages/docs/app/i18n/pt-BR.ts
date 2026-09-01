@@ -536,21 +536,60 @@ const ptBR = {
     title: "Aplicativos de código aberto e nativos do agente que você possui",
     eyebrow: "Comece com uma app funcional e deixe o agente evoluí-la.",
     body: "Você pode personalizar tudo.",
+    firstPartyTitle: "Criados pelo Agent-Native",
     community:
       "Quer uma app em branco? Comece do zero com o guia do framework.",
     createYourOwn: "Começar do zero",
-    communityTitle: "Modelos da comunidade",
+    communityTitle: "Aplicativos da comunidade",
     communityDescription:
-      "Aplicativos independentes mantidos por seus autores. Instale a partir de um repositório público do GitHub ou experimente uma versão hospedada quando disponível.",
-    submitCommunityTemplate: "Enviar seu modelo",
+      "Descubra aplicativos mantidos por seus autores. Experimente uma versão hospedada quando disponível ou veja o código-fonte e personalize por conta própria.",
+    submitCommunityTemplate: "Abrir formulário do GitHub",
     communityEmpty:
-      "As inscrições da comunidade estão abertas. Publique um aplicativo Agent-Native focado em um repositório público e envie-o para o catálogo.",
+      "As inscrições da comunidade estão abertas. Publique um aplicativo Agent-Native focado e envie-o para o catálogo.",
     publishGuide: "Ler o guia de publicação",
     communityTrust:
-      "Modelos da comunidade são código de terceiros. Revise o repositório, a licença, as dependências e os scripts de instalação antes de executá-lo.",
+      "Aplicativos da comunidade são código de terceiros. Revise o código-fonte, a licença, as dependências e os scripts de instalação antes de executá-los.",
     copyCommunityInstallCommand: "Copiar comando de instalação",
     viewRepository: "Ver repositório",
     tryCommunityDemo: "Experimentar demo",
+    customizeDescription: "Você pode personalizar completamente este código.",
+    customizeOnline: "Personalizar online",
+    customizeLocally: "Personalizar localmente",
+    communityNew: "Novo",
+    communityComingSoon: "Em breve",
+    communityGithubStars: "{{count}} estrelas no GitHub",
+    tryCommunityApp: "Experimentar aplicativo",
+    viewCommunitySource: "Ver código-fonte",
+    communityEyebrow: "Aplicativo da comunidade",
+    communityScreenshots: "Capturas de tela",
+    previousScreenshot: "Captura anterior",
+    nextScreenshot: "Próxima captura",
+    communityNoScreenshots: "As capturas aparecerão aqui após a revisão.",
+    communityScreenshotAlt: "Captura {{index}} de {{name}}",
+    communityNoHostedVersion:
+      "Uma versão hospedada estará disponível em breve. Acompanhe o desenvolvimento pelo código-fonte.",
+    communitySubmissionTitle: "Compartilhe um aplicativo da comunidade",
+    communitySubmissionDescription:
+      "Conte onde encontrar seu aplicativo e o que ele faz. Revisaremos os detalhes antes de publicar a listagem.",
+    communitySubmissionName: "Nome do aplicativo",
+    communitySubmissionNamePlaceholder: "Central de suporte ao cliente",
+    communitySubmissionUrl: "URL do aplicativo",
+    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionDescriptionLabel: "Descrição",
+    communitySubmissionDescriptionPlaceholder:
+      "O que o aplicativo faz e para quem ele é?",
+    communitySubmissionRepository: "Repositório do GitHub (opcional)",
+    communitySubmissionRepositoryPlaceholder:
+      "https://github.com/owner/repository",
+    communitySubmissionScreenshots: "URLs das capturas (opcional)",
+    communitySubmissionScreenshotsPlaceholder:
+      "Uma URL de imagem pública por linha",
+    communitySubmissionSubmit: "Continuar para o GitHub",
+    communitySubmissionReady:
+      "O rascunho da sua issue no GitHub está pronto. Conclua o envio lá.",
+    communitySubmissionOpenDraft: "Abrir rascunho",
+    communitySubmissionValidation:
+      "Adicione um nome, uma descrição e uma URL de aplicativo válida. As URLs opcionais também precisam ser válidas.",
   },
   buildFromScratch: {
     title: "Criar do zero",

@@ -41,6 +41,7 @@ import {
   putRecordingBackupChunk,
   putRecordingBackupMeta,
 } from "@/lib/recording-backup";
+import { uploadChunkRequest } from "@/lib/upload-request";
 
 // Re-exported for existing callers; the canonical impls live in
 // @shared/recording-core and are shared with the Chrome extension recorder.
@@ -2212,12 +2213,9 @@ export class RecorderEngine {
         extra.isFinal ? FINAL_CHUNK_UPLOAD_TIMEOUT_MS : CHUNK_UPLOAD_TIMEOUT_MS,
       );
       try {
-        res = await fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type":
-              blob.type || this.mimeType || "application/octet-stream",
-          },
+        res = await uploadChunkRequest({
+          url,
+          contentType: blob.type || this.mimeType || "application/octet-stream",
           body,
           signal: fetchSignal.signal,
         });
