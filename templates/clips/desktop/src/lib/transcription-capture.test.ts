@@ -161,6 +161,43 @@ describe("local recording transcription", () => {
     expect(timeline.current()).toBe(1_250);
   });
 
+  it("freezes the timeline before native pause shutdown latency", async () => {
+    let now = 1_000;
+    let finishPause!: () => void;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    transcriptionEngineMocks.onFinalTranscript.mockResolvedValue(() => {});
+    transcriptionEngineMocks.startTranscriptionEngine.mockResolvedValue(
+      "whisper",
+    );
+    transcriptionEngineMocks.stopTranscriptionEngine
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishPause = resolve;
+          }),
+      )
+      .mockResolvedValue(undefined);
+    transcriptionEngineMocks.resetTranscriptionTimeline.mockResolvedValue(
+      undefined,
+    );
+
+    const capture = await startTranscriptionCapture();
+    expect(capture).not.toBeNull();
+
+    now = 6_000;
+    const pause = capture?.pause();
+    now = 16_000;
+    finishPause();
+    await pause;
+    now = 26_000;
+    await capture?.resume();
+
+    expect(
+      transcriptionEngineMocks.resetTranscriptionTimeline,
+    ).toHaveBeenLastCalledWith("whisper", 5_000);
+    await capture?.cancel();
+  });
+
   it("keeps the timeline live when the native pause fails", async () => {
     let now = 1_000;
     vi.spyOn(Date, "now").mockImplementation(() => now);

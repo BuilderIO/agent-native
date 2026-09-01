@@ -45,9 +45,9 @@ function createActiveTimeline(now: () => number = Date.now) {
 
   return {
     current,
-    pause() {
+    pause(elapsedAtPauseMs: number = current()) {
       if (!running) return;
-      elapsedMs = current();
+      elapsedMs = elapsedAtPauseMs;
       running = false;
     },
     resume() {
@@ -466,8 +466,9 @@ export async function startTranscriptionCapture(
     transitioning = true;
     try {
       if (desiredPaused) {
+        const pauseBoundaryMs = timeline.current();
         await stopTranscriptionEngine(engine);
-        timeline.pause();
+        timeline.pause(pauseBoundaryMs);
         paused = true;
         pauseFinalsSettleUntil = Date.now() + WHISPER_STOP_SETTLE_MS;
         console.log(`[clips-recorder] transcription paused (${engine})`);
