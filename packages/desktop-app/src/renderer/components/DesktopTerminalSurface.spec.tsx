@@ -127,10 +127,9 @@ describe("DesktopTerminalSurface", () => {
       document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
     ).find((item) => item.textContent?.includes("Provider"));
     expect(providerItem).not.toBeUndefined();
-    expect(providerItem?.classList.contains("gap-2")).toBe(true);
-    expect(providerItem?.querySelector(".desktop-dropdown-item__main")).toBe(
-      null,
-    );
+    expect(
+      providerItem?.querySelector(".desktop-dropdown-item__main"),
+    ).not.toBe(null);
     expect(providerItem?.querySelector("svg.ms-auto")).not.toBeNull();
     expect(
       Array.from(

@@ -5,6 +5,7 @@ import {
 import { IconLoader2, IconTerminal2 } from "@tabler/icons-react";
 import { useEffect, useState, type CSSProperties } from "react";
 
+import type { DesktopTerminalContext } from "../../../shared/ipc-channels.js";
 import {
   DESKTOP_TERMINAL_AGENT_OPTIONS,
   type DesktopTerminalAgentId,
@@ -15,6 +16,12 @@ interface DesktopTerminalTabsProps {
   agent: DesktopTerminalAgentId;
   theme: RendererTheme;
   className?: string;
+  activeApp?: {
+    id: string;
+    name: string;
+    path?: string;
+    view?: string;
+  };
   submitRequest?: AgentTerminalSubmitRequest;
   onPromptSubmitted?: (request: AgentTerminalSubmitRequest) => void;
 }
@@ -105,6 +112,7 @@ export default function DesktopTerminalTabs({
   agent,
   theme,
   className,
+  activeApp,
   submitRequest,
   onPromptSubmitted,
 }: DesktopTerminalTabsProps) {
@@ -137,8 +145,16 @@ export default function DesktopTerminalTabs({
 
   useEffect(() => {
     let cancelled = false;
+    const context: DesktopTerminalContext | null = activeApp
+      ? {
+          appId: activeApp.id,
+          ...(activeApp.path ? { path: activeApp.path } : {}),
+          ...(activeApp.view ? { view: activeApp.view } : {}),
+        }
+      : null;
     const getTerminalInfoUrl = window.electronAPI?.desktopChat
-      ? () => window.electronAPI!.desktopChat!.getTerminalInfoUrl()
+      ? (value: DesktopTerminalContext | null) =>
+          window.electronAPI!.desktopChat!.getTerminalInfoUrl(value)
       : undefined;
     if (!getTerminalInfoUrl) {
       setConnection({
@@ -151,7 +167,7 @@ export default function DesktopTerminalTabs({
     }
 
     setConnection({ state: "loading" });
-    void getTerminalInfoUrl()
+    void getTerminalInfoUrl(context)
       .then(async (infoUrl) => {
         if (cancelled) return;
         if (!infoUrl) {
@@ -195,7 +211,7 @@ export default function DesktopTerminalTabs({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [activeApp?.id, activeApp?.path, activeApp?.view]);
 
   const workbenchStyle = {
     "--desktop-terminal-background": terminalBackground,
@@ -225,6 +241,7 @@ export default function DesktopTerminalTabs({
           </div>
         ) : (
           <AgentTerminal
+            key={`${activeApp?.id ?? "chat"}:${activeApp?.path ?? ""}:${activeApp?.view ?? ""}`}
             command={selectedAgent.command}
             wsUrl={connection.wsUrl}
             hideInFrame={false}
