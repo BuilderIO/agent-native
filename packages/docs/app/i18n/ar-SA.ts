@@ -571,7 +571,7 @@ const arSA = {
     communitySubmissionName: "اسم التطبيق",
     communitySubmissionNamePlaceholder: "مركز دعم العملاء",
     communitySubmissionUrl: "رابط التطبيق",
-    communitySubmissionUrlPlaceholder: "example.com أو https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "الوصف",
     communitySubmissionDescriptionPlaceholder:
       "ماذا يفعل التطبيق ولمن هو مخصص؟",
@@ -587,8 +587,15 @@ const arSA = {
     communitySubmissionScreenshotRemove: "إزالة لقطة الشاشة {{index}}",
     communitySubmissionSubmit: "إرسال التطبيق",
     communitySubmissionReady: "شكرًا. سنراجع تطبيقك قبل نشره.",
-    communitySubmissionValidation:
-      "أضف اسمًا ووصفًا، ثم أدخل رابط التطبيق مثل example.com. سنضيف https:// نيابةً عنك. إذا أضفت مستودعًا، فاستخدم رابطًا من github.com. ارفع صور PNG أو JPG أو WebP بحد أقصى 1.5 ميجابايت لكل صورة.",
+    communitySubmissionNameError: "أدخل اسم التطبيق.",
+    communitySubmissionDescriptionError: "أضف وصفًا موجزًا.",
+    communitySubmissionUrlError: "أدخل رابط تطبيق صالحًا، مثل example.com.",
+    communitySubmissionRepositoryError: "أدخل رابط مستودع GitHub.",
+    communitySubmissionScreenshotsError:
+      "استخدم صور PNG أو JPG أو WebP بحد أقصى 1.5 ميجابايت لكل صورة، وبحد أقصى 5 صور.",
+    communitySubmissionSubmitError:
+      "تعذر الإرسال الآن. تحقق من الحقول المميزة وحاول مرة أخرى.",
+    communitySubmissionSubmitting: "جارٍ الإرسال…",
   },
   buildFromScratch: {
     title: "ابنِ من الصفر",

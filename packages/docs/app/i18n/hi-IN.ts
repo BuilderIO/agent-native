@@ -571,7 +571,7 @@ const hiIN = {
     communitySubmissionName: "ऐप का नाम",
     communitySubmissionNamePlaceholder: "कस्टमर सपोर्ट हब",
     communitySubmissionUrl: "ऐप URL",
-    communitySubmissionUrlPlaceholder: "example.com या https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "विवरण",
     communitySubmissionDescriptionPlaceholder:
       "ऐप क्या करता है और यह किसके लिए है?",
@@ -587,8 +587,15 @@ const hiIN = {
     communitySubmissionSubmit: "ऐप सबमिट करें",
     communitySubmissionReady:
       "धन्यवाद। प्रकाशित करने से पहले हम आपके ऐप की समीक्षा करेंगे।",
-    communitySubmissionValidation:
-      "नाम और विवरण जोड़ें, फिर example.com जैसा ऐप लिंक डालें। हम आपके लिए https:// जोड़ देंगे। रिपॉज़िटरी जोड़ने पर github.com का लिंक इस्तेमाल करें। PNG, JPG या WebP इमेज अपलोड करें, प्रत्येक 1.5 MB तक।",
+    communitySubmissionNameError: "ऐप का नाम दर्ज करें।",
+    communitySubmissionDescriptionError: "छोटा विवरण जोड़ें।",
+    communitySubmissionUrlError: "मान्य ऐप लिंक दर्ज करें, जैसे example.com।",
+    communitySubmissionRepositoryError: "GitHub रिपॉज़िटरी लिंक दर्ज करें।",
+    communitySubmissionScreenshotsError:
+      "PNG, JPG या WebP इमेज इस्तेमाल करें, प्रत्येक 1.5 MB तक और अधिकतम 5 इमेज।",
+    communitySubmissionSubmitError:
+      "अभी सबमिट नहीं हो सका। चिह्नित फ़ील्ड जाँचकर फिर कोशिश करें।",
+    communitySubmissionSubmitting: "सबमिट हो रहा है…",
   },
   buildFromScratch: {
     title: "शुरू से बनाएँ",

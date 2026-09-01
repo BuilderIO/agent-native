@@ -573,7 +573,7 @@ const ptBR = {
     communitySubmissionName: "Nome do aplicativo",
     communitySubmissionNamePlaceholder: "Central de suporte ao cliente",
     communitySubmissionUrl: "URL do aplicativo",
-    communitySubmissionUrlPlaceholder: "example.com ou https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "Descrição",
     communitySubmissionDescriptionPlaceholder:
       "O que o aplicativo faz e para quem ele é?",
@@ -590,8 +590,16 @@ const ptBR = {
     communitySubmissionSubmit: "Enviar aplicativo",
     communitySubmissionReady:
       "Obrigado. Vamos revisar seu aplicativo antes de publicá-lo.",
-    communitySubmissionValidation:
-      "Adicione um nome e uma descrição e insira um link do app, como example.com. Nós adicionaremos https:// para você. Se adicionar um repositório, use um link do github.com. Envie imagens PNG, JPG ou WebP de até 1,5 MB cada.",
+    communitySubmissionNameError: "Insira um nome para o aplicativo.",
+    communitySubmissionDescriptionError: "Adicione uma descrição curta.",
+    communitySubmissionUrlError: "Insira um link válido, como example.com.",
+    communitySubmissionRepositoryError:
+      "Insira um link de repositório do GitHub.",
+    communitySubmissionScreenshotsError:
+      "Use imagens PNG, JPG ou WebP de até 1,5 MB cada, com no máximo 5 imagens.",
+    communitySubmissionSubmitError:
+      "Não foi possível enviar agora. Verifique os campos destacados e tente novamente.",
+    communitySubmissionSubmitting: "Enviando…",
   },
   buildFromScratch: {
     title: "Criar do zero",

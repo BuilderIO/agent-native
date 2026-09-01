@@ -562,7 +562,7 @@ const messages = {
     communitySubmissionName: "應用程式名稱",
     communitySubmissionNamePlaceholder: "客戶支援中心",
     communitySubmissionUrl: "應用程式 URL",
-    communitySubmissionUrlPlaceholder: "example.com 或 https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "描述",
     communitySubmissionDescriptionPlaceholder: "應用程式做什麼，適合哪些人？",
     communitySubmissionRepository: "GitHub 儲存庫（選填）",
@@ -577,8 +577,15 @@ const messages = {
     communitySubmissionScreenshotRemove: "移除螢幕截圖 {{index}}",
     communitySubmissionSubmit: "提交應用程式",
     communitySubmissionReady: "謝謝。我們會在刊登前審核你的應用程式。",
-    communitySubmissionValidation:
-      "請填寫名稱和描述，然後輸入類似 example.com 的應用程式連結。我們會自動為你加上 https://。如果新增儲存庫，請使用 github.com 連結。請上傳 PNG、JPG 或 WebP 圖片，每張不超過 1.5 MB。",
+    communitySubmissionNameError: "請輸入應用程式名稱。",
+    communitySubmissionDescriptionError: "請新增簡短描述。",
+    communitySubmissionUrlError: "請輸入有效的應用程式連結，例如 example.com。",
+    communitySubmissionRepositoryError: "請輸入 GitHub 儲存庫連結。",
+    communitySubmissionScreenshotsError:
+      "請使用 PNG、JPG 或 WebP 圖片，每張不超過 1.5 MB，最多上傳 5 張。",
+    communitySubmissionSubmitError:
+      "目前無法提交。請檢查標記的欄位後再試一次。",
+    communitySubmissionSubmitting: "提交中…",
   },
   buildFromScratch: {
     title: "從零開始建置",
