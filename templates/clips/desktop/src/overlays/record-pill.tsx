@@ -322,7 +322,7 @@ export function RecordingPill() {
       // them separately makes a right-docked confirmation collapse against
       // its old left edge before the small pill moves back to the right.
       await invoke("toolbar_set_bounds", { x, y, width: w, height: h });
-      if (dockToPersist) {
+      if (dockToPersist && pendingNativeDockRef.current === dockToPersist) {
         pendingNativeDockRef.current = null;
         await safeInvoke("toolbar_save_position", {
           x,

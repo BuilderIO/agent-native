@@ -456,6 +456,7 @@ describe("the recording playhead has a shared visual source", () => {
     expect(source).not.toContain("playheadSlotRef");
     expect(source).toContain("settleNativePlayheadDock");
     expect(source).toContain('safeInvoke("toolbar_save_position"');
+    expect(source).toContain("pendingNativeDockRef.current === dockToPersist");
     expect(source).toContain("Date.now() < animatingUntilRef.current");
   });
 
