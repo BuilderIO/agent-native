@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
+  callAction,
   getBrowserTabId,
   readClientAppState,
   useActionMutation,
@@ -43,7 +44,7 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
@@ -114,7 +115,7 @@ import type {
   ImageQualityTier,
   StyleStrength,
 } from "../../shared/api";
-import { MODEL_ASPECT_RATIOS } from "../../shared/api";
+import { MODEL_ASPECT_RATIOS, type AssetAccessRole } from "../../shared/api";
 import {
   DEFAULT_LIBRARY_PRESETS,
   LibraryPreset,
@@ -193,6 +194,7 @@ type Library = {
   id: string;
   title: string;
   description?: string | null;
+  accessRole?: AssetAccessRole;
 };
 
 type GenerationConfig = {
@@ -1997,6 +1999,40 @@ function LibraryCandidateStage({
         .sort((left, right) => String(right.id).localeCompare(String(left.id))),
     [libraryAssets, liveAssetIds],
   );
+  // Approving is per kit: this stage can show candidates from several kits at
+  // once, and the caller may be an editor in one and a viewer in the next. Ask
+  // once per kit on screen rather than assuming, or showing a Save that 403s.
+  const stageLibraryIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (activeLibraryId) ids.add(activeLibraryId);
+    if (liveLibraryId) ids.add(liveLibraryId);
+    for (const asset of draftAssets) {
+      if (asset.libraryId) ids.add(asset.libraryId);
+    }
+    return Array.from(ids);
+  }, [activeLibraryId, liveLibraryId, draftAssets]);
+  const libraryAccessResults = useQueries({
+    queries: stageLibraryIds.map((id) => ({
+      queryKey: ["action", "get-library-access", { libraryId: id }],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        callAction<{ libraryId: string; canApprove: boolean }>(
+          "get-library-access",
+          { libraryId: id } as never,
+          { method: "GET", signal },
+        ),
+    })),
+  });
+  const approvableLibraryIds = useMemo(() => {
+    const approvable = new Set<string>();
+    for (const result of libraryAccessResults) {
+      if (result.data?.canApprove) approvable.add(result.data.libraryId);
+    }
+    return approvable;
+  }, [libraryAccessResults]);
+  const canApproveLibrary = useCallback(
+    (id?: string | null) => Boolean(id && approvableLibraryIds.has(id)),
+    [approvableLibraryIds],
+  );
   const totalCount = slots.length + draftAssets.length;
   // Don't flash the empty state before the candidate sources have resolved, and
   // don't misreport a load failure as "no drafts".
@@ -2195,6 +2231,7 @@ function LibraryCandidateStage({
         foldersByLibraryId={foldersByLibraryId}
         savingSlotId={savingCandidateSlotId}
         promotingReferenceKeys={promotingReferenceKeys}
+        canApproveLibrary={canApproveLibrary}
         onSave={(slot, folderId) => {
           void handleSaveLiveCandidate(slot, folderId);
         }}
