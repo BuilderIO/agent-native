@@ -72,6 +72,7 @@ async function capture(
   page: Page,
   label: string,
   consoleErrors: string[],
+  networkEvents: string[],
 ): Promise<JourneyStep> {
   const domDiagnostics = await page
     .evaluate(() => {
@@ -143,6 +144,7 @@ async function capture(
     visibleText,
     screenshot: await page.screenshot({ fullPage: false }),
     consoleErrors: [...consoleErrors],
+    networkEvents: [...networkEvents],
   };
 }
 
@@ -161,6 +163,43 @@ for (const target of targets) {
   }) => {
     test.setTimeout(420_000);
     const { errors } = collectAppPageErrors(page, target.origin);
+    const networkEvents: string[] = [];
+    const pendingRequests = new Map<string, number>();
+    const isDiagnosticRequest = (url: string): boolean => {
+      try {
+        const parsed = new URL(url);
+        return (
+          parsed.origin === target.origin &&
+          (parsed.pathname.startsWith("/_agent-native/onboarding/") ||
+            parsed.pathname === "/ask" ||
+            parsed.pathname === "/home")
+        );
+      } catch {
+        return false;
+      }
+    };
+    page.on("request", (request) => {
+      if (isDiagnosticRequest(request.url())) {
+        pendingRequests.set(request.url(), Date.now());
+      }
+    });
+    page.on("response", (response) => {
+      if (!isDiagnosticRequest(response.url())) return;
+      const startedAt = pendingRequests.get(response.url());
+      pendingRequests.delete(response.url());
+      const elapsed =
+        startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
+      networkEvents.push(
+        `${response.status()} ${new URL(response.url()).pathname} ${elapsed}`,
+      );
+    });
+    page.on("requestfailed", (request) => {
+      if (!isDiagnosticRequest(request.url())) return;
+      pendingRequests.delete(request.url());
+      networkEvents.push(
+        `FAILED ${new URL(request.url()).pathname} ${request.failure()?.errorText ?? "unknown"}`,
+      );
+    });
     const steps: JourneyStep[] = [];
     const email = createQaEmail(target.app, target.environment);
     const emailRequestedAt = Date.now() - 5_000;
@@ -170,7 +209,7 @@ for (const target of targets) {
         waitUntil: "domcontentloaded",
       });
       await renderedText(page, `${target.origin}/sign-in`);
-      steps.push(await capture(page, "sign-in page", errors));
+      steps.push(await capture(page, "sign-in page", errors, networkEvents));
     });
 
     await test.step("request a sign-in link", async () => {
@@ -187,20 +226,29 @@ for (const target of targets) {
       // Give the app the moment a real user would give it before judging
       // whether the submit visibly did anything.
       await page.waitForTimeout(4_000);
-      steps.push(await capture(page, "after requesting the link", errors));
+      steps.push(
+        await capture(page, "after requesting the link", errors, networkEvents),
+      );
       const message = await emailPromise;
       const link = verificationLinkFor(message, target.origin);
       await page.goto(link, { waitUntil: "domcontentloaded" });
       await waitForReviewSurface(page);
       steps.push(
-        await capture(page, "after following the emailed link", errors),
+        await capture(
+          page,
+          "after following the emailed link",
+          errors,
+          networkEvents,
+        ),
       );
     });
 
     await test.step("reload the way a stuck user would", async () => {
       await page.reload({ waitUntil: "domcontentloaded" });
       await waitForReviewSurface(page);
-      steps.push(await capture(page, "after a browser reload", errors));
+      steps.push(
+        await capture(page, "after a browser reload", errors, networkEvents),
+      );
     });
 
     // A review that could not run is not a clean review: let this throw and

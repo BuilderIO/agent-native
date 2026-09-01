@@ -17,6 +17,7 @@ function step(): JourneyStep {
     visibleText: "Sign in",
     screenshot: Buffer.from("not-a-real-png"),
     consoleErrors: [],
+    networkEvents: [],
   };
 }
 

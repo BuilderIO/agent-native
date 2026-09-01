@@ -8,6 +8,7 @@ export interface JourneyStep {
   visibleText: string;
   screenshot: Buffer;
   consoleErrors: string[];
+  networkEvents: string[];
 }
 
 export type FindingSeverity = "high" | "medium" | "low";
@@ -134,6 +135,9 @@ export async function reviewSignupJourney(
         step.consoleErrors.length > 0
           ? `console errors: ${step.consoleErrors.slice(0, 5).join(" | ")}`
           : "console errors: none",
+        step.networkEvents.length > 0
+          ? `network events: ${step.networkEvents.slice(-30).join(" | ")}`
+          : "network events: none",
         `visible text:\n${step.visibleText.slice(0, MAX_TEXT_PER_STEP)}`,
       ].join("\n"),
     });
