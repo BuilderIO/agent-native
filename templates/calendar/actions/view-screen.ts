@@ -32,6 +32,7 @@ function isCalendarViewMode(value: unknown): value is CalendarViewMode {
 async function fetchEventsForRange(
   from: string,
   to: string,
+  timezone: string,
 ): Promise<{
   events: CalendarEvent[];
   errors: Array<{ email: string; error: string }>;
@@ -39,7 +40,7 @@ async function fetchEventsForRange(
   range: { from: string; to: string; timezone: string; defaulted: boolean };
 }> {
   try {
-    return await listCalendarEvents({ from, to });
+    return await listCalendarEvents({ from, to, timezone });
   } catch (error: any) {
     return {
       events: [],
@@ -53,7 +54,7 @@ async function fetchEventsForRange(
       range: {
         from,
         to,
-        timezone: "UTC",
+        timezone,
         defaulted: false,
       },
     };
@@ -96,7 +97,11 @@ export default defineAction({
         getWeekStartsOn(settings.weekStart),
       );
 
-      const eventResult = await fetchEventsForRange(range.from, range.to);
+      const eventResult = await fetchEventsForRange(
+        range.from,
+        range.to,
+        timezone,
+      );
       const { events } = eventResult;
 
       const compact = events.slice(0, 50).map((e: CalendarEvent) => {
