@@ -47,14 +47,7 @@ export async function subscribeAutoStop(
   onStop: (reason: AutoStopReason) => void,
 ): Promise<UnlistenFn> {
   const unlisteners: UnlistenFn[] = [];
-  unlisteners.push(
-    await listen("meetings:silence-stop", () => onStop("silence")),
-  );
-  unlisteners.push(await listen("meetings:sleep-stop", () => onStop("sleep")));
-  unlisteners.push(
-    await listen("meetings:call-ended", () => onStop("call-ended")),
-  );
-  return () => {
+  const unlistenAll = () => {
     for (const u of unlisteners) {
       try {
         u();
@@ -63,6 +56,21 @@ export async function subscribeAutoStop(
       }
     }
   };
+  try {
+    unlisteners.push(
+      await listen("meetings:silence-stop", () => onStop("silence")),
+    );
+    unlisteners.push(
+      await listen("meetings:sleep-stop", () => onStop("sleep")),
+    );
+    unlisteners.push(
+      await listen("meetings:call-ended", () => onStop("call-ended")),
+    );
+    return unlistenAll;
+  } catch (error) {
+    unlistenAll();
+    throw error;
+  }
 }
 
 /**

@@ -88,6 +88,18 @@ interface Props {
   selectedMicLabel: string | null;
 }
 
+const MEETING_START_CANCELLED = Symbol("meeting-start-cancelled");
+
+function unlistenAll(unlisteners: Array<() => void>): void {
+  for (const unlisten of unlisteners) {
+    try {
+      unlisten();
+    } catch {
+      continue;
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -198,13 +210,7 @@ export function useMeetingTranscription({
         } catch (err) {
           console.warn("[clips-popover] meeting audio stop failed:", err);
         }
-        session.unlisten.splice(0).forEach((unlisten) => {
-          try {
-            unlisten();
-          } catch {
-            // ignore
-          }
-        });
+        unlistenAll(session.unlisten.splice(0));
         await invoke("silence_detector_stop").catch(() => {});
         await stopMeetingBeforeTranscriptFlush({
           // Stamp actualEnd as soon as capture is torn down. Transcript
@@ -479,10 +485,9 @@ export function useMeetingTranscription({
           autoStopUnlisten();
           // Route stale startup through the existing cleanup path so a
           // replacement cannot leave a microphone or server row behind.
-          throw new Error("Meeting start cancelled.");
-        } else {
-          session.unlisten.push(autoStopUnlisten);
+          throw MEETING_START_CANCELLED;
         }
+        session.unlisten.push(autoStopUnlisten);
 
         // Creating the row and starting the audio engine need nothing from each
         // other — only the flush needs a recording id. Kicking the engine here
@@ -854,6 +859,10 @@ export function useMeetingTranscription({
 
         emit("meetings:hide-notification", { meetingId }).catch(() => {});
       } catch (err) {
+        if (startedSession) {
+          startedSession.stopping = true;
+          unlistenAll(startedSession.unlisten.splice(0));
+        }
         // The engine can be live even though the start failed: it runs in
         // parallel with the row creation, and startup continues for a while
         // after it comes up. Leaving it would hold the microphone for a session
@@ -902,12 +911,14 @@ export function useMeetingTranscription({
             meetingId: startedSession.meetingId,
           }).catch(() => {});
         }
-        const message =
-          err instanceof Error ? err.message : "Could not start notes.";
-        emit("meetings:transcription-error", {
-          meetingId,
-          error: message,
-        }).catch(() => {});
+        if (err !== MEETING_START_CANCELLED) {
+          const message =
+            err instanceof Error ? err.message : "Could not start notes.";
+          emit("meetings:transcription-error", {
+            meetingId,
+            error: message,
+          }).catch(() => {});
+        }
       }
     },
     [

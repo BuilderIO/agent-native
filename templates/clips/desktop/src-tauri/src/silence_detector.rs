@@ -425,6 +425,12 @@ fn install_call_ended_watcher(app: &AppHandle) {
                     Some(false) if call_app_used_microphone => {
                         microphone_released_at.get_or_insert_with(Instant::now);
                     }
+                    None => {
+                        // CoreAudio could not confirm the provider state, so
+                        // a release window must start over on the next known
+                        // false result.
+                        microphone_released_at = None;
+                    }
                     _ => {}
                 }
 
