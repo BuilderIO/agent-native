@@ -100,6 +100,9 @@ export function desktopTerminalMcpArgs(
       })}`,
     ];
   }
+  if (command === "builder") {
+    return ["code"];
+  }
   return [];
 }
 
