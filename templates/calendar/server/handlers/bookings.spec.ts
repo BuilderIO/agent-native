@@ -8,6 +8,7 @@ import {
   parseBookingAvailabilityDraft,
   resolveBookingLinkAvailabilityOverrides,
   resolveBookingCalendarAccount,
+  deleteGoogleEventForBooking,
 } from "./bookings";
 
 vi.mock("../lib/google-calendar.js", () => ({
@@ -16,6 +17,7 @@ vi.mock("../lib/google-calendar.js", () => ({
   getOwnedAccountEmails: vi.fn(),
   isConnected: vi.fn(),
   listEvents: vi.fn(),
+  deleteEvent: vi.fn(),
 }));
 
 function availabilityConfig(): AvailabilityConfig {
@@ -495,6 +497,35 @@ describe("booking calendar account provenance", () => {
 
     expect(googleCalendar.getDefaultAccountSelection).toHaveBeenCalledWith(
       "alice@example.com",
+    );
+  });
+});
+
+describe("booking cancellation provider notifications", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("sends Google cancellation updates to every booking attendee", async () => {
+    vi.mocked(googleCalendar.deleteEvent).mockResolvedValue();
+
+    await deleteGoogleEventForBooking({
+      booking: {
+        id: "booking-1",
+        slug: "alice-meeting",
+        googleEventId: "event-1",
+        ownerEmail: "alice@example.com",
+        calendarAccountId: "primary@example.com",
+      },
+    });
+
+    expect(googleCalendar.deleteEvent).toHaveBeenCalledWith(
+      "event-1",
+      {
+        ownerEmail: "alice@example.com",
+        accountEmail: "primary@example.com",
+      },
+      { sendUpdates: "all" },
     );
   });
 });

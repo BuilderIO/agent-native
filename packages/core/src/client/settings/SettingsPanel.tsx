@@ -4011,7 +4011,7 @@ export function useAgentSettingsTabs(
       },
       {
         ...mcp,
-        icon: IconPlugConnected,
+        icon: IconApps,
         group: "integrations",
         content: <McpAccessSettings appName={appName} />,
       },

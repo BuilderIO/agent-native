@@ -1255,7 +1255,7 @@ export function CreateEventPopover({
                     className="flex w-full items-center gap-2 rounded-md py-1 text-left text-muted-foreground/60 transition-colors hover:bg-muted/50 hover:text-foreground"
                     onClick={() => setDescriptionOpen(true)}
                   >
-                    <IconMessage className="size-4 shrink-0" />
+                    <IconMessage className="size-[18px] shrink-0" />
                     {t("eventForm.description")}
                   </button>
                 )}
