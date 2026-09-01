@@ -591,6 +591,9 @@ const enUS = {
     communitySubmissionScreenshotsCount: "{{count}} / 5 selected",
     communitySubmissionScreenshotRemove: "Remove screenshot {{index}}",
     communitySubmissionSubmit: "Submit app",
+    communitySubmissionSubmitting: "Submitting...",
+    communitySubmissionError:
+      "We could not submit your app. Check your connection and try again.",
     communitySubmissionReady:
       "Thanks. We will review your app before publishing it.",
     communitySubmissionValidation:

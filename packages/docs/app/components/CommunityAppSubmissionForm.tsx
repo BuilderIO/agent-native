@@ -2,6 +2,7 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertCircle,
+  IconCircleCheck,
   IconPhoto,
   IconPlus,
   IconUpload,
@@ -30,6 +31,7 @@ const SCREENSHOT_FIELDS = [
 ] as const;
 const SCREENSHOT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_SCREENSHOT_BYTES = 1.5 * 1024 * 1024;
+const DRAFT_STORAGE_KEY = "agent-native:community-app-submission";
 
 type SelectedScreenshot = {
   file: File;
@@ -42,6 +44,37 @@ type CommunitySubmissionValues = {
   description: string;
   repositoryUrl: string;
 };
+
+const EMPTY_VALUES: CommunitySubmissionValues = {
+  name: "",
+  appUrl: "",
+  description: "",
+  repositoryUrl: "",
+};
+
+// Screenshots stay out of the draft: File objects do not survive a round trip
+// through storage, so only the text a visitor typed is restored.
+function readDraft(): CommunitySubmissionValues | null {
+  try {
+    const stored = window.localStorage.getItem(DRAFT_STORAGE_KEY);
+    if (!stored) return null;
+
+    const parsed: unknown = JSON.parse(stored);
+    if (!parsed || typeof parsed !== "object") return null;
+
+    const draft = parsed as Partial<Record<keyof CommunitySubmissionValues, unknown>>;
+    return {
+      name: typeof draft.name === "string" ? draft.name : "",
+      appUrl: typeof draft.appUrl === "string" ? draft.appUrl : "",
+      description:
+        typeof draft.description === "string" ? draft.description : "",
+      repositoryUrl:
+        typeof draft.repositoryUrl === "string" ? draft.repositoryUrl : "",
+    };
+  } catch {
+    return null;
+  }
+}
 
 function isHttpUrl(value: string) {
   if (!URL.canParse(value)) return false;
@@ -93,15 +126,31 @@ export function CommunityAppSubmissionForm() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hiddenInputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const previewUrlsRef = useRef<Set<string>>(new Set());
-  const [values, setValues] = useState<CommunitySubmissionValues>({
-    name: "",
-    appUrl: "",
-    description: "",
-    repositoryUrl: "",
-  });
+  const [values, setValues] = useState<CommunitySubmissionValues>(EMPTY_VALUES);
   const [screenshots, setScreenshots] = useState<SelectedScreenshot[]>([]);
   const [isDragActive, setIsDragActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<"idle" | "submitting" | "sent">("idle");
+  const [draftRestored, setDraftRestored] = useState(false);
+
+  useEffect(() => {
+    const draft = readDraft();
+    if (draft) setValues(draft);
+    setDraftRestored(true);
+  }, []);
+
+  // Waits for the restore pass so the initial empty state cannot overwrite a
+  // saved draft before it has been read back.
+  useEffect(() => {
+    if (!draftRestored) return;
+
+    try {
+      window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(values));
+    } catch {
+      // Storage can be full or blocked; losing the draft is not worth failing
+      // the form over.
+    }
+  }, [draftRestored, values]);
 
   useEffect(() => {
     const activePreviewUrls = new Set(
@@ -138,6 +187,7 @@ export function CommunityAppSubmissionForm() {
   function updateValue(field: keyof CommunitySubmissionValues, value: string) {
     setValues((current) => ({ ...current, [field]: value }));
     setError(null);
+    setStatus("idle");
   }
 
   function handleScreenshotChange(event: ChangeEvent<HTMLInputElement>) {
@@ -198,7 +248,8 @@ export function CommunityAppSubmissionForm() {
     addScreenshots(event.dataTransfer.files);
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const appUrl = String(formData.get("app_url") ?? "").trim();
     const repositoryUrl = String(formData.get("repository_url") ?? "").trim();
@@ -213,8 +264,22 @@ export function CommunityAppSubmissionForm() {
       (repositoryUrl && !isHttpUrl(repositoryUrl)) ||
       uploadedFiles.some((file) => !isValidScreenshot(file))
     ) {
-      event.preventDefault();
       setError(t("templatesPage.communitySubmissionValidation"));
+      return;
+    }
+
+    setError(null);
+    setStatus("submitting");
+
+    try {
+      const response = await fetch(sitePathForLocale("/apps", locale), {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) throw new Error(String(response.status));
+    } catch {
+      setStatus("idle");
+      setError(t("templatesPage.communitySubmissionError"));
       return;
     }
 
@@ -223,6 +288,10 @@ export function CommunityAppSubmissionForm() {
       hasRepository: Boolean(repositoryUrl),
       screenshotCount: uploadedFiles.length,
     });
+
+    setStatus("sent");
+    setValues(EMPTY_VALUES);
+    setScreenshots([]);
   }
 
   return (
@@ -448,9 +517,26 @@ export function CommunityAppSubmissionForm() {
         </p>
       ) : null}
 
+      {status === "sent" ? (
+        <p
+          role="status"
+          className="m-0 inline-flex items-center gap-[5px] self-start rounded-[var(--b-radius)] border border-solid border-[color-mix(in_srgb,var(--c-green-400)_28%,transparent)] bg-[color-mix(in_srgb,var(--c-green-400)_14%,transparent)] px-2.5 py-1 font-[family-name:var(--b-font-mono)] text-[11px] tracking-[0.02em] text-[var(--c-green-400)]"
+        >
+          <IconCircleCheck size={12} stroke={2} aria-hidden="true" />
+          {t("templatesPage.communitySubmissionReady")}
+        </p>
+      ) : null}
+
       <div className="mt-[var(--spacing-2)] flex flex-col items-start gap-[var(--spacing-4)]">
-        <Button variant="cta" type="submit" icon={IconUpload}>
-          {t("templatesPage.communitySubmissionSubmit")}
+        <Button
+          variant="cta"
+          type="submit"
+          icon={IconUpload}
+          disabled={status === "submitting"}
+        >
+          {status === "submitting"
+            ? t("templatesPage.communitySubmissionSubmitting")
+            : t("templatesPage.communitySubmissionSubmit")}
         </Button>
       </div>
     </form>
