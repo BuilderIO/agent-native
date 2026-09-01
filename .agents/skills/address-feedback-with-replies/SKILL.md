@@ -27,6 +27,13 @@ forwards, duplicates, or other random messages. Design feedback, including
 Design clips and imported-design usability, routes to Sid and is not handled
 here. Content remains with Alice.
 
+One exception: an `:upvote:` from the invoking identity promotes an otherwise
+out-of-scope UX or feature request into scope — that reaction is the product
+decision, so build the smallest version rather than asking which variant is
+wanted. `review-latest-feedback` owns the discovery query and the **Shipped**
+disposition; everything in this file about voice, evidence, and verification
+applies to an upvoted item unchanged.
+
 If an earlier run already added `👀` to an out-of-scope item, remove that
 reaction with the connected Slack removal action when available. Do not add
 another reaction, investigate it as a bug, ask a compensating question, or post
@@ -111,12 +118,19 @@ to Sid unless explicitly assigned.
 remains open until verification and its final user-facing status are complete.
 Keep internal verification gaps internal and do not claim **Fixed**.
 
-Do not end a run with an eye-only clear bug. Continue until a final reply is
-ready or one concrete missing reporter detail blocks a safe fix. Internal test,
-deployment, and tooling gaps are not reporter questions.
+Do not end a run with an eye-only clear bug **unfinished**. Keep working it.
+But finishing the work and posting a message are different obligations:
+internal test, deployment, and tooling gaps are never reporter questions, and
+an item you investigated without cracking is recorded internally as open, not
+broadcast as a status update. Reply where the reply carries information the
+thread does not already have; otherwise leave the eye and the recap row and
+post nothing. Silence is a disposition.
 
-Every clear-bug thread must receive one external disposition for the current
-run: **Fixed**, **In progress**, or **Clarification needed**. An already-eyed
+Never post the same sentence into several threads. When reports share one
+cause, reply once and record the rest as clustered.
+
+A clear-bug thread receives at most one external disposition per run:
+**Fixed**, **In progress**, **Clarification needed**, or nothing. An already-eyed
 item later found to be out of scope gets reaction cleanup and no new reply; if
 this workflow already replied, delete that reply when safe or edit it to one
 concise **Skipped** disposition. **Fixed** closes the current issue. **In progress** is
@@ -215,10 +229,10 @@ non-repeating question only if one specific required detail still blocks it.
    timestamp or an adjacent thread. Before ending the run, mechanically
    audit the reply ledger: for every `👀` parent, record the invoking user's
    reply timestamp and whether it is **Fixed**, **In progress**, or
-   **Clarification needed**. For a mistakenly eyed out-of-scope item, record
-   reaction removal and no new reply instead. If any clear-bug parent has only
-   `👀`, a generic bot forward, or another person's reply, keep working and
-   post the missing reply before finishing. Do not create new reactions or
+   **Clarification needed**, or deliberate silence with the reason. For a
+   mistakenly eyed out-of-scope item, record reaction removal and no new reply
+   instead. An eye-only clear bug means keep working the fix — it does not mean
+   manufacture a message to close the row. Do not create new reactions or
    questions for out-of-scope items.
    If any participant replies after the post, re-read the entire thread again
    before deciding whether to fix, close, or ask anything else.
