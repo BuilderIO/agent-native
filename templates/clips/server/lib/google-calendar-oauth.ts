@@ -182,7 +182,7 @@ export async function handleGoogleCalendarCallback(
       } as any);
     }
 
-    if (state.flowId && !desktop) {
+    if (state.flowId) {
       const targetOrigin = JSON.stringify(new URL(redirectUri).origin);
       const message = JSON.stringify({
         type: "agent-native:calendar-connected",
