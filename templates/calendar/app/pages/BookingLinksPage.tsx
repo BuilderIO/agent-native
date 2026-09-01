@@ -2827,6 +2827,7 @@ function BookingPreview({
                 <button
                   type="button"
                   onClick={() => setShowPreviewTimeZones((prev) => !prev)}
+                  // guard:allow-raw-color — matches this page's existing BRAND_LINK_CLASS brand color
                   className="text-[11px] font-normal text-[#00B5FF] hover:text-[#33C4FF]"
                 >
                   {showPreviewTimeZones

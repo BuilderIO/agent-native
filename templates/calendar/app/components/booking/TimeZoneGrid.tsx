@@ -63,6 +63,10 @@ function dateKeyInTimeZone(iso: string, timeZone: string): string {
       day: "2-digit",
     }).format(new Date(iso));
   } catch {
+    // coercion-ok: display-only key for the date-crossing badge; timeZone
+    // values here are always pre-validated IANA zones from resolved hosts
+    // or Intl.supportedValuesOf, so a formatting failure can only suppress
+    // that badge, not corrupt the slot data.
     return "";
   }
 }
@@ -75,6 +79,8 @@ function formatShortDate(iso: string, timeZone: string): string {
       day: "numeric",
     }).format(new Date(iso));
   } catch {
+    // coercion-ok: display-only label next to the date-crossing badge; see
+    // dateKeyInTimeZone above for why the input time zones are trusted.
     return "";
   }
 }

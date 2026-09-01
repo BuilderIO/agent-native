@@ -519,6 +519,7 @@ export default function BookingPage() {
                 <Button
                   variant="link"
                   size="sm"
+                  // guard:allow-raw-color — matches this page's existing BRAND_LINK_CLASS brand color
                   className="text-xs font-normal text-[#00B5FF] hover:text-[#33C4FF]"
                   onClick={() => setShowTimeZones((prev) => !prev)}
                 >

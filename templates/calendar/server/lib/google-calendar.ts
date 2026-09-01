@@ -677,6 +677,10 @@ export async function getGoogleAccountTimezone(
       (account) => hasCalendarScope(account.tokens),
     );
   } catch {
+    // coercion-ok: deliberately not the same as "confirmed no account" —
+    // this is never cached (see cacheAccountTimezone), so the caller
+    // (getEligibleHostAvailability) re-checks on the next request instead
+    // of a lookup failure being treated as a stable negative result.
     return null;
   }
 
@@ -702,6 +706,9 @@ export async function getGoogleAccountTimezone(
       ? calendar.timeZone
       : null;
   } catch {
+    // coercion-ok: same reasoning as the lookup catch above — a token
+    // refresh or provider failure here is never cached, so it degrades
+    // this request to free/busy-only rather than caching a false negative.
     return null;
   }
 

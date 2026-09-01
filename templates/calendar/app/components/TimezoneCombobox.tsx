@@ -95,6 +95,9 @@ function getUtcOffsetMinutes(timezone: string): number {
     const sign = match[1] === "-" ? -1 : 1;
     return sign * (Number(match[2]) * 60 + Number(match[3]));
   } catch {
+    // coercion-ok: display-only sort/label offset for a picker entry Intl
+    // itself already validated as a supported IANA zone; a formatting
+    // failure here can only affect this row's position/label, not data.
     return 0;
   }
 }
