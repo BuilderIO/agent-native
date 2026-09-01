@@ -415,8 +415,25 @@ export async function createPtyWebSocketServer(
       for (const v of registry.stripEnv) delete env[v];
     }
 
-    env.PATH = await terminalPath(env);
-    const commandPath = await resolveCommandPath(command, env);
+    let commandPath: string | null;
+    try {
+      env.PATH = await terminalPath(env);
+      commandPath = await resolveCommandPath(command, env);
+    } catch (error) {
+      closeSessionSetup();
+      if (closed) {
+        ws.close();
+        return;
+      }
+      sendStatus(
+        "failed",
+        error instanceof Error
+          ? error.message
+          : "The terminal command could not be resolved.",
+      );
+      if (ws.readyState === WebSocket.OPEN) ws.close();
+      return;
+    }
     if (connectionClosed || ws.readyState !== WebSocket.OPEN || closed) {
       closeSessionSetup();
       ws.close();

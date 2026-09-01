@@ -160,6 +160,7 @@ export default function (pi) {
   const rawServers = process.env.AGENT_NATIVE_TERMINAL_MCP_SERVERS || "{}";
   const servers = JSON.parse(rawServers);
   const sessions = {};
+  let nextRequestId = 1;
   const activeContext = process.env.AGENT_NATIVE_ACTIVE_APP_CONTEXT;
   const serverNames = Object.keys(servers);
 
@@ -274,7 +275,7 @@ export default function (pi) {
     }
     const result = await request(
       server,
-      { jsonrpc: "2.0", id: Date.now(), method, params },
+      { jsonrpc: "2.0", id: nextRequestId++, method, params },
       signal,
       sessionId,
     );

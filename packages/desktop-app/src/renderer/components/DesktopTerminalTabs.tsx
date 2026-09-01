@@ -145,6 +145,7 @@ export default function DesktopTerminalTabs({
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     const context: DesktopTerminalContext | null = activeApp
       ? {
           appId: activeApp.id,
@@ -173,7 +174,7 @@ export default function DesktopTerminalTabs({
         if (!infoUrl) {
           throw new Error("The desktop terminal has no connection.");
         }
-        const response = await fetch(infoUrl);
+        const response = await fetch(infoUrl, { signal: controller.signal });
         const body = await response.text();
         let payload: unknown;
         try {
@@ -186,6 +187,7 @@ export default function DesktopTerminalTabs({
           );
         }
         const info = terminalInfoFrom(payload);
+        if (cancelled) return;
         const wsUrl =
           info.wsUrl ??
           (info.wsPort ? `ws://127.0.0.1:${info.wsPort}/ws` : undefined);
@@ -210,6 +212,7 @@ export default function DesktopTerminalTabs({
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [activeApp?.id, activeApp?.path, activeApp?.view]);
 
