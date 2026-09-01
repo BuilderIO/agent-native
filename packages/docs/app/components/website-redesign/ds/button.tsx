@@ -45,6 +45,33 @@ type ButtonProps = ButtonAsButton | ButtonAsAnchor;
 const baseClass =
   "inline-flex cursor-pointer select-none items-center justify-center gap-[6px] whitespace-nowrap rounded-[var(--b-radius)] border border-solid py-[10px] font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] font-semibold leading-none tracking-[0.02em] no-underline outline-none transition-[background,box-shadow,border-color] duration-150";
 
+// For the elements this component cannot own: a Radix `asChild` trigger and a
+// react-router `Link` both need to be the rendered element themselves, so they
+// take the class list instead of wrapping a `Button`.
+export function buttonClassName({
+  variant = "primary",
+  dimBorder,
+  compact,
+  className,
+}: {
+  variant?: ButtonVariant;
+  dimBorder?: boolean;
+  compact?: boolean;
+  className?: string;
+} = {}) {
+  return [
+    baseClass,
+    compact ? "px-3" : "px-4",
+    variantTextClass(variant),
+    variantClasses(variant, dimBorder),
+    "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]",
+    "disabled:cursor-not-allowed disabled:opacity-40",
+    className,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function variantTextClass(variant: ButtonVariant) {
   switch (variant) {
     case "cta":
@@ -114,17 +141,12 @@ export function Button({
 
   // Appended, not spread through `rest`: a caller-supplied className there
   // would land after this one on the element and replace the whole variant.
-  const className = [
-    baseClass,
-    compact ? "px-3" : "px-4",
-    variantTextClass(variant),
-    variantClasses(variant, dimBorder),
-    "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]",
-    "disabled:cursor-not-allowed disabled:opacity-40",
-    extraClassName,
-  ]
-    .filter(Boolean)
-    .join(" ");
+  const className = buttonClassName({
+    variant,
+    dimBorder,
+    compact,
+    className: extraClassName,
+  });
 
   const forceAttr = forceState === "hover" ? "hover" : undefined;
 

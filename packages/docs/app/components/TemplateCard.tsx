@@ -9,7 +9,15 @@ import { sitePathForLocale } from "./docs-locale";
 import { applyFirstTouchAttributionToLink } from "./marketing-attribution";
 import { TemplateDocsLink } from "./template-docs";
 import { APP_ART } from "./website-redesign/app-art";
-import { Button } from "./website-redesign/ds/button";
+import { Button, buttonClassName } from "./website-redesign/ds/button";
+
+// Compact padding because three of these share one card row; `flex-1` makes
+// them equal width, so the tighter padding only buys wrap headroom.
+const cardSecondaryActionClass = buttonClassName({
+  variant: "secondary",
+  compact: true,
+  className: "flex-1 uppercase",
+});
 
 export { trackEvent };
 
@@ -187,7 +195,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
       <CustomizeTemplatePopover
         template={template}
         location="card"
-        className="secondary-button flex-1 whitespace-nowrap"
+        className={cardSecondaryActionClass}
       />
       {/* A direct flex item rather than a link inside a flex-1 wrapper: the
           wrapper stretched to the row height but the link kept its own content
@@ -195,7 +203,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
       <TemplateDocsLink
         template={template}
         location="card"
-        className="secondary-button flex-1 whitespace-nowrap"
+        className={cardSecondaryActionClass}
       />
     </div>
   );
