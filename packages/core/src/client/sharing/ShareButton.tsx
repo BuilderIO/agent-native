@@ -786,9 +786,8 @@ function SharePanel(
               disabled={tab.disabled}
               onClick={() => handleShareTabChange(tab.value)}
               className={cn(
-                "h-11 min-w-0 flex-1 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
-                active &&
-                  "bg-background text-foreground shadow-sm ring-2 ring-primary",
+                "h-11 min-w-0 flex-1 rounded-lg px-3 text-sm font-medium text-muted-foreground hover:bg-background/70 hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
+                active && "bg-background text-foreground shadow-sm",
               )}
             >
               <span className="block truncate">{tab.label}</span>
