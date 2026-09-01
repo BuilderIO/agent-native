@@ -372,6 +372,8 @@ export function CommunityAppSubmissionForm() {
                     index: index + 1,
                   })}
                   className="aspect-[4/3] w-full object-cover"
+                  loading="lazy"
+                  decoding="async"
                 />
                 <Button
                   type="button"
