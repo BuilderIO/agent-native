@@ -27,6 +27,13 @@ function viewScreenSource(): string {
   );
 }
 
+function emailsHandlerSource(): string {
+  return readFileSync(
+    new URL("../../server/handlers/emails.ts", import.meta.url),
+    "utf8",
+  );
+}
+
 function navigateActionSource(): string {
   return readFileSync(
     new URL("../../actions/navigate.ts", import.meta.url),
@@ -64,6 +71,10 @@ describe("Inbox navigation commands", () => {
     const source = inboxSource();
 
     expect(source).toContain("const mailboxWideLabelTab =");
+    expect(source).toContain('activeLabelRecord?.type !== "user"');
+    expect(source).toContain(
+      "const clientSliceTab = isPinnedTab && !searchQuery && !mailboxWideLabelTab;",
+    );
     expect(source).toContain(
       'const emailView = activeSavedFilter\n    ? "all"',
     );
@@ -162,6 +173,29 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain(
       "latestPerThread(applyActiveInboxTab(preparedMessages))",
     );
+    expect(source).toContain(
+      'threadFormat: needsSavedFilterParts ? "full" : "metadata"',
+    );
+  });
+
+  it("hydrates Gmail parts for the inbox saved-filter partition", () => {
+    const source = emailsHandlerSource();
+
+    expect(source).toContain(
+      'const isPlainInboxRequest = view === "inbox" && !q && !label;',
+    );
+    expect(source).toContain(
+      "searchQueryNeedsAttachmentMetadata(filter.query)",
+    );
+    expect(source).toContain("threadFormat:");
+  });
+
+  it("disambiguates custom labels that share a system label name", () => {
+    const source = inboxSource();
+
+    expect(source).toContain('activeLabelRecord?.type !== "user"');
+    expect(source).toContain("const labels = labelsData ?? EMPTY_LABELS;");
+    expect(source).toContain("const activeLabelIsInboxScoped =");
   });
 });
 

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { emailMessageMatchesSearch } from "./search";
+import {
+  emailMessageMatchesSearch,
+  searchQueryNeedsAttachmentMetadata,
+} from "./search";
 import type { EmailMessage } from "./types";
 
 function message(overrides: Partial<EmailMessage> = {}): EmailMessage {
@@ -195,5 +198,26 @@ describe("emailMessageMatchesSearch", () => {
     expect(
       emailMessageMatchesSearch(justAfterPacificMidnight, "before:2026/05/20"),
     ).toBe(false);
+  });
+});
+
+describe("searchQueryNeedsAttachmentMetadata", () => {
+  it("detects positive, negative, and grouped attachment operators", () => {
+    expect(searchQueryNeedsAttachmentMetadata("from:github.com")).toBe(false);
+    expect(
+      searchQueryNeedsAttachmentMetadata("is:unread -label:promotions"),
+    ).toBe(false);
+    expect(searchQueryNeedsAttachmentMetadata("has:attachment")).toBe(true);
+    expect(searchQueryNeedsAttachmentMetadata("-filename:zip")).toBe(true);
+    expect(
+      searchQueryNeedsAttachmentMetadata('{from:github.com filename:".patch"}'),
+    ).toBe(true);
+  });
+
+  it("does not treat quoted search terms as operators", () => {
+    expect(searchQueryNeedsAttachmentMetadata('subject:"has:attachment"')).toBe(
+      false,
+    );
+    expect(searchQueryNeedsAttachmentMetadata('"filename:pdf"')).toBe(false);
   });
 });

@@ -177,7 +177,7 @@ describe("AgentJobsTab organization automations", () => {
     expect(container.textContent).toContain("new lead alert");
     expect(container.textContent).toContain("On lead.created");
     expect(container.textContent).toContain(
-      "Scheduled and event-triggered automations shared with this organization.",
+      "Scheduled, event-triggered, and webhook-triggered automations shared with this organization.",
     );
     expect(container.textContent).not.toContain("personal today");
   });

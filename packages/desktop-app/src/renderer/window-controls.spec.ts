@@ -29,16 +29,17 @@ describe("chat-first macOS window controls", () => {
     );
   });
 
-  it("fades the green control and background in on hover", () => {
+  it("keeps the green control hidden until red or yellow hover", () => {
     expect(shellCss).toContain(".collapsed-mac-window-controls::before {");
     expect(shellCss).toContain("opacity: 0;");
     expect(shellCss).toContain("transition: opacity var(--ease-collapse);");
-    expect(shellCss).toContain(
-      ".collapsed-mac-window-controls:hover::before,\n.collapsed-mac-window-controls:focus-within::before {",
-    );
+    expect(shellCss).toContain(".collapsed-mac-window-controls:has(");
+    expect(shellCss).toContain(".win-btn--close:hover");
+    expect(shellCss).toContain(".win-btn--minimize:hover");
     expect(shellCss).toContain(
       ".collapsed-mac-window-controls .win-btn--maximize {",
     );
+    expect(shellCss).toContain("pointer-events: none;");
     expect(shellCss).toContain("opacity: 1;");
     expect(shellCss).toContain("pointer-events: auto;");
     expect(shellCss).toContain("transform: translateX(0) scale(1);");
@@ -48,9 +49,7 @@ describe("chat-first macOS window controls", () => {
     expect(shellCss).toContain(
       ".platform-darwin\n  .shell:has(.settings-overlay)\n  .collapsed-mac-window-controls::before,",
     );
-    expect(shellCss).toContain(
-      ".collapsed-mac-window-controls:hover::before,\n.platform-darwin\n  .shell:has(.settings-overlay)\n  .collapsed-mac-window-controls:focus-within::before {",
-    );
+    expect(shellCss).toContain(".collapsed-mac-window-controls:hover::before,");
     expect(shellCss).toContain(
       ".platform-darwin\n  .shell:has(.settings-overlay)\n  .collapsed-mac-window-controls\n  .win-btn--maximize {\n  opacity: 1;\n  pointer-events: auto;\n  transform: translateX(0) scale(1);",
     );

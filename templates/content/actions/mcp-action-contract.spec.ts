@@ -12,6 +12,7 @@ import listDocuments from "./list-documents.js";
 import navigate from "./navigate.js";
 import refreshList from "./refresh-list.js";
 import searchDocuments from "./search-documents.js";
+import updateComment from "./update-comment.js";
 import updateDocument from "./update-document.js";
 import viewScreen from "./view-screen.js";
 
@@ -22,6 +23,9 @@ describe("Content action-owned agent catalogs", () => {
     "get-document": getDocument,
     "create-document": createDocument,
     "edit-document": editDocument,
+    "list-comments": listComments,
+    "add-comment": addComment,
+    "update-comment": updateComment,
     "list-content-databases": listContentDatabases,
     "describe-content-database": describeContentDatabase,
   };
@@ -31,6 +35,34 @@ describe("Content action-owned agent catalogs", () => {
       expect(action.mcpTool).toBe(true);
       expect(action.tool.description.length).toBeGreaterThan(80);
     }
+  });
+
+  it("classifies direct comment reads and writes for MCP authorization", () => {
+    expect(listComments.readOnly).toBe(true);
+    expect(addComment.readOnly).not.toBe(true);
+    expect(updateComment.readOnly).not.toBe(true);
+  });
+
+  it("describes the identifiers required for safe comment-thread mutations", () => {
+    expect(addComment.tool.description).toContain("threadId");
+    expect(addComment.tool.description).toContain("both threadId and parentId");
+    expect(updateComment.tool.description).toContain("exact");
+    expect(updateComment.tool.description).toContain("mismatched pair");
+
+    const addProperties = addComment.tool.parameters?.properties;
+    const updateProperties = updateComment.tool.parameters?.properties;
+    expect(listComments.tool.parameters?.required).toContain("documentId");
+    expect(addComment.tool.parameters?.required).toEqual(
+      expect.arrayContaining(["documentId", "content"]),
+    );
+    expect(addProperties?.documentId?.description).toBe("Document ID");
+    expect(addProperties?.authorName).toBeUndefined();
+    expect(addProperties?.threadId?.description).toContain("parentId");
+    expect(updateProperties?.id?.description).toBe("Comment ID");
+    expect(updateProperties?.documentId?.description).toBe("Document ID");
+    expect(updateComment.tool.description).toContain(
+      "calls without a mutation fail",
+    );
   });
 
   it("keeps the existing Content starter surface action-owned", () => {

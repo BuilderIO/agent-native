@@ -1164,6 +1164,41 @@ export const migrations = runMigrations(
       name: "recording-comment-mentions",
       sql: `ALTER TABLE recording_comments ADD COLUMN IF NOT EXISTS mentions_json TEXT`,
     },
+    {
+      version: 67,
+      name: "clips-transactional-email-sql-store",
+      sql: [
+        `CREATE TABLE IF NOT EXISTS clips_transactional_email_jobs (
+          logical_key TEXT PRIMARY KEY,
+          type TEXT NOT NULL,
+          state TEXT NOT NULL,
+          recipient TEXT NOT NULL,
+          recording_ids_json TEXT NOT NULL,
+          share_id TEXT,
+          requested_by TEXT,
+          month TEXT,
+          generated_summary TEXT,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+          ai_dispatched_at TEXT,
+          ai_claimed_by TEXT,
+          ready_at TEXT,
+          sending_at TEXT,
+          sent_at TEXT,
+          cancelled_at TEXT,
+          failed_at TEXT,
+          last_error TEXT,
+          lease_until TEXT,
+          lease_token TEXT
+        )`,
+        `CREATE INDEX IF NOT EXISTS clips_transactional_email_jobs_state_created_idx ON clips_transactional_email_jobs (state, created_at)`,
+        `CREATE TABLE IF NOT EXISTS clips_transactional_email_configs (
+          id TEXT PRIMARY KEY,
+          config_json TEXT NOT NULL
+        )`,
+      ].join("; "),
+    },
   ],
   { table: "clips_migrations" },
 );

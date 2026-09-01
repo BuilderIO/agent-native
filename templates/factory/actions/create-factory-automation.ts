@@ -1,6 +1,10 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
+import {
+  VaultUnavailableError,
+  assertFactoryConnectorReady,
+} from "../server/connectors/credentials.js";
 import { readFactoryDefinition } from "../server/factory-graph/store.js";
 import {
   FACTORY_INBOX_LIMIT_MAX,
@@ -34,7 +38,7 @@ const templateSchema = z.enum([
 
 export default defineAction({
   description:
-    "Create one Factory automation for Slack, GitHub, or Sentry. Pass author ids (Slack U/W member ids or GitHub numeric user ids), not names. Include mode requires at least one id. Limits are enforced by poll and list-triage-items, not by prompt text.",
+    "Create one Factory automation for Slack, GitHub, or Sentry. Hosted jobs need a workspace connection granted to Factory or a vault token, plus a Slack channel id, GitHub repository, or Sentry org and project. Pass author ids (Slack U/W member ids or GitHub numeric user ids), not names. Include mode requires at least one id. Limits are enforced by poll and list-triage-items, not by prompt text.",
   schema: z.object({
     factoryId: factoryIdSchema,
     displayName: z.string().trim().min(1).max(120),
@@ -104,6 +108,21 @@ export default defineAction({
     }
     if (input.scheduleMode === "daily" && !input.timezone?.trim()) {
       fail("Choose a timezone for a daily schedule.");
+    }
+    if (input.enabled) {
+      try {
+        await assertFactoryConnectorReady(input.source, userEmail, {
+          orgId,
+          slackWorkspace:
+            input.slackWorkspace === "secondary" ? "secondary" : "primary",
+          verb: "creating",
+        });
+      } catch (error) {
+        if (error instanceof VaultUnavailableError) fail(error.message);
+        fail(
+          error instanceof Error ? error.message : "Connector is not ready.",
+        );
+      }
     }
     const defaults = defaultAutomationConfig(input.source, input.template);
     const config: FactoryAutomationConfig = {

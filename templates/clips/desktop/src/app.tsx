@@ -4051,6 +4051,8 @@ export function App({
   const recordingReadinessPending =
     localRecordingMode === "off" &&
     (authStatus !== "authed" || videoStorageStatus === "checking");
+  const startButtonLoading =
+    recordingReadinessPending && !recordingStopFinalizing;
 
   const pendingUploadBanner =
     authStatus === "authed" ? (
@@ -4574,7 +4576,10 @@ export function App({
 
         {!isRecording ? (
           <button
-            className="primary start"
+            className={cn(
+              "primary start",
+              startButtonLoading && "start-loading",
+            )}
             disabled={recordingReadinessPending || recordingStopFinalizing}
             aria-busy={recordingReadinessPending || recordingStopFinalizing}
             aria-label={
@@ -4586,18 +4591,19 @@ export function App({
             }
             onClick={() => beginRecording()}
           >
-            {recordingStopFinalizing ? (
-              "Finishing last recording..."
-            ) : recordingReadinessPending ? (
+            <span className="start-label">
+              {recordingStopFinalizing
+                ? "Finishing last recording..."
+                : localRecordingMode === "off"
+                  ? "Start recording"
+                  : "Start local recording"}
+            </span>
+            {startButtonLoading ? (
               <span
                 aria-hidden="true"
-                className="skeleton-shimmer inline-block h-4 w-32 rounded bg-muted"
+                className="start-loading-shimmer skeleton-shimmer"
               />
-            ) : localRecordingMode === "off" ? (
-              "Start recording"
-            ) : (
-              "Start local recording"
-            )}
+            ) : null}
           </button>
         ) : null}
 

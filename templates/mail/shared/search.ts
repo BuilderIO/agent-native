@@ -89,6 +89,11 @@ type ParsedSearch = {
   excludedTerms: string[];
 };
 
+/** Attachment operators need Gmail's MIME parts, which metadata responses omit. */
+export function searchQueryNeedsAttachmentMetadata(query: string): boolean {
+  return /(?:^|[\s({])-?(?:has|filename):/i.test(query);
+}
+
 function splitSearchOr(query: string): string[] | undefined {
   const clauses: string[] = [];
   let start = 0;

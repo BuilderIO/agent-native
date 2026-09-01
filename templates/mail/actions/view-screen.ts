@@ -3,7 +3,10 @@ import { readAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getSetting } from "@agent-native/core/settings";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels.js";
-import { emailMessageMatchesSearch } from "@shared/search.js";
+import {
+  emailMessageMatchesSearch,
+  searchQueryNeedsAttachmentMetadata,
+} from "@shared/search.js";
 import { z } from "zod";
 
 import {
@@ -114,6 +117,10 @@ async function fetchEmailList(
         : undefined;
     const savedFilterQueries =
       settings?.savedFilters?.map((filter) => filter.query) ?? [];
+    const needsSavedFilterParts =
+      effectiveView === "inbox" &&
+      !effectiveSearch &&
+      savedFilterQueries.some(searchQueryNeedsAttachmentMetadata);
     const hasNoteToSelf = pinnedLabels.includes("note-to-self");
     const clients = googleConnected ? await getClients(ownerEmail) : [];
     const connectedEmails = new Set(
@@ -184,7 +191,9 @@ async function fetchEmailList(
         undefined,
         {
           mode: "threads",
-          threadFormat: "metadata",
+          // Metadata responses omit MIME parts. Saved-filter partitioning
+          // needs attachment filenames for has:attachment/filename queries.
+          threadFormat: needsSavedFilterParts ? "full" : "metadata",
           accountEmails:
             selectedAccountEmails.length > 0
               ? selectedAccountEmails
