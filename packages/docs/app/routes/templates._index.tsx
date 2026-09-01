@@ -36,13 +36,33 @@ export default function TemplatesPage() {
           >
             {t("templatesPage.firstPartyTitle")}
           </h2>
-          <div className="grid min-w-0 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {/* Dividers are a 1px gap over the border color, with each cell
+              painting its own page-bg on top — not per-cell borders, so a line
+              only ever appears between cells that end up adjacent whatever the
+              column count is. Same treatment as the homepage feature grid,
+              which is why this uses the redesign's desktop-first `mobile` and
+              `narrow` variants rather than Tailwind's `sm`/`lg`. */}
+          <div className="grid min-w-0 grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-2 narrow:grid-cols-1">
             {featuredTemplates.map((template) => (
               <TemplateCard key={template.name} template={template} />
             ))}
-            <div className="flex min-h-full items-center border border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] p-1 transition-[background-color] duration-150 hover:bg-[var(--b-bg-raised)]">
+            <div className="flex items-center bg-[var(--b-bg-page)] p-1 transition-[background-color] duration-150 hover:bg-[var(--b-bg-raised)]">
               <BuildFromScratchCta location="templates_index" variant="grid" />
             </div>
+
+            {/* 12 apps plus the tile above leaves the last row one cell short
+                at both 3 and 2 columns, and an empty cell would show the grid's
+                own background — the divider color — with no card there to paint
+                over it. These spacers fill those slots with page-bg: two at 3
+                columns, one at 2, none at 1. */}
+            <div
+              aria-hidden="true"
+              className="bg-[var(--b-bg-page)] narrow:hidden"
+            />
+            <div
+              aria-hidden="true"
+              className="bg-[var(--b-bg-page)] mobile:hidden"
+            />
           </div>
         </section>
 

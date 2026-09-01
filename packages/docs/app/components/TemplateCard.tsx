@@ -230,7 +230,9 @@ export function TemplateCard({ template }: { template: Template }) {
     heroCopy?.description ?? t(`templates.${template.slug}.description`);
 
   return (
-    <article className="group flex min-w-0 flex-col overflow-hidden border border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)]">
+    // No border of its own: the grid on /apps paints the hairlines between
+    // cells, so a per-card border would double them up.
+    <article className="group flex min-w-0 flex-col overflow-hidden bg-[var(--b-bg-page)] transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)]">
       <Link
         data-an-prefetch="viewport"
         to={templatePath}
