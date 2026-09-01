@@ -1,15 +1,14 @@
 ---
 title: "Démarrage"
-description: "Créez une application Agent-Native et appelez la même action depuis l’agent et l’interface utilisateur."
+description: "Créez un agent doté d’une interface de chat et appelez la même action depuis l’agent et l’interface utilisateur."
 ---
 
 # Démarrage
 
 Agent-Native est un framework TypeScript open source pour créer des agents
-autonomes avec des interfaces intuitives. Vous définissez la
-fonctionnalité de votre application une seule fois sous forme
-d’[actions](/docs/actions-overview) : des fonctions typées que votre interface
-utilisateur React appelle depuis le code et que les agents utilisent comme outils.
+autonomes avec des interfaces intuitives. Vous définissez chaque capacité une
+seule fois sous forme d’[action](/docs/actions-overview) : une fonction typée que
+l’agent utilise comme outil et que l’UI appelle depuis le code.
 
 Dans ce guide, vous allez créer un agent doté d’une interface de chat et appeler
 son action `hello` incluse depuis l’agent et l’interface utilisateur.
@@ -23,9 +22,9 @@ son action `hello` incluse depuis l’agent et l’interface utilisateur.
 - Une connexion LLM pour l’agent : Builder.io, une clé API Anthropic ou OpenAI,
   ou un modèle Ollama local
 
-## Créer une application
+## Créer un agent
 
-Dans un nouveau répertoire, créez une application Chat :
+Dans un nouveau répertoire, partez du modèle Chat :
 
 ```bash
 npx @agent-native/core@latest create my-app --standalone --template chat
@@ -33,20 +32,20 @@ cd my-app
 pnpm install
 ```
 
-Le modèle comprend une application navigateur, l’authentification, des
+Le modèle fournit à votre agent une interface de navigateur, l’authentification, des
 conversations persistantes, la synchronisation en direct, le contexte de
 l’application et un répertoire `actions/`. Il comprend aussi une petite action
 `hello` que vous utiliserez tout au long de ce guide.
 
 ## Démarrer le serveur de développement
 
-Démarrez l’application :
+Démarrez le serveur de développement :
 
 ```bash
 pnpm dev
 ```
 
-L’application s’ouvre sur `http://localhost:8080`. Si elle ne s’ouvre pas
+L’interface de navigateur s’ouvre sur `http://localhost:8080`. Si elle ne s’ouvre pas
 automatiquement, accédez à cette URL dans votre navigateur.
 
 <Callout tone="info">
@@ -67,7 +66,7 @@ appeler depuis le code et que les agents peuvent utiliser comme outil. Le modèl
 Chat comprend une action `hello` simple afin que vous puissiez essayer ce modèle
 avant d’en écrire une vous-même.
 
-Dans l’application, demandez :
+Dans le panneau de l’agent, demandez :
 
 > Call the hello action for Alex.
 
@@ -175,20 +174,20 @@ même action peut aussi être appelée depuis :
 | [HTTP API](/docs/http-api)              | appeler une action depuis un script, un backend ou une intégration.                                    |
 | [CLI](/docs/actions-other-surfaces#cli) | exécuter ou tester une action depuis un terminal.                                                      |
 | [MCP](/docs/actions-other-surfaces#mcp) | laisser un client d’IA externe découvrir et appeler des actions comme outils.                          |
-| [A2A](/docs/actions-other-surfaces#a2a) | permettre à une autre application Agent-Native de demander à cette application d’effectuer un travail. |
+| [A2A](/docs/actions-other-surfaces#a2a) | permettre à un autre agent de déléguer du travail au vôtre.                                           |
 
 Chaque appelant utilise la même définition d’action. Vous n’avez pas besoin
 d’une implémentation distincte pour chacun. Ce modèle d’actions partagées est au
 cœur d’Agent-Native : le comportement, la validation et les autorisations
 restent alignés dans l’interface utilisateur, les agents et les intégrations à
-mesure que l’application évolue.
+mesure que vous ajoutez des capacités.
 
 ## Ce que vous avez créé
 
-Vous avez créé une application Agent-Native, appelé son action `hello` depuis
-l’agent et une interface utilisateur React, puis modifié le message d’accueil
-une seule fois et constaté la mise à jour des deux. Chaque action que vous
-écrirez à partir de maintenant suivra ce même modèle.
+Vous avez créé un agent doté d’une interface de chat, appelé la même action
+`hello` depuis l’agent et une interface utilisateur React, puis modifié le
+message d’accueil une seule fois et constaté la mise à jour des deux. Chaque
+action que vous écrirez à partir de maintenant suivra ce même modèle.
 
 ## Étapes suivantes
 
