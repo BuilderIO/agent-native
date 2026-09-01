@@ -1228,6 +1228,16 @@ describe("startWorkspaceAppCreation", () => {
     expect(mocks.runBuilderAgent).toHaveBeenCalledWith(
       expect.objectContaining({ userId: "builder-user-42" }),
     );
+    const pendingApps = (
+      mocks.settings.get("dispatch-app-creation-settings:org:org-123") as any
+    )?.pendingApps;
+    const pendingExpiresAt = Date.parse(pendingApps?.[0]?.expiresAt ?? "");
+    expect(pendingExpiresAt - Date.now()).toBeGreaterThan(
+      29 * 24 * 60 * 60 * 1_000,
+    );
+    expect(pendingExpiresAt - Date.now()).toBeLessThan(
+      31 * 24 * 60 * 60 * 1_000,
+    );
     const builderPrompt = String(
       mocks.runBuilderAgent.mock.calls.at(-1)?.[0]?.prompt ?? "",
     );
