@@ -1,6 +1,6 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconArrowUpRight } from "@tabler/icons-react";
+import { IconAlertCircle, IconArrowUpRight } from "@tabler/icons-react";
 import { useId, useState, type FormEvent } from "react";
 
 import { Button } from "./website-redesign/ds/button";
@@ -55,8 +55,19 @@ export function buildCommunitySubmissionUrl(values: CommunitySubmissionValues) {
   return url.toString();
 }
 
+// The transparent rest border is load-bearing: it reserves the border box so
+// the focus colour appears without a 1px layout shift. Focus deliberately
+// returns the background to the rest colour, darker than hover, and Tailwind
+// emits `hover` before `focus` so that ordering holds while typing.
 const fieldClassName =
-  "w-full rounded-[var(--b-radius)] border border-solid border-[var(--b-border-default)] bg-[var(--b-bg-inset)] px-3 py-2.5 font-[family-name:var(--b-font-sans)] text-sm leading-[1.4] text-[var(--b-text-primary)] outline-none transition-[border-color,box-shadow] placeholder:text-[var(--b-text-muted)] focus:border-[var(--b-action-primary-bg)] focus:ring-2 focus:ring-[var(--b-action-primary-effect)]";
+  "w-full rounded-[var(--b-radius)] border border-solid border-transparent bg-[var(--b-bg-prominent)] px-[15px] py-[9px] font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] font-normal tracking-[0.02em] text-[var(--b-action-secondary-text)] outline-none transition-[border-color,background] duration-150 placeholder:text-[var(--b-text-muted)] hover:bg-[var(--c-neutral-800)] focus:border-[var(--b-action-primary-bg)] focus:bg-[var(--b-bg-prominent)]";
+
+const textareaClassName = `${fieldClassName} min-h-20 resize-y leading-[1.5]`;
+
+// Sans label over a mono value, and a step larger than it: that pairing is the
+// signature of the Builder form style.
+const labelClassName =
+  "font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] font-medium tracking-[0.01em] text-[var(--b-text-primary)]";
 
 export function CommunityAppSubmissionForm() {
   const t = useT();
@@ -118,15 +129,12 @@ export function CommunityAppSubmissionForm() {
 
   return (
     <form
-      className="grid gap-5"
+      className="grid gap-[var(--spacing-5)]"
       onSubmit={handleSubmit}
       aria-describedby={error ? `${formId}-error` : undefined}
     >
       <div className="grid gap-1.5">
-        <label
-          htmlFor={`${formId}-name`}
-          className="font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] font-semibold uppercase tracking-[0.04em] text-[var(--b-text-primary)]"
-        >
+        <label htmlFor={`${formId}-name`} className={labelClassName}>
           {t("templatesPage.communitySubmissionName")}
         </label>
         <input
@@ -140,10 +148,7 @@ export function CommunityAppSubmissionForm() {
       </div>
 
       <div className="grid gap-1.5">
-        <label
-          htmlFor={`${formId}-url`}
-          className="font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] font-semibold uppercase tracking-[0.04em] text-[var(--b-text-primary)]"
-        >
+        <label htmlFor={`${formId}-url`} className={labelClassName}>
           {t("templatesPage.communitySubmissionUrl")}
         </label>
         <input
@@ -158,10 +163,7 @@ export function CommunityAppSubmissionForm() {
       </div>
 
       <div className="grid gap-1.5">
-        <label
-          htmlFor={`${formId}-description`}
-          className="font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] font-semibold uppercase tracking-[0.04em] text-[var(--b-text-primary)]"
-        >
+        <label htmlFor={`${formId}-description`} className={labelClassName}>
           {t("templatesPage.communitySubmissionDescriptionLabel")}
         </label>
         <textarea
@@ -173,15 +175,12 @@ export function CommunityAppSubmissionForm() {
           placeholder={t(
             "templatesPage.communitySubmissionDescriptionPlaceholder",
           )}
-          className={fieldClassName}
+          className={textareaClassName}
         />
       </div>
 
       <div className="grid gap-1.5">
-        <label
-          htmlFor={`${formId}-repository`}
-          className="font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] font-semibold uppercase tracking-[0.04em] text-[var(--b-text-primary)]"
-        >
+        <label htmlFor={`${formId}-repository`} className={labelClassName}>
           {t("templatesPage.communitySubmissionRepository")}
         </label>
         <input
@@ -197,10 +196,7 @@ export function CommunityAppSubmissionForm() {
       </div>
 
       <div className="grid gap-1.5">
-        <label
-          htmlFor={`${formId}-screenshots`}
-          className="font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] font-semibold uppercase tracking-[0.04em] text-[var(--b-text-primary)]"
-        >
+        <label htmlFor={`${formId}-screenshots`} className={labelClassName}>
           {t("templatesPage.communitySubmissionScreenshots")}
         </label>
         <textarea
@@ -211,7 +207,7 @@ export function CommunityAppSubmissionForm() {
           placeholder={t(
             "templatesPage.communitySubmissionScreenshotsPlaceholder",
           )}
-          className={fieldClassName}
+          className={textareaClassName}
         />
       </div>
 
@@ -219,13 +215,14 @@ export function CommunityAppSubmissionForm() {
         <p
           id={`${formId}-error`}
           role="alert"
-          className="m-0 font-[family-name:var(--b-font-sans)] text-sm text-[var(--c-red-400)]"
+          className="m-0 inline-flex items-center gap-[5px] self-start rounded-[var(--b-radius)] border border-solid border-[color-mix(in_srgb,var(--c-red-400)_28%,transparent)] bg-[color-mix(in_srgb,var(--c-red-400)_14%,transparent)] px-2.5 py-1 font-[family-name:var(--b-font-mono)] text-[11px] tracking-[0.02em] text-[var(--c-red-400)]"
         >
+          <IconAlertCircle size={12} stroke={2} aria-hidden="true" />
           {error}
         </p>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-4">
+      <div className="mt-[var(--spacing-2)] flex flex-col items-start gap-[var(--spacing-4)]">
         <Button variant="primary" type="submit" icon={IconArrowUpRight}>
           {t("templatesPage.communitySubmissionSubmit")}
         </Button>
