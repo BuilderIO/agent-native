@@ -1156,6 +1156,7 @@ export interface OnboardingHtmlOptions {
     screenshotWidth?: number;
     screenshotHeight?: number;
     learnMoreUrl?: string;
+    learnMorePlacement?: "top-right" | "bottom-right";
     /** @deprecated Local execution is no longer offered from auth pages. */
     runLocalCommand?: string;
   };
@@ -1528,6 +1529,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
               : undefined,
             screenshotWidth: marketing.screenshotWidth,
             screenshotHeight: marketing.screenshotHeight,
+            learnMorePlacement: marketing.learnMorePlacement,
             learnMoreUrl:
               marketing.learnMoreUrl ??
               (marketingSlug
@@ -1599,13 +1601,11 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     width: 2rem;
     height: 2rem;
     padding: 0;
-    background: rgba(20,20,20,0.82);
+    background: transparent;
     color: #e5e5e5;
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 8px;
+    border: 0;
     cursor: pointer;
     outline: none;
-    backdrop-filter: blur(12px);
   }
   .locale-trigger svg {
     width: 1rem;
@@ -1618,11 +1618,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .locale-trigger:hover,
   .locale-trigger[aria-expanded="true"] {
-    border-color: rgba(255,255,255,0.22);
-    background: rgba(28,28,28,0.92);
+    border-color: transparent;
+    background: transparent;
   }
   .locale-trigger:focus {
-    border-color: rgba(255,255,255,0.42);
     box-shadow: 0 0 0 3px rgba(255,255,255,0.08);
   }
   .locale-menu {
@@ -2196,6 +2195,11 @@ ${embeddedAuthCss}
     z-index: 2;
   }
   .auth-marketing-learn-more { font-size: 0.9rem; }
+  .auth-marketing-home.has-bottom-right-learn-more .auth-marketing-top-right {
+    top: auto;
+    bottom: max(1rem, env(safe-area-inset-bottom));
+    inset-inline-end: max(1rem, env(safe-area-inset-right));
+  }
   .auth-marketing-home .auth-marketing-layout {
     min-height: 100vh;
     display: flex;
@@ -2230,6 +2234,13 @@ ${embeddedAuthCss}
     }
     .auth-marketing-home .auth-marketing-top-right {
       top: max(1rem, env(safe-area-inset-top));
+      bottom: auto;
+      inset-inline-start: max(1rem, env(safe-area-inset-left));
+      inset-inline-end: auto;
+    }
+    .auth-marketing-home.has-bottom-right-learn-more .auth-marketing-top-right {
+      top: max(1rem, env(safe-area-inset-top));
+      bottom: auto;
       inset-inline-start: max(1rem, env(safe-area-inset-left));
       inset-inline-end: auto;
     }
