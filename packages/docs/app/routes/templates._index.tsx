@@ -52,9 +52,12 @@ export default function TemplatesPage() {
             >
               {t("templatesPage.firstPartyTitle")}
             </h2>
-            {/* Breaks back out of the section's padding, so the grid's own rules
-                sit on the same full measure as the section rule above. */}
-            <div className="-mx-4 grid min-w-0 gap-5 border-y border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] p-5 sm:-mx-6 sm:grid-cols-2 lg:grid-cols-3">
+            {/* Breaks back out of the section's padding, but stops 1px short of
+                the full measure at each breakpoint: the page's decorative
+                column rules are drawn as a border inside that measure, and this
+                band's own background would otherwise paint over them for its
+                whole height. */}
+            <div className="-mx-[15px] grid min-w-0 gap-5 border-y border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] p-5 sm:-mx-[23px] sm:grid-cols-2 lg:grid-cols-3">
               {featuredTemplates.map((template) => (
                 <TemplateCard key={template.name} template={template} />
               ))}
