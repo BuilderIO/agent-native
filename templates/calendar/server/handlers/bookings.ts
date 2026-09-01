@@ -1,4 +1,5 @@
 import { emit } from "@agent-native/core/event-bus";
+import { getOrgContext, orgMembers } from "@agent-native/core/org";
 import {
   getSession,
   recordChange,
@@ -8,7 +9,7 @@ import {
 } from "@agent-native/core/server";
 import { getSetting, getUserSetting } from "@agent-native/core/settings";
 import { accessFilter } from "@agent-native/core/sharing";
-import { eq, and, gt, gte, lt, lte, ne, inArray, or } from "drizzle-orm";
+import { and, eq, gt, gte, inArray, lt, lte, ne, or, sql } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
@@ -206,6 +207,25 @@ function resolveSameOrgBookingViewer(
   return bookingLink.orgId === session.orgId
     ? { email: viewerEmail, orgId: session.orgId }
     : undefined;
+}
+
+async function resolveBookingViewer(
+  event: H3Event,
+  bookingLink?: BookingLinkRow,
+): Promise<SameOrgBookingViewer | undefined> {
+  const session = await getSession(event);
+  if (!session?.email || !bookingLink) return undefined;
+  if (
+    session.email.trim().toLowerCase() ===
+    bookingLink.ownerEmail.trim().toLowerCase()
+  ) {
+    return undefined;
+  }
+  const orgContext = await getOrgContext(event);
+  return resolveSameOrgBookingViewer(
+    { ...session, orgId: orgContext.orgId ?? undefined },
+    bookingLink,
+  );
 }
 
 const bookingAvailabilityDraftSchema = z
@@ -1004,8 +1024,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     // or the full DB row. Cast away the "" from the short-circuit type.
     const link = bookingLink || undefined;
 
-    const session = await getSession(event);
-    const viewer = resolveSameOrgBookingViewer(session, link);
+    const viewer = await resolveBookingViewer(event, link);
 
     const hostEmail = (link as any)?.ownerEmail || (link as any)?.owner_email;
     if (!hostEmail) {
@@ -1126,6 +1145,19 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     // Check for conflicts + insert atomically in a transaction
     const db = getDb();
     const insertResult = await db.transaction(async (tx) => {
+      if (viewer) {
+        // The viewer row is the stable lock shared by every booking link in
+        // the viewer's org, including links owned by different hosts.
+        await tx
+          .update(orgMembers)
+          .set({ email: sql`${orgMembers.email}` })
+          .where(
+            and(
+              eq(orgMembers.orgId, viewer.orgId),
+              sql`lower(${orgMembers.email}) = ${viewer.email}`,
+            ),
+          );
+      }
       // Serialize booking creation per required host. The no-op write takes row
       // locks on each host's booking links without changing user-visible data.
       for (const email of requiredHostEmails) {
@@ -1443,8 +1475,7 @@ async function getAvailableSlotsForQuery(
     return { error: durationResult.error };
   }
   const duration = durationResult.duration;
-  const session = await getSession(event);
-  const viewer = resolveSameOrgBookingViewer(session, context.bookingLink);
+  const viewer = await resolveBookingViewer(event, context.bookingLink);
 
   if (hasRangeQuery) {
     const rangeStart = formatDateOnly(from!);
