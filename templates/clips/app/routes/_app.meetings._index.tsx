@@ -148,10 +148,20 @@ interface CalendarOAuthResult {
   accountId: string;
 }
 
-async function startCalendarOAuth(): Promise<CalendarOAuthResult | null> {
-  const r = await fetch(
-    agentNativePath("/_agent-native/actions/connect-calendar?provider=google"),
+async function startCalendarOAuth(
+  expectedAccountId?: string,
+): Promise<CalendarOAuthResult | null> {
+  const flowId = window.crypto.randomUUID();
+  const actionUrl = new URL(
+    agentNativePath("/_agent-native/actions/connect-calendar"),
+    window.location.origin,
   );
+  actionUrl.searchParams.set("provider", "google");
+  actionUrl.searchParams.set("flowId", flowId);
+  if (expectedAccountId) {
+    actionUrl.searchParams.set("calendarAccountId", expectedAccountId);
+  }
+  const r = await fetch(actionUrl);
   const text = await r.text();
   let data: {
     url?: string;
@@ -167,8 +177,6 @@ async function startCalendarOAuth(): Promise<CalendarOAuthResult | null> {
   const url = data.result?.url ?? data.url;
   if (!url) throw new Error("No OAuth URL returned");
   const authUrl = new URL(url, window.location.origin);
-  const flowId = window.crypto.randomUUID();
-  authUrl.searchParams.set("flow_id", flowId);
   const popupUrl = authUrl.toString();
   const popup = window.open(
     popupUrl,
@@ -203,7 +211,7 @@ async function startCalendarOAuth(): Promise<CalendarOAuthResult | null> {
     const onMessage = (event: MessageEvent) => {
       if (
         event.source !== popup ||
-        event.origin !== authUrl.origin ||
+        event.origin !== window.location.origin ||
         !event.data ||
         typeof event.data !== "object" ||
         event.data.type !== "agent-native:calendar-connected" ||
@@ -828,7 +836,7 @@ export default function MeetingsIndexRoute() {
       if (calendarConnectionInFlightRef.current) return;
       calendarConnectionInFlightRef.current = true;
       setIsCalendarConnectionInFlight(true);
-      void startCalendarOAuth()
+      void startCalendarOAuth(expectedAccountId)
         .then((result) => {
           if (result) {
             return handleCalendarConnected(result.accountId, expectedAccountId);

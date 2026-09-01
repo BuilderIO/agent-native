@@ -109,6 +109,11 @@ export async function handleGoogleCalendarCallback(
         ),
       );
     const accountId = existing?.id ?? randomUUID();
+    if (state.oauthTargetId && state.oauthTargetId !== accountId) {
+      return oauthErrorPage(
+        "The Google account does not match the calendar being reconnected.",
+      );
+    }
 
     // 4. Persist tokens in app_secrets (encrypted at rest). NEVER write
     //    tokens onto the calendar_accounts row. Existing rows may have stored
