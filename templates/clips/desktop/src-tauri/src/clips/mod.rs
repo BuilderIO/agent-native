@@ -10,8 +10,8 @@ use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder,
+    AppHandle, Emitter, Listener, Manager, PhysicalPosition, PhysicalSize, WebviewUrl,
+    WebviewWindow, WebviewWindowBuilder,
 };
 
 use crate::dlog;
@@ -50,6 +50,7 @@ static COUNTDOWN_CONTROL_TRACKING: AtomicBool = AtomicBool::new(false);
 // closes it. Cleared when the card is dismissed or the next session starts.
 static TOOLBAR_FINISHING: AtomicBool = AtomicBool::new(false);
 const BUBBLE_LABEL: &str = "bubble";
+const BUBBLE_DESTROYED_EVENT: &str = "clips:bubble-destroyed";
 const PREPARING_LABEL: &str = "preparing";
 const FINALIZING_LABEL: &str = "finalizing";
 const FLOW_BAR_LABEL: &str = "flow-bar";
@@ -1191,6 +1192,10 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
     let app_for_bounds = app.clone();
     let win_for_bounds = win.clone();
     win.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Destroyed) {
+            let _ = app_for_bounds.emit(BUBBLE_DESTROYED_EVENT, ());
+            return;
+        }
         if matches!(
             event,
             tauri::WindowEvent::Moved(_)
@@ -1340,6 +1345,22 @@ fn close_bubble_window(app: &AppHandle) {
     } else {
         dlog!("[clips-tray] close_bubble - no bubble window to close");
     }
+}
+
+async fn close_bubble_window_and_wait(app: &AppHandle) -> Result<(), String> {
+    let (closed_tx, closed_rx) = tokio::sync::oneshot::channel();
+    let listener = app.once(BUBBLE_DESTROYED_EVENT, move |_| {
+        let _ = closed_tx.send(());
+    });
+    if app.get_webview_window(BUBBLE_LABEL).is_none() {
+        app.unlisten(listener);
+        return Ok(());
+    }
+
+    close_bubble_window(app);
+    closed_rx
+        .await
+        .map_err(|_| "camera bubble destruction acknowledgement was dropped".to_string())
 }
 
 /// Close the camera bubble whenever the popover is no longer visible, except
@@ -2428,8 +2449,7 @@ pub async fn release_recording_state(app: AppHandle) -> Result<(), String> {
         }
     }
     crate::tray::rebuild_tray_menu(&app);
-    close_bubble_if_idle(&app);
-    Ok(())
+    close_bubble_window_and_wait(&app).await
 }
 
 /// Set from JS when a live meeting recording/transcription session starts or

@@ -2999,7 +2999,12 @@ export function App({
       bubbleStreamTransferredToRecorder.current = false;
       bubbleStreamRef.current?.getTracks().forEach((t) => t.stop());
       bubbleStreamRef.current = null;
-      setBubbleSessionEpoch((epoch) => epoch + 1);
+      // A native recording-start release is still waiting for the bubble's
+      // Destroyed event. Defer the re-acquire until that command has released
+      // the JS gate, or a replacement bubble can overlap WebKit teardown.
+      if (!recordingFlowGateRef.current) {
+        setBubbleSessionEpoch((epoch) => epoch + 1);
+      }
     })
       .then((u) => {
         if (cancelled) u();
@@ -3457,10 +3462,12 @@ export function App({
       // early return in this block.
       recordingFlowGateRef.current = true;
       const releaseRecordingFlowGate = async () => {
+        let released = false;
         try {
           // Clear the native guard and close an idle bubble in one native
           // command so a new start cannot interleave between those steps.
           await invoke("release_recording_state");
+          released = true;
         } catch (err) {
           console.error(
             "[clips-popover] could not release recording state:",
@@ -3468,6 +3475,9 @@ export function App({
           );
         } finally {
           recordingFlowGateRef.current = false;
+          if (released) {
+            setBubbleSessionEpoch((epoch) => epoch + 1);
+          }
         }
       };
       // Native blur cleanup also runs while the permission prompt or display
