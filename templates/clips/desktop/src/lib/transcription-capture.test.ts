@@ -115,4 +115,31 @@ describe("local recording transcription", () => {
     expect(shouldStartLocalRecordingTranscription(false)).toBe(false);
     expect(shouldStartLocalRecordingTranscription(true)).toBe(true);
   });
+
+  it("keeps active recording time continuous while a pause is excluded", () => {
+    let now = 1_000;
+    const timeline = __test.createActiveTimeline(() => now);
+
+    now = 6_000;
+    timeline.pause();
+    expect(timeline.current()).toBe(5_000);
+
+    now = 26_000;
+    expect(timeline.current()).toBe(5_000);
+
+    timeline.resume();
+    now = 29_000;
+    expect(timeline.current()).toBe(8_000);
+  });
+
+  it("rebases the active timeline to the actual recording start", () => {
+    let now = 1_000;
+    const timeline = __test.createActiveTimeline(() => now);
+
+    now = 4_000;
+    timeline.reset();
+    now = 5_250;
+
+    expect(timeline.current()).toBe(1_250);
+  });
 });

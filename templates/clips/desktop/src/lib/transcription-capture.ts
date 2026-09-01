@@ -35,6 +35,34 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function createActiveTimeline(now: () => number = Date.now) {
+  let elapsedMs = 0;
+  let running = true;
+  let runningSinceMs = now();
+
+  const current = () =>
+    elapsedMs + (running ? Math.max(0, now() - runningSinceMs) : 0);
+
+  return {
+    current,
+    pause() {
+      if (!running) return;
+      elapsedMs = current();
+      running = false;
+    },
+    resume() {
+      if (running) return;
+      runningSinceMs = now();
+      running = true;
+    },
+    reset(shouldRun: boolean = true) {
+      elapsedMs = 0;
+      runningSinceMs = now();
+      running = shouldRun;
+    },
+  };
+}
+
 export interface CapturedTranscript {
   /** Speaker-labelled text, lines joined by blank lines. */
   text: string;
@@ -339,6 +367,7 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
 }
 
 export const __test = {
+  createActiveTimeline,
   createWebSpeechTranscriptBuffer,
   startBrowserTranscriptionCapture,
 };
@@ -375,6 +404,7 @@ export async function startTranscriptionCapture(
   let pauseFinalsSettleUntil = 0;
   let transitionFailure: string | null = null;
   const unlistens: UnlistenFn[] = [];
+  const timeline = createActiveTimeline();
 
   const cleanup = () => {
     disposed = true;
@@ -453,7 +483,11 @@ export async function startTranscriptionCapture(
           await stopTranscriptionEngine(engine).catch(() => {});
           return;
         }
+        // A resumed Whisper capture is a fresh native session whose timestamps
+        // otherwise begin at zero. Rebase it to the recorder's active elapsed
+        // time, excluding the pause, before any new speech can finalize.
         paused = false;
+        await resetTranscriptionTimeline(engine, timeline.current());
         console.log(`[clips-recorder] transcription resumed (${engine})`);
       }
     } catch (err) {
@@ -513,16 +547,19 @@ export async function startTranscriptionCapture(
     },
     async pause() {
       if (disposed) return;
+      timeline.pause();
       desiredPaused = true;
       await applyAudioState();
     },
     async resume() {
       if (disposed) return;
+      timeline.resume();
       desiredPaused = false;
       await applyAudioState();
     },
     async resetTimeline() {
-      await resetTranscriptionTimeline(engine);
+      timeline.reset(!desiredPaused);
+      await resetTranscriptionTimeline(engine, timeline.current());
     },
   };
 }
