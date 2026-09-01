@@ -186,18 +186,17 @@ export default function TemplatesPage() {
                     </p>
                   ) : null}
                 </div>
+                <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-sm leading-[1.4] text-[var(--b-text-muted)]">
+                  {t("templatesPage.communityTrust")}{" "}
+                  <a
+                    href={sitePathForLocale("/docs/creating-templates", locale)}
+                    className="text-[var(--b-text-link)] underline underline-offset-2"
+                  >
+                    {t("templatesPage.publishGuide")}
+                  </a>
+                </p>
               </div>
             </div>
-
-            <p className="mt-8 max-w-[720px] font-[family-name:var(--b-font-sans)] text-sm leading-[1.4] text-[var(--b-text-muted)]">
-              {t("templatesPage.communityTrust")}{" "}
-              <a
-                href={sitePathForLocale("/docs/creating-templates", locale)}
-                className="text-[var(--b-text-link)] underline underline-offset-2"
-              >
-                {t("templatesPage.publishGuide")}
-              </a>
-            </p>
           </section>
         </GridInner>
       </PageSection>
