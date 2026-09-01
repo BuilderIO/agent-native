@@ -767,6 +767,7 @@ export default defineAction({
               runId,
               factoryRunId: runId,
               relatedItemIds: relatedItems.map(({ id }) => id),
+              ...(reactionName ? { slackReactionName: reactionName } : {}),
             },
           },
         );
@@ -888,6 +889,7 @@ export default defineAction({
             factoryRunId: runId,
             githubIssueNumber: issueNumber,
             githubIssueUrl: issueUrl,
+            ...(reactionName ? { slackReactionName: reactionName } : {}),
           },
         },
       );
@@ -927,6 +929,7 @@ export default defineAction({
             provider: "bot-tag",
             runId,
             factoryRunId: runId,
+            ...(reactionName ? { slackReactionName: reactionName } : {}),
           },
         },
       );

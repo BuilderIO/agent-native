@@ -214,6 +214,11 @@ export default defineAction({
           risk: risk ?? null,
           updatedAfter: updatedAfterBound ?? null,
           itemIds: listedItems.map((item) => item.itemId),
+          listedItems: listedItems.map((item) => ({
+            itemId: item.itemId,
+            status: item.status,
+            outcome: item.latestDecision?.outcome ?? null,
+          })),
         },
       },
       factoryId,

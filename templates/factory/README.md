@@ -94,8 +94,8 @@ bot replies with an inspectable Factory link when a human decision is required.
 Production expects a direct PostgreSQL `DATABASE_URL`,
 `WORKSPACE_OWNER_EMAIL`, and `FACTORY_PUBLIC_URL`. `AGENT_VAULT_ORG_ID` is
 optional and is only needed when the deployment owner cannot reach the existing
-Dispatch vault organization through membership. Factory automations use only
-the workspace Slack and GitHub connections. They do not read Builder AI
+Dispatch vault organization through membership. Factory automations use
+workspace Slack and GitHub connections, or the org vault. They do not read Builder AI
 services credentials, so this template is not locked to that vendor API.
 Clear Sentry bugs become a GitHub issue in the factory repository, then tag
 `@builderio-bot` the same way GitHub-issue dispatch does.
