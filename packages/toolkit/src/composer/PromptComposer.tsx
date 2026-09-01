@@ -745,6 +745,7 @@ function PromptComposerInner({
           onTextChange={onTextChange}
           draftScope={draftScope}
           selectedModel={composerModel}
+          selectedEngine={composerEngine}
           modelSelectorOpen={modelSelectorOpen}
           selectedEffort={composerEffort}
           availableModels={composerModelGroups}
@@ -777,7 +778,7 @@ function PromptComposerInner({
  * its own minimal assistant-ui runtime so it can be dropped into any subtree
  * without needing the outer chat to be mounted.
  */
-export function PromptComposer(props: PromptComposerProps) {
+function PromptComposerRuntime(props: PromptComposerProps) {
   const StaleIndexBoundary =
     useComposerRuntimeAdapters().agentChat!.StaleIndexBoundary!;
   const attachmentAdapter = useMemo(
@@ -815,4 +816,8 @@ export function PromptComposer(props: PromptComposerProps) {
       </AssistantRuntimeProvider>
     </TooltipProvider>
   );
+}
+
+export function PromptComposer(props: PromptComposerProps) {
+  return <PromptComposerRuntime key={props.draftScope ?? ""} {...props} />;
 }

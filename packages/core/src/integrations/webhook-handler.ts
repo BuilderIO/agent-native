@@ -49,6 +49,7 @@ import {
 } from "../agent/thread-data-builder.js";
 import { attachToolSearch } from "../agent/tool-search.js";
 import type { ContinuationReason } from "../agent/types.js";
+import type { ArtifactReceipt } from "../artifacts/detect.js";
 import {
   createThread,
   getThread,
@@ -58,6 +59,7 @@ import {
 import { updateThreadData } from "../chat-threads/store.js";
 import { getOrgA2ASecret, resolveOrgIdForEmail } from "../org/context.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
+import { getAppProductionUrl } from "../server/app-url.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { resolveSelfDispatchBaseUrl } from "../server/self-dispatch.js";
 import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.js";
@@ -196,6 +198,7 @@ type ToolDoneEvent = {
   result: string;
   isError?: boolean;
   completedSideEffect?: boolean;
+  artifacts?: ArtifactReceipt[];
 };
 
 export type IntegrationResponseDeliveryTaskPayload = {
@@ -349,6 +352,7 @@ function collectToolResultSummaries(
       result: event.result,
       isError: event.isError,
       completedSideEffect: event.completedSideEffect,
+      artifacts: event.artifacts,
     }));
 }
 
@@ -363,7 +367,11 @@ function collectCompletedMutationToolResultSummaries(
         event.completedSideEffect === true &&
         event.isError !== true,
     )
-    .map((event) => ({ tool: event.tool, result: event.result }));
+    .map((event) => ({
+      tool: event.tool,
+      result: event.result,
+      artifacts: event.artifacts,
+    }));
 }
 
 export type ResolvedIntegrationApiKey = ResolvedOwnerApiKey;
@@ -1416,7 +1424,7 @@ async function processIncomingMessage(
           // fallback. A completed write must not be reported as though nothing
           // happened merely because the model ran out of time before its prose
           // summary. Read-only and unverified tool results do not qualify.
-          const baseUrl = process.env.APP_URL || process.env.URL || "";
+          const baseUrl = getAppProductionUrl(undefined, { fallback: "" });
           const appBaseUrl = baseUrl ? withConfiguredAppBasePath(baseUrl) : "";
           const toolResults = collectToolResultSummaries(completedRun);
           const verifiedMutationReceipt = buildA2AVerifiedMutationReceipt(

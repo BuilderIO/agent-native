@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { importFigmaClipboardFromBuffer } from "../server/lib/figma-clipboard-local-decode.js";
 import {
   buildFigmaNodeCandidates,
@@ -15,7 +16,10 @@ import {
   summarizeFidelity,
 } from "../server/lib/figma-node-import.js";
 import { saveFigmaPasteHtmlFallback } from "../server/lib/figma-paste-fallback.js";
-import { saveImportedDesignFiles } from "../server/lib/import-design-files.js";
+import {
+  resolveImportDesignId,
+  saveImportedDesignFiles,
+} from "../server/lib/import-design-files.js";
 import { parseVisibleClipboardHtml } from "../server/lib/visible-clipboard-html.js";
 import { parseFigmaFileKey } from "../shared/figma-url.js";
 
@@ -125,20 +129,24 @@ export default defineAction({
       ),
     originalName: z.string().optional(),
   }),
-  run: async ({
-    designId,
-    figmetaFileKey,
-    selectedNodeIds,
-    selectedNodeIdsTruncated,
-    clipboardHtml,
-    clipboardBuffer,
-    clipboardBufferOmittedBytes,
-    originalName,
-  }) => {
+  run: async (
+    {
+      designId,
+      figmetaFileKey,
+      selectedNodeIds,
+      selectedNodeIdsTruncated,
+      clipboardHtml,
+      clipboardBuffer,
+      clipboardBufferOmittedBytes,
+      originalName,
+    },
+    context,
+  ) => {
     const fileKey = parseFigmaFileKey(figmetaFileKey);
     if (!fileKey) {
       throw new Error("The clipboard's Figma file key could not be parsed.");
     }
+    const resolvedDesignId = await resolveImportDesignId(designId);
 
     // Current Figma clipboard HTML commonly contains only figmeta + the
     // private binary figma buffer, with no visible HTML at all. Exact REST ids
@@ -161,8 +169,9 @@ export default defineAction({
         const nodesById = await fetchFigmaNodes(fileKey, selectedNodeIds);
         const { files, fidelityEntries, omissionWarnings } =
           await buildScreenFilesFromFigmaNodes(fileKey, nodesById);
+        await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
         const saved = await saveImportedDesignFiles({
-          designId,
+          designId: resolvedDesignId,
           sourceType: "figma-clipboard-rest",
           files,
         });
@@ -209,8 +218,9 @@ export default defineAction({
         const nodesById = await fetchFigmaNodes(fileKey, nodeIds);
         const { files, fidelityEntries, omissionWarnings } =
           await buildScreenFilesFromFigmaNodes(fileKey, nodesById);
+        await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
         const saved = await saveImportedDesignFiles({
-          designId,
+          designId: resolvedDesignId,
           sourceType: "figma-clipboard-rest",
           files,
         });
@@ -271,8 +281,9 @@ export default defineAction({
           originalName,
         });
         if (localResult.files.length > 0) {
+          await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
           const saved = await saveImportedDesignFiles({
-            designId,
+            designId: resolvedDesignId,
             sourceType: "figma-clipboard-local-kiwi",
             files: localResult.files,
           });
@@ -325,7 +336,7 @@ export default defineAction({
         ? "Nothing was imported."
         : "This Figma clipboard carried no exact node ids and no browser-readable HTML, so nothing was imported. Paste a frame link, or import the .fig file, for an exact import.";
       return {
-        designId,
+        designId: resolvedDesignId,
         files: [],
         warnings: [],
         strategy: "htmlFallback" as const,
@@ -338,8 +349,9 @@ export default defineAction({
       };
     }
 
+    await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
     const saved = await saveFigmaPasteHtmlFallback({
-      designId,
+      designId: resolvedDesignId,
       clipboardHtml,
       originalName,
     });

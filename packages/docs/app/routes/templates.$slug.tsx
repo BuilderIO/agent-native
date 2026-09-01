@@ -149,6 +149,7 @@ export default function GenericTemplatePage() {
           </span>
         }
         title={t("templateDetail.title", { name: template.name })}
+        customizeTemplate={template}
         description={<p className="m-0">{description}</p>}
         headingAction={
           hasDemoUrl ? (

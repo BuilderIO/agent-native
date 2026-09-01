@@ -1,4 +1,5 @@
-import { Spinner } from "@/components/ui/spinner";
+import { DefaultSpinner } from "@agent-native/core/client/ui";
+
 import { APP_TITLE } from "@/lib/app-config";
 import { planDocumentTitle } from "@/lib/plan-document-title";
 import { PlansPage } from "@/pages/PlansPage";
@@ -38,11 +39,7 @@ export const meta: Route.MetaFunction = ({ loaderData }) => {
 };
 
 export function HydrateFallback() {
-  return (
-    <div className="flex h-screen w-full items-center justify-center">
-      <Spinner className="size-8 text-foreground" />
-    </div>
-  );
+  return <DefaultSpinner />;
 }
 
 export default function PlanRoute() {

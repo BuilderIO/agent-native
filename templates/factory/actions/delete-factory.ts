@@ -19,18 +19,15 @@ import {
   DEFAULT_FACTORY_ID,
   readFactoryDefinition,
 } from "../server/factory-graph/store.js";
-import { resolveEnabledAutomationsFromSavedConfig } from "../server/lib/factory-automation-plan.js";
-import {
-  factoryIdSchema,
-  readTriageConfigRow,
-} from "../server/lib/factory-scope.js";
+import { factoryIdSchema } from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
 import {
-  ensureFactoryAutomations,
   removeFactoryAutomationResources,
+  restoreFactoryAutomationSnapshots,
+  snapshotFactoryAutomations,
 } from "../server/plugins/factory-scheduler-job.js";
 
 export default defineAction({
@@ -56,22 +53,17 @@ export default defineAction({
       throw new Error("Factory name confirmation does not match.");
     }
 
-    const config = await readTriageConfigRow(getDb(), orgId, factoryId);
-    const enabledNames = resolveEnabledAutomationsFromSavedConfig({
-      pollingEnabled: config?.pollingEnabled ?? 0,
-      githubPollingEnabled: config?.githubPollingEnabled ?? 0,
-      sentryPollingEnabled: config?.sentryPollingEnabled ?? 0,
-      slackChannelId: config?.slackChannelId,
-      repository: config?.repository,
-      sentryOrgSlug: config?.sentryOrgSlug,
-      sentryProjectSlug: config?.sentryProjectSlug,
-    });
+    const snapshots = await snapshotFactoryAutomations(
+      userEmail,
+      orgId,
+      factoryId,
+    );
 
     const db = getDb();
     try {
       // Remove schedules before SQL so no new run can start; restore both if
       // either step fails so a partial cleanup cannot disable a surviving Factory.
-      await removeFactoryAutomationResources(orgId, factoryId);
+      await removeFactoryAutomationResources(orgId, factoryId, userEmail);
       await db.transaction(async (tx) => {
         const deleted = await tx
           .delete(factoryDefinitions)
@@ -122,9 +114,7 @@ export default defineAction({
       });
     } catch (error) {
       try {
-        await ensureFactoryAutomations(userEmail, orgId, factoryId, {
-          enabledNames,
-        });
+        await restoreFactoryAutomationSnapshots(orgId, snapshots);
       } catch (repairError) {
         throw new Error(
           `Factory deletion failed and its automations could not be restored. Deletion error: ${
@@ -154,9 +144,7 @@ export default defineAction({
     }
     if (remaining) {
       try {
-        await ensureFactoryAutomations(userEmail, orgId, factoryId, {
-          enabledNames,
-        });
+        await restoreFactoryAutomationSnapshots(orgId, snapshots);
       } catch (repairError) {
         throw new Error(
           `Factory still exists and its automations could not be restored. Restore error: ${

@@ -1,4 +1,7 @@
-import type { BuilderConnectStartOptions } from "@agent-native/core/client/settings";
+import type {
+  BuilderConnectFlow,
+  BuilderConnectStartOptions,
+} from "@agent-native/core/client/settings";
 
 /**
  * The Builder.io connection as the settings sections need it. Video storage
@@ -11,4 +14,5 @@ export interface BuilderConnection {
   connecting: boolean;
   orgName: string | null;
   start: (options?: BuilderConnectStartOptions) => void;
+  connectFlow: BuilderConnectFlow;
 }

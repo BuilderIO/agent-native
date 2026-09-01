@@ -753,7 +753,7 @@ export default function Index() {
         typeof window !== "undefined" &&
         deckIdFromPathname(window.location.pathname) === deckId
       ) {
-        void navigate("/", {
+        void navigate("/home", {
           replace: true,
           state: {
             retryPrompt: prompt,
@@ -1509,7 +1509,7 @@ export default function Index() {
         // there, send them back to the deck list instead of stranding them
         // on a "Deck unavailable" screen for a deck that no longer exists.
         if (deckIdFromPathname(window.location.pathname) === newId) {
-          void navigate("/");
+          void navigate("/home");
         }
         toast.error(t("home.duplicateFailed"));
       });
@@ -1859,7 +1859,7 @@ function DeckSearchInput({
   const t = useT();
   return (
     <label
-      className={`flex h-8 min-w-0 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground ${className}`}
+      className={`flex h-9 min-w-0 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground ${className}`}
     >
       <IconSearch className="size-3.5 shrink-0" aria-hidden="true" />
       <Input

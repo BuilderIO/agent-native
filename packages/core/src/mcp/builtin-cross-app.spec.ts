@@ -437,8 +437,10 @@ describe("ask_app — honest routing metadata", () => {
     expect(askAgent).not.toHaveBeenCalled();
     expect(sendSpy).toHaveBeenCalledWith(
       { role: "user", parts: [{ type: "text", text: "hello" }] },
-      {
+      expect.objectContaining({
         async: true,
+        deadlineMs: expect.any(Number),
+        idempotencyKey: expect.stringMatching(/^ask-app:/),
         metadata: {
           userEmail: "caller@acme.com",
           orgDomain: "acme.com",
@@ -447,7 +449,7 @@ describe("ask_app — honest routing metadata", () => {
         approvedActions: [
           { tool: "send-email", input: { to: "alice@example.test" } },
         ],
-      },
+      }),
     );
     expect(result).toMatchObject({
       app: "mail",
@@ -459,6 +461,52 @@ describe("ask_app — honest routing metadata", () => {
         arguments: { app: "mail", taskId: "task-1" },
       },
     });
+  });
+
+  it("reuses the MCP request idempotency key across transport retries", async () => {
+    vi.spyOn(callerAuth, "resolveA2ACallerAuth").mockResolvedValue({
+      apiKey: "signed-org-jwt",
+      userEmail: "caller@acme.com",
+      orgId: "org-1",
+      orgDomain: "acme.com",
+      orgSecret: "org-secret",
+      metadata: {},
+    });
+    const sendSpy = vi
+      .spyOn(a2aClient.A2AClient.prototype, "send")
+      .mockResolvedValue({
+        id: "task-1",
+        status: { state: "working", timestamp: "2026-06-15T00:00:00Z" },
+        history: [],
+        artifacts: [],
+      } as any);
+    const tools = getBuiltinCrossAppTools(
+      baseConfig({ appId: "mail", askAgent: async () => "unused" }),
+      { origin: "https://mail.example.com" },
+    );
+    const input = { app: "mail", message: "retry me", async: true };
+
+    await runWithRequestContext(
+      {
+        userEmail: "caller@acme.com",
+        orgId: "org-1",
+        mcpRequestId: "session-1:42",
+      },
+      () => tools.ask_app.run(input),
+    );
+    await runWithRequestContext(
+      {
+        userEmail: "caller@acme.com",
+        orgId: "org-1",
+        mcpRequestId: "session-1:42",
+      },
+      () => tools.ask_app.run(input),
+    );
+
+    expect(sendSpy).toHaveBeenCalledTimes(2);
+    expect(sendSpy.mock.calls[0]?.[1]?.idempotencyKey).toBe(
+      sendSpy.mock.calls[1]?.[1]?.idempotencyKey,
+    );
   });
 
   it("polls hosted ask_app tasks by task id", async () => {
@@ -796,7 +844,7 @@ describe("ask_app — bounded deadline & retry behavior for the hosted A2A poll 
     expect(result).toMatchObject({ taskId: "task-neg", status: "working" });
   });
 
-  it("clamps maxWaitMs above the 25s ceiling down to 25000", async () => {
+  it("clamps maxWaitMs above the 20s ceiling down to 20000", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     mockCallerAuth();
@@ -820,13 +868,13 @@ describe("ask_app — bounded deadline & retry behavior for the hosted A2A poll 
       maxWaitMs: 999_999,
     });
 
-    await vi.advanceTimersByTimeAsync(25_000);
+    await vi.advanceTimersByTimeAsync(20_000);
 
     await expect(resultPromise).resolves.toMatchObject({
       taskId: "task-clamped-high",
       status: "working",
     });
-    expect(Date.now()).toBe(25_000);
+    expect(Date.now()).toBe(20_000);
     expect(getTaskSpy).toHaveBeenCalledTimes(1);
   });
 

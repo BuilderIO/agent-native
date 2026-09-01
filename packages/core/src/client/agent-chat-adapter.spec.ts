@@ -217,6 +217,54 @@ describe("createAgentChatAdapter", () => {
     expect(getPendingTurn("thread-pending")).toBeNull();
   });
 
+  it("falls back to the same-origin route when direct streaming cannot start", async () => {
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat/stream-token") {
+        return jsonResponse({ token: "stream-token" });
+      }
+      if (
+        url === "https://stream.example.test/_agent-native/agent-chat-stream" &&
+        init?.method === "POST"
+      ) {
+        throw new TypeError("Failed to fetch");
+      }
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        return sseResponse([
+          { type: "text", text: "primary route" },
+          { type: "done" },
+        ]);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      streamingUrl:
+        "https://stream.example.test/_agent-native/agent-chat-stream",
+      tabId: "chat-stream-fallback",
+    });
+
+    const results = await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Use the primary route" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(fetchSpy.mock.calls.map(([url]) => url)).toEqual([
+      "/_agent-native/agent-chat/stream-token",
+      "https://stream.example.test/_agent-native/agent-chat-stream",
+      "/_agent-native/agent-chat",
+    ]);
+    expect((results.at(-1) as any).content.at(-1).text).toBe("primary route");
+  });
+
   it("consumes a 200 JSON response while checking auth errors", async () => {
     const response = jsonResponse({ error: "Authentication required" });
     const fetchSpy = vi
@@ -768,6 +816,42 @@ describe("createAgentChatAdapter", () => {
         detail: { isRunning: false, tabId: "chat-qa" },
       }),
     );
+  });
+
+  it("sends the assistant-ui parent when regenerating a message", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-regenerate",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "try again" }],
+          },
+          {
+            id: "assistant-original",
+            role: "assistant",
+            content: [{ type: "text", text: "Original answer." }],
+          },
+        ],
+        unstable_parentId: "user-1",
+        abortSignal: new AbortController().signal,
+        runConfig: {},
+      } as any),
+    );
+
+    expect(JSON.parse(fetchSpy.mock.calls[0][1].body)).toMatchObject({
+      parentId: "user-1",
+      message: "try again",
+      threadId: "thread-regenerate",
+    });
   });
 
   it("does not publish terminal cleanup after another run claims active state", async () => {
@@ -2034,6 +2118,46 @@ describe("createAgentChatAdapter", () => {
       threadId: "thread-bg",
       trackInRunsTray: true,
     });
+  });
+
+  it("sends the run config's usage label with the chat request", async () => {
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-label",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Enrich this record" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+        runConfig: {
+          custom: { usageLabel: "  crm:enrich-record  " },
+        },
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.usageLabel).toBe("crm:enrich-record");
   });
 
   it("keeps recovery prompts from replacing the original user request", async () => {

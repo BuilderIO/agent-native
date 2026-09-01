@@ -25,24 +25,6 @@ describe("PresenceBar", () => {
     vi.unstubAllGlobals();
   });
 
-  it("gives the integrated AI editing label space after the avatar", () => {
-    act(() => {
-      root.render(
-        <PresenceBar
-          activeUsers={[]}
-          agentPresent
-          agentActive
-          showAgentEditingDot={false}
-        />,
-      );
-    });
-
-    const label = Array.from(container.querySelectorAll("span")).find(
-      (element) => element.textContent === "AI editing",
-    );
-    expect(label?.style.padding).toBe("0px 0px 0px 2px");
-  });
-
   it("shows AI initials with an editing tooltip", () => {
     vi.useFakeTimers();
     act(() => {
@@ -53,6 +35,7 @@ describe("PresenceBar", () => {
       '[aria-label="AI is editing"]',
     );
     expect(avatar?.textContent).toBe("AI");
+    expect(container.textContent).toBe("AI");
 
     act(() => {
       avatar?.dispatchEvent(new Event("pointermove", { bubbles: true }));

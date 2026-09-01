@@ -763,6 +763,7 @@ export interface McpIntegrationsSectionProps {
   showHeader?: boolean;
   className?: string;
   onOAuthStart?: (url: string) => void | Promise<void>;
+  oauthReady?: boolean;
   oauthReturnPath?: string;
 }
 
@@ -775,6 +776,7 @@ export function McpIntegrationsSection({
   showHeader = true,
   className,
   onOAuthStart,
+  oauthReady,
   oauthReturnPath,
 }: McpIntegrationsSectionProps) {
   const t = useT();
@@ -968,11 +970,6 @@ export function McpIntegrationsSection({
           Could not load connected agent integrations. The catalog is still
           available.
         </p>
-      ) : serversQuery.isLoading ? (
-        <div className="space-y-3 rounded-xl border border-border/70 bg-card px-4 py-4">
-          <div className="h-5 w-1/2 animate-pulse rounded bg-muted" />
-          <div className="h-5 w-3/4 animate-pulse rounded bg-muted" />
-        </div>
       ) : servers.length > 0 && !normalizedQuery ? (
         <section className="space-y-2">
           <h3 className="text-sm font-semibold text-foreground">Installed</h3>
@@ -1102,6 +1099,7 @@ export function McpIntegrationsSection({
         hasOrg={hasOrg}
         onCreateMcpServer={(args) => createServer.mutateAsync(args)}
         onOAuthStart={onOAuthStart}
+        oauthReady={oauthReady}
         oauthReturnPath={oauthReturnPath}
       />
     </section>

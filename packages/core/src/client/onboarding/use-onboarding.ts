@@ -109,7 +109,9 @@ export function useOnboarding(
             dispatchFirstRunOnboardingStatus(value);
             return value;
           })
-        : fetchFirstRunOnboardingStatus();
+        : initialFirstRun
+          ? Promise.resolve(true)
+          : fetchFirstRunOnboardingStatus();
       const [stepsRes, dismissRes, profileRes, firstRunRes] = await Promise.all(
         [
           fetch(stepsUrl),
@@ -148,7 +150,7 @@ export function useOnboarding(
 
       if (preview) {
         setFirstRun(true);
-      } else {
+      } else if (!initialFirstRun) {
         setFirstRun(firstRunRes === true);
       }
 

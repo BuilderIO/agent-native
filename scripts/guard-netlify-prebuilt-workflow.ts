@@ -4,6 +4,7 @@ import { parse } from "yaml";
 
 const reusablePath = ".github/workflows/deploy-netlify-prebuilt.yml";
 const clipsNetlifyPath = "templates/clips/netlify.toml";
+const chatNetlifyPath = "templates/chat/netlify.toml";
 const productionPath = ".github/workflows/deploy-production-sites-prebuilt.yml";
 const betaPath = ".github/workflows/deploy-beta-sites-prebuilt.yml";
 const manageProductionPath = ".github/workflows/manage-production-sites.yml";
@@ -18,6 +19,7 @@ export const PRODUCTION_PURGE_CONDITION =
 
 const reusable = readFileSync(reusablePath, "utf8");
 const clipsNetlify = readFileSync(clipsNetlifyPath, "utf8");
+const chatNetlify = readFileSync(chatNetlifyPath, "utf8");
 const production = readFileSync(productionPath, "utf8");
 const beta = readFileSync(betaPath, "utf8");
 const manageProduction = readFileSync(manageProductionPath, "utf8");
@@ -94,6 +96,85 @@ export function validateProductionSiteConcurrency(workflows: {
   return issues;
 }
 
+export function validateGoogleCallbackVerificationWorkflow(
+  workflow: string,
+): string[] {
+  const issues: string[] = [];
+  const verifyStart = workflow.indexOf(
+    "name: Verify Google OAuth redirect registration",
+  );
+  const rollbackStart = workflow.indexOf(
+    "name: Roll back after Google callback verification failure",
+    verifyStart,
+  );
+  const failStart = workflow.indexOf(
+    "name: Fail after Google callback verification",
+    rollbackStart,
+  );
+  const verify =
+    verifyStart >= 0 && rollbackStart > verifyStart
+      ? workflow.slice(verifyStart, rollbackStart)
+      : "";
+  const rollback =
+    rollbackStart >= 0 && failStart > rollbackStart
+      ? workflow.slice(rollbackStart, failStart)
+      : "";
+
+  if (!verify) {
+    issues.push(
+      `${reusablePath} must verify Google OAuth after publishing a deploy`,
+    );
+  } else {
+    if (
+      !verify.includes(
+        "node --experimental-strip-types scripts/check-google-redirect-uris.ts",
+      )
+    ) {
+      issues.push(
+        `${reusablePath} Google OAuth verification must run the probe directly with the supported Node loader`,
+      );
+    }
+    if (verify.includes("pnpm check:google-redirect-uris")) {
+      issues.push(
+        `${reusablePath} Google OAuth verification must not depend on a package-script indirection`,
+      );
+    }
+    if (verify.includes("source_template != 'macros'")) {
+      issues.push(
+        `${reusablePath} Google OAuth verification must use the deployed capability contract instead of a template allowlist`,
+      );
+    }
+  }
+
+  if (
+    !rollback ||
+    !rollback.includes("steps.google_redirect.outcome == 'failure'") ||
+    !rollback.includes("steps.google_redirect.outputs.exit_code == '1'")
+  ) {
+    issues.push(
+      `${reusablePath} must roll back only definitive Google OAuth mismatches (exit code 1); inconclusive checks must not roll back`,
+    );
+  }
+  return issues;
+}
+
+export function validateNetlifyApiRateLimitHandling(
+  workflow: string,
+): string[] {
+  const issues: string[] = [];
+  if (!workflow.includes("scripts/netlify-api-request.ts")) {
+    issues.push(
+      `${reusablePath} Netlify API calls must use the bounded rate-limit helper`,
+    );
+  }
+  if (workflow.includes("fetch(")) {
+    issues.push(
+      `${reusablePath} must not make raw Netlify fetch calls outside the rate-limit helper`,
+    );
+  }
+  return issues;
+}
+
 try {
   for (const [path, source] of [
     [reusablePath, reusable],
@@ -143,6 +224,18 @@ const clipsBuild =
   buildStepStart >= 0 && buildStepEnd > buildStepStart
     ? reusable.slice(buildStepStart, buildStepEnd)
     : "";
+const hasProductionChatBuildOverride =
+  clipsBuild.includes(
+    'if [[ "$TARGET" == "production" && "$SOURCE_TEMPLATE" == "chat" ]];',
+  ) &&
+  chatNetlify.includes("agentNativePrebuiltBuild") &&
+  chatNetlify.includes("agentNativePrebuiltDatabaseUrl") &&
+  chatNetlify.includes("agentNativePrebuiltAuthSecret");
+if (!hasProductionChatBuildOverride) {
+  issues.push(
+    `${reusablePath} and ${chatNetlifyPath} must provide a production Chat build-only override for masked Netlify secrets`,
+  );
+}
 const hasClipsAndPlanBuildOverride = clipsBuild.includes(
   '[[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" ]]',
 );
@@ -216,6 +309,9 @@ const parsedStepIndex = (name: string) =>
 const parsedPauseIndex = parsedStepIndex(
   "Pause automatic Netlify builds for production cutover",
 );
+const parsedClipsMigrationIndex = parsedStepIndex(
+  "Run Clips release migrations",
+);
 const parsedUnlockIndex = parsedStepIndex(
   "Unlock the published production deploy",
 );
@@ -231,6 +327,22 @@ const parsedResumeIndex = parsedStepIndex(
 const parsedCleanupIndex = parsedStepIndex(
   "Restore the production deploy lock after a failed cutover",
 );
+issues.push(...validateGoogleCallbackVerificationWorkflow(reusable));
+issues.push(...validateNetlifyApiRateLimitHandling(reusable));
+const parsedClipsMigrationIf = reusableSteps[parsedClipsMigrationIndex]?.if;
+if (
+  parsedClipsMigrationIndex < 0 ||
+  typeof parsedClipsMigrationIf !== "string" ||
+  !parsedClipsMigrationIf.includes("inputs.target == 'production'") ||
+  !parsedClipsMigrationIf.includes("inputs.deploy") ||
+  !parsedClipsMigrationIf.includes("inputs.deploy_mode == 'production'") ||
+  !parsedClipsMigrationIf.includes("source_template == 'clips'") ||
+  !reusable.includes("CLIPS_DATABASE_URL")
+) {
+  issues.push(
+    `${reusablePath} must run Clips release migrations against CLIPS_DATABASE_URL before a production prebuilt deploy`,
+  );
+}
 if (
   parsedPauseIndex < 0 ||
   parsedUnlockIndex < 0 ||
@@ -363,7 +475,7 @@ if (purgeStart < 0 || purgeEnd <= purgeStart) {
   const purge = reusable.slice(purgeStart, purgeEnd);
   if (
     !purge.includes('const api = "https://api.netlify.com/api/v1"') ||
-    !purge.includes("fetch(`${api}/purge`") ||
+    !purge.includes("requestNetlifyApi(`${api}/purge`") ||
     !purge.includes('method: "POST"') ||
     !purge.includes(
       "JSON.stringify({ site_id: process.env.NETLIFY_SITE_ID })",

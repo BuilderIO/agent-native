@@ -1,6 +1,10 @@
 import { getAppConfig } from "../app-config/index.js";
 import { isLocalDatabase } from "../db/client.js";
 import { signInternalToken } from "../integrations/internal-token.js";
+import {
+  SYNTHETIC_TRAFFIC_BETA_E2E,
+  SYNTHETIC_TRAFFIC_HEADER,
+} from "../shared/test-traffic.js";
 /**
  * Shared self-dispatch helper for the framework's serverless background-work
  * pattern: enqueue a unit of work to SQL, then fire a fresh HTTP POST back to
@@ -27,6 +31,7 @@ import {
   getConfiguredAppBasePath,
   withConfiguredAppBasePath,
 } from "./app-base-path.js";
+import { getRequestContext } from "./request-context.js";
 
 /**
  * On serverless, returning from the dispatching handler before the outbound
@@ -178,6 +183,9 @@ export async function fireInternalDispatch(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
+  if (getRequestContext()?.isSyntheticTraffic === true) {
+    headers[SYNTHETIC_TRAFFIC_HEADER] = SYNTHETIC_TRAFFIC_BETA_E2E;
+  }
   try {
     headers["Authorization"] = `Bearer ${signInternalToken(options.taskId)}`;
   } catch (err) {

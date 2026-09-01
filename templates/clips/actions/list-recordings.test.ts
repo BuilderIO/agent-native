@@ -15,6 +15,43 @@ const mockFrom = vi.hoisted(() =>
 const mockDb = vi.hoisted(() => ({
   select: vi.fn(() => ({ from: mockFrom })),
 }));
+const makeLazyDbProxy = vi.hoisted(
+  () =>
+    function makeLazyDbProxy(
+      realDb: any,
+      chain: Array<{ prop: string | symbol; args?: any[] }> = [],
+    ): any {
+      return new Proxy(function () {} as any, {
+        get(_target, prop) {
+          if (prop === "then" || prop === "catch" || prop === "finally") {
+            const promise = Promise.resolve().then(() => {
+              let result: any = realDb;
+              for (const step of chain) {
+                const value = result[step.prop];
+                result =
+                  typeof value === "function"
+                    ? value.apply(result, step.args)
+                    : value;
+              }
+              return result;
+            });
+            return (promise as any)[prop].bind(promise);
+          }
+          if (prop === "getSQL" || prop === "shouldOmitSQLParens") {
+            throw new Error("unresolved query chain");
+          }
+          return makeLazyDbProxy(realDb, [...chain, { prop }]);
+        },
+        apply(_target, _thisArg, args) {
+          const last = chain[chain.length - 1];
+          return makeLazyDbProxy(realDb, [
+            ...chain.slice(0, -1),
+            { prop: last!.prop, args },
+          ]);
+        },
+      });
+    },
+);
 const mockNot = vi.hoisted(() =>
   vi.fn((value: unknown) => ({ kind: "not", value })),
 );
@@ -47,11 +84,10 @@ vi.mock("drizzle-orm", () => ({
   isNotNull: (column: unknown) => ({ kind: "is-not-null", column }),
   isNull: (column: unknown) => ({ kind: "is-null", column }),
   not: (...args: unknown[]) => mockNot(...args),
-  notInArray: (column: unknown, values: unknown) => ({
-    kind: "not-in-array",
-    column,
-    values,
-  }),
+  notInArray: (column: unknown, values: unknown) => {
+    typeof (values as { getSQL?: unknown }).getSQL;
+    return { kind: "not-in-array", column, values };
+  },
   sql: (strings: TemplateStringsArray) => ({
     kind: "sql",
     text: strings.join("?"),
@@ -59,7 +95,7 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 vi.mock("../server/db/index.js", () => ({
-  getDb: () => mockDb,
+  getDb: () => makeLazyDbProxy(mockDb),
   schema: {
     meetings: {
       recordingId: "meetings.recordingId",

@@ -237,7 +237,7 @@ export default defineConfig({
     },
     build: {
       rollupOptions: {
-        external: ["electron", /^electron\/.+/],
+        external: ["electron", /^electron\/.+/, "node-pty"],
         input: {
           index: resolve("src/main/index.ts"),
           "browser-control-host": resolve(

@@ -47,7 +47,6 @@ import {
   type DesktopLocalAgentId,
 } from "../lib/desktop-local-agent-runtime.js";
 import type { AppWebviewAuthState } from "./AppWebview.js";
-const desktopChatQueryClient = createAgentNativeQueryClient();
 
 type DesktopChatModelGroup = {
   engine: string;
@@ -76,6 +75,7 @@ export interface DesktopAppChatShellProps {
   appId: string;
   appName: string;
   children: ReactNode;
+  onOpenSettings?: (section?: string) => void;
   desktopIdentityUnauthenticated?: boolean;
   desktopIdentityAuthenticated?: boolean;
   desktopIdentityStatus?: DesktopIdentityStatus | "checking";
@@ -83,36 +83,40 @@ export interface DesktopAppChatShellProps {
   isActive?: boolean;
   chatEnabled?: boolean;
   toggleScopeId?: string;
+  onNewCliTab?: () => void;
+  onNewUiTab?: () => void;
+  newTabMode?: "ui" | "cli";
   onLocalCodeChangeStarted?: (
     result: DesktopPrepareLocalCodeChangeResult,
   ) => void;
 }
 
-const DESKTOP_APP_CHAT_OPEN_STORAGE_KEY =
-  "agent-native.desktop-app-chat.sidebar-open";
-
-function wasDesktopAppChatSidebarOpenBeforeMount(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return (
-      window.localStorage.getItem(DESKTOP_APP_CHAT_OPEN_STORAGE_KEY) === "true"
-    );
-    // coercion-ok: localStorage may be unavailable; replaying the entrance is the safe fallback.
-  } catch {
-    return false;
+export function desktopSettingsTabForSection(section?: string | null): string {
+  const normalized = section?.replace(/^#/, "").trim().toLowerCase() ?? "";
+  if (normalized === "terminal") return "terminal";
+  if (normalized === "llm" || normalized === "app-models") return "providers";
+  if (
+    normalized === "integrations" ||
+    normalized === "connections" ||
+    normalized.startsWith("secrets:") ||
+    normalized === "secrets" ||
+    normalized === "email" ||
+    normalized === "browser"
+  ) {
+    return "connections";
   }
-}
-
-export function shouldAnimateDesktopAppChatSidebar(input: {
-  isActive: boolean;
-  hasSwitchedAway: boolean;
-  chatSidebarWasOpenBeforeMount?: boolean;
-}): boolean {
-  return (
-    input.isActive &&
-    !input.hasSwitchedAway &&
-    !input.chatSidebarWasOpenBeforeMount
-  );
+  if (
+    normalized === "hosting" ||
+    normalized === "database" ||
+    normalized === "uploads" ||
+    normalized === "auth" ||
+    normalized === "demo-mode" ||
+    normalized === "workspace" ||
+    normalized === "workspace-settings"
+  ) {
+    return "workspace";
+  }
+  return "general";
 }
 
 export function shouldShowDesktopAppChatSidebar(input: {
@@ -130,9 +134,7 @@ export function shouldShowDesktopAppChatSidebar(input: {
     return false;
   }
   if (input.desktopIdentityUnauthenticated) return false;
-  return !["sign-in-required", "failed"].includes(
-    input.desktopIdentityStatus ?? "idle",
-  );
+  return input.desktopIdentityStatus !== "sign-in-required";
 }
 
 type LocalCodeChangeState =
@@ -145,6 +147,7 @@ export default function DesktopAppChatShell({
   appId,
   appName,
   children,
+  onOpenSettings,
   desktopIdentityUnauthenticated = false,
   desktopIdentityAuthenticated = false,
   desktopIdentityStatus,
@@ -152,14 +155,15 @@ export default function DesktopAppChatShell({
   isActive = true,
   chatEnabled = true,
   toggleScopeId,
+  onNewCliTab,
+  onNewUiTab,
+  newTabMode = "ui",
   onLocalCodeChangeStarted,
 }: DesktopAppChatShellProps) {
-  const shellRootRef = useRef<HTMLDivElement>(null);
-  const hasBeenActiveRef = useRef(isActive);
-  const hasSwitchedAwayRef = useRef(false);
-  const chatSidebarWasOpenBeforeMountRef = useRef(
-    wasDesktopAppChatSidebarOpenBeforeMount(),
+  const [desktopChatQueryClient] = useState(() =>
+    createAgentNativeQueryClient(),
   );
+  const shellRootRef = useRef<HTMLDivElement>(null);
   const [apiUrl, setApiUrl] = useState<string | null>(null);
   const [localAgentModels, setLocalAgentModels] = useState<
     CodeAgentModelOption[]
@@ -169,20 +173,6 @@ export default function DesktopAppChatShell({
   const [localCodeChangePrompt, setLocalCodeChangePrompt] = useState("");
   const [localCodeChange, setLocalCodeChange] = useState<LocalCodeChangeState>({
     status: "idle",
-  });
-
-  useEffect(() => {
-    if (isActive) {
-      hasBeenActiveRef.current = true;
-    } else if (hasBeenActiveRef.current) {
-      hasSwitchedAwayRef.current = true;
-    }
-  }, [isActive]);
-
-  const animateDesktopChatSidebar = shouldAnimateDesktopAppChatSidebar({
-    isActive,
-    hasSwitchedAway: hasSwitchedAwayRef.current,
-    chatSidebarWasOpenBeforeMount: chatSidebarWasOpenBeforeMountRef.current,
   });
 
   useEffect(() => {
@@ -298,6 +288,12 @@ export default function DesktopAppChatShell({
       localAgentId ? createDesktopLocalAgentRuntime(localAgentId) : undefined,
     [localAgentId],
   );
+  const openDesktopSettings = useCallback(
+    (section?: string) =>
+      onOpenSettings?.(desktopSettingsTabForSection(section)),
+    [onOpenSettings],
+  );
+  const ignoreOpenSettings = useCallback(() => undefined, []);
 
   installDesktopChatFetchRelay();
 
@@ -542,7 +538,7 @@ export default function DesktopAppChatShell({
               enabled={showChatSidebar}
               position="left"
               defaultOpen
-              animateDesktop={animateDesktopChatSidebar}
+              animateDesktop={false}
               openStorageKey="desktop-app-chat"
               storageKey={`desktop-app-chat:${appId}`}
               scope={{
@@ -552,6 +548,18 @@ export default function DesktopAppChatShell({
                 contextKey: `desktop-app:${appId}`,
               }}
               toggleScopeId={toggleScopeId}
+              onOpenSettings={
+                isActive
+                  ? onOpenSettings
+                    ? openDesktopSettings
+                    : undefined
+                  : ignoreOpenSettings
+              }
+              onNewCliTab={onNewCliTab}
+              onNewUiTab={onNewUiTab}
+              newTabMode={newTabMode}
+              newCliTabLabel="New CLI tab"
+              newUiTabLabel="New UI tab"
               apiUrl={showChatSidebar ? (apiUrl ?? undefined) : undefined}
               isolateHistoryByScope
               agentChatSurface="desktop"

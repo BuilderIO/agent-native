@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-08-28
+
+### Fixed
+
+- Mail Settings now shows scheduled automations created from Mail chat.
+
 ## 2026-08-22
 
 ### Improved

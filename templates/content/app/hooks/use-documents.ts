@@ -218,7 +218,7 @@ export async function fetchCompleteDocumentList(
 
 export function documentPropertiesQueryKey(
   documentId: string,
-  databaseId: string,
+  databaseId: string | null,
 ) {
   return [
     "action",
@@ -464,6 +464,8 @@ export function seedDatabaseItemDocumentCaches(
       {
         documentId: item.document.id,
         databaseId: item.databaseId,
+        canEditValues: false,
+        canManageSchema: false,
         properties: item.properties,
       },
     );

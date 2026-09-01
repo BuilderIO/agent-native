@@ -4,9 +4,16 @@ const mockHydrate = vi.fn();
 const mockParseReference = vi.fn();
 const mockAssertAccess = vi.fn();
 const mockResolveAccess = vi.fn();
-const mockWhere = vi.fn();
+const mockReturning = vi.fn(async () => [{ id: "local-ds-1" }]);
+const mockWhere = vi.fn(() => ({ returning: mockReturning }));
 const mockSet = vi.fn(() => ({ where: mockWhere }));
 const mockUpdate = vi.fn(() => ({ set: mockSet }));
+const mockSelect = vi.fn(() => ({
+  from: vi.fn(() => ({ where: vi.fn(() => "default-design-system-query") })),
+}));
+const mockTransaction = vi.fn(async (callback: (tx: unknown) => unknown) =>
+  callback({ select: mockSelect, update: mockUpdate }),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (config: unknown) => config,
@@ -27,14 +34,20 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => args,
   eq: (...args: unknown[]) => args,
+  isNull: (...args: unknown[]) => args,
+  ne: (...args: unknown[]) => args,
+  notExists: (query: unknown) => query,
 }));
 
 vi.mock("../server/db/index.js", () => ({
-  getDb: () => ({ update: mockUpdate }),
+  getDb: () => ({ transaction: mockTransaction }),
   schema: {
     designSystems: {
       id: "designSystems.id",
       data: "designSystems.data",
+      ownerEmail: "designSystems.ownerEmail",
+      orgId: "designSystems.orgId",
+      isDefault: "designSystems.isDefault",
     },
   },
 }));
@@ -102,17 +115,23 @@ describe("refresh-design-system-with-builder", () => {
         data: expect.stringContaining('"builderStatus":"ready"'),
       }),
     );
-    expect(mockWhere).toHaveBeenCalledWith([
-      ["designSystems.id", "local-ds-1"],
-      [
-        "designSystems.data",
-        JSON.stringify({
-          source: "builder",
-          builderStatus: "in-progress",
-          colors: { primary: "var(--primary)" },
-        }),
-      ],
-    ]);
+    expect(mockWhere).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        ["designSystems.id", "local-ds-1"],
+        [
+          "designSystems.data",
+          JSON.stringify({
+            source: "builder",
+            builderStatus: "in-progress",
+            colors: { primary: "var(--primary)" },
+          }),
+        ],
+      ]),
+    );
+    expect(mockSet).toHaveBeenCalledWith({
+      isDefault: true,
+      updatedAt: expect.any(String),
+    });
   });
 
   it("leaves the proxy untouched while Builder is still processing", async () => {

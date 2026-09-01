@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/client/api-path";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { isInBuilderFrame } from "@agent-native/core/client/host";
+import { BuilderConnectPopover } from "@agent-native/core/client/settings";
 import { useBuilderConnectFlow } from "@agent-native/core/client/settings/useBuilderStatus";
 import {
   buildChatFirstAppCreationPrompt,
@@ -141,6 +142,7 @@ export function CreateAppFlow({
   // its first status read for anyone already connected.
   const connectFlow = useBuilderConnectFlow({
     enabled: failureReason === "builder-not-connected",
+    provisionAccount: true,
     trackingSource: "dispatch_create_app",
     trackingFlow: "create_app",
     onConnected: () => {
@@ -604,16 +606,17 @@ export function CreateAppFlow({
           </div>
           {failureReason === "builder-not-connected" ? (
             <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => connectFlow.start()}
-                disabled={connectFlow.connecting}
-                className="w-fit"
-              >
-                {connectFlow.connecting ? "Connecting..." : "Connect Builder"}
-              </Button>
+              <BuilderConnectPopover flow={connectFlow}>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={connectFlow.connecting}
+                  className="w-fit"
+                >
+                  {connectFlow.connecting ? "Connecting..." : "Connect Builder"}
+                </Button>
+              </BuilderConnectPopover>
               <a
                 href={LOCAL_APP_DOCS_URL}
                 target="_blank"
