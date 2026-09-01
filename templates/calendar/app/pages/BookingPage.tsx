@@ -1,3 +1,4 @@
+import { useSession } from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import {
   DefaultSpinner,
@@ -77,6 +78,7 @@ function BookingPageShell({
 
 export default function BookingPage() {
   const t = useT();
+  const { session } = useSession();
   const { slug, username } = useParams<{ slug: string; username?: string }>();
   const navigate = useNavigate();
   const { data: settings, isLoading: settingsLoading } = usePublicSettings();
@@ -116,6 +118,17 @@ export default function BookingPage() {
     notes: "",
     fieldResponses: {},
   });
+  const signedInEmail = session?.email ?? "";
+  const signedInName = session?.name?.trim() || signedInEmail;
+
+  useEffect(() => {
+    if (!signedInEmail) return;
+    setBookingForm((current) => ({
+      ...current,
+      name: current.name || signedInName,
+      email: current.email || signedInEmail,
+    }));
+  }, [signedInEmail, signedInName]);
 
   const dateStr = selectedDate ? format(selectedDate, "yyyy-MM-dd") : "";
   const durationOptions =
@@ -218,7 +231,12 @@ export default function BookingPage() {
     setSelectedSlot(null);
     setSelectedDuration(null);
     setConfirmedBooking(null);
-    setBookingForm({ name: "", email: "", notes: "", fieldResponses: {} });
+    setBookingForm({
+      name: signedInName,
+      email: signedInEmail,
+      notes: "",
+      fieldResponses: {},
+    });
   }
 
   function handleStepNavigation(target: Step) {

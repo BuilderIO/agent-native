@@ -506,8 +506,12 @@ export function ComposeModal({
       const attachments = await uploadFiles(files);
       const existing = activeDraft.attachments ?? [];
       onUpdate(activeId, { attachments: [...existing, ...attachments] });
-    } catch {
-      toast.error(t("mail.toasts.failedToAttachFile"));
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("mail.toasts.failedToAttachFile"),
+      );
     }
   };
 

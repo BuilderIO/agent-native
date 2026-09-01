@@ -1512,7 +1512,7 @@ export function App({
       setServerReachable(false);
       setAuthStatus("anon");
       setSignedInAs(null);
-      return false;
+      return null;
     }
   }, [serverUrl]);
 
@@ -3202,6 +3202,13 @@ export function App({
     retryUploadAbortRef.current = abortController;
     retryingUploadKindRef.current = upload.kind;
     try {
+      if (
+        upload.kind === "native" &&
+        originForServer(targetServerUrl) === originForServer(serverUrl) &&
+        (await checkAuth()) === false
+      ) {
+        throw new Error("Sign in to retry this upload.");
+      }
       const authToken = loadDesktopAuthToken(targetServerUrl);
       if (upload.kind === "native") {
         const result = await invoke<{ verificationPending?: boolean }>(

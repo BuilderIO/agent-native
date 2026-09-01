@@ -8,7 +8,7 @@ import {
 } from "@agent-native/core/server";
 import { getSetting, getUserSetting } from "@agent-native/core/settings";
 import { accessFilter } from "@agent-native/core/sharing";
-import { eq, and, gt, gte, lt, lte, ne, inArray } from "drizzle-orm";
+import { eq, and, gt, gte, lt, lte, ne, inArray, or } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
@@ -191,6 +191,22 @@ type ConflictResult = { items: ConflictItem[]; unavailableReason?: string };
 type BookingLinkRow = typeof schema.bookingLinks.$inferSelect;
 type ConflictDb = Pick<ReturnType<typeof getDb>, "select">;
 const BOOKING_SLOT_STEP_MINUTES = 30;
+
+type SameOrgBookingViewer = { email: string; orgId: string };
+
+function resolveSameOrgBookingViewer(
+  session: { email?: string; orgId?: string } | null,
+  bookingLink?: BookingLinkRow,
+): SameOrgBookingViewer | undefined {
+  const viewerEmail = session?.email?.trim().toLowerCase();
+  if (!viewerEmail || !session?.orgId || !bookingLink) return undefined;
+  if (viewerEmail === bookingLink.ownerEmail.trim().toLowerCase()) {
+    return undefined;
+  }
+  return bookingLink.orgId === session.orgId
+    ? { email: viewerEmail, orgId: session.orgId }
+    : undefined;
+}
 
 const bookingAvailabilityDraftSchema = z
   .object({
@@ -551,6 +567,8 @@ export async function getConflictItems({
   ownerEmail,
   hostEmails,
   conflictSlugs,
+  viewerEmail,
+  viewerOrgId,
   rangeStartIso,
   rangeEndIso,
   timezone,
@@ -559,6 +577,8 @@ export async function getConflictItems({
   ownerEmail?: string;
   hostEmails: string[];
   conflictSlugs: string[];
+  viewerEmail?: string;
+  viewerOrgId?: string;
   rangeStartIso: string;
   rangeEndIso: string;
   timezone: string;
@@ -669,6 +689,63 @@ export async function getConflictItems({
     };
   }
 
+  if (viewerEmail && !requiredHosts.includes(viewerEmail)) {
+    let viewerConnected = false;
+    try {
+      viewerConnected = await googleCalendar.isConnected(viewerEmail);
+    } catch {
+      return {
+        items: [],
+        unavailableReason: formatAvailabilityUnavailableReason(viewerEmail),
+      };
+    }
+    if (viewerConnected) {
+      try {
+        const viewerEvents = await googleCalendar.listEvents(
+          rangeStartIso,
+          rangeEndIso,
+          viewerEmail,
+        );
+        if (viewerEvents.errors.length > 0) {
+          return {
+            items: [],
+            unavailableReason: formatAvailabilityUnavailableReason(
+              viewerEvents.errors[0]?.email || viewerEmail,
+            ),
+          };
+        }
+        conflictItems.push(
+          ...viewerEvents.events
+            .filter(eventBlocksAvailability)
+            .map((event) => ({
+              start: event.start,
+              end: event.end,
+            })),
+        );
+      } catch {
+        return {
+          items: [],
+          unavailableReason: formatAvailabilityUnavailableReason(viewerEmail),
+        };
+      }
+    }
+  }
+
+  const viewerBookingScope =
+    viewerEmail && viewerOrgId
+      ? and(
+          eq(schema.bookings.email, viewerEmail),
+          eq(schema.bookings.orgId, viewerOrgId),
+        )
+      : undefined;
+  const bookingScope =
+    conflictSlugs.length > 0 && viewerBookingScope
+      ? or(inArray(schema.bookings.slug, conflictSlugs), viewerBookingScope)
+      : conflictSlugs.length > 0
+        ? inArray(schema.bookings.slug, conflictSlugs)
+        : viewerBookingScope
+          ? viewerBookingScope
+          : undefined;
   const bookings = await db
     .select()
     .from(schema.bookings)
@@ -677,9 +754,7 @@ export async function getConflictItems({
         ne(schema.bookings.status, "cancelled"),
         lte(schema.bookings.start, rangeEndIso),
         gte(schema.bookings.end, rangeStartIso),
-        conflictSlugs.length > 0
-          ? inArray(schema.bookings.slug, conflictSlugs)
-          : undefined,
+        bookingScope,
       ),
     );
 
@@ -815,12 +890,16 @@ async function requestedSlotIsCurrentlyAvailable({
   start,
   end,
   duration,
+  viewerEmail,
+  viewerOrgId,
 }: {
   db?: ConflictDb;
   slug: string;
   start: Date;
   end: Date;
   duration: number;
+  viewerEmail?: string;
+  viewerOrgId?: string;
 }): Promise<boolean | { unavailableReason: string }> {
   const context = await resolveAvailabilityContext({ slug, db });
   if (!context.effectiveConfig) return false;
@@ -832,6 +911,8 @@ async function requestedSlotIsCurrentlyAvailable({
     ownerEmail: context.ownerEmail,
     hostEmails: context.hostEmails,
     conflictSlugs: context.conflictSlugs,
+    viewerEmail,
+    viewerOrgId,
     rangeStartIso: dateStartIso(date, timezone),
     rangeEndIso: dateEndIso(date, timezone),
     timezone,
@@ -922,6 +1003,9 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     // After the guard above, bookingLink is either undefined (no requestedSlug)
     // or the full DB row. Cast away the "" from the short-circuit type.
     const link = bookingLink || undefined;
+
+    const session = await getSession(event);
+    const viewer = resolveSameOrgBookingViewer(session, link);
 
     const hostEmail = (link as any)?.ownerEmail || (link as any)?.owner_email;
     if (!hostEmail) {
@@ -1063,6 +1147,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         start: requestedRange.start,
         end: requestedRange.end,
         duration: requestedRange.duration,
+        viewerEmail: viewer?.email,
+        viewerOrgId: viewer?.orgId,
       });
       if (typeof slotAvailability !== "boolean") {
         return slotAvailability;
@@ -1357,6 +1443,8 @@ async function getAvailableSlotsForQuery(
     return { error: durationResult.error };
   }
   const duration = durationResult.duration;
+  const session = await getSession(event);
+  const viewer = resolveSameOrgBookingViewer(session, context.bookingLink);
 
   if (hasRangeQuery) {
     const rangeStart = formatDateOnly(from!);
@@ -1366,6 +1454,8 @@ async function getAvailableSlotsForQuery(
       ownerEmail: context.ownerEmail,
       hostEmails: context.hostEmails,
       conflictSlugs: context.conflictSlugs,
+      viewerEmail: viewer?.email,
+      viewerOrgId: viewer?.orgId,
       rangeStartIso: dateStartIso(rangeStart, timezone),
       rangeEndIso: dateEndIso(rangeEnd, timezone),
       timezone,
@@ -1398,6 +1488,8 @@ async function getAvailableSlotsForQuery(
     ownerEmail: context.ownerEmail,
     hostEmails: context.hostEmails,
     conflictSlugs: context.conflictSlugs,
+    viewerEmail: viewer?.email,
+    viewerOrgId: viewer?.orgId,
     rangeStartIso: dateStartIso(date, timezone),
     rangeEndIso: dateEndIso(date, timezone),
     timezone,
