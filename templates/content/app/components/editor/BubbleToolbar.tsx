@@ -38,7 +38,6 @@ export type CommentRange = { from: number; to: number };
 
 export interface BubbleToolbarProps {
   editor: Editor;
-  commentsUiCleanupEnabled?: boolean;
   onComment?: (
     quotedText: string,
     offsetTop: number,
@@ -218,11 +217,7 @@ export function shouldShowBubbleToolbar({
   return !selectionIncludesBubbleToolbarExcludedNode(state, from, to);
 }
 
-export function BubbleToolbar({
-  editor,
-  onComment,
-  commentsUiCleanupEnabled = false,
-}: BubbleToolbarProps) {
+export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   const t = useT();
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
@@ -263,7 +258,7 @@ export function BubbleToolbar({
   }, [editor, onComment]);
 
   useEffect(() => {
-    if (!commentsUiCleanupEnabled || !onComment) return;
+    if (!onComment) return;
     const dom = editor.view.dom;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
@@ -277,7 +272,7 @@ export function BubbleToolbar({
     };
     dom.addEventListener("keydown", handleKeyDown);
     return () => dom.removeEventListener("keydown", handleKeyDown);
-  }, [commentsUiCleanupEnabled, createCommentFromSelection, editor, onComment]);
+  }, [createCommentFromSelection, editor, onComment]);
 
   useEffect(() => {
     const syncTextStyle = () => {

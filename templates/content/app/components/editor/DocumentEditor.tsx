@@ -8,7 +8,6 @@ import {
   emailToName,
   type CollabUser,
 } from "@agent-native/core/client/collab";
-import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   setClientAppState,
   useAvatarUrl,
@@ -18,7 +17,6 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { Document, DocumentSyncStatus } from "@shared/api";
-import { CONTENT_COMMENTS_UI_CLEANUP_FLAG } from "@shared/feature-flags";
 import {
   IconDatabase,
   IconFileText,
@@ -390,17 +388,26 @@ export function enqueueDocumentSave<T>(
   return queued;
 }
 
-function useMinViewportWidth(minWidth: number) {
+function useElementMinWidth(
+  ref: MutableRefObject<HTMLElement | null>,
+  minWidth: number,
+) {
   const [matches, setMatches] = useState(false);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const query = window.matchMedia(`(min-width: ${minWidth}px)`);
-    const update = () => setMatches(query.matches);
+    const element = ref.current;
+    if (!element) return;
+    const update = () =>
+      setMatches(element.getBoundingClientRect().width >= minWidth);
     update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, [minWidth]);
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", update);
+      return () => window.removeEventListener("resize", update);
+    }
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [minWidth, ref]);
 
   return matches;
 }
@@ -1874,18 +1881,24 @@ function DocumentEditorBody({
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const [utilityPanel, setUtilityPanel] = useState<DocumentUtilityPanel>(null);
-  const commentsUiCleanupEnabled = useFeatureFlag(
-    CONTENT_COMMENTS_UI_CLEANUP_FLAG.key,
-  );
+  const [commentsBrowseOpen, setCommentsBrowseOpen] = useState(false);
   const [showCommentIndicators, setShowCommentIndicators] = useState(true);
   const activeThreadId = hoveredThreadId ?? selectedThreadId;
   const { data: threads, isLoading: commentsLoading } = useComments(
     !isLocalFileDocument ? documentId : null,
   );
-  const hasUtilityRailSpace = useMinViewportWidth(1024);
+  const documentLayoutRef = useRef<HTMLDivElement>(null);
+  const hasUtilityRailSpace = useElementMinWidth(documentLayoutRef, 960);
   const showDesktopUtilityPanel = utilityPanel !== null && hasUtilityRailSpace;
+  const showAnchoredCommentPopover =
+    utilityPanel === "comments" &&
+    !hasUtilityRailSpace &&
+    (!!pendingComment || !!selectedThreadId);
   const showUtilityPanelSheet =
-    utilityPanel !== null && !showDesktopUtilityPanel;
+    utilityPanel !== null &&
+    !showDesktopUtilityPanel &&
+    !showAnchoredCommentPopover &&
+    (utilityPanel !== "comments" || commentsBrowseOpen);
 
   const handleComment = useCallback(
     (
@@ -1895,6 +1908,7 @@ function DocumentEditorBody({
       range?: { from: number; to: number },
     ) => {
       setPendingComment({ quotedText, offsetTop, anchor, range });
+      setCommentsBrowseOpen(false);
       setUtilityPanel("comments");
       setSelectedThreadId(null);
       setHoveredThreadId(null);
@@ -1907,17 +1921,31 @@ function DocumentEditorBody({
     setHoveredThreadId(null);
   }, []);
 
+  const dismissCommentFocus = useCallback(() => {
+    clearCommentFocus();
+    if (!hasUtilityRailSpace) {
+      setCommentsBrowseOpen(false);
+      setUtilityPanel(null);
+    }
+  }, [clearCommentFocus, hasUtilityRailSpace]);
+
   const activateCommentThread = useCallback((threadId: string) => {
     setPendingComment(null);
     setHoveredThreadId(null);
     setSelectedThreadId(threadId);
+    setCommentsBrowseOpen(false);
     setUtilityPanel("comments");
   }, []);
 
   const handleUtilityPanelChange = useCallback(
     (nextPanel: DocumentUtilityPanel) => {
       setUtilityPanel(nextPanel);
-      if (nextPanel !== "comments") {
+      if (nextPanel === "comments") {
+        setCommentsBrowseOpen(true);
+        setPendingComment(null);
+        clearCommentFocus();
+      } else {
+        setCommentsBrowseOpen(false);
         setPendingComment(null);
         clearCommentFocus();
       }
@@ -1927,17 +1955,18 @@ function DocumentEditorBody({
 
   useEffect(() => {
     setPendingComment(null);
+    setCommentsBrowseOpen(false);
     setUtilityPanel(null);
     clearCommentFocus();
   }, [clearCommentFocus, documentId]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") clearCommentFocus();
+      if (event.key === "Escape") dismissCommentFocus();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [clearCommentFocus]);
+  }, [dismissCommentFocus]);
 
   const focusTitleEnd = useCallback(() => {
     const textarea = titleInputRef.current;
@@ -2055,13 +2084,23 @@ function DocumentEditorBody({
     [contentSpaces, documents, navigate, setStoredSpaceId],
   );
 
-  const commentsSidebar = (
+  const renderCommentsSidebar = (
+    visibleThreadId?: string | null,
+    alignToAnchors = hasUtilityRailSpace,
+  ) => (
     <CommentsSidebar
       documentId={documentId}
       threads={threads ?? []}
       isLoading={commentsLoading}
       pendingComment={pendingComment}
-      onPendingDone={() => setPendingComment(null)}
+      onPendingDone={(threadId) => {
+        setPendingComment(null);
+        if (threadId) {
+          setSelectedThreadId(threadId);
+        } else if (!hasUtilityRailSpace) {
+          setUtilityPanel(null);
+        }
+      }}
       scrollContainerRef={scrollContainerRef}
       activeThreadId={activeThreadId}
       selectedThreadId={selectedThreadId}
@@ -2071,8 +2110,9 @@ function DocumentEditorBody({
       currentUserEmail={session?.email}
       canComment={canComment}
       canResolve={canEdit}
-      alignToAnchors={hasUtilityRailSpace}
+      alignToAnchors={alignToAnchors}
       forceVisible
+      visibleThreadId={visibleThreadId}
     />
   );
   const defaultIconKind = documentEditorDefaultIconKind(document);
@@ -2123,7 +2163,7 @@ function DocumentEditorBody({
         >
           {utilityPanelTitle}
         </h2>
-        {utilityPanel === "comments" && commentsUiCleanupEnabled ? (
+        {utilityPanel === "comments" ? (
           <button
             type="button"
             className="ms-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -2143,8 +2183,7 @@ function DocumentEditorBody({
             type="button"
             className={cn(
               "flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              !(utilityPanel === "comments" && commentsUiCleanupEnabled) &&
-                "ms-auto",
+              utilityPanel !== "comments" && "ms-auto",
             )}
             aria-label={t("editor.toolbar.closeUtilityPanel")}
             onClick={() => handleUtilityPanelChange(null)}
@@ -2164,7 +2203,7 @@ function DocumentEditorBody({
           }
         />
       ) : (
-        commentsSidebar
+        renderCommentsSidebar()
       )}
     </div>
   ) : null;
@@ -2182,6 +2221,7 @@ function DocumentEditorBody({
         />
       ) : null}
       <div
+        ref={documentLayoutRef}
         className="relative flex min-h-0 min-w-0 flex-1"
         data-document-print-root
         onClickCapture={(event) => {
@@ -2197,7 +2237,7 @@ function DocumentEditorBody({
           if (target?.closest("[data-comments-sidebar]")) {
             return;
           }
-          clearCommentFocus();
+          dismissCommentFocus();
         }}
       >
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -2305,7 +2345,7 @@ function DocumentEditorBody({
           >
             <div
               className={cn(
-                "flex min-h-full w-full min-w-0",
+                "relative flex min-h-full w-full min-w-0",
                 showDesktopUtilityPanel ? "justify-center" : "flex-col",
               )}
               data-document-scroll-content
@@ -2544,7 +2584,6 @@ function DocumentEditorBody({
                                 ? activateCommentThread
                                 : undefined
                             }
-                            commentsUiCleanupEnabled={commentsUiCleanupEnabled}
                             showCommentIndicators={showCommentIndicators}
                             onJoinTitle={joinFirstBodyBlockToTitle}
                             notionPageLinks={notionPageLinks}
@@ -2597,8 +2636,55 @@ function DocumentEditorBody({
               </div>
 
               {showDesktopUtilityPanel ? (
-                <aside className="w-80 shrink-0 border-s border-border">
-                  {utilityPanelContent}
+                utilityPanel === "comments" ? (
+                  <aside
+                    className="relative w-80 shrink-0"
+                    aria-label={t("comments.title")}
+                    data-comments-flow-lane
+                  >
+                    <div className="absolute end-2 top-2 z-20 flex items-center rounded-md bg-background/90 shadow-sm ring-1 ring-border/50 backdrop-blur-sm">
+                      <button
+                        type="button"
+                        className="flex size-8 items-center justify-center rounded-s-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-pressed={showCommentIndicators}
+                        aria-label={t("comments.title")}
+                        onClick={() =>
+                          setShowCommentIndicators((visible) => !visible)
+                        }
+                      >
+                        {showCommentIndicators ? (
+                          <IconMessageCircle size={16} />
+                        ) : (
+                          <IconMessageCircleOff size={16} />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        className="flex size-8 items-center justify-center rounded-e-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={t("editor.toolbar.closeUtilityPanel")}
+                        onClick={() => handleUtilityPanelChange(null)}
+                      >
+                        <IconX size={16} />
+                      </button>
+                    </div>
+                    {renderCommentsSidebar()}
+                  </aside>
+                ) : (
+                  <aside className="w-80 shrink-0 border-s border-border">
+                    {utilityPanelContent}
+                  </aside>
+                )
+              ) : null}
+
+              {showAnchoredCommentPopover ? (
+                <aside
+                  className="pointer-events-none absolute inset-y-0 end-4 z-30 w-[min(20rem,calc(100%-2rem))]"
+                  aria-label={t("comments.title")}
+                  data-comments-anchored-popover
+                >
+                  <div className="pointer-events-auto">
+                    {renderCommentsSidebar(selectedThreadId, true)}
+                  </div>
                 </aside>
               ) : null}
             </div>

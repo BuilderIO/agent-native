@@ -763,7 +763,6 @@ interface VisualEditorProps {
   pendingHighlight?: { from: number; to: number } | null;
   /** Called when the user clicks an inline highlight in the document. */
   onActivateThread?: (threadId: string) => void;
-  commentsUiCleanupEnabled?: boolean;
   showCommentIndicators?: boolean;
   onJoinTitle?: (text: string) => void;
   notionPageLinks?: NotionPageLink[];
@@ -2091,7 +2090,6 @@ export function VisualEditor({
   activeThreadId,
   pendingHighlight,
   onActivateThread,
-  commentsUiCleanupEnabled = false,
   showCommentIndicators = true,
   onJoinTitle,
   notionPageLinks = [],
@@ -2800,7 +2798,7 @@ export function VisualEditor({
         ? new Map<string, CommentHighlightSpec>()
         : new Map((current?.specs ?? []).map((s) => [s.threadId, s]));
       const specs: CommentHighlightSpec[] = [];
-      if (commentsUiCleanupEnabled && !showCommentIndicators) {
+      if (!showCommentIndicators) {
         setCommentHighlights(view, {
           specs,
           pending: pendingHighlight ?? null,
@@ -2835,13 +2833,7 @@ export function VisualEditor({
         activeId: activeThreadId ?? null,
       });
     },
-    [
-      activeThreadId,
-      commentsUiCleanupEnabled,
-      editor,
-      pendingHighlight,
-      showCommentIndicators,
-    ],
+    [activeThreadId, editor, pendingHighlight, showCommentIndicators],
   );
 
   const applyRef = useRef(applyHighlights);
@@ -2894,7 +2886,6 @@ export function VisualEditor({
     scheduleApply(false);
   }, [
     activeThreadId,
-    commentsUiCleanupEnabled,
     editor,
     pendingKey,
     scheduleApply,
@@ -2922,7 +2913,6 @@ export function VisualEditor({
     <div
       ref={wrapperRef}
       className={`visual-editor-wrapper${isDraggingMedia ? " visual-editor-wrapper--dragging" : ""}`}
-      data-comments-ui-cleanup={commentsUiCleanupEnabled || undefined}
     >
       <RecentEditHighlights
         edits={recentEdits}
@@ -2931,11 +2921,7 @@ export function VisualEditor({
         ttlMs={CONTENT_RECENT_EDIT_TTL_MS}
       />
       {editable ? (
-        <BubbleToolbar
-          editor={editor}
-          onComment={onComment}
-          commentsUiCleanupEnabled={commentsUiCleanupEnabled}
-        />
+        <BubbleToolbar editor={editor} onComment={onComment} />
       ) : null}
       {editable ? (
         <SlashCommandMenu

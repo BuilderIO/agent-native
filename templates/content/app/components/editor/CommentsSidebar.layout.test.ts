@@ -177,12 +177,9 @@ describe("comments sidebar layout", () => {
 
     expect(source).not.toContain('container.addEventListener("scroll"');
     expect(source).not.toContain("scrollIntoView");
-    expect(source).toContain("data-comment-connector");
+    expect(source).not.toContain("data-comment-connector");
     expect(source).toContain("data-unanchored-comments");
-    expect(source).toContain("if (!active) return null");
-    expect(source).not.toContain(
-      'data-comment-connector={active ? "active" : "idle"}',
-    );
+    expect(source).not.toContain("CommentConnector");
   });
 
   it("keeps comment actions named and available to keyboard focus", () => {
@@ -206,6 +203,10 @@ describe("comments sidebar layout", () => {
 
     expect(source).toContain('target?.closest("[data-comment-thread]")');
     expect(source).toContain("activateCommentThread(threadId)");
+    expect(source).toContain("data-comments-flow-lane");
+    expect(source).toContain("data-comments-anchored-popover");
+    expect(source).toContain("useElementMinWidth(documentLayoutRef, 960)");
+    expect(source).not.toContain("CONTENT_COMMENTS_UI_CLEANUP_FLAG");
   });
 
   it("recomputes anchors when comment indicators are restored", () => {
@@ -214,7 +215,7 @@ describe("comments sidebar layout", () => {
     });
 
     expect(source).toMatch(
-      /scheduleApply\(false\);[\s\S]*?commentsUiCleanupEnabled[\s\S]*?showCommentIndicators/,
+      /scheduleApply\(false\);[\s\S]*?showCommentIndicators/,
     );
   });
 
@@ -236,11 +237,11 @@ describe("comments sidebar layout", () => {
     });
 
     expect(source).toContain("createComment.isPending");
-    expect(source).toContain("onSuccess: () => {");
+    expect(source).toContain("onSuccess: (result) => {");
     expect(source).toContain("onError: (error) => {");
     expect(source).toContain('toast.error(t("empty.genericError")');
     expect(source).toMatch(
-      /createComment\.mutate\([\s\S]*?onSuccess: \(\) => \{[\s\S]*?setPendingText\(""\)/,
+      /createComment\.mutate\([\s\S]*?onSuccess: \(result\) => \{[\s\S]*?setPendingText\(""\)[\s\S]*?onPendingDone\?\.\(result\.threadId\)/,
     );
   });
 
@@ -258,7 +259,9 @@ describe("comments sidebar layout", () => {
     });
 
     expect(source).toContain("data-comments-sidebar");
-    expect(source).toContain("relative w-full min-w-0 shrink-0 pb-16");
+    expect(source).toContain(
+      "relative flow-root w-full min-w-0 shrink-0 pb-16",
+    );
     expect(source).not.toContain("w-80 shrink-0 overflow-auto");
     expect(source).not.toContain("overflow-auto relative");
   });

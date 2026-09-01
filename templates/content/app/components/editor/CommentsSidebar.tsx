@@ -342,7 +342,7 @@ interface CommentsSidebarProps {
     anchor?: CommentTextAnchor;
     range?: { from: number; to: number };
   } | null;
-  onPendingDone?: () => void;
+  onPendingDone?: (threadId?: string) => void;
   scrollContainerRef?: RefObject<HTMLDivElement | null>;
   activeThreadId?: string | null;
   selectedThreadId?: string | null;
@@ -354,6 +354,7 @@ interface CommentsSidebarProps {
   canResolve?: boolean;
   alignToAnchors?: boolean;
   forceVisible?: boolean;
+  visibleThreadId?: string | null;
 }
 
 export function CommentsSidebar({
@@ -373,6 +374,7 @@ export function CommentsSidebar({
   canResolve = false,
   alignToAnchors = true,
   forceVisible = false,
+  visibleThreadId,
 }: CommentsSidebarProps) {
   const t = useT();
   const { data: members = [] } = useMentionMembers();
@@ -387,10 +389,12 @@ export function CommentsSidebar({
   const sidebarRef = useRef<HTMLDivElement>(null);
   const pendingInputRef = useRef<HTMLTextAreaElement>(null);
 
-  const openThreads = useMemo(
-    () => threads?.filter((t) => !t.resolved) ?? [],
-    [threads],
-  );
+  const openThreads = useMemo(() => {
+    const open = threads?.filter((thread) => !thread.resolved) ?? [];
+    return visibleThreadId
+      ? open.filter((thread) => thread.threadId === visibleThreadId)
+      : open;
+  }, [threads, visibleThreadId]);
   const resolvedThreads = useMemo(
     () => threads?.filter((t) => t.resolved) ?? [],
     [threads],
@@ -418,10 +422,10 @@ export function CommentsSidebar({
         mentions: mentionsJsonFor(pendingText, pendingMentions),
       },
       {
-        onSuccess: () => {
+        onSuccess: (result) => {
           setPendingText("");
           setPendingMentions([]);
-          onPendingDone?.();
+          onPendingDone?.(result.threadId);
         },
         onError: (error) => {
           toast.error(t("empty.genericError"), {
@@ -647,7 +651,7 @@ export function CommentsSidebar({
   return (
     <div
       ref={sidebarRef}
-      className="relative w-full min-w-0 shrink-0 pb-16"
+      className="relative flow-root w-full min-w-0 shrink-0 pb-16"
       data-comments-sidebar
     >
       {!hasContent && !isLoading ? (
@@ -714,20 +718,13 @@ export function CommentsSidebar({
 
       {/* Open thread cards — positioned to align with their referenced text */}
       {items.map((item, index) => {
-        const { thread, marginTop, top, anchorTop, isOrphaned } = item;
+        const { thread, marginTop, top, isOrphaned } = item;
         const isActive = activeThreadId === thread.threadId;
         const startsOrphanedSection =
           isOrphaned &&
           !items.slice(0, index).some((prior) => prior.isOrphaned);
         return (
           <Fragment key={thread.threadId}>
-            {alignToAnchors && anchorTop != null ? (
-              <CommentConnector
-                anchorTop={anchorTop}
-                cardTop={top}
-                active={isActive}
-              />
-            ) : null}
             {startsOrphanedSection ? (
               <div
                 className="absolute inset-x-2 flex items-center gap-2 text-[11px] text-muted-foreground"
@@ -818,35 +815,6 @@ export function CommentsSidebar({
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-function CommentConnector({
-  anchorTop,
-  cardTop,
-  active,
-}: {
-  anchorTop: number;
-  cardTop: number;
-  active: boolean;
-}) {
-  if (!active) return null;
-  const cardPoint = cardTop + 20;
-  if (Math.abs(anchorTop - cardPoint) < 12) return null;
-  const top = Math.min(anchorTop, cardPoint);
-  const height = Math.abs(anchorTop - cardPoint);
-
-  return (
-    <div aria-hidden data-comment-connector="active">
-      <span
-        className="pointer-events-none absolute left-1 border-s border-primary/60"
-        style={{ top, height }}
-      />
-      <span
-        className="pointer-events-none absolute left-1 w-2 border-t border-primary/60"
-        style={{ top: cardPoint }}
-      />
     </div>
   );
 }

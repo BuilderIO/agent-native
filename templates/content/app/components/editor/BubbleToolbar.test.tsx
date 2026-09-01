@@ -98,7 +98,7 @@ describe("BubbleToolbar", () => {
     toolbarElement = null;
   });
 
-  it("starts a comment from selected text on Mod+Shift+M when cleanup is enabled", () => {
+  it("starts a comment from selected text on Mod+Shift+M", () => {
     editorElement = document.createElement("div");
     toolbarElement = document.createElement("div");
     document.body.append(editorElement, toolbarElement);
@@ -112,13 +112,7 @@ describe("BubbleToolbar", () => {
 
     root = createRoot(toolbarElement);
     act(() =>
-      root!.render(
-        <BubbleToolbar
-          editor={editor!}
-          onComment={onComment}
-          commentsUiCleanupEnabled
-        />,
-      ),
+      root!.render(<BubbleToolbar editor={editor!} onComment={onComment} />),
     );
     act(() => {
       editor!.view.dom.dispatchEvent(
