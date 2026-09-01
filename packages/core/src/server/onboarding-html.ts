@@ -121,6 +121,29 @@ const AGENT_NATIVE_TERMS_URL = "https://www.agent-native.com/terms";
 const AGENT_NATIVE_PRIVACY_URL = "https://www.agent-native.com/privacy";
 const BUILDER_PREVIEW_LOCAL_DEV_ENV =
   "AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV";
+declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
+
+function authClientBuildId(): string {
+  const buildId =
+    typeof __AGENT_NATIVE_BUILD_ID__ === "string"
+      ? __AGENT_NATIVE_BUILD_ID__
+      : (
+          globalThis as typeof globalThis & {
+            __AGENT_NATIVE_BUILD_ID__?: string;
+          }
+        ).__AGENT_NATIVE_BUILD_ID__;
+  return (
+    buildId?.trim() ||
+    process.env.AGENT_NATIVE_BUILD_ID?.trim() || // config-ok: deploy metadata is compiled into the Nitro server
+    ""
+  );
+}
+
+function authClientAssetPath(appBasePath: string): string {
+  const path = `${appBasePath}/assets/auth-client.js`;
+  const buildId = authClientBuildId();
+  return buildId ? `${path}?__an_build=${encodeURIComponent(buildId)}` : path;
+}
 
 function isBuilderPreviewLocalDevEnabled(): boolean {
   if (
@@ -1195,12 +1218,6 @@ function serializeAuthPageData(value: unknown): string {
     .replaceAll("\u2029", "\\u2029");
 }
 
-function authClientAssetPath(appBasePath: string): string {
-  const buildId = process.env.AGENT_NATIVE_BUILD_ID?.trim() || ""; // config-ok: Nitro replaces this deploy marker at build time.
-  const cacheBuster = buildId ? `?v=${encodeURIComponent(buildId)}` : "";
-  return `${appBasePath}/assets/auth-client.js${cacheBuster}`;
-}
-
 export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const showGoogle = hasGoogleOAuth();
   const googleOnly = !!opts.googleOnly;
@@ -2163,29 +2180,46 @@ ${embeddedAuthCss}
   .auth-marketing-home { width: 100%; padding: 0; position: relative; overflow-x: hidden; }
   .auth-marketing-shell { padding: 0; }
   .auth-marketing-home .auth-marketing-shell-with-top-right {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
+    position: relative;
+    display: block;
+    min-height: 100vh;
   }
   .auth-marketing-top-right {
     display: flex;
     justify-content: flex-end;
-    flex: none;
-    padding: 4rem clamp(2rem, 5.5vw, 6.625rem) 0;
+    align-items: center;
+    position: absolute;
+    height: 2rem;
+    padding: 0;
+    top: max(1rem, env(safe-area-inset-top));
+    inset-inline-end: calc(max(1rem, env(safe-area-inset-right)) + 2.5rem);
+    z-index: 2;
   }
+  .auth-marketing-learn-more { font-size: 0.9rem; }
   .auth-marketing-home .auth-marketing-layout {
-    flex: 1;
-    min-height: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: stretch;
   }
   .auth-marketing-home .split { width: 100%; max-width: none; margin: 0; }
   .auth-marketing-home .marketing-panel { min-width: 0; }
   .auth-marketing-home.has-product-screenshot .marketing-panel {
-    padding-block: 0;
-    padding-inline: 0 3.5rem;
+    flex: 0 1 auto;
+    max-width: calc(100% - 28rem);
+    padding: 0;
+    justify-content: center;
   }
   .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot-wrap,
   .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot {
-    max-height: calc(100vh - 5.5rem);
+    max-height: calc(100vh - 5rem);
+  }
+  .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot-wrap {
+    width: fit-content;
+  }
+  .auth-marketing-home.has-product-screenshot .form-panel {
+    flex: 1 1 0;
+    min-width: 28rem;
+    max-width: none;
   }
   .auth-marketing-home .form-panel { min-width: 0; }
   .auth-marketing-home [data-agent-native-starfield] { position: fixed; inset: 0; width: 100%; height: 100%; }
@@ -2195,12 +2229,18 @@ ${embeddedAuthCss}
       justify-content: flex-start;
     }
     .auth-marketing-home .auth-marketing-top-right {
-      padding: 1rem 3.5rem 0 1rem;
+      top: max(1rem, env(safe-area-inset-top));
+      inset-inline-start: max(1rem, env(safe-area-inset-left));
+      inset-inline-end: auto;
     }
-    .auth-marketing-home .auth-marketing-layout { flex: none; min-height: auto; }
+    .auth-marketing-home .auth-marketing-layout { min-height: auto; }
     .auth-marketing-home .auth-marketing-shell { display: block; }
     .auth-marketing-home .auth-marketing-shell-with-top-right { display: flex; }
     .auth-marketing-home.has-product-screenshot .marketing-panel { display: none; }
+    .auth-marketing-home.has-product-screenshot .form-panel {
+      min-width: 0;
+      padding: 3.75rem 0.8125rem 1.5rem;
+    }
   }
 `;
   const authClientScriptPath = authClientAssetPath(appBasePath);
