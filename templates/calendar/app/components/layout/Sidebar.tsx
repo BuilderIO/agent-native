@@ -71,6 +71,7 @@ import {
   useGoogleAuthStatus,
   useGoogleDesktopAuth,
 } from "@/hooks/use-google-auth";
+import { useGoogleCalendars } from "@/hooks/use-google-calendars";
 import {
   useOverlayPeople,
   useRemoveOverlayPerson,
@@ -633,6 +634,104 @@ function GoogleAccountsSection({
   );
 }
 
+function SharedGoogleCalendarsGroup() {
+  const t = useT();
+  const { data: calendars, enabled } = useGoogleCalendars();
+  const {
+    prefs: { googleCalendarVisibility },
+    updateGoogleCalendarVisibility,
+  } = useViewPreferences();
+  const sharedCalendars = (calendars ?? []).filter(
+    (calendar) => !calendar.primary && calendar.accessRole !== "freeBusyReader",
+  );
+  const grouped = useMemo(() => {
+    const groups = new Map<string, typeof sharedCalendars>();
+    for (const calendar of sharedCalendars) {
+      const current = groups.get(calendar.accountEmail) ?? [];
+      current.push(calendar);
+      groups.set(calendar.accountEmail, current);
+    }
+    return Array.from(groups.entries());
+  }, [sharedCalendars]);
+
+  if (!enabled || grouped.length === 0) return null;
+
+  return (
+    <div className="space-y-1">
+      {grouped.map(([accountEmail, accountCalendars]) => (
+        <div key={accountEmail}>
+          <div className="px-3 py-1 text-[10px] font-medium text-muted-foreground/60">
+            {accountEmail}
+          </div>
+          <div className="space-y-0.5">
+            {accountCalendars.map((calendar) => {
+              const visible =
+                googleCalendarVisibility[calendar.sourceKey] ??
+                calendar.selected;
+              return (
+                <div
+                  key={calendar.sourceKey}
+                  className="group flex min-h-7 items-center gap-2 px-3 text-xs"
+                >
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "block size-2.5 shrink-0 rounded-full ring-1 ring-border",
+                      !visible && "opacity-40",
+                    )}
+                    style={{ backgroundColor: calendar.color || "#8B8FA3" }}
+                  />
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate",
+                      visible
+                        ? "text-muted-foreground"
+                        : "text-muted-foreground/40",
+                    )}
+                  >
+                    {calendar.name}
+                  </span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateGoogleCalendarVisibility(
+                            calendar.sourceKey,
+                            !visible,
+                          )
+                        }
+                        className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+                        aria-label={
+                          visible
+                            ? t("sidebar.hideCalendar")
+                            : t("sidebar.showCalendar")
+                        }
+                        aria-pressed={visible}
+                      >
+                        {visible ? (
+                          <IconEye className="size-3" />
+                        ) : (
+                          <IconEyeOff className="size-3" />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      {visible
+                        ? t("sidebar.hideCalendar")
+                        : t("sidebar.showCalendar")}
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function Sidebar({
   open,
   onClose,
@@ -922,6 +1021,7 @@ export function Sidebar({
                     <IconPlus className="h-3.5 w-3.5" />
                   </button>
                 </div>
+                <SharedGoogleCalendarsGroup />
                 {(overlayPeople.length > 0 || externalCalendars.length > 0) && (
                   <div className="mt-1 space-y-1">
                     {overlayPeople.length > 0 && (

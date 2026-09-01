@@ -13,6 +13,7 @@ import {
   type CalendarColorMode,
   type CalendarViewPreferences,
 } from "@/lib/calendar-view-preferences";
+import { isSharedCalendarDemo } from "@/lib/shared-calendar-demo";
 
 export type ViewPreferences = CalendarViewPreferences;
 
@@ -129,6 +130,7 @@ async function readAppStatePreferences(): Promise<CalendarViewPreferences | null
 }
 
 export function useViewPreferences() {
+  const demo = isSharedCalendarDemo();
   const [prefs, setPrefs] = useState<ViewPreferences>(load);
   const accountColorRequestIds = useRef<Record<string, number>>({});
   const accountModeRequestIds = useRef<Record<string, number>>({});
@@ -150,6 +152,7 @@ export function useViewPreferences() {
   }, []);
 
   useEffect(() => {
+    if (demo) return;
     let cancelled = false;
     let timeout: number | undefined;
 
@@ -220,7 +223,7 @@ export function useViewPreferences() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (timeout) window.clearTimeout(timeout);
     };
-  }, []);
+  }, [demo]);
 
   const update = useCallback((patch: Partial<ViewPreferences>) => {
     setPrefs((prev) => {
@@ -257,6 +260,8 @@ export function useViewPreferences() {
         window.dispatchEvent(new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT));
         return next;
       });
+
+      if (demo) return;
 
       callAction("update-calendar-visual-preferences", {
         accountEmail,
@@ -333,7 +338,7 @@ export function useViewPreferences() {
           }
         });
     },
-    [],
+    [demo],
   );
 
   const updateAccountColorMode = useCallback(
@@ -355,6 +360,8 @@ export function useViewPreferences() {
         window.dispatchEvent(new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT));
         return next;
       });
+
+      if (demo) return;
 
       callAction("update-calendar-visual-preferences", {
         accountEmail,
@@ -416,8 +423,53 @@ export function useViewPreferences() {
           }
         });
     },
-    [],
+    [demo],
   );
 
-  return { prefs, update, updateAccountColor, updateAccountColorMode };
+  const updateGoogleCalendarVisibility = useCallback(
+    (sourceKey: string, visible: boolean) => {
+      const rollbackPrefs = prefs;
+      const next = normalizeCalendarViewPreferences({
+        ...prefs,
+        googleCalendarVisibility: {
+          ...prefs.googleCalendarVisibility,
+          [sourceKey]: visible,
+        },
+      });
+      setPrefs(next);
+      save(next);
+      window.dispatchEvent(new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT));
+
+      if (demo) return;
+
+      callAction("update-calendar-visual-preferences", {
+        googleCalendarSourceKey: sourceKey,
+        googleCalendarVisible: visible,
+      }).catch(() => {
+        setPrefs((current) => {
+          if (current.googleCalendarVisibility[sourceKey] !== visible) {
+            return current;
+          }
+          const next = normalizeCalendarViewPreferences({
+            ...current,
+            googleCalendarVisibility: rollbackPrefs.googleCalendarVisibility,
+          });
+          save(next);
+          window.dispatchEvent(
+            new Event(CALENDAR_VIEW_PREFERENCES_CHANGE_EVENT),
+          );
+          return next;
+        });
+      });
+    },
+    [demo, prefs],
+  );
+
+  return {
+    prefs,
+    update,
+    updateAccountColor,
+    updateAccountColorMode,
+    updateGoogleCalendarVisibility,
+  };
 }

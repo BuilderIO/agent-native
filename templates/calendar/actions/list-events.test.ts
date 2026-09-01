@@ -11,6 +11,11 @@ const listOverlayEventsMock = vi.hoisted(() => vi.fn());
 const fetchICalEventsMock = vi.hoisted(() => vi.fn());
 const signShortLivedTokenMock = vi.hoisted(() => vi.fn());
 const verifyShortLivedTokenMock = vi.hoisted(() => vi.fn());
+const isFeatureFlagEnabledMock = vi.hoisted(() => vi.fn(async () => true));
+
+vi.mock("@agent-native/core/feature-flags", () => ({
+  isFeatureFlagEnabled: isFeatureFlagEnabledMock,
+}));
 
 vi.mock("@agent-native/core/server", () => ({
   getRequestTimezone: getRequestTimezoneMock,
@@ -320,6 +325,25 @@ describe("list-events inventory contract", () => {
       }),
     ).rejects.toThrow("not connected");
     expect(listGoogleEventsMock).not.toHaveBeenCalled();
+  });
+
+  it("forwards opaque calendar source keys without trusting client metadata", async () => {
+    listGoogleEventsMock.mockResolvedValue({ events: [], errors: [] });
+
+    await listCalendarEvents({
+      from: "2026-06-17",
+      to: "2026-06-18",
+      calendarSourceKeys: ["google-calendar:opaque-source"],
+    });
+
+    expect(listGoogleEventsMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      expect.any(String),
+      expect.objectContaining({
+        calendarSourceKeys: ["google-calendar:opaque-source"],
+      }),
+    );
   });
 
   it("rejects an explicitly empty account selection", async () => {

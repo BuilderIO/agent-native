@@ -50,6 +50,11 @@ export default defineAction({
       ? args.id.slice("google-".length)
       : args.id;
     const calendarId = args.calendarId ?? "primary";
+    if (calendarId !== "primary") {
+      throw new Error(
+        "Non-primary events must be read through list-events with an opaque calendarSourceKey",
+      );
+    }
 
     const clients = await googleCalendar.getClients(email);
     if (clients.length === 0) {

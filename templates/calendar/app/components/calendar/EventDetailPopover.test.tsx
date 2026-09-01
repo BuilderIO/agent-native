@@ -280,6 +280,33 @@ describe("EventDetailPopover characterization", () => {
     expect(content?.innerHTML).toContain("text-[13px] font-medium");
   });
 
+  it("shows shared-calendar provenance without edit controls", () => {
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent({
+            accountEmail: "emdistal@gmail.com",
+            calendarName: "Friends",
+            calendarPrimary: false,
+            calendarReadOnly: true,
+          })}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    expect(document.body.textContent).toContain(
+      "eventForm.viewingOwnerCalendar",
+    );
+    expect(
+      document.querySelector('button[aria-label="eventForm.eventOptions"]'),
+    ).toBeNull();
+    expect(updateEventMutate).not.toHaveBeenCalled();
+  });
+
   it("makes the event options visible and scrolls to them when opened", () => {
     act(() => {
       root.render(

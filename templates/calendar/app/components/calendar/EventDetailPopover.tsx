@@ -570,7 +570,10 @@ export function EventDetailPopover({
     string | null
   >(() => getStoredZoomAfterConnectEventId());
   const [showConferencingOptions, setShowConferencingOptions] = useState(false);
-  const isOverlay = !!event.overlayEmail;
+  const isOverlay =
+    !!event.overlayEmail ||
+    event.calendarPrimary === false ||
+    event.calendarReadOnly === true;
   const ownerLabel = event.ownerName || event.overlayEmail;
 
   const updateEvent = useUpdateEvent();
@@ -2737,6 +2740,26 @@ export function EventDetailPopover({
                 </div>
               </>
             )}
+
+            {(event.calendarPrimary === false || event.calendarReadOnly) &&
+              event.calendarName &&
+              !event.overlayEmail && (
+                <>
+                  <div className={eventPopoverDivider} />
+                  <div className="flex items-center gap-2 px-4 py-1.5">
+                    <span
+                      aria-hidden="true"
+                      className="ml-1 size-2 shrink-0 rounded-full ring-1 ring-border"
+                      style={{ backgroundColor: event.color }}
+                    />
+                    <span className="truncate text-muted-foreground">
+                      {t("eventForm.viewingOwnerCalendar", {
+                        owner: `${event.calendarName} · ${event.accountEmail ?? "Google"}`,
+                      })}
+                    </span>
+                  </div>
+                </>
+              )}
 
             {/* Bottom padding */}
             <div className="h-3" />

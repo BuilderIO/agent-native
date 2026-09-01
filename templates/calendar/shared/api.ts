@@ -19,6 +19,13 @@ export interface CalendarEvent {
   /** Absolute Google Calendar web URL for Google events */
   htmlLink?: string;
   accountEmail?: string;
+  /** Provenance for a discovered Google calendar source. */
+  calendarSourceKey?: string;
+  calendarId?: string;
+  calendarName?: string;
+  calendarAccessRole?: GoogleCalendarSource["accessRole"];
+  calendarPrimary?: boolean;
+  calendarReadOnly?: boolean;
   /** Set when this event belongs to an overlaid person's calendar */
   overlayEmail?: string;
   /** Client-only marker for overlaid calendar ownership */
@@ -327,6 +334,19 @@ export interface GoogleAuthStatus {
     photoUrl?: string;
     shared?: boolean;
   }>;
+}
+
+export interface GoogleCalendarSource {
+  sourceKey: string;
+  accountEmail: string;
+  calendarId: string;
+  name: string;
+  color?: string;
+  selected: boolean;
+  primary: boolean;
+  accessRole: "freeBusyReader" | "reader" | "writer" | "owner";
+  /** Sources without event detail access are discoverable but cannot be read. */
+  readOnly: boolean;
 }
 
 export interface ExternalCalendar {
