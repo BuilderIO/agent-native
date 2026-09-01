@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SSR_BETA_REDIRECT_MARKER } from "../shared/ssr-beta-redirect.js";
 import {
@@ -7,6 +7,10 @@ import {
 } from "./beta-opt-out-html.js";
 
 describe("injectBetaOptOutPersistence", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("injects the opt-out handoff into custom auth HTML before authentication", () => {
     const html = injectBetaOptOutPersistence(
       "<!doctype html><html><head></head><body><form>Sign in</form></body></html>",
@@ -87,6 +91,18 @@ describe("injectBetaOptOutPersistence", () => {
     );
     expect(reinjected.match(/id="environment-hide-badge"/g)).toHaveLength(1);
     expect(reinjected.match(/__anInitEnvironmentBadge/g)).toHaveLength(1);
+  });
+
+  it("uses the Vite SSR base path for the auth session probe", () => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+    vi.stubEnv("VITE_APP_BASE_PATH", "/starter/");
+
+    const html = injectBetaOptOutPersistence(
+      "<html><head></head><body>Sign in</body></html>",
+    );
+
+    expect(html).toContain("/starter/_agent-native/auth/session");
   });
 
   it("keeps the existing onboarding switcher instead of injecting a second one", () => {

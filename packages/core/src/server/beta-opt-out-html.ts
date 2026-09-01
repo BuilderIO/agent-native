@@ -11,7 +11,7 @@ import {
   getSsrBetaRedirectScript,
   SSR_BETA_REDIRECT_MARKER,
 } from "../shared/ssr-beta-redirect.js";
-import { getConfiguredAppBasePath } from "./app-base-path.js";
+import { getAppBasePathFromViteEnv } from "./app-base-path.js";
 
 export const BETA_OPT_OUT_PERSISTENCE_MARKER =
   "Persist the beta opt-out before authentication";
@@ -244,7 +244,7 @@ export function injectBetaOptOutPersistence(loginHtml: string): string {
     html = insertBeforeClosingTag(
       html,
       getSsrBetaRedirectScript(
-        `${getConfiguredAppBasePath()}/_agent-native/auth/session`,
+        `${getAppBasePathFromViteEnv()}/_agent-native/auth/session`,
       ),
       "</head>",
     );
