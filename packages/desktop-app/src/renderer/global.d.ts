@@ -682,6 +682,12 @@ type DesktopOpenRequest = {
   runId?: string;
 };
 
+type DesktopChatOpenAppRequest = {
+  app: string;
+  path?: string;
+  view?: string;
+};
+
 type DesktopShortcutActivationRequest = DesktopOpenRequest & {
   requestId: string;
 };
@@ -1113,6 +1119,7 @@ interface ElectronAPI {
   desktopChat: {
     getApiUrl(appId: string): Promise<string | null>;
     getTerminalInfoUrl(appId?: string): Promise<string | null>;
+    onOpenApp(cb: (request: DesktopChatOpenAppRequest) => void): () => void;
   };
 
   mcpServers: {

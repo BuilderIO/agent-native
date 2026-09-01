@@ -1564,6 +1564,15 @@ const messages = {
       "メニューバーからClipsを開いて、この保存済みアップロードを再試行できます。録画し直す必要はありません。",
     removeFailedClip: "失敗したクリップを削除します。",
     remove: "削除",
+    statusStalled: "停滞中",
+    uploadAtRisk: "通常より時間がかかっています",
+    uploadAtRiskDetail:
+      "このクリップの保存を引き続き試みています。数分かかる場合があります。",
+    retry: "再試行",
+    retrying: "再試行中…",
+    retryFailed: "このアップロードを再試行できませんでした。",
+    retryUnavailableHere:
+      "再試行は、この録画を行ったデバイスまたはブラウザでのみ利用できます。",
     viewsCount: "{{count}} 回表示",
     recordingMenu: "録画メニュー",
     moveToFolder: "フォルダーに移動",

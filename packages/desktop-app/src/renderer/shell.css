@@ -287,7 +287,6 @@ body {
 .desktop-chat-first-hub > .code-agents-surface {
   min-width: 0;
   min-height: 0;
-  transition: grid-template-columns 200ms var(--ease-collapse);
 }
 
 .desktop-chat-first-hub
@@ -405,14 +404,28 @@ body {
 
 .collapsed-mac-window-controls .win-btn--maximize {
   left: 50px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-4px) scale(0.8);
+}
+
+.collapsed-mac-window-controls:has(
+    .win-btn--close:hover,
+    .win-btn--minimize:hover
+  )::before,
+.collapsed-mac-window-controls:focus-within::before {
+  opacity: 1;
+}
+
+.collapsed-mac-window-controls:has(
+    .win-btn--close:hover,
+    .win-btn--minimize:hover
+  )
+  .win-btn--maximize,
+.collapsed-mac-window-controls:focus-within .win-btn--maximize {
   opacity: 1;
   pointer-events: auto;
   transform: translateX(0) scale(1);
-}
-
-.collapsed-mac-window-controls:hover::before,
-.collapsed-mac-window-controls:focus-within::before {
-  opacity: 1;
 }
 
 .platform-darwin
@@ -421,6 +434,12 @@ body {
 .platform-darwin
   .shell:has(.settings-overlay)
   .collapsed-mac-window-controls:hover::before,
+.platform-darwin
+  .shell:has(.settings-overlay)
+  .collapsed-mac-window-controls:has(
+    .win-btn--close:hover,
+    .win-btn--minimize:hover
+  )::before,
 .platform-darwin
   .shell:has(.settings-overlay)
   .collapsed-mac-window-controls:focus-within::before {
@@ -1063,10 +1082,6 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .desktop-chat-first-hub > .code-agents-surface {
-    transition: none;
-  }
-
   .desktop-chat-first-mac-window-controls,
   .collapsed-mac-window-controls,
   .collapsed-mac-window-controls::before,

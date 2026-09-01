@@ -35,7 +35,7 @@ const navItems = [
   {
     icon: IconMessageCircle,
     labelKey: "navigation.chat",
-    href: "/",
+    href: "/home",
     view: "chat",
   },
 ];
@@ -149,7 +149,7 @@ function ChatThreadsSection({ open }: { open: boolean }) {
   );
   const displayedActiveThreadId =
     threadIdFromPath(location.pathname) ??
-    (location.pathname === "/" ? null : activeThreadId);
+    (location.pathname === "/home" ? null : activeThreadId);
   const chatItems = useMemo<ChatHistoryItem[]>(
     () =>
       visibleThreads.map((thread) => ({
@@ -189,7 +189,7 @@ function ChatThreadsSection({ open }: { open: boolean }) {
     persistActiveThreadId(threadId);
     navigateWithAgentChatViewTransition(
       navigate,
-      options?.isNew ? "/" : chatThreadPath(threadId),
+      options?.isNew ? "/home" : chatThreadPath(threadId),
     );
     window.requestAnimationFrame(() => {
       window.dispatchEvent(
@@ -274,7 +274,7 @@ export function Sidebar({
   const navigate = useNavigate();
   const t = useT();
   const isChatRoute =
-    location.pathname === "/" || location.pathname.startsWith("/chat/");
+    location.pathname === "/home" || location.pathname.startsWith("/chat/");
   const ToggleIcon = collapsed
     ? IconLayoutSidebarLeftExpand
     : IconLayoutSidebarLeftCollapse;
@@ -356,7 +356,7 @@ export function Sidebar({
         )}
       >
         <Link
-          to="/"
+          to="/home"
           onClick={(event) => {
             if (
               !collapsible ||
@@ -408,7 +408,7 @@ export function Sidebar({
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive =
-              item.href === "/"
+              item.href === "/home"
                 ? isChatRoute
                 : location.pathname.startsWith(item.href);
             const link = (
@@ -416,7 +416,7 @@ export function Sidebar({
                 to={item.href}
                 onClick={(event) => {
                   if (
-                    item.href === "/" &&
+                    item.href === "/home" &&
                     !isChatRoute &&
                     !event.metaKey &&
                     !event.ctrlKey &&
@@ -424,7 +424,7 @@ export function Sidebar({
                     !event.altKey
                   ) {
                     event.preventDefault();
-                    navigateWithAgentChatViewTransition(navigate, "/");
+                    navigateWithAgentChatViewTransition(navigate, "/home");
                   }
                 }}
                 className={navClass({ isActive })}

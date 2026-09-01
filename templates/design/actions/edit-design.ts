@@ -16,6 +16,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   readLiveSourceFile,
   SourceWorkspaceEditConflictError,
@@ -251,18 +252,22 @@ export default defineAction({
         });
       }
     }),
-  run: async ({
-    designId,
-    fileId,
-    filename,
-    edits,
-    mode,
-    replacementContent,
-    contextPackId,
-    contextModeOverride,
-    reuseLabels,
-  }) => {
+  run: async (
+    {
+      designId,
+      fileId,
+      filename,
+      edits,
+      mode,
+      replacementContent,
+      contextPackId,
+      contextModeOverride,
+      reuseLabels,
+    },
+    context,
+  ) => {
     await assertAccess("design", designId, "editor");
+    await snapshotDesignBeforeAgentEdit(designId, context);
 
     const db = getDb();
     const requestedFileId = fileId?.trim();

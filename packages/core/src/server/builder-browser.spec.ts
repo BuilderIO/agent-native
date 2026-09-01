@@ -67,6 +67,7 @@ import {
   getBuilderBrowserConnectUrlForOwner,
   getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
+  BuilderAccountProvisioningError,
   isBuilderAccountProvisioningEnabled,
   isBuilderBranchingEnabled,
   isBuilderConnectCallbackUrlAllowed,
@@ -165,6 +166,34 @@ describe("Builder account provisioning", () => {
       "test-builder-sso-secret-with-at-least-32-chars",
     );
     expect(isBuilderAccountProvisioningEnabled()).toBe(true);
+  });
+
+  it("preserves Builder's existing-account code for the login fallback", async () => {
+    vi.stubEnv(
+      BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV,
+      "test-builder-sso-secret-with-at-least-32-chars",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              code: "account_incomplete",
+              message: "An account already exists for this email.",
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    );
+
+    await expect(
+      provisionBuilderAccount({ email: "owner@example.com" }),
+    ).rejects.toMatchObject({
+      name: "BuilderAccountProvisioningError",
+      message: "An account already exists for this email.",
+      code: "account_incomplete",
+    });
   });
 });
 

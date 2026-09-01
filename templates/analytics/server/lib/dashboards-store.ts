@@ -13,7 +13,7 @@
  * - `adhoc-analysis-{id}`          → owner=caller,   legacy visibility from its source key
  */
 import { isPostgres } from "@agent-native/core/db";
-import { recordChange } from "@agent-native/core/server";
+import { getRequestRunContext, recordChange } from "@agent-native/core/server";
 import {
   getOrgSetting,
   getUserSetting,
@@ -131,7 +131,10 @@ export interface DashboardRevisionRecord {
   config: Record<string, unknown>;
   createdAt: string;
   createdBy: string | null;
+  chatContext: AnalyticsRevisionChatContext | null;
 }
+
+export type DashboardRevisionMetadata = Omit<DashboardRevisionRecord, "config">;
 
 export type DashboardArchiveFilter = "active" | "archived" | "all";
 export type DashboardHiddenFilter = "visible" | "hidden" | "all";
@@ -172,6 +175,13 @@ export interface AnalysisRevisionRecord {
   resultData: Record<string, unknown> | null;
   createdAt: string;
   createdBy: string | null;
+  chatContext: AnalyticsRevisionChatContext | null;
+}
+
+export interface AnalyticsRevisionChatContext {
+  threadId?: string;
+  runId?: string;
+  turnId?: string;
 }
 
 interface AccessCtx {
@@ -232,6 +242,48 @@ export function normalizeDashboardName(value: string): string {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function revisionChatContextFromFields(value: {
+  threadId?: unknown;
+  runId?: unknown;
+  turnId?: unknown;
+}): AnalyticsRevisionChatContext | null {
+  const context: AnalyticsRevisionChatContext = {};
+  for (const key of ["threadId", "runId", "turnId"] as const) {
+    if (typeof value[key] === "string" && value[key].trim()) {
+      context[key] = value[key];
+    }
+  }
+  return Object.keys(context).length > 0 ? context : null;
+}
+
+function requestRevisionChatContext(): AnalyticsRevisionChatContext | null {
+  const run = getRequestRunContext();
+  return run ? revisionChatContextFromFields(run) : null;
+}
+
+function parseRevisionChatContext(
+  raw: unknown,
+): AnalyticsRevisionChatContext | null {
+  if (raw == null) return null;
+  if (typeof raw !== "string") {
+    throw new Error("Analytics revision chat metadata is invalid.");
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new Error("Analytics revision chat metadata is not valid JSON.");
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Analytics revision chat metadata is invalid.");
+  }
+  const context = revisionChatContextFromFields(
+    value as Record<string, unknown>,
+  );
+  if (!context) throw new Error("Analytics revision chat metadata is invalid.");
+  return context;
 }
 
 function escapeLikeLiteral(value: string): string {
@@ -524,6 +576,19 @@ function rowToDashboardRevision(row: any): DashboardRevisionRecord {
       typeof row.config === "string" ? JSON.parse(row.config) : row.config,
     createdAt: row.createdAt,
     createdBy: row.createdBy ?? null,
+    chatContext: parseRevisionChatContext(row.chatContext),
+  };
+}
+
+function rowToDashboardRevisionMetadata(row: any): DashboardRevisionMetadata {
+  return {
+    id: row.id,
+    dashboardId: row.dashboardId,
+    kind: row.kind,
+    title: row.title,
+    createdAt: row.createdAt,
+    createdBy: row.createdBy ?? null,
+    chatContext: parseRevisionChatContext(row.chatContext),
   };
 }
 
@@ -1366,6 +1431,7 @@ async function snapshotDashboardRevision(
   db: any,
   dashboard: DashboardRecord,
   ctx: AccessCtx,
+  chatContext: AnalyticsRevisionChatContext | null = requestRevisionChatContext(),
 ): Promise<string> {
   const id = `dashrev-${Date.now()}-${nanoidFallback()}`;
   await db.insert(schema.dashboardRevisions).values({
@@ -1376,11 +1442,31 @@ async function snapshotDashboardRevision(
     config: JSON.stringify(dashboard.config),
     createdAt: nowIso(),
     createdBy: ctx.email,
+    ...(chatContext ? { chatContext: JSON.stringify(chatContext) } : {}),
     ownerEmail: dashboard.ownerEmail,
     orgId: dashboard.orgId,
   });
   await pruneDashboardRevisions(db, dashboard.id);
   return id;
+}
+
+export async function createDashboardRevisionSnapshot(
+  dashboardId: string,
+  ctx: AccessCtx,
+  chatContext?: AnalyticsRevisionChatContext,
+): Promise<string | null> {
+  await assertAccess("dashboard", dashboardId, "editor", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  const dashboard = await getDashboard(dashboardId, ctx);
+  if (!dashboard) return null;
+  return snapshotDashboardRevision(
+    getDb(),
+    dashboard,
+    ctx,
+    chatContext ?? requestRevisionChatContext(),
+  );
 }
 
 /**
@@ -1464,9 +1550,21 @@ export async function upsertDashboard(
         if (affected === 0) {
           throw new DashboardConflictError(id);
         }
-        if (changed) await snapshotDashboardRevision(writeDb, existing, ctx);
+        if (changed)
+          await snapshotDashboardRevision(
+            writeDb,
+            existing,
+            ctx,
+            requestRevisionChatContext(),
+          );
       } else {
-        if (changed) await snapshotDashboardRevision(writeDb, existing, ctx);
+        if (changed)
+          await snapshotDashboardRevision(
+            writeDb,
+            existing,
+            ctx,
+            requestRevisionChatContext(),
+          );
         await writeDb
           .update(schema.dashboards)
           .set(setValues)
@@ -1694,6 +1792,34 @@ export async function listDashboardRevisions(
   return rows.map(rowToDashboardRevision);
 }
 
+export async function listDashboardRevisionMetadata(
+  dashboardId: string,
+  ctx: AccessCtx,
+): Promise<DashboardRevisionMetadata[]> {
+  const existing = await getDashboard(dashboardId, ctx);
+  if (!existing) return [];
+  await assertAccess("dashboard", dashboardId, "viewer", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  const db = getDb() as any;
+  const rows = await db
+    .select({
+      id: schema.dashboardRevisions.id,
+      dashboardId: schema.dashboardRevisions.dashboardId,
+      kind: schema.dashboardRevisions.kind,
+      title: schema.dashboardRevisions.title,
+      createdAt: schema.dashboardRevisions.createdAt,
+      createdBy: schema.dashboardRevisions.createdBy,
+      chatContext: schema.dashboardRevisions.chatContext,
+    })
+    .from(schema.dashboardRevisions)
+    .where(eq(schema.dashboardRevisions.dashboardId, dashboardId))
+    .orderBy(desc(schema.dashboardRevisions.createdAt))
+    .limit(DASHBOARD_REVISION_LIMIT);
+  return rows.map(rowToDashboardRevisionMetadata);
+}
+
 export async function restoreDashboardRevision(
   dashboardId: string,
   revisionId: string,
@@ -1777,6 +1903,7 @@ export async function restoreDashboardRevision(
       tx,
       existing,
       ctx,
+      requestRevisionChatContext(),
     );
     const [row] = await tx
       .select()
@@ -2066,6 +2193,7 @@ function rowToAnalysisRevision(row: any): AnalysisRevisionRecord {
     resultData: row.resultData ? safeJsonParse(row.resultData, null) : null,
     createdAt: row.createdAt,
     createdBy: row.createdBy ?? null,
+    chatContext: parseRevisionChatContext(row.chatContext),
   };
 }
 
@@ -2312,6 +2440,7 @@ async function snapshotAnalysisRevision(
   db: any,
   analysis: AnalysisRecord,
   ctx: AccessCtx,
+  chatContext: AnalyticsRevisionChatContext | null = requestRevisionChatContext(),
 ): Promise<void> {
   await db.insert(schema.analysisRevisions).values({
     id: `analysisrev-${Date.now()}-${nanoidFallback()}`,
@@ -2327,10 +2456,31 @@ async function snapshotAnalysisRevision(
       : null,
     createdAt: nowIso(),
     createdBy: ctx.email,
+    ...(chatContext ? { chatContext: JSON.stringify(chatContext) } : {}),
     ownerEmail: analysis.ownerEmail,
     orgId: analysis.orgId,
   });
   await pruneAnalysisRevisions(db, analysis.id);
+}
+
+export async function createAnalysisRevisionSnapshot(
+  analysisId: string,
+  ctx: AccessCtx,
+  chatContext?: AnalyticsRevisionChatContext,
+): Promise<string | null> {
+  await assertAccess("analysis", analysisId, "editor", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  const analysis = await getAnalysis(analysisId, ctx);
+  if (!analysis) return null;
+  await snapshotAnalysisRevision(
+    getDb(),
+    analysis,
+    ctx,
+    chatContext ?? requestRevisionChatContext(),
+  );
+  return analysisId;
 }
 
 /**
@@ -2437,9 +2587,21 @@ export async function upsertAnalysis(
       if (affected === 0) {
         throw new AnalysisConflictError(id);
       }
-      if (changed) await snapshotAnalysisRevision(db, existing, ctx);
+      if (changed)
+        await snapshotAnalysisRevision(
+          db,
+          existing,
+          ctx,
+          requestRevisionChatContext(),
+        );
     } else {
-      if (changed) await snapshotAnalysisRevision(db, existing, ctx);
+      if (changed)
+        await snapshotAnalysisRevision(
+          db,
+          existing,
+          ctx,
+          requestRevisionChatContext(),
+        );
       await db
         .update(schema.analyses)
         .set(patch)
@@ -2563,6 +2725,45 @@ export async function listAnalysisRevisions(
   return rows.map(rowToAnalysisRevision);
 }
 
+export async function listAnalysisRevisionMetadata(
+  analysisId: string,
+  ctx: AccessCtx,
+): Promise<
+  Pick<
+    AnalysisRevisionRecord,
+    | "id"
+    | "analysisId"
+    | "name"
+    | "description"
+    | "createdAt"
+    | "createdBy"
+    | "chatContext"
+  >[]
+> {
+  const existing = await getAnalysis(analysisId, ctx);
+  if (!existing) return [];
+  await assertAccess("analysis", analysisId, "viewer", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  const db = getDb() as any;
+  const rows = await db
+    .select({
+      id: schema.analysisRevisions.id,
+      analysisId: schema.analysisRevisions.analysisId,
+      name: schema.analysisRevisions.name,
+      description: schema.analysisRevisions.description,
+      createdAt: schema.analysisRevisions.createdAt,
+      createdBy: schema.analysisRevisions.createdBy,
+      chatContext: schema.analysisRevisions.chatContext,
+    })
+    .from(schema.analysisRevisions)
+    .where(eq(schema.analysisRevisions.analysisId, analysisId))
+    .orderBy(desc(schema.analysisRevisions.createdAt))
+    .limit(ANALYSIS_REVISION_LIMIT);
+  return rows;
+}
+
 export async function restoreAnalysisRevision(
   analysisId: string,
   revisionId: string,
@@ -2587,7 +2788,12 @@ export async function restoreAnalysisRevision(
     .limit(1);
   if (!revisionRow) return null;
   const revision = rowToAnalysisRevision(revisionRow);
-  await snapshotAnalysisRevision(db, existing, ctx);
+  await snapshotAnalysisRevision(
+    db,
+    existing,
+    ctx,
+    requestRevisionChatContext(),
+  );
   await db
     .update(schema.analyses)
     .set({

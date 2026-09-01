@@ -41,6 +41,27 @@ const GOOGLE_IDENTITY_WINDOW_CLOSE_GRACE_MS = 5_000;
 const DISPATCH_WORKSPACE_EMBED_ACTION =
   "/_agent-native/actions/create-workspace-app-embed-session";
 const DESKTOP_IDENTITY_APP_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+// Every app tab mints its own embed session on launch; without a cap the
+// hosted endpoint sees them all at once and starts returning 429s.
+const APP_SESSION_MINT_CONCURRENCY = 3;
+const APP_SESSION_MINT_MAX_ATTEMPTS = 3;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function appSessionMintRetryDelayMs(
+  retryAfterHeader: string | null,
+  attempt: number,
+): number {
+  const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : NaN;
+  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
+    return retryAfterSeconds * 1000;
+  }
+  // ponytail: fixed exponential backoff with jitter, upgrade to a shared
+  // retry util if another caller needs the same shape.
+  return 500 * 2 ** (attempt - 1) + Math.random() * 250;
+}
 
 function normalizeIdentityEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -511,6 +532,11 @@ export class DesktopIdentityBroker {
   private readonly externalSignOutWaiters = new Set<() => void>();
   private readonly internalRevocationNonce =
     randomBytes(16).toString("base64url");
+  // Bounded across every appId, unlike pendingModernAppSessions above (which
+  // only dedupes concurrent calls for the *same* app) — this is what keeps a
+  // launch-time fan-out of distinct app tabs from minting all at once.
+  private appSessionMintSlotsAvailable = APP_SESSION_MINT_CONCURRENCY;
+  private readonly appSessionMintWaiters: Array<() => void> = [];
   private status: DesktopIdentityStatus = "idle";
   private verifiedIdentityEmail: string | null = null;
   private statusVerifiedAt = 0;
@@ -1685,6 +1711,77 @@ export class DesktopIdentityBroker {
     }
   }
 
+  private acquireAppSessionMintSlot(): Promise<void> {
+    if (this.appSessionMintSlotsAvailable > 0) {
+      this.appSessionMintSlotsAvailable -= 1;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      this.appSessionMintWaiters.push(resolve);
+    });
+  }
+
+  private releaseAppSessionMintSlot(): void {
+    const next = this.appSessionMintWaiters.shift();
+    if (next) {
+      // Hand the slot straight to the next waiter instead of incrementing
+      // and letting it race a fresh acquireAppSessionMintSlot() call.
+      next();
+      return;
+    }
+    this.appSessionMintSlotsAvailable += 1;
+  }
+
+  /**
+   * Mint the child embed session, honoring 429s from the hosted endpoint
+   * with retry-after/backoff. Concurrency is capped across all appIds by
+   * the mint slot semaphore so a launch-time fan-out of tabs queues instead
+   * of firing every mint at once. Returns null once retries are exhausted
+   * (rate limited) or the ceremony moved on mid-retry — distinct from a
+   * thrown error, which the caller's catch block still logs separately.
+   */
+  private async fetchWorkspaceEmbedStartWithRetry(
+    app: DesktopIdentityApp,
+    startUrl: string,
+    generation: number,
+  ): Promise<Response | null> {
+    await this.acquireAppSessionMintSlot();
+    try {
+      for (
+        let attempt = 1;
+        attempt <= APP_SESSION_MINT_MAX_ATTEMPTS;
+        attempt++
+      ) {
+        const response = await app.session.fetch(startUrl, {
+          redirect: "follow",
+          credentials: "include",
+          headers: { Accept: "text/html,application/xhtml+xml" },
+        });
+        if (response.status !== 429) return response;
+        if (
+          attempt === APP_SESSION_MINT_MAX_ATTEMPTS ||
+          !this.isCeremonyCurrent(generation)
+        ) {
+          console.warn(
+            "[desktop identity] workspace app session mint rate limited",
+            { appId: app.id, attempts: attempt },
+          );
+          return null;
+        }
+        await sleep(
+          appSessionMintRetryDelayMs(
+            response.headers.get("retry-after"),
+            attempt,
+          ),
+        );
+        if (!this.isCeremonyCurrent(generation)) return null;
+      }
+      return null;
+    } finally {
+      this.releaseAppSessionMintSlot();
+    }
+  }
+
   private async ensureModernAppSession(
     appId: string,
     generation = this.ceremonyGeneration,
@@ -1726,22 +1823,40 @@ export class DesktopIdentityBroker {
 
     try {
       const startUrl = await this.mintWorkspaceEmbedStartUrl(authority, app);
-      const response = await app.session.fetch(startUrl, {
-        redirect: "follow",
-        credentials: "include",
-        headers: { Accept: "text/html,application/xhtml+xml" },
-      });
+      const response = await this.fetchWorkspaceEmbedStartWithRetry(
+        app,
+        startUrl,
+        generation,
+      );
+      if (!response) return false;
       if (!response.ok) {
         throw new Error(`Embed session returned ${response.status}`);
       }
       const targetCookies = await app.session.cookies.get({});
-      const sessionCookieNames = targetCookies
-        .filter(
-          (cookie) =>
-            cookieMatchesOrigin(cookie, app.origin) &&
-            app.cookieNames.includes(cookie.name),
-        )
-        .map((cookie) => cookie.name);
+      const sessionCookies = targetCookies.filter(
+        (cookie) =>
+          cookieMatchesOrigin(cookie, app.origin) &&
+          app.cookieNames.includes(cookie.name),
+      );
+      const sessionCookieNames = sessionCookies.map((cookie) => cookie.name);
+      // The embed redirect can leave a Partitioned cookie in the main-process
+      // fetch context. Mirror the allow-listed child cookies through the same
+      // app partition without a partition key so the WebView's page requests
+      // send the session too. Never copy the parent identity cookie here.
+      for (const cookie of sessionCookies) {
+        await app.session.cookies.set({
+          url: app.origin,
+          name: cookie.name,
+          value: cookie.value,
+          path: cookie.path || "/",
+          httpOnly: cookie.httpOnly,
+          secure: cookie.secure,
+          sameSite: cookie.sameSite,
+          ...(cookie.expirationDate
+            ? { expirationDate: cookie.expirationDate }
+            : {}),
+        });
+      }
       console.info("[desktop identity] workspace app session response", {
         appId: app.id,
         responseOrigin: safeResponseOrigin(response.url),
@@ -1970,32 +2085,34 @@ export class DesktopIdentityBroker {
     }
 
     const remaining = orderedApps.filter((app) => app.id !== firstApp.id);
-    const operations = remaining.map((app) =>
-      this.ensureAppSessionInternal(app.id, {
-        interactive: false,
-        skipAvailabilityProbe: true,
-        preserveStatus: app.id !== appId,
-      }),
-    );
-    // A child that has no SSO-capable login path must not strand the parent
-    // or the requested app; failed children are retried when opened.
-    const allResults = Promise.allSettled(operations);
-    const requestedIndex = remaining.findIndex((app) => app.id === appId);
-    const requestedOperation =
-      requestedIndex >= 0 ? operations[requestedIndex] : null;
-    let requestedSucceeded = firstApp.id === appId;
-    if (requestedOperation) {
-      let requestedResult = false;
+    const ensureChild = async (
+      app: DesktopIdentityApp,
+      preserveStatus: boolean,
+    ): Promise<boolean> => {
       try {
-        requestedResult = await requestedOperation;
+        return await this.ensureAppSessionInternal(app.id, {
+          interactive: false,
+          skipAvailabilityProbe: true,
+          preserveStatus,
+        });
       } catch (error) {
-        console.warn("[desktop identity] requested app session failed", {
-          appId,
+        console.warn("[desktop identity] app session failed", {
+          appId: app.id,
           reason: error instanceof Error ? error.message : "unknown error",
         });
+        return false;
       }
+    };
+
+    // The requested app is ordered first so the sign-in UI can finish as soon
+    // as its session is usable. The remaining apps are adopted one at a time
+    // so a sign-in does not fan out concurrent hosted-session mints.
+    const requestedChild = remaining[0]?.id === appId ? remaining[0] : null;
+    let requestedSucceeded = firstApp.id === appId;
+    if (requestedChild) {
       requestedSucceeded =
-        requestedResult === true && this.isCeremonyCurrent(generation);
+        (await ensureChild(requestedChild, false)) &&
+        this.isCeremonyCurrent(generation);
     }
     if (!requestedSucceeded) {
       if (this.isCeremonyCurrent(generation) && !this.signOutOperation) {
@@ -2006,19 +2123,19 @@ export class DesktopIdentityBroker {
     if (this.isCeremonyCurrent(generation) && !this.signOutOperation) {
       this.setStatus("signed-in");
     }
-    void allResults.then((results) => {
-      const failedAppIds = remaining
-        .filter((_app, index) => {
-          const result = results[index];
-          return result.status === "rejected" || !result.value;
-        })
-        .map((app) => app.id);
+    void (async () => {
+      const failedAppIds: string[] = [];
+      const backgroundApps = requestedChild ? remaining.slice(1) : remaining;
+      for (const app of backgroundApps) {
+        if (!this.isCeremonyCurrent(generation)) return;
+        if (!(await ensureChild(app, true))) failedAppIds.push(app.id);
+      }
       if (failedAppIds.length > 0) {
         console.warn("[desktop identity] app session fan-out had failures", {
           appIds: failedAppIds,
         });
       }
-    });
+    })();
     return true;
   }
 
@@ -2197,25 +2314,32 @@ export class DesktopIdentityBroker {
       }
 
       const apps = this.listIdentityApps(sourceApp, authority);
-      const remaining = apps.filter((app) => app.id !== authority.id);
-      const results = await Promise.allSettled(
-        remaining.map((app) =>
-          this.ensureAppSessionInternal(app.id, {
+      const failedAppIds: string[] = [];
+      // Keep session adoption serial as well as sign-in fan-out. Each child
+      // request can mint a separate hosted session and parallel calls trigger
+      // provider rate limits before the parent session is useful.
+      for (const app of apps.filter(
+        (candidate) => candidate.id !== authority.id,
+      )) {
+        let succeeded = false;
+        try {
+          succeeded = await this.ensureAppSessionInternal(app.id, {
             interactive: false,
             skipIfPresent: true,
             expectedSessionValue: sourceCookie.value,
             waitForSignOut: false,
             skipAvailabilityProbe: true,
             preserveStatus: true,
-          }),
-        ),
-      );
-      const failedAppIds = remaining
-        .filter((_app, index) => {
-          const result = results[index];
-          return result.status === "rejected" || !result.value;
-        })
-        .map((app) => app.id);
+          });
+        } catch (error) {
+          console.warn("[desktop identity] automatic app session failed", {
+            appId: app.id,
+            reason: error instanceof Error ? error.message : "unknown error",
+          });
+        }
+        if (!succeeded) failedAppIds.push(app.id);
+        if (!this.isCeremonyCurrent(generation)) return false;
+      }
       if (failedAppIds.length > 0) {
         // The verified source and authority sessions remain usable. A failed
         // app is retried when its webview is opened instead of locking the

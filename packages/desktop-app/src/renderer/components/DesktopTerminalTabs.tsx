@@ -158,7 +158,18 @@ export default function DesktopTerminalTabs({
           throw new Error("The desktop terminal has no connection.");
         }
         const response = await fetch(infoUrl);
-        const info = terminalInfoFrom(await response.json());
+        const body = await response.text();
+        let payload: unknown;
+        try {
+          payload = JSON.parse(body);
+        } catch {
+          throw new Error(
+            response.ok
+              ? "The desktop terminal returned an invalid response."
+              : `The desktop terminal failed to start (${response.status}).`,
+          );
+        }
+        const info = terminalInfoFrom(payload);
         const wsUrl =
           info.wsUrl ??
           (info.wsPort ? `ws://127.0.0.1:${info.wsPort}/ws` : undefined);

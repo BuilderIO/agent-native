@@ -16,6 +16,11 @@ import {
 } from "../server/lib/require-workspace-member.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
 import { createSlackReader } from "../server/triage/slack-client.js";
+import {
+  collectSlackUserIds,
+  readStoredUserLabels,
+  resolveSlackUserLabels,
+} from "../server/triage/slack-user-labels.js";
 
 export default defineAction({
   description:
@@ -56,6 +61,14 @@ export default defineAction({
       item.channelId,
       item.threadTs,
     );
+    const liveLabels = await resolveSlackUserLabels(
+      collectSlackUserIds(messages),
+      (userId) => slack.getUserInfo(workspace, userId),
+    );
+    const userLabels = {
+      ...readStoredUserLabels(item.metadataJson),
+      ...Object.fromEntries(liveLabels),
+    };
 
     await recordFactoryAudit(
       context,
@@ -86,16 +99,23 @@ export default defineAction({
       channelId: item.channelId,
       threadTs: item.threadTs,
       coverage: hasMore ? "partial" : "complete",
-      messages: messages.map((message) => ({
-        user: message.user ?? message.username ?? message.bot_id ?? null,
-        username: message.username ?? null,
-        botId: message.bot_id ?? null,
-        text: message.text,
-        ts: message.ts,
-        threadTs: message.thread_ts ?? item.threadTs,
-        replyCount: message.reply_count ?? 0,
-        reactions: message.reactions ?? [],
-      })),
+      builderSlackUserId: config?.builderSlackUserId ?? null,
+      userLabels,
+      messages: messages.map((message) => {
+        const userId = message.user ?? null;
+        const resolved =
+          (userId ? userLabels[userId] : undefined) ?? message.username ?? null;
+        return {
+          user: userId ?? message.username ?? message.bot_id ?? null,
+          username: resolved,
+          botId: message.bot_id ?? null,
+          text: message.text,
+          ts: message.ts,
+          threadTs: message.thread_ts ?? item.threadTs,
+          replyCount: message.reply_count ?? 0,
+          reactions: message.reactions ?? [],
+        };
+      }),
     };
   },
 });

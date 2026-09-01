@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import * as credentialProvider from "./credential-provider";
 import {
   registerTrackingProvider,
   unregisterTrackingProvider,
@@ -26,6 +27,7 @@ function collectTrackedEvents(): TrackingEvent[] {
 describe("sendEmail", () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     unregisterTrackingProvider("email-tracking-test");
@@ -80,6 +82,29 @@ describe("sendEmail", () => {
     ).rejects.toThrow();
 
     expect(tracked.map((entry) => entry.name)).toEqual(["email.send_failed"]);
+  });
+
+  it("uses deployment credentials for process-owned sends", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "deployment-sendgrid-key");
+    vi.stubEnv("EMAIL_FROM", "Agent-Native <reports@example.com>");
+    vi.stubEnv("RESEND_API_KEY", "");
+    const resolveSecret = vi
+      .spyOn(credentialProvider, "resolveSecret")
+      .mockResolvedValue("stale-scoped-key");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "Dashboard report",
+      html: "<p>Report</p>",
+      useDeploymentCredentials: true,
+    });
+
+    expect(resolveSecret).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer deployment-sendgrid-key",
+    });
   });
 
   it("overrides only the verified sender display name and maps Reply-To", async () => {

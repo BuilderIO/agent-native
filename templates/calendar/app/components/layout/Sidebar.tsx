@@ -90,7 +90,7 @@ import { cn } from "@/lib/utils";
 import { useCalendarContext } from "./AppLayout";
 
 const navItems = [
-  { path: "/", labelKey: "navigation.calendar", icon: IconCalendar },
+  { path: "/home", labelKey: "navigation.calendar", icon: IconCalendar },
   {
     path: "/booking-links",
     labelKey: "navigation.bookingLinks",
@@ -683,8 +683,8 @@ export function Sidebar({
 
   function handleMiniCalendarDateSelect(date: Date) {
     setSelectedDate(date);
-    if (location.pathname !== "/") {
-      void navigate("/");
+    if (location.pathname !== "/home") {
+      void navigate("/home");
     }
     onClose();
   }
@@ -767,7 +767,7 @@ export function Sidebar({
           )}
         >
           <Link
-            to="/"
+            to="/home"
             onClick={(event) => {
               onClose();
               if (

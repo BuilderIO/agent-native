@@ -1,0 +1,941 @@
+import { defineAction } from "@agent-native/core/action";
+import { and, eq, inArray } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb } from "../server/db/index.js";
+import {
+  triageDecisions,
+  triageItems,
+  triageRuns,
+} from "../server/db/schema.js";
+import {
+  DEFAULT_FACTORY_ID,
+  factoryStillPresent,
+  orgFactoryItemFilter,
+  orgFactoryRunFilter,
+  readTriageConfigRow,
+  requireExistingFactory,
+} from "../server/lib/factory-scope.js";
+import { parseGitHubRepositoryRef } from "../server/lib/github-repository.js";
+import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
+import {
+  requireWorkspaceMember,
+  workspaceMemberIdentityFromContext,
+} from "../server/lib/require-workspace-member.js";
+import {
+  githubIssueReaction,
+  parseOptionalReaction,
+} from "../server/lib/source-reaction.js";
+import { recordFactoryAudit } from "../server/triage/audit.js";
+import { createGitHubClient } from "../server/triage/github-client.js";
+import { stableId } from "../server/triage/ids.js";
+import {
+  metadataBoolean,
+  metadataString,
+  parseTriageMetadata,
+  serializeTriageMetadata,
+} from "../server/triage/metadata.js";
+import { detectOwnerOwnedArea } from "../server/triage/pr-policy.js";
+import {
+  createSlackReader,
+  isAgentNativeSlackUserName,
+} from "../server/triage/slack-client.js";
+
+/** Slack notifies only with `<@USERID>`. Plaintext @handles do not ping anyone. */
+const REPLY_INSTRUCTION =
+  "please run /address-feedback in the repo to address this feedback. Read the address-feedback, address-feedback-with-replies, review-latest-feedback, and review-prs skills as relevant, inspect the full thread and linked evidence, and fix the owning boundary. Please send a PR when ready, then have the @agent-native bot post a concise Fixed, In progress, or Clarification needed disposition in this same thread; a reaction or this handoff alone is not completion.";
+const plaintextBuilderReplyPrefix =
+  "@builder.io please run /address-feedback in the repo to address this feedback.";
+const legacyReplyTextPrefix = "@builderio please fix this in a reply.";
+
+export function requireBuilderSlackUserId(
+  value: string | null | undefined,
+): string {
+  const id = typeof value === "string" ? value.trim() : "";
+  if (!/^[UW][A-Z0-9]+$/i.test(id)) {
+    throw new Error(
+      "Configure a Builder Slack member id in Factory settings before tagging Builder.",
+    );
+  }
+  return id.toUpperCase();
+}
+
+export function replyTextPrefixFor(builderSlackUserId: string): string {
+  return `<@${requireBuilderSlackUserId(builderSlackUserId)}> ${REPLY_INSTRUCTION}`;
+}
+
+function messageHasBuilderHandoff(
+  text: string,
+  builderSlackUserId: string,
+): boolean {
+  return (
+    text.includes(replyTextPrefixFor(builderSlackUserId)) ||
+    text.includes(plaintextBuilderReplyPrefix) ||
+    text.includes(legacyReplyTextPrefix)
+  );
+}
+
+type RelatedFeedbackItem = {
+  id: string;
+  sourceUrl: string | null;
+  title: string;
+};
+
+const startedTriageRunStatuses = new Set([
+  "submitted",
+  "acknowledged",
+  "running",
+  "completed",
+  "timed_out",
+  "reconciliation_required",
+]);
+
+export function hasFeedbackCluster(metadata: Record<string, unknown>): boolean {
+  return (
+    (typeof metadata.feedbackClusterRepresentativeId === "string" &&
+      metadata.feedbackClusterRepresentativeId.trim().length > 0) ||
+    (Array.isArray(metadata.feedbackClusterItemIds) &&
+      metadata.feedbackClusterItemIds.length > 0)
+  );
+}
+
+export function isStartedTriageRunStatus(status: string): boolean {
+  return startedTriageRunStatuses.has(status);
+}
+
+export function relatedDispatchConflictReason(
+  item: Pick<RelatedFeedbackItem, "id">,
+  metadata: Record<string, unknown>,
+  runStatuses: readonly string[],
+): string | null {
+  if (hasFeedbackCluster(metadata)) {
+    return `Related Factory item ${item.id} already belongs to a feedback cluster.`;
+  }
+  if (runStatuses.some(isStartedTriageRunStatus)) {
+    return `Related Factory item ${item.id} already has a started Builder run.`;
+  }
+  return null;
+}
+
+export function ownerOwnedAreaValuesForItem(
+  item: Pick<RelatedFeedbackItem, "title"> & {
+    summary: string | null;
+    repository: string | null;
+  },
+  metadata: Record<string, unknown>,
+): Array<string | undefined> {
+  return [
+    item.title,
+    item.summary ?? undefined,
+    item.repository ?? undefined,
+    typeof metadata.productArea === "string" ? metadata.productArea : undefined,
+    typeof metadata.path === "string" ? metadata.path : undefined,
+  ];
+}
+
+export function replyTextForItem(
+  item: {
+    id: string;
+    sourceUrl: string | null;
+  },
+  relatedItems: RelatedFeedbackItem[] = [],
+  builderSlackUserId: string,
+): string {
+  const relatedText =
+    relatedItems.length > 0
+      ? [
+          "Related feedback in the same issue cluster - inspect and fix all of these too:",
+          ...relatedItems.map(
+            (related) =>
+              `- ${related.title} (${related.id})${related.sourceUrl ? `: ${related.sourceUrl}` : ""}`,
+          ),
+        ]
+      : [];
+  return [
+    replyTextPrefixFor(builderSlackUserId),
+    `Factory item: ${item.id}`,
+    item.sourceUrl ? `Source: ${item.sourceUrl}` : "",
+    ...relatedText,
+    "Please include the Factory item, every related item, and their source links in the PR description, and make sure the fix covers the whole cluster rather than one report.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export const GITHUB_BOT_REQUEST =
+  "@builderio-bot please run /address-feedback in the repo to address this feedback. Read the address-feedback, address-feedback-with-replies, review-latest-feedback, and review-prs skills as relevant, inspect the linked evidence, and fix the owning boundary. Please send a PR when ready.";
+
+export function parseFactoryGitHubIssueNumber(input: {
+  externalId: string | null;
+  sourceUrl: string | null;
+}): number {
+  const fromExternal = /#(\d+)$/.exec(input.externalId?.trim() ?? "");
+  if (fromExternal) return Number(fromExternal[1]);
+  const fromUrl = /\/issues\/(\d+)(?:[/?#]|$)/.exec(input.sourceUrl ?? "");
+  if (fromUrl) return Number(fromUrl[1]);
+  throw new Error("GitHub issue item is missing an issue number.");
+}
+
+export function githubBotDispatchText(input: {
+  itemId: string;
+  sourceUrl: string | null;
+  reason: string;
+  clearErrorReport?: string;
+  relatedItems?: RelatedFeedbackItem[];
+}): string {
+  return [
+    GITHUB_BOT_REQUEST,
+    `Factory item: ${input.itemId}`,
+    input.sourceUrl ? `Source: ${input.sourceUrl}` : "",
+    input.reason ? `Why this is a clear bug: ${input.reason}` : "",
+    input.clearErrorReport ? `Error report:\n${input.clearErrorReport}` : "",
+    relatedFeedbackSummary(input.relatedItems ?? []),
+    "Include the Factory item id and source link in the pull request description.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function relatedFeedbackSummary(relatedItems: RelatedFeedbackItem[]): string {
+  if (relatedItems.length === 0) return "";
+  return [
+    "Related feedback in the same issue cluster:",
+    ...relatedItems.map(
+      (related) =>
+        `- ${related.title} (${related.id})${related.sourceUrl ? `: ${related.sourceUrl}` : ""}`,
+    ),
+    "Read and address every related report in one change.",
+  ].join("\n");
+}
+
+async function writeMetadata(
+  itemId: string,
+  orgId: string,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  const db = getDb();
+  const item = (
+    await db
+      .select({ metadataJson: triageItems.metadataJson })
+      .from(triageItems)
+      .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+      .limit(1)
+  )[0];
+  if (!item)
+    throw new Error("Factory item disappeared while recording dispatch.");
+  const metadata = parseTriageMetadata(item.metadataJson);
+  Object.assign(metadata, patch);
+  await db
+    .update(triageItems)
+    .set({
+      metadataJson: serializeTriageMetadata(metadata),
+      updatedAt: new Date().toISOString(),
+    })
+    .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
+}
+
+export async function recordAutomaticBuilderDecision(input: {
+  itemId: string;
+  userEmail: string;
+  orgId: string;
+  factoryId: string;
+  outcome: "propose_fix" | "needs_manual";
+  reason: string;
+  guardResults: Array<{ code: string; passed: boolean; reason: string }>;
+}) {
+  const id = stableId(
+    "decision",
+    input.orgId,
+    input.itemId,
+    "automatic-builder",
+  );
+  const now = new Date().toISOString();
+  await getDb()
+    .insert(triageDecisions)
+    .values({
+      id,
+      itemId: input.itemId,
+      ruleId: null,
+      mode: "automation",
+      outcome: input.outcome,
+      reason: input.reason,
+      guardResultsJson: JSON.stringify(input.guardResults),
+      model: "factory-automation",
+      promptVersion: 1,
+      createdAt: now,
+      ownerEmail: input.userEmail,
+      orgId: input.orgId,
+      factoryId: input.factoryId,
+    })
+    .onConflictDoUpdate({
+      target: triageDecisions.id,
+      set: {
+        outcome: input.outcome,
+        reason: input.reason,
+        guardResultsJson: JSON.stringify(input.guardResults),
+        createdAt: now,
+        ownerEmail: input.userEmail,
+      },
+    });
+  return id;
+}
+
+export default defineAction({
+  description:
+    "Tag Builder for a Factory item, or record a skip when clearBug is false. Slack items stay in-thread: this action pings Builder with the configured Slack member id; do not post Slack messages or @handles yourself. Pass optional reaction (an emoji name such as robot_face) to mark the item source when that provider can; omit it to add no reaction. Grouped Slack repeats share one Builder thread. GitHub issues and Sentry errors tag @builderio-bot on a GitHub issue in the factory repository. Owner-managed Clips, Design, and Content items are always left for their owner.",
+  schema: z.object({
+    itemId: z.string().min(1),
+    clearBug: z
+      .boolean()
+      .describe(
+        "True when the item is a concrete, reproducible defect with enough evidence to investigate (including visual/UI defects such as a duplicate control, broken layout, or incorrect state). False for feature requests, vague questions, and incomplete threads.",
+      ),
+    reason: z.string().trim().min(1).max(4_000),
+    productUxImplications: z
+      .boolean()
+      .default(false)
+      .describe(
+        "True only when a human must choose product or design direction with no single correct fix (prioritization, new feature, taste, or “should we…”). Leave false for concrete reproducible bugs, including visual/UI defects. True holds the item for manual ownership and does not tag Builder — do not set true just because the report mentions UI or UX.",
+      ),
+    clearErrorReport: z.string().trim().max(8_000).optional(),
+    reaction: z
+      .string()
+      .trim()
+      .max(50)
+      .optional()
+      .describe(
+        "Emoji name to add on the item source when that provider can, for example robot_face. Omit to add no reaction.",
+      ),
+    relatedItemIds: z
+      .array(z.string().trim().min(1))
+      .max(10)
+      .default([])
+      .describe(
+        "Other Factory item ids in the same verified feedback cluster; dispatches one Builder thread for the whole group.",
+      ),
+  }),
+  http: false,
+  run: async (
+    {
+      itemId,
+      clearBug,
+      reason,
+      productUxImplications,
+      clearErrorReport,
+      reaction,
+      relatedItemIds,
+    },
+    context,
+  ) => {
+    const reactionName = parseOptionalReaction(reaction);
+    const { userEmail, orgId } = await requireWorkspaceMember(
+      workspaceMemberIdentityFromContext(context),
+    );
+    const db = getDb();
+    const item = (
+      await db
+        .select()
+        .from(triageItems)
+        .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+        .limit(1)
+    )[0];
+    if (!item) throw new Error("Factory item not found.");
+    const factoryId = item.factoryId ?? DEFAULT_FACTORY_ID;
+    await requireFactoryAutomation(
+      context,
+      { userEmail, orgId },
+      "builderDispatch",
+      factoryId,
+    );
+    const metadata = parseTriageMetadata(item.metadataJson);
+    const relatedIds = [...new Set(relatedItemIds)].filter(
+      (relatedId) => relatedId !== itemId,
+    );
+    const relatedItems =
+      relatedIds.length > 0
+        ? await db
+            .select()
+            .from(triageItems)
+            .where(
+              and(
+                orgFactoryItemFilter(orgId, factoryId),
+                inArray(triageItems.id, relatedIds),
+              ),
+            )
+        : [];
+    if (relatedItems.length !== relatedIds.length) {
+      throw new Error("One or more related Factory items were not found.");
+    }
+    if (relatedItems.some((related) => related.source !== item.source)) {
+      throw new Error(
+        "Grouped Factory items must come from the same feedback source.",
+      );
+    }
+    if (
+      item.source === "slack" &&
+      relatedItems.some((related) => !related.channelId || !related.threadTs)
+    ) {
+      throw new Error(
+        "Grouped Slack feedback is missing a channel or thread identity.",
+      );
+    }
+    const relatedMetadata = new Map(
+      relatedItems.map((related) => [
+        related.id,
+        parseTriageMetadata(related.metadataJson),
+      ]),
+    );
+    const relatedRunRows =
+      relatedIds.length > 0
+        ? await db
+            .select({ itemId: triageRuns.itemId, status: triageRuns.status })
+            .from(triageRuns)
+            .where(
+              and(
+                orgFactoryRunFilter(orgId, factoryId),
+                inArray(triageRuns.itemId, relatedIds),
+              ),
+            )
+        : [];
+    for (const related of relatedItems) {
+      const conflictReason = relatedDispatchConflictReason(
+        related,
+        relatedMetadata.get(related.id) ?? {},
+        relatedRunRows
+          .filter((run) => run.itemId === related.id)
+          .map((run) => run.status),
+      );
+      if (conflictReason) throw new Error(conflictReason);
+    }
+    const ownerOwnedArea = detectOwnerOwnedArea([
+      item.title,
+      item.summary,
+      item.repository,
+      typeof metadata.productArea === "string"
+        ? metadata.productArea
+        : undefined,
+      typeof metadata.path === "string" ? metadata.path : undefined,
+    ]);
+    const relatedOwnerOwnedArea =
+      relatedItems
+        .map((related) =>
+          detectOwnerOwnedArea(
+            ownerOwnedAreaValuesForItem(
+              related,
+              relatedMetadata.get(related.id) ?? {},
+            ),
+          ),
+        )
+        .find(Boolean) ?? null;
+    const ownerManagedArea = ownerOwnedArea ?? relatedOwnerOwnedArea ?? null;
+    const guardResults = [
+      {
+        code: "unknown_change",
+        passed: clearBug,
+        reason: clearBug
+          ? "The automation classified a concrete, reproducible bug or error report."
+          : "The report is not a clear bug, so no external work was started.",
+      },
+      {
+        code: "unknown_change",
+        passed: !productUxImplications,
+        reason: productUxImplications
+          ? "Product or UX implications require manual ownership."
+          : "No product or UX decision was detected.",
+      },
+      ...(ownerManagedArea
+        ? [
+            {
+              code: "owner_owned",
+              passed: false,
+              reason: `${ownerManagedArea} is fully owned by its product owner and is excluded from autonomous Builder work.`,
+            },
+          ]
+        : []),
+    ];
+    const blocked = guardResults.some((guard) => !guard.passed);
+    const decisionId = await recordAutomaticBuilderDecision({
+      itemId,
+      userEmail,
+      orgId,
+      factoryId,
+      outcome: blocked ? "needs_manual" : "propose_fix",
+      reason,
+      guardResults,
+    });
+    await recordFactoryAudit(
+      context,
+      { userEmail, orgId },
+      {
+        action: "dispatch-factory-item",
+        kind: "decision",
+        factoryId,
+        itemId,
+        source: item.source,
+        sourceUrl: item.sourceUrl,
+        status: blocked ? "skipped" : "success",
+        summary: reason,
+        details: {
+          decisionId,
+          clearBug,
+          productUxImplications,
+          ownerOwnedArea: ownerManagedArea,
+          guardResults,
+        },
+      },
+    );
+    if (blocked) {
+      await db.transaction(async (tx) => {
+        await tx
+          .update(triageItems)
+          .set({ status: "needs_manual", updatedAt: new Date().toISOString() })
+          .where(
+            and(
+              eq(triageItems.id, itemId),
+              eq(triageItems.orgId, orgId),
+              factoryStillPresent(tx as unknown as typeof db, orgId, factoryId),
+            ),
+          );
+        await requireExistingFactory(
+          tx as unknown as typeof db,
+          orgId,
+          factoryId,
+        );
+      });
+      return {
+        ok: true,
+        started: false,
+        needsManual: true,
+        decisionId,
+        reason,
+      };
+    }
+
+    const dedupeKey = stableId("automatic-builder", orgId, itemId);
+    const runId = stableId("run", dedupeKey);
+    const now = new Date().toISOString();
+    const isSlack = item.source === "slack";
+    const existing = (
+      await db
+        .select()
+        .from(triageRuns)
+        .where(and(eq(triageRuns.id, runId), eq(triageRuns.orgId, orgId)))
+        .limit(1)
+    )[0];
+    const retryableRun =
+      existing &&
+      (existing.status === "failed" || existing.status === "cancelled");
+    if (existing && !retryableRun) {
+      return {
+        ok: true,
+        started: true,
+        deduplicated: true,
+        runId,
+        status: existing.status,
+      };
+    }
+
+    await db.transaction(async (tx) => {
+      if (retryableRun) {
+        await tx
+          .update(triageRuns)
+          .set({
+            status: "submitted",
+            error: null,
+            completedAt: null,
+            heartbeatAt: now,
+            dispatchAttempts: (existing.dispatchAttempts ?? 0) + 1,
+          })
+          .where(
+            and(
+              eq(triageRuns.id, runId),
+              eq(triageRuns.orgId, orgId),
+              factoryStillPresent(tx as unknown as typeof db, orgId, factoryId),
+            ),
+          );
+      } else {
+        await tx.insert(triageRuns).values({
+          id: runId,
+          itemId,
+          source: item.source,
+          provider: "bot-tag",
+          dedupeKey,
+          approvalEmail: null,
+          status: "submitted",
+          progressLogJson: JSON.stringify([
+            {
+              at: now,
+              state: "submitted",
+              reason: `Factory automation ${context?.automation?.triggerName ?? "unknown"} recorded a clear bug.`,
+            },
+          ]),
+          dispatchAttempts: 1,
+          needsContinuation: 0,
+          startedAt: now,
+          heartbeatAt: now,
+          completedAt: null,
+          error: null,
+          ownerEmail: item.ownerEmail,
+          orgId,
+          factoryId: item.factoryId ?? DEFAULT_FACTORY_ID,
+        });
+      }
+      await requireExistingFactory(
+        tx as unknown as typeof db,
+        orgId,
+        factoryId,
+      );
+    });
+
+    try {
+      if (isSlack) {
+        if (!item.channelId || !item.threadTs) {
+          throw new Error(
+            "Slack feedback is missing its channel or thread identity.",
+          );
+        }
+        const config = await readTriageConfigRow(
+          db,
+          orgId,
+          item.factoryId ?? DEFAULT_FACTORY_ID,
+        );
+        const workspace =
+          config?.slackWorkspace === "secondary" ? "secondary" : "primary";
+        const builderSlackUserId = requireBuilderSlackUserId(
+          config?.builderSlackUserId,
+        );
+        const slack = createSlackReader({ ownerEmail: userEmail, orgId });
+        const thread = await slack.getCompleteThread(
+          workspace,
+          item.channelId,
+          item.threadTs,
+        );
+        const completeThreads = new Map([[item.id, thread]]);
+        if (thread.hasMore) {
+          throw new Error(
+            "Slack thread is truncated; refusing to dispatch without complete evidence.",
+          );
+        }
+        for (const related of relatedItems) {
+          if (!related.channelId || !related.threadTs) {
+            throw new Error(
+              "Grouped Slack feedback is missing a channel or thread identity.",
+            );
+          }
+          const relatedThread = await slack.getCompleteThread(
+            workspace,
+            related.channelId,
+            related.threadTs,
+          );
+          completeThreads.set(related.id, relatedThread);
+          if (relatedThread.hasMore) {
+            throw new Error(
+              "A grouped Slack thread is truncated; refusing to dispatch without complete evidence.",
+            );
+          }
+        }
+        if (reactionName) {
+          for (const feedbackItem of [item, ...relatedItems]) {
+            const reactionState = await slack.hasReaction(
+              workspace,
+              feedbackItem.channelId!,
+              feedbackItem.threadTs!,
+              reactionName,
+            );
+            const applied = reactionState.present
+              ? { added: false, already_present: true }
+              : await slack.addReaction(
+                  workspace,
+                  feedbackItem.channelId!,
+                  feedbackItem.threadTs!,
+                  reactionName,
+                );
+            await writeMetadata(feedbackItem.id, orgId, {
+              slackReactedAt: new Date().toISOString(),
+              slackReactionName: reactionName,
+              slackReactionAlreadyPresent: applied.already_present,
+            });
+          }
+        }
+        const hasBuilderReply = thread.messages.some((message) =>
+          messageHasBuilderHandoff(message.text, builderSlackUserId),
+        );
+        const hasRelatedClusterDetails = thread.messages.some((message) =>
+          message.text.includes(
+            "Related feedback in the same issue cluster - inspect and fix all of these too:",
+          ),
+        );
+        if (thread.hasMore && !hasBuilderReply) {
+          throw new Error(
+            "Slack thread is truncated; refusing to risk a duplicate Builder handoff.",
+          );
+        }
+        if (
+          !metadataBoolean(metadata, "slackBuilderReplyAt") &&
+          (!hasBuilderReply ||
+            (relatedItems.length > 0 && !hasRelatedClusterDetails))
+        ) {
+          const posted = await slack.postThreadReply(
+            workspace,
+            item.channelId,
+            item.threadTs,
+            replyTextForItem(item, relatedItems, builderSlackUserId),
+          );
+          await writeMetadata(itemId, orgId, {
+            slackBuilderReplyAt: new Date().toISOString(),
+            slackBuilderReplyTs: posted.ts,
+          });
+        }
+        const agentNative = await slack.getAgentNativeIdentity(workspace);
+        for (const feedbackItem of [item, ...relatedItems]) {
+          const feedbackThread = completeThreads.get(feedbackItem.id);
+          if (!feedbackThread) {
+            throw new Error(
+              `Slack thread evidence is missing for Factory item ${feedbackItem.id}.`,
+            );
+          }
+          const hasAgentNativeDisposition = feedbackThread.messages.some(
+            (message) =>
+              (message.user === agentNative.userId ||
+                (message.username != null &&
+                  isAgentNativeSlackUserName(message.username))) &&
+              /^(Fixed|In progress|Clarification needed):/i.test(
+                message.text.trim(),
+              ),
+          );
+          if (hasAgentNativeDisposition) continue;
+          const disposition = await slack.postThreadReply(
+            workspace,
+            feedbackItem.channelId!,
+            feedbackItem.threadTs!,
+            `Thanks - Builder owns this feedback cluster and will follow up after verification. In progress: ${reason}`,
+          );
+          await writeMetadata(feedbackItem.id, orgId, {
+            slackDispositionAt: new Date().toISOString(),
+            slackDispositionTs: disposition.ts,
+            slackDisposition: "In progress",
+          });
+        }
+        const clusterItemIds = [itemId, ...relatedItems.map(({ id }) => id)];
+        const clusterMetadata = {
+          feedbackClusterRepresentativeId: itemId,
+          feedbackClusterItemIds: clusterItemIds,
+          feedbackClusterGroupedAt: new Date().toISOString(),
+        };
+        await writeMetadata(itemId, orgId, clusterMetadata);
+        for (const related of relatedItems) {
+          await writeMetadata(related.id, orgId, clusterMetadata);
+          await db
+            .update(triageItems)
+            .set({
+              status: "automation_started",
+              updatedAt: new Date().toISOString(),
+            })
+            .where(
+              and(eq(triageItems.id, related.id), eq(triageItems.orgId, orgId)),
+            );
+          await recordAutomaticBuilderDecision({
+            itemId: related.id,
+            userEmail,
+            orgId,
+            factoryId: related.factoryId ?? factoryId,
+            outcome: "propose_fix",
+            reason: `Grouped with Factory item ${itemId}: ${reason}`,
+            guardResults,
+          });
+        }
+        await db
+          .update(triageItems)
+          .set({
+            status: "automation_started",
+            updatedAt: new Date().toISOString(),
+          })
+          .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
+        await recordFactoryAudit(
+          context,
+          { userEmail, orgId },
+          {
+            action: "dispatch-factory-item",
+            kind: "external_action",
+            factoryId,
+            itemId,
+            source: item.source,
+            sourceUrl: item.sourceUrl,
+            summary: "Tagged Builder in the Slack thread and requested a PR.",
+            details: {
+              provider: "bot-tag",
+              runId,
+              factoryRunId: runId,
+              relatedItemIds: relatedItems.map(({ id }) => id),
+              ...(reactionName ? { slackReactionName: reactionName } : {}),
+            },
+          },
+        );
+        return {
+          ok: true,
+          started: true,
+          deduplicated: false,
+          runId,
+          provider: "bot-tag",
+          awaitingBuilderReply: true,
+        };
+      }
+
+      if (item.source !== "github_issue" && item.source !== "sentry") {
+        throw new Error(
+          `Factory can only tag Builder from Slack, a GitHub issue, or Sentry. Received ${item.source}.`,
+        );
+      }
+      const config = await readTriageConfigRow(db, orgId, factoryId);
+      if (!config?.repository) {
+        throw new Error(
+          "Configure a Factory GitHub repository before tagging @builderio-bot.",
+        );
+      }
+      const repositoryRef =
+        item.source === "github_issue" && item.repository
+          ? item.repository
+          : item.source === "github_issue" && item.externalId?.includes("#")
+            ? item.externalId.slice(0, item.externalId.lastIndexOf("#"))
+            : config.repository;
+      const repository = parseGitHubRepositoryRef(repositoryRef);
+      const github = createGitHubClient({ ownerEmail: userEmail, orgId });
+      const dispatchBody = githubBotDispatchText({
+        itemId,
+        sourceUrl: item.sourceUrl,
+        reason,
+        clearErrorReport,
+        relatedItems,
+      });
+      const storedIssueNumber = Number(
+        metadataString(metadata, "githubDispatchIssueNumber"),
+      );
+      let issueNumber =
+        Number.isInteger(storedIssueNumber) && storedIssueNumber > 0
+          ? storedIssueNumber
+          : item.source === "github_issue"
+            ? parseFactoryGitHubIssueNumber({
+                externalId: item.externalId,
+                sourceUrl: item.sourceUrl,
+              })
+            : null;
+      let issueUrl = metadataString(metadata, "githubDispatchIssueUrl") ?? null;
+      if (issueNumber == null) {
+        const created = await github.createIssue(repository, {
+          title: item.title,
+          body: dispatchBody,
+        });
+        issueNumber = created.number;
+        issueUrl = created.htmlUrl;
+        await writeMetadata(itemId, orgId, {
+          githubDispatchIssueNumber: String(created.number),
+          githubDispatchIssueUrl: created.htmlUrl,
+        });
+      } else {
+        const comment = await github.createIssueComment(
+          repository,
+          issueNumber,
+          dispatchBody,
+        );
+        issueUrl = comment.htmlUrl;
+        await writeMetadata(itemId, orgId, {
+          githubDispatchIssueNumber: String(issueNumber),
+          githubDispatchIssueUrl: issueUrl,
+        });
+      }
+      const githubReaction = githubIssueReaction(reactionName);
+      if (githubReaction) {
+        await github.addIssueReaction(repository, issueNumber, githubReaction);
+      }
+      await db
+        .update(triageRuns)
+        .set({
+          status: "acknowledged",
+          providerTaskId: String(issueNumber),
+          progressLogJson: JSON.stringify([
+            { at: now, state: "submitted", reason },
+            {
+              at: new Date().toISOString(),
+              state: "acknowledged",
+              reason:
+                "Tagged @builderio-bot on the GitHub issue; waiting for a pull request.",
+            },
+          ]),
+          heartbeatAt: new Date().toISOString(),
+        })
+        .where(and(eq(triageRuns.id, runId), eq(triageRuns.orgId, orgId)));
+      await db
+        .update(triageItems)
+        .set({
+          status: "automation_started",
+          updatedAt: new Date().toISOString(),
+        })
+        .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "dispatch-factory-item",
+          kind: "external_action",
+          factoryId,
+          itemId,
+          source: item.source,
+          sourceUrl: issueUrl ?? item.sourceUrl,
+          summary:
+            "Tagged @builderio-bot on a GitHub issue and requested a PR.",
+          details: {
+            provider: "bot-tag",
+            runId,
+            factoryRunId: runId,
+            githubIssueNumber: issueNumber,
+            githubIssueUrl: issueUrl,
+            ...(reactionName ? { slackReactionName: reactionName } : {}),
+          },
+        },
+      );
+      return {
+        ok: true,
+        started: true,
+        deduplicated: false,
+        runId,
+        provider: "bot-tag",
+        githubIssueNumber: issueNumber,
+        githubIssueUrl: issueUrl,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await db
+        .update(triageRuns)
+        .set({
+          status: "failed",
+          error: message,
+          completedAt: new Date().toISOString(),
+          heartbeatAt: new Date().toISOString(),
+        })
+        .where(and(eq(triageRuns.id, runId), eq(triageRuns.orgId, orgId)));
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "dispatch-factory-item",
+          kind: "external_action",
+          factoryId,
+          itemId,
+          source: item.source,
+          sourceUrl: item.sourceUrl,
+          status: "error",
+          summary: `Builder dispatch failed: ${message}`,
+          details: {
+            provider: "bot-tag",
+            runId,
+            factoryRunId: runId,
+            ...(reactionName ? { slackReactionName: reactionName } : {}),
+          },
+        },
+      );
+      throw new Error(
+        `Factory Builder dispatch failed after recording the run: ${message}`,
+      );
+    }
+  },
+});

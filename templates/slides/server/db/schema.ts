@@ -26,6 +26,7 @@ export const deckVersions = table("deck_versions", {
   title: text("title").notNull(),
   data: text("data").notNull(),
   changeLabel: text("change_label"),
+  chatContext: text("chat_context"),
   createdAt: text("created_at").notNull().default(now()),
 });
 

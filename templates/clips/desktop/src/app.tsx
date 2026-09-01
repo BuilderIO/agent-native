@@ -69,7 +69,6 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch as UiSwitch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -2664,13 +2663,6 @@ export function App({
     };
   }, []);
 
-  // Warm the multi-second SCShareableContent lookup while the popover is
-  // open so a recording start within the cache TTL skips it. Fire-and-forget.
-  useEffect(() => {
-    if (!popoverVisible) return;
-    invoke("native_fullscreen_prefetch_capture_content").catch(() => {});
-  }, [popoverVisible]);
-
   const speechPermissionChecked = useRef(false);
   useEffect(() => {
     if (!popoverVisible || !micOn || speechPermissionChecked.current) return;
@@ -3386,6 +3378,15 @@ export function App({
     /** Live capture inherited from the take a restart is replacing. */
     resumeCapture?: RestartHandoff;
   }): Promise<RecorderHandle | null> {
+    if (recordingStopFinalizingRef.current) {
+      console.warn(
+        "[clips-popover] handleStartRecording ignored — previous recording still finalizing",
+      );
+      setRecError(
+        "Still finishing the last recording. Wait a moment, then try again.",
+      );
+      return null;
+    }
     if (
       (recorder || recordingFlowGateRef.current) &&
       !options?.ignoreActiveRecorder
@@ -3396,6 +3397,9 @@ export function App({
       setRecError(
         "Still finishing the last recording. Wait a moment, then try again.",
       );
+      return null;
+    }
+    if (localRecordingMode === "off" && authStatus !== "authed") {
       return null;
     }
     const bubbleTracks = bubbleStreamRef.current?.getTracks() ?? [];
@@ -3750,10 +3754,23 @@ export function App({
       emit("clips:countdown-cancel").catch(() => {});
       return;
     }
+    if (recordingStopFinalizingRef.current) {
+      // The shortcut's start call below passes `ignoreActiveRecorder: true`
+      // (it intentionally bypasses the recorder/gate check so a restart can
+      // reuse it), which would otherwise let it start a new native capture
+      // while the previous one is still finalizing.
+      setRecError(
+        "Still finishing the last recording. Wait a moment, then try again.",
+      );
+      invoke("show_popover").catch(() => {});
+      return;
+    }
 
     setPopoverView("recorder");
-    if (authStatus === "anon" && localRecordingMode === "off") {
-      setRecError("Sign in to Clips before using the recording shortcut.");
+    if (authStatus !== "authed" && localRecordingMode === "off") {
+      if (authStatus === "anon") {
+        setRecError("Sign in to Clips before using the recording shortcut.");
+      }
       invoke("show_popover").catch(() => {});
       return;
     }
@@ -4031,6 +4048,11 @@ export function App({
 
   const showCameraRow = mode !== "screen"; // screen-only has no camera
   const showSourceRow = mode !== "camera"; // camera-only has no screen source
+  const recordingReadinessPending =
+    localRecordingMode === "off" &&
+    (authStatus !== "authed" || videoStorageStatus === "checking");
+  const startButtonLoading =
+    recordingReadinessPending && !recordingStopFinalizing;
 
   const pendingUploadBanner =
     authStatus === "authed" ? (
@@ -4347,32 +4369,6 @@ export function App({
     );
   }
 
-  // The session check has not answered yet. "unknown" must not fall through
-  // to the recorder: that shows a signed-out user the full recording UI for
-  // as long as /auth/session takes — indefinitely, if it hangs. Render the
-  // popover's shape instead until the check resolves either way.
-  if (authStatus === "unknown") {
-    return (
-      <div className="app" ref={appRef}>
-        <div className="header header-centered">
-          <button
-            className="icon-button header-close"
-            onClick={hidePopover}
-            aria-label="Close"
-            title="Close"
-          >
-            <CloseIcon />
-          </button>
-        </div>
-        <div data-tw-surface className="grid gap-2.5 px-4 pb-4 pt-1">
-          <Skeleton className="h-14 w-full rounded-xl" />
-          <Skeleton className="h-14 w-full rounded-xl" />
-          <Skeleton className="mt-2 h-12 w-full rounded-full" />
-        </div>
-      </div>
-    );
-  }
-
   // When unauthenticated, render the sign-in form INLINE in the popover
   // (not a separate Tauri window). This avoids Tauri 2's separate-WebKit-
   // data-store-per-WebviewWindow cookie-jar issue — the cookie is set in
@@ -4580,17 +4576,34 @@ export function App({
 
         {!isRecording ? (
           <button
-            className="primary start"
-            disabled={
-              localRecordingMode === "off" && videoStorageStatus === "checking"
+            className={cn(
+              "primary start",
+              startButtonLoading && "start-loading",
+            )}
+            disabled={recordingReadinessPending || recordingStopFinalizing}
+            aria-busy={recordingReadinessPending || recordingStopFinalizing}
+            aria-label={
+              recordingStopFinalizing
+                ? "Finishing last recording..."
+                : recordingReadinessPending
+                  ? "Start recording"
+                  : undefined
             }
             onClick={() => beginRecording()}
           >
-            {localRecordingMode === "off" && videoStorageStatus === "checking"
-              ? "Checking storage..."
-              : localRecordingMode === "off"
-                ? "Start recording"
-                : "Start local recording"}
+            <span className="start-label">
+              {recordingStopFinalizing
+                ? "Finishing last recording..."
+                : localRecordingMode === "off"
+                  ? "Start recording"
+                  : "Start local recording"}
+            </span>
+            {startButtonLoading ? (
+              <span
+                aria-hidden="true"
+                className="start-loading-shimmer skeleton-shimmer"
+              />
+            ) : null}
           </button>
         ) : null}
 

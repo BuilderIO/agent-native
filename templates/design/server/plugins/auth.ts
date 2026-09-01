@@ -5,9 +5,13 @@ export default createAuthPlugin({
   // Visual-edit, public design editor links, and presentation links can load
   // without a session. Creating, mutating, generating, and sharing designs
   // still go through authenticated actions.
-  workspaceAppPublicPaths: ["/visual-edit", "/design", "/present"],
+  workspaceAppPublicPaths: ["/", "/visual-edit", "/design", "/present"],
   marketing: {
     appName: "Design",
+    screenshotPath: "/auth-marketing/design.webp",
+    screenshotWidth: 914,
+    screenshotHeight: 818,
+    learnMoreUrl: "https://agent-native.com/apps/design",
     tagline:
       "Design and prototype by describing what you want. The AI agent turns your ideas into interactive, fully responsive designs in seconds.",
     features: [

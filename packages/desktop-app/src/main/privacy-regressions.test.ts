@@ -15,6 +15,22 @@ function between(value: string, start: string, end: string): string {
 }
 
 describe("desktop passive-access regressions", () => {
+  it("reloads the packaged shell from its entry file after SPA route changes", () => {
+    const main = source("./index.ts");
+    const createWindow = between(
+      main,
+      "function createWindow(): BrowserWindow {",
+      "// ---------- DevTools: target the active app webview ----------",
+    );
+
+    expect(createWindow).toContain('win.webContents.on("will-navigate"');
+    expect(createWindow).toContain('"did-fail-load"');
+    expect(createWindow).toContain('protocol !== "file:"');
+    expect(createWindow).toContain("event.preventDefault();");
+    expect(createWindow).toContain("loadDesktopRenderer(win);");
+    expect(main).toContain("function desktopRendererEntryPath(): string");
+  });
+
   it("keeps remote status read-only", () => {
     // The Agent-Native Code IPC handlers live in ./ipc/code-agents.ts.
     const codeAgentsIpc = source("./ipc/code-agents.ts");
@@ -287,7 +303,7 @@ describe("desktop passive-access regressions", () => {
       "const requestedName = requestedDesktopAppName(prompt);",
     );
     expect(creation).toContain("requestedName ??");
-    expect(main).toContain("includeWorkspaceApps: !isDesktopAppCreation");
+    expect(main).toContain("includeWorkspaceApps: true");
   });
 
   it("only marks the local Codex provider configured after authentication", () => {
@@ -396,7 +412,7 @@ describe("desktop passive-access regressions", () => {
       "// Webviews now run in per-app persisted partitions",
     );
     expect(whenReady).toContain("if (pendingDeepLink) {");
-    expect(whenReady).toContain("handleDeepLink(pendingDeepLink);");
+    expect(whenReady).toContain("handleDeepLink(deepLink);");
   });
 
   it("registers development deep links against the current app path", () => {
@@ -415,5 +431,67 @@ describe("desktop passive-access regressions", () => {
     expect(registration).toContain(
       "app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);",
     );
+  });
+
+  it("does not let embedded pages invoke privileged desktop deep links", () => {
+    const main = source("./index.ts");
+    const windowOpen = between(
+      main,
+      "function handleWindowOpenForContents(",
+      "function installWebviewOAuthNavigationHandler(",
+    );
+
+    expect(windowOpen).toContain(
+      "isTrustedShell && handleDesktopProtocolUrl(url)",
+    );
+    expect(windowOpen).toContain(
+      "denied desktop deep link from embedded content",
+    );
+    const navigation = between(
+      main,
+      "function installWebviewOAuthNavigationHandler(",
+      "// ---------- Webview popup handling ----------",
+    );
+    expect(navigation).toContain(
+      "denied desktop deep-link navigation from embedded content",
+    );
+    expect(navigation).not.toContain("handleDesktopProtocolUrl(url)");
+    expect(
+      navigation.indexOf("if (isDesktopDeepLinkUrl(url))"),
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      navigation.indexOf("if (mcpOAuthNavigationGate.isActive(contents.id))"),
+    ).toBeGreaterThan(navigation.indexOf("if (isDesktopDeepLinkUrl(url))"));
+  });
+
+  it("keeps stable and nightly protocol registration channel-specific", () => {
+    expect(
+      readFileSync(
+        new URL("../../electron-builder.yml", import.meta.url),
+        "utf8",
+      ),
+    ).toContain("- agentnative");
+    expect(
+      readFileSync(
+        new URL(
+          "../../../../.github/workflows/desktop-release.yml",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ).toContain("agentnative(?:-nightly)?");
+  });
+
+  it("does not claim unsupported desktop deep-link routes were handled", () => {
+    const main = source("./index.ts");
+    const handler = between(
+      main,
+      "function handleDesktopProtocolUrl(url: string): boolean {",
+      "function cleanContextMenuTemplate(",
+    );
+
+    expect(handler).toContain("recognizedRoute");
+    expect(handler).toContain("return false;");
+    expect(handler).toContain("ignored unsupported desktop deep link route");
   });
 });

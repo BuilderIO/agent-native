@@ -285,7 +285,7 @@ export function Sidebar() {
                 aria-label={t("navigation.askForms")}
                 className={cn(
                   "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
-                  location.pathname === "/ask" || location.pathname === "/"
+                  location.pathname === "/ask" || location.pathname === "/home"
                     ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                 )}
@@ -429,7 +429,7 @@ export function Sidebar() {
             onClick={navigateHomeChat}
             className={cn(
               "forms-sidebar-nav-item flex min-h-[44px] w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-lg px-3 py-2 text-sm active:scale-[0.96] transition-[background-color,box-shadow,color,transform] hover:text-primary",
-              location.pathname === "/ask" || location.pathname === "/"
+              location.pathname === "/ask" || location.pathname === "/home"
                 ? "bg-accent text-accent-foreground"
                 : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
             )}

@@ -142,6 +142,18 @@ fn apply_tray_mode(app: &tauri::AppHandle, active: bool, title: Option<String>) 
     }));
     #[cfg(not(target_os = "macos"))]
     let _ = title;
+    // The stop-square icon swap above is easy to miss at tray-icon size, and
+    // Windows has no menu-bar title text to reinforce it — the tooltip is the
+    // one place left to spell out that this icon is now the stop button. Gated
+    // on the same mode flip as the icon so the 4x/sec timer tick from the pill
+    // doesn't touch the tooltip on every call.
+    if tray_icon_needs_write(applied_icon_mode, active) {
+        let _ = tray.set_tooltip(Some(if active {
+            "Clips — Recording (click to stop)"
+        } else {
+            "Clips"
+        }));
+    }
 }
 
 /// Single writer for the status item's recording mode: the pill invokes this

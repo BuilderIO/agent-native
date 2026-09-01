@@ -148,7 +148,7 @@ function BrainChatsSection({ open }: { open: boolean }) {
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
-    navigateWithAgentChatViewTransition(navigate, "/");
+    navigateWithAgentChatViewTransition(navigate, "/home");
     window.requestAnimationFrame(() => {
       window.dispatchEvent(
         new CustomEvent("agent-chat:open-thread", {
@@ -233,7 +233,7 @@ export function Sidebar({
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
-  const isAskRoute = location.pathname === "/";
+  const isAskRoute = location.pathname === "/home";
   const ToggleIcon = collapsed
     ? IconLayoutSidebarLeftExpand
     : IconLayoutSidebarLeftCollapse;
@@ -308,7 +308,7 @@ export function Sidebar({
         )}
       >
         <Link
-          to="/"
+          to="/home"
           onClick={(event) => {
             if (
               !collapsible ||
@@ -371,7 +371,7 @@ export function Sidebar({
             const link = (
               <NavLink
                 to={item.href}
-                end={item.href === "/"}
+                end={item.href === "/home"}
                 onClick={(event) => {
                   if (
                     item.view === "ask" &&
@@ -382,7 +382,7 @@ export function Sidebar({
                     !event.altKey
                   ) {
                     event.preventDefault();
-                    navigateWithAgentChatViewTransition(navigate, "/");
+                    navigateWithAgentChatViewTransition(navigate, "/home");
                   }
                 }}
                 className={navClass}

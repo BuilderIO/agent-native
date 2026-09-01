@@ -48,6 +48,24 @@ describe("desktop app chat shell", () => {
     expect(source).not.toContain("data-desktop-app-sign-in");
   });
 
+  it("creates an isolated query client for each mounted app shell", () => {
+    const source = readFileSync(
+      new URL("./DesktopAppChatShell.tsx", import.meta.url),
+      "utf8",
+    );
+    const componentStart = source.indexOf(
+      "export default function DesktopAppChatShell(",
+    );
+    const queryClientCreation = source.indexOf(
+      "createAgentNativeQueryClient()",
+    );
+
+    expect(queryClientCreation).toBeGreaterThan(componentStart);
+    expect(source).not.toContain(
+      "const desktopChatQueryClient = createAgentNativeQueryClient();",
+    );
+  });
+
   it("keeps the resolved chat endpoint across app tab switches", () => {
     const source = readFileSync(
       new URL("./DesktopAppChatShell.tsx", import.meta.url),
@@ -72,6 +90,9 @@ describe("desktop app chat shell", () => {
 
     expect(shellCss).toMatch(
       /\.desktop-app-webview-surface,\s*\.code-agents-embedded-app-surface\s*\{[\s\S]*?border-radius: var\(--agent-native-raised-radius, 8px\) 0 0\s+var\(--agent-native-raised-radius, 8px\);[\s\S]*?border-left: 0;[\s\S]*?box-shadow: 0 0 0 1px hsl\(var\(--border\)\);[\s\S]*?\}/,
+    );
+    expect(shellCss).not.toContain(
+      "transition: grid-template-columns 200ms var(--ease-collapse)",
     );
   });
 

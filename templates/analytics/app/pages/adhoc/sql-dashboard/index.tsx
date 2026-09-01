@@ -1692,7 +1692,7 @@ function SqlDashboardPageContent({
     void queryClient.invalidateQueries({
       queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
     });
-    void navigate("/");
+    void navigate("/home");
   }, [
     dashboardId,
     dashboardScope,
@@ -1770,7 +1770,7 @@ function SqlDashboardPageContent({
           name: dashboard?.name ?? t("sqlDashboard.dashboardFallback"),
         }),
       );
-      void navigate("/");
+      void navigate("/home");
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : t("sqlDashboard.archiveFailed"),

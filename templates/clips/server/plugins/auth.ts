@@ -8,11 +8,16 @@ export default createAuthPlugin({
   // Keep the native tray token and the Better Auth cookie useful between
   // infrequent recording sessions without making them permanent.
   maxAge: 60 * 60 * 24 * 90,
+  workspaceAppPublicPaths: ["/"],
   // Clips owns `/_agent-native/google/*` so the same registered Google
   // callback can handle both normal sign-in and the Calendar connect flow.
   mountGoogleOAuthRoutes: false,
   marketing: {
     appName: "Clips",
+    screenshotPath: "/auth-marketing/clips.webp",
+    screenshotWidth: 914,
+    screenshotHeight: 818,
+    learnMoreUrl: "https://agent-native.com/apps/clips",
     tagline:
       "Your AI agent transcribes, summarizes, and searches everything you record alongside you.",
     features: [

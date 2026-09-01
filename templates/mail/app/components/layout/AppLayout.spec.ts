@@ -26,6 +26,32 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain('const localCount = localCounts["__inboxTotal"]');
   });
 
+  it("uses the saved-filter-exclusive local count for a plain Inbox", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("if (savedFilterQueries.length > 0)");
+    expect(source).toContain('return localCounts["__inboxExclusive"] ?? 0;');
+    expect(source).toContain('total["__inboxExclusive"]');
+    expect(source).toContain(
+      "const savedFilterThreads = savedFilterThreadIds(",
+    );
+    expect(source).toContain(
+      "filtered.filter((e) => !savedFilterThreads.has(inboxThreadKey(e)))",
+    );
+  });
+
+  it("groups badge rows with the rendered list's thread identity", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'import { groupIntoThreads } from "@/lib/threads";',
+    );
+    expect(source).toContain("const threadRows = groupIntoThreads(filtered);");
+    expect(source).toContain(
+      "filterInboxTabEmails(filtered, null, pinnedLabels, savedFilterQueries)",
+    );
+  });
+
   it("collapses the native rail while the per-app chat is open", () => {
     const source = appLayoutSource();
 
@@ -43,6 +69,30 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain("href: `/inbox?tab=${OTHER_INBOX_TAB_PARAM}`");
     expect(source).toContain("id: OTHER_INBOX_TAB_ID");
     expect(source).toContain('params.set("tab", tab)');
+    expect(source).toContain('params.set("filter", filter)');
+  });
+
+  it("routes saved searches through the Gmail query path", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("onSaveSearch={saveSearchAsFilter}");
+    expect(source).toContain(
+      "href: `/inbox?filter=${encodeURIComponent(filter.id)}`",
+    );
+    expect(source).toContain("savedFilters: [...savedFilters, filter]");
+    expect(source).toContain("savedFilters.length >= 20");
+    expect(source).toContain("filtersLimitReached");
+    expect(source).toContain("activeAccounts.size > 0");
+    expect(source).toContain(
+      'useEmails("all", activeSavedFilter?.query, undefined,',
+    );
+    expect(source).toContain("activeFilterHasNextPage");
+  });
+
+  it("does not show a false count for an inactive saved filter", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("? activeFilterCounts[kind]\n        : undefined");
   });
 
   it("builds pin mutations from the resolved visible pins", () => {

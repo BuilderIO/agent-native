@@ -27,6 +27,7 @@ import {
   errorSignalFromSentryEvent,
   shouldReportErrorSignal,
 } from "./error-noise-filter.js";
+import { getRequestContext } from "./request-context.js";
 import { resolveServerSentryDsn } from "./sentry-config.js";
 
 let _initStarted = false;
@@ -232,6 +233,7 @@ export function captureAuthError(
     email?: string;
   },
 ): string | undefined {
+  if (getRequestContext()?.isSyntheticTraffic) return undefined;
   if (!_initSucceeded) return undefined;
   try {
     return Sentry.withScope((scope) => {
@@ -280,6 +282,7 @@ export function captureRouteError(
   error: unknown,
   context: RouteErrorContext = {},
 ): string | undefined {
+  if (getRequestContext()?.isSyntheticTraffic) return undefined;
   if (!_initSucceeded) return undefined;
   try {
     return Sentry.withScope((scope) => {

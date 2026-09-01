@@ -53,7 +53,8 @@ const TARGET_EMBED_SESSION_RETRY_BASE_MS = 250;
 const TARGET_EMBED_SESSION_CONNECT_TIMEOUT_MS = 90_000;
 const TARGET_EMBED_SESSION_BUDGET_MS = 95_000;
 const DISPATCH_ASK_APP_DEFAULT_INLINE_WAIT_MS = 20_000;
-const DISPATCH_ASK_APP_MAX_INLINE_WAIT_MS = 25_000;
+// Leave response headroom for the hosted MCP transport after the inline wait.
+const DISPATCH_ASK_APP_MAX_INLINE_WAIT_MS = 20_000;
 const DISPATCH_ASK_APP_POLL_INTERVAL_MS = 1_500;
 const DISPATCH_A2A_REQUEST_TIMEOUT_MS = 10_000;
 const DISPATCH_ASK_APP_STATUS_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
@@ -96,6 +97,31 @@ function boundedDispatchAskAppWaitMs(raw: unknown): number {
     0,
     Math.min(DISPATCH_ASK_APP_MAX_INLINE_WAIT_MS, Math.trunc(parsed)),
   );
+}
+
+async function dispatchAskAppIdempotencyKey(
+  target: DispatchMcpAccessibleApp,
+  message: string,
+): Promise<string> {
+  const requestId = getRequestContext()?.mcpRequestId;
+  if (!requestId) return `ask-app:${globalThis.crypto.randomUUID()}`;
+
+  const digest = await globalThis.crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(
+      JSON.stringify({
+        requestId,
+        app: target.id,
+        targetUrl: target.url,
+        message,
+      }),
+    ),
+  );
+  let hex = "";
+  for (const byte of new Uint8Array(digest)) {
+    hex += byte.toString(16).padStart(2, "0");
+  }
+  return `ask-app:v1:${hex}`;
 }
 
 function isTerminalDispatchTask(task: Task): boolean {
@@ -801,20 +827,31 @@ export async function askGrantedDispatchMcpApp(
       ? 0
       : boundedDispatchAskAppWaitMs(options?.maxWaitMs);
   const deadline = inlineWaitMs > 0 ? Date.now() + inlineWaitMs : undefined;
+  const submissionDeadline =
+    deadline ?? Date.now() + DISPATCH_A2A_REQUEST_TIMEOUT_MS;
 
   const { client, metadata } = await createDispatchA2AClient({
     targetUrl: target.url,
     userEmail,
     orgDomain: orgDomain ?? undefined,
     orgSecret: orgSecret ?? undefined,
-    deadline,
+    deadline: submissionDeadline,
   });
+  const idempotencyKey = await dispatchAskAppIdempotencyKey(
+    target,
+    trimmedMessage,
+  );
   const task = await client.send(
     {
       role: "user",
       parts: [{ type: "text", text: trimmedMessage }],
     },
-    { async: true, metadata },
+    {
+      async: true,
+      metadata,
+      idempotencyKey,
+      deadlineMs: submissionDeadline,
+    },
   );
   const finalOrRunning = await waitForDispatchA2ATask(client, task, deadline);
   return dispatchAskAppTaskResult(target.id, finalOrRunning, {
@@ -1105,7 +1142,7 @@ async function callTargetCreateEmbedSession(input: {
         servers: {
           [serverId]: {
             type: "http",
-            url: `${appBaseUrl(input.app)}/mcp`,
+            url: `${appHomeBaseUrl(input.app)}/mcp`,
             headers: {
               Authorization: `Bearer ${input.token}`,
             },
@@ -1158,7 +1195,7 @@ async function createTargetMcpTokenAttempts(input: {
       tokenInput.secret,
       {
         expiresIn: "5m",
-        audience: canonicalA2AAudience(appBaseUrl(input.target)),
+        audience: canonicalA2AAudience(appHomeBaseUrl(input.target)),
         preferGlobalSecret: tokenInput.preferGlobalSecret,
       },
     );

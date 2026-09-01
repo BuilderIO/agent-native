@@ -10,11 +10,13 @@
  * Response with a Location header instead.
  */
 
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 
-const trackedFiles = execFileSync("git", ["ls-files"], {
+import { execGuardCommand } from "./lib/changed-lines.mjs";
+
+const trackedFiles = execGuardCommand("git", ["ls-files"], {
   encoding: "utf8",
+  maxBuffer: 1 << 28,
 })
   .split("\n")
   .filter(Boolean);

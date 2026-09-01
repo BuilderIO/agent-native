@@ -24,6 +24,26 @@ re-read it before finishing and verify the invoking identity posted **Fixed**,
 ownership and must be revisited; an eye, bot forward, or other person's reply
 alone is never enough.
 
+Every Slack reply from this workflow must clearly disclose that it is
+automated. Append `this was sent from a bot.` to each reporter-facing
+reply, including clarification, in-progress, fixed, and post-ship follow-ups.
+Keep the required thank-you and plain-language status before the disclosure.
+
+## Per-parent eye ledger
+
+The start cursor is not a stop cursor. After selecting it, continue newest to
+oldest through the entire declared bounded window. First use only the readable
+parent-level evidence to classify ownership and whether the report is an
+objective clear bug; this preflight is read-only and does not require full
+investigation. Every eligible clear-bug parent that this run addresses,
+investigates, verifies, groups, or uses as evidence then gets the invoking
+identity's `👀` reaction before its full-thread read or code investigation, a
+reaction read-back, and its own final disposition. Grouping symptoms never
+substitutes a representative reaction: each parent keeps its own eye and
+reply-ledger row. Before reporting completion, re-read every ledger parent and
+its reactions; no eligible clear-bug parent may be left without the invoking
+identity's eye and an auditable invoking-identity disposition.
+
 ## Scope: clear bugs only
 
 This is a bug sweep, not a general UX review. “Comprehensive” means covering
@@ -218,6 +238,14 @@ left in **In progress**, oldest open ownership first. Verify the claimed fix or
 continue the handoff; do not ask the reporter to repeat details. Keep doing
 this until each open ownership item is **Fixed** or has a genuinely new,
 specific missing reporter or product input.
+
+Before declaring the run complete, re-read every thread where this workflow
+posted a reply through the current end and inspect responses to those replies.
+After every Slack reply, perform that complete-thread read-back before
+continuing. Treat any response as new evidence: re-investigate, attempt and
+verify any needed fix, post the next disclosed update, and read the thread
+again. Repeat until no unprocessed follow-up remains. The final recap and ship
+handoff must come after this pass.
 
 ## Resolution and ownership gate
 
@@ -448,8 +476,8 @@ queried and the cursor and filters are stated.
 
 When multiple source items were grouped into one similar-feedback cluster, name
 the representative item and list the grouped source links in that row. Record
-one Builder dispatch for the cluster, while preserving the disposition of every
-individual report.
+one Builder dispatch for the cluster, while preserving the eye reaction,
+reply-ledger result, and disposition of every individual report.
 
 ## Related skills
 

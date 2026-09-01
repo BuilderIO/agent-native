@@ -5,6 +5,10 @@ import {
   loadActionsFromStaticRegistry,
   type AgentLoopFinalResponseGuardContext,
 } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
@@ -45,6 +49,139 @@ const ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 // silence means the model transport or worker has wedged; recover the chunk
 // promptly instead of holding the dashboard composer for the 12-minute default.
 export const ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS = 3 * 60_000;
+
+const DASHBOARD_EDIT_TOOLS = new Set([
+  "compose-dashboard",
+  "mutate-dashboard",
+  "rename-dashboard",
+  "reorder-dashboard-panels",
+  "restore-dashboard-revision",
+  "save-explorer-config",
+  "save-explorer-dashboard",
+  "save-sql-dashboard",
+  "update-dashboard",
+  "update-dashboard-demo",
+  "update-dashboard-summary",
+]);
+const ANALYSIS_EDIT_TOOLS = new Set([
+  "rename-analysis",
+  "restore-analysis-revision",
+  "save-analysis",
+]);
+
+function eventRecord(entry: unknown): Record<string, unknown> | undefined {
+  if (!entry || typeof entry !== "object") return undefined;
+  const event = (entry as { event?: unknown }).event;
+  return event && typeof event === "object"
+    ? (event as Record<string, unknown>)
+    : undefined;
+}
+
+function inputForCompletedTool(
+  events: readonly unknown[],
+  index: number,
+  completed: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (completed.input && typeof completed.input === "object") {
+    return completed.input as Record<string, unknown>;
+  }
+  const id = typeof completed.id === "string" ? completed.id : undefined;
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const candidate = eventRecord(events[cursor]);
+    if (
+      candidate?.type !== "tool_start" ||
+      candidate.tool !== completed.tool ||
+      (id && candidate.id !== id)
+    ) {
+      continue;
+    }
+    return candidate.input && typeof candidate.input === "object"
+      ? (candidate.input as Record<string, unknown>)
+      : undefined;
+  }
+  return undefined;
+}
+
+function analyticsToolTarget(
+  tool: string,
+  input: Record<string, unknown> | undefined,
+  scopeType: "dashboard" | "analysis",
+): unknown {
+  if (scopeType === "dashboard") {
+    if (
+      tool === "compose-dashboard" ||
+      tool === "mutate-dashboard" ||
+      tool === "reorder-dashboard-panels" ||
+      tool === "update-dashboard" ||
+      tool === "update-dashboard-demo" ||
+      tool === "update-dashboard-summary"
+    ) {
+      return input?.dashboardId ?? input?.id;
+    }
+    return input?.id ?? input?.dashboardId;
+  }
+  return input?.analysisId ?? input?.id;
+}
+
+function hasAnalyticsEdit(
+  run: { events: readonly unknown[] },
+  tools: ReadonlySet<string>,
+  scopeType: "dashboard" | "analysis",
+  scopeId: string,
+): boolean {
+  return run.events.some((entry, index) => {
+    const record = eventRecord(entry);
+    if (!record) return false;
+    const input = inputForCompletedTool(run.events, index, record);
+    return (
+      record.type === "tool_done" &&
+      record.completedSideEffect === true &&
+      record.isError !== true &&
+      typeof record.tool === "string" &&
+      tools.has(record.tool) &&
+      analyticsToolTarget(record.tool, input, scopeType) === scopeId
+    );
+  });
+}
+
+async function autosaveAnalyticsAfterAgentTurn(
+  scope: { type: string; id: string },
+  run: {
+    events: readonly unknown[];
+    threadId?: string;
+    runId?: string;
+    turnId?: string;
+  },
+): Promise<void> {
+  const email = getRequestUserEmail();
+  if (!email) return;
+  const ctx = { email, orgId: getRequestOrgId() || null };
+  if (
+    scope.type === "dashboard" &&
+    hasAnalyticsEdit(run, DASHBOARD_EDIT_TOOLS, "dashboard", scope.id)
+  ) {
+    const { createDashboardRevisionSnapshot } =
+      await import("../lib/dashboards-store.js");
+    await createDashboardRevisionSnapshot(scope.id, ctx, {
+      ...(run.threadId ? { threadId: run.threadId } : {}),
+      ...(run.runId ? { runId: run.runId } : {}),
+      ...(run.turnId ? { turnId: run.turnId } : {}),
+    });
+    return;
+  }
+  if (
+    scope.type === "analysis" &&
+    hasAnalyticsEdit(run, ANALYSIS_EDIT_TOOLS, "analysis", scope.id)
+  ) {
+    const { createAnalysisRevisionSnapshot } =
+      await import("../lib/dashboards-store.js");
+    await createAnalysisRevisionSnapshot(scope.id, ctx, {
+      ...(run.threadId ? { threadId: run.threadId } : {}),
+      ...(run.runId ? { runId: run.runId } : {}),
+      ...(run.turnId ? { turnId: run.turnId } : {}),
+    });
+  }
+}
 
 const ANALYTICS_DATA_SOURCES_LINK = buildDeepLink({
   app: "analytics",
@@ -279,7 +416,10 @@ const GENERIC_EXTERNAL_SOURCE_REQUEST_TERMS = /\b(warehouse|crm|payments?)\b/i;
 
 const EXTERNAL_SOURCE_PROVIDER_ALIASES = [
   ...credentialProviderConfigs.map(({ provider, label }) => ({
-    terms: [provider, label],
+    // "Builder" also names the product whose first-party metrics live in
+    // Analytics; require a content qualifier before routing to Builder.io.
+    terms:
+      provider === "builder" ? [label, "Builder content"] : [provider, label],
     aliases: [provider, label],
   })),
   { terms: ["ga4"], aliases: ["ga4", "google analytics"] },
@@ -950,6 +1090,7 @@ export async function searchDashboardMentions(query: string, event?: any) {
 
 export default createAgentChatPlugin({
   appId: "analytics",
+  onAgentTurnComplete: autosaveAnalyticsAfterAgentTurn,
   // Resource prompt hydration performs additive schema checks. Keep that
   // work out of production serverless cold starts; it is not needed for the
   // dashboard's domain prompt and can contend with the request's DB queries.

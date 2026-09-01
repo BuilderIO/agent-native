@@ -1,7 +1,7 @@
 import { createCoreRoutesPlugin } from "@agent-native/core/server";
 
 const VIEW_PATHS: Record<string, string> = {
-  overview: "/",
+  overview: "/home",
   records: "/records",
   record: "/records",
   tasks: "/tasks",

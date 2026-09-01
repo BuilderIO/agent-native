@@ -18,6 +18,9 @@ const useBrowserLayoutEffect =
 declare global {
   interface Window {
     __agentNativeLoadingLabelIndex?: number;
+    __agentNativeLoadingLabelHydrated?: boolean;
+    __agentNativeLoadingLabelInterval?: number;
+    __agentNativeLoadingLabelCleanup?: () => void;
   }
 }
 
@@ -44,7 +47,7 @@ function getRandomLoadingLabelIndex(): number {
 
 export function DefaultSpinner({
   ariaLabel = "Loading",
-  height = "100vh",
+  height = "var(--agent-native-viewport-height, 100vh)",
 }: {
   ariaLabel?: string;
   height?: CSSProperties["height"];
@@ -66,6 +69,13 @@ export function DefaultSpinner({
   }, [loadingLabelIndex]);
 
   useEffect(() => {
+    if (window.__agentNativeLoadingLabelInterval !== undefined) {
+      window.clearInterval(window.__agentNativeLoadingLabelInterval);
+      delete window.__agentNativeLoadingLabelInterval;
+    }
+    window.__agentNativeLoadingLabelHydrated = true;
+    window.__agentNativeLoadingLabelCleanup?.();
+    delete window.__agentNativeLoadingLabelCleanup;
     if (
       typeof window !== "undefined" &&
       window.__agentNativeLoadingLabelIndex === undefined

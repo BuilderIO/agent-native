@@ -34,6 +34,10 @@
  * effect again. Layer 2 is the stronger guarantee.
  */
 
+import {
+  isArtifactReceipt,
+  type ArtifactReceipt,
+} from "../artifacts/detect.js";
 import type { AgentChatEvent, AgentToolInput } from "./types.js";
 
 /** A single recorded tool-call ledger entry, classified by outcome. */
@@ -53,6 +57,8 @@ export interface ToolCallJournalEntry {
   order: number;
   /** Result text from the matched `tool_done`, when the call completed. */
   result?: string;
+  /** Typed artifact evidence captured before the model-facing result was capped. */
+  artifacts?: ArtifactReceipt[];
 }
 
 /** Result of classifying one turn's ledger events. */
@@ -180,6 +186,8 @@ export function classifyToolCallJournal(
           continue;
         }
         entry.result = event.result ?? "";
+        const artifacts = event.artifacts?.filter(isArtifactReceipt);
+        if (artifacts && artifacts.length > 0) entry.artifacts = artifacts;
         completed.push(entry);
       }
       // A tool_done with no open start is ignored — it can't be re-associated

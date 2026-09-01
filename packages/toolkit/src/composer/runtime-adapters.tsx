@@ -3,6 +3,8 @@ import {
   useContext,
   useMemo,
   type ComponentType,
+  type MouseEventHandler,
+  type ReactElement,
   type ReactNode,
 } from "react";
 
@@ -51,7 +53,18 @@ export interface ComposerBuilderConnectFlow {
   connecting: boolean;
   statusResolved: boolean;
   error: string | null;
-  start: () => void;
+  agentNativeProvisioningEnabled?: boolean;
+  accountExists?: boolean;
+  start: (options?: { provisionAccount?: boolean }) => void;
+}
+
+export interface ComposerBuilderConnectPopoverProps {
+  flow: ComposerBuilderConnectFlow;
+  children: ReactElement<{
+    onClick?: MouseEventHandler<HTMLElement>;
+  }>;
+  onConnect?: (provisionAccount: boolean) => void;
+  onTriggerClick?: MouseEventHandler<HTMLElement>;
 }
 
 export interface AgentChatContextItem {
@@ -80,6 +93,7 @@ export interface ComposerAgentChatOpenThreadRequest {
 export interface ComposerBuilderConnectFlowOptions {
   enabled?: boolean;
   popupUrl?: string;
+  provisionAccount?: boolean;
   trackingSource?: string;
   trackingFlow?: string;
   onConnected?: (state: { orgName: string | null }) => void | Promise<void>;
@@ -147,6 +161,7 @@ export interface ComposerRuntimeAdapters {
     useConnectFlow?: (
       options: ComposerBuilderConnectFlowOptions,
     ) => ComposerBuilderConnectFlow;
+    BuilderConnectPopover?: ComponentType<ComposerBuilderConnectPopoverProps>;
     tryDelegateBuildRequest?: (text: string) => boolean;
     isTrustedFrameMessage?: (event: MessageEvent) => boolean;
     isTrustedBuilderMessage?: (event: MessageEvent) => boolean;
@@ -222,6 +237,8 @@ const fallbackBuilderFlow = {
   connecting: false,
   statusResolved: false,
   error: null,
+  agentNativeProvisioningEnabled: false,
+  accountExists: false,
   start: () => {},
 };
 

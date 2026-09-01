@@ -50,6 +50,7 @@ const SKIP_FILES = new Set([
   "db-connect",
   "db-status",
   "registry",
+  "migrate-production",
 ]);
 
 function isRuntimeSourceFile(filename: string): boolean {
@@ -736,6 +737,10 @@ export async function mergeCoreSharingActions(
     [
       "list-automations",
       () => import("../triggers/actions/list-automations.js"),
+    ],
+    [
+      "list-automation-events",
+      () => import("../triggers/actions/list-automation-events.js"),
     ],
     [
       "manage-automation",

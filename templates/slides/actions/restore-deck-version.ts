@@ -6,7 +6,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import {
+  createDeckVersionSnapshot,
+  deckVersionChatContextFromAction,
+} from "../server/lib/deck-versions.js";
 import { getDeckUrl } from "./_app-url.js";
 import {
   assertDeckWriteApplied,
@@ -21,7 +24,7 @@ export default defineAction({
     deckId: z.string().describe("Deck ID"),
     versionId: z.string().describe("Version snapshot ID to restore"),
   }),
-  run: async ({ deckId, versionId }) => {
+  run: async ({ deckId, versionId }, ctx) => {
     const access = await assertAccess("deck", deckId, "editor");
     const current = access.resource;
     const ownerEmail = current.ownerEmail as string;
@@ -62,7 +65,12 @@ export default defineAction({
           data: current.data,
           ownerEmail,
         },
-        { force: true, label: "Before restore", db: tx },
+        {
+          force: true,
+          chatContext: deckVersionChatContextFromAction(ctx),
+          label: "Before restore",
+          db: tx,
+        },
       );
       const updateResult = await tx
         .update(schema.decks)
