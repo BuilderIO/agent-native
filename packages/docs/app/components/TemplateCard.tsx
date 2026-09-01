@@ -166,7 +166,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
     <div className="mt-auto flex flex-wrap gap-2 pt-1">
       {hasDemoUrl ? (
         <Button
-          variant="primary"
+          variant="white"
           icon={IconArrowUpRight}
           href={template.demoUrl}
           target="_blank"
