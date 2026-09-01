@@ -410,6 +410,8 @@ export function useMeetingTranscription({
         };
         sessionRef.current = session;
         startedSession = session;
+        const sessionIsActive = () =>
+          sessionRef.current === session && !session.stopping;
 
         const scheduleFlush = () => {
           if (session.flushTimer) window.clearTimeout(session.flushTimer);
@@ -520,6 +522,7 @@ export function useMeetingTranscription({
           scheduledEnd?: string | null;
           recording?: { id?: string | null } | null;
         }>("start-meeting-recording", { meetingId });
+        if (!sessionIsActive()) throw MEETING_START_CANCELLED;
         const resolvedMeetingId = result.meetingId ?? meetingId;
         const recordingId = result.recording?.id;
         if (!recordingId) {
@@ -737,7 +740,7 @@ export function useMeetingTranscription({
         // tray, indicator, and pill state below would repoint all three at the
         // meeting the user just left. Every other continuation in this function
         // guards the same way.
-        if (sessionRef.current !== session) {
+        if (!sessionIsActive()) {
           await stopTranscriptionEngine(startedEngine).catch(() => {});
           liveEngine = null;
           if (historyPreparedRef.current) {
@@ -778,6 +781,7 @@ export function useMeetingTranscription({
             mode: "meeting",
           }),
         ]);
+        if (!sessionIsActive()) throw MEETING_START_CANCELLED;
         if (pendingPillInitRef.current?.meetingId === resolvedMeetingId) {
           pendingPillInitRef.current = {
             ...pendingPillInitRef.current,
@@ -847,9 +851,16 @@ export function useMeetingTranscription({
           session.historyInFlight = historyPromise;
         }
 
+        if (!sessionIsActive()) throw MEETING_START_CANCELLED;
         await invoke("silence_detector_start", {
           config: silenceDetectorConfig,
         }).catch(() => {});
+        if (!sessionIsActive()) {
+          if (sessionRef.current === session) {
+            await invoke("silence_detector_stop").catch(() => {});
+          }
+          throw MEETING_START_CANCELLED;
+        }
 
         if (payload.joinUrl && payload.reason !== "user") {
           emit("meetings:open-join-url", {

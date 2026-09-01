@@ -485,7 +485,7 @@ fn source_quiet_for(source: Option<&SourceState>, now: Instant, window: Duration
 fn call_end_audio_quiet_for(source: Option<&SourceState>, now: Instant, window: Duration) -> bool {
     source
         .map(|state| !state.seen_audio || source_quiet_for(Some(state), now, window))
-        .unwrap_or(false)
+        .unwrap_or(true)
 }
 
 fn claim_auto_stop(inner: &Arc<Mutex<DetectorInner>>, generation: u64) -> bool {
@@ -593,6 +593,7 @@ mod tests {
             now,
             Duration::from_secs(5)
         ));
+        assert!(call_end_audio_quiet_for(None, now, Duration::from_secs(5)));
     }
 
     #[test]
