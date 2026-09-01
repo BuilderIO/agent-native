@@ -5,6 +5,9 @@ const requireGenerationSessionInLibraryMock = vi.hoisted(() => vi.fn());
 const generateImageRunMock = vi.hoisted(() => vi.fn());
 const upsertVariantSlotMock = vi.hoisted(() => vi.fn());
 const getDbMock = vi.hoisted(() => vi.fn());
+const libraryAccessMock = vi.hoisted(() =>
+  vi.fn(async () => ({ role: "owner", canApprove: true })),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
@@ -16,6 +19,12 @@ vi.mock("@agent-native/core/action", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
+}));
+vi.mock("../server/lib/library-access.js", () => ({
+  assertCanDraft: libraryAccessMock,
+  assertCanApprove: libraryAccessMock,
+  assertCanDraftAuthoredBy: libraryAccessMock,
+  assertCanDeleteAsset: libraryAccessMock,
 }));
 
 vi.mock("@agent-native/creative-context/server", () => ({
@@ -71,6 +80,7 @@ function createDb() {
 describe("generate-image-batch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    libraryAccessMock.mockResolvedValue({ role: "owner", canApprove: true });
     assertAccessMock.mockResolvedValue(undefined);
     requireGenerationSessionInLibraryMock.mockResolvedValue({
       id: "session-1",
@@ -89,6 +99,16 @@ describe("generate-image-batch", () => {
     expect(agentShape).not.toHaveProperty("variantScopeId");
     expect(agentShape).not.toHaveProperty("creativeContextRequestId");
     expect(agentShape).not.toHaveProperty("callerAppId");
+  });
+
+  it("only requires draft access, so a kit viewer can generate candidates", async () => {
+    await action.run({
+      libraryId: "lib-1",
+      slots: [{ slotId: "slot-1", prompt: "Generate a hero" }],
+    });
+
+    // One argument means `assertCanDraft`; approving paths pass a second.
+    expect(libraryAccessMock).toHaveBeenCalledWith("lib-1");
   });
 
   it("validates sessionId before spawning slot generations", async () => {

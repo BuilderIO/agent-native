@@ -4,12 +4,21 @@ const getDbMock = vi.hoisted(() => vi.fn());
 const assertAccessMock = vi.hoisted(() => vi.fn());
 const resolveTemplateAccessMock = vi.hoisted(() => vi.fn());
 const generateImageRunMock = vi.hoisted(() => vi.fn());
+const libraryAccessMock = vi.hoisted(() =>
+  vi.fn(async () => ({ role: "owner", canApprove: true })),
+);
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (entry: unknown) => entry,
 }));
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
+}));
+vi.mock("../server/lib/library-access.js", () => ({
+  assertCanDraft: libraryAccessMock,
+  assertCanApprove: libraryAccessMock,
+  assertCanDraftAuthoredBy: libraryAccessMock,
+  assertCanDeleteAsset: libraryAccessMock,
 }));
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((column, value) => ({ column, value })),
@@ -39,6 +48,7 @@ import action from "./rerun-generation-run.js";
 describe("rerun-generation-run template access", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    libraryAccessMock.mockResolvedValue({ role: "owner", canApprove: true });
     assertAccessMock.mockResolvedValue(undefined);
     getDbMock.mockReturnValue({
       select: vi.fn(() => ({

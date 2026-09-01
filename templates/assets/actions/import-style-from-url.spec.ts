@@ -14,6 +14,9 @@ const schemaMock = vi.hoisted(() => ({
     id: "assetCollections.id",
   },
 }));
+const libraryAccessMock = vi.hoisted(() =>
+  vi.fn(async () => ({ role: "owner", canApprove: true })),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
@@ -21,6 +24,12 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
+}));
+vi.mock("../server/lib/library-access.js", () => ({
+  assertCanDraft: libraryAccessMock,
+  assertCanApprove: libraryAccessMock,
+  assertCanDraftAuthoredBy: libraryAccessMock,
+  assertCanDeleteAsset: libraryAccessMock,
 }));
 
 vi.mock("@agent-native/creative-context/server", () => ({
@@ -88,6 +97,7 @@ function createDb({
 describe("import-style-from-url", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    libraryAccessMock.mockResolvedValue({ role: "owner", canApprove: true });
     updateSetCalls.length = 0;
     assertAccessMock.mockResolvedValue(undefined);
     extractRenderedDesignSystemFromUrlMock.mockResolvedValue({

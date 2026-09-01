@@ -35,9 +35,26 @@ Every action that touches an ownable resource must scope its queries:
   Cross-kit asset lists must first resolve the accessible library IDs, then
   query `image_assets` by those IDs and include the parent kit title for UI chips.
 - **Read by id**: `await resolveAccess("asset-library", libraryId)`. The `requireLibrary(id)` helper in `_helpers.ts` wraps this.
-- **Write**: `await assertAccess("asset-library", libraryId, "editor")` for updates / inserts; `"admin"` for deletes.
+- **Write**: never `assertAccess(..., "editor")` directly. Use `server/lib/library-access.ts`, which splits writing into drafting and approving (below); `"admin"` still guards library archive / delete.
 
 All assets / runs derive `libraryId` first, then assert against the parent library. Never query `image_assets` without also pinning `library_id` to a value the caller has access to.
+
+### Drafting vs approving
+
+A kit `viewer` may **draft**: generation runs, generation sessions, and `image_assets` rows with `role: "generated"` and `status: "candidate"`. Drafts never reach the kit's content — `shouldIncludeAssetInLibraryResults` filters unsaved candidates out of every library read — so a read-only collaborator can safely make them.
+
+`editor` is still required to **approve**: promoting a candidate to `saved`, uploads, imports, folders, collections, style brief, canonical logo, templates, and deletes.
+
+| Helper | Bar | Use for |
+| --- | --- | --- |
+| `assertCanDraft(libraryId)` | viewer | generate / refine / rerun, sessions, variant slots |
+| `assertCanApprove(libraryId, what)` | editor | save, upload, import, organize, kit settings |
+| `assertCanDraftAuthoredBy(libraryId, author, what)` | viewer for own | a session or run someone else may have created |
+| `assertCanDeleteAsset(asset)` | viewer for own draft | discarding a candidate vs deleting kit content |
+
+`assertCanDraft` returns `{ role, canApprove }`. Generation actions report `draftPendingApproval: true` when `canApprove` is false so the caller can say the images are waiting on an editor instead of claiming they were saved. `get-library-access` exposes the same answer to the UI and to other agents.
+
+The refusal message keeps the framework's `Requires editor role on asset-library <id> (have viewer)` prefix on purpose: core's permanent-precondition classifier matches that shape and ends the agent turn instead of retrying a grant it cannot obtain. Keep it if you reword the remedy.
 
 ## Adding a new field
 

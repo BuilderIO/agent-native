@@ -114,7 +114,11 @@ import type {
   ImageQualityTier,
   StyleStrength,
 } from "../../shared/api";
-import { MODEL_ASPECT_RATIOS } from "../../shared/api";
+import {
+  canApproveWithRole,
+  MODEL_ASPECT_RATIOS,
+  type AssetAccessRole,
+} from "../../shared/api";
 import {
   DEFAULT_LIBRARY_PRESETS,
   LibraryPreset,
@@ -193,6 +197,7 @@ type Library = {
   id: string;
   title: string;
   description?: string | null;
+  accessRole?: AssetAccessRole;
 };
 
 type GenerationConfig = {
@@ -1956,6 +1961,11 @@ function LibraryCandidateStage({
   ) as { data?: { assets?: Asset[] }; isLoading: boolean; isError: boolean };
   const saveGenerated = useActionMutation("save-generated-image");
   const updateAsset = useActionMutation("update-asset");
+  // Drafting needs only read access, approving needs editor. The cross-kit
+  // stage mixes kits with different roles, so only the single-kit stage can
+  // decide here; the server still refuses the ones it must.
+  const canApprove =
+    isAllAssetsStage || canApproveWithRole(libraryData?.library?.accessRole);
   const libraryAssets = isAllAssetsStage
     ? (allCandidateData?.assets ?? [])
     : (libraryData?.assets ?? []);
@@ -2195,16 +2205,30 @@ function LibraryCandidateStage({
         foldersByLibraryId={foldersByLibraryId}
         savingSlotId={savingCandidateSlotId}
         promotingReferenceKeys={promotingReferenceKeys}
-        onSave={(slot, folderId) => {
-          void handleSaveLiveCandidate(slot, folderId);
-        }}
-        onSaveDraft={(asset, folderId) => {
-          void handleSaveDraftCandidate(asset, folderId);
-        }}
-        onMoveToReferences={handleMoveLiveCandidateToReferences}
-        onMoveDraftToReferences={(asset) => {
-          void handleMoveToReferences(asset);
-        }}
+        onSave={
+          canApprove
+            ? (slot, folderId) => {
+                void handleSaveLiveCandidate(slot, folderId);
+              }
+            : undefined
+        }
+        onSaveDraft={
+          canApprove
+            ? (asset, folderId) => {
+                void handleSaveDraftCandidate(asset, folderId);
+              }
+            : undefined
+        }
+        onMoveToReferences={
+          canApprove ? handleMoveLiveCandidateToReferences : undefined
+        }
+        onMoveDraftToReferences={
+          canApprove
+            ? (asset) => {
+                void handleMoveToReferences(asset);
+              }
+            : undefined
+        }
         onUse={onUseAsset ? handleUseLiveCandidate : undefined}
         onUseDraft={onUseAsset}
       />

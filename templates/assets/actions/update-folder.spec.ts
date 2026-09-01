@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDbMock = vi.hoisted(() => vi.fn());
 const assertAccessMock = vi.hoisted(() => vi.fn());
+const libraryAccessMock = vi.hoisted(() =>
+  vi.fn(async () => ({ role: "owner", canApprove: true })),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
@@ -9,6 +12,12 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
+}));
+vi.mock("../server/lib/library-access.js", () => ({
+  assertCanDraft: libraryAccessMock,
+  assertCanApprove: libraryAccessMock,
+  assertCanDraftAuthoredBy: libraryAccessMock,
+  assertCanDeleteAsset: libraryAccessMock,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -48,6 +57,7 @@ function createDb(rows: unknown[][]) {
 describe("update-folder", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    libraryAccessMock.mockResolvedValue({ role: "owner", canApprove: true });
     assertAccessMock.mockResolvedValue(undefined);
   });
 

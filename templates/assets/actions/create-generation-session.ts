@@ -1,6 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
 import {
   recordGenerationCreativeContext,
   resolveGenerationCreativeContext,
@@ -12,6 +11,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { nowIso, stringifyJson } from "../server/lib/json.js";
+import { assertCanDraft } from "../server/lib/library-access.js";
 import { serializeGenerationSession } from "./_helpers.js";
 import { resolveTemplateAccess } from "./_template-access.js";
 
@@ -49,7 +49,7 @@ export default defineAction({
       contextPackId: creativeContext.contextPackId,
       reuseLabels,
     };
-    await assertAccess("asset-library", args.libraryId, "editor");
+    await assertCanDraft(args.libraryId);
     const db = getDb();
     if (args.collectionId) {
       const [collection] = await db

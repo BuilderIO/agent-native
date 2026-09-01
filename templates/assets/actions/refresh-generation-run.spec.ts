@@ -15,6 +15,9 @@ const schemaMock = vi.hoisted(() => ({
     generationRunId: "assets.generationRunId",
   },
 }));
+const libraryAccessMock = vi.hoisted(() =>
+  vi.fn(async () => ({ role: "owner", canApprove: true })),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
@@ -22,6 +25,12 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
+}));
+vi.mock("../server/lib/library-access.js", () => ({
+  assertCanDraft: libraryAccessMock,
+  assertCanApprove: libraryAccessMock,
+  assertCanDraftAuthoredBy: libraryAccessMock,
+  assertCanDeleteAsset: libraryAccessMock,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -101,6 +110,7 @@ function createDb({
 describe("refresh-generation-run", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    libraryAccessMock.mockResolvedValue({ role: "owner", canApprove: true });
     updateSetCalls.length = 0;
     assertAccessMock.mockResolvedValue(undefined);
     upsertVariantSlotMock.mockResolvedValue(undefined);

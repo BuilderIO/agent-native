@@ -92,6 +92,9 @@ claiming a brand match.
    `generate-image-batch` returns, use its returned `images` / asset fields
    directly; do not call `get-generation-run`, `refresh-generation-run`, or
    regenerate just to verify image runs.
+   A result with `draftPendingApproval: true` came from a kit the user can draft
+   in but not save into. Offer the candidate and say it needs a kit editor to be
+   saved; `save-generated-image` will refuse, so do not call it or retry.
 5. For template-backed work, pass a mentioned or selected `templateId`; for handoff
    work, pass `sessionId`.
 6. Let the server choose a small deterministic reference set unless the user

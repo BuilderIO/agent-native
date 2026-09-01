@@ -124,7 +124,11 @@ import {
   type AssetUploadResult,
 } from "@/lib/upload-results";
 
-import { type AssetVariantState, type ImageRole } from "../../shared/api";
+import {
+  canApproveWithRole,
+  type AssetVariantState,
+  type ImageRole,
+} from "../../shared/api";
 
 export type VariantSlot = AssetVariantState["slots"][number];
 
@@ -431,6 +435,9 @@ export function BrandKitDetailRoute({
   }, [headerMode, libraryId]);
 
   const library = data?.library;
+  // Generating a candidate only needs read access; saving one into the kit
+  // needs editor. Drop the save affordances rather than letting them 403.
+  const canApprove = canApproveWithRole(library?.accessRole);
   const folders = (data?.folders ?? []) as any[];
   const generationPresets = ((presetData as any)?.templates ?? []) as any[];
   const generationSessions = ((sessionData as any)?.sessions ?? []) as any[];
@@ -1398,16 +1405,30 @@ export function BrandKitDetailRoute({
                 folders={folders}
                 savingSlotId={savingCandidateSlotId}
                 promotingReferenceKeys={promotingReferenceKeys}
-                onSave={(slot, folderId) => {
-                  void handleSaveLiveCandidate(slot, folderId);
-                }}
-                onSaveDraft={(asset, folderId) => {
-                  void handleSaveDraftCandidate(asset, folderId);
-                }}
-                onMoveToReferences={handleMoveLiveCandidateToReferences}
-                onMoveDraftToReferences={(asset) => {
-                  void handleMoveToReferences(asset);
-                }}
+                onSave={
+                  canApprove
+                    ? (slot, folderId) => {
+                        void handleSaveLiveCandidate(slot, folderId);
+                      }
+                    : undefined
+                }
+                onSaveDraft={
+                  canApprove
+                    ? (asset, folderId) => {
+                        void handleSaveDraftCandidate(asset, folderId);
+                      }
+                    : undefined
+                }
+                onMoveToReferences={
+                  canApprove ? handleMoveLiveCandidateToReferences : undefined
+                }
+                onMoveDraftToReferences={
+                  canApprove
+                    ? (asset) => {
+                        void handleMoveToReferences(asset);
+                      }
+                    : undefined
+                }
               />
             ) : (
               <div className="flex min-h-64 items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center">
@@ -3506,10 +3527,10 @@ export function LiveCandidatesStage({
   allowCreateFolder?: boolean;
   savingSlotId: string | null;
   promotingReferenceKeys: Set<string>;
-  onSave: (slot: VariantSlot, folderId: string | null) => void;
-  onSaveDraft: (asset: any, folderId: string | null) => void;
-  onMoveToReferences: (slot: VariantSlot) => void;
-  onMoveDraftToReferences: (asset: any) => void;
+  onSave?: (slot: VariantSlot, folderId: string | null) => void;
+  onSaveDraft?: (asset: any, folderId: string | null) => void;
+  onMoveToReferences?: (slot: VariantSlot) => void;
+  onMoveDraftToReferences?: (asset: any) => void;
   onUse?: (slot: VariantSlot) => void;
   onUseDraft?: (asset: any) => void;
 }) {
@@ -3619,27 +3640,31 @@ export function LiveCandidatesStage({
           </Button>
         ) : null}
         <div className="grid min-w-0 grid-cols-1 gap-2 min-[420px]:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-          <CandidateSaveMenu
-            libraryId={actionLibraryId}
-            folders={candidateFolders}
-            allowCreateFolder={allowCreateFolder}
-            saving={saving}
-            disabled={busy}
-            onSave={(folderId) => onSaveCandidate?.(folderId)}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 min-w-0 px-2 text-xs"
-            onClick={onAddToReferences}
-            disabled={busy}
-          >
-            {promoting ? (
-              <Spinner className="h-3.5 w-3.5" />
-            ) : (
-              t("library.addToReferences")
-            )}
-          </Button>
+          {onSaveCandidate ? (
+            <CandidateSaveMenu
+              libraryId={actionLibraryId}
+              folders={candidateFolders}
+              allowCreateFolder={allowCreateFolder}
+              saving={saving}
+              disabled={busy}
+              onSave={(folderId) => onSaveCandidate(folderId)}
+            />
+          ) : null}
+          {onAddToReferences ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 min-w-0 px-2 text-xs"
+              onClick={onAddToReferences}
+              disabled={busy}
+            >
+              {promoting ? (
+                <Spinner className="h-3.5 w-3.5" />
+              ) : (
+                t("library.addToReferences")
+              )}
+            </Button>
+          ) : null}
         </div>
         <Button
           variant="ghost"
@@ -3703,27 +3728,31 @@ export function LiveCandidatesStage({
             {t("library.useCandidate")}
           </Button>
         ) : null}
-        <CandidateSaveMenu
-          libraryId={actionLibraryId}
-          folders={candidateFolders}
-          allowCreateFolder={allowCreateFolder}
-          saving={saving}
-          disabled={busy}
-          onSave={(folderId) => onSaveCandidate?.(folderId)}
-        />
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 px-2 text-xs"
-          onClick={onAddToReferences}
-          disabled={busy}
-        >
-          {promoting ? (
-            <Spinner className="h-3.5 w-3.5" />
-          ) : (
-            t("library.addToReferences")
-          )}
-        </Button>
+        {onSaveCandidate ? (
+          <CandidateSaveMenu
+            libraryId={actionLibraryId}
+            folders={candidateFolders}
+            allowCreateFolder={allowCreateFolder}
+            saving={saving}
+            disabled={busy}
+            onSave={(folderId) => onSaveCandidate(folderId)}
+          />
+        ) : null}
+        {onAddToReferences ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={onAddToReferences}
+            disabled={busy}
+          >
+            {promoting ? (
+              <Spinner className="h-3.5 w-3.5" />
+            ) : (
+              t("library.addToReferences")
+            )}
+          </Button>
+        ) : null}
         <Button
           variant="ghost"
           size="sm"
@@ -3771,8 +3800,12 @@ export function LiveCandidatesStage({
         saving,
         promoting,
         candidateLibraryId: libraryId,
-        onSaveCandidate: (folderId) => onSave(slot, folderId),
-        onAddToReferences: () => onMoveToReferences(slot),
+        onSaveCandidate: onSave
+          ? (folderId) => onSave(slot, folderId)
+          : undefined,
+        onAddToReferences: onMoveToReferences
+          ? () => onMoveToReferences(slot)
+          : undefined,
         onUseCandidate: onUse ? () => onUse(slot) : undefined,
         onDismiss: () =>
           setDismissTarget({
@@ -3786,8 +3819,12 @@ export function LiveCandidatesStage({
         saving,
         promoting,
         candidateLibraryId: libraryId,
-        onSaveCandidate: (folderId) => onSave(slot, folderId),
-        onAddToReferences: () => onMoveToReferences(slot),
+        onSaveCandidate: onSave
+          ? (folderId) => onSave(slot, folderId)
+          : undefined,
+        onAddToReferences: onMoveToReferences
+          ? () => onMoveToReferences(slot)
+          : undefined,
         onUseCandidate: onUse ? () => onUse(slot) : undefined,
         onDismiss: () =>
           setDismissTarget({
@@ -3830,8 +3867,12 @@ export function LiveCandidatesStage({
         saving,
         promoting,
         candidateLibraryId: asset.libraryId,
-        onSaveCandidate: (folderId) => onSaveDraft(asset, folderId),
-        onAddToReferences: () => onMoveDraftToReferences(asset),
+        onSaveCandidate: onSaveDraft
+          ? (folderId) => onSaveDraft(asset, folderId)
+          : undefined,
+        onAddToReferences: onMoveDraftToReferences
+          ? () => onMoveDraftToReferences(asset)
+          : undefined,
         onUseCandidate: onUseDraft ? () => onUseDraft(asset) : undefined,
         onDismiss: () =>
           setDismissTarget({
@@ -3845,8 +3886,12 @@ export function LiveCandidatesStage({
         saving,
         promoting,
         candidateLibraryId: asset.libraryId,
-        onSaveCandidate: (folderId) => onSaveDraft(asset, folderId),
-        onAddToReferences: () => onMoveDraftToReferences(asset),
+        onSaveCandidate: onSaveDraft
+          ? (folderId) => onSaveDraft(asset, folderId)
+          : undefined,
+        onAddToReferences: onMoveDraftToReferences
+          ? () => onMoveDraftToReferences(asset)
+          : undefined,
         onUseCandidate: onUseDraft ? () => onUseDraft(asset) : undefined,
         onDismiss: () =>
           setDismissTarget({

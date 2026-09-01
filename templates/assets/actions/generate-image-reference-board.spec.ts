@@ -8,6 +8,9 @@ const generateProviderMock = vi.hoisted(() => vi.fn());
 const createAssetFromBufferMock = vi.hoisted(() => vi.fn());
 const getObjectMock = vi.hoisted(() => vi.fn());
 const prepareInpaintMock = vi.hoisted(() => vi.fn());
+const libraryAccessMock = vi.hoisted(() =>
+  vi.fn(async () => ({ role: "owner", canApprove: true })),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
@@ -30,6 +33,12 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
   resolveAccess: vi.fn(async () => ({ role: "owner" })),
+}));
+vi.mock("../server/lib/library-access.js", () => ({
+  assertCanDraft: libraryAccessMock,
+  assertCanApprove: libraryAccessMock,
+  assertCanDraftAuthoredBy: libraryAccessMock,
+  assertCanDeleteAsset: libraryAccessMock,
 }));
 
 vi.mock("@agent-native/creative-context/server", () => ({
@@ -222,6 +231,7 @@ function asset(id: string, libraryId = "lib-1") {
 describe("generate-image preset reference board", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    libraryAccessMock.mockResolvedValue({ role: "owner", canApprove: true });
     assertAccessMock.mockResolvedValue(undefined);
     selectReferencesMock.mockResolvedValue([
       {

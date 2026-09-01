@@ -5,6 +5,9 @@ const writeAppStateMock = vi.hoisted(() => vi.fn());
 const deleteAppStateMock = vi.hoisted(() => vi.fn());
 const assertAccessMock = vi.hoisted(() => vi.fn());
 const getDbMock = vi.hoisted(() => vi.fn());
+const libraryAccessMock = vi.hoisted(() =>
+  vi.fn(async () => ({ role: "owner", canApprove: true })),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
@@ -18,6 +21,12 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
+}));
+vi.mock("../server/lib/library-access.js", () => ({
+  assertCanDraft: libraryAccessMock,
+  assertCanApprove: libraryAccessMock,
+  assertCanDraftAuthoredBy: libraryAccessMock,
+  assertCanDeleteAsset: libraryAccessMock,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -48,6 +57,7 @@ function createDb() {
 describe("dismiss-variant-slots", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    libraryAccessMock.mockResolvedValue({ role: "owner", canApprove: true });
     assertAccessMock.mockResolvedValue(undefined);
     deleteAppStateMock.mockResolvedValue(true);
   });
@@ -68,11 +78,8 @@ describe("dismiss-variant-slots", () => {
 
     const result = await action.run({ scope: "all" });
 
-    expect(assertAccessMock).toHaveBeenCalledWith(
-      "asset-library",
-      "lib-1",
-      "editor",
-    );
+    // Discarding a draft is drafting-class work, not approving.
+    expect(libraryAccessMock).toHaveBeenCalledWith("lib-1");
     expect(db.delete).toHaveBeenCalledTimes(2);
     expect(db.deleteWhere).toHaveBeenNthCalledWith(1, {
       column: "image_assets.id",

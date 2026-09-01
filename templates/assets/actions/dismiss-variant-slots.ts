@@ -1,10 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertCanDraft } from "../server/lib/library-access.js";
 import {
   deleteVariantState,
   readVariantState,
@@ -32,7 +32,7 @@ export default defineAction({
     const stateThreadId =
       effectiveThreadId ?? state.variantScopeId ?? state.threadId ?? null;
 
-    await assertAccess("asset-library", state.libraryId, "editor");
+    await assertCanDraft(state.libraryId);
 
     const toRemove = state.slots.filter((slot) => {
       if (slotId) return slot.slotId === slotId;

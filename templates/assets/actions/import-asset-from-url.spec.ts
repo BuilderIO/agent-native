@@ -7,6 +7,9 @@ const createAssetFromBufferMock = vi.hoisted(() => vi.fn());
 const getDbMock = vi.hoisted(() => vi.fn());
 const serializeAssetMock = vi.hoisted(() => vi.fn((row: unknown) => row));
 const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
+const libraryAccessMock = vi.hoisted(() =>
+  vi.fn(async () => ({ role: "owner", canApprove: true })),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
@@ -18,6 +21,12 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
+}));
+vi.mock("../server/lib/library-access.js", () => ({
+  assertCanDraft: libraryAccessMock,
+  assertCanApprove: libraryAccessMock,
+  assertCanDraftAuthoredBy: libraryAccessMock,
+  assertCanDeleteAsset: libraryAccessMock,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -113,6 +122,7 @@ const pngContentHash = () =>
 describe("import-asset-from-url", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    libraryAccessMock.mockResolvedValue({ role: "owner", canApprove: true });
     assertAccessMock.mockResolvedValue(undefined);
     // Fresh Response per call — a Response body stream can only be read once.
     ssrfSafeFetchMock.mockImplementation(async () =>
@@ -145,11 +155,8 @@ describe("import-asset-from-url", () => {
       description: "Imported from the launch post.",
     });
 
-    expect(assertAccessMock).toHaveBeenCalledWith(
-      "asset-library",
-      "lib-1",
-      "editor",
-    );
+    // Importing adds kit content, so it stays approving-class.
+    expect(libraryAccessMock).toHaveBeenCalledWith("lib-1", expect.any(String));
     expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
       "https://cdn.example.test/blog-hero.png",
       { signal: expect.any(AbortSignal) },
@@ -258,7 +265,7 @@ describe("import-asset-from-url", () => {
   });
 
   it("rejects callers without editor access", async () => {
-    assertAccessMock.mockRejectedValue(new Error("No access"));
+    libraryAccessMock.mockRejectedValue(new Error("No access"));
 
     await expect(
       action.run({

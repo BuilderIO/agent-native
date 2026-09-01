@@ -8,7 +8,6 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
 import {
   delimitUntrustedReference,
   getGenerationCreativeContext,
@@ -41,6 +40,7 @@ import {
   prepareGptImage2SkeletonInpaintImages,
 } from "../server/lib/image-processing.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
+import { assertCanDraft } from "../server/lib/library-access.js";
 import {
   normalizePresetReferences,
   PRESET_REFERENCE_ROLE_MAP,
@@ -257,7 +257,7 @@ export default defineAction({
       ...input,
       libraryId,
     };
-    await assertAccess("asset-library", args.libraryId, "editor");
+    const draftAccess = await assertCanDraft(args.libraryId);
     const db = getDb();
     const [library] = await db
       .select()
@@ -1124,6 +1124,9 @@ export default defineAction({
           downloadUrl: serialized.downloadUrl,
         }),
         ...creativeContextProvenance,
+        // Present only when the caller cannot approve: the candidate exists and
+        // is theirs to iterate on, but saving it into the kit needs an editor.
+        ...(draftAccess.canApprove ? {} : { draftPendingApproval: true }),
       };
     } catch (err) {
       const message =

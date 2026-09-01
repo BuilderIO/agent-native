@@ -3,7 +3,6 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -14,6 +13,7 @@ import {
   selectReferences,
 } from "../server/lib/generation.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
+import { assertCanDraft } from "../server/lib/library-access.js";
 import { getObject } from "../server/lib/storage.js";
 import {
   compileVideoPrompt,
@@ -82,7 +82,7 @@ export default defineAction({
       ...input,
       libraryId,
     };
-    await assertAccess("asset-library", args.libraryId, "editor");
+    const draftAccess = await assertCanDraft(args.libraryId);
     const db = getDb();
     const [library] = await db
       .select()
@@ -280,6 +280,9 @@ export default defineAction({
           asset,
           artifactType: "video",
           Artifacts: [`Video: ${asset.url} (ID: ${asset.id}, Run: ${runId})`],
+          // Present only when the caller cannot approve: saving this candidate
+          // into the kit needs an editor.
+          ...(draftAccess.canApprove ? {} : { draftPendingApproval: true }),
         };
       }
     }
