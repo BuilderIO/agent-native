@@ -14,6 +14,13 @@ import {
   PageSection,
 } from "../components/website-redesign/page-grid";
 
+// Every section heading on this page shares one size. 32px falls between
+// --b-t-heading-3 (37px) and --b-t-heading-4 (28px), so it is spelled out
+// rather than taken from the scale — which also means it does not shrink at the
+// mobile breakpoint the way the scale tokens do.
+const SECTION_HEADING_CLASS =
+  "font-[family-name:var(--b-font-sans)] text-[32px] font-medium leading-[1.1] tracking-[-0.02em] text-[var(--b-text-primary)]";
+
 export default function TemplatesPage() {
   const t = useT();
   const { locale } = useLocale();
@@ -26,12 +33,12 @@ export default function TemplatesPage() {
           the footer. GridInner keeps the content on the same max-w-site measure
           the rules are drawn on. */}
       <PageSection as="main" className="templates-index-page">
-        <GridInner className="min-w-0 px-4 pb-24 pt-20 sm:px-6 lg:pt-28">
-          <header className="max-w-[720px]">
-            <h1 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-1)] font-medium leading-[1.05] tracking-[-0.03em] text-[var(--b-text-primary)]">
+        <GridInner className="min-w-0 px-4 pb-24 pt-20 sm:px-6 lg:pt-[200px]">
+          <header className="max-w-[805px]">
+            <h1 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.03em] text-[var(--b-text-primary)]">
               {t("templatesPage.title")}
             </h1>
-            <p className="mt-5 mb-0 max-w-[620px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+            <p className="mt-5 mb-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
               {t("templatesPage.eyebrow")}{" "}
               <span className="text-[var(--b-text-primary)]">
                 {t("templatesPage.body")}
@@ -48,7 +55,7 @@ export default function TemplatesPage() {
           >
             <h2
               id="first-party-apps-heading"
-              className="mb-6 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-3)] font-medium leading-[1.1] tracking-[-0.02em] text-[var(--b-text-primary)]"
+              className={`mb-6 ${SECTION_HEADING_CLASS}`}
             >
               {t("templatesPage.firstPartyTitle")}
             </h2>
@@ -80,7 +87,7 @@ export default function TemplatesPage() {
             <div className="mb-6 max-w-[720px]">
               <h2
                 id="community-apps-heading"
-                className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]"
+                className={`m-0 ${SECTION_HEADING_CLASS}`}
               >
                 {t("templatesPage.communityTitle")}
               </h2>
@@ -104,17 +111,17 @@ export default function TemplatesPage() {
                 the full measure rather than stopping at the text inset. */}
             <div className="-mx-4 mt-16 grid gap-8 border-t border-solid border-[var(--b-border-default)] px-4 pt-10 sm:-mx-6 sm:px-6 lg:grid-cols-[minmax(220px,0.7fr)_minmax(0,1.3fr)] lg:gap-16">
               <div>
-                <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-4)] font-medium leading-[1.1] tracking-[-0.02em] text-[var(--b-text-primary)]">
+                <h3 className={`m-0 ${SECTION_HEADING_CLASS}`}>
                   {t("templatesPage.communitySubmissionTitle")}
                 </h3>
-                <p className="mt-3 mb-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]">
+                <p className="mt-3 mb-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
                   {t("templatesPage.communitySubmissionDescription")}
                 </p>
                 <a
                   href={COMMUNITY_APP_SUBMISSION_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="mt-4 inline-flex font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] uppercase tracking-[0.04em] text-[var(--b-text-link)] underline underline-offset-2"
+                  className="mt-4 inline-flex font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-paragraph-2)] uppercase tracking-[0.04em] text-[var(--b-text-link)] underline underline-offset-2"
                 >
                   {t("templatesPage.submitCommunityTemplate")}
                 </a>
