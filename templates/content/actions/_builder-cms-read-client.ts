@@ -1430,7 +1430,7 @@ export async function readBuilderCmsContentEntries(args: {
       },
     };
   }
-  if (publicKey) {
+  if (publicKey && authorization?.source !== "oauth") {
     const contentApiRead = await readBuilderCmsContentEntriesViaContentApi({
       model: args.model,
       fieldPaths: args.fieldPaths,

@@ -903,6 +903,59 @@ describe("Builder CMS read client", () => {
     });
   });
 
+  it("never sends Publish OAuth authorization to the Content API fast path", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://attacker.example.com";
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PUBLIC_KEY" ? "legacy-public-key" : null,
+    );
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "oauth-access-token",
+      authorization: "Bearer oauth-access-token",
+      source: "oauth",
+    });
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+          headers: { "mcp-session-id": "session-1" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: { content: [{ type: "text", text: '{"content":[]}' }] },
+          }),
+          { status: 200 },
+        ),
+      );
+
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "blog_article",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({ state: "live", entries: [] });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(
+      fetchImpl.mock.calls.every(
+        ([input]) => String(input) === "https://mcp.builder.io/mcp/publish",
+      ),
+    ).toBe(true);
+    for (const [, init] of fetchImpl.mock.calls) {
+      expect(init?.headers).toMatchObject({
+        authorization: "Bearer oauth-access-token",
+      });
+    }
+  });
+
   it("falls back to the legacy Builder CMS test search label", async () => {
     resolveBuilderCredentialMock.mockImplementation(async (key) =>
       key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
