@@ -57,6 +57,7 @@ import {
   frameworkSessionHintCookieName,
   resolveAuthCookieNamespace,
 } from "../server/cookie-namespace.js";
+import { resolveAgentNativeBuildId } from "../shared/build-id.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
   resolveSsrCacheHeaders,
@@ -5644,15 +5645,7 @@ export function resolveNitroBuildReplacements(
   const configuredDeploymentEnvironment =
     deploymentEnvironment?.trim() ||
     env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT?.trim();
-  const buildId =
-    env.DEPLOY_ID?.trim() ||
-    env.AGENT_NATIVE_BUILD_ID?.trim() ||
-    env.COMMIT_REF?.trim() ||
-    env.NETLIFY_COMMIT_REF?.trim() ||
-    env.VERCEL_GIT_COMMIT_SHA?.trim() ||
-    env.CF_PAGES_COMMIT_SHA?.trim() ||
-    env.AGENT_NATIVE_BUILD_SHA?.trim() ||
-    "";
+  const buildId = resolveAgentNativeBuildId(env, "");
   return {
     // Netlify exposes DEPLOY_ID only while building. Embed it into the Nitro
     // function so preview OAuth relays can target this immutable deployment
