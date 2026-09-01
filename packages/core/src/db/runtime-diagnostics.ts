@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 
 import {
-  getDatabaseUrl,
   getDialect,
   getDbExec,
+  getRuntimeDatabaseUrl,
   type DbExec,
   type Dialect,
 } from "./client.js";
@@ -189,7 +189,7 @@ function parseDatabaseUrl(url: string): Partial<DatabaseRuntimeFingerprint> {
 }
 
 export function getDatabaseRuntimeFingerprint(): DatabaseRuntimeFingerprint {
-  const url = getDatabaseUrl();
+  const url = getRuntimeDatabaseUrl();
   const parsed = parseDatabaseUrl(url);
   return {
     configured: Boolean(url),

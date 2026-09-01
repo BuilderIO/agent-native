@@ -583,9 +583,12 @@ const jaJP = {
     communitySubmissionRepositoryPlaceholder:
       "https://github.com/owner/repository",
     communitySubmissionScreenshots: "スクリーンショット（任意）",
-    communitySubmissionScreenshotsPlaceholder:
-      "PNG、JPG、WebP 画像を最大 5 枚。各 1.5 MB まで。",
+    communitySubmissionScreenshotsPlaceholder: "最大5枚の画像をここにドロップ",
+    communitySubmissionScreenshotDropHint: "PNG、JPG、WebP。各1.5 MBまで。",
     communitySubmissionScreenshotSlot: "スクリーンショット {{index}}",
+    communitySubmissionScreenshotsAdd: "スクリーンショットを追加",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 枚を選択",
+    communitySubmissionScreenshotRemove: "スクリーンショット{{index}}を削除",
     communitySubmissionSubmit: "アプリを送信",
     communitySubmissionReady:
       "ありがとうございます。公開前にアプリを確認します。",

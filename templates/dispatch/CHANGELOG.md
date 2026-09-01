@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Dispatch are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-08-31
+
+### Improved
+
+- Dispatch sign-in now shows its product preview and learn-more link
+
 ## 2026-08-26
 
 ### Fixed

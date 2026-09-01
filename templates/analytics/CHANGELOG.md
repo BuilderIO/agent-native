@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-08-31
+
+### Improved
+
+- Per-app auth pages show a product preview and learn-more link
+
 ## 2026-08-29
 
 ### Added
