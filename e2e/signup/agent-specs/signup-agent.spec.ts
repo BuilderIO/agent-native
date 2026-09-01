@@ -11,6 +11,7 @@ import {
 } from "../lib/agent-review";
 import {
   createQaEmail,
+  isMailosaurInconclusiveError,
   verificationLinkFor,
   waitForVerificationEmail,
 } from "../lib/mailosaur";
@@ -22,7 +23,7 @@ const FINDINGS_PATH = join(
 );
 const REVIEW_SURFACE_TIMEOUT_MS = 15_000;
 const REVIEW_SURFACE_LOADING_SELECTOR =
-  "[data-first-run-startup-loading]:visible, [aria-busy='true']:visible, .skeleton-shimmer:visible";
+  "[data-first-run-startup-loading]:visible, [aria-busy='true']:not(.sr-only):visible, .skeleton-shimmer:visible";
 
 type PostLinkState = "onboarding" | "app" | "unresolved";
 
@@ -228,6 +229,7 @@ async function capture(
       `PENDING ${new URL(url).pathname} ${Date.now() - startedAt}ms`,
   );
   const requestDiagnostics = [...networkEvents.slice(-30), ...pending];
+  const diagnosticText = `DOM diagnostics:\n${domDiagnostics}\n\nNetwork diagnostics:\n${requestDiagnostics.join(" | ") || "none"}`;
   console.log(
     `[signup-agent] ${label} network: ${requestDiagnostics.join(" | ") || "none"}`,
   );
@@ -235,10 +237,9 @@ async function capture(
     .locator("body")
     .innerText()
     .then(
-      (text) =>
-        `${text.slice(0, 6_000)}\n\nDOM diagnostics:\n${domDiagnostics}\n\nNetwork diagnostics:\n${requestDiagnostics.join(" | ") || "none"}`,
+      (text) => `${diagnosticText}\n\nVisible text:\n${text.slice(0, 6_000)}`,
       (error) =>
-        `<page text unreadable: ${String(error)}>\n\nDOM diagnostics:\n${domDiagnostics}\n\nNetwork diagnostics:\n${requestDiagnostics.join(" | ") || "none"}`,
+        `${diagnosticText}\n\n<page text unreadable: ${String(error)}>`,
     );
 
   return {
@@ -266,7 +267,7 @@ test.afterAll(() => {
 for (const target of targets) {
   test(`agent review of ${target.environment} ${target.app} signup`, async ({
     page,
-  }) => {
+  }, testInfo) => {
     test.setTimeout(420_000);
     const { errors } = collectAppPageErrors(page, target.origin);
     const networkEvents: string[] = [];
@@ -330,7 +331,13 @@ for (const target of targets) {
     });
 
     await test.step("request a sign-in link", async () => {
-      const emailPromise = waitForVerificationEmail(email, emailRequestedAt);
+      const emailResult = waitForVerificationEmail(
+        email,
+        emailRequestedAt,
+      ).then(
+        (message) => ({ status: "fulfilled" as const, message }),
+        (error) => ({ status: "rejected" as const, error }),
+      );
       const submit = page.locator("#magic-link-submit");
       await fillMagicLinkEmail(page, email);
       await submit.click();
@@ -346,7 +353,18 @@ for (const target of targets) {
           pendingRequests,
         ),
       );
-      const message = await emailPromise;
+      const result = await emailResult;
+      if (result.status === "rejected") {
+        if (isMailosaurInconclusiveError(result.error)) {
+          const marker = testInfo.outputPath("mailosaur-inconclusive.txt");
+          mkdirSync(dirname(marker), { recursive: true });
+          writeFileSync(marker, `${result.error.message}\n`, "utf8");
+          testInfo.skip(true, `INCONCLUSIVE: ${result.error.message}`);
+          return;
+        }
+        throw result.error;
+      }
+      const message = result.message;
       const link = verificationLinkFor(message, target.origin);
       await page.goto(link, { waitUntil: "domcontentloaded" });
       const postLinkState = await waitForPostLinkState(page, pendingRequests);

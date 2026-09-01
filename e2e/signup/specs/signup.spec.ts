@@ -1,4 +1,8 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+
 import { expect, test, type Page } from "@playwright/test";
+import type { TestInfo } from "@playwright/test";
 
 import { isQaTestEmail } from "../../../packages/core/src/shared/qa-test-email";
 import { collectAppPageErrors, renderedText } from "../../beta/lib/app";
@@ -69,6 +73,15 @@ function assertBetterAuthSession(
 
 const targets = selectedSignupTargets();
 
+function recordMailosaurInconclusive(
+  testInfo: TestInfo,
+  message: string,
+): void {
+  const marker = testInfo.outputPath("mailosaur-inconclusive.txt");
+  mkdirSync(dirname(marker), { recursive: true });
+  writeFileSync(marker, `${message}\n`, "utf8");
+}
+
 for (const target of targets) {
   test(`${target.environment} ${target.app} completes email signup without a refresh`, async ({
     page,
@@ -118,27 +131,33 @@ for (const target of targets) {
     });
 
     const message = await test.step("request a fresh magic link", async () => {
-      try {
-        const emailPromise = waitForVerificationEmail(email, emailRequestedAt);
-        await page.locator("#m-email").fill(email);
-        await page.locator("#magic-link-submit").click({ noWaitAfter: true });
-        await expect(page.locator("#magic-link-success")).toBeVisible();
-        await expect(page.locator("#magic-link-success-email")).toHaveText(
-          email,
-        );
-        expect(
-          magicLinkStatuses,
-          "magic-link request was not observed",
-        ).not.toEqual([]);
-        expect(magicLinkStatuses.at(-1)).toBe(200);
-        return await emailPromise;
-      } catch (error) {
-        if (isMailosaurInconclusiveError(error)) {
-          testInfo.skip(true, `INCONCLUSIVE: ${error.message}`);
+      const emailResult = waitForVerificationEmail(
+        email,
+        emailRequestedAt,
+      ).then(
+        (message) => ({ status: "fulfilled" as const, message }),
+        (error) => ({ status: "rejected" as const, error }),
+      );
+      await page.locator("#m-email").fill(email);
+      await page.locator("#magic-link-submit").click({ noWaitAfter: true });
+      await expect(page.locator("#magic-link-success")).toBeVisible();
+      await expect(page.locator("#magic-link-success-email")).toHaveText(email);
+      expect(
+        magicLinkStatuses,
+        "magic-link request was not observed",
+      ).not.toEqual([]);
+      expect(magicLinkStatuses.at(-1)).toBe(200);
+
+      const result = await emailResult;
+      if (result.status === "rejected") {
+        if (isMailosaurInconclusiveError(result.error)) {
+          recordMailosaurInconclusive(testInfo, result.error.message);
+          testInfo.skip(true, `INCONCLUSIVE: ${result.error.message}`);
           return null;
         }
-        throw error;
+        throw result.error;
       }
+      return result.message;
     });
     if (!message) return;
 

@@ -79,6 +79,10 @@ on:
         required: false
       PAGERDUTY_ROUTING_KEY:
         required: false
+    outputs:
+      signup_outcome:
+        description: "Signup lane result: success, failure, or inconclusive."
+        value: ${{ jobs.signup.outputs.outcome }}
   workflow_dispatch:
     inputs:
       apps:
@@ -381,6 +385,8 @@ jobs:
   signup:
     name: Signup canary
     if: ${{ inputs.lane == 'signup' }}
+    outputs:
+      outcome: ${{ steps.classify.outputs.outcome }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
@@ -399,8 +405,21 @@ jobs:
       - name: Run full signup flow
         id: signup
         run: pnpm e2e:signup
+      - name: Classify signup result
+        id: classify
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          if find e2e/signup/test-results -type f -name 'mailosaur-inconclusive.txt' -print -quit | grep -q .; then
+            echo "outcome=inconclusive" >> "$GITHUB_OUTPUT"
+            echo "INCONCLUSIVE: Mailosaur rate-limited the verification inbox; no product result was recorded." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${{ steps.signup.outcome }}" = "success" ]; then
+            echo "outcome=success" >> "$GITHUB_OUTPUT"
+          else
+            echo "outcome=failure" >> "$GITHUB_OUTPUT"
+          fi
       - name: Page signup health on-call
-        if: ${{ failure() && steps.signup.outcome == 'failure' }}
+        if: ${{ failure() && steps.signup.outcome == 'failure' && steps.classify.outputs.outcome == 'failure' }}
         run: |
           set -euo pipefail
           if [ -z "${PAGERDUTY_ROUTING_KEY:-}" ]; then
