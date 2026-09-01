@@ -831,9 +831,9 @@ describe("Google account time zone lookup", () => {
       .mockRejectedValueOnce(new Error("transient"))
       .mockResolvedValueOnce({ timeZone: "America/Chicago" });
 
-    await expect(
-      getGoogleAccountTimezone("peer@example.com"),
-    ).resolves.toBe("America/Chicago");
+    await expect(getGoogleAccountTimezone("peer@example.com")).resolves.toBe(
+      "America/Chicago",
+    );
 
     expect(calendarGetCalendarMock).toHaveBeenCalledTimes(2);
     expect(calendarGetCalendarMock.mock.calls[0][0]).toBe("access-token");
@@ -931,9 +931,9 @@ describe("Google account time zone lookup", () => {
     ]);
     calendarGetCalendarMock.mockResolvedValue({ timeZone: "America/Chicago" });
 
-    await expect(
-      getGoogleAccountTimezone("steve@example.com"),
-    ).resolves.toBe("America/Chicago");
+    await expect(getGoogleAccountTimezone("steve@example.com")).resolves.toBe(
+      "America/Chicago",
+    );
   });
 
   it("invalidates the cached time zone on disconnect", async () => {
