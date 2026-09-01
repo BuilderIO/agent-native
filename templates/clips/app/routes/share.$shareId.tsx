@@ -464,11 +464,7 @@ export default function ShareRoute() {
   const [commentAtMs, setCommentAtMs] = useState(0);
   const [commentDraft, setCommentDraft] = useState("");
   const [isPlayerFullscreen, setIsPlayerFullscreen] = useState(false);
-  const {
-    session,
-    status: sessionStatus,
-    retry: retrySession,
-  } = useSession();
+  const { session, status: sessionStatus, retry: retrySession } = useSession();
   const retriedUnavailableSessionRef = useRef(false);
   const requestAccess = useActionMutation<
     {
@@ -1564,7 +1560,8 @@ export default function ShareRoute() {
             value="agent"
             className="mt-0 flex min-h-0 flex-1 flex-col overflow-y-auto data-[state=inactive]:hidden xl:overflow-y-visible"
           >
-            {sessionStatus === "loading" || sessionStatus === "signing-out" ? null : session ? (
+            {sessionStatus === "loading" ||
+            sessionStatus === "signing-out" ? null : session ? (
               <AgentPanel
                 emptyStateText={t("recordingPage.askAboutClip")}
                 dynamicSuggestions={false}

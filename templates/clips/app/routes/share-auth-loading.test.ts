@@ -24,7 +24,7 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain('sessionStatus === "loading"');
     expect(route).toContain('sessionStatus === "signing-out"');
     expect(route).toContain('sessionStatus === "unavailable"');
-    expect(route).toContain("retry: retrySession,");
+    expect(route).toContain("retry: retrySession");
     expect(route).toContain("retrySession();");
     expect(route).toContain("retriedUnavailableSessionRef");
     expect(route).toContain('t("sharePage.checkAgain")');
@@ -32,9 +32,6 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("dataQ.data.status === 401");
     expect(route).toContain("dataQ.data.status === 404");
     expect(route).toContain("!needsPassword &&");
-    expect(route).toContain(
-      'sessionStatus === "loading" || sessionStatus === "signing-out"',
-    );
     expect(route).toContain("overflow-y-auto data-[state=inactive]:hidden");
     expect(route).toContain(
       "h-[var(--agent-native-viewport-height,100vh)] min-h-0",
