@@ -36,11 +36,21 @@ export default function TemplatesPage() {
   const t = useT();
   const { locale } = useLocale();
 
-  // One definition for two placements: inside the empty-state band, and below
-  // the card grid once listings exist. The parent owns the alignment, so the
-  // same markup reads centred in the band and left-aligned under the grid.
-  const publishingFooter = (
-    <>
+  // The two things an author does, in one definition for two placements:
+  // inside the empty-state band, and below the card grid once listings exist.
+  // The parent owns the alignment, so the same markup reads centred in the
+  // band and left-aligned under the grid.
+  const authorActions = (
+    <div className="flex flex-wrap gap-[var(--spacing-3)]">
+      <Button
+        variant="white"
+        href={COMMUNITY_TEMPLATE_SUBMISSION_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="uppercase"
+      >
+        {t("templatesPage.submitCommunityTemplate")}
+      </Button>
       <Button
         variant="secondary"
         href={`${sitePathForLocale("/docs/creating-templates", locale)}#publishing`}
@@ -49,10 +59,7 @@ export default function TemplatesPage() {
       >
         {t("templatesPage.publishGuide")}
       </Button>
-      <p className="m-0 max-w-[520px] font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-paragraph-3)] leading-[1.6] text-[var(--b-text-muted)]">
-        {t("templatesPage.communityTrust")}
-      </p>
-    </>
+    </div>
   );
 
   return (
@@ -151,26 +158,22 @@ export default function TemplatesPage() {
 
       <PageSection>
         {/* Snapped to the decorative gridlines behind it: the heading takes the
-            first column and the copy and actions the other two, so the section
-            sits on the same structure as the card grid above rather than
-            floating as a centred block. */}
+            first column and the copy the other two, so the section sits on the
+            same structure as the card grid above rather than floating as a
+            centred block. Both paragraphs here address someone installing a
+            community app — what these listings are, and that the code is
+            third-party. The author-facing actions live further down. */}
         <GridInner className="grid grid-cols-3 items-start gap-[var(--spacing-8)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-12)] mobile:grid-cols-1">
           <h2 className={HEADING_3_CLASS}>
             {t("templatesPage.communityTitle")}
           </h2>
-          <div className="col-span-2 flex flex-col items-start gap-[var(--spacing-6)] mobile:col-span-1">
+          <div className="col-span-2 flex flex-col items-start gap-[var(--spacing-4)] mobile:col-span-1">
             <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-pretty text-[var(--b-text-secondary)]">
               {t("templatesPage.communityDescription")}
             </p>
-            <Button
-              variant="white"
-              href={COMMUNITY_TEMPLATE_SUBMISSION_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="uppercase"
-            >
-              {t("templatesPage.submitCommunityTemplate")}
-            </Button>
+            <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-paragraph-3)] leading-[1.6] text-[var(--b-text-muted)]">
+              {t("templatesPage.communityTrust")}
+            </p>
           </div>
         </GridInner>
 
@@ -193,11 +196,11 @@ export default function TemplatesPage() {
                   />
                 ))}
               </div>
-              {/* Outside the grid once there are listings, so the guide and the
-                  third-party warning are never conditional on the empty state
+              {/* Outside the grid once there are listings, so submitting and
+                  the publishing guide are never conditional on the empty state
                   being the thing on screen. */}
-              <div className="flex flex-col items-start gap-[var(--spacing-5)] px-[var(--spacing-8)]">
-                {publishingFooter}
+              <div className="flex flex-col items-start px-[var(--spacing-8)]">
+                {authorActions}
               </div>
             </>
           ) : (
@@ -211,7 +214,7 @@ export default function TemplatesPage() {
               <p className="m-0 max-w-[520px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-pretty text-[var(--b-text-secondary)]">
                 {t("templatesPage.communityEmpty")}
               </p>
-              {publishingFooter}
+              {authorActions}
             </div>
           )}
         </GridInner>
