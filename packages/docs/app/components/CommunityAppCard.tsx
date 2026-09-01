@@ -49,7 +49,7 @@ export function CommunityAppCard({ app }: { app: CommunityApp }) {
             />
           ) : null}
         </div>
-        <div className="flex flex-auto flex-col items-start gap-[5px] p-[var(--spacing-5)]">
+        <div className="flex flex-auto flex-col items-start gap-[var(--spacing-3)] p-[var(--spacing-5)]">
           <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
             {app.name}
           </h3>
