@@ -18,10 +18,13 @@ const cardSecondaryActionClass = buttonClassName({
   className: "uppercase",
 });
 
+// The negative margin cancels the button's own horizontal padding, so the
+// label sits flush with the card's content edge while the padded hit area
+// survives.
 const cardTertiaryActionClass = buttonClassName({
   variant: "tertiary",
   compact: true,
-  className: "uppercase",
+  className: "-mr-3 shrink-0 uppercase",
 });
 
 export { trackEvent };
@@ -177,42 +180,30 @@ function TemplateLaunchButton({ template }: { template: Template }) {
   const hasDemoUrl = "demoUrl" in template && template.demoUrl;
 
   return (
-    <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-1">
-      {/* The two committing actions read as one pair, so they travel together
-          and the docs link is what wraps away from them when space runs out. */}
-      <div className="flex flex-wrap gap-2">
-        {hasDemoUrl ? (
-          <Button
-            variant="white"
-            icon={IconArrowUpRight}
-            href={template.demoUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(event) => {
-              applyFirstTouchAttributionToLink(event.currentTarget);
-              trackEvent("click try demo", {
-                template: template.slug,
-                location: "card",
-              });
-            }}
-            className="uppercase"
-          >
-            {t("common.tryIt")}
-          </Button>
-        ) : null}
-        <CustomizeTemplatePopover
-          template={template}
-          location="card"
-          className={cardSecondaryActionClass}
-        />
-      </div>
-      {/* A direct flex item rather than a link inside a wrapper: the wrapper
-          stretched to the row height but the link kept its own content height,
-          which is what left this one shorter than its siblings. */}
-      <TemplateDocsLink
+    <div className="mt-auto flex flex-wrap gap-2 pt-1">
+      {hasDemoUrl ? (
+        <Button
+          variant="white"
+          icon={IconArrowUpRight}
+          href={template.demoUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(event) => {
+            applyFirstTouchAttributionToLink(event.currentTarget);
+            trackEvent("click try demo", {
+              template: template.slug,
+              location: "card",
+            });
+          }}
+          className="uppercase"
+        >
+          {t("common.tryIt")}
+        </Button>
+      ) : null}
+      <CustomizeTemplatePopover
         template={template}
         location="card"
-        className={cardTertiaryActionClass}
+        className={cardSecondaryActionClass}
       />
     </div>
   );
@@ -311,9 +302,16 @@ export function TemplateCard({ template }: { template: Template }) {
         )}
       </Link>
       <div className="flex flex-auto flex-col items-start gap-[var(--spacing-3)] p-[var(--spacing-5)]">
-        <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
-          {template.name}
-        </h3>
+        <div className="flex w-full items-center justify-between gap-2 border-b border-solid border-[var(--b-border-subtle)] pb-[var(--spacing-3)]">
+          <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {template.name}
+          </h3>
+          <TemplateDocsLink
+            template={template}
+            location="card"
+            className={cardTertiaryActionClass}
+          />
+        </div>
         <p className="m-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] uppercase tracking-[0.04em] text-[var(--b-text-eyebrow)]">
           {replaces}
         </p>
