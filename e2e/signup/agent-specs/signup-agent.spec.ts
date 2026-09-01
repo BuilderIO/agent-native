@@ -73,19 +73,74 @@ async function capture(
   label: string,
   consoleErrors: string[],
 ): Promise<JourneyStep> {
+  const domDiagnostics = await page
+    .evaluate(() => {
+      const describe = (selector: string) =>
+        [...document.querySelectorAll<HTMLElement>(selector)].map((element) => {
+          const rect = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
+          return {
+            selector,
+            tag: element.tagName.toLowerCase(),
+            id: element.id || undefined,
+            className:
+              typeof element.className === "string"
+                ? element.className.slice(0, 180)
+                : undefined,
+            textLength: element.innerText.trim().length,
+            display: style.display,
+            visibility: style.visibility,
+            opacity: style.opacity,
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+          };
+        });
+
+      return JSON.stringify(
+        {
+          readyState: document.readyState,
+          title: document.title,
+          bodyTextLength: document.body?.innerText.trim().length ?? 0,
+          bodyChildren: [...(document.body?.children ?? [])].map((element) => ({
+            tag: element.tagName.toLowerCase(),
+            id: element.id || undefined,
+            className:
+              typeof element.className === "string"
+                ? element.className.slice(0, 180)
+                : undefined,
+          })),
+          surfaces: [
+            "#root",
+            "main",
+            ".analytics-ask-page",
+            ".analytics-chat-panel",
+            ".agent-panel-root",
+            "[data-agent-empty-state]",
+            "[data-first-run-startup-loading]",
+          ].flatMap(describe),
+        },
+        null,
+        2,
+      );
+    })
+    .catch((error) => `<DOM diagnostics unreadable: ${String(error)}>`);
+  const visibleText = await page
+    .locator("body")
+    .innerText()
+    .then(
+      (text) =>
+        `${text.slice(0, 6_000)}\n\nDOM diagnostics:\n${domDiagnostics}`,
+      (error) =>
+        `<page text unreadable: ${String(error)}>\n\nDOM diagnostics:\n${domDiagnostics}`,
+    );
+
   return {
     label,
     url: page.url(),
     // A page whose text cannot be read is not a page with no text: handing the
     // model an empty string there would have it judge a blank screen and
     // report a phantom finding, or miss a real one.
-    visibleText: await page
-      .locator("body")
-      .innerText()
-      .then(
-        (text) => text.slice(0, 6_000),
-        (error) => `<page text unreadable: ${String(error)}>`,
-      ),
+    visibleText,
     screenshot: await page.screenshot({ fullPage: false }),
     consoleErrors: [...consoleErrors],
   };
