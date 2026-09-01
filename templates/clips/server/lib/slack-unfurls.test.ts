@@ -126,7 +126,7 @@ describe("Clips Slack unfurls", () => {
     });
   });
 
-  it("uses a public video frame when no stored thumbnail exists", () => {
+  it("uses the default social image when no stored thumbnail exists", () => {
     expect(
       buildSlackVideoBlock({
         recording: recording({
@@ -138,7 +138,7 @@ describe("Clips Slack unfurls", () => {
       }),
     ).toMatchObject({
       thumbnail_url:
-        "https://clips.example.com/clips/api/agent-frame.jpg?id=rec-1&atMs=350",
+        "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9c533fed169648069bffaed652ec0897",
     });
   });
 

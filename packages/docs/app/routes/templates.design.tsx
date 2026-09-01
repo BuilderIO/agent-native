@@ -99,6 +99,7 @@ export default function DesignTemplate() {
           </span>
         }
         title={t("templateLanding.design.s006")}
+        customizeTemplate={template}
         description={<p className="m-0">{t("templateLanding.design.s007")}</p>}
         headingAction={
           <a

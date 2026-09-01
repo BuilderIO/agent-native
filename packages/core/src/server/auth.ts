@@ -400,6 +400,10 @@ export interface AuthOptions {
     tagline: string;
     description?: string;
     features?: string[];
+    screenshotPath?: string;
+    screenshotWidth?: number;
+    screenshotHeight?: number;
+    learnMoreUrl?: string;
     /** @deprecated Local execution is no longer offered from auth pages. */
     runLocalCommand?: string;
   };
@@ -3289,6 +3293,11 @@ function createAuthGuardFn(
       return;
     }
 
+    // Automation webhook tokens are the public credential for this route.
+    if (/^\/_agent-native\/automations\/webhook\/[^/]+$/.test(p)) {
+      return;
+    }
+
     // Internal processor endpoint for the integration webhook fanout. The
     // webhook handler enqueues a task to SQL and dispatches a fresh HTTP POST
     // to this endpoint so the agent loop runs in its own function execution
@@ -3560,6 +3569,7 @@ function createAuthGuardFn(
       p.endsWith(".ico") ||
       p.endsWith(".png") ||
       p.endsWith(".svg") ||
+      p.endsWith(".webp") ||
       p.endsWith(".woff2") ||
       p.endsWith(".woff")
     ) {

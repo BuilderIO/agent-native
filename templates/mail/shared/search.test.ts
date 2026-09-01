@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { emailMessageMatchesSearch } from "./search";
+import {
+  emailMessageMatchesSearch,
+  searchQueryNeedsAttachmentMetadata,
+} from "./search";
 import type { EmailMessage } from "./types";
 
 function message(overrides: Partial<EmailMessage> = {}): EmailMessage {
@@ -152,5 +155,69 @@ describe("emailMessageMatchesSearch", () => {
         "from:notifications@github.com -is:unread",
       ),
     ).toBe(true);
+  });
+
+  it("matches common saved-filter category, attachment, filename, and date operators", () => {
+    const githubAttachment = {
+      id: "attachment",
+      filename: "report.pdf",
+      mimeType: "application/pdf",
+      size: 12,
+    };
+    const email = message({
+      date: "2026-05-20T00:00:00.000Z",
+      labelIds: ["promotions"],
+      attachments: [githubAttachment],
+    });
+
+    expect(emailMessageMatchesSearch(email, "category:promotions")).toBe(true);
+    expect(emailMessageMatchesSearch(email, "has:attachment")).toBe(true);
+    expect(emailMessageMatchesSearch(email, "filename:pdf")).toBe(true);
+    expect(
+      emailMessageMatchesSearch(email, "after:2026/05/19 before:2026/05/21"),
+    ).toBe(true);
+  });
+
+  it("uses Pacific midnight for date-only Gmail operators", () => {
+    const justBeforePacificMidnight = message({
+      date: "2026-05-20T06:59:59.999Z",
+    });
+    const justAfterPacificMidnight = message({
+      date: "2026-05-20T07:00:00.001Z",
+    });
+
+    expect(
+      emailMessageMatchesSearch(justBeforePacificMidnight, "after:2026/05/20"),
+    ).toBe(false);
+    expect(
+      emailMessageMatchesSearch(justAfterPacificMidnight, "after:2026/05/20"),
+    ).toBe(true);
+    expect(
+      emailMessageMatchesSearch(justBeforePacificMidnight, "before:2026/05/20"),
+    ).toBe(true);
+    expect(
+      emailMessageMatchesSearch(justAfterPacificMidnight, "before:2026/05/20"),
+    ).toBe(false);
+  });
+});
+
+describe("searchQueryNeedsAttachmentMetadata", () => {
+  it("detects positive, negative, and grouped attachment operators", () => {
+    expect(searchQueryNeedsAttachmentMetadata("from:github.com")).toBe(false);
+    expect(
+      searchQueryNeedsAttachmentMetadata("is:unread -label:promotions"),
+    ).toBe(false);
+    expect(searchQueryNeedsAttachmentMetadata("has:attachment")).toBe(true);
+    expect(searchQueryNeedsAttachmentMetadata("-filename:zip")).toBe(true);
+    expect(
+      searchQueryNeedsAttachmentMetadata('{from:github.com filename:".patch"}'),
+    ).toBe(true);
+  });
+
+  it("does not treat quoted search terms as operators", () => {
+    expect(searchQueryNeedsAttachmentMetadata('subject:"has:attachment"')).toBe(
+      false,
+    );
+    expect(searchQueryNeedsAttachmentMetadata('"filename:pdf"')).toBe(false);
   });
 });

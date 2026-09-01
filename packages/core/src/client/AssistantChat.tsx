@@ -1970,6 +1970,7 @@ export type AssistantChatThreadFooterSlot =
 
 export interface AssistantChatAdapterContext {
   apiUrl: string;
+  streamingUrl?: string;
   tabId?: string;
   threadId?: string;
   modelRef: { current: string | undefined };
@@ -1986,6 +1987,8 @@ export interface AssistantChatAdapterContext {
 export interface AssistantChatProps {
   /** API endpoint URL. Default: "/_agent-native/agent-chat" */
   apiUrl?: string;
+  /** Optional Nitro response-streaming endpoint, usually supplied by VITE_AGENT_NATIVE_AGENT_CHAT_STREAM_URL. */
+  streamingUrl?: string;
   /** Stable tab identifier passed to the adapter for event correlation */
   tabId?: string;
   /** Stable browser tab id used for tab-scoped app-state context. */
@@ -7004,6 +7007,7 @@ export const AssistantChat = forwardRef<
     () => {
       const context: AssistantChatAdapterContext = {
         apiUrl,
+        streamingUrl: props.streamingUrl,
         tabId,
         threadId,
         modelRef,
@@ -7038,6 +7042,7 @@ export const AssistantChat = forwardRef<
       threadId,
       browserTabId,
       surface,
+      props.streamingUrl,
       props.runtime,
       props.adapterReloadKey,
     ],

@@ -12,6 +12,8 @@ import {
   type IncomingMessage,
   type Server as HttpServer,
 } from "http";
+import * as fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "os";
 import path from "path";
 
@@ -28,6 +30,34 @@ async function getChildProcess(): Promise<typeof import("child_process")> {
     _cp = await import("node:child_process");
   }
   return _cp;
+}
+
+export function ensurePtySpawnHelperPermissions(): void {
+  if (os.platform() === "win32") return;
+  try {
+    const req = createRequire(import.meta.url);
+    const ptyPkg = req.resolve("node-pty/package.json");
+    const helper = path.join(
+      path.dirname(ptyPkg),
+      "prebuilds",
+      `${process.platform}-${process.arch}`,
+      "spawn-helper",
+    );
+    if (!fs.existsSync(helper)) return;
+    if (!(fs.statSync(helper).mode & 0o100)) {
+      fs.chmodSync(helper, 0o755);
+      console.log(
+        `[terminal] Fixed non-executable node-pty spawn-helper at ${helper}`,
+      );
+    }
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === "MODULE_NOT_FOUND" || code === "ERR_MODULE_NOT_FOUND") return;
+    console.warn(
+      "[terminal] Could not verify node-pty spawn-helper permissions:",
+      (err as Error).message,
+    );
+  }
 }
 
 /**
@@ -129,6 +159,8 @@ export async function createPtyWebSocketServer(
     getCommandArgs,
     logPrefix = "[terminal]",
   } = options;
+
+  ensurePtySpawnHelperPermissions();
 
   // Dynamic imports for optional native dependencies
   const { WebSocketServer, WebSocket } = await import("ws");
@@ -280,8 +312,9 @@ export async function createPtyWebSocketServer(
     } catch (err) {
       console.error(`${logPrefix} Failed to spawn PTY:`, err);
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(
-          `\r\n\x1b[31m${logPrefix} Failed to spawn PTY: ${err instanceof Error ? err.message : String(err)}\x1b[0m\r\n`,
+        sendStatus(
+          "failed",
+          `Failed to spawn PTY: ${err instanceof Error ? err.message : String(err)}`,
         );
         ws.close();
       }

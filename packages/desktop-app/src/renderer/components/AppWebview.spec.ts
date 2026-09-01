@@ -22,6 +22,7 @@ import {
   resolveAppWebviewAuthState,
   resolveAppWebviewAuthStateFromProbe,
   resolveAppWebviewUrl,
+  resolveDesktopAppPath,
   rememberDesktopEnvironmentLane,
   withDesktopEnvironmentOptOut,
   isDesktopIdentityAuthenticated,
@@ -1123,6 +1124,17 @@ describe("AppWebview URL resolution", () => {
         mode: "dev",
       }),
     ).toBe("http://localhost:3003");
+  });
+
+  it("opens first-party app tabs at the private home route", () => {
+    expect(resolveDesktopAppPath({ id: "mail" })).toBe("/home");
+    expect(
+      resolveDesktopAppPath({ id: "mail" }, { isBuiltIn: true }, "/"),
+    ).toBe("/home");
+    expect(
+      resolveDesktopAppPath({ id: "mail" }, { isBuiltIn: true }, "/inbox"),
+    ).toBe("/inbox");
+    expect(resolveDesktopAppPath({ id: "custom-app" })).toBeUndefined();
   });
 
   it("uses the production URL by default", () => {

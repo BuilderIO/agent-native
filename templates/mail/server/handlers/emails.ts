@@ -14,7 +14,10 @@ import {
   mailLabelMatches,
 } from "@shared/gmail-labels.js";
 import { markdownPreviewSnippet } from "@shared/markdown.js";
-import { emailMessageMatchesSearch } from "@shared/search.js";
+import {
+  emailMessageMatchesSearch,
+  searchQueryNeedsAttachmentMetadata,
+} from "@shared/search.js";
 import type { EmailMessage, Label, UserSettings } from "@shared/types.js";
 import {
   createError,
@@ -430,6 +433,15 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       // Fetch label name mapping from all accounts (cached)
       const accountTokens = await getAccountTokens(email);
       const labelMap = await getCachedLabelMap(accountTokens);
+      const isPlainInboxRequest = view === "inbox" && !q && !label;
+      const settings = isPlainInboxRequest
+        ? await readSettings(email)
+        : undefined;
+      const hasAttachmentSavedFilter =
+        isPlainInboxRequest &&
+        (settings?.savedFilters ?? []).some((filter) =>
+          searchQueryNeedsAttachmentMetadata(filter.query),
+        );
 
       const listResult = await listInboxEmails({
         ownerEmail: email,
@@ -438,7 +450,10 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         label,
         limit: pageLimit,
         pageTokens,
-        threadFormat: view === "drafts" ? "full" : "metadata",
+        // Metadata responses omit MIME parts. Saved-filter partitioning
+        // needs attachment filenames for has:attachment/filename queries.
+        threadFormat:
+          view === "drafts" || hasAttachmentSavedFilter ? "full" : "metadata",
         threadCandidateLimit: q ? 80 : undefined,
         accountTokens,
         labelMap,
