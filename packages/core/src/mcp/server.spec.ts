@@ -29,6 +29,15 @@ const builtinToolMocks = vi.hoisted(() => ({
   })),
 }));
 
+const actionChangeMocks = vi.hoisted(() => ({
+  notifyInBackground: vi.fn(),
+}));
+
+vi.mock("../server/action-change.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../server/action-change.js")>()),
+  notifyActionChangeInBackground: actionChangeMocks.notifyInBackground,
+}));
+
 const approvalStoreMocks = vi.hoisted(() => {
   const grants = new Map<string, any>();
   return {
@@ -791,6 +800,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       });
       expect(first.requestState).toEqual(expect.any(String));
       expect(run).not.toHaveBeenCalled();
+      expect(actionChangeMocks.notifyInBackground).not.toHaveBeenCalled();
 
       const approved = await client.callTool({
         name: "publish-draft",
@@ -805,6 +815,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       } as any);
       expect(approved.isError).not.toBe(true);
       expect(run).toHaveBeenCalledTimes(1);
+      expect(actionChangeMocks.notifyInBackground).toHaveBeenCalledOnce();
 
       const replay = await client.callTool({
         name: "publish-draft",
@@ -819,6 +830,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       } as any);
       expect(replay.isError).toBe(true);
       expect(run).toHaveBeenCalledTimes(1);
+      expect(actionChangeMocks.notifyInBackground).toHaveBeenCalledOnce();
     } finally {
       await client.close();
     }
@@ -2909,6 +2921,214 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(new URL(openLink.vscodeUrl).searchParams.get("url")).toBe(
       openLink.webUrl,
     );
+  });
+
+  it("publishes one scoped action change after a successful mutating direct MCP call", async () => {
+    actionChangeMocks.notifyInBackground.mockClear();
+    resolveOrgIdForEmailMock.mockResolvedValue("org-from-email");
+    const mutatingConfig = {
+      ...config,
+      actions: {
+        "update-thing": {
+          tool: {
+            description: "Update a thing",
+            parameters: { type: "object" as const, properties: {} },
+          },
+          readOnly: false,
+          run: async () => ({ updated: true }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 302,
+        method: "tools/call",
+        params: { name: "update-thing", arguments: {} },
+      },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: mutatingConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(actionChangeMocks.notifyInBackground).toHaveBeenCalledOnce();
+    expect(actionChangeMocks.notifyInBackground).toHaveBeenCalledWith({
+      actionName: "update-thing",
+      owner: "oauth@example.com",
+      orgId: "org-from-email",
+    });
+  });
+
+  it("does not publish action changes for read-only or errored direct MCP calls", async () => {
+    actionChangeMocks.notifyInBackground.mockClear();
+
+    const readOnly = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 303,
+        method: "tools/call",
+        params: { name: "echo-thing", arguments: { value: "hello" } },
+      },
+      { headers: { "x-agent-native-mcp-full-catalog": "1" } },
+    );
+    expect(readOnly.error).toBeUndefined();
+
+    const erroredConfig = {
+      ...config,
+      actions: {
+        "update-thing": {
+          tool: {
+            description: "Update a thing",
+            parameters: { type: "object" as const, properties: {} },
+          },
+          readOnly: false,
+          run: async () => ({
+            [MCP_ACTION_RESULT_MARKER]: true,
+            text: "Upstream update failed",
+            raw: { isError: true, content: [] },
+            serverId: "upstream",
+            toolName: "update-thing",
+            originalToolName: "update-thing",
+            input: {},
+          }),
+        },
+      },
+    };
+    const errored = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 304,
+        method: "tools/call",
+        params: { name: "update-thing", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: erroredConfig,
+      },
+    );
+
+    expect(errored.error).toBeUndefined();
+    expect(errored.result.isError).toBe(true);
+    expect(actionChangeMocks.notifyInBackground).not.toHaveBeenCalled();
+  });
+
+  it("does not publish action changes for unknown, forbidden, or per-call read-only tools", async () => {
+    actionChangeMocks.notifyInBackground.mockClear();
+    const mutatingConfig = {
+      ...config,
+      actions: {
+        "update-thing": {
+          tool: {
+            description: "Update a thing",
+            parameters: { type: "object" as const, properties: {} },
+          },
+          readOnly: false,
+          run: async () => ({ updated: true }),
+        },
+        "manage-thing": {
+          tool: {
+            description: "Read or update a thing",
+            parameters: {
+              type: "object" as const,
+              properties: { operation: { type: "string" } },
+            },
+          },
+          readOnly: false,
+          planMode: {
+            effect: (args: { operation?: string }) =>
+              args.operation === "get" ? "read" : "write",
+          },
+          run: async () => ({ value: "current" }),
+        },
+      },
+    };
+
+    const unknown = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 305,
+        method: "tools/call",
+        params: { name: "missing-thing", arguments: {} },
+      },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: mutatingConfig,
+      },
+    );
+    expect(unknown.result.isError).toBe(true);
+
+    const forbidden = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 306,
+        method: "tools/call",
+        params: { name: "update-thing", arguments: {} },
+      },
+      {
+        headers: await mcpAppsFullCatalogHeaders({ scope: "mcp:read" }),
+        config: mutatingConfig,
+      },
+    );
+    expect(forbidden.result.isError).toBe(true);
+
+    const perCallRead = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 307,
+        method: "tools/call",
+        params: { name: "manage-thing", arguments: { operation: "get" } },
+      },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: mutatingConfig,
+      },
+    );
+    expect(perCallRead.error).toBeUndefined();
+    expect(actionChangeMocks.notifyInBackground).not.toHaveBeenCalled();
+  });
+
+  it("keeps a successful MCP mutation successful when refresh publication fails", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    actionChangeMocks.notifyInBackground.mockImplementationOnce(() => {
+      throw new Error("refresh unavailable");
+    });
+    const mutatingConfig = {
+      ...config,
+      actions: {
+        "update-thing": {
+          tool: {
+            description: "Update a thing",
+            parameters: { type: "object" as const, properties: {} },
+          },
+          readOnly: false,
+          run: async () => ({ updated: true }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 308,
+        method: "tools/call",
+        params: { name: "update-thing", arguments: {} },
+      },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: mutatingConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.isError).not.toBe(true);
+    expect(warning).toHaveBeenCalledWith(
+      "Could not notify the action-change poller after an MCP tool call",
+      expect.any(Error),
+    );
+    warning.mockRestore();
   });
 
   it("does not use stateless JSON-RPC ids as retry identity", async () => {
