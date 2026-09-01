@@ -862,6 +862,14 @@ describe("ShareButton", () => {
     });
 
     expect(container.textContent).toContain("Context body");
+    const contextPanelId = contextTab.getAttribute("aria-controls");
+    expect(contextPanelId).toBeTruthy();
+    const contextPanel = contextPanelId
+      ? document.getElementById(contextPanelId)
+      : null;
+    expect(contextPanel?.getAttribute("aria-labelledby")).toBe(
+      contextTab.getAttribute("id"),
+    );
   });
 
   it("buries organization search visibility under Advanced", async () => {

@@ -350,6 +350,7 @@ function SharePanel(
   },
 ) {
   const t = useT();
+  const tabIds = useId();
   const { controller } = props;
   const {
     inviteEmail,
@@ -761,6 +762,7 @@ function SharePanel(
   const activeTab = tabs.some((tab) => tab.value === activeShareTab)
     ? activeShareTab
     : "share";
+  const activeTabIndex = tabs.findIndex((tab) => tab.value === activeTab);
 
   return (
     <div className="flex flex-col gap-4">
@@ -771,14 +773,18 @@ function SharePanel(
         })}
         className="flex gap-1 rounded-xl bg-muted/70 p-1"
       >
-        {tabs.map((tab) => {
+        {tabs.map((tab, index) => {
           const active = tab.value === activeTab;
+          const tabId = `${tabIds}-tab-${index}`;
+          const panelId = `${tabIds}-panel-${index}`;
           return (
             <button
               key={tab.value}
               type="button"
+              id={tabId}
               role="tab"
               aria-selected={active}
+              aria-controls={panelId}
               disabled={tab.disabled}
               onClick={() => handleShareTabChange(tab.value)}
               className={cn(
@@ -792,7 +798,12 @@ function SharePanel(
           );
         })}
       </div>
-      <div role="tabpanel">
+      <div
+        id={`${tabIds}-panel-${activeTabIndex}`}
+        role="tabpanel"
+        aria-labelledby={`${tabIds}-tab-${activeTabIndex}`}
+        tabIndex={0}
+      >
         {tabs.find((tab) => tab.value === activeTab)?.content}
       </div>
     </div>
