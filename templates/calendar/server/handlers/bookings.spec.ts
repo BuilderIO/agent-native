@@ -201,6 +201,32 @@ describe("booking availability", () => {
     );
   });
 
+  it("rejects a calendar date that a time zone skipped entirely", () => {
+    vi.setSystemTime(new Date("2011-11-01T00:00:00.000Z"));
+    const config: AvailabilityConfig = {
+      ...availabilityConfig(),
+      timezone: "Pacific/Apia",
+      weeklySchedule: {
+        monday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+        tuesday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+        wednesday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+        thursday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+        friday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+        saturday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+        sunday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+      },
+    };
+
+    expect(() =>
+      generateAvailableSlotsForDate({
+        date: "2011-12-30",
+        duration: 30,
+        config,
+        conflictItems: [],
+      }),
+    ).toThrow(/does not exist/);
+  });
+
   it("offers 60-minute meetings on 30-minute start intervals", () => {
     const slots = generateAvailableSlotsForDate({
       date: "2026-07-20",

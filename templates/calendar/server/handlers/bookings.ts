@@ -390,13 +390,31 @@ function zonedTimeToUtc(
   // offset to the requested wall-clock numbers is equivalent to shifting the
   // request forward by the transition's actual size and resolving it
   // normally on the post-transition side, whatever that size is.
-  const roundTrip = getLocalDateTimeParts(result, timezone);
+  let roundTrip = getLocalDateTimeParts(result, timezone);
   if (roundTrip.hour !== hour || roundTrip.minute !== minute) {
     const offsetBefore = getTimezoneOffsetMs(
       new Date(utcGuess - 24 * 60 * 60 * 1000),
       timezone,
     );
     result = new Date(utcGuess - offsetBefore);
+    roundTrip = getLocalDateTimeParts(result, timezone);
+  }
+
+  // A handful of IANA zones (Pacific/Apia's 2011 international date line
+  // move, Pacific/Kiritimati's 1994 move) skip an entire calendar date
+  // rather than a span within one, so the corrected instant above can land
+  // on a different day while still round-tripping to the same hour/minute —
+  // e.g. requesting Pacific/Apia's nonexistent 2011-12-30 silently resolves
+  // to 2011-12-31. Reject that outright instead of generating availability
+  // for a date the caller never asked for.
+  if (
+    roundTrip.year !== year ||
+    roundTrip.month !== month ||
+    roundTrip.day !== day
+  ) {
+    throw new Error(
+      `${localDate} does not exist in time zone ${timezone} (skipped calendar date)`,
+    );
   }
   return result;
 }
@@ -1613,13 +1631,21 @@ async function getAvailableSlotsForQuery(
       cursor = addLocalDays(cursor, 1)
     ) {
       const day = formatDateOnly(cursor);
-      const slots = generateAvailableSlotsForDate({
-        date: day,
-        duration,
-        config: context.effectiveConfig,
-        conflictItems: conflictResult.items,
-        hostSchedules: context.eligibleHosts,
-      });
+      let slots: TimeSlot[];
+      try {
+        slots = generateAvailableSlotsForDate({
+          date: day,
+          duration,
+          config: context.effectiveConfig,
+          conflictItems: conflictResult.items,
+          hostSchedules: context.eligibleHosts,
+        });
+      } catch {
+        // A calendar date that a time zone skipped entirely (e.g. Samoa's
+        // 2011 date-line move) has no valid availability by definition —
+        // treat it as unavailable rather than failing the whole range.
+        continue;
+      }
       if (slots.length > 0) {
         dates.push(day);
       }

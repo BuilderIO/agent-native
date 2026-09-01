@@ -2446,15 +2446,19 @@ function BookingPreview({
               },
             ]
           : []),
-        ...(resolvedPreviewPublicLink.hosts ?? [])
+        ...(resolvedPreviewPublicLink.publicHosts ?? [])
           .filter((host) => host.timezone)
           .map((host) => ({
-            id: host.email,
-            label: host.displayName || host.email,
+            id: host.id,
+            label: host.label,
             timezone: host.timezone as string,
           })),
       ]
     : [
+        // No public response yet (unsaved link, or still loading) — peer
+        // time zones are only resolved server-side for public visitors, so
+        // this admin-only fallback can show the owner's own zone but not
+        // any host's, unlike the branch above.
         ...(settings?.timezone
           ? [
               {
@@ -2464,13 +2468,6 @@ function BookingPreview({
               },
             ]
           : []),
-        ...hosts
-          .filter((host) => host.timezone)
-          .map((host) => ({
-            id: host.email,
-            label: host.displayName || host.email,
-            timezone: host.timezone as string,
-          })),
       ];
   const selectedLiveSlotStart = hasLiveAvailability ? selectedSlotStart : null;
 

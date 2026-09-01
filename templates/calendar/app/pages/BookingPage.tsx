@@ -359,7 +359,7 @@ export default function BookingPage() {
   const isLegacyBookingPage = !!slug && availability?.bookingPageSlug === slug;
   const pageTitle = bookingLink?.title || title;
   const pageDescription = bookingLink?.description || description;
-  const requiredHostCount = (bookingLink?.hosts?.length ?? 0) + 1;
+  const requiredHostCount = (bookingLink?.publicHosts?.length ?? 0) + 1;
   const availabilityErrorMessage = t("bookingLinks.availabilityUnavailable");
   const timeZoneHosts: TimeZoneGridHost[] = [
     ...(bookingLink?.ownerTimezone
@@ -371,11 +371,11 @@ export default function BookingPage() {
           },
         ]
       : []),
-    ...(bookingLink?.hosts ?? [])
+    ...(bookingLink?.publicHosts ?? [])
       .filter((host) => host.timezone)
       .map((host) => ({
-        id: host.email,
-        label: host.displayName || host.email,
+        id: host.id,
+        label: host.label,
         timezone: host.timezone as string,
       })),
   ];
@@ -438,7 +438,7 @@ export default function BookingPage() {
                   })}
                   ownerLabel={t("bookingLinks.hostLabel")}
                   ownerName={bookingLink?.ownerName}
-                  hosts={bookingLink?.hosts ?? []}
+                  hosts={bookingLink?.publicHosts ?? []}
                 />
               )}
             </div>

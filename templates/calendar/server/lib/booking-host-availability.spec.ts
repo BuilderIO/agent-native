@@ -250,13 +250,13 @@ describe("withHostTimezones", () => {
     ]);
 
     expect(result.ownerTimezone).toBe("America/New_York");
-    expect(result.hosts).toEqual([
-      { email: "peer@example.com", timezone: "America/Chicago" },
-      { email: "stranger@example.com" },
+    expect(result.publicHosts).toEqual([
+      { id: "host-0", label: "Peer", timezone: "America/Chicago" },
+      { id: "host-1", label: "Stranger", timezone: undefined },
     ]);
   });
 
-  it("never leaks schedule data onto the public response", () => {
+  it("never returns the admin-only hosts field with raw emails", () => {
     const result = withHostTimezones(bookingLink(), "America/New_York", [
       {
         email: "peer@example.com",
@@ -273,19 +273,30 @@ describe("withHostTimezones", () => {
       },
     ]);
 
-    expect(result.hosts?.[0]).toEqual({
-      email: "peer@example.com",
-      timezone: "America/Chicago",
-    });
+    expect(result.hosts).toBeUndefined();
     expect(JSON.stringify(result)).not.toContain("weeklySchedule");
+    expect(JSON.stringify(result)).not.toContain("peer@example.com");
+    expect(JSON.stringify(result)).not.toContain("stranger@example.com");
   });
 
-  it("leaves hosts unchanged when no eligible host timezone resolves", () => {
+  it("uses a host's displayName when set, instead of deriving one from email", () => {
+    const link = bookingLink();
+    link.hosts = [{ email: "peer@example.com", displayName: "Peer Person" }];
+    const result = withHostTimezones(link, "America/New_York", []);
+
+    expect(result.publicHosts).toEqual([
+      { id: "host-0", label: "Peer Person", timezone: undefined },
+    ]);
+  });
+
+  it("leaves publicHosts timezone unset when no eligible host timezone resolves", () => {
     const link = bookingLink();
     const result = withHostTimezones(link, "America/New_York", [
       { email: "peer@example.com" },
     ]);
 
-    expect(result.hosts).toEqual(link.hosts);
+    expect(
+      result.publicHosts?.every((host) => host.timezone === undefined),
+    ).toBe(true);
   });
 });

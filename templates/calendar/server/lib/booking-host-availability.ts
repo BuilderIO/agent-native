@@ -5,6 +5,7 @@ import type {
   BookingLink,
   OverlayPerson,
 } from "../../shared/api.js";
+import { displayNameFromIdentifier } from "./booking-og-image.js";
 import { safeBookingTimeZone } from "./booking-timezone.js";
 import { getGoogleAccountTimezone } from "./google-calendar.js";
 
@@ -113,10 +114,13 @@ export async function getEligibleHostAvailability(
   );
 }
 /**
- * Attaches the owner's time zone and each eligible host's time zone to a
- * booking link for the public read response. Never attaches schedule
- * windows — only the resolved IANA time zone string, and only for hosts the
- * caller already determined are overlay-eligible.
+ * Attaches the owner's time zone and builds the sanitized `publicHosts` list
+ * for the public read response. Never attaches schedule windows — only the
+ * resolved IANA time zone string, and only for hosts the caller already
+ * determined are overlay-eligible. Drops the admin-only `hosts` field
+ * entirely rather than leaving it on the response: it carries every
+ * required host's raw email, which the public JSON must never expose
+ * (visitors get a derived display label instead, via `publicHosts`).
  */
 export function withHostTimezones(
   bookingLink: BookingLink,
@@ -132,9 +136,12 @@ export function withHostTimezones(
   return {
     ...bookingLink,
     ownerTimezone,
-    hosts: bookingLink.hosts?.map((host) => {
-      const timezone = hostTimezoneByEmail.get(host.email.toLowerCase());
-      return timezone ? { ...host, timezone } : host;
-    }),
+    hosts: undefined,
+    publicHosts: bookingLink.hosts?.map((host, index) => ({
+      id: `host-${index}`,
+      label:
+        host.displayName || displayNameFromIdentifier(undefined, host.email),
+      timezone: hostTimezoneByEmail.get(host.email.toLowerCase()),
+    })),
   };
 }

@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import type { BookingHost } from "@shared/api";
+import type { PublicBookingHost } from "@shared/api";
 import { IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -22,7 +22,7 @@ export function RequiredHostsBadge({
   label: string;
   ownerLabel: string;
   ownerName?: string;
-  hosts: BookingHost[];
+  hosts: PublicBookingHost[];
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -110,10 +110,8 @@ export function RequiredHostsBadge({
               {ownerName ? `${ownerLabel} (${ownerName})` : ownerLabel}
             </li>
             {hosts.map((host) => (
-              <li key={host.email} className="text-muted-foreground">
-                {host.displayName
-                  ? `${host.displayName} (${host.email})`
-                  : host.email}
+              <li key={host.id} className="text-muted-foreground">
+                {host.label}
               </li>
             ))}
           </ul>

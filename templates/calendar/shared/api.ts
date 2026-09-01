@@ -271,11 +271,16 @@ export interface ConferencingConfig {
 export interface BookingHost {
   email: string;
   displayName?: string;
-  /**
-   * IANA time zone for this host. Only populated on the public booking-link
-   * read response, and only for hosts the owner has overlaid (subscribed to)
-   * with a resolvable saved time zone. Never sent on create/update.
-   */
+}
+
+/**
+ * A required co-host as shown to anonymous visitors of the public booking
+ * page: a display label derived from their email/displayName, never the raw
+ * address, plus their time zone when eligible for hard-filtering.
+ */
+export interface PublicBookingHost {
+  id: string;
+  label: string;
   timezone?: string;
 }
 
@@ -310,6 +315,12 @@ export interface BookingLink {
   durations?: number[];
   /** Required co-hosts in addition to the booking link owner */
   hosts?: BookingHost[];
+  /**
+   * Sanitized co-host labels for anonymous visitors. Only populated on the
+   * public booking-link read response, in place of `hosts`, which carries
+   * raw emails and is never sent publicly.
+   */
+  publicHosts?: PublicBookingHost[];
   /** Custom fields shown on the booking form */
   customFields?: CustomField[];
   /** Video conferencing configuration */
