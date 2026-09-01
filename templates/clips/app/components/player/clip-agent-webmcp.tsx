@@ -386,6 +386,10 @@ export function createClipAgentWebMcpActions({
         throw new Error("Clip agent context is unavailable");
       const { startMs, endMs, startIndex, maxSegments } =
         parseTranscriptInput(input);
+      const transcriptSourceUrl = buildRelatedAgentUrl(
+        agentContextUrl,
+        AGENT_TRANSCRIPT_ENDPOINT,
+      );
       const transcriptUrl = buildRelatedAgentUrl(
         agentContextUrl,
         AGENT_TRANSCRIPT_ENDPOINT,
@@ -419,8 +423,8 @@ export function createClipAgentWebMcpActions({
       const baseResult = {
         type: stringValue(payload.type) ?? "agent-native.clip.transcript",
         recording: compactClip(payload.recording),
-        sourceUrl: transcriptUrl,
-        apis: compactApis(payload, agentContextUrl, transcriptUrl),
+        sourceUrl: transcriptSourceUrl,
+        apis: compactApis(payload, agentContextUrl, transcriptSourceUrl),
         transcript: {
           status: stringValue(transcript.status) ?? "missing",
           language: stringValue(transcript.language),
