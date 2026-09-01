@@ -72,6 +72,15 @@ async function completeFirstRunOnboarding(page: Page): Promise<boolean> {
   await expect(manualContinue).toBeVisible();
   await manualContinue.click();
 
+  const completionResponse = page.waitForResponse((response) => {
+    const request = response.request();
+    return (
+      request.method() === "POST" &&
+      new URL(response.url()).pathname ===
+        "/_agent-native/onboarding/first-run/complete"
+    );
+  });
+
   const toolsFooter = page.locator('[data-testid="onboarding-tools-footer"]');
   if (await toolsFooter.isVisible().catch(() => false)) {
     await toolsFooter.getByRole("button", { name: /skip for now/i }).click();
@@ -93,7 +102,10 @@ async function completeFirstRunOnboarding(page: Page): Promise<boolean> {
     await appExtensionSkip.click();
   }
 
+  const completion = await completionResponse;
+  expect(completion.ok()).toBe(true);
   await expect(page.locator("[data-first-run-app-hidden]")).toHaveCount(0);
+  await expect(page.locator("[data-onboarding-screen]")).toHaveCount(0);
   return true;
 }
 
