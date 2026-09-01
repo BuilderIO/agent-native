@@ -1,7 +1,11 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconUpload, IconX } from "@tabler/icons-react";
+import { useState } from "react";
 
-import { CommunityAppSubmissionForm } from "./CommunityAppSubmissionForm";
+import {
+  CommunityAppSubmissionForm,
+  type CommunitySubmissionDraft,
+} from "./CommunityAppSubmissionForm";
 import {
   Dialog,
   DialogClose,
@@ -13,6 +17,13 @@ import {
 
 export function CommunityAppSubmissionDialog() {
   const t = useT();
+  const [draft, setDraft] = useState<CommunitySubmissionDraft>({
+    name: "",
+    appUrl: "",
+    description: "",
+    repositoryUrl: "",
+    screenshotFiles: [],
+  });
 
   return (
     <Dialog>
@@ -39,7 +50,7 @@ export function CommunityAppSubmissionDialog() {
           {t("templatesPage.communitySubmissionDescription")}
         </DialogDescription>
         <div className="mt-6">
-          <CommunityAppSubmissionForm />
+          <CommunityAppSubmissionForm draft={draft} onDraftChange={setDraft} />
         </div>
       </DialogContent>
     </Dialog>

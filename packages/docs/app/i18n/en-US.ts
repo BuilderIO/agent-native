@@ -574,13 +574,12 @@ const enUS = {
     communitySubmissionName: "App name",
     communitySubmissionNamePlaceholder: "Customer Support Hub",
     communitySubmissionUrl: "App URL",
-    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com or https://example.com",
     communitySubmissionDescriptionLabel: "Description",
     communitySubmissionDescriptionPlaceholder:
       "What does the app do, and who is it for?",
     communitySubmissionRepository: "GitHub repository (optional)",
-    communitySubmissionRepositoryPlaceholder:
-      "https://github.com/owner/repository",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
     communitySubmissionScreenshots: "Screenshots (optional)",
     communitySubmissionScreenshotsPlaceholder: "Drop up to 5 images here",
     communitySubmissionScreenshotDropHint:
@@ -593,7 +592,7 @@ const enUS = {
     communitySubmissionReady:
       "Thanks. We will review your app before publishing it.",
     communitySubmissionValidation:
-      "Add a name, description, and valid app URL. Upload PNG, JPG, or WebP images up to 1.5 MB each.",
+      "Add a name and description, then enter an app link like example.com. We’ll add https:// for you. If you add a repository, use a github.com link. Upload PNG, JPG, or WebP images up to 1.5 MB each.",
   },
   buildFromScratch: {
     title: "Build from scratch",
