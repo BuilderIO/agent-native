@@ -293,6 +293,9 @@ export default defineAction({
       artifactType: "video",
       message:
         "Video generation started. Call refresh-generation-run with this runId until status is completed.",
+      // The poll comes back through refresh-generation-run, so the marker has
+      // to survive the async hop too or the caller loses it at completion.
+      ...(draftAccess.canApprove ? {} : { draftPendingApproval: true }),
     };
   },
 });

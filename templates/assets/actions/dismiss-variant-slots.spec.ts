@@ -38,6 +38,7 @@ vi.mock("../server/lib/library-access.js", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((column, value) => ({ column, value })),
+  and: vi.fn((...conditions) => ({ conditions })),
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
@@ -76,17 +77,48 @@ function draftAsset(id: string, overrides: Partial<AssetRow> = {}): AssetRow {
   };
 }
 
+/**
+ * A live table, not a call recorder: the action deletes conditionally and then
+ * re-reads the row, so the mock has to model both or the race test proves
+ * nothing. `onBeforeDelete` is the hook that simulates a concurrent save.
+ */
 function createDb(
   assets: AssetRow[] = [draftAsset("asset-1"), draftAsset("asset-2")],
+  onBeforeDelete?: (byId: Map<string, AssetRow>) => void,
 ) {
   const byId = new Map(assets.map((asset) => [asset.id, asset]));
-  const deleteWhere = vi.fn(async () => undefined);
+  const columnKeys: Record<string, keyof AssetRow> = {
+    "image_assets.id": "id",
+    "image_assets.library_id": "libraryId",
+    "image_assets.role": "role",
+    "image_assets.status": "status",
+    "image_assets.generation_run_id": "generationRunId",
+  };
+  const equals = (asset: AssetRow, condition: any): boolean => {
+    const clauses = condition?.conditions ?? [condition];
+    return clauses.every((clause: any) => {
+      const key = columnKeys[clause?.column];
+      return key ? asset[key] === clause.value : true;
+    });
+  };
+  const idOf = (condition: any): string | undefined => {
+    const clauses = condition?.conditions ?? [condition];
+    return clauses.find((clause: any) => clause?.column === "image_assets.id")
+      ?.value;
+  };
+  const deleteWhere = vi.fn(async (condition: any) => {
+    onBeforeDelete?.(byId);
+    const id = idOf(condition);
+    const asset = id ? byId.get(id) : undefined;
+    if (asset && equals(asset, condition)) byId.delete(asset.id);
+  });
   const deleteMock = vi.fn(() => ({ where: deleteWhere }));
   const selectMock = vi.fn(() => ({
     from: vi.fn(() => ({
       where: vi.fn((condition: any) => ({
         limit: async () => {
-          const asset = byId.get(condition?.value);
+          const id = idOf(condition);
+          const asset = id ? byId.get(id) : undefined;
           return asset ? [asset] : [];
         },
       })),
@@ -96,6 +128,7 @@ function createDb(
     select: selectMock,
     delete: deleteMock,
     deleteWhere,
+    remainingIds: () => Array.from(byId.keys()),
   };
 }
 
@@ -126,14 +159,7 @@ describe("dismiss-variant-slots", () => {
     // Discarding a draft is drafting-class work, not approving.
     expect(libraryAccessMock).toHaveBeenCalledWith("lib-1");
     expect(db.delete).toHaveBeenCalledTimes(2);
-    expect(db.deleteWhere).toHaveBeenNthCalledWith(1, {
-      column: "image_assets.id",
-      value: "asset-1",
-    });
-    expect(db.deleteWhere).toHaveBeenNthCalledWith(2, {
-      column: "image_assets.id",
-      value: "asset-2",
-    });
+    expect(db.remainingIds()).toEqual([]);
     expect(deleteAppStateMock).toHaveBeenCalledWith("asset-variants");
     expect(deleteAppStateMock).toHaveBeenCalledWith("image-variants");
     expect(writeAppStateMock).not.toHaveBeenCalled();
@@ -168,10 +194,7 @@ describe("dismiss-variant-slots", () => {
     const result = await action.run({ scope: "all" });
 
     expect(db.delete).toHaveBeenCalledTimes(1);
-    expect(db.deleteWhere).toHaveBeenCalledWith({
-      column: "image_assets.id",
-      value: "asset-mine",
-    });
+    expect(db.remainingIds()).toEqual(["asset-saved", "asset-other-kit"]);
     expect(result).toEqual({
       dismissed: 3,
       assetsDeleted: 1,
@@ -233,6 +256,33 @@ describe("dismiss-variant-slots", () => {
     expect(db.delete).not.toHaveBeenCalled();
   });
 
+  it("leaves a candidate an editor saved mid-dismissal in the kit", async () => {
+    // The authorizing SELECT saw a draft; by the time the delete runs an editor
+    // has approved it. The save has to win.
+    const db = createDb([draftAsset("asset-1")], (byId) => {
+      const saved = byId.get("asset-1");
+      if (saved) byId.set("asset-1", { ...saved, status: "saved" });
+    });
+    getDbMock.mockReturnValue(db);
+    readAppStateMock.mockResolvedValueOnce({
+      runId: "run-1",
+      libraryId: "lib-1",
+      prompt: "Dogs in a park",
+      slots: [{ slotId: "slot-1", status: "ready", assetId: "asset-1" }],
+      updatedAt: "2026-05-28T00:00:00.000Z",
+    });
+
+    const result = await action.run({ scope: "all" });
+
+    expect(db.remainingIds()).toEqual(["asset-1"]);
+    expect(result).toEqual({
+      dismissed: 1,
+      assetsDeleted: 0,
+      assetsRetained: 1,
+      cleared: true,
+    });
+  });
+
   it("dismisses failed slots while keeping ready candidates", async () => {
     const db = createDb();
     getDbMock.mockReturnValue(db);
@@ -255,10 +305,7 @@ describe("dismiss-variant-slots", () => {
     const result = await action.run({ scope: "failed" });
 
     expect(db.delete).toHaveBeenCalledTimes(1);
-    expect(db.deleteWhere).toHaveBeenCalledWith({
-      column: "image_assets.id",
-      value: "asset-2",
-    });
+    expect(db.remainingIds()).toEqual(["asset-1"]);
     expect(writeAppStateMock).toHaveBeenCalledWith(
       "asset-variants",
       expect.objectContaining({

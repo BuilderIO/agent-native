@@ -4,6 +4,10 @@ import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  canReadDraftAsset,
+  resolveDraftReadScope,
+} from "../server/lib/library-access.js";
 import { serializeAsset } from "./_helpers.js";
 
 export default defineAction({
@@ -29,6 +33,9 @@ export default defineAction({
     const libraryIds = accessibleLibraries.map((row) => row.id);
     if (!libraryIds.length) return { count: 0, assets: [] };
 
+    // Every row here is a draft, so the whole result narrows to the drafts this
+    // caller generated plus the kits where they could approve one.
+    const scope = await resolveDraftReadScope(libraryIds);
     const rows = await db
       .select()
       .from(schema.assets)
@@ -41,10 +48,11 @@ export default defineAction({
       )
       .orderBy(desc(schema.assets.createdAt))
       .limit(limit ?? 50);
+    const visible = rows.filter((row) => canReadDraftAsset(scope, row));
 
     return {
-      count: rows.length,
-      assets: rows.map((row) => serializeAsset(row)),
+      count: visible.length,
+      assets: visible.map((row) => serializeAsset(row)),
     };
   },
 });

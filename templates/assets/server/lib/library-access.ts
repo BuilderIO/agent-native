@@ -5,7 +5,7 @@ import {
   roleSatisfies,
   type ShareRole,
 } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -96,6 +96,106 @@ export async function assertCanDraftAuthoredBy(
       `(have ${access.role}). ${what} you did not create needs edit access ` +
       `on this brand kit — you can still draft in your own.`,
   );
+}
+
+/**
+ * Who may read an unsaved draft.
+ *
+ * A draft is visible to the person who generated it and to anyone who could
+ * approve it — an editor has to see a proposal to act on it, and a fellow
+ * drafter has no business reading someone else's unsaved prompts and previews.
+ * Saved kit content is unaffected: this scope only ever narrows candidates.
+ *
+ * Resolve it once per read and pass it to `canReadDraftAsset` per row. The
+ * per-kit role lookups only run for candidate-bearing reads, so ordinary asset
+ * lists pay nothing.
+ */
+export interface DraftReadScope {
+  /** True when every kit in the read is approvable, so nothing is filtered. */
+  unrestricted: boolean;
+  approvableLibraryIds: Set<string>;
+  /** The caller's own generation runs in the kits they cannot approve. */
+  ownRunIds: Set<string>;
+}
+
+export async function resolveDraftReadScope(
+  libraryIds: string[],
+): Promise<DraftReadScope> {
+  const uniqueIds = Array.from(new Set(libraryIds.filter(Boolean)));
+  const approvableLibraryIds = new Set<string>();
+  const roles = await Promise.all(
+    uniqueIds.map(async (id) => {
+      const access = await assertCanDraft(id);
+      return [id, access.canApprove] as const;
+    }),
+  );
+  for (const [id, canApprove] of roles) {
+    if (canApprove) approvableLibraryIds.add(id);
+  }
+  const restricted = uniqueIds.filter((id) => !approvableLibraryIds.has(id));
+  if (restricted.length === 0) {
+    return { unrestricted: true, approvableLibraryIds, ownRunIds: new Set() };
+  }
+  const caller = normalizeEmail(getRequestUserEmail());
+  if (!caller) {
+    return { unrestricted: false, approvableLibraryIds, ownRunIds: new Set() };
+  }
+  const rows = await getDb()
+    .select({
+      id: schema.assetGenerationRuns.id,
+      ownerEmail: schema.assetGenerationRuns.ownerEmail,
+    })
+    .from(schema.assetGenerationRuns)
+    .where(inArray(schema.assetGenerationRuns.libraryId, restricted));
+  const ownRunIds = new Set(
+    rows
+      .filter((row) => normalizeEmail(row.ownerEmail) === caller)
+      .map((row) => row.id),
+  );
+  return { unrestricted: false, approvableLibraryIds, ownRunIds };
+}
+
+/**
+ * The no-op scope, for a caller already known to approve everywhere in the
+ * read. Lets an approver-side read skip the run lookup entirely.
+ */
+export function unrestrictedDraftReadScope(): DraftReadScope {
+  return {
+    unrestricted: true,
+    approvableLibraryIds: new Set(),
+    ownRunIds: new Set(),
+  };
+}
+
+/** True when this row is not a draft, or is a draft this caller may read. */
+export function canReadDraftAsset(
+  scope: DraftReadScope,
+  asset: {
+    libraryId: string;
+    role?: string | null;
+    status?: string | null;
+    generationRunId?: string | null;
+  },
+): boolean {
+  if (asset.role !== "generated" || asset.status !== "candidate") return true;
+  if (scope.unrestricted) return true;
+  if (scope.approvableLibraryIds.has(asset.libraryId)) return true;
+  return Boolean(
+    asset.generationRunId && scope.ownRunIds.has(asset.generationRunId),
+  );
+}
+
+/**
+ * The run rows behind drafts carry the same prompts and settings, so a kit's
+ * run history narrows the same way its candidates do.
+ */
+export function canReadRun(
+  scope: DraftReadScope,
+  run: { id: string; libraryId: string },
+): boolean {
+  if (scope.unrestricted) return true;
+  if (scope.approvableLibraryIds.has(run.libraryId)) return true;
+  return scope.ownRunIds.has(run.id);
 }
 
 /**

@@ -25,8 +25,15 @@ vi.mock("../db/index.js", () => ({
     assetGenerationRuns: {
       id: "image_generation_runs.id",
       ownerEmail: "image_generation_runs.owner_email",
+      libraryId: "image_generation_runs.library_id",
     },
   },
+}));
+
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
+  eq: vi.fn((column, value) => ({ column, value })),
+  inArray: vi.fn((column, values) => ({ column, values })),
 }));
 
 import {
@@ -34,6 +41,9 @@ import {
   assertCanDeleteAsset,
   assertCanDraft,
   assertCanDraftAuthoredBy,
+  canReadDraftAsset,
+  canReadRun,
+  resolveDraftReadScope,
 } from "./library-access.js";
 
 function grantRole(role: string) {
@@ -42,6 +52,16 @@ function grantRole(role: string) {
       throw new Error(`Requires ${minRole} role (have ${role})`);
     }
     return { role };
+  });
+}
+
+function dbWithRuns(runs: Array<{ id: string; ownerEmail: string }>) {
+  getDbMock.mockReturnValue({
+    select: () => ({
+      from: () => ({
+        where: async () => runs,
+      }),
+    }),
   });
 }
 
@@ -123,6 +143,60 @@ describe("library-access", () => {
     await expect(
       assertCanDraftAuthoredBy("lib-1", null, "A session"),
     ).rejects.toThrow(/Requires editor role/);
+  });
+
+  it("narrows drafts to the caller's own where they cannot approve", async () => {
+    grantRole("viewer");
+    dbWithRuns([
+      { id: "run-mine", ownerEmail: "viewer@example.test" },
+      { id: "run-theirs", ownerEmail: "someone@example.test" },
+    ]);
+
+    const scope = await resolveDraftReadScope(["lib-1"]);
+
+    const draft = (generationRunId: string | null) => ({
+      libraryId: "lib-1",
+      role: "generated",
+      status: "candidate",
+      generationRunId,
+    });
+    expect(canReadDraftAsset(scope, draft("run-mine"))).toBe(true);
+    expect(canReadDraftAsset(scope, draft("run-theirs"))).toBe(false);
+    // A candidate with no run behind it has no author to match.
+    expect(canReadDraftAsset(scope, draft(null))).toBe(false);
+    // Saved kit content is never narrowed by the draft scope.
+    expect(
+      canReadDraftAsset(scope, {
+        libraryId: "lib-1",
+        role: "generated",
+        status: "saved",
+        generationRunId: "run-theirs",
+      }),
+    ).toBe(true);
+    expect(canReadRun(scope, { id: "run-mine", libraryId: "lib-1" })).toBe(
+      true,
+    );
+    expect(canReadRun(scope, { id: "run-theirs", libraryId: "lib-1" })).toBe(
+      false,
+    );
+  });
+
+  it("skips the run lookup entirely for an approver", async () => {
+    grantRole("editor");
+    dbWithRuns([]);
+
+    const scope = await resolveDraftReadScope(["lib-1"]);
+
+    expect(scope.unrestricted).toBe(true);
+    expect(getDbMock).not.toHaveBeenCalled();
+    expect(
+      canReadDraftAsset(scope, {
+        libraryId: "lib-1",
+        role: "generated",
+        status: "candidate",
+        generationRunId: "run-theirs",
+      }),
+    ).toBe(true);
   });
 
   it("lets a draft author discard their own unsaved candidate only", async () => {

@@ -144,16 +144,22 @@ export default defineAction({
     if (!run) throw new Error("Generation run not found.");
     // Reconciling mutates the run row (status, error, outputs), so a
     // below-editor caller may only refresh a run they started.
-    await assertCanDraftAuthoredBy(
+    const draftAccess = await assertCanDraftAuthoredBy(
       run.libraryId,
       run.ownerEmail,
       "A generation run",
     );
+    // Reconciliation is where an async candidate finally becomes readable, so
+    // it is the last place the caller can learn it still needs an editor.
+    const approval = draftAccess.canApprove
+      ? {}
+      : { draftPendingApproval: true };
     if ((run.mediaType ?? "image") !== "video") {
       const refreshed = await refreshImageRun(run);
       return {
         run: serializeGenerationRun(refreshed.run),
         assets: refreshed.assets.map(serializeAsset),
+        ...approval,
       };
     }
     if (run.status === "completed" || run.status === "failed") {
@@ -164,6 +170,7 @@ export default defineAction({
       return {
         run: serializeGenerationRun(run),
         assets: assets.map(serializeAsset),
+        ...approval,
       };
     }
     const refreshed = await completeVideoGenerationRun(run);
@@ -173,6 +180,7 @@ export default defineAction({
         refreshed.status === "completed"
           ? [serializeAsset(refreshed.asset)]
           : [],
+      ...approval,
     };
   },
 });

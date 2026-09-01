@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { ForbiddenError } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -105,8 +105,31 @@ export default defineAction({
         assetsRetained++;
         continue;
       }
-      await db.delete(schema.assets).where(eq(schema.assets.id, asset.id));
-      assetsDeleted++;
+      // Delete against the state that was authorized, not just the id: an
+      // editor can save this candidate between the check and the delete, and
+      // that save must win over an in-flight dismissal.
+      await db
+        .delete(schema.assets)
+        .where(
+          and(
+            eq(schema.assets.id, asset.id),
+            eq(schema.assets.libraryId, asset.libraryId),
+            eq(schema.assets.role, "generated"),
+            eq(schema.assets.status, "candidate"),
+          ),
+        );
+      // Row counts are adapter-specific, so confirm by re-reading rather than
+      // trusting a driver-shaped result.
+      const [survivor] = await db
+        .select({ id: schema.assets.id })
+        .from(schema.assets)
+        .where(eq(schema.assets.id, asset.id))
+        .limit(1);
+      if (survivor) {
+        assetsRetained++;
+      } else {
+        assetsDeleted++;
+      }
     }
 
     const removed = new Set(toRemove.map((s) => s.slotId));

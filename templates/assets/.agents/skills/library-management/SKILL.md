@@ -63,10 +63,21 @@ made:
 - `refresh-generation-run` reconciles a run row (status, error, outputs) and
   `rerun-generation-run` reuses its prompt, settings, and session, so both stay
   with the run's `ownerEmail`.
+- Draft *reads* narrow the same way. `resolveDraftReadScope` +
+  `canReadDraftAsset` / `canReadRun` keep candidates and run history to their
+  author plus anyone who could approve them, across `get-library`,
+  `list-assets`, `search-assets`, and `list-draft-assets`. The lookup only runs
+  when a read actually returns candidates, so ordinary asset lists cost nothing.
+  Content fetched by explicit id (`/api/assets/:id/content`, `get-asset`) stays
+  gated on kit read access only, because cross-app embeds of a fresh candidate
+  depend on it.
 - `dismiss-variant-slots` re-reads every asset behind the slots it clears.
   Variant state is client-writable, so a slot id is never permission to delete:
   anything outside the state's kit, already saved, or authored by someone else
-  clears from the tray and comes back in `assetsRetained`.
+  clears from the tray and comes back in `assetsRetained`. The delete itself is
+  conditional on the state that was authorized, so an editor's save always beats
+  an in-flight dismissal, and the outcome is confirmed by re-reading rather than
+  by an adapter-specific row count.
 
 `assertCanDraft` returns `{ role, canApprove }`. Generation actions report `draftPendingApproval: true` when `canApprove` is false so the caller can say the images are waiting on an editor instead of claiming they were saved. `get-library-access` exposes the same answer to the UI and to other agents.
 
