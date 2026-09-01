@@ -711,6 +711,24 @@ function pendingWorkspaceAppExpiresAt(createdAt: string): string {
   return new Date(createdMs + PENDING_WORKSPACE_APP_TTL_MS).toISOString();
 }
 
+function normalizePendingWorkspaceAppExpiresAt(
+  createdAt: string,
+  expiresAt: string | null,
+): string {
+  const minimumExpiresAt = pendingWorkspaceAppExpiresAt(createdAt);
+  const expiresMs = parseDateMs(expiresAt);
+  const minimumExpiresMs = parseDateMs(minimumExpiresAt);
+  if (
+    expiresAt &&
+    expiresMs !== null &&
+    minimumExpiresMs !== null &&
+    expiresMs >= minimumExpiresMs
+  ) {
+    return expiresAt;
+  }
+  return minimumExpiresAt;
+}
+
 function isPendingWorkspaceAppExpired(
   app: Pick<PendingWorkspaceApp, "createdAt" | "expiresAt">,
 ): boolean {
@@ -814,9 +832,10 @@ function parsePendingWorkspaceApps(value: unknown): PendingWorkspaceApp[] {
           typeof record.updatedAt === "string" && record.updatedAt.trim()
             ? record.updatedAt.trim()
             : now,
-        expiresAt:
-          cleanOptionalString(record.expiresAt) ??
-          pendingWorkspaceAppExpiresAt(createdAt),
+        expiresAt: normalizePendingWorkspaceAppExpiresAt(
+          createdAt,
+          cleanOptionalString(record.expiresAt),
+        ),
       } satisfies PendingWorkspaceApp;
     })
     .filter((app): app is PendingWorkspaceApp => !!app)
