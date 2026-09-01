@@ -61,8 +61,14 @@ export default function TemplatesPage() {
             {/* Not a card component like the apps above: it holds two
                 interactive children of its own, and nesting those inside the
                 card's anchor would be invalid. Vertically centred rather than
-                top-aligned since it has no screenshot to anchor its top. */}
-            <div className="flex flex-col items-start justify-center gap-[var(--spacing-4)] bg-[var(--b-bg-page)] p-[var(--spacing-5)] transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)]">
+                top-aligned since it has no screenshot to anchor its top.
+                It is the only cell in the last row, so nothing stretches it to
+                an app card's height — the aspect ratio is one card's own
+                proportions (a 433px column, screenshot plus copy), which
+                tracks the column width instead of pinning a pixel height.
+                aspect-ratio only sets a preferred size, so the copy can still
+                push the tile taller at narrow widths. */}
+            <div className="flex aspect-[433/560] flex-col items-start justify-center gap-[var(--spacing-4)] bg-[var(--b-bg-page)] p-[var(--spacing-5)] transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)]">
               <h2 className={HEADING_5_CLASS}>{t("buildFromScratch.title")}</h2>
               <p className={PARAGRAPH_2_CLASS}>
                 {t("buildFromScratch.description")}
