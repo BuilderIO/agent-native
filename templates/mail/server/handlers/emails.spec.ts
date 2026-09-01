@@ -13,7 +13,7 @@ describe("emails handler Gmail draft listing", () => {
     expect(source).toContain("threadFormat:");
     expect(source).toContain('view === "drafts"');
     expect(source).toContain(
-      '(needsSavedFilterParts && (settings?.savedFilters?.length ?? 0) > 0)',
+      "(needsSavedFilterParts && (settings?.savedFilters?.length ?? 0) > 0)",
     );
     expect(source).toContain('"full"');
     expect(source).toContain('"metadata"');
