@@ -69,6 +69,8 @@ import { hasGoogleSignInCredentials } from "./google-oauth-credentials.js";
 import { identitySsoLoginButtonHtml } from "./identity-sso-store.js";
 import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
 import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
+
+declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
 function hasGoogleOAuth(): boolean {
   return hasGoogleSignInCredentials();
 }
@@ -1170,7 +1172,10 @@ function serializeAuthPageData(value: unknown): string {
 }
 
 function authClientAssetPath(appBasePath: string): string {
-  const buildId = process.env.AGENT_NATIVE_BUILD_ID?.trim();
+  const buildId =
+    typeof __AGENT_NATIVE_BUILD_ID__ === "string"
+      ? __AGENT_NATIVE_BUILD_ID__.trim()
+      : "";
   const cacheBuster = buildId ? `?v=${encodeURIComponent(buildId)}` : "";
   return `${appBasePath}/assets/auth-client.js${cacheBuster}`;
 }

@@ -22,13 +22,13 @@ describe("login document session probe", () => {
   });
 
   it("cache-busts the auth client for a deployed build", () => {
-    vi.stubEnv("AGENT_NATIVE_BUILD_ID", "deploy-123");
+    vi.stubGlobal("__AGENT_NATIVE_BUILD_ID__", "deploy-123");
     try {
       expect(getOnboardingHtml()).toContain(
         'src="/assets/auth-client.js?v=deploy-123"',
       );
     } finally {
-      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
     }
   });
 });

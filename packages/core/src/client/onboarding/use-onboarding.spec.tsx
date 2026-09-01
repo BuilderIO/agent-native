@@ -23,31 +23,33 @@ describe("useOnboarding — completeFirstRun failure handling", () => {
     return null;
   }
 
-  function stubFetch(completeImpl: () => Response | Promise<Response>): void {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes("/onboarding/steps")) return jsonResponse([]);
-        if (url.includes("/onboarding/dismissed")) {
-          return jsonResponse({ dismissed: false });
-        }
-        if (url.includes("/onboarding/profile")) {
-          return jsonResponse({
-            appId: "app",
-            appName: "App",
-            capabilities: [],
-          });
-        }
-        if (url.includes("/onboarding/first-run/status")) {
-          return jsonResponse({ firstRun: true });
-        }
-        if (url.includes("/onboarding/first-run/complete")) {
-          return completeImpl();
-        }
-        throw new Error(`Unexpected fetch: ${url}`);
-      }),
-    );
+  function stubFetch(
+    completeImpl: () => Response | Promise<Response>,
+    firstRun = true,
+  ) {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/onboarding/steps")) return jsonResponse([]);
+      if (url.includes("/onboarding/dismissed")) {
+        return jsonResponse({ dismissed: false });
+      }
+      if (url.includes("/onboarding/profile")) {
+        return jsonResponse({
+          appId: "app",
+          appName: "App",
+          capabilities: [],
+        });
+      }
+      if (url.includes("/onboarding/first-run/status")) {
+        return jsonResponse({ firstRun });
+      }
+      if (url.includes("/onboarding/first-run/complete")) {
+        return completeImpl();
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
   }
 
   beforeEach(() => {
@@ -84,6 +86,18 @@ describe("useOnboarding — completeFirstRun failure handling", () => {
     // Never falsely advance past a failed completion.
     expect(latest?.firstRun).toBe(true);
     expect(latest?.completeFirstRunError).toBeTruthy();
+  });
+
+  it("preserves gate-granted first-run state while loading onboarding data", async () => {
+    const fetchMock = stubFetch(() => jsonResponse({}), false);
+    await mountAndSettle();
+
+    expect(latest?.firstRun).toBe(true);
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/onboarding/first-run/status"),
+      ),
+    ).toHaveLength(0);
   });
 
   it("rejects instead of raising an unhandled rejection when the request itself fails", async () => {
