@@ -3744,6 +3744,18 @@ function stringifyToolInput(input: unknown): string {
   }
 }
 
+function debugStringify(value: unknown, limit: number): string {
+  try {
+    const str = JSON.stringify(redactSensitiveFields(value), null, 2);
+    if (!str) return String(value);
+    return str.length > limit
+      ? `${str.slice(0, limit)}… [+${str.length - limit}]`
+      : str;
+  } catch {
+    return String(value);
+  }
+}
+
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value);
@@ -4292,6 +4304,13 @@ function toolInputSchemaErrorResult(
     parameters,
     schemaErrorPropertyNames(error),
   );
+  console.warn("[tool-schema-reject]", {
+    tool: toolName,
+    error: sanitizeToolErrorText(error),
+    outputCapTruncated,
+    expected: signature || null,
+    received: debugStringify(input, 4_000),
+  });
   return (
     `Invalid action parameters for ${toolName}: ${sanitizeToolErrorText(error)}. ` +
     `Received: ${stringifyToolInput(input)}. ` +
@@ -4529,8 +4548,8 @@ function normalizeOptionalToolPlaceholders(
  * time. Evidence-gated exactly like `normalizeOptionalToolPlaceholders`:
  * only coerce a field whose CURRENT value fails schema validation (so a
  * legitimate string value is never touched — a field schema-valid as a
- * string is never also schema-valid as object/array) and whose parsed form
- * passes. Never touches values that are already the right shape.
+ * string is never also schema-valid as object/array). Match the parsed
+ * CONTAINER only; validating its contents here hides the real defect.
  */
 function coerceStringifiedJsonToolValues(
   schema: RawJsonSchema | undefined,
@@ -4561,7 +4580,11 @@ function coerceStringifiedJsonToolValues(
       continue;
     }
     if (typeof parsed !== "object" || parsed === null) continue;
-    if (!schemaAcceptsToolValue(propertySchema, parsed)) continue;
+    const parsedContainer = Array.isArray(parsed) ? "array" : "object";
+    const containerMatches = Array.isArray(expectedType)
+      ? expectedType.includes(parsedContainer)
+      : expectedType === parsedContainer;
+    if (!containerMatches) continue;
     normalized ??= { ...(input as Record<string, unknown>) };
     normalized[key] = parsed;
   }
@@ -5767,6 +5790,27 @@ export async function runAgentLoop(opts: {
           typeof guard === "string"
             ? 1
             : Math.max(0, Math.min(3, Math.trunc(guard.maxRetries ?? 1)));
+        console.warn("[final-response-guard]", {
+          model,
+          retryCount: finalGuardRetries,
+          maxGuardRetries,
+          outcome:
+            finalGuardRetries < maxGuardRetries ? "retry" : "fallback-to-user",
+          requestText: String(finalResponseGuardRequestText ?? "").slice(
+            0,
+            400,
+          ),
+          assistantText: collectTextParts(assistantContentForHistory).slice(
+            0,
+            400,
+          ),
+          toolCallsThisTurn: toolCallHistory.map((call) => call.name),
+          toolResultsThisTurn: toolResultHistory.map((result) => ({
+            name: result.name,
+            isError: result.isError === true,
+            content: String(result.content ?? "").slice(0, 300),
+          })),
+        });
         if (finalGuardRetries < maxGuardRetries) {
           // Compact starter catalogs are an optimization for the first model
           // request. Once a guard rejects a final answer, preserving that

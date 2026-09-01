@@ -358,6 +358,21 @@ export function designFinalResponseGuard(
   if (!looksLikeDesignMutationRequest(requestText)) return null;
   if (hasSuccessfulMutation(context.toolResults)) return null;
 
+  console.warn("[design-guard] no persisted mutation", {
+    retryCount: context.retryCount,
+    requestText: requestText.slice(0, 400),
+    assistantText: String(context.text ?? "").slice(0, 400),
+    toolResults: (context.toolResults ?? []).map((result) => {
+      const name = normalizeToolName(result.name);
+      return {
+        name,
+        isError: result.isError === true,
+        mutating: DESIGN_MUTATION_ACTIONS.has(name),
+        content: String(result.content ?? "").slice(0, 600),
+      };
+    }),
+  });
+
   return {
     retryMessage:
       "This is a design-changing request, so a text-only answer is not completion. " +
