@@ -21,12 +21,17 @@ const FINDINGS_PATH = join(
   "e2e/signup/test-results/signup-agent/findings.md",
 );
 const REVIEW_SURFACE_TIMEOUT_MS = 15_000;
+const REVIEW_SURFACE_LOADING_SELECTOR =
+  "[data-first-run-startup-loading]:visible, [aria-busy='true']:visible, .skeleton-shimmer:visible";
 
 async function waitForReviewSurface(page: Page): Promise<void> {
   const deadline = Date.now() + REVIEW_SURFACE_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const text = await page.locator("body").innerText();
-    if (text.trim().length >= 40) return;
+    const loadingSurface = page.locator(REVIEW_SURFACE_LOADING_SELECTOR);
+    if (text.trim().length >= 40 && (await loadingSurface.count()) === 0) {
+      return;
+    }
     await page.waitForTimeout(500);
   }
 }
