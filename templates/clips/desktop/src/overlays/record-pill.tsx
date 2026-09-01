@@ -161,6 +161,8 @@ export function RecordingPill() {
   >(null);
   const [playheadOrientation, setPlayheadOrientation] =
     useState<RecordingPlayheadOrientation>("horizontal");
+  const [playheadDock, setPlayheadDockState] =
+    useState<RecordingPlayheadDock>("free");
   const [playheadDockTransitioning, setPlayheadDockTransitioning] =
     useState(false);
 
@@ -225,6 +227,7 @@ export function RecordingPill() {
     playheadOrientationRef.current = orientation;
     playheadDockRef.current = dock;
     setPlayheadOrientation(orientation);
+    setPlayheadDockState(dock);
   }
 
   // Native window ops run strictly one at a time. Concurrent
@@ -1145,7 +1148,7 @@ export function RecordingPill() {
   return (
     <div
       data-tw-surface
-      className={`record-pill-scope flex h-screen w-screen select-none ${mode === "done" || playheadOrientation === "horizontal" ? "items-end" : "items-start"}`}
+      className={`record-pill-scope flex h-screen w-screen select-none ${mode === "done" || (playheadOrientation === "horizontal" && playheadDock !== "top") ? "items-end" : "items-start"}`}
     >
       <div aria-live="polite" className="sr-only">
         {announcement}
