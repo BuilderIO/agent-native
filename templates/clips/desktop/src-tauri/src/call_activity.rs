@@ -19,7 +19,13 @@ pub(crate) fn default_call_app_bundle_ids() -> Vec<String> {
 
 fn bundle_id_matches(bundle_id: &str, candidate: &str) -> bool {
     bundle_id == candidate
-        || bundle_id
+        || !matches!(
+            candidate,
+            "com.google.chrome"
+                | "company.thebrowser.browser"
+                | "com.apple.safari"
+                | "org.mozilla.firefox"
+        ) && bundle_id
             .strip_prefix(candidate)
             .map(|suffix| suffix.starts_with('.'))
             .unwrap_or(false)
@@ -161,12 +167,14 @@ mod tests {
     use super::bundle_id_matches;
 
     #[test]
-    fn matches_audio_helper_processes_without_matching_other_apps() {
-        assert!(bundle_id_matches(
+    fn matches_native_helpers_but_only_exact_browser_processes() {
+        assert!(bundle_id_matches("us.zoom.xos.helper.audio", "us.zoom.xos"));
+        assert!(bundle_id_matches("us.zoom.xos", "us.zoom.xos"));
+        assert!(bundle_id_matches("com.google.chrome", "com.google.chrome"));
+        assert!(!bundle_id_matches(
             "com.google.chrome.helper.renderer",
             "com.google.chrome"
         ));
-        assert!(bundle_id_matches("us.zoom.xos", "us.zoom.xos"));
         assert!(!bundle_id_matches(
             "com.google.chromium",
             "com.google.chrome"

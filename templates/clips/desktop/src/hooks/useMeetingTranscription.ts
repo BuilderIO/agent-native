@@ -522,14 +522,17 @@ export function useMeetingTranscription({
           scheduledEnd?: string | null;
           recording?: { id?: string | null } | null;
         }>("start-meeting-recording", { meetingId });
-        if (!sessionIsActive()) throw MEETING_START_CANCELLED;
         const resolvedMeetingId = result.meetingId ?? meetingId;
         const recordingId = result.recording?.id;
+        // The action may materialize a virtual calendar meeting before the
+        // session becomes stale. Preserve the concrete IDs before aborting so
+        // the failure path closes the row it actually created.
+        session.meetingId = resolvedMeetingId;
+        session.recordingId = recordingId ?? null;
+        if (!sessionIsActive()) throw MEETING_START_CANCELLED;
         if (!recordingId) {
           throw new Error("Could not create a transcript session.");
         }
-        session.meetingId = resolvedMeetingId;
-        session.recordingId = recordingId;
 
         const parsedScheduledEndMs = result.scheduledEnd
           ? Date.parse(result.scheduledEnd)
@@ -564,6 +567,15 @@ export function useMeetingTranscription({
           );
         };
 
+        const stopStaleAudioTransition = async () => {
+          if (sessionRef.current !== session) return;
+          await stopTranscriptionEngine(session.engine).catch(() => {});
+          // The detector is global. Do not stop a newer session that took
+          // ownership while the engine stop was in flight.
+          if (sessionRef.current !== session) return;
+          await invoke("silence_detector_stop").catch(() => {});
+        };
+
         // Pause/resume state machine — see app.tsx for full explanation.
         let desiredPaused = false;
         let applyingTransition = false;
@@ -580,9 +592,11 @@ export function useMeetingTranscription({
                 session.flushTimer = null;
               }
               await invoke("silence_detector_stop").catch(() => {});
+              if (!sessionIsActive()) return;
               try {
                 await stopTranscriptionEngine(session.engine);
               } catch (err) {
+                if (!sessionIsActive()) return;
                 console.warn(
                   "[clips-popover] meeting audio pause failed; staying live:",
                   err,
@@ -592,9 +606,12 @@ export function useMeetingTranscription({
                 await invoke("silence_detector_start", {
                   config: silenceDetectorConfig,
                 }).catch(() => {});
+                if (!sessionIsActive()) await stopStaleAudioTransition();
                 return;
               }
+              if (!sessionIsActive()) return;
               await flushTranscript().catch(() => {});
+              if (!sessionIsActive()) return;
               session.paused = true;
             } else {
               try {
@@ -604,14 +621,20 @@ export function useMeetingTranscription({
                   "[clips-popover] meeting audio resume failed; staying paused:",
                   err,
                 );
+                if (!sessionIsActive()) return;
                 desiredPaused = true;
                 session.paused = true;
+                return;
+              }
+              if (!sessionIsActive()) {
+                await stopStaleAudioTransition();
                 return;
               }
               session.paused = false;
               await invoke("silence_detector_start", {
                 config: silenceDetectorConfig,
               }).catch(() => {});
+              if (!sessionIsActive()) await stopStaleAudioTransition();
             }
           } finally {
             applyingTransition = false;
