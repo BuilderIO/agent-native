@@ -274,7 +274,8 @@ export default function DesktopTerminalSurface({
             <DesktopTerminalTabs
               agent={tab.agent}
               theme={theme}
-              activeApp={activeApp}
+              active={tab.id === activeTabId}
+              activeApp={tab.id === activeTabId ? activeApp : undefined}
               submitRequest={tab.id === activeTabId ? submitRequest : undefined}
               onPromptSubmitted={onPromptSubmitted}
             />

@@ -239,6 +239,24 @@ describe("AgentTerminal", () => {
     );
   });
 
+  it("focuses only when the terminal becomes active", async () => {
+    renderTerminal({
+      wsUrl: "ws://127.0.0.1:12345/ws",
+      autoFocus: false,
+    });
+    await waitForSocketCount(1);
+    await flushTimers();
+
+    expect(terminals[0]?.focus).not.toHaveBeenCalled();
+
+    renderTerminal({
+      wsUrl: "ws://127.0.0.1:12345/ws",
+      autoFocus: true,
+    });
+
+    expect(terminals[0]?.focus).toHaveBeenCalledOnce();
+  });
+
   it("shows setup-status errors and suppresses reconnects", async () => {
     renderTerminal({
       wsUrl: "ws://127.0.0.1:12345/ws",

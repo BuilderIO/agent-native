@@ -160,6 +160,7 @@ export default function (pi) {
   const rawServers = process.env.AGENT_NATIVE_TERMINAL_MCP_SERVERS || "{}";
   const servers = JSON.parse(rawServers);
   const sessions = {};
+  const sessionInitializations = {};
   let nextRequestId = 1;
   const activeContext = process.env.AGENT_NATIVE_ACTIVE_APP_CONTEXT;
   const serverNames = Object.keys(servers);
@@ -245,11 +246,12 @@ export default function (pi) {
     };
   }
 
-  async function callMcp(serverName, method, params, signal) {
-    const server = servers[serverName];
-    if (!server) throw new Error("Unknown Agent-Native MCP server: " + serverName);
-    let sessionId = sessions[serverName];
-    if (!sessionId) {
+  async function getSessionId(serverName, server, signal) {
+    if (sessions[serverName]) return sessions[serverName];
+    if (sessionInitializations[serverName]) {
+      return sessionInitializations[serverName];
+    }
+    const initialization = (async () => {
       const initialized = await request(
         server,
         {
@@ -264,15 +266,30 @@ export default function (pi) {
         },
         signal,
       );
-      sessionId = initialized.sessionId;
-      if (sessionId) sessions[serverName] = sessionId;
+      const sessionId = initialized.sessionId;
       await request(
         server,
         { jsonrpc: "2.0", method: "notifications/initialized", params: {} },
         signal,
         sessionId,
       );
+      if (sessionId) sessions[serverName] = sessionId;
+      return sessionId;
+    })();
+    sessionInitializations[serverName] = initialization;
+    try {
+      return await initialization;
+    } finally {
+      if (sessionInitializations[serverName] === initialization) {
+        delete sessionInitializations[serverName];
+      }
     }
+  }
+
+  async function callMcp(serverName, method, params, signal) {
+    const server = servers[serverName];
+    if (!server) throw new Error("Unknown Agent-Native MCP server: " + serverName);
+    const sessionId = await getSessionId(serverName, server, signal);
     const result = await request(
       server,
       { jsonrpc: "2.0", id: nextRequestId++, method, params },

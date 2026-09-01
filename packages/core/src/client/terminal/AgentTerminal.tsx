@@ -28,6 +28,8 @@ export interface AgentTerminalProps {
   theme?: Record<string, string>;
   /** Font size. Default: 12 */
   fontSize?: number;
+  /** Focus the terminal on mount and when it becomes active. Default: true */
+  autoFocus?: boolean;
   /** CSS class for the container */
   className?: string;
   /** Inline styles for the container */
@@ -146,6 +148,7 @@ export function AgentTerminal({
   hideInFrame = true,
   theme,
   fontSize = 12,
+  autoFocus = true,
   className,
   style,
   onConnectionChange,
@@ -160,6 +163,9 @@ export function AgentTerminal({
   const pendingSubmitRequestRef = useRef<AgentTerminalSubmitRequest | null>(
     null,
   );
+  const autoFocusRef = useRef(autoFocus);
+  autoFocusRef.current = autoFocus;
+  const focusTerminalRef = useRef<(() => void) | null>(null);
   const onPromptSubmittedRef = useRef(onPromptSubmitted);
   onPromptSubmittedRef.current = onPromptSubmitted;
   const [connected, setConnected] = useState(false);
@@ -182,6 +188,20 @@ export function AgentTerminal({
   useEffect(() => {
     onConnectionChange?.(connected);
   }, [connected, onConnectionChange]);
+
+  useEffect(() => {
+    if (autoFocus) {
+      focusTerminalRef.current?.();
+      return;
+    }
+    const activeElement = document.activeElement;
+    if (
+      activeElement instanceof HTMLElement &&
+      termRef.current?.contains(activeElement)
+    ) {
+      activeElement.blur();
+    }
+  }, [autoFocus]);
 
   // Main terminal setup
   useEffect(() => {
@@ -226,7 +246,9 @@ export function AgentTerminal({
       term.loadAddon(fitAddon);
       term.loadAddon(webLinksAddon);
       term.open(container);
-      term.focus();
+      const focusTerminal = () => term.focus();
+      focusTerminalRef.current = focusTerminal;
+      if (autoFocusRef.current) focusTerminal();
 
       let fitPending = false;
       function fitAndResize() {
@@ -276,6 +298,9 @@ export function AgentTerminal({
           handleVisibilityOrFocus,
         );
         resizeObserver.disconnect();
+        if (focusTerminalRef.current === focusTerminal) {
+          focusTerminalRef.current = null;
+        }
         term.dispose();
       }
 
@@ -379,7 +404,7 @@ export function AgentTerminal({
         socket.onopen = () => {
           setConnected(true);
           setError(null);
-          term.focus();
+          if (autoFocusRef.current) focusTerminal();
           socket.send(
             JSON.stringify({
               type: "resize",

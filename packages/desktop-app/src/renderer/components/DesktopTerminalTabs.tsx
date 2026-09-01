@@ -16,6 +16,7 @@ interface DesktopTerminalTabsProps {
   agent: DesktopTerminalAgentId;
   theme: RendererTheme;
   className?: string;
+  active?: boolean;
   activeApp?: {
     id: string;
     name: string;
@@ -112,6 +113,7 @@ export default function DesktopTerminalTabs({
   agent,
   theme,
   className,
+  active = true,
   activeApp,
   submitRequest,
   onPromptSubmitted,
@@ -125,9 +127,16 @@ export default function DesktopTerminalTabs({
   const [terminalForeground, setTerminalForeground] = useState(
     readSidebarForeground,
   );
+  const [sessionApp, setSessionApp] = useState(() =>
+    active ? activeApp : undefined,
+  );
   const selectedAgent =
     DESKTOP_TERMINAL_AGENT_OPTIONS.find((option) => option.id === agent) ??
     DESKTOP_TERMINAL_AGENT_OPTIONS[0];
+
+  useEffect(() => {
+    if (active) setSessionApp(activeApp);
+  }, [active, activeApp?.id, activeApp?.path, activeApp?.view]);
 
   useEffect(() => {
     const syncBackground = () =>
@@ -146,11 +155,11 @@ export default function DesktopTerminalTabs({
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
-    const context: DesktopTerminalContext | null = activeApp
+    const context: DesktopTerminalContext | null = sessionApp
       ? {
-          appId: activeApp.id,
-          ...(activeApp.path ? { path: activeApp.path } : {}),
-          ...(activeApp.view ? { view: activeApp.view } : {}),
+          appId: sessionApp.id,
+          ...(sessionApp.path ? { path: sessionApp.path } : {}),
+          ...(sessionApp.view ? { view: sessionApp.view } : {}),
         }
       : null;
     const getTerminalInfoUrl = window.electronAPI?.desktopChat
@@ -214,7 +223,7 @@ export default function DesktopTerminalTabs({
       cancelled = true;
       controller.abort();
     };
-  }, [activeApp?.id, activeApp?.path, activeApp?.view]);
+  }, [sessionApp?.id, sessionApp?.path, sessionApp?.view]);
 
   const workbenchStyle = {
     "--desktop-terminal-background": terminalBackground,
@@ -244,10 +253,10 @@ export default function DesktopTerminalTabs({
           </div>
         ) : (
           <AgentTerminal
-            key={`${activeApp?.id ?? "chat"}:${activeApp?.path ?? ""}:${activeApp?.view ?? ""}`}
             command={selectedAgent.command}
             wsUrl={connection.wsUrl}
             hideInFrame={false}
+            autoFocus={active}
             className="desktop-terminal-tabs__terminal"
             submitRequest={submitRequest}
             onPromptSubmitted={onPromptSubmitted}
