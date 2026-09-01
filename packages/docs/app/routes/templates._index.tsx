@@ -88,25 +88,28 @@ export default function TemplatesPage() {
               padding so the top rule spans the full measure, then restore it so
               the heading stays aligned with the rest of the page. */}
           <section
-            className="-mx-4 mt-24 border-t border-solid border-[var(--b-border-default)] px-4 pt-16 sm:-mx-6 sm:px-6"
+            className="-mx-4 mt-24 border-t border-solid border-[var(--b-border-default)] px-4 sm:-mx-6 sm:px-6"
             aria-labelledby="community-apps-heading"
           >
-            <div className="mb-6 max-w-[720px]">
-              <h2
-                id="community-apps-heading"
-                className={`m-0 ${SECTION_HEADING_CLASS}`}
-              >
-                {t("templatesPage.communityTitle")}
-              </h2>
-              <p className="mt-4 mb-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
-                {t("templatesPage.communityDescription")}
-              </p>
+            {/* Same opaque heading band as the first-party section above. */}
+            <div className="-mx-[15px] bg-[var(--b-bg-page)] px-[15px] pt-16 pb-6 sm:-mx-[23px] sm:px-[23px]">
+              <div className="max-w-[720px]">
+                <h2
+                  id="community-apps-heading"
+                  className={`m-0 ${SECTION_HEADING_CLASS}`}
+                >
+                  {t("templatesPage.communityTitle")}
+                </h2>
+                <p className="mt-4 mb-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+                  {t("templatesPage.communityDescription")}
+                </p>
+              </div>
             </div>
 
             {communityApps.length > 0 ? (
               // Matches the first-party band, including the 1px inset that
               // keeps this fill from painting over the decorative column rules.
-              <div className="-mx-[15px] grid min-w-0 gap-5 border-y border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] p-5 sm:-mx-[23px] sm:grid-cols-2 lg:grid-cols-3">
+              <div className="-mx-[15px] grid min-w-0 gap-5 border-b border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] p-5 sm:-mx-[23px] sm:grid-cols-2 lg:grid-cols-3">
                 {communityApps.map((app) => (
                   <CommunityAppCard key={app.slug} app={app} />
                 ))}
