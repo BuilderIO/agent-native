@@ -44,6 +44,14 @@ describe("McpAccessSettings localization", () => {
     expect(container.textContent).toContain("URL del servidor MCP");
     expect(container.textContent).toContain("Conectar un host de IA");
     expect(container.textContent).not.toContain("MCP server URL");
+    expect(container.textContent).not.toContain("Abre Customize → Connectors");
+
+    const claudeTab = container.querySelector<HTMLButtonElement>(
+      "#mcp-guide-tab-claude",
+    );
+    expect(claudeTab).not.toBeNull();
+    await act(async () => claudeTab?.click());
+    expect(container.textContent).toContain("Abre Customize → Connectors");
 
     const connectLink = Array.from(container.querySelectorAll("a")).find(
       (link) => link.textContent?.includes("Abrir página completa de conexión"),
@@ -70,6 +78,11 @@ describe("McpAccessSettings localization", () => {
     });
 
     try {
+      const claudeTab = container.querySelector<HTMLButtonElement>(
+        "#mcp-guide-tab-claude",
+      );
+      expect(claudeTab).not.toBeNull();
+      await act(async () => claudeTab?.click());
       expect(container.textContent).toContain("name it Mail");
     } finally {
       meta.remove();

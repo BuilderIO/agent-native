@@ -165,4 +165,13 @@ describe("authenticated recording route loading", () => {
     expect(meetingRoute).toContain("recordingTranscripts");
     expect(meetingRoute).toContain("transcript: transcript");
   });
+
+  it("keeps the shared clip agent scoped to the clip being viewed", () => {
+    const shareRoute = readRoute("share.$shareId.tsx");
+    const agentPanel = shareRoute.slice(shareRoute.lastIndexOf("<AgentPanel"));
+
+    expect(agentPanel).toContain("scope={");
+    expect(agentPanel).toContain('type: "recording"');
+    expect(agentPanel).toContain("id: recording.id");
+  });
 });
