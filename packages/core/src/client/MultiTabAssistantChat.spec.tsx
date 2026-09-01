@@ -5,8 +5,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  AGENT_CHAT_CONTEXT_CHANGED_EVENT,
   cancelAgentChatSubmit,
   listAgentChatContext,
+  removeAgentChatContextItem,
   requestAgentChatThreadOpen,
   requestAgentTaskOpen,
   setAgentChatContextItem,
@@ -1190,6 +1192,83 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         ),
       }),
     ]);
+  });
+
+  it("updates resource context in place when only its label changes", async () => {
+    const contextTransitions: string[][] = [];
+    const onContextChanged = (event: Event) => {
+      const items = (event as CustomEvent<{ items: Array<{ key: string }> }>)
+        .detail.items;
+      contextTransitions.push(items.map((item) => item.key));
+    };
+    window.addEventListener(AGENT_CHAT_CONTEXT_CHANGED_EVENT, onContextChanged);
+
+    try {
+      await act(async () => {
+        root.render(
+          <MultiTabAssistantChat
+            storageKey="bridge-test"
+            scope={{ type: "deck", id: "deck-1", label: "This Slide" }}
+          />,
+        );
+        await Promise.resolve();
+      });
+      contextTransitions.length = 0;
+
+      await act(async () => {
+        root.render(
+          <MultiTabAssistantChat
+            storageKey="bridge-test"
+            scope={{
+              type: "deck",
+              id: "deck-1",
+              label: "Current Selection",
+            }}
+          />,
+        );
+        await Promise.resolve();
+      });
+
+      expect(listAgentChatContext()).toEqual([
+        expect.objectContaining({ title: "Current Selection" }),
+      ]);
+      expect(contextTransitions).not.toContainEqual([]);
+    } finally {
+      window.removeEventListener(
+        AGENT_CHAT_CONTEXT_CHANGED_EVENT,
+        onContextChanged,
+      );
+    }
+  });
+
+  it("does not restore a resource context after it is dismissed", async () => {
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{ type: "deck", id: "deck-1", label: "This Slide" }}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    removeAgentChatContextItem("agent-current-resource-context");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{
+            type: "deck",
+            id: "deck-1",
+            label: "Current Selection",
+          }}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(listAgentChatContext()).toEqual([]);
   });
 
   it("passes an app context namespace to the active composer", async () => {
