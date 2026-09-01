@@ -72,13 +72,19 @@ export function ensurePtySpawnHelperPermissions(): void {
 }
 
 function resolveTerminalShell(): string {
-  if (os.platform() === "win32") return process.env.ComSpec || "cmd.exe";
+  if (os.platform() === "win32") {
+    // config-ok: COMSPEC is an inherited host shell fact, not application configuration.
+    return process.env["COMSPEC"] || "cmd.exe";
+  }
 
+  // config-ok: SHELL is the user's inherited host shell, not application configuration.
   const configuredShell = process.env.SHELL;
   if (configuredShell && path.isAbsolute(configuredShell)) {
     try {
       if (fs.statSync(configuredShell).isFile()) return configuredShell;
-    } catch {}
+    } catch {
+      // coercion-ok: an invalid SHELL falls through to known system shells.
+    }
   }
 
   return (

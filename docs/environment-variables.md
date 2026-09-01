@@ -115,7 +115,7 @@ values from `.env` files, and use placeholders such as `<API_KEY>` in examples.
 | `NODE_*`                                                           | Node runtime and CLI options such as `NODE_ENV` and `NODE_OPTIONS`.                                                                                                         |
 | `APP_*`                                                            | Server-side app identity and public-origin configuration.                                                                                                                   |
 | `A2A_*`                                                            | A2A lifetime, auth, and processing controls.                                                                                                                                |
-| `URL` / `PATH` / `HOME` / `PWD` / `SHELL` / `APPDATA` / `INIT_CWD` | Host-provided process and shell metadata used by local tooling.                                                                                                             |
+| `URL` / `PATH` / `HOME` / `PWD` / `SHELL` / `COMSPEC` / `APPDATA` / `INIT_CWD` | Host-provided process and shell metadata used by local tooling.                                                                                                      |
 | `CLAUDE_CONFIG_DIR` / `COREPACK_HOME`                              | Tool-specific configuration and package-manager home directories.                                                                                                           |
 
 Database-specific `<APP_NAME>_DATABASE_URL` and
