@@ -66,6 +66,8 @@ vi.mock("../server/db/index.js", () => {
   };
 
   const db = {
+    transaction: async (callback: (tx: any) => Promise<unknown>) =>
+      callback(db),
     select: (projection?: Record<string, unknown>) => ({
       from: () => ({
         where: (cond: any) => ({
@@ -134,10 +136,27 @@ beforeEach(() => {
       resolved: 0,
       updatedAt: "2026-01-01T00:00:00.000Z",
     },
+    {
+      id: "c-3",
+      documentId: "doc-1",
+      threadId: "c-3",
+      parentId: null,
+      content: "Unrelated thread",
+      authorEmail: "other@example.com",
+      resolved: 0,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
   ];
 });
 
 describe("update-comment (action) — reopen permission", () => {
+  it("rejects an update without a mutation", async () => {
+    await expect(run({ id: "c-1" })).rejects.toThrow(
+      "Provide content or resolved to update a comment",
+    );
+    expect(mockAssertAccess).not.toHaveBeenCalled();
+  });
+
   it("requires editor access to reopen a thread, even for the comment's own author", async () => {
     state.rows.forEach((r) => (r.resolved = 1));
     mockGetUserEmail.mockReturnValue("author@example.com");
@@ -179,6 +198,52 @@ describe("update-comment (action) — reopen permission", () => {
       "editor",
     );
     expect(state.rows[1].resolved).toBe(1); // whole thread resolved
+    expect(state.rows[2].resolved).toBe(0); // sibling thread unchanged
+  });
+
+  it("updates content and resolves the full thread in one transaction", async () => {
+    const result = await run({
+      id: "c-1",
+      content: "Corrected text",
+      resolved: true,
+    });
+
+    expect(result).toEqual({ ok: true, resolved: true });
+    expect(mockAssertAccess).toHaveBeenCalledWith(
+      "document",
+      "doc-1",
+      "editor",
+    );
+    expect(state.rows[0].content).toBe("Corrected text");
+    expect(state.rows[0].resolved).toBe(1);
+    expect(state.rows[1].content).toBe("A reply");
+    expect(state.rows[1].resolved).toBe(1);
+    expect(state.rows[2].resolved).toBe(0);
+  });
+
+  it("returns the same resolved state when an already-resolved thread is resolved again", async () => {
+    state.rows[0].resolved = 1;
+    state.rows[1].resolved = 1;
+
+    const result = await run({
+      id: "c-1",
+      documentId: "doc-1",
+      resolved: true,
+    });
+
+    expect(result).toEqual({ ok: true, resolved: true });
+    expect(state.rows[0].resolved).toBe(1);
+    expect(state.rows[1].resolved).toBe(1);
+    expect(state.rows[2].resolved).toBe(0);
+  });
+
+  it("fails closed on a mismatched document and comment pair", async () => {
+    await expect(
+      run({ id: "c-1", documentId: "doc-2", resolved: true }),
+    ).rejects.toThrow("Comment not found: c-1");
+
+    expect(mockAssertAccess).not.toHaveBeenCalled();
+    expect(state.rows.every((row) => row.resolved === 0)).toBe(true);
   });
 
   it("allows the author to edit their own comment content with commenter access", async () => {
