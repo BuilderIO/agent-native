@@ -127,7 +127,8 @@ internal test, deployment, and tooling gaps are never reporter questions, and
 an item you investigated without cracking is recorded internally as open, not
 broadcast as a status update. Reply where the reply carries information the
 thread does not already have; otherwise leave the eye and the recap row and
-post nothing. Silence is a disposition.
+post nothing. Record **Open - no reply** with the concrete reason. Silence is a
+disposition.
 
 Never post the same sentence into several threads. When reports share one
 cause, reply once and record the rest as clustered.
