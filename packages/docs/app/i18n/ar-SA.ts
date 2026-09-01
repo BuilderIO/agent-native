@@ -540,7 +540,7 @@ const arSA = {
     communityTitle: "تطبيقات المجتمع",
     communityDescription:
       "اكتشف تطبيقات يديرها مؤلفوها. جرّب النسخة المستضافة عند توفرها، أو راجع المصدر وخصص التطبيق بنفسك.",
-    submitCommunityTemplate: "افتح نموذج GitHub",
+    submitCommunityTemplate: "إرسال تطبيق",
     communityEmpty:
       "باب الإدراج في المجتمع مفتوح. انشر تطبيق Agent-Native مركّزًا وأرسله إلى الكتالوج.",
     publishGuide: "اقرأ دليل النشر",
@@ -578,13 +578,14 @@ const arSA = {
     communitySubmissionRepository: "مستودع GitHub (اختياري)",
     communitySubmissionRepositoryPlaceholder:
       "https://github.com/owner/repository",
-    communitySubmissionScreenshots: "روابط لقطات الشاشة (اختياري)",
-    communitySubmissionScreenshotsPlaceholder: "رابط صورة عام واحد في كل سطر",
-    communitySubmissionSubmit: "المتابعة إلى GitHub",
-    communitySubmissionReady: "مسودة issue على GitHub جاهزة. أكمل الإرسال هناك.",
-    communitySubmissionOpenDraft: "فتح المسودة",
+    communitySubmissionScreenshots: "لقطات الشاشة (اختياري)",
+    communitySubmissionScreenshotsPlaceholder:
+      "حتى 5 صور PNG أو JPG أو WebP. بحد أقصى 1.5 ميجابايت لكل صورة.",
+    communitySubmissionScreenshotSlot: "لقطة الشاشة {{index}}",
+    communitySubmissionSubmit: "إرسال التطبيق",
+    communitySubmissionReady: "شكرًا. سنراجع تطبيقك قبل نشره.",
     communitySubmissionValidation:
-      "أضف اسمًا ووصفًا ورابط تطبيق صالحًا. يجب أن تكون الروابط الاختيارية صالحة أيضًا.",
+      "أضف اسمًا ووصفًا ورابط تطبيق صالحًا. ارفع صور PNG أو JPG أو WebP بحد أقصى 1.5 ميجابايت لكل صورة.",
   },
   buildFromScratch: {
     title: "ابنِ من الصفر",

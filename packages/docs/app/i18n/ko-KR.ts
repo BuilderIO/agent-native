@@ -544,7 +544,7 @@ const koKR = {
     communityTitle: "커뮤니티 앱",
     communityDescription:
       "작성자가 관리하는 앱을 찾아보세요. 호스팅 버전이 있으면 사용해 보고, 소스 코드를 확인해 직접 맞춤 설정할 수 있습니다.",
-    submitCommunityTemplate: "GitHub 양식 열기",
+    submitCommunityTemplate: "앱 제출",
     communityEmpty:
       "커뮤니티 등록을 받고 있습니다. 명확한 목적의 Agent-Native 앱을 게시하고 카탈로그에 제출하세요.",
     publishGuide: "게시 가이드 읽기",
@@ -582,15 +582,14 @@ const koKR = {
     communitySubmissionRepository: "GitHub 저장소 (선택 사항)",
     communitySubmissionRepositoryPlaceholder:
       "https://github.com/owner/repository",
-    communitySubmissionScreenshots: "스크린샷 URL (선택 사항)",
+    communitySubmissionScreenshots: "스크린샷 (선택 사항)",
     communitySubmissionScreenshotsPlaceholder:
-      "공개 이미지 URL을 한 줄에 하나씩 입력하세요",
-    communitySubmissionSubmit: "GitHub로 계속",
-    communitySubmissionReady:
-      "GitHub issue 초안이 준비되었습니다. 그곳에서 제출을 완료하세요.",
-    communitySubmissionOpenDraft: "초안 열기",
+      "PNG, JPG 또는 WebP 이미지를 최대 5개까지 업로드하세요. 각 1.5MB 이하.",
+    communitySubmissionScreenshotSlot: "스크린샷 {{index}}",
+    communitySubmissionSubmit: "앱 제출",
+    communitySubmissionReady: "감사합니다. 게시하기 전에 앱을 검토하겠습니다.",
     communitySubmissionValidation:
-      "이름, 설명, 유효한 앱 URL을 입력하세요. 선택한 URL도 유효해야 합니다.",
+      "이름, 설명, 유효한 앱 URL을 입력하세요. PNG, JPG 또는 WebP 이미지는 각각 1.5MB 이하로 업로드하세요.",
   },
   buildFromScratch: {
     title: "처음부터 만들기",

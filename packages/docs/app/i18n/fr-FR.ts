@@ -546,7 +546,7 @@ const frFR = {
     communityTitle: "Applications de la communauté",
     communityDescription:
       "Découvrez des applications maintenues par leurs auteurs. Essayez une version hébergée lorsqu’elle existe, ou consultez le code source pour la personnaliser.",
-    submitCommunityTemplate: "Ouvrir le formulaire GitHub",
+    submitCommunityTemplate: "Proposer une application",
     communityEmpty:
       "Les soumissions communautaires sont ouvertes. Publiez une application Agent-Native ciblée et proposez-la au catalogue.",
     publishGuide: "Lire le guide de publication",
@@ -584,15 +584,15 @@ const frFR = {
     communitySubmissionRepository: "Dépôt GitHub (facultatif)",
     communitySubmissionRepositoryPlaceholder:
       "https://github.com/owner/repository",
-    communitySubmissionScreenshots: "URLs des captures (facultatif)",
+    communitySubmissionScreenshots: "Captures d’écran (facultatif)",
     communitySubmissionScreenshotsPlaceholder:
-      "Une URL d’image publique par ligne",
-    communitySubmissionSubmit: "Continuer vers GitHub",
+      "Jusqu’à 5 images PNG, JPG ou WebP. 1,5 Mo chacune.",
+    communitySubmissionScreenshotSlot: "Capture {{index}}",
+    communitySubmissionSubmit: "Envoyer l’application",
     communitySubmissionReady:
-      "Le brouillon de votre issue GitHub est prêt. Terminez l’envoi sur GitHub.",
-    communitySubmissionOpenDraft: "Ouvrir le brouillon",
+      "Merci. Nous examinerons votre application avant de la publier.",
     communitySubmissionValidation:
-      "Ajoutez un nom, une description et une URL d’application valide. Les URLs facultatives doivent également être valides.",
+      "Ajoutez un nom, une description et une URL d’application valide. Importez des images PNG, JPG ou WebP de 1,5 Mo maximum chacune.",
   },
   buildFromScratch: {
     title: "Créer de zéro",

@@ -544,7 +544,7 @@ const jaJP = {
     communityTitle: "コミュニティアプリ",
     communityDescription:
       "作者が管理するアプリを見つけましょう。ホスト版があれば試用でき、ソースコードを確認して自分でカスタマイズできます。",
-    submitCommunityTemplate: "GitHub フォームを開く",
+    submitCommunityTemplate: "アプリを送信",
     communityEmpty:
       "コミュニティ掲載を受け付けています。目的を絞った Agent-Native アプリを公開し、カタログに申請してください。",
     publishGuide: "公開ガイドを読む",
@@ -582,14 +582,15 @@ const jaJP = {
     communitySubmissionRepository: "GitHub リポジトリ（任意）",
     communitySubmissionRepositoryPlaceholder:
       "https://github.com/owner/repository",
-    communitySubmissionScreenshots: "スクリーンショット URL（任意）",
-    communitySubmissionScreenshotsPlaceholder: "公開画像 URL を 1 行に 1 つ",
-    communitySubmissionSubmit: "GitHub に進む",
+    communitySubmissionScreenshots: "スクリーンショット（任意）",
+    communitySubmissionScreenshotsPlaceholder:
+      "PNG、JPG、WebP 画像を最大 5 枚。各 1.5 MB まで。",
+    communitySubmissionScreenshotSlot: "スクリーンショット {{index}}",
+    communitySubmissionSubmit: "アプリを送信",
     communitySubmissionReady:
-      "GitHub issue の下書きが準備できました。そこで送信を完了してください。",
-    communitySubmissionOpenDraft: "下書きを開く",
+      "ありがとうございます。公開前にアプリを確認します。",
     communitySubmissionValidation:
-      "名前、説明、有効なアプリ URL を入力してください。任意の URL も有効である必要があります。",
+      "名前、説明、有効なアプリ URL を入力してください。PNG、JPG、WebP 画像は各 1.5 MB までアップロードできます。",
   },
   buildFromScratch: {
     title: "ゼロから構築",

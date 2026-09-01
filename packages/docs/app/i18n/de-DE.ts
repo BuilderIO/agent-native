@@ -546,7 +546,7 @@ const deDE = {
     communityTitle: "Community-Apps",
     communityDescription:
       "Entdecke Apps, die von ihren Autorinnen und Autoren gepflegt werden. Teste eine gehostete Version oder prüfe den Quellcode und passe ihn selbst an.",
-    submitCommunityTemplate: "GitHub-Formular öffnen",
+    submitCommunityTemplate: "App einreichen",
     communityEmpty:
       "Die Community-Liste ist offen. Veröffentliche eine fokussierte Agent-Native-App und reiche sie für den Katalog ein.",
     publishGuide: "Veröffentlichungsleitfaden lesen",
@@ -584,15 +584,15 @@ const deDE = {
     communitySubmissionRepository: "GitHub-Repository (optional)",
     communitySubmissionRepositoryPlaceholder:
       "https://github.com/owner/repository",
-    communitySubmissionScreenshots: "Screenshot-URLs (optional)",
+    communitySubmissionScreenshots: "Screenshots (optional)",
     communitySubmissionScreenshotsPlaceholder:
-      "Eine öffentliche Bild-URL pro Zeile",
-    communitySubmissionSubmit: "Weiter zu GitHub",
+      "Bis zu 5 PNG-, JPG- oder WebP-Bilder. Jeweils maximal 1,5 MB.",
+    communitySubmissionScreenshotSlot: "Screenshot {{index}}",
+    communitySubmissionSubmit: "App einreichen",
     communitySubmissionReady:
-      "Dein GitHub-Issue-Entwurf ist bereit. Schließe die Einreichung dort ab.",
-    communitySubmissionOpenDraft: "Entwurf öffnen",
+      "Danke. Wir prüfen deine App vor der Veröffentlichung.",
     communitySubmissionValidation:
-      "Füge einen Namen, eine Beschreibung und eine gültige App-URL hinzu. Optionale URLs müssen ebenfalls gültig sein.",
+      "Füge einen Namen, eine Beschreibung und eine gültige App-URL hinzu. Lade PNG-, JPG- oder WebP-Bilder mit jeweils maximal 1,5 MB hoch.",
   },
   buildFromScratch: {
     title: "Von Grund auf bauen",
