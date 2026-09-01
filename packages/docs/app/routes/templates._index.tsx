@@ -155,7 +155,7 @@ export default function TemplatesPage() {
             {communityApps.length > 0 ? (
               // Matches the first-party band, including the 1px inset that
               // keeps this fill from painting over the decorative column rules.
-              <div className="-mx-[15px] grid min-w-0 gap-5 border-b border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] p-5 sm:-mx-[23px] sm:grid-cols-2 lg:grid-cols-3">
+              <div className="-mx-[15px] grid min-w-0 gap-5 border-b border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] px-5 pt-5 pb-10 sm:-mx-[23px] sm:grid-cols-2 lg:grid-cols-3">
                 {communityApps.map((app) => (
                   <CommunityAppCard key={app.slug} app={app} />
                 ))}
@@ -167,7 +167,7 @@ export default function TemplatesPage() {
                 has to span the full measure for its thirds to land on the
                 page's column rules, so each cell carries the page padding and
                 the gutter is cell padding rather than a grid gap. */}
-            <div className="-mx-4 mt-16 grid gap-8 border-t border-solid border-[var(--b-border-default)] pt-10 sm:-mx-6 lg:grid-cols-3 lg:gap-0">
+            <div className="-mx-4 grid gap-8 border-t border-solid border-[var(--b-border-default)] pt-10 sm:-mx-6 lg:grid-cols-3 lg:gap-0">
               <div className="px-4 sm:px-6 lg:pr-[var(--spacing-8)]">
                 <h3 className={`m-0 ${SECTION_HEADING_CLASS}`}>
                   {t("templatesPage.communitySubmissionTitle")}
