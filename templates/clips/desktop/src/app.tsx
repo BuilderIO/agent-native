@@ -3457,7 +3457,6 @@ export function App({
       // early return in this block.
       recordingFlowGateRef.current = true;
       const releaseRecordingFlowGate = async () => {
-        recordingFlowGateRef.current = false;
         try {
           // Clear the native guard and close an idle bubble in one native
           // command so a new start cannot interleave between those steps.
@@ -3467,6 +3466,8 @@ export function App({
             "[clips-popover] could not release recording state:",
             err,
           );
+        } finally {
+          recordingFlowGateRef.current = false;
         }
       };
       // Native blur cleanup also runs while the permission prompt or display
