@@ -430,7 +430,7 @@ const zhCN = {
   homepage: {
     hero: {
       title: "面向 agentic 应用的框架",
-      bodyLine1: "为 agent 构建，无需为用户单独打造第二个产品。",
+      bodyLine1: "构建配备直观 UI 的自主型 agent。",
       bodyLine2: "使用你自己的 LLM，随处部署。",
       tryAnApp: "试用应用",
     },
