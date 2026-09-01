@@ -87,6 +87,32 @@ describe("SettingsTabsPage", () => {
     expect(document.activeElement).toBe(searchInput);
   });
 
+  it("shows a single clear control once the settings search has a query", () => {
+    act(() => {
+      root.render(<SettingsTabsPage general={<div>General content</div>} />);
+    });
+
+    const searchInput = container.querySelector<HTMLInputElement>(
+      'input[type="search"]',
+    )!;
+    expect(searchInput.className).toContain(
+      "[&::-webkit-search-cancel-button]:appearance-none",
+    );
+
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(searchInput, "WDWD");
+      searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    expect(
+      container.querySelectorAll('button[aria-label="Clear search"]'),
+    ).toHaveLength(1);
+  });
+
   it("renders the optional navigation header above the settings search", () => {
     act(() => {
       root.render(

@@ -33,6 +33,7 @@ export * from "./progress.js";
 export * from "./radio-group.js";
 export * from "./resizable.js";
 export * from "./scroll-area.js";
+export * from "./search-input.js";
 export * from "./select.js";
 export * from "./separator.js";
 export * from "./sheet.js";

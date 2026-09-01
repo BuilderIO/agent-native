@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { SearchInput } from "@agent-native/toolkit/ui/search-input";
 import {
   IconActivity,
   IconArrowUpRight,
@@ -16,8 +17,6 @@ import {
   IconSettingsAutomation,
   IconShield,
   IconShieldCheck,
-  IconSearch,
-  IconX,
 } from "@tabler/icons-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { NavLink } from "react-router";
@@ -240,30 +239,14 @@ export function AdminShell({
     >
       <aside className="min-w-0 border-b pb-5 lg:sticky lg:top-2 lg:self-start lg:border-b-0">
         <div className="flex items-center gap-1 px-2">
-          <div className="relative min-w-0 flex-1">
-            <IconSearch className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") setQuery("");
-              }}
-              placeholder="Search admin"
-              aria-label="Search admin"
-              className="h-8 w-full rounded-md border border-border bg-background ps-8 pe-7 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-accent/40"
-            />
-            {query ? (
-              <button
-                type="button"
-                onClick={() => setQuery("")}
-                aria-label="Clear admin search"
-                className="absolute end-1.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-              >
-                <IconX className="size-3.5" />
-              </button>
-            ) : null}
-          </div>
+          <SearchInput
+            containerClassName="min-w-0 flex-1"
+            value={query}
+            onValueChange={setQuery}
+            placeholder="Search admin"
+            aria-label="Search admin"
+            clearLabel="Clear admin search"
+          />
           <DocsLink
             href={DISPATCH_DOCS.dispatch}
             label="Open Dispatch admin documentation"

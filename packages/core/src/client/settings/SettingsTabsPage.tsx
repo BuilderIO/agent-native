@@ -1,12 +1,11 @@
 import { Tabs, useDesignSystem } from "@agent-native/toolkit/design-system";
+import { SearchInput } from "@agent-native/toolkit/ui/search-input";
 import {
   IconArrowUpRight,
   IconHistory,
-  IconSearch,
   IconSettings,
   IconUserCircle,
   IconUsers,
-  IconX,
 } from "@tabler/icons-react";
 import {
   useCallback,
@@ -598,35 +597,21 @@ function SettingsTabsPageContent({
       >
         {navHeader}
         {enableSearch ? (
-          <div className="relative sm:mb-2">
-            <IconSearch className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <input
-              ref={searchInputRef}
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") setQuery("");
-                if (event.key === "Enter" && results[0]) {
-                  event.preventDefault();
-                  selectEntry(results[0]);
-                }
-              }}
-              placeholder={searchPlaceholder}
-              aria-label={searchPlaceholder}
-              className="h-8 w-full rounded-md border border-border bg-background ps-8 pe-7 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-accent/40"
-            />
-            {query ? (
-              <button
-                type="button"
-                onClick={() => setQuery("")}
-                aria-label="Clear search"
-                className="absolute end-1.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-              >
-                <IconX className="size-3.5" />
-              </button>
-            ) : null}
-          </div>
+          <SearchInput
+            ref={searchInputRef}
+            containerClassName="sm:mb-2"
+            value={query}
+            onValueChange={setQuery}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && results[0]) {
+                event.preventDefault();
+                selectEntry(results[0]);
+              }
+            }}
+            placeholder={searchPlaceholder}
+            aria-label={searchPlaceholder}
+            clearLabel="Clear search"
+          />
         ) : null}
 
         {searching ? (
