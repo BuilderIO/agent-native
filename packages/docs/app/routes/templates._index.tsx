@@ -88,10 +88,12 @@ export default function TemplatesPage() {
         </GridInner>
       </PageSection>
 
+      {/* The gap between the card grid and the block below is its own section
+          so it holds nothing but the page's 3-column decoration. */}
+      <PageSection aria-hidden="true" className="h-[100px]" />
+
       <PageSection>
-        {/* The top padding is the spacer between the card grid and this band;
-            the section's own gridlines carry through it. */}
-        <GridInner className="pt-[var(--spacing-12)] pb-[var(--spacing-4)]">
+        <GridInner className="pb-[var(--spacing-4)]">
           <div className="flex flex-col items-center gap-[var(--spacing-5)] border border-solid border-[var(--b-border-subtle)] px-[var(--spacing-8)] py-[var(--spacing-16)] text-center">
             <div className="flex flex-col items-center gap-[var(--spacing-2)]">
               <h2 className={HEADING_4_CLASS}>{t("buildFromScratch.title")}</h2>
