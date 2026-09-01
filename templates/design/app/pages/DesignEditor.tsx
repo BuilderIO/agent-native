@@ -614,6 +614,7 @@ import {
 import { isRadixOverlayOpen } from "./design-editor/dom-guards";
 import { useTweaks } from "./design-editor/domains/use-tweaks";
 import {
+  ADD_TO_CONTEXT_LABEL,
   AUTO_RETRY_DELAY_MS,
   BOARD_SURFACE_SIZE,
   DESIGN_EDITOR_DEBUG_LOGS,
@@ -18964,17 +18965,19 @@ function DesignEditor() {
     </>
   );
 
-  const pendingNodeRewriteCompact = rightSidebarWidth < 320;
+  // The right rail resizes down to 240px, so labelled controls in this row must
+  // collapse to icons or they push the Share CTA past the panel edge.
+  const rightToolbarCompact = rightSidebarWidth < 320;
   const pendingNodeRewriteLabel = t("designEditor.nodeRewrite.pendingReview", {
     count: pendingNodeRewriteProposals.length,
   });
   const pendingNodeRewriteButtonContent = (
     <>
-      {!pendingNodeRewriteCompact ? (
+      {!rightToolbarCompact ? (
         <span className="size-1.5 shrink-0 rounded-full bg-primary" />
       ) : null}
       <IconFileStack className="size-3.5 shrink-0" />
-      {pendingNodeRewriteCompact ? (
+      {rightToolbarCompact ? (
         <span className="min-w-4 rounded bg-primary/10 px-1 text-center text-[10px] font-semibold tabular-nums text-primary">
           {pendingNodeRewriteProposals.length}
         </span>
@@ -18985,9 +18988,7 @@ function DesignEditor() {
   );
   const pendingNodeRewriteButtonClassName = cn(
     "h-8 rounded-md border-primary/30 bg-primary/5 text-xs hover:bg-primary/10",
-    pendingNodeRewriteCompact
-      ? "min-w-10 gap-1 px-1.5"
-      : "max-w-44 gap-1.5 px-2",
+    rightToolbarCompact ? "min-w-10 gap-1 px-1.5" : "max-w-44 gap-1.5 px-2",
   );
   const pendingNodeRewriteControl =
     pendingNodeRewriteProposals.length ===
@@ -19007,7 +19008,7 @@ function DesignEditor() {
             {pendingNodeRewriteButtonContent}
           </Button>
         </TooltipTrigger>
-        {pendingNodeRewriteCompact ? (
+        {rightToolbarCompact ? (
           <TooltipContent>{pendingNodeRewriteLabel}</TooltipContent>
         ) : null}
       </Tooltip>
@@ -19024,13 +19025,13 @@ function DesignEditor() {
                 aria-label={pendingNodeRewriteLabel}
               >
                 {pendingNodeRewriteButtonContent}
-                {!pendingNodeRewriteCompact ? (
+                {!rightToolbarCompact ? (
                   <IconChevronDown className="size-3 shrink-0 opacity-70" />
                 ) : null}
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          {pendingNodeRewriteCompact ? (
+          {rightToolbarCompact ? (
             <TooltipContent>{pendingNodeRewriteLabel}</TooltipContent>
           ) : null}
         </Tooltip>
@@ -19062,7 +19063,10 @@ function DesignEditor() {
       data-design-chrome-region="right-toolbar"
       className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] px-[var(--design-baseline-unit)] py-[var(--design-baseline-half)]"
     >
-      <div className="flex min-h-[var(--design-row-height)] items-center gap-[var(--design-baseline-half)]">
+      <div
+        data-design-chrome-region="right-toolbar-actions"
+        className="flex min-h-[var(--design-row-height)] items-center gap-[var(--design-baseline-half)]"
+      >
         <div className="flex min-w-0 flex-1 items-center gap-[var(--design-baseline-half)]">
           {hostEmbeddedEditor ? null : (
             <DesignCollaboratorsMenu
@@ -19100,15 +19104,30 @@ function DesignEditor() {
             </Button>
           ) : null}
           {!hostEmbeddedEditor && canRenderAuthenticatedShare ? (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setAddToContextOpen(true)}
-              className="h-8 gap-1.5 rounded-md px-3 text-sm"
-            >
-              <IconLibraryPlus className="size-4" />
-              {"Add to Context" /* i18n-ignore prominent context entry point */}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setAddToContextOpen(true)}
+                  aria-label={ADD_TO_CONTEXT_LABEL}
+                  className={cn(
+                    "h-[var(--design-row-height)] min-w-0 rounded-md text-sm",
+                    rightToolbarCompact
+                      ? "w-[var(--design-row-height)] shrink-0 px-0"
+                      : "gap-[var(--design-baseline-half)] px-[var(--design-baseline-unit)]",
+                  )}
+                >
+                  <IconLibraryPlus className="size-4" />
+                  {rightToolbarCompact ? null : (
+                    <span className="truncate">{ADD_TO_CONTEXT_LABEL}</span>
+                  )}
+                </Button>
+              </TooltipTrigger>
+              {rightToolbarCompact ? (
+                <TooltipContent>{ADD_TO_CONTEXT_LABEL}</TooltipContent>
+              ) : null}
+            </Tooltip>
           ) : null}
           <Popover
             open={hostEmbeddedEditor ? false : publishWaitlistPopoverOpen}
