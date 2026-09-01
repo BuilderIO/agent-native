@@ -3456,16 +3456,25 @@ export function App({
       // further below hasn't run yet at this point, so reset this on every
       // early return in this block.
       recordingFlowGateRef.current = true;
-      const releaseRecordingFlowGate = () => {
+      const releaseRecordingFlowGate = async () => {
         recordingFlowGateRef.current = false;
-        invoke("set_recording_state", { active: false }).catch(() => {});
+        try {
+          // Clear the native guard and close an idle bubble in one native
+          // command so a new start cannot interleave between those steps.
+          await invoke("release_recording_state");
+        } catch (err) {
+          console.error(
+            "[clips-popover] could not release recording state:",
+            err,
+          );
+        }
       };
       // Native blur cleanup also runs while the permission prompt or display
       // picker is open, before the later recording-state update below.
       try {
         await invoke("set_recording_state", { active: true });
       } catch (err) {
-        releaseRecordingFlowGate();
+        await releaseRecordingFlowGate();
         console.error("[clips-popover] could not hold recording state:", err);
         return null;
       }
@@ -3474,14 +3483,14 @@ export function App({
           "request_macos_screen_recording_access",
         );
         if (!granted) {
-          releaseRecordingFlowGate();
+          await releaseRecordingFlowGate();
           setReadinessOpen(true);
           setRecError(MACOS_SCREEN_PERMISSION_MESSAGE);
           openPrivacySettings("screen");
           return null;
         }
       } catch (err) {
-        releaseRecordingFlowGate();
+        await releaseRecordingFlowGate();
         setReadinessOpen(true);
         setRecError(err instanceof Error ? err.message : String(err));
         return null;
@@ -3499,7 +3508,7 @@ export function App({
           // themselves on the chosen screen the first time they are shown.
           await pickFullscreenRecordingDisplay();
         } catch (err) {
-          releaseRecordingFlowGate();
+          await releaseRecordingFlowGate();
           if (err instanceof Error && err.name === "AbortError") {
             // User cancelled the screen picker (Escape) — abort silently,
             // same as dismissing the native macOS screen picker.

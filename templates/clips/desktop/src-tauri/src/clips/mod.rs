@@ -2416,6 +2416,22 @@ pub async fn set_recording_state(app: AppHandle, active: bool) -> Result<(), Str
     Ok(())
 }
 
+/// Release a recording start flow and clean up a bubble that no recording owns.
+/// Keep the state change and cleanup in one native command so a new start cannot
+/// interleave after the guard is cleared but before the bubble is destroyed.
+#[tauri::command]
+pub async fn release_recording_state(app: AppHandle) -> Result<(), String> {
+    dlog!("[clips-tray] release_recording_state");
+    if let Some(state) = app.try_state::<RecordingActive>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = false;
+        }
+    }
+    crate::tray::rebuild_tray_menu(&app);
+    close_bubble_if_idle(&app);
+    Ok(())
+}
+
 /// Set from JS when a live meeting recording/transcription session starts or
 /// stops (see `useMeetingTranscription`). Gates the `ExitRequested` quit
 /// teardown in `lib.rs`: quit stays instant when no meeting is active, and

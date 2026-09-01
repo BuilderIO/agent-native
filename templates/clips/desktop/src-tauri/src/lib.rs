@@ -144,6 +144,7 @@ pub fn run() {
             clips::complete_voice_dictation,
             clips::paste_last_dictation,
             clips::set_recording_state,
+            clips::release_recording_state,
             clips::set_meeting_active,
             clips::get_active_meeting_id,
             clips::quit_teardown_done,
