@@ -137,7 +137,7 @@ export async function resolveBookingCalendarAccount({
   return googleCalendar.getDefaultAccountSelection(ownerEmail);
 }
 
-async function deleteGoogleEventForBooking({
+export async function deleteGoogleEventForBooking({
   booking,
   hostEmail,
 }: {
@@ -156,7 +156,7 @@ async function deleteGoogleEventForBooking({
     });
     if (!account) return;
     await googleCalendar.deleteEvent(booking.googleEventId, account, {
-      sendUpdates: "none",
+      sendUpdates: "all",
     });
   } catch (error) {
     console.warn(
