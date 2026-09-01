@@ -156,6 +156,40 @@ describe("resolveRegisteredRealtimeChannel", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  describe("how long a failure is remembered", () => {
+    // A refusal is a settled answer and deserves the long backoff. A timeout
+    // settles nothing, and holding a warm isolate on local polling for ten
+    // minutes after the gateway came back is a second, self-inflicted outage.
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it("retries an unreachable gateway within half a minute", async () => {
+      fetchMock.mockRejectedValue(new Error("ETIMEDOUT"));
+      await expect(resolveRegisteredRealtimeChannel()).resolves.toBeNull();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      await expect(resolveRegisteredRealtimeChannel()).resolves.toBeNull();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Recovered, and the app picks it up without waiting out the long backoff.
+      await vi.advanceTimersByTimeAsync(25_000);
+      fetchMock.mockResolvedValue(ok(CHANNEL));
+      await expect(resolveRegisteredRealtimeChannel()).resolves.toEqual(
+        CHANNEL,
+      );
+    });
+
+    it("still holds a refusal for the full backoff", async () => {
+      fetchMock.mockResolvedValue(ok({ code: "flag_off" }, 403));
+      await expect(resolveRegisteredRealtimeChannel()).resolves.toBeNull();
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      await expect(resolveRegisteredRealtimeChannel()).resolves.toBeNull();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("stays local when the gateway is unreachable", async () => {
     fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
     await expect(resolveRegisteredRealtimeChannel()).resolves.toBeNull();

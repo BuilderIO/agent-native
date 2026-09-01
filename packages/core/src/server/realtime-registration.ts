@@ -61,11 +61,24 @@ const REGISTRATION_SETTING_KEY = REALTIME_REGISTRATION_SETTING_KEY;
 const REGISTER_TIMEOUT_MS = 4_000;
 
 /**
- * How long a failed registration is remembered. Without it every request on a
- * flag-off deployment re-POSTs to the gateway; a 403 is a stable answer and
+ * How long a DECLINED registration is remembered. Without it every request on a
+ * deployment the gateway refuses re-POSTs; a 403 is a stable answer and
  * deserves to be treated as one.
  */
 const FAILURE_BACKOFF_MS = 10 * 60 * 1000;
+
+/**
+ * How long an UNREACHABLE gateway is remembered.
+ *
+ * Much shorter, because a timeout is not an answer. The long backoff exists to
+ * stop re-asking a question that has already been settled; a gateway that was
+ * briefly unreachable has settled nothing, and holding a warm isolate on local
+ * polling for ten minutes after the outage ended is a self-inflicted second
+ * outage. Still long enough that a sustained outage costs one attempt per
+ * isolate per half-minute rather than one per request, and the single-flight
+ * collapses concurrent callers onto that one attempt.
+ */
+const UNAVAILABLE_BACKOFF_MS = 30 * 1000;
 
 export interface RealtimeChannel {
   channelId: string;
@@ -536,8 +549,14 @@ export async function resolveRegisteredRealtimeChannel(): Promise<RealtimeChanne
   if (!inputs) return null;
 
   if (memo && memo.fingerprint === inputs.fingerprint) {
-    if (memo.result.channel) return memo.result.channel;
-    if (Date.now() - memo.at < FAILURE_BACKOFF_MS) return null;
+    const cached = memo.result;
+    if (cached.channel) return cached.channel;
+    // The two failure kinds get different patience: see UNAVAILABLE_BACKOFF_MS.
+    const backoff =
+      "failure" in cached && cached.failure === "unavailable"
+        ? UNAVAILABLE_BACKOFF_MS
+        : FAILURE_BACKOFF_MS;
+    if (Date.now() - memo.at < backoff) return null;
   }
 
   // Reuse an in-flight attempt only when it is for THESE inputs. A rotation
