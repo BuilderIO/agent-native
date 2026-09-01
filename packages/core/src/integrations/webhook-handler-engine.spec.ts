@@ -897,6 +897,10 @@ describe("integration webhook handler engine resolution", () => {
       });
 
       expect(complete).toHaveBeenCalledOnce();
+      expect(complete).toHaveBeenCalledWith(
+        expect.objectContaining({ text: "completed once" }),
+        { idempotencyKey: "integration-response:task-qa" },
+      );
       expect(sendResponse).toHaveBeenCalledOnce();
       expect(sendResponse).toHaveBeenCalledWith(
         expect.objectContaining({ text: "completed once" }),

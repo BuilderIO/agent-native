@@ -1034,7 +1034,9 @@ async function processIncomingMessage(
         let receipt: void | PlatformDeliveryReceipt;
         if (exhaustedProgress) {
           try {
-            receipt = await exhaustedProgress.complete(exhaustedMessage);
+            receipt = await exhaustedProgress.complete(exhaustedMessage, {
+              idempotencyKey: integrationResponseIdempotencyKey(opts.taskId),
+            });
           } catch {
             receipt = await adapter.sendResponse(
               exhaustedMessage,
@@ -1643,7 +1645,15 @@ async function processIncomingMessage(
               );
             } else if (progress) {
               try {
-                deliveryReceipt = await progress.complete(outgoing);
+                deliveryReceipt = await progress.complete(outgoing, {
+                  ...(opts.taskId
+                    ? {
+                        idempotencyKey: integrationResponseIdempotencyKey(
+                          opts.taskId,
+                        ),
+                      }
+                    : {}),
+                });
               } catch {
                 deliveryReceipt = await adapter.sendResponse(
                   outgoing,
