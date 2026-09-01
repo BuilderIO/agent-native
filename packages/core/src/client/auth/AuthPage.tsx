@@ -2651,27 +2651,29 @@ export function AuthPage(props: AuthPageProps) {
       background={
         marketingCopy.screenshotSrc ? null : <Starfield id="starfield" />
       }
+      topRight={
+        marketingCopy.learnMoreUrl ? (
+          <a
+            className="auth-marketing-learn-more"
+            href={marketingCopy.learnMoreUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <span>
+              {t("newToApp").replace(
+                "{appName}",
+                marketingCopy.appName.replace(/^Agent-Native\s+/i, ""),
+              )}
+            </span>
+            <span aria-hidden="true"> - </span>
+            <span className="auth-marketing-learn-more-link">
+              {t("learnMore")}
+            </span>
+          </a>
+        ) : null
+      }
       auth={
         <>
-          {marketingCopy.learnMoreUrl ? (
-            <a
-              className="auth-marketing-learn-more"
-              href={marketingCopy.learnMoreUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <span>
-                {t("newToApp").replace(
-                  "{appName}",
-                  marketingCopy.appName.replace(/^Agent-Native\s+/i, ""),
-                )}
-              </span>
-              <span aria-hidden="true"> - </span>
-              <span className="auth-marketing-learn-more-link">
-                {t("learnMore")}
-              </span>
-            </a>
-          ) : null}
           {authCard}
           {localNote}
         </>

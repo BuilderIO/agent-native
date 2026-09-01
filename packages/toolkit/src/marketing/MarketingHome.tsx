@@ -25,6 +25,8 @@ export interface MarketingHomeProps {
   /** Primary and secondary calls to action. */
   primaryAction?: React.ReactNode;
   secondaryAction?: React.ReactNode;
+  /** Optional page-level action rendered above the auth split. */
+  topRight?: React.ReactNode;
   /** Convenience links for the default primary and secondary buttons. */
   primaryActionHref?: string;
   secondaryActionHref?: string;
@@ -46,6 +48,7 @@ export function MarketingHome({
   background = <Starfield />,
   primaryAction,
   secondaryAction,
+  topRight,
   auth,
   children,
   className,
@@ -139,15 +142,22 @@ export function MarketingHome({
       <div
         className={cn(
           isAuthVariant
-            ? "auth-marketing-shell mx-auto flex min-h-screen w-full items-center px-6 py-10 sm:px-10 lg:px-16"
+            ? cn(
+                "auth-marketing-shell mx-auto flex min-h-screen w-full items-center px-6 py-10 sm:px-10 lg:px-16",
+                topRight ? "auth-marketing-shell-with-top-right" : "",
+              )
             : "mx-auto flex min-h-screen w-full max-w-7xl items-center px-6 py-16 sm:px-10 lg:px-16",
         )}
       >
+        {isAuthVariant && topRight ? (
+          <div className="auth-marketing-top-right">{topRight}</div>
+        ) : null}
         <div
           className={cn(
             isAuthVariant && auth ? "split" : "grid w-full items-center gap-12",
             auth ? "lg:grid-cols-[minmax(0,1fr)_minmax(20rem,28rem)]" : "",
             isAuthVariant && auth ? "max-w-6xl" : "",
+            isAuthVariant && topRight ? "auth-marketing-layout" : "",
           )}
         >
           <section
