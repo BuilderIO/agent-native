@@ -213,6 +213,19 @@ describe("resolveRegisteredRealtimeChannel", () => {
       "the database is a bare IP literal",
       () => mockGetDatabaseUrl.mockReturnValue("postgresql://u:p@10.0.0.5/app"),
     ],
+    [
+      // The fully-qualified spelling of the same names.
+      "the database host is a rooted localhost",
+      () =>
+        mockGetDatabaseUrl.mockReturnValue("postgresql://u:p@localhost./app"),
+    ],
+    [
+      "the database host is rooted cloud metadata",
+      () =>
+        mockGetDatabaseUrl.mockReturnValue(
+          "postgresql://u:p@metadata.google.internal./app",
+        ),
+    ],
   ])("does not register when %s", async (_name, arrange) => {
     arrange();
     await expect(resolveRegisteredRealtimeChannel()).resolves.toBeNull();

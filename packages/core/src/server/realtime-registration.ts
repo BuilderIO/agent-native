@@ -204,12 +204,23 @@ function fingerprintOf(
  * refuses those, so registering one only fails — but it fails *after* the
  * connection string has already left the machine, and a credential we know is
  * unusable should never be sent at all.
+ *
+ * Spelling only, and deliberately so. A name like `127.0.0.1.nip.io` resolves
+ * to loopback while looking nothing like it, and no lexical test catches that
+ * class. The gateway is where the policy is actually enforced: it resolves
+ * every address at register AND at connect (`isPublicDatabaseHost`) and
+ * re-checks inside the socket's own `lookup` on every dial, so a name that
+ * changes its answer later still cannot be reached. This function only keeps a
+ * credential we already know is unusable from leaving the machine.
  */
 function isRegisterableDatabase(databaseUrl: string): boolean {
   if (!isPostgres() || isPgliteUrl(databaseUrl)) return false;
   let host: string;
   try {
-    host = new URL(databaseUrl).hostname.toLowerCase();
+    // Strip the fully-qualified trailing dot before matching. `localhost.` and
+    // `metadata.google.internal.` are the same names to a resolver but slip
+    // past a suffix test written without it.
+    host = new URL(databaseUrl).hostname.toLowerCase().replace(/\.$/, "");
   } catch {
     // An unparseable connection string is not a registerable one, and it is
     // also a real misconfiguration the operator should see rather than
