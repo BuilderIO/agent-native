@@ -410,13 +410,13 @@ jobs:
         if: ${{ always() }}
         run: |
           set -euo pipefail
-          if find e2e/signup/test-results -type f -name 'mailosaur-inconclusive.txt' -print -quit | grep -q .; then
+          if [ "${{ steps.signup.outcome }}" != "success" ]; then
+            echo "outcome=failure" >> "$GITHUB_OUTPUT"
+          elif find e2e/signup/test-results -type f -name 'mailosaur-inconclusive.txt' -print -quit | grep -q .; then
             echo "outcome=inconclusive" >> "$GITHUB_OUTPUT"
             echo "INCONCLUSIVE: Mailosaur rate-limited the verification inbox; no product result was recorded." >> "$GITHUB_STEP_SUMMARY"
-          elif [ "${{ steps.signup.outcome }}" = "success" ]; then
-            echo "outcome=success" >> "$GITHUB_OUTPUT"
           else
-            echo "outcome=failure" >> "$GITHUB_OUTPUT"
+            echo "outcome=success" >> "$GITHUB_OUTPUT"
           fi
       - name: Page signup health on-call
         if: ${{ failure() && steps.signup.outcome == 'failure' && steps.classify.outputs.outcome == 'failure' }}
