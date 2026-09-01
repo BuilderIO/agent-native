@@ -332,12 +332,21 @@ fn install_sleep_watcher(app: &AppHandle) {
                 if drift > Duration::from_secs(30) {
                     // Only fire when a session is active to avoid noise.
                     let state = app.state::<DetectorState>();
-                    let (active, generation) = state
+                    let (active, generation, watch_sleep) = state
                         .inner
                         .lock()
-                        .map(|g| (g.active, g.generation))
-                        .unwrap_or((false, 0));
-                    if active && claim_auto_stop(&state.inner, generation) {
+                        .map(|g| {
+                            (
+                                g.active,
+                                g.generation,
+                                g.config
+                                    .as_ref()
+                                    .map(|config| config.watch_sleep)
+                                    .unwrap_or(false),
+                            )
+                        })
+                        .unwrap_or((false, 0, false));
+                    if active && watch_sleep && claim_auto_stop(&state.inner, generation) {
                         let _ = app.emit("meetings:sleep-stop", ());
                     }
                 }
@@ -368,19 +377,24 @@ fn install_call_ended_watcher(app: &AppHandle) {
             loop {
                 std::thread::sleep(CALL_END_POLL);
                 let state = app.state::<DetectorState>();
-                let (active, active_generation, configured_bundle_ids, fired) = state
-                    .inner
-                    .lock()
-                    .map(|g| {
-                        (
-                            g.active,
-                            g.generation,
-                            g.call_app_bundle_ids.clone(),
-                            g.auto_stop_fired,
-                        )
-                    })
-                    .unwrap_or((false, 0, Vec::new(), true));
-                if !active {
+                let (active, active_generation, configured_bundle_ids, watch_call_ended, fired) =
+                    state
+                        .inner
+                        .lock()
+                        .map(|g| {
+                            (
+                                g.active,
+                                g.generation,
+                                g.call_app_bundle_ids.clone(),
+                                g.config
+                                    .as_ref()
+                                    .map(|config| config.watch_call_ended)
+                                    .unwrap_or(false),
+                                g.auto_stop_fired,
+                            )
+                        })
+                        .unwrap_or((false, 0, Vec::new(), false, true));
+                if !active || !watch_call_ended {
                     call_app_used_microphone = false;
                     microphone_released_at = None;
                     continue;
