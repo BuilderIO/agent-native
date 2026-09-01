@@ -10,6 +10,7 @@ export type BuilderWaitlistLocation =
   | "homepage_rail"
   | "templates_index"
   | "card"
+  | "template_detail"
   | "getting_started";
 
 type BuilderWaitlistProps = {
