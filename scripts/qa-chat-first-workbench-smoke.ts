@@ -1481,7 +1481,9 @@ async function runElectronSmoke(): Promise<void> {
       "Electron CLI should keep the terminal beside the shared sidebar",
     );
     await page
-      .locator('[data-chat-first-surface-panel] [data-chat-first-surface-app="mail"]')
+      .locator(
+        '[data-chat-first-surface-panel] [data-chat-first-surface-app="mail"]',
+      )
       .click();
     await page
       .locator("[data-chat-first-app-pane]")
