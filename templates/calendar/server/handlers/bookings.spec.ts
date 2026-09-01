@@ -162,6 +162,41 @@ describe("booking availability", () => {
     );
   });
 
+  it("offers a slot after a non-hour DST gap instead of discarding the window", () => {
+    // 2026-10-04 is Australia/Lord_Howe's spring-forward transition, which
+    // advances clocks by only 30 minutes (01:59:59 -> 02:30:00), unlike most
+    // zones' 60-minute jump. A window starting inside that gap must resolve
+    // to the real 30-minute shift, not a hardcoded hour — otherwise the
+    // corrected start lands after the window's own (valid) end and the whole
+    // window is wrongly discarded.
+    vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"));
+    const config: AvailabilityConfig = {
+      ...availabilityConfig(),
+      timezone: "Australia/Lord_Howe",
+      weeklySchedule: {
+        monday: { enabled: false, slots: [] },
+        tuesday: { enabled: false, slots: [] },
+        wednesday: { enabled: false, slots: [] },
+        thursday: { enabled: false, slots: [] },
+        friday: { enabled: false, slots: [] },
+        saturday: { enabled: false, slots: [] },
+        sunday: { enabled: true, slots: [{ start: "02:00", end: "02:45" }] },
+      },
+    };
+
+    const slots = generateAvailableSlotsForDate({
+      date: "2026-10-04",
+      duration: 15,
+      config,
+      conflictItems: [],
+    });
+
+    // Real span is 02:30-02:45 local (15 real minutes) — one 15-minute slot.
+    expect(slots.map((slot) => ({ start: slot.start, end: slot.end }))).toEqual(
+      [{ start: "2026-10-03T15:30:00.000Z", end: "2026-10-03T15:45:00.000Z" }],
+    );
+  });
+
   it("offers 60-minute meetings on 30-minute start intervals", () => {
     const slots = generateAvailableSlotsForDate({
       date: "2026-07-20",

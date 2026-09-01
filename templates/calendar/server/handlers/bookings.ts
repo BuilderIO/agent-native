@@ -343,15 +343,24 @@ function zonedTimeToUtc(
   );
   result = new Date(utcGuess - getTimezoneOffsetMs(result, timezone));
 
-  // A spring-forward DST transition skips an hour of local wall-clock time.
-  // If the requested time falls in that gap, the offset above belongs to
-  // the wrong side of the transition and `result` silently lands an hour
-  // before the requested time instead of the requested time not existing.
-  // Detect that by round-tripping back to local time, and if it doesn't
-  // match, push forward to the first valid instant after the gap.
+  // A spring-forward DST transition skips a span of local wall-clock time —
+  // usually an hour, but zones such as Australia/Lord_Howe advance by only
+  // 30 minutes. If the requested time falls in that gap, the two-pass guess
+  // above can converge to either side of the transition, and `result`
+  // silently lands on some other real instant instead of the requested time
+  // not existing. Detect that by round-tripping back to local time, and if
+  // it doesn't match, resolve deterministically using the offset from a full
+  // day before the guess (definitely pre-transition): reapplying that fixed
+  // offset to the requested wall-clock numbers is equivalent to shifting the
+  // request forward by the transition's actual size and resolving it
+  // normally on the post-transition side, whatever that size is.
   const roundTrip = getLocalDateTimeParts(result, timezone);
   if (roundTrip.hour !== hour || roundTrip.minute !== minute) {
-    result = new Date(result.getTime() + 60 * 60 * 1000);
+    const offsetBefore = getTimezoneOffsetMs(
+      new Date(utcGuess - 24 * 60 * 60 * 1000),
+      timezone,
+    );
+    result = new Date(utcGuess - offsetBefore);
   }
   return result;
 }

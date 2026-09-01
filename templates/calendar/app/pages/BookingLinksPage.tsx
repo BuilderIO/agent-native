@@ -2307,6 +2307,12 @@ function BookingPreview({
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedDuration, setSelectedDuration] = useState<number | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
+  // Identity for the selected live slot, kept separate from the `h:mm a`
+  // display label above because a fall-back DST date can have two distinct
+  // ISO instants that format to the same label.
+  const [selectedSlotStart, setSelectedSlotStart] = useState<string | null>(
+    null,
+  );
   const [showPreviewTimeZones, setShowPreviewTimeZones] = useState(false);
   const [previewExtraTimezones, setPreviewExtraTimezones] = useState<string[]>(
     [],
@@ -2341,6 +2347,7 @@ function BookingPreview({
   useEffect(() => {
     setSelectedDuration(null);
     setSelectedSlot(null);
+    setSelectedSlotStart(null);
     setPreviewConfirmed(false);
   }, [durations.join(",")]);
 
@@ -2465,11 +2472,7 @@ function BookingPreview({
             timezone: host.timezone as string,
           })),
       ];
-  const selectedLiveSlotStart = hasLiveAvailability
-    ? (liveSlots.find(
-        (slot) => format(parseISO(slot.start), "h:mm a") === selectedSlot,
-      )?.start ?? null)
-    : null;
+  const selectedLiveSlotStart = hasLiveAvailability ? selectedSlotStart : null;
 
   // Determine which step to show
   const [forcedStep, setForcedStep] = useState<BookingPreviewStep | null>(null);
@@ -2490,11 +2493,10 @@ function BookingPreview({
 
   const confirmedDuration = selectedDuration ?? primaryDuration;
 
-  const selectedLiveSlot = hasLiveAvailability
-    ? (liveSlots.find(
-        (slot) => format(parseISO(slot.start), "h:mm a") === selectedSlot,
-      ) ?? null)
-    : null;
+  const selectedLiveSlot =
+    hasLiveAvailability && selectedSlotStart
+      ? (liveSlots.find((slot) => slot.start === selectedSlotStart) ?? null)
+      : null;
 
   const confirmedRange =
     selectedDate && selectedSlot
@@ -2533,6 +2535,7 @@ function BookingPreview({
     setSelectedDuration(null);
     setSelectedDate(null);
     setSelectedSlot(null);
+    setSelectedSlotStart(null);
     setPreviewConfirmed(false);
     setForcedStep(null);
   }
@@ -2661,13 +2664,16 @@ function BookingPreview({
                       setSelectedDuration(null);
                       setSelectedDate(null);
                       setSelectedSlot(null);
+                      setSelectedSlotStart(null);
                       setForcedStep(null);
                     } else if (s === "date") {
                       setSelectedDate(null);
                       setSelectedSlot(null);
+                      setSelectedSlotStart(null);
                       setForcedStep(null);
                     } else if (s === "time") {
                       setSelectedSlot(null);
+                      setSelectedSlotStart(null);
                       setForcedStep(null);
                     } else {
                       setForcedStep(s);
@@ -2775,6 +2781,7 @@ function BookingPreview({
                       onClick={() => {
                         setSelectedDate(day);
                         setSelectedSlot(null);
+                        setSelectedSlotStart(null);
                         setForcedStep(null);
                       }}
                       className={cn(
@@ -2810,6 +2817,7 @@ function BookingPreview({
                 onClick={() => {
                   setSelectedDate(null);
                   setSelectedSlot(null);
+                  setSelectedSlotStart(null);
                   setForcedStep(null);
                 }}
                 className={cn("text-[11px] hover:underline", BRAND_LINK_CLASS)}
@@ -2842,6 +2850,7 @@ function BookingPreview({
                 selectedSlot={selectedLiveSlotStart}
                 onSelect={(start) => {
                   setSelectedSlot(format(parseISO(start), "h:mm a"));
+                  setSelectedSlotStart(start);
                   setForcedStep(null);
                 }}
                 loading={liveSlotsLoading}
@@ -2867,22 +2876,36 @@ function BookingPreview({
               </p>
             ) : timeSlots.length > 0 ? (
               <div className="grid grid-cols-3 gap-1.5">
-                {timeSlots.map((slot) => (
+                {(hasLiveAvailability
+                  ? liveSlots.map((liveSlot) => ({
+                      key: liveSlot.start,
+                      label: format(parseISO(liveSlot.start), "h:mm a"),
+                      start: liveSlot.start as string | null,
+                    }))
+                  : timeSlots.map((label) => ({
+                      key: label,
+                      label,
+                      start: null as string | null,
+                    }))
+                ).map((slot) => (
                   <button
-                    key={slot}
+                    key={slot.key}
                     type="button"
                     onClick={() => {
-                      setSelectedSlot(slot);
+                      setSelectedSlot(slot.label);
+                      setSelectedSlotStart(slot.start);
                       setForcedStep(null);
                     }}
                     className={cn(
                       "rounded-md border px-2 py-1.5 text-center text-[11px] cursor-pointer",
-                      selectedSlot === slot
+                      (slot.start
+                        ? selectedSlotStart === slot.start
+                        : selectedSlot === slot.label)
                         ? "border-primary bg-primary/10 text-primary"
                         : "border-border/60 text-muted-foreground hover:bg-accent/60 hover:border-primary/30",
                     )}
                   >
-                    {slot}
+                    {slot.label}
                   </button>
                 ))}
               </div>
@@ -2905,6 +2928,7 @@ function BookingPreview({
                 type="button"
                 onClick={() => {
                   setSelectedSlot(null);
+                  setSelectedSlotStart(null);
                   setForcedStep(null);
                 }}
                 className={cn("text-[11px] hover:underline", BRAND_LINK_CLASS)}

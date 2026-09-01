@@ -324,11 +324,12 @@ export interface BookingLink {
    */
   ownerTimezone?: string;
   /**
-   * The owner's email. Only populated on the public booking-link read
-   * response — the owner is sharing this link so visitors can identify who
+   * The owner's public display name, derived from their username/email
+   * without exposing the raw address. Only populated on the public
+   * booking-link read response, so anonymous visitors can identify who
    * they're booking with.
    */
-  ownerEmail?: string;
+  ownerName?: string;
   /** Effective management role for the current caller, when loaded from a list. */
   accessRole?: "owner" | "admin" | "editor" | "commenter" | "viewer";
   createdAt: string;

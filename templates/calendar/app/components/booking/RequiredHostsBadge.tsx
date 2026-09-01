@@ -16,12 +16,12 @@ const HOVER_OPEN_DELAY_MS = 100;
 export function RequiredHostsBadge({
   label,
   ownerLabel,
-  ownerEmail,
+  ownerName,
   hosts,
 }: {
   label: string;
   ownerLabel: string;
-  ownerEmail?: string;
+  ownerName?: string;
   hosts: BookingHost[];
 }) {
   const t = useT();
@@ -107,7 +107,7 @@ export function RequiredHostsBadge({
         <div className="flex items-start justify-between gap-2">
           <ul className="space-y-1 text-xs">
             <li className="font-medium text-foreground">
-              {ownerEmail ? `${ownerLabel} (${ownerEmail})` : ownerLabel}
+              {ownerName ? `${ownerLabel} (${ownerName})` : ownerLabel}
             </li>
             {hosts.map((host) => (
               <li key={host.email} className="text-muted-foreground">

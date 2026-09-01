@@ -360,7 +360,7 @@ export default function BookingPage() {
                     count: requiredHostCount,
                   })}
                   ownerLabel={t("bookingLinks.hostLabel")}
-                  ownerEmail={bookingLink?.ownerEmail}
+                  ownerName={bookingLink?.ownerName}
                   hosts={bookingLink?.hosts ?? []}
                 />
               )}

@@ -30,6 +30,7 @@ import {
   rowToBookingLink,
   serializeBookingHosts,
 } from "../lib/booking-link-utils.js";
+import { displayNameFromIdentifier } from "../lib/booking-og-image.js";
 import { getOwnerBookingTimeZone } from "../lib/booking-timezone.js";
 import { ensureBookingUsername } from "./booking-usernames.js";
 
@@ -252,7 +253,12 @@ export const getPublicBookingLink = defineEventHandler(
 
       return {
         ...withHostTimezones(bookingLink, ownerTimezone, eligibleHosts),
-        ownerEmail: rows[0].ownerEmail,
+        // Identify the owner without exposing their raw email address to
+        // anonymous visitors of the public booking page.
+        ownerName: displayNameFromIdentifier(
+          canonicalUsername,
+          rows[0].ownerEmail,
+        ),
       };
     } catch (error: any) {
       setResponseStatus(event, 500);
