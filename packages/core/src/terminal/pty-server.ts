@@ -435,6 +435,11 @@ export async function createPtyWebSocketServer(
         return;
       }
       const npxPath = await resolveCommandPath("npx", env);
+      if (connectionClosed || ws.readyState !== WebSocket.OPEN || closed) {
+        closeSessionSetup();
+        ws.close();
+        return;
+      }
       if (!npxPath) {
         closeSessionSetup();
         sendStatus(
@@ -638,7 +643,7 @@ export function preparePtySpawn(
   }
   return {
     command: "cmd.exe",
-    args: ["/d", "/s", "/c", commandPath, ...args],
+    args: ["/d", "/s", "/c", `"${commandPath}"`, ...args],
   };
 }
 
@@ -658,14 +663,19 @@ export function parseTerminalArguments(
     current = "";
   };
 
-  for (const character of value) {
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index];
     if (escaped) {
       current += character;
       escaped = false;
       continue;
     }
-    if (character === "\\" && quote !== "'" && !preserveBackslashes) {
-      escaped = true;
+    if (character === "\\" && quote !== "'") {
+      if (!preserveBackslashes || value[index + 1] === '"') {
+        escaped = true;
+        continue;
+      }
+      current += character;
       continue;
     }
     if (quote) {

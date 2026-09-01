@@ -167,8 +167,8 @@ describe("createPtyWebSocketServer", () => {
     const commandPath = String.raw`C:\Users\steve\AppData\Roaming\npm\codex.cmd`;
 
     expect(preparePtySpawn(commandPath, ["--full-auto"], "win32")).toEqual({
-      command: process.env.ComSpec || process.env.COMSPEC || "cmd.exe",
-      args: ["/d", "/s", "/c", commandPath, "--full-auto"],
+      command: "cmd.exe",
+      args: ["/d", "/s", "/c", `"${commandPath}"`, "--full-auto"],
     });
     expect(preparePtySpawn(commandPath, [], "darwin")).toEqual({
       command: commandPath,
@@ -181,10 +181,15 @@ describe("createPtyWebSocketServer", () => {
 
     expect(
       parseTerminalArguments(
-        String.raw`--add-dir C:\Users\steve\Projects\framework`,
+        String.raw`--add-dir C:\Users\steve\Projects\framework --message "say \"hi\""`,
         "win32",
       ),
-    ).toEqual(["--add-dir", String.raw`C:\Users\steve\Projects\framework`]);
+    ).toEqual([
+      "--add-dir",
+      String.raw`C:\Users\steve\Projects\framework`,
+      "--message",
+      'say "hi"',
+    ]);
   });
 
   it("repairs a non-executable packaged spawn helper", async () => {
