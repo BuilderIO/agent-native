@@ -231,7 +231,7 @@ export function TemplateCard({ template }: { template: Template }) {
       <Link
         data-an-prefetch="viewport"
         to={templatePath}
-        className="relative flex aspect-[320/256] items-center justify-center overflow-hidden border-b border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-raised)]"
+        className="relative flex aspect-[320/256] items-center justify-center overflow-hidden border-b border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)]"
         onClick={() =>
           trackEvent("click template", {
             template: template.slug,
