@@ -92,19 +92,17 @@ export default function TemplatesPage() {
         {/* The top padding is the spacer between the card grid and this band;
             the section's own gridlines carry through it. */}
         <GridInner className="pt-[var(--spacing-12)] pb-[var(--spacing-4)]">
-          {/* A row rather than a card: it is no longer a cell in the grid, so
-              the copy sits on the left and the two actions on the right. */}
-          <div className="flex items-center justify-between gap-[var(--spacing-8)] border border-solid border-[var(--b-border-subtle)] p-[var(--spacing-8)] mobile:flex-col mobile:items-start">
-            <div className="flex flex-col gap-[var(--spacing-2)]">
+          <div className="flex flex-col items-center gap-[var(--spacing-5)] border border-solid border-[var(--b-border-subtle)] px-[var(--spacing-8)] py-[var(--spacing-16)] text-center">
+            <div className="flex flex-col items-center gap-[var(--spacing-2)]">
               <h2 className={HEADING_4_CLASS}>{t("buildFromScratch.title")}</h2>
-              <p className={PARAGRAPH_2_CLASS}>
+              <p className={`${PARAGRAPH_2_CLASS} max-w-[520px] text-pretty`}>
                 {t("buildFromScratch.description")}
               </p>
             </div>
-            {/* Wraps rather than shrinks: the ds Button labels are
-                whitespace-nowrap, so at narrow widths they stack instead of
-                overflowing the row. */}
-            <div className="flex shrink-0 flex-wrap gap-[var(--spacing-3)]">
+            {/* justify-center rather than relying on the parent's items-center:
+                that centres the row as a box, but a wrapped second line would
+                still start at the left edge. */}
+            <div className="flex flex-wrap justify-center gap-[var(--spacing-3)]">
               <BuildOnlinePopover
                 location="templates_index"
                 trigger={
