@@ -167,7 +167,9 @@ async function killProcessTree(
     if (!isParentExited()) {
       try {
         process.kill(pid, "SIGKILL");
-      } catch {}
+      } catch {
+        // coercion-ok: the process may exit before the delayed cleanup signal.
+      }
     }
   }, 500);
 }
