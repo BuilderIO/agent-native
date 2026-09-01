@@ -24,7 +24,7 @@ fn embed_macos_dev_info_plist() {
         .canonicalize()
         .expect("macOS Info.plist must exist for the desktop binary");
     println!(
-        "cargo:rustc-link-arg-bin=Clips=-Wl,-sectcreate,__TEXT,__info_plist,{}",
+        "cargo:rustc-link-arg-bins=-Wl,-sectcreate,__TEXT,__info_plist,{}",
         info_plist.display()
     );
 }
