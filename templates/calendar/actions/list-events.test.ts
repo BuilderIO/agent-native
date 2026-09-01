@@ -637,6 +637,77 @@ describe("list-events inventory contract", () => {
     ).rejects.toThrow("Refresh token revoked");
   });
 
+  it("still fails when the primary read errors even if a supplementary overlay event exists", async () => {
+    listGoogleEventsMock.mockResolvedValue({
+      events: [],
+      errors: [{ email: "steve@example.com", error: "Refresh token revoked" }],
+    });
+    listOverlayEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: "overlay-person@example.com-overlay-1",
+          title: "Some overlay meeting",
+          description: "",
+          start: "2026-06-17T16:00:00.000Z",
+          end: "2026-06-17T16:30:00.000Z",
+          location: "",
+          allDay: false,
+          source: "google",
+          googleEventId: "overlay-1",
+          accountEmail: "steve@example.com",
+          overlayEmail: "person@example.com",
+          createdAt: "2026-06-12T10:13:39.746Z",
+          updatedAt: "2026-06-12T10:13:39.746Z",
+        },
+      ],
+      errors: [],
+      accountErrors: [],
+    });
+
+    await expect(
+      (listEventsAction as any).run(
+        {
+          from: "2026-06-17",
+          to: "2026-06-18",
+          overlayEmails: ["person@example.com"],
+        },
+        {},
+      ),
+    ).rejects.toThrow("Refresh token revoked");
+  });
+
+  it("trusts a successful primary read over a local booking fallback even when an overlay account errors", async () => {
+    getDbMock.mockReturnValue(
+      createDbMock({
+        bookings: [bookingRow({ googleEventId: "event-1" })],
+      }),
+    );
+    // Primary Google read succeeds but genuinely has no matching event
+    // (e.g. it was cancelled upstream) - a fully successful, authoritative
+    // read with zero events, not a failure.
+    listGoogleEventsMock.mockResolvedValue({ events: [], errors: [] });
+    listOverlayEventsMock.mockResolvedValue({
+      events: [],
+      errors: [{ email: "person@example.com", error: "Refresh token revoked" }],
+      accountErrors: [
+        { email: "steve@example.com", error: "Refresh token revoked" },
+      ],
+    });
+
+    const result = await listCalendarEvents({
+      from: "2026-06-17",
+      to: "2026-06-18",
+      overlayEmails: ["person@example.com"],
+    });
+
+    // An unrelated overlay-account error must not make the caller's own
+    // (successful) Google read look non-authoritative and resurrect a
+    // local booking fallback for an event Google no longer has.
+    expect(
+      result.events.filter((event) => event.googleEventId === "event-1"),
+    ).toHaveLength(0);
+  });
+
   it("binds inventory cursors to the owner and exact query", async () => {
     listGoogleEventsMock.mockResolvedValue({
       events: [
