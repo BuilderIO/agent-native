@@ -4,17 +4,19 @@ export interface CalendarConnectionAccount {
 }
 
 export function isCalendarConnectionComplete(
-  previousAccounts: CalendarConnectionAccount[],
   currentAccounts: CalendarConnectionAccount[],
+  completedAccountId: string | null,
+  expectedAccountId?: string,
 ): boolean {
-  return currentAccounts.some((currentAccount) => {
-    if (currentAccount.status !== "connected") return false;
+  if (
+    !completedAccountId ||
+    (expectedAccountId && completedAccountId !== expectedAccountId)
+  ) {
+    return false;
+  }
 
-    const previousAccount = previousAccounts.find(
-      (account) => account.id === currentAccount.id,
-    );
-    // Sync metadata changes while the OAuth popup is open, so only a new row
-    // or a status transition can prove this connection flow completed.
-    return !previousAccount || previousAccount.status !== "connected";
-  });
+  return currentAccounts.some(
+    (account) =>
+      account.id === completedAccountId && account.status === "connected",
+  );
 }

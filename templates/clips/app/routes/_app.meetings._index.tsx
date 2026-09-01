@@ -5,14 +5,13 @@ import {
   IconAlertTriangle,
   IconBellRinging,
   IconCalendar,
-  IconExternalLink,
   IconLoader2,
   IconMicrophone2,
   IconSearch,
   IconX,
 } from "@tabler/icons-react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -122,9 +121,7 @@ interface CalendarAccount {
   lastSyncError?: string | null;
 }
 
-type CalendarConnectedHandler = (
-  previousAccounts?: CalendarAccount[],
-) => void | Promise<void>;
+type CalendarConnectHandler = (expectedAccountId?: string) => void;
 
 async function requestDisconnectCalendar(accountId: string): Promise<void> {
   const r = await fetch(
@@ -147,7 +144,11 @@ async function requestDisconnectCalendar(accountId: string): Promise<void> {
   }
 }
 
-async function startCalendarOAuth(): Promise<void> {
+interface CalendarOAuthResult {
+  accountId: string;
+}
+
+async function startCalendarOAuth(): Promise<CalendarOAuthResult | null> {
   const r = await fetch(
     agentNativePath("/_agent-native/actions/connect-calendar?provider=google"),
   );
@@ -165,7 +166,10 @@ async function startCalendarOAuth(): Promise<void> {
   if (!r.ok) throw new Error(data.error || `Failed (${r.status})`);
   const url = data.result?.url ?? data.url;
   if (!url) throw new Error("No OAuth URL returned");
-  const popupUrl = new URL(url, window.location.origin).toString();
+  const authUrl = new URL(url, window.location.origin);
+  const flowId = window.crypto.randomUUID();
+  authUrl.searchParams.set("flow_id", flowId);
+  const popupUrl = authUrl.toString();
   const popup = window.open(
     popupUrl,
     "clips-calendar-oauth",
@@ -176,27 +180,43 @@ async function startCalendarOAuth(): Promise<void> {
       "Popup blocked — please allow popups for this site and try again.",
     );
   }
-  await new Promise<void>((resolve) => {
+  return await new Promise<CalendarOAuthResult | null>((resolve) => {
     let settled = false;
-    const finish = () => {
+    const finish = (result: CalendarOAuthResult | null) => {
       if (settled) return;
       settled = true;
       window.clearInterval(interval);
       window.clearTimeout(timeout);
       window.removeEventListener("focus", onFocus);
-      resolve();
+      window.removeEventListener("message", onMessage);
+      resolve(result);
     };
     const interval = window.setInterval(() => {
-      if (popup.closed) finish();
+      if (popup.closed) finish(null);
     }, 500);
     // Some browsers (COOP) never report popup.closed; also resolve when the
     // user returns to this tab, and give up after 5 minutes regardless so the
     // connect flow can't hang forever.
     const onFocus = () => {
-      if (popup.closed) finish();
+      if (popup.closed) finish(null);
+    };
+    const onMessage = (event: MessageEvent) => {
+      if (
+        event.source !== popup ||
+        event.origin !== authUrl.origin ||
+        !event.data ||
+        typeof event.data !== "object" ||
+        event.data.type !== "agent-native:calendar-connected" ||
+        event.data.flowId !== flowId ||
+        typeof event.data.accountId !== "string"
+      ) {
+        return;
+      }
+      finish({ accountId: event.data.accountId });
     };
     window.addEventListener("focus", onFocus);
-    const timeout = window.setTimeout(finish, 5 * 60 * 1000);
+    window.addEventListener("message", onMessage);
+    const timeout = window.setTimeout(() => finish(null), 5 * 60 * 1000);
   });
 }
 
@@ -252,7 +272,13 @@ function MeetingHistoryList({
   );
 }
 
-function CalendarReauthBanner({ onReconnect }: { onReconnect: () => void }) {
+function CalendarReauthBanner({
+  onReconnect,
+  isPending,
+}: {
+  onReconnect: () => void;
+  isPending: boolean;
+}) {
   const t = useT();
   return (
     <div className="mb-6 flex flex-wrap items-center gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 text-sm text-amber-700 dark:text-amber-300">
@@ -264,9 +290,11 @@ function CalendarReauthBanner({ onReconnect }: { onReconnect: () => void }) {
         size="sm"
         variant="outline"
         onClick={onReconnect}
-        className="h-8 gap-1.5 cursor-pointer"
+        disabled={isPending}
+        aria-busy={isPending}
+        className="h-8 cursor-pointer"
       >
-        <IconExternalLink className="h-3.5 w-3.5" />
+        {isPending && <IconLoader2 className="h-3.5 w-3.5 animate-spin" />}
         Reconnect
       </Button>
     </div>
@@ -275,43 +303,27 @@ function CalendarReauthBanner({ onReconnect }: { onReconnect: () => void }) {
 
 function CalendarConnectionAction({
   label,
-  onConnected,
+  onConnect,
+  isPending,
   variant = "default",
 }: {
   label: string;
-  onConnected?: CalendarConnectedHandler;
+  onConnect?: CalendarConnectHandler;
+  isPending: boolean;
   variant?: "default" | "outline" | "secondary";
 }) {
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-
-  const handleConnect = () => {
-    setError(null);
-    setPending(true);
-    startCalendarOAuth()
-      .then(() => onConnected?.([]))
-      .then(() => setPending(false))
-      .catch((e: Error) => {
-        setError(e.message);
-        setPending(false);
-      });
-  };
-
   return (
-    <div className="space-y-2">
-      <Button
-        size="sm"
-        variant={variant}
-        onClick={handleConnect}
-        disabled={pending}
-        className="gap-1.5 cursor-pointer"
-      >
-        {pending ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-        {label}
-        <IconExternalLink className="h-3.5 w-3.5" />
-      </Button>
-      {error && <p className="text-xs text-destructive">{error}</p>}
-    </div>
+    <Button
+      size="sm"
+      variant={variant}
+      onClick={() => onConnect?.()}
+      disabled={isPending}
+      aria-busy={isPending}
+      className="cursor-pointer"
+    >
+      {isPending && <IconLoader2 className="h-3.5 w-3.5 animate-spin" />}
+      {label}
+    </Button>
   );
 }
 
@@ -342,9 +354,11 @@ function MeetingNotesSteps() {
 }
 
 function ConnectCalendarEmptyState({
-  onConnected,
+  onConnect,
+  isPending,
 }: {
-  onConnected?: CalendarConnectedHandler;
+  onConnect?: CalendarConnectHandler;
+  isPending: boolean;
 }) {
   const t = useT();
   return (
@@ -364,7 +378,8 @@ function ConnectCalendarEmptyState({
             <div className="mt-3">
               <CalendarConnectionAction
                 label={t("meetingsRoute.connectGoogleCalendar")}
-                onConnected={onConnected}
+                onConnect={onConnect}
+                isPending={isPending}
               />
             </div>
             <div className="mt-4">
@@ -379,38 +394,23 @@ function ConnectCalendarEmptyState({
 
 function CalendarAccountMenu({
   accounts,
-  onConnected,
+  onConnect,
   onDisconnected,
-  isRefreshing,
+  isBusy,
 }: {
   accounts: CalendarAccount[];
-  onConnected?: CalendarConnectedHandler;
+  onConnect?: CalendarConnectHandler;
   onDisconnected?: () => void;
-  isRefreshing?: boolean;
+  isBusy: boolean;
 }) {
   const t = useT();
-  const [connectPending, setConnectPending] = useState(false);
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const [disconnectTarget, setDisconnectTarget] =
     useState<CalendarAccount | null>(null);
 
-  const hasNeedsReconnect = accounts.some(
+  const reconnectAccountId = accounts.find(
     (account) => account.status === "needs-reauth",
-  );
-
-  const handleConnect = () => {
-    const previousAccounts = accounts.map((account) => ({ ...account }));
-    setConnectPending(true);
-    startCalendarOAuth()
-      .then(() => onConnected?.(previousAccounts))
-      .then(() => {
-        setConnectPending(false);
-      })
-      .catch((err: Error) => {
-        setConnectPending(false);
-        toast.error(err.message);
-      });
-  };
+  )?.id;
 
   const handleDisconnect = async () => {
     if (!disconnectTarget) return;
@@ -443,10 +443,10 @@ function CalendarAccountMenu({
             variant="ghost"
             className="h-8 shrink-0 px-2.5 font-medium cursor-pointer"
             aria-label={t("meetingsRoute.calendarSettings")}
-            aria-busy={isRefreshing || connectPending}
-            disabled={isRefreshing}
+            aria-busy={isBusy}
+            disabled={isBusy}
           >
-            {isRefreshing ? (
+            {isBusy ? (
               <Skeleton className="h-4 w-16" />
             ) : (
               t("meetingsRoute.calendarAccountsButton", {
@@ -510,32 +510,26 @@ function CalendarAccountMenu({
             </div>
           )}
           <DropdownMenuSeparator />
-          {hasNeedsReconnect && (
+          {reconnectAccountId && (
             <DropdownMenuItem
-              onSelect={(event) => {
-                event.preventDefault();
-                handleConnect();
+              onSelect={() => {
+                onConnect?.(reconnectAccountId);
               }}
               className="px-2.5"
-              disabled={connectPending}
+              disabled={isBusy}
             >
-              {connectPending && (
-                <IconLoader2 className="h-4 w-4 animate-spin" />
-              )}
               {t("meetingsRoute.reconnectCalendar", {
                 defaultValue: "Reconnect calendar",
               })}
             </DropdownMenuItem>
           )}
           <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault();
-              handleConnect();
+            onSelect={() => {
+              onConnect?.();
             }}
             className="px-2.5"
-            disabled={connectPending}
+            disabled={isBusy}
           >
-            {connectPending && <IconLoader2 className="h-4 w-4 animate-spin" />}
             {accounts.length > 0
               ? t("meetingsRoute.addAnotherCalendarAccount", {
                   defaultValue: "Add another account",
@@ -605,16 +599,16 @@ function MeetingsHeader({
   query,
   onQueryChange,
   calendarAccounts,
-  onConnected,
+  onConnect,
   onDisconnected,
-  isRefreshingCalendar,
+  isCalendarBusy,
 }: {
   query: string;
   onQueryChange: (next: string) => void;
   calendarAccounts: CalendarAccount[];
-  onConnected?: CalendarConnectedHandler;
+  onConnect?: CalendarConnectHandler;
   onDisconnected?: () => void;
-  isRefreshingCalendar?: boolean;
+  isCalendarBusy: boolean;
 }) {
   const t = useT();
   return (
@@ -626,9 +620,9 @@ function MeetingsHeader({
         <div className="ms-auto flex items-center gap-2">
           <CalendarAccountMenu
             accounts={calendarAccounts}
-            onConnected={onConnected}
+            onConnect={onConnect}
             onDisconnected={onDisconnected}
-            isRefreshing={isRefreshingCalendar}
+            isBusy={isCalendarBusy}
           />
         </div>
       </PageHeader>
@@ -750,20 +744,23 @@ export default function MeetingsIndexRoute() {
     { enabled: isSearching, retry: false },
   );
 
-  // After the OAuth popup closes, poll the account action briefly. The
-  // callback writes `calendar_accounts` just before the popup closes, but the
-  // browser can observe the close before React Query has seen the updated row.
+  // After the OAuth callback signals completion, poll briefly because the
+  // browser can observe the callback before React Query sees the updated row.
   const [isRefreshingCalendar, setIsRefreshingCalendar] = useState(false);
+  const [isCalendarConnectionInFlight, setIsCalendarConnectionInFlight] =
+    useState(false);
+  const calendarConnectionInFlightRef = useRef(false);
   const handleCalendarConnected = useCallback(
-    async (previousAccounts: CalendarAccount[] = []) => {
+    async (completedAccountId: string, expectedAccountId?: string) => {
       setIsRefreshingCalendar(true);
       try {
         let connected = false;
         for (let attempt = 0; attempt < 10; attempt += 1) {
           const result = await accounts.refetch();
           connected = isCalendarConnectionComplete(
-            previousAccounts,
             result.data?.accounts ?? [],
+            completedAccountId,
+            expectedAccountId,
           );
           if (connected) break;
           await new Promise((resolve) => window.setTimeout(resolve, 500));
@@ -826,16 +823,25 @@ export default function MeetingsIndexRoute() {
     });
   }, [queryClient]);
 
-  const handleReconnectCalendar = useCallback(() => {
-    const previousAccounts = calendarAccounts.map((account) => ({
-      ...account,
-    }));
-    startCalendarOAuth()
-      .then(() => handleCalendarConnected(previousAccounts))
-      .catch((err: Error) =>
-        toast.error(err.message || "Couldn't reconnect calendar"),
-      );
-  }, [calendarAccounts, handleCalendarConnected]);
+  const handleStartCalendarOAuth = useCallback(
+    (expectedAccountId?: string) => {
+      if (calendarConnectionInFlightRef.current) return;
+      calendarConnectionInFlightRef.current = true;
+      setIsCalendarConnectionInFlight(true);
+      void startCalendarOAuth()
+        .then((result) => {
+          if (result) {
+            return handleCalendarConnected(result.accountId, expectedAccountId);
+          }
+        })
+        .catch((err: Error) => toast.error(err.message))
+        .finally(() => {
+          calendarConnectionInFlightRef.current = false;
+          setIsCalendarConnectionInFlight(false);
+        });
+    },
+    [handleCalendarConnected],
+  );
 
   const isLoading = accounts.isLoading || history.isLoading;
 
@@ -859,6 +865,10 @@ export default function MeetingsIndexRoute() {
   const needsCalendarReauth =
     calendarErrors.some((e) => e.needsReauth) ||
     calendarAccounts.some((account) => account.status === "needs-reauth");
+  const reconnectAccountId =
+    calendarAccounts.find((account) => account.status === "needs-reauth")?.id ??
+    calendarErrors.find((error) => error.needsReauth)?.accountId;
+  const isCalendarBusy = isCalendarConnectionInFlight || isRefreshingCalendar;
 
   if (isLoading) {
     return (
@@ -913,11 +923,14 @@ export default function MeetingsIndexRoute() {
           query={query}
           onQueryChange={setQuery}
           calendarAccounts={calendarAccounts}
-          onConnected={handleCalendarConnected}
+          onConnect={handleStartCalendarOAuth}
           onDisconnected={handleCalendarDisconnected}
-          isRefreshingCalendar={isRefreshingCalendar}
+          isCalendarBusy={isCalendarBusy}
         />
-        <ConnectCalendarEmptyState onConnected={handleCalendarConnected} />
+        <ConnectCalendarEmptyState
+          onConnect={handleStartCalendarOAuth}
+          isPending={isCalendarBusy}
+        />
       </div>
     );
   }
@@ -928,13 +941,16 @@ export default function MeetingsIndexRoute() {
         query={query}
         onQueryChange={setQuery}
         calendarAccounts={calendarAccounts}
-        onConnected={handleCalendarConnected}
+        onConnect={handleStartCalendarOAuth}
         onDisconnected={handleCalendarDisconnected}
-        isRefreshingCalendar={isRefreshingCalendar}
+        isCalendarBusy={isCalendarBusy}
       />
 
       {needsCalendarReauth && (
-        <CalendarReauthBanner onReconnect={handleReconnectCalendar} />
+        <CalendarReauthBanner
+          onReconnect={() => handleStartCalendarOAuth(reconnectAccountId)}
+          isPending={isCalendarBusy}
+        />
       )}
 
       {isSearching ? (

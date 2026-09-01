@@ -57,7 +57,9 @@ export default defineEventHandler(async (event: H3Event) => {
     const desktop =
       isElectron(event) || q.desktop === "1" || q.desktop === "true";
     const flowId =
-      desktop && typeof q.flow_id === "string" ? q.flow_id : undefined;
+      typeof q.flow_id === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(q.flow_id)
+        ? q.flow_id
+        : undefined;
     if (getMethod(event) === "POST" && (!desktop || !flowId)) {
       setResponseStatus(event, 400);
       return { error: "Invalid desktop exchange challenge." };
@@ -129,7 +131,7 @@ export default defineEventHandler(async (event: H3Event) => {
       addAccount: calendarConnect,
       app: CLIPS_GOOGLE_OAUTH_APP_ID,
       returnUrl: desktopWebview ? "/?desktop_auth=complete" : returnUrl,
-      flowId: calendarConnect ? undefined : flowId,
+      flowId,
       desktopVerifierHash,
       desktopBrowserBindingHash,
     });

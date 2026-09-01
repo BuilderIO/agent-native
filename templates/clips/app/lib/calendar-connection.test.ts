@@ -6,38 +6,45 @@ const connected = {
   id: "account-1",
   status: "connected",
 };
-const connectedWithStaleMetadata = {
-  ...connected,
-  lastSyncError: "stale error",
-  updatedAt: "changed",
-};
 
 describe("isCalendarConnectionComplete", () => {
-  it("waits when the existing account has not changed", () => {
-    expect(isCalendarConnectionComplete([connected], [connected])).toBe(false);
+  it("waits without an OAuth completion marker", () => {
+    expect(isCalendarConnectionComplete([connected], null)).toBe(false);
   });
 
-  it("recognizes a reconnected existing account", () => {
-    expect(
-      isCalendarConnectionComplete(
-        [{ ...connected, status: "needs-reauth" }],
-        [connected],
-      ),
-    ).toBe(true);
+  it("recognizes an already-connected account updated by OAuth", () => {
+    expect(isCalendarConnectionComplete([connected], "account-1")).toBe(true);
   });
 
   it("recognizes a newly connected account", () => {
     expect(
       isCalendarConnectionComplete(
-        [connected],
         [connected, { ...connected, id: "account-2" }],
+        "account-2",
       ),
     ).toBe(true);
   });
 
-  it("ignores sync metadata changes on an existing account", () => {
+  it("requires the account targeted by reconnect", () => {
     expect(
-      isCalendarConnectionComplete([connected], [connectedWithStaleMetadata]),
+      isCalendarConnectionComplete(
+        [
+          { ...connected, status: "needs-reauth" },
+          { ...connected, id: "account-2" },
+        ],
+        "account-2",
+        "account-1",
+      ),
+    ).toBe(false);
+  });
+
+  it("accepts the targeted account only after it is connected", () => {
+    expect(
+      isCalendarConnectionComplete(
+        [{ ...connected, status: "needs-reauth" }],
+        "account-1",
+        "account-1",
+      ),
     ).toBe(false);
   });
 });

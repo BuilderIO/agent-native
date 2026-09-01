@@ -108,6 +108,7 @@ export async function handleGoogleCalendarCallback(
           ownerEmailMatches(schema.calendarAccounts.ownerEmail, ownerEmail),
         ),
       );
+    const accountId = existing?.id ?? randomUUID();
 
     // 4. Persist tokens in app_secrets (encrypted at rest). NEVER write
     //    tokens onto the calendar_accounts row. Existing rows may have stored
@@ -160,10 +161,10 @@ export async function handleGoogleCalendarCallback(
           lastSyncError: null,
           updatedAt: now,
         })
-        .where(eq(schema.calendarAccounts.id, existing.id));
+        .where(eq(schema.calendarAccounts.id, accountId));
     } else {
       await db.insert(schema.calendarAccounts).values({
-        id: randomUUID(),
+        id: accountId,
         provider: "google",
         externalAccountId,
         accessTokenSecretRef: accessKey,
@@ -179,6 +180,22 @@ export async function handleGoogleCalendarCallback(
         orgId: orgId ?? null,
         visibility: "private",
       } as any);
+    }
+
+    if (state.flowId && !desktop) {
+      const targetOrigin = JSON.stringify(new URL(redirectUri).origin);
+      const message = JSON.stringify({
+        type: "agent-native:calendar-connected",
+        flowId: state.flowId,
+        accountId,
+      }).replace(/</g, "\\u003c");
+      return new Response(
+        `<!doctype html><html><body><main><h1>Connected!</h1><p>You can close this tab and return to Clips.</p></main><script>window.opener?.postMessage(${message}, ${targetOrigin}); setTimeout(() => window.close(), 250);</script></body></html>`,
+        {
+          status: 200,
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        },
+      );
     }
 
     return oauthCallbackResponse(event, accountEmail || ownerEmail, {
