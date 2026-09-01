@@ -1,3 +1,5 @@
+import { cn } from "@agent-native/toolkit";
+import { ShareDisclosureSection } from "@agent-native/toolkit/sharing";
 import {
   Badge,
   Button,
@@ -10,13 +12,8 @@ import {
   SelectValue,
   Sheet,
   SheetContent,
-  SheetDescription,
   SheetHeader,
   SheetTitle,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
   Textarea,
 } from "@agent-native/toolkit/ui";
 import {
@@ -24,7 +21,6 @@ import {
   IconFileText,
   IconLink,
   IconPlus,
-  IconShieldCheck,
   IconX,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
@@ -38,7 +34,6 @@ import {
   useManageCreativeContext,
   type CreativeContextMembership,
   type CreativeContextMembershipRank,
-  type CreativeContextPolicy,
   type CreativeContextSummary,
 } from "./actions.js";
 
@@ -111,27 +106,6 @@ export function creativeContextSafePreviewUrl(url: string | undefined) {
   }
 }
 
-function policyCopy(policy: CreativeContextPolicy) {
-  switch (policy) {
-    case "review":
-      return "New resources wait for reviewer approval before they are reused.";
-    case "admins-only":
-      return "Only administrators can approve or remove resources.";
-    default:
-      return "New resources are published after submission.";
-  }
-}
-
-function formatResourceTimestamp(value: string | undefined) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return null;
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
-
 function ResourcePreview({
   resource,
 }: {
@@ -143,13 +117,13 @@ function ResourcePreview({
       <img
         src={imageUrl}
         alt={resource.preview?.alt ?? ""}
-        className="size-11 rounded-md border border-border object-cover"
+        className="size-9 rounded-md border border-border object-cover"
       />
     );
   }
   return (
-    <div className="flex size-11 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground">
-      <IconFileText className="size-5" />
+    <div className="flex size-9 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground">
+      <IconFileText className="size-4" />
     </div>
   );
 }
@@ -229,30 +203,32 @@ function MembershipRow({
 }) {
   const pending = Boolean(membership.pendingSubmissionId);
   return (
-    <article className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border p-3">
-      <div>
-        <p className="text-sm font-medium">
+    <article className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 py-2.5 first:border-t-0">
+      <div className="flex min-w-0 items-center gap-2">
+        <Badge variant={pending ? "outline" : "secondary"} className="shrink-0">
           {pending ? "Pending resource" : "Published resource"}
-        </p>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          {membership.rank}{" "}
-          {membership.purpose ? `· ${membership.purpose}` : ""}
-        </p>
+        </Badge>
+        <span className="min-w-0 truncate text-xs text-muted-foreground">
+          {membership.purpose ?? membership.rank}
+        </span>
+        {updateAvailable ? (
+          <span className="shrink-0 text-xs text-muted-foreground">
+            Update available
+          </span>
+        ) : null}
       </div>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap justify-end gap-1">
         {pending ? (
           <Badge variant="outline">Pending review</Badge>
         ) : (
-          <Badge variant="secondary">Published</Badge>
+          <span className="sr-only">Published</span>
         )}
-        {updateAvailable ? (
-          <Badge variant="outline">Update available</Badge>
-        ) : null}
         {pending && canWithdraw ? (
           <Button
             type="button"
             variant="outline"
             size="sm"
+            className="h-8 px-2 text-xs"
             disabled={busy}
             onClick={() => onAction("withdraw")}
           >
@@ -263,6 +239,7 @@ function MembershipRow({
           <Button
             type="button"
             size="sm"
+            className="h-8 px-2 text-xs"
             disabled={busy}
             onClick={() => onAction("approve")}
           >
@@ -274,6 +251,7 @@ function MembershipRow({
             type="button"
             size="sm"
             variant="outline"
+            className="h-8 px-2 text-xs"
             disabled={busy}
             onClick={() => onAction("request-changes")}
           >
@@ -285,6 +263,7 @@ function MembershipRow({
             type="button"
             size="sm"
             variant="ghost"
+            className="h-8 px-2 text-xs"
             disabled={busy}
             onClick={() => onAction("remove")}
           >
@@ -300,14 +279,16 @@ function ContextSelect({
   contexts,
   contextId,
   onValueChange,
+  disabled = false,
 }: {
   contexts: CreativeContextSummary[];
   contextId: string;
   onValueChange: (value: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <Select value={contextId} onValueChange={onValueChange}>
-      <SelectTrigger>
+      <SelectTrigger className="w-full" disabled={disabled}>
         <SelectValue placeholder="Choose a context" />
       </SelectTrigger>
       {/* This tab is embedded inside ShareButton's high z-index popover
@@ -341,7 +322,6 @@ export function CreativeContextShareTab({
     resources,
   );
   const primaryResource = selectedResources[0];
-  const updatedAt = formatResourceTimestamp(primaryResource?.updatedAt);
   const [contextId, setContextId] = useState("");
   const membershipsQuery = useContextMemberships(
     contextId ? { contextId } : null,
@@ -444,92 +424,71 @@ export function CreativeContextShareTab({
   }
 
   return (
-    <section className={className} aria-label="Creative context">
-      <div className="flex items-start gap-3 border-b border-border/70 pb-4">
-        {primaryResource ? (
+    <section
+      className={cn("space-y-3", className)}
+      aria-label="Creative context"
+    >
+      {primaryResource ? (
+        <div className="flex min-w-0 items-center gap-2 border-b border-border/70 pb-3">
           <ResourcePreview resource={primaryResource} />
-        ) : null}
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium">
+          <p className="min-w-0 truncate text-sm font-medium">
             {selectedResources.length === 1
-              ? primaryResource?.title
+              ? primaryResource.title
               : `${selectedResources.length} selected resources`}
           </p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {selectedResources.length === 1
-              ? (primaryResource?.preview?.label ??
-                primaryResource?.resourceType)
-              : "Each resource is submitted separately"}
-          </p>
-          {selectedResources.length === 1 && updatedAt ? (
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Current version · {updatedAt}
-            </p>
-          ) : null}
         </div>
-      </div>
-      <Tabs defaultValue="contexts" className="mt-4">
-        <TabsList className="w-full justify-start">
-          <TabsTrigger value="contexts">Contexts</TabsTrigger>
-          <TabsTrigger value="policy">Policy</TabsTrigger>
-        </TabsList>
-        <TabsContent value="contexts" className="space-y-3">
-          <ContextSelect
-            contexts={contexts}
-            contextId={contextId}
-            onValueChange={setContextId}
-          />
-          {selectedContext ? (
-            <p className="text-xs text-muted-foreground">
-              {selectedContext.description ||
-                `${selectedContext.memberCount} published resources`}{" "}
-              · {policyCopy(selectedContext.approvalPolicy)}
-            </p>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No contexts are available yet.
-            </p>
-          )}
-          {contextId && selectedResources.length === 1 ? (
-            <div className="space-y-2">
-              {memberships.map((membership) => (
-                <MembershipRow
-                  key={membership.id}
-                  membership={membership}
-                  updateAvailable={Boolean(
-                    primaryResource?.updatedAt &&
-                    membership.publishedItem?.sourceModifiedAt &&
-                    primaryResource.updatedAt !==
-                      membership.publishedItem.sourceModifiedAt,
-                  )}
-                  canReview={selectedContext?.access.canReview === true}
-                  canWithdraw={
-                    selectedContext?.access.canReview === true ||
-                    selectedContext?.access.canSubmit === true
-                  }
-                  canRemove={selectedContext?.access.canAdmin === true}
-                  busy={busy}
-                  onAction={(operation) => void act(membership.id, operation)}
-                />
-              ))}
-              {!memberships.length && !membershipsQuery.isLoading ? (
-                <p className="text-sm text-muted-foreground">
-                  This resource has not been submitted to this context.
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-          {contextId && selectedResources.length ? (
-            <div className="rounded-md border border-dashed border-border p-3">
-              <p className="text-sm font-medium">
-                {memberships.some((membership) => membership.publishedItem)
-                  ? "Submit update for "
-                  : "Add "}
-                {selectedResources.length === 1
-                  ? "this resource"
-                  : `${selectedResources.length} resources`}
-              </p>
-              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+      ) : null}
+      {contexts.length ? (
+        <ContextSelect
+          contexts={contexts}
+          contextId={contextId}
+          onValueChange={setContextId}
+          disabled={busy}
+        />
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          No contexts are available yet.
+        </p>
+      )}
+      {contextId && selectedResources.length === 1 && memberships.length ? (
+        <div>
+          {memberships.map((membership) => (
+            <MembershipRow
+              key={membership.id}
+              membership={membership}
+              updateAvailable={Boolean(
+                primaryResource?.updatedAt &&
+                membership.publishedItem?.sourceModifiedAt &&
+                primaryResource.updatedAt !==
+                  membership.publishedItem.sourceModifiedAt,
+              )}
+              canReview={selectedContext?.access.canReview === true}
+              canWithdraw={
+                selectedContext?.access.canReview === true ||
+                selectedContext?.access.canSubmit === true
+              }
+              canRemove={selectedContext?.access.canAdmin === true}
+              busy={busy}
+              onAction={(operation) => void act(membership.id, operation)}
+            />
+          ))}
+        </div>
+      ) : null}
+      {contextId && selectedResources.length ? (
+        <div className="border-t border-border/60 pt-3">
+          <div className="flex items-start gap-2">
+            <ShareDisclosureSection
+              label={
+                memberships.some((membership) => membership.publishedItem)
+                  ? "Submit update for this resource"
+                  : selectedResources.length === 1
+                    ? "Add this resource"
+                    : `Add ${selectedResources.length} resources`
+              }
+              className="min-w-0 flex-1"
+              contentClassName="space-y-2"
+            >
+              <div className="grid gap-2 sm:grid-cols-2">
                 <Select
                   value={rank}
                   onValueChange={(value) =>
@@ -555,82 +514,68 @@ export function CreativeContextShareTab({
                 />
               </div>
               <Textarea
-                className="mt-2"
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
                 placeholder="Note for reviewers"
                 rows={2}
               />
-              {needsBroaderPublicationConfirmation ? (
-                <label className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
-                  <Checkbox
-                    checked={confirmedBroaderPublication}
-                    onCheckedChange={(checked) =>
-                      setConfirmedBroaderPublication(checked === true)
-                    }
-                  />
-                  <span>
-                    This context is shared more broadly than this resource.
-                    Publishing creates a governed copy available to the
-                    context's audience.
-                  </span>
-                </label>
-              ) : null}
-              <Button
-                type="button"
-                className="mt-3"
-                size="sm"
-                disabled={
-                  busy ||
-                  selectedContext?.access.canSubmit !== true ||
-                  (needsBroaderPublicationConfirmation &&
-                    !confirmedBroaderPublication)
-                }
-                onClick={() => void submit()}
-              >
-                <IconLink /> Submit
-              </Button>
-            </div>
-          ) : null}
-          {canCreateContext ? (
-            <div className="flex gap-2 border-t border-border/60 pt-3">
-              <Input
-                value={newContextName}
-                onChange={(event) => setNewContextName(event.target.value)}
-                placeholder="New context name"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={busy || !newContextName.trim()}
-                onClick={() => void createContext()}
-              >
-                <IconPlus /> New
-              </Button>
-            </div>
-          ) : null}
-          {error ? <p className="text-xs text-destructive">{error}</p> : null}
-          {submitSummary ? (
-            <p className="text-xs text-muted-foreground">{submitSummary}</p>
-          ) : null}
-        </TabsContent>
-        <TabsContent
-          value="policy"
-          className="space-y-3 text-sm text-muted-foreground"
-        >
-          <div className="flex gap-2 rounded-md border border-border p-3">
-            <IconShieldCheck className="mt-0.5 size-4 shrink-0" />
-            <p>
-              Open contexts publish submitted resources, review contexts wait
-              for approval, and admins-only contexts require an administrator.
-            </p>
+            </ShareDisclosureSection>
+            <Button
+              type="button"
+              size="sm"
+              className="shrink-0"
+              disabled={
+                busy ||
+                selectedContext?.access.canSubmit !== true ||
+                (needsBroaderPublicationConfirmation &&
+                  !confirmedBroaderPublication)
+              }
+              onClick={() => void submit()}
+            >
+              <IconLink /> Submit
+            </Button>
           </div>
-          {selectedContext ? (
-            <p>{policyCopy(selectedContext.approvalPolicy)}</p>
+          {needsBroaderPublicationConfirmation ? (
+            <label className="flex items-start gap-2 text-xs text-muted-foreground">
+              <Checkbox
+                checked={confirmedBroaderPublication}
+                onCheckedChange={(checked) =>
+                  setConfirmedBroaderPublication(checked === true)
+                }
+              />
+              <span>
+                This context is shared more broadly than this resource.
+                Publishing creates a governed copy available to the context's
+                audience.
+              </span>
+            </label>
           ) : null}
-        </TabsContent>
-      </Tabs>
+        </div>
+      ) : null}
+      {canCreateContext ? (
+        <ShareDisclosureSection label="New context name">
+          <div className="flex gap-2">
+            <Input
+              value={newContextName}
+              onChange={(event) => setNewContextName(event.target.value)}
+              placeholder="New context name"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy || !newContextName.trim()}
+              onClick={() => void createContext()}
+            >
+              <IconPlus /> New
+            </Button>
+          </div>
+        </ShareDisclosureSection>
+      ) : null}
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+      {submitSummary ? (
+        <p className="text-xs text-muted-foreground">{submitSummary}</p>
+      ) : null}
     </section>
   );
 }
@@ -650,9 +595,6 @@ export function CreativeContextShareSheet({
       <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-lg">
         <SheetHeader>
           <SheetTitle>Creative context</SheetTitle>
-          <SheetDescription>
-            Place this resource in a governed context for future reuse.
-          </SheetDescription>
         </SheetHeader>
         <CreativeContextShareTab
           resource={resource}

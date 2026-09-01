@@ -444,8 +444,7 @@ function SharePanel(
       Boolean(props.shareUrlPlaceholder) ||
       Boolean(props.secondaryShareUrl));
   const shareUrlPlacement = props.shareUrlPlacement ?? "top";
-  const extraTabs =
-    props.shareTabs?.tabs.filter((tab) => tab.value !== "context") ?? [];
+  const extraTabs = props.shareTabs?.tabs ?? [];
   const hasTabs = extraTabs.length > 0;
   const shareTabLabel =
     props.shareTabs?.shareLabel ??
