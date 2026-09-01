@@ -168,6 +168,12 @@ describe("AWS Lambda streaming runtime output", () => {
     expect(fs.readFileSync(path.join(serverDir, ".env"), "utf8")).toContain(
       'AGENT_NATIVE_AGENT_CHAT_STREAM_RUNTIME="1"',
     );
+    expect(fs.readFileSync(path.join(serverDir, ".env"), "utf8")).toContain(
+      'APP_URL="https://calendar.example.test"',
+    );
+    expect(fs.readFileSync(path.join(serverDir, ".env"), "utf8")).toContain(
+      'BETTER_AUTH_SECRET="lambda-example-secret"',
+    );
     expect(fs.readFileSync(path.join(serverDir, ".env"), "utf8")).not.toContain(
       "UNDECLARED_SECRET",
     );

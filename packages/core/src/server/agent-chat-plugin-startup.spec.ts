@@ -55,6 +55,21 @@ describe("agent chat startup", () => {
     ).toContain("await ensureMcpInitialized();");
   });
 
+  it("keeps transient database failures structured on the stream route", () => {
+    const source = readFileSync(
+      new URL("./agent-chat-plugin.ts", import.meta.url),
+      "utf8",
+    );
+    const streamRoute = source.slice(
+      source.indexOf("if (streamingRuntime)"),
+      source.indexOf("// ─── Durable background agent-chat run processor"),
+    );
+
+    expect(streamRoute).toMatch(
+      /withTransientDatabaseFallback\(\s*AGENT_CHAT_STREAM_PATH/,
+    );
+  });
+
   it("keeps trigger subscription registration behind route readiness", () => {
     const source = readFileSync(
       new URL("./agent-chat-plugin.ts", import.meta.url),

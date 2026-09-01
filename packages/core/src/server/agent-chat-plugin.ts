@@ -6419,28 +6419,31 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         registerAuthPublicPaths([AGENT_CHAT_STREAM_PATH], app);
         app.use(
           AGENT_CHAT_STREAM_PATH,
-          defineEventHandler(async (event) => {
-            setResponseHeader(event, "Cache-Control", "private, no-store");
-            if (getMethod(event) !== "POST") {
-              setResponseStatus(event, 405);
-              return { error: "Method not allowed" };
-            }
-            const principal = await verifyAgentChatStreamToken(
-              readAgentChatStreamBearerToken(
-                getHeader(event, "authorization"),
-              ) ?? "",
-            );
-            if (!principal) {
-              setResponseStatus(event, 401);
-              return { error: "Authentication required" };
-            }
-            seedAgentRunOwnerContext(event, {
-              owner: principal.ownerEmail,
-              anonymous: false,
-              orgId: principal.orgId,
-            });
-            return invokeAgentChatHandler(event);
-          }),
+          withTransientDatabaseFallback(
+            AGENT_CHAT_STREAM_PATH,
+            async (event) => {
+              setResponseHeader(event, "Cache-Control", "private, no-store");
+              if (getMethod(event) !== "POST") {
+                setResponseStatus(event, 405);
+                return { error: "Method not allowed" };
+              }
+              const principal = await verifyAgentChatStreamToken(
+                readAgentChatStreamBearerToken(
+                  getHeader(event, "authorization"),
+                ) ?? "",
+              );
+              if (!principal) {
+                setResponseStatus(event, 401);
+                return { error: "Authentication required" };
+              }
+              seedAgentRunOwnerContext(event, {
+                owner: principal.ownerEmail,
+                anonymous: false,
+                orgId: principal.orgId,
+              });
+              return invokeAgentChatHandler(event);
+            },
+          ),
         );
       }
 

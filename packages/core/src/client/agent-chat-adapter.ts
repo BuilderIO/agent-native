@@ -2055,13 +2055,20 @@ export function createAgentChatAdapter(
   const resolveChatRequestTarget = async (
     headers: Record<string, string>,
     abortSignal: AbortSignal,
+    forcePrimary = false,
   ): Promise<{
     url: string;
     headers: Record<string, string>;
     credentials: RequestCredentials;
+    usesStreamingOrigin: boolean;
   }> => {
-    if (!streamTargetUrl) {
-      return { url: apiUrl, headers, credentials: "same-origin" };
+    if (forcePrimary || !streamTargetUrl) {
+      return {
+        url: apiUrl,
+        headers,
+        credentials: "same-origin",
+        usesStreamingOrigin: false,
+      };
     }
 
     const tokenUrl = `${apiUrl.replace(/\/+$/, "")}/stream-token`;
@@ -2086,6 +2093,7 @@ export function createAgentChatAdapter(
         url: streamTargetUrl,
         headers: { ...headers, Authorization: `Bearer ${token}` },
         credentials: "omit",
+        usesStreamingOrigin: true,
       };
     } catch (error) {
       if (!streamTokenWarningShown && !abortSignal.aborted) {
@@ -2095,7 +2103,12 @@ export function createAgentChatAdapter(
           error instanceof Error ? error.message : error,
         );
       }
-      return { url: apiUrl, headers, credentials: "same-origin" };
+      return {
+        url: apiUrl,
+        headers,
+        credentials: "same-origin",
+        usesStreamingOrigin: false,
+      };
     }
   };
   const tabId = options?.tabId;
@@ -2246,6 +2259,7 @@ export function createAgentChatAdapter(
         return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
       })();
       const turnId = requestedTurnId ?? generateTurnId();
+      let streamTransportFallbackUsed = false;
 
       const withRequestModeMetadata = (
         result: ChatModelRunResult,
@@ -4051,6 +4065,8 @@ export function createAgentChatAdapter(
         };
 
         while (true) {
+          let requestUsedStreamingOrigin = false;
+          let responseReceived = false;
           let delayedJsonProbe: Promise<JsonResponseProbeOutcome> | undefined;
           let delayedJsonProbeOutcome: JsonResponseProbeOutcome | undefined;
           let delayedJsonProbeReader:
@@ -4068,7 +4084,9 @@ export function createAgentChatAdapter(
             const requestTarget = await resolveChatRequestTarget(
               headers,
               abortSignal,
+              streamTransportFallbackUsed,
             );
+            requestUsedStreamingOrigin = requestTarget.usesStreamingOrigin;
             const res = await fetchWithStartupTimeout(
               requestTarget.url,
               {
@@ -4108,6 +4126,7 @@ export function createAgentChatAdapter(
               STARTUP_RESPONSE_TIMEOUT_MS,
               abortSignal,
             );
+            responseReceived = true;
 
             // Check for auth errors returned as 200 with JSON (common with middleware issues)
             const contentType = res.headers.get("content-type") || "";
@@ -4515,6 +4534,16 @@ export function createAgentChatAdapter(
               // User-initiated abort (Stop button) — clear active run
               clearOwnedActiveRun();
               return;
+            }
+
+            if (
+              requestUsedStreamingOrigin &&
+              !responseReceived &&
+              !runId &&
+              !streamTransportFallbackUsed
+            ) {
+              streamTransportFallbackUsed = true;
+              continue;
             }
 
             let delayedJsonOutcome = delayedJsonProbeOutcome;
