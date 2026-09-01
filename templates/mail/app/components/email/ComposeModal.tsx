@@ -223,7 +223,7 @@ export function ComposeModal({
   }, [activeDraft?.id, initialExpanded, onInitialExpandedConsumed]);
 
   const handleSend = async () => {
-    if (!activeDraft || !activeId) return;
+    if (!activeDraft || !activeId || schedulingRef.current) return;
     if (sendingIdsRef.current.has(activeId)) return;
     if (!activeDraft.to.trim()) {
       toast.error(t("mail.toasts.pleaseAddRecipient"));
@@ -329,6 +329,7 @@ export function ComposeModal({
     }
 
     schedulingRef.current = true;
+    const schedulingId = activeId;
     const draftSnapshot = { ...activeDraft };
 
     try {
@@ -346,7 +347,7 @@ export function ComposeModal({
       });
 
       // Job created successfully — now discard the draft
-      onDiscard(activeId);
+      onDiscard(schedulingId);
 
       const scheduledDate = new Date(runAt).toLocaleString("en-US", {
         weekday: "short",
