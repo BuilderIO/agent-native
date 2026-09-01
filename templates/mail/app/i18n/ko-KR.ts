@@ -44,12 +44,17 @@ const messages = {
       noMatches: "일치하는 결과 없음",
       localResults: "이 받은편지함에서",
       searchingGmail: "Gmail 검색 중...",
+      saveAsTab: "탭으로 저장",
+      saveAsTabPrompt: "이 탭 이름 지정",
+      saveAsTabFailed: "이 탭을 저장하지 못했습니다. 다시 시도해 주세요.",
+      filtersLimitReached: "필터는 최대 20개까지 저장할 수 있습니다.",
     },
     tabSettings: {
       views: "조회수",
       categories: "카테고리",
       rename: "이름 변경",
       renameTab: "탭 이름 변경",
+      savedFilters: "저장된 필터",
       help: "체크한 항목은 탭으로 표시됩니다. 라벨 이메일은 받은편지함에서 분리됩니다.",
     },
     accounts: {
@@ -381,6 +386,60 @@ const messages = {
       newFilter: "Nuevo filtro",
       noFilters: "Aún no hay filtros de Gmail.",
     },
+    aiFilter: {
+      title: "AI 필터",
+      subtitle: "사용자의 판단을 학습하는 되돌릴 수 있는 라벨입니다.",
+      lunaBadge: "사용 가능한 경우 Luna",
+      toggle: "AI 필터 켜기/끄기",
+      autoFilterTitle: "신뢰도가 높은 메일 자동 필터링",
+      autoFilterDescription:
+        "확실하게 일치하는 메일만 받은편지함에서 이동하고 나머지는 여기서 검토합니다.",
+      autoFilterToggle: "신뢰도가 높은 메일 자동 필터링",
+      thresholdLabel: "자동 필터 신뢰도 기준",
+      labelName: "Gmail 라벨",
+      labelHelp:
+        "agent-native-filtered는 Gmail 및 다른 클라이언트에서 계속 표시됩니다. Gmail 스팸이 아닙니다.",
+      reviewLabel: "필터된 메일 검토",
+      instructionsTitle: "지침",
+      instructionCount: "지침 {{count}}개",
+      instructionPlaceholder:
+        "예: “question for you, Steve” 같은 제목은 원하지 않음",
+      addInstruction: "추가",
+      noInstructions: "아직 지침이 없습니다.",
+      instructionExample:
+        "“정치 캠페인 메일은 모두 원하지 않음”을 시도해 보세요.",
+      toggleInstruction: "지침 켜기/끄기: {{instruction}}",
+      deleteInstruction: "지침 삭제",
+      activityTitle: "최근 활동",
+      suggestionCount: "검토할 항목 {{count}}개",
+      viewAll: "모두 보기",
+      noActivity: "아직 AI 필터 활동이 없습니다.",
+      unknownSender: "알 수 없는 보낸 사람",
+      noSubject: "(제목 없음)",
+      filterTitle: "AI로 필터링",
+      keepTitle: "받은편지함에 보관",
+      filterDescription:
+        "대화 {{count}}개를 보관하고 agent-native-filtered 라벨을 추가합니다.",
+      keepDescription:
+        "대화 {{count}}개를 받은편지함으로 복원하고 필터가 학습하도록 합니다.",
+      labelNote:
+        "agent-native-filtered 라벨을 추가하고 대화를 보관합니다. 언제든 실행 취소할 수 있습니다.",
+      learningNote:
+        "메일을 받은편지함에 보관하고 같은 실수를 반복하지 않도록 필터가 학습합니다.",
+      rememberLabel: "향후 메일에 기억하기 (선택 사항)",
+      correctLabel: "무엇을 학습해야 하나요? (선택 사항)",
+      rememberPlaceholder: "예: 정치 캠페인에서 온 이런 메일은 원하지 않음",
+      correctPlaceholder:
+        "예: 이 보낸 사람은 고객이므로 향후 메일은 받은편지함에 보관",
+      commentHint: "메모가 편집 가능한 규칙 또는 학습 예시가 됩니다.",
+      filterButton: "필터링",
+      keepButton: "보관",
+      filteredToast: "대화 {{count}}개를 필터링했습니다.",
+      keptToast: "대화 {{count}}개를 받은편지함에 보관했습니다.",
+      actionFailed: "AI 필터를 업데이트하지 못했습니다.",
+      settingsFailed: "AI 필터 설정을 저장하지 못했습니다.",
+      instructionFailed: "AI 필터 지침을 저장하지 못했습니다.",
+    },
     draftQueue: {
       title: "Cola de borradores",
       queueDraft: "Poner borrador en cola",
@@ -560,6 +619,7 @@ const messages = {
     deleteSnippetDescription:
       '스니펫 "{{name}}"을(를) 삭제하시겠습니까? 되돌릴 수 없습니다.',
     automations: "자동화",
+    aiFilter: "AI 필터",
     gmailFilters: "Gmail 필터",
     aliases: "별칭",
     tracking: "추적",

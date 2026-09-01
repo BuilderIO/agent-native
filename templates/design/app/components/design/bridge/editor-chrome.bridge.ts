@@ -9973,8 +9973,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     var currentLeft = readPx(htmlEl.style.left || cs.left);
     var currentTop = readPx(htmlEl.style.top || cs.top);
-    htmlEl.style.left = currentLeft + (oldOriginX - newOriginX) + "px";
-    htmlEl.style.top = currentTop + (oldOriginY - newOriginY) + "px";
+    // Both origins come from getBoundingClientRect, so the raw difference is
+    // subpixel and would be authored as one.
+    htmlEl.style.left =
+      Math.round(currentLeft + (oldOriginX - newOriginX)) + "px";
+    htmlEl.style.top =
+      Math.round(currentTop + (oldOriginY - newOriginY)) + "px";
   }
 
   /** Convert flow members to absolute positioning at their drag release point
@@ -10083,8 +10087,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     var localDx = (clientDx * yy - yx * clientDy) / determinant;
     var localDy = (xx * clientDy - clientDx * xy) / determinant;
-    htmlEl.style.left = baseLeft + localDx + "px";
-    htmlEl.style.top = baseTop + localDy + "px";
+    // The exact client point is worth at most a subpixel here, and paying for
+    // it in a fractional authored left/top is the wrong trade.
+    htmlEl.style.left = Math.round(baseLeft + localDx) + "px";
+    htmlEl.style.top = Math.round(baseTop + localDy) + "px";
   }
 
   function applyRuntimeReorder(el, target) {
@@ -10270,6 +10276,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // base converted to content px at snap time via chromeLineScale (1/zoom) to
   // keep the snap tolerance constant on screen at any zoom.
   var SNAP_THRESHOLD_PX = 6;
+
+  /** This screen's layout grid step in content px, pushed by the host. 1 means
+   *  no grid, which is the whole-pixel floor every gesture already lands on. */
+  var layoutGridStep = 1;
+
+  function quantizeToLayoutGrid(value: number): number {
+    if (!(layoutGridStep > 1)) return Math.round(value);
+    return Math.round(value / layoutGridStep) * layoutGridStep;
+  }
   var SNAP_CANDIDATE_CAP = 200;
 
   // Accepts either a real DOMRect (getBoundingClientRect()) or a plain
@@ -12285,8 +12300,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var appliedDx = nextLeft - originLeft;
       var appliedDy = nextTop - originTop;
       memberStates.forEach(function (state) {
-        state.el.style.left = Math.round(state.originLeft + appliedDx) + "px";
-        state.el.style.top = Math.round(state.originTop + appliedDy) + "px";
+        state.el.style.left =
+          quantizeToLayoutGrid(state.originLeft + appliedDx) + "px";
+        state.el.style.top =
+          quantizeToLayoutGrid(state.originTop + appliedDy) + "px";
       });
       if (!duplicatedForDrag && !isGroupDrag) {
         scheduleCrossScreenDragMove(ev);
@@ -12841,15 +12858,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var rect = nextRect(ev);
       if (rect.touchesWidth) widthTouched = true;
       if (rect.touchesHeight) heightTouched = true;
-      resizeEl.style.left = Math.round(rect.left) + "px";
-      resizeEl.style.top = Math.round(rect.top) + "px";
+      resizeEl.style.left = quantizeToLayoutGrid(rect.left) + "px";
+      resizeEl.style.top = quantizeToLayoutGrid(rect.top) + "px";
       // Only write width/height for an axis this gesture actually touched —
       // writing the untouched axis every tick (even to its own unchanged
       // origin value) would silently convert e.g. `width: 100%` to a px
       // value on a pure vertical drag, which is exactly the "shrank instead
       // of preserved" class of bug this fixes.
-      if (widthTouched) resizeEl.style.width = Math.round(rect.width) + "px";
-      if (heightTouched) resizeEl.style.height = Math.round(rect.height) + "px";
+      if (widthTouched)
+        resizeEl.style.width = quantizeToLayoutGrid(rect.width) + "px";
+      if (heightTouched)
+        resizeEl.style.height = quantizeToLayoutGrid(rect.height) + "px";
       if (scaleToolEnabled) {
         // Uniform scale factor: scaleToolEnabled already forces the
         // aspect-ratio lock above (nextRect), so width/origin.width and
@@ -14844,6 +14863,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // set-read-only: toggle the bridge's readOnly state in-place without a reload.
     // When readOnly becomes true the shield/selection/drag/edit entry points are
     // gated so the surface is safe for background/inactive display use.
+    if (e.data.type === "set-layout-grid-step") {
+      var nextStep = Number(e.data.step);
+      layoutGridStep =
+        Number.isFinite(nextStep) && nextStep >= 1 ? nextStep : 1;
+      return;
+    }
     if (e.data.type === "set-read-only") {
       var nextReadOnly = !!e.data.readOnly;
       if (readOnly === nextReadOnly) return;

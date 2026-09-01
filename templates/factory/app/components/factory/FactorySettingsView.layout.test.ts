@@ -26,8 +26,6 @@ describe("FactorySettingsView load gating", () => {
     expect(source).toContain(
       "automationFailureAlertEmail: form.automationFailureAlertEmail.trim()",
     );
-    expect(source).toContain("channelId: form.channelId.trim()");
-    expect(source).toContain("repository: form.repository.trim()");
     expect(source).toContain(
       "builderSlackUserId: form.builderSlackUserId.trim()",
     );
@@ -75,6 +73,17 @@ describe("FactorySettingsView unsaved-change bar", () => {
     expect(source).toContain(
       "if (isSameForm(trimmedForm(latestFormRef.current), submitted))",
     );
+  });
+});
+
+describe("FactorySettingsView source settings", () => {
+  it("does not keep Slack, GitHub, or Sentry destination and polling switches", () => {
+    const source = readViewSource();
+    expect(source).not.toContain("pollingEnabled");
+    expect(source).not.toContain("slackChannelId");
+    expect(source).not.toContain("githubPollingEnabled");
+    expect(source).not.toContain("sentryPollingEnabled");
+    expect(source).not.toContain("FactorySourceSettingsGroup");
   });
 });
 

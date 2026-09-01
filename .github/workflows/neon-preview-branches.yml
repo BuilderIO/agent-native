@@ -58,7 +58,7 @@ jobs:
             netlify_site: fd5deb5b-5539-47e1-830c-e5fb5e105efd
     steps:
       - name: Create Neon branch
-        uses: neondatabase/create-branch-action@fb620d43d4c565abaf088b848a4e28e5c4ea4d9c # v6
+        uses: neondatabase/create-branch-action@72ed4f69a12b6be9c16aebfad893f6a21e9aba8b # v6.4.0
         id: neon
         with:
           project_id: ${{ matrix.neon_project }}

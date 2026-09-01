@@ -662,7 +662,7 @@ export default function EditorToolbar({
       <Tooltip>
         <TooltipTrigger asChild>
           <Link
-            to="/"
+            to="/home"
             className={`${TOOLBAR_ICON_BUTTON_CLASS} hover:bg-accent`}
             aria-label={t("editorToolbar.backToDecks")}
           >
@@ -754,7 +754,6 @@ export default function EditorToolbar({
           activeUsers={activeUsers ?? []}
           agentPresent={agentPresent}
           agentActive={agentActive}
-          showAgentEditingDot={false}
           currentUserEmail={currentUserEmail}
           className="flex-shrink-0 pl-2"
         />

@@ -48,6 +48,17 @@ describe("Slides share migrations", () => {
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       )
     `);
+    await exec.execute(`
+      CREATE TABLE deck_versions (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        deck_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        data TEXT NOT NULL,
+        change_label TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
     await exec.execute(
       "CREATE TABLE slides_migrations (version INTEGER PRIMARY KEY)",
     );

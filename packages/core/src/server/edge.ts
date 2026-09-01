@@ -1,4 +1,5 @@
-export { getAppConfig } from "../app-config/index.js";
+export { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
+export { getSsrAuthRedirectScript } from "../shared/ssr-auth-redirect.js";
 export { createAuthPlugin, defaultAuthPlugin } from "./auth-plugin.js";
 export {
   getDisabledDefaultPlugins,

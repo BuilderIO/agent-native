@@ -44,6 +44,7 @@ on:
       - ".github/workflows/auto-publish.yml"
       - "scripts/changeset-publish-sequential.ts"
       - "scripts/create-release-changeset.ts"
+      - "scripts/guard-no-major-changeset.mjs"
       - "scripts/guard-public-packages.ts"
       - "scripts/prebuild-workspace-packages.ts"
   workflow_dispatch:
@@ -66,7 +67,9 @@ on:
 permissions: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Stable preparation and publication must not wait behind, or be replaced
+  # by, the ordinary push-driven nightly lane.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && 'stable-preparation' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[stable-release]') && 'stable-publication' || 'nightly') }}
   cancel-in-progress: false
 
 jobs:
@@ -287,6 +290,9 @@ jobs:
           RELEASE_TYPE: ${{ inputs.releaseType }}
         run: pnpm exec tsx scripts/create-release-changeset.ts "$RELEASE_TYPE"
 
+      - name: Enforce package bump policy
+        run: node scripts/guard-no-major-changeset.mjs
+
       # A stable merge can race with another PR's pending changeset. Keep
       # those changesets out of validation and publication so this merge
       # publishes its already-versioned packages. Public-package changesets
@@ -346,7 +352,7 @@ jobs:
 
       - name: Create stable Release PR or publish to npm
         id: changesets
-        uses: changesets/action@8488615a623b1b9c987934bb89eae8af6a946ac1 # v2.1.1
+        uses: changesets/action@3841a0683d3cfa6dae0f9bb335290003010fe3f0 # v1.9.0, compatible with Changesets CLI v2
         with:
           # When changesets/action finds no pending changesets, it runs
           # `publish`. @changesets/cli publishes packages concurrently, which

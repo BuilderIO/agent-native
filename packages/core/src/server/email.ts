@@ -48,6 +48,8 @@ export interface SendEmailArgs {
   text?: string;
   /** Keep security-sensitive links out of provider click-tracking redirects. */
   disableClickTracking?: boolean;
+  /** Use deployment credentials for process-owned sends, not request-scoped overrides. */
+  useDeploymentCredentials?: boolean;
   from?: string;
   /**
    * Display-name-only override. Keeps the configured (domain-verified) sending
@@ -120,11 +122,16 @@ interface EmailTransportConfig {
   from?: string;
 }
 
-async function resolveEmailTransport(): Promise<EmailTransportConfig> {
+async function resolveEmailTransport(
+  useDeploymentCredentials = false,
+): Promise<EmailTransportConfig> {
+  const resolve = useDeploymentCredentials
+    ? (key: string) => readDeployCredentialEnv(key) ?? null
+    : resolveSecret;
   const [resendApiKey, sendgridApiKey, from] = await Promise.all([
-    resolveSecret("RESEND_API_KEY"),
-    resolveSecret("SENDGRID_API_KEY"),
-    resolveSecret("EMAIL_FROM"),
+    resolve("RESEND_API_KEY"),
+    resolve("SENDGRID_API_KEY"),
+    resolve("EMAIL_FROM"),
   ]);
   const resolvedFrom = from ?? undefined;
   if (resendApiKey) {
@@ -289,7 +296,7 @@ async function deliverEmail(
   args: SendEmailArgs,
   signal?: AbortSignal,
 ): Promise<DeliveryOutcome> {
-  const config = await resolveEmailTransport();
+  const config = await resolveEmailTransport(args.useDeploymentCredentials);
   signal?.throwIfAborted();
   const provider = config.provider;
   const branded = resolveAppSender(config.from, args.appSender);

@@ -48,16 +48,21 @@ Analytics.
 
 ## Lanes
 
-| Lane       | Gates a promotion | Credentials          | Model spend               |
-| ---------- | ----------------- | -------------------- | ------------------------- |
-| `public`   | yes               | none                 | none                      |
-| `authed`   | yes               | session + OpenAI key | ~1 luna turn per chat app |
-| `journeys` | yes               | session              | none                      |
-| `advisory` | no                | none                 | none                      |
+| Lane       | Gates a promotion | Credentials          | Model spend                                         |
+| ---------- | ----------------- | -------------------- | --------------------------------------------------- |
+| `public`   | yes               | none                 | none                                                |
+| `registry` | yes               | session              | none                                                |
+| `chat`     | yes               | session + OpenAI key | ~1 luna turn per chat app; Slides adds one A2A turn |
+| `journeys` | yes               | session              | none                                                |
+| `advisory` | no                | none                 | none                                                |
 
 `public` is the one that always runs and needs nothing set up. It already
 covers the most-reported failures, because most of them are visible before a
 user finishes signing in.
+
+The workflow's `authed` lane runs the three authenticated projects above as
+separate serialized jobs, so a provider failure cannot hide a registry or
+journey regression.
 
 `advisory` reports real findings that do not stop a user — beta being
 indexable, third-party pixels that reject beta hosts, beta sharing a database
@@ -121,11 +126,16 @@ change the default for everyone in the org.
 
 ### Repository secrets
 
-| Secret                    | Purpose                                                                                                |
-| ------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `BETA_E2E_EMAIL`          | The identity every authenticated spec asserts it is running as                                         |
-| `BETA_E2E_SESSION_TOKENS` | Per-app map from `e2e:beta:capture`, e.g. `{"slides": "…", "chat": "…"}`                               |
-| `BETA_E2E_OPENAI_API_KEY` | Dedicated, separately-limited key for agent turns. Omit only if you dispatch with `key_source=shared`. |
+| Secret                        | Purpose                                                                                                |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `BETA_E2E_EMAIL`              | The identity every authenticated spec asserts it is running as                                         |
+| `BETA_E2E_SESSION_TOKENS`     | Per-app map from `e2e:beta:capture`, e.g. `{"slides": "…", "chat": "…"}`                               |
+| `BETA_E2E_SESSION_TOKEN_CRM`  | Optional beta CRM override when its isolated database needs a fresh session                            |
+| `BETA_E2E_SESSION_TOKEN_CHAT` | Optional beta Chat override when its isolated database needs a fresh session                           |
+| `BETA_E2E_OPENAI_API_KEY`     | Dedicated, separately-limited key for agent turns. Omit only if you dispatch with `key_source=shared`. |
+
+The CRM and Chat overrides take precedence over their entries in the map, so
+refreshing an isolated host does not require replacing the other live sessions.
 
 ## Things that behave the way they do on purpose
 

@@ -1,6 +1,7 @@
 import {
   useLoaderData,
   useParams,
+  type ClientLoaderFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
 
@@ -8,6 +9,7 @@ import DocContent from "../components/DocContent";
 import DocDraftBanner from "../components/DocDraftBanner";
 import {
   loadDocRespectingDraftVisibility,
+  preloadDocBlocksForDoc,
   type DocEntry,
 } from "../components/docs-content";
 import {
@@ -33,6 +35,11 @@ export async function loader({
   );
   if (!doc) throw new Response("Not Found", { status: 404 });
   return doc;
+}
+
+export async function clientLoader({ serverLoader }: ClientLoaderFunctionArgs) {
+  const doc = (await serverLoader()) as DocEntry;
+  return preloadDocBlocksForDoc(doc);
 }
 
 export const meta = ({

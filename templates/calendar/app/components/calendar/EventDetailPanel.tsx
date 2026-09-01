@@ -102,19 +102,27 @@ function safeUrl(u: string | undefined): string {
   }
 }
 
-function extractMeetingLink(event: CalendarEvent): string | null {
+function extractMeetingLink(event: CalendarEvent): {
+  url: string;
+  type: "meet" | "other";
+} | null {
   const videoEntry = event.conferenceData?.entryPoints?.find(
     (entry) => entry.entryPointType === "video",
   );
-  if (videoEntry?.uri) return videoEntry.uri;
-  if (event.hangoutLink) return event.hangoutLink;
+  if (videoEntry?.uri)
+    return {
+      url: videoEntry.uri,
+      type: videoEntry.uri.includes("meet.google.com") ? "meet" : "other",
+    };
+  if (event.hangoutLink) return { url: event.hangoutLink, type: "meet" };
   const text = `${event.location || ""} ${event.description || ""}`;
-  return (
+  const url =
     text.match(/https?:\/\/[^\s]*zoom\.us\/j\/[^\s)"]*/i)?.[0] ||
     text.match(/https?:\/\/meet\.google\.com\/[^\s)"]*/i)?.[0] ||
-    text.match(/https?:\/\/teams\.microsoft\.com\/[^\s)"]*/i)?.[0] ||
-    null
-  );
+    text.match(/https?:\/\/teams\.microsoft\.com\/[^\s)"]*/i)?.[0];
+  return url
+    ? { url, type: url.includes("meet.google.com") ? "meet" : "other" }
+    : null;
 }
 
 export function EventDetailPanel({
@@ -150,6 +158,15 @@ export function EventDetailPanel({
   );
   const lastSavedDescriptionRef = useRef(event?.description || "");
   const meetingLink = event ? extractMeetingLink(event) : null;
+  const canRemoveGoogleMeet =
+    !isOverlay &&
+    meetingLink?.type === "meet" &&
+    (!!event?.hangoutLink ||
+      event?.conferenceData?.entryPoints?.some(
+        (entryPoint) =>
+          entryPoint.entryPointType === "video" &&
+          entryPoint.uri.includes("meet.google.com"),
+      ));
   const ownerLabel = event?.ownerName || event?.overlayEmail;
   const eventDetailSlotContext = useMemo(
     () => (event ? buildEventDetailSlotContext(event) : null),
@@ -279,6 +296,33 @@ export function EventDetailPanel({
       );
     })();
   }, [event, promptGuestNotification, updateEvent]);
+
+  const handleRemoveGoogleMeet = useCallback(() => {
+    if (!event || updateEvent.isPending) return;
+    void (async () => {
+      const updates = { removeGoogleMeet: true };
+      const guestNotification = await promptGuestNotification({
+        event,
+        action: "update",
+        updates,
+        recurrenceScope: isRecurringEvent
+          ? { enabled: true, defaultScope: "single" }
+          : undefined,
+      });
+      if (!guestNotification) return;
+      updateEvent.mutate(
+        {
+          id: event.id,
+          accountEmail: event.accountEmail,
+          ...updates,
+          ...guestNotification,
+        },
+        {
+          onError: () => toast.error(t("eventForm.updateFailed")),
+        },
+      );
+    })();
+  }, [event, isRecurringEvent, promptGuestNotification, t, updateEvent]);
 
   const handleToggleAttendeeOptional = useCallback(
     (email: string, optional: boolean) => {
@@ -521,15 +565,31 @@ export function EventDetailPanel({
 
                 {!isWorkingLocation &&
                   (meetingLink ? (
-                    <a
-                      href={safeUrl(meetingLink)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-center rounded-lg bg-[#4965E0] px-3 py-2 text-sm font-semibold text-white hover:bg-[#5A75F0]"
-                    >
-                      <IconVideo className="mr-2 h-4 w-4 opacity-80" />
-                      {t("eventForm.joinMeeting")}
-                    </a>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={safeUrl(meetingLink.url)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex min-w-0 flex-1 items-center justify-center rounded-lg bg-conference px-3 py-2 text-sm font-semibold text-conference-foreground hover:bg-conference/90"
+                      >
+                        <IconVideo className="mr-2 h-4 w-4 opacity-80" />
+                        {t("eventForm.joinMeeting")}
+                      </a>
+                      {canRemoveGoogleMeet && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="size-9 shrink-0"
+                          aria-label={`${t("eventForm.delete")} ${t("eventForm.googleMeet")}`}
+                          title={`${t("eventForm.delete")} ${t("eventForm.googleMeet")}`}
+                          disabled={updateEvent.isPending}
+                          onClick={handleRemoveGoogleMeet}
+                        >
+                          <IconX className="size-4" />
+                        </Button>
+                      )}
+                    </div>
                   ) : !isOverlay ? (
                     <Button
                       type="button"

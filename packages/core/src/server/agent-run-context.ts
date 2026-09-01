@@ -6,6 +6,10 @@ import {
   ANALYTICS_CLIENT_PLATFORM_HEADER,
   normalizeAnalyticsClientPlatform,
 } from "../shared/analytics-platform.js";
+import {
+  SYNTHETIC_TRAFFIC_HEADER,
+  isSyntheticTrafficValue,
+} from "../shared/test-traffic.js";
 import { getSession } from "./auth.js";
 import {
   runWithRequestContext,
@@ -122,6 +126,12 @@ export function readAnalyticsClientPlatformHeader(
         ANALYTICS_CLIENT_PLATFORM_BODY_FIELD
       ],
     )
+  );
+}
+
+export function readSyntheticTrafficHeader(event: H3Event): boolean {
+  return isSyntheticTrafficValue(
+    readHeaderValue(event, SYNTHETIC_TRAFFIC_HEADER),
   );
 }
 
@@ -244,6 +254,7 @@ export async function resolveAgentRunRequestContext(options: {
   const timezone = readAgentRunTimezone(options.event);
   const browserSessionId = readBrowserSessionIdHeader(options.event);
   const clientPlatform = readAnalyticsClientPlatformHeader(options.event);
+  const isSyntheticTraffic = readSyntheticTrafficHeader(options.event);
   const waitUntil = requestWaitUntil(options.event);
   const run = {
     ...(options.isBackgroundWorker ? { isBackgroundWorker: true } : {}),
@@ -256,6 +267,7 @@ export async function resolveAgentRunRequestContext(options: {
     timezone,
     ...(browserSessionId ? { browserSessionId } : {}),
     ...(clientPlatform ? { clientPlatform } : {}),
+    ...(isSyntheticTraffic ? { isSyntheticTraffic: true } : {}),
     ...(Object.keys(run).length > 0 ? { run } : {}),
   };
 }

@@ -8,11 +8,15 @@ directories:
 files:
   - out/**
   - "!node_modules/**"
+  - node_modules/node-pty/**
   - "!src/**"
   - "!shared/**"
   - "!electron.vite.config.*"
   - "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
   - "!{tsconfig.json,tsconfig.*.json}"
+
+asarUnpack:
+  - node_modules/node-pty/prebuilds/**
 
 extraResources:
   - from: ../agent-chrome-extension/dist
@@ -29,6 +33,8 @@ protocols:
       - agentnative
 
 mac:
+  files:
+    - "!node_modules/node-pty/build/**"
   extraResources:
     - from: native/bin/agent-native-computer-helper
       to: native/agent-native-computer-helper
@@ -59,6 +65,8 @@ dmg:
   artifactName: ${productName}-${arch}.${ext}
 
 win:
+  files:
+    - "!node_modules/node-pty/build/**"
   icon: build/icon.png
   target:
     - target: nsis

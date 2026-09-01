@@ -256,11 +256,11 @@ button[title="Open agent sidebar"] {
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: hsl(var(--muted-foreground) / 0.3);
+    background: hsl(var(--muted-foreground) / 0.22);
     border-radius: 3px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground) / 0.5);
+    background: hsl(var(--muted-foreground) / 0.34);
   }
 }
 
@@ -1181,7 +1181,7 @@ button[title="Open agent sidebar"] {
   background-image: linear-gradient(
     100deg,
     transparent 30%,
-    rgba(255, 255, 255, 0.16) 50%,
+    rgba(255, 255, 255, 0.058) 50%,
     transparent 70%
   );
   background-position: 150% 0;

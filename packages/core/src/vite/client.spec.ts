@@ -948,18 +948,18 @@ describe("route warmup config", () => {
     }
   });
 
-  it("enables safe React Router route warmup by default", () => {
+  it("enables viewport React Router route warmup by default", () => {
     const config = defineConfig();
     const routeWarmup = JSON.parse(
       String(config.define?.__AGENT_NATIVE_ROUTE_WARMUP_CONFIG__),
     );
 
     expect(routeWarmup).toEqual({
-      strategy: "intent",
+      strategy: "viewport",
       data: true,
       modules: true,
       selector: 'a[data-an-prefetch="render"][href]',
-      maxConcurrent: 4,
+      maxConcurrent: 8,
     });
   });
 

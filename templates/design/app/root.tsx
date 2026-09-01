@@ -188,12 +188,20 @@ function DesignToaster() {
   return (
     <Toaster
       richColors
-      position={isBuilderHostEmbed() ? "bottom-right" : "bottom-left"}
+      position="bottom-right"
+      offset={{ bottom: 44, right: 32 }}
+      mobileOffset={{ bottom: 44, right: 16 }}
     />
   );
 }
 
 function RootContent() {
+  const location = useLocation();
+  if (location.pathname === "/") return <Outlet />;
+  return <PrivateRootContent />;
+}
+
+function PrivateRootContent() {
   const location = useLocation();
   const { session } = useSession();
   const [cmdkOpen, setCmdkOpen] = useState(false);
@@ -227,7 +235,9 @@ function RootContent() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
-  const isPublicPath = isPublicDesignAppPath(location.pathname);
+  const isMarketingHome = location.pathname === "/";
+  const isPublicPath =
+    isMarketingHome || isPublicDesignAppPath(location.pathname);
   return (
     <AppToolkitProvider>
       <AppProviders

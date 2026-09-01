@@ -2,7 +2,6 @@ import { useT } from "@agent-native/core/client/i18n";
 import { VisualFontFamilyPicker } from "@agent-native/toolkit/design-tweaks";
 import {
   IconAlignCenter,
-  IconAlignJustified,
   IconAlignLeft,
   IconAlignRight,
   IconArrowAutofitHeight,
@@ -522,7 +521,7 @@ export function TypographyProperties({
           overlap the weight/size row below (bug: trigger extended ~12 px into
           the next row, causing clicks meant for the size input to open this
           dropdown instead). */}
-      <InspectorGrid>
+      <InspectorGrid layout="field-action">
         <InspectorGridCell span={28} className="h-6 overflow-hidden">
           <VisualFontFamilyPicker
             label={t("editPanel.labels.font")}
@@ -537,7 +536,7 @@ export function TypographyProperties({
       </InspectorGrid>
 
       {/* Row 2: weight + size side by side */}
-      <InspectorGrid className="items-center" layout="pair">
+      <InspectorGrid className="items-center" layout="action-pair">
         <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
           <Select
             value={fontWeightIsMixed ? MIXED_VALUE : currentFontWeight}
@@ -599,55 +598,69 @@ export function TypographyProperties({
         </InspectorGridCell>
       </InspectorGrid>
 
-      {/* Row 3: line-height + letter-spacing with design-editor leading icons */}
-      <InspectorGrid className="items-center" layout="pair">
+      {/* Row 3: labelled line-height + letter-spacing fields */}
+      <InspectorGrid className="items-center" layout="action-pair">
         <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
-          <ScrubInput
-            label={t("editPanel.labels.lineHeight")}
-            ariaLabel={t("editPanel.labels.lineHeight")}
-            icon={IconLineHeight}
-            value={
-              lineHeightIsMixed
-                ? 0
-                : resolveLineHeight(styles.lineHeight, styles.fontSize)
-            }
-            mixed={lineHeightIsMixed}
-            onChange={(value, meta) =>
-              onStyleChange("lineHeight", String(Math.max(0.1, value)), meta)
-            }
-            min={0.1}
-            step={0.1}
-            precision={2}
-            className="w-full gap-0"
-            labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
-            inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
-          />
+          <div className="flex flex-col gap-2">
+            <p className="design-sidebar-field-label text-muted-foreground">
+              {t("editPanel.labels.lineHeight")}
+            </p>
+            <ScrubInput
+              label={t("editPanel.labels.lineHeight")}
+              ariaLabel={t("editPanel.labels.lineHeight")}
+              icon={IconLineHeight}
+              value={
+                lineHeightIsMixed
+                  ? 0
+                  : resolveLineHeight(styles.lineHeight, styles.fontSize)
+              }
+              mixed={lineHeightIsMixed}
+              onChange={(value, meta) =>
+                onStyleChange("lineHeight", String(Math.max(0.1, value)), meta)
+              }
+              min={0.1}
+              step={0.1}
+              precision={2}
+              className="w-full gap-0"
+              labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
+              inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+            />
+          </div>
         </InspectorGridCell>
         <InspectorGridCell span={INSPECTOR_GRID_PAIR_GUTTER_SPAN} ariaHidden />
         <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
-          <ScrubInput
-            label={t("editPanel.labels.tracking")}
-            ariaLabel={t("editPanel.labels.tracking")}
-            icon={IconLetterSpacing}
-            value={
-              letterSpacingIsMixed
-                ? 0
-                : styles.letterSpacing
-                  ? parseNumericValue(styles.letterSpacing)
-                  : 0
-            }
-            mixed={letterSpacingIsMixed}
-            onChange={(value, meta) =>
-              onStyleChange("letterSpacing", `${value}px`, meta)
-            }
-            unit="px"
-            precision={1}
-            className="w-full gap-0"
-            labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
-            inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
-          />
+          <div className="flex flex-col gap-2">
+            <p className="design-sidebar-field-label text-muted-foreground">
+              {t("editPanel.labels.tracking")}
+            </p>
+            <ScrubInput
+              label={t("editPanel.labels.tracking")}
+              ariaLabel={t("editPanel.labels.tracking")}
+              icon={IconLetterSpacing}
+              value={
+                letterSpacingIsMixed
+                  ? 0
+                  : styles.letterSpacing
+                    ? parseNumericValue(styles.letterSpacing)
+                    : 0
+              }
+              mixed={letterSpacingIsMixed}
+              onChange={(value, meta) =>
+                onStyleChange("letterSpacing", `${value}px`, meta)
+              }
+              unit="px"
+              precision={1}
+              className="w-full gap-0"
+              labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
+              inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+            />
+          </div>
         </InspectorGridCell>
       </InspectorGrid>
+
+      <div className="design-sidebar-field-label text-muted-foreground">
+        {t("editPanel.labels.align")}
+      </div>
 
       {/* Row 4: horizontal + vertical text alignment */}
       <InspectorGrid className="items-center">
@@ -673,13 +686,6 @@ export function TypographyProperties({
               onClick={() => onStyleChange("textAlign", "right")}
             >
               <IconAlignRight className="size-3.5" />
-            </InspectorIconButton>
-            <InspectorIconButton
-              label={t("editPanel.textAligns.justify")}
-              active={textAlign === "justify"}
-              onClick={() => onStyleChange("textAlign", "justify")}
-            >
-              <IconAlignJustified className="size-3.5" />
             </InspectorIconButton>
           </InspectorSegment>
         </InspectorGridCell>

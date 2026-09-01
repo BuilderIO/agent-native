@@ -19,6 +19,7 @@ import {
   docSourceSlugFromFilename,
   preferMdxDocSourceFiles,
 } from "../lib/docs-source";
+import { communityApps } from "./components/community-apps";
 import {
   docsMarkdownPathForSlug,
   docsPathForSlug,
@@ -281,6 +282,30 @@ function buildDocsSitePages(rootDir: string): DocsSitePage[] {
       lastmod: gitLastmod(templateCardPath),
     };
   });
+  const communityPages = communityApps.map((app) => ({
+    path: sitePathForLocale(`/apps/community/${app.slug}`),
+    title: `${app.name} - Community App`,
+    description: app.description,
+    markdown: [
+      `# ${app.name}`,
+      "",
+      app.description,
+      "",
+      app.demoUrl
+        ? `- Hosted app: ${app.demoUrl}`
+        : "- Hosted app: Coming soon",
+      app.repositoryUrl
+        ? `- GitHub repository: ${app.repositoryUrl}`
+        : undefined,
+      app.sourceUrl ? `- Source: ${app.sourceUrl}` : undefined,
+      "",
+    ]
+      .filter((line): line is string => typeof line === "string")
+      .join("\n"),
+    lastmod: gitLastmod(
+      path.resolve(rootDir, "app/components/community-apps.ts"),
+    ),
+  }));
 
   return sortPages([
     {
@@ -394,6 +419,7 @@ Agent-Native is an open source framework for building apps where AI agents and U
     ...docsPages,
     ...localizedDocsPages,
     ...templatePages,
+    ...communityPages,
   ]);
 }
 

@@ -110,6 +110,7 @@ export default function FormsTemplate() {
             </span>
           </>
         }
+        customizeTemplate={template}
         description={<p className="m-0">{t("templateLanding.forms.s007")}</p>}
         headingAction={
           <a

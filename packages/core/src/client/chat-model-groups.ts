@@ -56,6 +56,11 @@ const HIDDEN_CHAT_MODEL_ENGINES = new Set([
   "ai-sdk:cohere",
 ]);
 
+const HIDDEN_UNCONFIGURED_CHAT_MODEL_ENGINES = new Set([
+  "ai-sdk:google",
+  "ai-sdk:openrouter",
+]);
+
 function addCurrentModel(
   models: readonly string[],
   engineName: string,
@@ -197,6 +202,11 @@ function sortModelPickerEngines(
   return modelPickerEngineRank(a) - modelPickerEngineRank(b);
 }
 
+function shouldShowConfiguredGroup(group: EngineModelGroup): boolean {
+  if (group.configured) return true;
+  return !HIDDEN_UNCONFIGURED_CHAT_MODEL_ENGINES.has(group.engine);
+}
+
 export function buildChatModelGroups({
   engines,
   configuredKeys,
@@ -205,19 +215,20 @@ export function buildChatModelGroups({
   currentModel,
 }: BuildChatModelGroupsOptions): EngineModelGroup[] {
   const configured = new Set(configuredKeys ?? []);
-
-  if (builderConnected) {
-    const builderEngine = engines.find((engine) => engine.name === "builder");
-    const builderModels = addCurrentModel(
+  const builderEngine = engines.find((engine) => engine.name === "builder");
+  const builderModels = () =>
+    addCurrentModel(
       builderEngine?.supportedModels ?? [],
       "builder",
       currentEngineName,
       currentModel,
     );
-    return groupBuilderModels(builderModels);
+
+  if (builderConnected) {
+    return groupBuilderModels(builderModels());
   }
 
-  return engines
+  const directGroups = engines
     .filter((engine) => engine.packageInstalled !== false)
     .filter((engine) => shouldShowDirectEngine(engine, currentEngineName))
     .sort(sortModelPickerEngines)
@@ -240,5 +251,28 @@ export function buildChatModelGroups({
             requiredEnvVars.some((key) => configured.has(key))),
       };
     })
-    .filter((group) => group.models.length > 0);
+    .filter((group) => group.models.length > 0)
+    .filter(shouldShowConfiguredGroup);
+
+  // The gateway lane — a Fusion preview or a Builder-credits deploy — bills the
+  // app's own Builder account and needs no connect step, but
+  // `/builder/status.configured` answers for the IDENTITY lane only and is false
+  // here. Without the catalog's server-resolved readiness (which sees both
+  // lanes) every row in the picker is a dead "needs API key" while the gateway
+  // is the one credential that can actually run the chat.
+  if (builderEngine?.configured === true) {
+    // A provider key the customer pasted still outranks the injected gateway at
+    // request time (`selectDetectedEngine` skips deploy-injected sets), so it
+    // stays selectable. Unconfigured direct engines are dropped: with a routable
+    // lane in the list they are dead ends, not a setup path, and their labels
+    // collide with the Builder families.
+    return [
+      ...groupBuilderModels(builderModels()),
+      ...directGroups.filter(
+        (group) => group.configured && group.engine !== "builder",
+      ),
+    ];
+  }
+
+  return directGroups;
 }

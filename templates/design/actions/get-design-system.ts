@@ -157,7 +157,7 @@ function buildDesignSystemAgentContext({
       builder.builderStatus ? `- Status: ${builder.builderStatus}` : "",
       "- Builder DSI docs and token values override local proxy placeholders.",
       canRefreshBuilder
-        ? "- If no usable DSI docs or tokens are returned, call refresh-design-system-with-builder once, then call get-design-system again before generating; if it is still empty, tell the user Builder indexing is not ready."
+        ? "- If no usable DSI docs or tokens are returned, call get-design-system-index-status to check Builder progress. Only call refresh-design-system-with-builder once after that status is ready, then call get-design-system again; if it is still empty, tell the user Builder indexing is not ready."
         : "- If no usable DSI docs or tokens are returned, tell the user Builder indexing is not ready; refreshing the shared system requires editor access.",
     );
 

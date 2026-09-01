@@ -3,9 +3,11 @@ import type {
   AgentLoopFinalResponseGuard,
   ProductionAgentOptions,
 } from "../../agent/production-agent.js";
+import type { ActiveRun } from "../../agent/run-manager.js";
 import type {
   AgentChatAttachment,
   AgentChatReference,
+  AgentChatScope,
   MentionProvider,
 } from "../../agent/types.js";
 import type { FrameworkToolsConfig } from "../../framework-tools.js";
@@ -20,6 +22,15 @@ import type { AgentChatMcpIcon, AgentChatMcpOptions } from "./mcp-options.js";
 export type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface AgentChatPluginOptions {
+  /**
+   * Best-effort app autosave hook. It runs after the chat thread has been
+   * persisted and only when the run completed a side effect. Errors are
+   * reported by the framework without failing the completed chat turn.
+   */
+  onAgentTurnComplete?: (
+    scope: AgentChatScope,
+    run: ActiveRun,
+  ) => void | Promise<void>;
   /** Template-specific actions (email ops, booking ops, etc.) */
   actions?:
     | Record<string, ActionEntry>
@@ -423,6 +434,13 @@ export interface AgentChatPluginOptions {
    * cycle safety does not depend on removing the tool.
    */
   a2aAgentDelegation?: boolean;
+
+  /**
+   * @deprecated This rollout option is retained only for source compatibility
+   * and has no runtime effect. Use `selectedA2AReceiverOwnsObjective` to opt an
+   * app into stable selected-receiver behavior.
+   */
+  a2aReceiverOwnershipFlag?: string;
 
   /**
    * Keep a delegated objective on this app when trusted A2A metadata already

@@ -22,11 +22,12 @@
 
 import { defineAction } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import { readDesignVersionSnapshot } from "../server/lib/design-versions.js";
 import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
 import type {
   VisualDiffEntry,
@@ -82,33 +83,15 @@ function parseBranches(
  * `{ filename: { bytes, contentHash } }` for structural comparison.
  * Mirrors the approach in `get-design-review.ts`.
  */
-function parseSnapshotFiles(
-  snapshotRaw: string,
-): Record<string, { bytes: number; content: string | undefined }> {
-  try {
-    const obj = JSON.parse(snapshotRaw) as unknown;
-    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return {};
-    const record = obj as Record<string, unknown>;
-    const files = record["files"];
-    if (!Array.isArray(files)) return {};
-
-    const out: Record<string, { bytes: number; content: string | undefined }> =
-      {};
-    for (const file of files) {
-      if (!file || typeof file !== "object") continue;
-      const f = file as Record<string, unknown>;
-      const name = typeof f["filename"] === "string" ? f["filename"] : "?";
-      const content =
-        typeof f["content"] === "string" ? f["content"] : undefined;
-      out[name] = {
-        content,
-        bytes: typeof content === "string" ? content.length : 0,
-      };
-    }
-    return out;
-  } catch {
-    return {};
-  }
+function snapshotFiles(
+  files: ReadonlyArray<{ filename: string; content: string }>,
+): Record<string, { bytes: number; content: string }> {
+  return Object.fromEntries(
+    files.map((file) => [
+      file.filename,
+      { content: file.content, bytes: file.content.length },
+    ]),
+  );
 }
 
 /** Produce a visual diff entry list from two snapshot file maps. */
@@ -297,7 +280,15 @@ export default defineAction({
           snapshot: schema.designVersions.snapshot,
         })
         .from(schema.designVersions)
-        .where(eq(schema.designVersions.designId, designId));
+        .where(
+          and(
+            eq(schema.designVersions.designId, designId),
+            inArray(schema.designVersions.id, [
+              effectiveBaseId,
+              effectiveCompareId,
+            ]),
+          ),
+        );
 
       const byId = Object.fromEntries(
         versionRows.map((r) => [r.id, r.snapshot]),
@@ -307,8 +298,12 @@ export default defineAction({
       const compareSnap = byId[effectiveCompareId];
 
       if (baseSnap && compareSnap) {
-        const baseFiles = parseSnapshotFiles(baseSnap);
-        const compareFiles = parseSnapshotFiles(compareSnap);
+        const [baseVersion, compareVersion] = await Promise.all([
+          readDesignVersionSnapshot(baseSnap, designId),
+          readDesignVersionSnapshot(compareSnap, designId),
+        ]);
+        const baseFiles = snapshotFiles(baseVersion.files);
+        const compareFiles = snapshotFiles(compareVersion.files);
         visualDiff = diffSnapshotFiles(baseFiles, compareFiles);
         resolvedBaseVersionId = effectiveBaseId;
         resolvedCompareVersionId = effectiveCompareId;

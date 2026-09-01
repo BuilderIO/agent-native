@@ -7,6 +7,7 @@ import type {
   ComposeAttachment,
   EmailMessage,
   Label,
+  SavedMailFilter,
   UserSettings,
 } from "@shared/types";
 import {
@@ -579,6 +580,7 @@ export function useEmails(
     // the inbox appear to flash/reload even though the old page is usable.
     isError: q.isError && !q.data,
     error: q.isError && !q.data ? toError(q.error) : null,
+    totalEstimate: q.data?.pages[0]?.totalEstimate,
     refetch: q.refetch,
     hasNextPage: q.hasNextPage,
     fetchNextPage: q.fetchNextPage,
@@ -1468,10 +1470,18 @@ export function useContacts() {
 
 export const EMPTY_LABELS: Label[] = [];
 
-export function useLabels() {
+export function useLabels(accountEmails?: readonly string[]) {
+  const accountFilter = accountEmails?.length
+    ? [...new Set(accountEmails.map((email) => email.toLowerCase()))].sort()
+    : undefined;
   return useQuery<Label[]>({
-    queryKey: ["labels"],
-    queryFn: () => apiFetch("/api/labels"),
+    queryKey: ["labels", accountFilter],
+    queryFn: () => {
+      const params = accountFilter?.length
+        ? `?accountEmails=${encodeURIComponent(accountFilter.join(","))}`
+        : "";
+      return apiFetch(`/api/labels${params}`);
+    },
     // A failed background refresh must not erase the last complete label map.
     // The layout still surfaces isError so an initial failure has an explicit
     // retry path instead of looking like an empty mailbox.
@@ -1483,9 +1493,11 @@ export function useLabels() {
 // ─── Settings ────────────────────────────────────────────────────────────────
 
 let pinnedLabelsUpdateTail: Promise<void> = Promise.resolve();
+let savedFiltersUpdateTail: Promise<void> = Promise.resolve();
 let pinnedLabelsUpdateToken = 0;
 let pinnedLabelsOwnerEmail: string | undefined;
 let confirmedPinnedLabels: string[] | undefined;
+const savedFiltersBaseByPatch = new WeakMap<object, SavedMailFilter[]>();
 const pendingPinnedLabelsIntents: Array<{
   base: string[];
   next: string[];
@@ -1576,6 +1588,15 @@ export function serializePinnedLabelsUpdate<T>(
   return run;
 }
 
+function serializeSavedFiltersUpdate<T>(task: () => Promise<T>): Promise<T> {
+  const run = savedFiltersUpdateTail.then(task, task);
+  savedFiltersUpdateTail = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 export function useSettings() {
   return useQuery<UserSettings>({
     queryKey: ["settings"],
@@ -1595,6 +1616,20 @@ export function useUpdateSettings() {
 
   return useMutation({
     mutationFn: (data: Partial<UserSettings>) => {
+      if ("savedFilters" in data) {
+        const base = savedFiltersBaseByPatch.get(data) ?? [];
+        return serializeSavedFiltersUpdate(() =>
+          callAction(
+            "update-mail-preferences",
+            {
+              ...data,
+              savedFiltersBase: base,
+              requestSource: TAB_ID,
+            },
+            { method: "PUT" },
+          ),
+        );
+      }
       if (!("pinnedLabels" in data)) {
         return callAction(
           "update-mail-preferences",
@@ -1638,6 +1673,9 @@ export function useUpdateSettings() {
       await qc.cancelQueries({ queryKey: ["settings"] });
       const prev = qc.getQueryData<UserSettings>(["settings"]);
       const hasPinnedLabels = "pinnedLabels" in data;
+      if ("savedFilters" in data) {
+        savedFiltersBaseByPatch.set(data, prev?.savedFilters ?? []);
+      }
       if (hasPinnedLabels) {
         const owner = normalizePinnedLabelsOwner(prev?.email);
         if (settingsLoading || !prev || !owner) {
@@ -1697,7 +1735,12 @@ export function useUpdateSettings() {
         confirmedPinnedLabels = data.pinnedLabels;
       }
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: ["settings"] }),
+    onSettled: (_data, _error, variables) => {
+      if ("savedFilters" in variables) {
+        savedFiltersBaseByPatch.delete(variables);
+      }
+      return qc.invalidateQueries({ queryKey: ["settings"] });
+    },
   });
 }
 

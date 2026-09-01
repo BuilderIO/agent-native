@@ -26,6 +26,7 @@ import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
 import {
   readBrowserSessionIdHeader,
   readAnalyticsClientPlatformHeader,
+  readSyntheticTrafficHeader,
   seedAgentRunOwnerContext,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
@@ -590,6 +591,7 @@ function mountActionRoutesInternal(
         const timezone = readTimezoneHeader(event);
         const browserSessionId = readBrowserSessionIdHeader(event);
         const clientPlatform = readAnalyticsClientPlatformHeader(event);
+        const isSyntheticTraffic = readSyntheticTrafficHeader(event);
 
         return runWithRequestContext(
           {
@@ -600,6 +602,7 @@ function mountActionRoutesInternal(
             timezone,
             browserSessionId,
             clientPlatform,
+            ...(isSyntheticTraffic ? { isSyntheticTraffic: true } : {}),
             requestOrigin: getForwardedRequestOrigin(event),
             // Captured here because this is the last layer that still holds
             // the h3 event; everything below reads it off the request store.
