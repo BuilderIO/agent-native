@@ -4,6 +4,7 @@ import {
   assetUrls,
   buildAssetLineage,
   imageArtifactLinks,
+  serializeAssetSummary,
   serializeGenerationSessionItems,
 } from "./_helpers.js";
 
@@ -94,6 +95,45 @@ describe("imageArtifactLinks", () => {
       "previewUrl: https://assets.example/api/assets/asset-1/content (ID: asset-1, Run: run-1)",
       "downloadUrl: https://assets.example/api/assets/asset-1/content?download=1",
     ]);
+  });
+});
+
+describe("serializeAssetSummary", () => {
+  it("returns only the generation fields callers consume", () => {
+    const summary = serializeAssetSummary({
+      id: "asset-1",
+      generationRunId: "run-1",
+      title: "Hero",
+      libraryId: "lib-1",
+      collectionId: "collection-1",
+      status: "candidate",
+      mediaType: "image",
+      aspectRatio: "16:9",
+      width: 1536,
+      height: 1024,
+      mimeType: "image/png",
+      objectKey: "https://cdn.example.com/asset-1.png",
+      thumbnailObjectKey: "https://cdn.example.com/asset-1-thumb.png",
+    });
+
+    expect(summary).toEqual({
+      id: "asset-1",
+      runId: "run-1",
+      artifactType: "image",
+      title: "Hero",
+      libraryId: "lib-1",
+      collectionId: "collection-1",
+      status: "candidate",
+      mediaType: "image",
+      aspectRatio: "16:9",
+      width: 1536,
+      height: 1024,
+      mimeType: "image/png",
+      url: "/asset/asset-1",
+      previewUrl: "https://cdn.example.com/asset-1.png",
+      downloadUrl: "/api/assets/asset-1/content?download=1",
+      embedUrl: "/asset/asset-1/embed",
+    });
   });
 });
 

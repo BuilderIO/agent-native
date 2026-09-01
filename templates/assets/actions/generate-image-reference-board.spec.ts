@@ -121,9 +121,18 @@ vi.mock("../server/lib/storage.js", () => ({
 }));
 
 vi.mock("./_helpers.js", () => ({
+  assetUrls: vi.fn((asset) => ({
+    previewUrl: asset.url,
+    thumbnailUrl: asset.url,
+  })),
   imageArtifactLinks: vi.fn(() => []),
   requireGenerationSessionInLibrary: vi.fn(),
-  serializeAsset: vi.fn((asset) => asset),
+  serializeAssetSummary: vi.fn((asset) => ({
+    ...asset,
+    artifactType: "image",
+    previewUrl: asset.url,
+    downloadUrl: asset.url,
+  })),
 }));
 
 vi.mock("./_image-model-default.js", () => ({

@@ -418,6 +418,112 @@ export function serializeAsset(
   };
 }
 
+/**
+ * Caller-facing generation result. Generation internals are replayed into the
+ * model context on later turns and can be truncated by delegated/ledger caps;
+ * full details remain available through get-asset and the audit-run actions.
+ */
+export function serializeAssetSummary(row: {
+  id: string;
+  generationRunId?: string | null;
+  title?: string | null;
+  libraryId: string;
+  collectionId?: string | null;
+  status: string;
+  mediaType?: string | null;
+  aspectRatio?: string | null;
+  width?: number | null;
+  height?: number | null;
+  mimeType: string;
+  objectKey: string;
+  thumbnailObjectKey?: string | null;
+}) {
+  const urls = assetUrls(row);
+  return {
+    id: row.id,
+    runId: row.generationRunId ?? null,
+    artifactType: "image" as const,
+    title: row.title ?? null,
+    libraryId: row.libraryId,
+    collectionId: row.collectionId ?? null,
+    status: row.status,
+    mediaType:
+      row.mediaType ?? (row.mimeType.startsWith("video/") ? "video" : "image"),
+    aspectRatio: row.aspectRatio ?? null,
+    width: row.width ?? null,
+    height: row.height ?? null,
+    mimeType: row.mimeType,
+    url: urls.url,
+    previewUrl: urls.previewUrl,
+    downloadUrl: urls.downloadUrl,
+    embedUrl: urls.embedUrl,
+  };
+}
+
+export function serializeAssetListItem(
+  row: {
+    id: string;
+    libraryId: string;
+    collectionId?: string | null;
+    folderId?: string | null;
+    mediaType?: string | null;
+    role: string;
+    status: string;
+    title?: string | null;
+    description?: string | null;
+    altText?: string | null;
+    prompt?: string | null;
+    model?: string | null;
+    aspectRatio?: string | null;
+    mimeType: string;
+    width?: number | null;
+    height?: number | null;
+    durationSeconds?: number | null;
+    objectKey: string;
+    thumbnailObjectKey?: string | null;
+    metadata?: string | null;
+  },
+  lineage: AssetLineageSummary | null = null,
+) {
+  const metadata = parseJson<Record<string, unknown>>(row.metadata, {});
+  const urls = assetUrls(row);
+  return {
+    id: row.id,
+    libraryId: row.libraryId,
+    collectionId: row.collectionId ?? null,
+    folderId: row.folderId ?? null,
+    mediaType:
+      row.mediaType ?? (row.mimeType.startsWith("video/") ? "video" : "image"),
+    role: row.role,
+    status: row.status,
+    category: metadata.category ?? null,
+    title: row.title ?? null,
+    description: row.description ?? metadata.description ?? null,
+    altText: row.altText ?? null,
+    prompt: row.prompt ?? null,
+    model: row.model ?? null,
+    aspectRatio: row.aspectRatio ?? null,
+    mimeType: row.mimeType,
+    width: row.width ?? null,
+    height: row.height ?? null,
+    durationSeconds: row.durationSeconds ?? null,
+    metadata: {
+      category: metadata.category ?? null,
+      intent: metadata.intent ?? null,
+      description: metadata.description ?? null,
+      originalName: metadata.originalName ?? null,
+      provider: metadata.provider ?? null,
+    },
+    lineage,
+    url: urls.url,
+    previewUrl: urls.previewUrl,
+    thumbnailUrl: urls.thumbnailUrl,
+    downloadUrl: urls.downloadUrl,
+    embedPath: urls.embedPath,
+    embedUrl: urls.embedUrl,
+  };
+}
+
 export async function getAssetOrThrow(id: string) {
   const db = getDb();
   const [asset] = await db
