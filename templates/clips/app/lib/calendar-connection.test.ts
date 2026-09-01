@@ -5,8 +5,11 @@ import { isCalendarConnectionComplete } from "./calendar-connection";
 const connected = {
   id: "account-1",
   status: "connected",
-  lastSyncError: null,
-  updatedAt: "2026-09-01T10:00:00.000Z",
+};
+const connectedWithStaleMetadata = {
+  ...connected,
+  lastSyncError: "stale error",
+  updatedAt: "changed",
 };
 
 describe("isCalendarConnectionComplete", () => {
@@ -32,12 +35,9 @@ describe("isCalendarConnectionComplete", () => {
     ).toBe(true);
   });
 
-  it("recognizes a refreshed OAuth timestamp", () => {
+  it("ignores sync metadata changes on an existing account", () => {
     expect(
-      isCalendarConnectionComplete(
-        [connected],
-        [{ ...connected, updatedAt: "2026-09-01T10:01:00.000Z" }],
-      ),
-    ).toBe(true);
+      isCalendarConnectionComplete([connected], [connectedWithStaleMetadata]),
+    ).toBe(false);
   });
 });

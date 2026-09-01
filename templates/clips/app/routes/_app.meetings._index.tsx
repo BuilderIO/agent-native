@@ -120,7 +120,6 @@ interface CalendarAccount {
   status?: "connected" | "needs-reauth" | "disconnected" | (string & {});
   lastSyncedAt?: string | null;
   lastSyncError?: string | null;
-  updatedAt?: string | null;
 }
 
 type CalendarConnectedHandler = (
@@ -382,10 +381,12 @@ function CalendarAccountMenu({
   accounts,
   onConnected,
   onDisconnected,
+  isRefreshing,
 }: {
   accounts: CalendarAccount[];
   onConnected?: CalendarConnectedHandler;
   onDisconnected?: () => void;
+  isRefreshing?: boolean;
 }) {
   const t = useT();
   const [connectPending, setConnectPending] = useState(false);
@@ -442,10 +443,16 @@ function CalendarAccountMenu({
             variant="ghost"
             className="h-8 shrink-0 px-2.5 font-medium cursor-pointer"
             aria-label={t("meetingsRoute.calendarSettings")}
+            aria-busy={isRefreshing || connectPending}
+            disabled={isRefreshing}
           >
-            {t("meetingsRoute.calendarAccountsButton", {
-              defaultValue: "Calendars",
-            })}
+            {isRefreshing ? (
+              <Skeleton className="h-4 w-16" />
+            ) : (
+              t("meetingsRoute.calendarAccountsButton", {
+                defaultValue: "Calendars",
+              })
+            )}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
@@ -600,12 +607,14 @@ function MeetingsHeader({
   calendarAccounts,
   onConnected,
   onDisconnected,
+  isRefreshingCalendar,
 }: {
   query: string;
   onQueryChange: (next: string) => void;
   calendarAccounts: CalendarAccount[];
   onConnected?: CalendarConnectedHandler;
   onDisconnected?: () => void;
+  isRefreshingCalendar?: boolean;
 }) {
   const t = useT();
   return (
@@ -619,6 +628,7 @@ function MeetingsHeader({
             accounts={calendarAccounts}
             onConnected={onConnected}
             onDisconnected={onDisconnected}
+            isRefreshing={isRefreshingCalendar}
           />
         </div>
       </PageHeader>
@@ -827,8 +837,7 @@ export default function MeetingsIndexRoute() {
       );
   }, [calendarAccounts, handleCalendarConnected]);
 
-  const isLoading =
-    accounts.isLoading || history.isLoading || isRefreshingCalendar;
+  const isLoading = accounts.isLoading || history.isLoading;
 
   const calendarLoadError = accounts.isError
     ? "Couldn't check your calendar connection. Try again in a moment."
@@ -906,6 +915,7 @@ export default function MeetingsIndexRoute() {
           calendarAccounts={calendarAccounts}
           onConnected={handleCalendarConnected}
           onDisconnected={handleCalendarDisconnected}
+          isRefreshingCalendar={isRefreshingCalendar}
         />
         <ConnectCalendarEmptyState onConnected={handleCalendarConnected} />
       </div>
@@ -920,6 +930,7 @@ export default function MeetingsIndexRoute() {
         calendarAccounts={calendarAccounts}
         onConnected={handleCalendarConnected}
         onDisconnected={handleCalendarDisconnected}
+        isRefreshingCalendar={isRefreshingCalendar}
       />
 
       {needsCalendarReauth && (
