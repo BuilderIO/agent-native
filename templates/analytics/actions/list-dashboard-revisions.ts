@@ -34,7 +34,8 @@ export default defineAction({
         title: revision.title,
         createdAt: revision.createdAt,
         createdBy: revision.createdBy,
-        editable: Boolean(revision.chatContext),
+        chatContextStatus: revision.chatContextStatus,
+        editable: revision.chatContextStatus === "valid",
         ...(revision.chatContext ? { chatContext: revision.chatContext } : {}),
       })),
     };
