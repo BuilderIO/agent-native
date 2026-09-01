@@ -1,10 +1,9 @@
-import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client/ui";
+import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import { getWeekdayOrder, getWeekStartsOn } from "@shared/calendar-week";
 import {
@@ -91,7 +90,7 @@ import { cn } from "@/lib/utils";
 import { useCalendarContext } from "./AppLayout";
 
 const navItems = [
-  { path: "/", labelKey: "navigation.calendar", icon: IconCalendar },
+  { path: "/home", labelKey: "navigation.calendar", icon: IconCalendar },
   {
     path: "/booking-links",
     labelKey: "navigation.bookingLinks",
@@ -205,12 +204,14 @@ function MiniCalendar({
   const { data: settings } = useSettings();
   const weekStartsOn = getWeekStartsOn(settings?.weekStart);
 
-  // Sync viewMonth when selectedDate changes to a different month
+  // Sync viewMonth when selectedDate changes without undoing explicit month navigation.
   useEffect(() => {
-    if (!isSameMonth(viewMonth, selectedDate)) {
-      setViewMonth(startOfMonth(selectedDate));
-    }
-  }, [selectedDate, viewMonth]);
+    setViewMonth((currentMonth) =>
+      isSameMonth(currentMonth, selectedDate)
+        ? currentMonth
+        : startOfMonth(selectedDate),
+    );
+  }, [selectedDate]);
 
   const days = useMemo(() => {
     const monthStart = startOfMonth(viewMonth);
@@ -682,8 +683,8 @@ export function Sidebar({
 
   function handleMiniCalendarDateSelect(date: Date) {
     setSelectedDate(date);
-    if (location.pathname !== "/") {
-      void navigate("/");
+    if (location.pathname !== "/home") {
+      void navigate("/home");
     }
     onClose();
   }
@@ -766,7 +767,7 @@ export function Sidebar({
           )}
         >
           <Link
-            to="/"
+            to="/home"
             onClick={(event) => {
               onClose();
               if (
@@ -783,7 +784,7 @@ export function Sidebar({
               onCollapsedChange(!collapsed);
             }}
             className={cn(
-              "flex items-center gap-2 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "flex items-center gap-2 rounded text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring",
               collapsed ? "size-8 justify-center" : "flex-1",
             )}
             aria-label={
@@ -797,21 +798,9 @@ export function Sidebar({
             }
             data-sidebar-brand-toggle
           >
-            <img
-              src={appPath("/agent-native-icon-light.svg")}
-              alt=""
+            <AgentNativeIcon
               aria-hidden="true"
-              width={28}
-              height={16}
-              className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
-            />
-            <img
-              src={appPath("/agent-native-icon-dark.svg")}
-              alt=""
-              aria-hidden="true"
-              width={28}
-              height={16}
-              className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+              className="h-3.5 w-6 shrink-0 text-foreground"
             />
             {!collapsed && (
               <span className="text-base font-semibold tracking-tight">
@@ -1154,7 +1143,7 @@ export function Sidebar({
             "shrink-0",
             collapsed
               ? "flex flex-col items-center gap-1 px-1 py-2"
-              : "space-y-0.5 p-2.5",
+              : "space-y-0.5 px-2.5 pt-2.5",
           )}
         >
           {bottomNavItems.map((item) => {
@@ -1190,15 +1179,15 @@ export function Sidebar({
         </nav>
 
         {!collapsed ? (
-          <div className="shrink-0">
-            <div className="px-3 py-2">
-              <OrgSwitcher reserveSpace />
+          <>
+            <div className="px-3 py-2 empty:hidden">
+              <OrgSwitcher />
             </div>
 
-            <div className="flex items-center gap-1 px-1.5 py-1.5">
+            <div className="px-3 py-2 empty:hidden">
               <DevDatabaseLink />
             </div>
-          </div>
+          </>
         ) : null}
         <SidebarFooterActions
           collapsed={collapsed}

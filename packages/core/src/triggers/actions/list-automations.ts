@@ -42,8 +42,9 @@ export interface AutomationActionItem {
   name: string;
   path: string;
   scope: "personal" | "organization";
-  triggerType: "event" | "schedule";
+  triggerType: "event" | "schedule" | "webhook";
   event: string | null;
+  webhookPath: string | null;
   schedule: string | null;
   timezone: string | null;
   scheduleDescription: string | null;
@@ -71,7 +72,7 @@ export interface AutomationActionItem {
 
 export default defineAction({
   description:
-    "List event-triggered and schedule-triggered automations in the selected personal or organization scope.",
+    "List scheduled, event-triggered, and webhook-triggered automations in the selected personal or organization scope.",
   agentTool: false,
   schema: z.object({
     scope: scopeSchema.default("personal"),
@@ -86,38 +87,43 @@ export default defineAction({
       { userEmail, orgId: ctx?.orgId, appId: ctx?.appId },
       scope as AutomationScope,
     );
-    return definitions.map(({ resource, name, meta, body, canUpdate }) => ({
-      id: resource.id,
-      name,
-      path: resource.path,
-      scope: scope as AutomationScope,
-      triggerType: meta.triggerType,
-      event: meta.event ?? null,
-      schedule: meta.schedule || null,
-      timezone: meta.schedule ? effectiveTimezone(meta.timezone) : null,
-      scheduleDescription: meta.schedule
-        ? describeCron(meta.schedule, effectiveTimezone(meta.timezone))
-        : null,
-      condition: meta.condition ?? null,
-      body,
-      enabled: meta.enabled,
-      lastRun: meta.lastRun ?? null,
-      lastCheck: meta.lastCheck ?? null,
-      lastStatus: meta.lastStatus ?? null,
-      lastError: meta.lastError ?? null,
-      nextRun: nextRun(meta),
-      createdBy: meta.createdBy ?? null,
-      model: meta.model ?? null,
-      executionHostId: meta.executionHostId ?? null,
-      executionEngine: meta.executionEngine ?? null,
-      executionCwd: meta.executionCwd ?? null,
-      mcpTools: meta.mcpTools ?? [],
-      originScopeId: meta.originScopeId ?? null,
-      deliveryPlatform: meta.deliveryPlatform ?? null,
-      deliveryDestination: meta.deliveryDestination ?? null,
-      deliveryThreadRef: meta.deliveryThreadRef ?? null,
-      deliveryTenantId: meta.deliveryTenantId ?? null,
-      canUpdate,
-    }));
+    return definitions.map(
+      ({ resource, name, meta, body, canUpdate, webhookPath }) => ({
+        id: resource.id,
+        name,
+        path: resource.path,
+        scope: scope as AutomationScope,
+        triggerType: meta.triggerType,
+        event: meta.event ?? null,
+        // The path is a bearer credential, so only people who can update the
+        // automation can retrieve it from the action surface.
+        webhookPath: canUpdate ? (webhookPath ?? null) : null,
+        schedule: meta.schedule || null,
+        timezone: meta.schedule ? effectiveTimezone(meta.timezone) : null,
+        scheduleDescription: meta.schedule
+          ? describeCron(meta.schedule, effectiveTimezone(meta.timezone))
+          : null,
+        condition: meta.condition ?? null,
+        body,
+        enabled: meta.enabled,
+        lastRun: meta.lastRun ?? null,
+        lastCheck: meta.lastCheck ?? null,
+        lastStatus: meta.lastStatus ?? null,
+        lastError: meta.lastError ?? null,
+        nextRun: nextRun(meta),
+        createdBy: meta.createdBy ?? null,
+        model: meta.model ?? null,
+        executionHostId: meta.executionHostId ?? null,
+        executionEngine: meta.executionEngine ?? null,
+        executionCwd: meta.executionCwd ?? null,
+        mcpTools: meta.mcpTools ?? [],
+        originScopeId: meta.originScopeId ?? null,
+        deliveryPlatform: meta.deliveryPlatform ?? null,
+        deliveryDestination: meta.deliveryDestination ?? null,
+        deliveryThreadRef: meta.deliveryThreadRef ?? null,
+        deliveryTenantId: meta.deliveryTenantId ?? null,
+        canUpdate,
+      }),
+    );
   },
 });

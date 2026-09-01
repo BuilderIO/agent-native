@@ -1043,6 +1043,11 @@ export const runContentMigrations = runMigrations(
     },
     {
       version: 85,
+      name: "content-document-version-chat-context",
+      sql: `ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
+    },
+    {
+      version: 86,
       name: "builder-body-hydration-terminal-evidence",
       sql: `ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_reason TEXT;
         ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_provider_status TEXT;

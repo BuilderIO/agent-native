@@ -1,5 +1,6 @@
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import {
+  DefaultSpinner,
   OpenSourceBadge,
   PoweredByBadge,
   StarfieldBackground,
@@ -27,7 +28,6 @@ import { DatePicker } from "@/components/booking/DatePicker";
 import { TimeSlotPicker } from "@/components/booking/TimeSlotPicker";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
 import {
   useAvailableDays,
   useAvailableSlots,
@@ -266,13 +266,7 @@ export default function BookingPage() {
     availabilityLoading ||
     isRedirecting
   ) {
-    return (
-      <BookingPageShell>
-        <div className="mx-auto mt-[7.5vh] flex w-full max-w-lg justify-center">
-          <Spinner className="size-8 text-foreground" />
-        </div>
-      </BookingPageShell>
-    );
+    return <DefaultSpinner />;
   }
 
   if ((bookingLinkError || !bookingLink) && !isLegacyBookingPage) {

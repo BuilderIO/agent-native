@@ -1,14 +1,11 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-import type { DesktopReleaseChannel } from "@shared/release-channel";
-
 import { resolveDesktopUserDataDirectoryName } from "./ipc/update-policy.js";
 
 export interface DesktopStartupDependencies {
   isPackaged: boolean;
   version: string;
-  releaseChannel: DesktopReleaseChannel;
   appDataPath: string;
   defaultUserDataPath: string;
   pathExists?: (directoryPath: string) => boolean;
@@ -71,7 +68,6 @@ export async function runDesktopStartupStep({
 export function initializeDesktopStartup({
   isPackaged,
   version,
-  releaseChannel,
   appDataPath,
   defaultUserDataPath,
   pathExists,
@@ -88,10 +84,7 @@ export function initializeDesktopStartup({
     version,
   );
   const stableUserDataPath =
-    isPackaged &&
-    releaseChannel === "production" &&
-    !requestedUserDataPath &&
-    !isolatedUserDataDirectoryName
+    isPackaged && !requestedUserDataPath && !isolatedUserDataDirectoryName
       ? resolveStableUserDataPath(appDataPath, defaultUserDataPath, pathExists)
       : null;
   const isolatedUserDataPath = requestedUserDataPath

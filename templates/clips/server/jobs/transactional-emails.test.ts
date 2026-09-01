@@ -1,8 +1,14 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
+import { createClient, type Client } from "@libsql/client";
+import { drizzle } from "drizzle-orm/libsql";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+let db: ReturnType<typeof drizzle>;
+let sqlite: Client;
+
+vi.mock("../db/index.js", async () => {
+  const schema = await import("../db/schema.js");
+  return { getDb: () => db, schema };
+});
 
 import type { MonthlyRecap } from "../lib/recap-metrics.js";
 import { createTransactionalEmailStore } from "../lib/transactional-email-store.js";
@@ -21,13 +27,26 @@ type AgentView = NonNullable<
   Awaited<ReturnType<TransactionalEmailRepository["getFirstOwnerAgentView"]>>
 >;
 
-const roots: string[] = [];
-
-async function testRoot(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), "clips-email-worker-"));
-  roots.push(root);
-  return root;
+async function createTables() {
+  await sqlite.execute(`CREATE TABLE clips_transactional_email_jobs (
+    logical_key TEXT PRIMARY KEY, type TEXT NOT NULL, state TEXT NOT NULL,
+    recipient TEXT NOT NULL, recording_ids_json TEXT NOT NULL, share_id TEXT,
+    requested_by TEXT, month TEXT, generated_summary TEXT, attempts INTEGER NOT NULL,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL, ai_dispatched_at TEXT,
+    ai_claimed_by TEXT, ready_at TEXT, sending_at TEXT, sent_at TEXT,
+    cancelled_at TEXT, failed_at TEXT, last_error TEXT, lease_until TEXT,
+    lease_token TEXT
+  )`);
+  await sqlite.execute(`CREATE TABLE clips_transactional_email_configs (
+    id TEXT PRIMARY KEY, config_json TEXT NOT NULL
+  )`);
 }
+
+beforeEach(async () => {
+  sqlite = createClient({ url: ":memory:" });
+  db = drizzle(sqlite);
+  await createTables();
+});
 
 function recording(id: string, ownerEmail = "sender@example.com"): Recording {
   return {
@@ -288,10 +307,7 @@ function createRepository(state: {
 
 async function setup(enabledAt = "2026-08-01T00:00:00.000Z") {
   let currentTime = new Date(enabledAt);
-  const store = createTransactionalEmailStore({
-    root: await testRoot(),
-    now: () => currentTime,
-  });
+  const store = createTransactionalEmailStore({ now: () => currentTime });
   await store.ensureEnabledAt();
   return {
     store,
@@ -304,9 +320,7 @@ async function setup(enabledAt = "2026-08-01T00:00:00.000Z") {
 
 afterEach(async () => {
   vi.restoreAllMocks();
-  await Promise.all(
-    roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
-  );
+  await sqlite.close();
 });
 
 describe("transactional email worker", () => {

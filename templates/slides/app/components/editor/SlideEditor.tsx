@@ -12,10 +12,7 @@ import {
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  AgentPresenceChip,
-  RecentEditHighlights,
-} from "@agent-native/toolkit/collab-ui";
+import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { hashSlideContent } from "@shared/slide-fit";
 import { IconX } from "@tabler/icons-react";
@@ -170,6 +167,8 @@ import {
   resolveSlideObjectContainingBlock,
   resizeSlideObjectMembers,
   resolveSlideClipboardElement,
+  restoreSlideObjectStyle,
+  setSlideObjectDimension,
   SLIDE_OBJECT_PASTE_OFFSET,
   snapSlideObjectMove,
   stripTransientSlideLayoutSpacers,
@@ -3424,10 +3423,15 @@ export default function SlideEditor({
       const tag = active?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
       if (active instanceof HTMLElement && active.isContentEditable) return;
-      if (deleteSelectedElements()) e.preventDefault();
+      if (deleteSelectedElements()) {
+        e.preventDefault();
+        // DeckEditor also listens for Delete at document level. Claim the
+        // event before it can interpret an object selection as a slide delete.
+        e.stopPropagation();
+      }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [
     deleteSelectedElements,
     editingEl,
@@ -3827,7 +3831,11 @@ export default function SlideEditor({
         ) {
           continue;
         }
-        element.style.setProperty(stylePropertyName(property), value);
+        if (property === "width" || property === "height") {
+          setSlideObjectDimension(element, property, value);
+        } else {
+          element.style.setProperty(stylePropertyName(property), value);
+        }
       }
 
       if (
@@ -4062,8 +4070,8 @@ export default function SlideEditor({
     slide.id,
   ]);
 
-  // Object paste waits for the native paste event so an image on the system
-  // clipboard always wins over an older in-editor object copy.
+  // Object paste waits for the native paste event so system clipboard content
+  // always wins over an older in-editor object copy.
   useEffect(() => {
     if (readOnly) return;
     const onPaste = (e: ClipboardEvent) => {
@@ -4088,6 +4096,12 @@ export default function SlideEditor({
       ) {
         return;
       }
+      const hasNativeText = Array.from(e.clipboardData?.types ?? []).some(
+        (type) =>
+          type.startsWith("text/") &&
+          Boolean(e.clipboardData?.getData(type)?.length),
+      );
+      if (hasNativeText) return;
       const clipboard = copiedObjectClipboardRef.current;
       if (!clipboard || clipboard.deckId !== deckId) return;
       e.preventDefault();
@@ -4149,6 +4163,8 @@ export default function SlideEditor({
       geometry: SlideObjectGeometry,
       target: HTMLElement | null,
       dragSized: boolean,
+      text = ZERO_WIDTH_SPACE,
+      startEditing = true,
     ) => {
       const canvas = containerRef.current
         ? ensureSlideTextBoxCanvas(containerRef.current)
@@ -4173,9 +4189,14 @@ export default function SlideEditor({
       box.style.color = getSlideTextBoxDefaultColor(target, positioningLayer);
       box.style.fontFamily = "'Poppins', sans-serif";
       box.style.lineHeight = "1.3";
-      box.textContent = ZERO_WIDTH_SPACE;
+      if (text !== ZERO_WIDTH_SPACE) {
+        box.style.whiteSpace = "pre-wrap";
+        box.style.overflowWrap = "anywhere";
+      }
+      box.textContent = text;
       positioningLayer.appendChild(box);
 
+      if (!startEditing) return box;
       enterInlineEdit(box);
 
       // el.focus() alone doesn't reliably place the caret inside a freshly
@@ -4190,9 +4211,115 @@ export default function SlideEditor({
         selection?.removeAllRanges();
         selection?.addRange(range);
       }
+      return box;
     },
     [enterInlineEdit],
   );
+
+  const pastePlainTextAsTextBox = useCallback(
+    (text: string) => {
+      const canvas = containerRef.current
+        ? ensureSlideTextBoxCanvas(containerRef.current)
+        : null;
+      if (!canvas) return false;
+
+      const { positioningLayer } = canvas;
+      const target = resolveSelectedElement() ?? selectedImg;
+      const anchorRect = target?.getBoundingClientRect();
+      const layerRect = positioningLayer.getBoundingClientRect();
+      const width = 320;
+      const height = 24;
+      const scaleX =
+        positioningLayer.offsetWidth > 0 && layerRect.width > 0
+          ? positioningLayer.offsetWidth / layerRect.width
+          : 1;
+      const scaleY =
+        positioningLayer.offsetHeight > 0 && layerRect.height > 0
+          ? positioningLayer.offsetHeight / layerRect.height
+          : 1;
+      const maxX = Math.max(0, positioningLayer.offsetWidth - width);
+      const maxY = Math.max(0, positioningLayer.offsetHeight - height);
+      const x = anchorRect
+        ? Math.min(
+            maxX,
+            Math.max(
+              0,
+              (anchorRect.left - layerRect.left) * scaleX +
+                SLIDE_OBJECT_PASTE_OFFSET,
+            ),
+          )
+        : maxX / 2;
+      const y = anchorRect
+        ? Math.min(
+            maxY,
+            Math.max(
+              0,
+              (anchorRect.top - layerRect.top) * scaleY +
+                SLIDE_OBJECT_PASTE_OFFSET,
+            ),
+          )
+        : maxY / 2;
+      const box = placeTextBoxAt(
+        { x, y, width, height },
+        target,
+        false,
+        text,
+        false,
+      );
+      if (!box) return false;
+
+      const slideHeight = positioningLayer.offsetHeight;
+      if (slideHeight > 0 && box.offsetHeight > slideHeight) {
+        box.style.maxHeight = `${slideHeight}px`;
+        box.style.overflowY = "auto";
+      }
+      const renderedHeight = Math.max(height, box.offsetHeight);
+      const renderedMaxY = Math.max(0, slideHeight - renderedHeight);
+      if (y > renderedMaxY) box.style.top = `${renderedMaxY}px`;
+
+      const selector = getBuilderSelector(box);
+      if (selector) selectElementForStyling(box, selector);
+      const html = readCurrentSlideContentHtml();
+      if (html !== null) onUpdateSlideRef.current({ content: html });
+      return true;
+    },
+    [
+      placeTextBoxAt,
+      readCurrentSlideContentHtml,
+      resolveSelectedElement,
+      selectElementForStyling,
+      selectedImg,
+    ],
+  );
+
+  useEffect(() => {
+    if (readOnly) return;
+    const onPaste = (e: ClipboardEvent) => {
+      if (e.defaultPrevented) return;
+      const active = document.activeElement;
+      const target = e.target instanceof Element ? e.target : null;
+      const isTextSurface = (element: Element | null) =>
+        element instanceof HTMLInputElement ||
+        element instanceof HTMLTextAreaElement ||
+        element instanceof HTMLSelectElement ||
+        (element instanceof HTMLElement && element.isContentEditable) ||
+        Boolean(element?.closest("[contenteditable='true'], [role='textbox']"));
+      if (isTextSurface(active) || isTextSurface(target)) return;
+      if (
+        Array.from(e.clipboardData?.items ?? []).some(
+          (item) => item.kind === "file" && item.type.startsWith("image/"),
+        )
+      ) {
+        return;
+      }
+
+      const text = e.clipboardData?.getData("text/plain") ?? "";
+      if (!text.trim() || !pastePlainTextAsTextBox(text)) return;
+      e.preventDefault();
+    };
+    window.addEventListener("paste", onPaste, true);
+    return () => window.removeEventListener("paste", onPaste, true);
+  }, [pastePlainTextAsTextBox, readOnly]);
 
   const placeShapeAt = useCallback(
     (
@@ -4256,11 +4383,20 @@ export default function SlideEditor({
   );
 
   const applyObjectGeometry = useCallback(
-    (element: HTMLElement, geometry: SlideObjectGeometry) => {
+    (
+      element: HTMLElement,
+      geometry: SlideObjectGeometry,
+      { overrideImageSizing = false }: { overrideImageSizing?: boolean } = {},
+    ) => {
       element.style.left = `${geometry.x}px`;
       element.style.top = `${geometry.y}px`;
-      element.style.width = `${geometry.width}px`;
-      element.style.height = `${geometry.height}px`;
+      if (overrideImageSizing) {
+        setSlideObjectDimension(element, "width", `${geometry.width}px`);
+        setSlideObjectDimension(element, "height", `${geometry.height}px`);
+      } else {
+        element.style.width = `${geometry.width}px`;
+        element.style.height = `${geometry.height}px`;
+      }
     },
     [],
   );
@@ -4530,7 +4666,7 @@ export default function SlideEditor({
         if (promotedToFreeform) {
           restorePromotedElement();
         } else {
-          if (!clone && origin) applyObjectGeometry(element, origin);
+          if (!clone && origin) restoreSlideObjectStyle(element, originalStyle);
           if (originalObjectId) {
             element.setAttribute("data-slide-object-id", originalObjectId);
           } else {
@@ -4808,7 +4944,9 @@ export default function SlideEditor({
           if (gesture.kind !== "resize")
             return { handled: false, reason: "unhandled" };
           ensureSlideObjectId(element);
-          applyObjectGeometry(element, gesture.rect);
+          applyObjectGeometry(element, gesture.rect, {
+            overrideImageSizing: true,
+          });
           const currentSelector = getBuilderSelector(element);
           if (currentSelector) {
             selectElementForStyling(element, currentSelector, "resizing");
@@ -4836,7 +4974,7 @@ export default function SlideEditor({
         cancel: () => {
           if (promotedToFreeform) restorePromotedElement();
           else {
-            applyObjectGeometry(element, resizeOrigin);
+            restoreSlideObjectStyle(element, originalStyle);
             if (originalObjectId) {
               element.setAttribute("data-slide-object-id", originalObjectId);
             } else {
@@ -4964,10 +5102,20 @@ export default function SlideEditor({
           .map((member) => member.element.getAttribute("data-builder-id"))
           .filter((id): id is string => Boolean(id)),
       );
+      const originalStyles = new Map(
+        members.map((member) => [
+          member.objectId,
+          member.element.getAttribute("style"),
+        ]),
+      );
       const applyPlan = (plan: Map<string, SlideObjectGeometry>) => {
         for (const member of members) {
           const geometry = plan.get(member.objectId);
-          if (geometry) applyObjectGeometry(member.element, geometry);
+          if (geometry) {
+            applyObjectGeometry(member.element, geometry, {
+              overrideImageSizing: true,
+            });
+          }
         }
       };
 
@@ -5014,6 +5162,12 @@ export default function SlideEditor({
           applyPlan(
             new Map(members.map((member) => [member.objectId, member.start])),
           );
+          for (const member of members) {
+            restoreSlideObjectStyle(
+              member.element,
+              originalStyles.get(member.objectId) ?? null,
+            );
+          }
           refreshMultiSelectionRects(selectedIds);
           return { handled: true };
         },
@@ -6408,7 +6562,11 @@ export default function SlideEditor({
         ) {
           continue;
         }
-        element.style.setProperty(stylePropertyName(property), value);
+        if (property === "width" || property === "height") {
+          setSlideObjectDimension(element, property, value);
+        } else {
+          element.style.setProperty(stylePropertyName(property), value);
+        }
       }
 
       if (
@@ -6650,6 +6808,7 @@ export default function SlideEditor({
   const slideElementSelected =
     !!selectedImg ||
     !!editingEl ||
+    !!selectedElementSelector ||
     !!selectedStyleSnapshot ||
     multiSelection.size > 0;
 
@@ -6874,16 +7033,11 @@ export default function SlideEditor({
                               outlineOnly
                             />
                           )}
-                          {(agentActive || passivePresentUsers.length > 0) && (
-                            <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
-                              <AgentPresenceChip
-                                active={Boolean(agentActive)}
+                          {passivePresentUsers.length > 0 && (
+                            <div className="absolute right-2 top-2 z-10">
+                              <SameSlidePresenceIndicator
+                                users={passivePresentUsers}
                               />
-                              {passivePresentUsers.length > 0 && (
-                                <SameSlidePresenceIndicator
-                                  users={passivePresentUsers}
-                                />
-                              )}
                             </div>
                           )}
                           {overflowInfo &&

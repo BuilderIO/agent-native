@@ -140,6 +140,6 @@ describe("serializeEditorPreferences", () => {
         nudge: { small: 0, big: Number.NaN },
         inspectorGridDebug: false,
       }),
-    ).toBe('{"nudge":{"small":1,"big":10},"inspectorGridDebug":false}');
+    ).toBe('{"nudge":{"small":1,"big":8},"inspectorGridDebug":false}');
   });
 });

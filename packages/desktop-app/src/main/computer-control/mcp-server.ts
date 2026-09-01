@@ -387,11 +387,14 @@ export class DesktopComputerMcpBridge {
           | { available: false; guidance: string };
         if (
           permissions.screenRecording === "granted" &&
-          this.options.screenObserver
+          this.options.screenObserver &&
+          snapshot.applicationName
         ) {
           try {
             const frame = await this.options.screenObserver.capture(
               context.runId,
+              undefined,
+              snapshot.applicationName,
             );
             const bytes = this.options.screenObserver.take(
               frame.handle,

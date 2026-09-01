@@ -2,11 +2,26 @@ import type { ActionRunContext } from "../action.js";
 import { resolveDeployEnvironment } from "../server/deploy-environment.js";
 import { getRequestContext } from "../server/request-context.js";
 import { ANALYTICS_CLIENT_PLATFORM_PROPERTY } from "../shared/analytics-platform.js";
+import { isQaTestEmail } from "../shared/qa-test-email.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
+
+export { isQaTestEmail } from "../shared/qa-test-email.js";
 
 const REGISTRY_KEY = Symbol.for("@agent-native/core/tracking.registry");
 interface GlobalWithRegistry {
   [REGISTRY_KEY]?: Map<string, TrackingProvider>;
+}
+
+function isTrackingSuppressed(
+  userId: string | undefined,
+  properties?: Record<string, unknown>,
+): boolean {
+  return (
+    getRequestContext()?.isSyntheticTraffic === true ||
+    isQaTestEmail(userId) ||
+    isQaTestEmail(properties?.email) ||
+    isQaTestEmail(properties?.userEmail)
+  );
 }
 
 function getRegistry(): Map<string, TrackingProvider> {
@@ -97,6 +112,7 @@ export function track(
 ): void {
   const { userId, anonymousId, sessionId, occurredAt } =
     resolveTrackingSource(source);
+  if (isTrackingSuppressed(userId, properties)) return;
   const clientPlatform = getRequestContext()?.clientPlatform;
   const trackedProperties = {
     ...(properties ?? {}),
@@ -137,6 +153,7 @@ export function identify(
   userId: string,
   traits?: Record<string, unknown>,
 ): void {
+  if (isTrackingSuppressed(userId, traits)) return;
   for (const provider of getRegistry().values()) {
     if (!provider.identify) continue;
     try {

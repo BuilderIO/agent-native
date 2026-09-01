@@ -10,6 +10,7 @@ export interface NavigationState {
   factoryId?: string;
   factoryTab?: string;
   factoryAutomationId?: string;
+  factoryCreatingAutomation?: boolean;
   factoryAuditRunId?: string;
   factoryNodeId?: string;
   factoryEdgeId?: string;
@@ -29,14 +30,20 @@ export function useNavigationState() {
         ...(pathname === "/factory" && searchParams.get("factoryId")
           ? { factoryId: searchParams.get("factoryId") ?? undefined }
           : {}),
-        ...(pathname === "/factory" && searchParams.get("tab")
-          ? { factoryTab: searchParams.get("tab") ?? undefined }
-          : {}),
+        ...(pathname === "/factory" && searchParams.get("factoryId")
+          ? { factoryTab: searchParams.get("tab") ?? "inbox" }
+          : pathname === "/factory" && searchParams.get("tab")
+            ? { factoryTab: searchParams.get("tab") ?? undefined }
+            : {}),
         ...(pathname === "/factory" && searchParams.get("automationId")
           ? {
               factoryAutomationId:
                 searchParams.get("automationId") ?? undefined,
             }
+          : {}),
+        ...(pathname === "/factory" &&
+        searchParams.get("createAutomation") === "1"
+          ? { factoryCreatingAutomation: true }
           : {}),
         ...(pathname === "/factory" && searchParams.get("auditRunId")
           ? {
@@ -88,9 +95,10 @@ function viewForPath(pathname: string): string {
 function pathForView(view?: string): string {
   switch (view) {
     case "chat":
-    case "home":
     case "ask":
       return "/chat";
+    case "home":
+      return "/home";
     case "database":
       return "/database";
     case "extensions":
@@ -108,16 +116,16 @@ function pathForView(view?: string): string {
     case "team":
       return "/settings/organization";
     default:
-      return "/";
+      return "/home";
   }
 }
 
 function pathForCommand(command: any): string {
   const path = pathForView(command?.view);
-  if (path !== "/") return path;
+  if (path !== "/home") return path;
   const threadId =
     typeof command?.threadId === "string" ? command.threadId.trim() : "";
-  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/chat";
+  return threadId ? `/chat/${encodeURIComponent(threadId)}` : path;
 }
 
 function routerPath(path: string): string {
@@ -131,7 +139,5 @@ function routerPath(path: string): string {
 }
 
 function isChatPath(pathname: string): boolean {
-  return (
-    pathname === "/" || pathname === "/chat" || pathname.startsWith("/chat/")
-  );
+  return pathname === "/chat" || pathname.startsWith("/chat/");
 }

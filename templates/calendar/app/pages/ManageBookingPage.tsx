@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { DefaultSpinner } from "@agent-native/core/client/ui";
 import {
   IconCalendar,
   IconClock,
@@ -24,7 +25,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
 import { appApiPath } from "@/lib/api-path";
 
 interface BookingInfo {
@@ -80,11 +80,7 @@ export function ManageBookingPage() {
   const isPast = booking ? new Date(booking.end) < new Date() : false;
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Spinner className="size-8 text-foreground" />
-      </div>
-    );
+    return <DefaultSpinner />;
   }
 
   if (error || !booking) {

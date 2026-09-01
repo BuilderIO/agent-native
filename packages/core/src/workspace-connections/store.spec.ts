@@ -439,6 +439,7 @@ describe("workspace connection store", () => {
       await import("../server/request-context.js");
     const {
       listWorkspaceConnections,
+      listWorkspaceConnectionsForUser,
       listWorkspaceConnectionsForApp,
       normalizeWorkspaceConnectionAllowedUsers,
       resolveWorkspaceConnectionForApp,
@@ -491,6 +492,14 @@ describe("workspace connection store", () => {
     expect(
       managementConnections.map((connection) => connection.id).sort(),
     ).toEqual(["conn-user-alice", "conn-user-bob", "conn-user-open"]);
+
+    const bobVisibleConnections = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () => listWorkspaceConnectionsForUser({ provider: "slack" }),
+    );
+    expect(
+      bobVisibleConnections.map((connection) => connection.id).sort(),
+    ).toEqual(["conn-user-bob", "conn-user-open"]);
 
     const bobConnections = await runWithRequestContext(
       { userEmail: "bob@example.com", orgId: "org-1" },
@@ -1380,6 +1389,65 @@ describe("workspace connection store", () => {
     expect(grant?.lastUsedAt).toEqual(expect.any(String));
     expect(Date.parse(connection?.lastUsedAt ?? "")).toBeGreaterThan(0);
     expect(grant?.lastUsedAt).toBe(connection?.lastUsedAt);
+  }, 15_000);
+
+  it("skips last-used recording when recordUsage is false", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { writeAppSecret } = await import("../secrets/index.js");
+    const { resolveWorkspaceConnectionCredentialForApp } =
+      await import("./credentials.js");
+    const {
+      getWorkspaceConnection,
+      upsertWorkspaceConnection,
+      upsertWorkspaceConnectionGrant,
+    } = await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      async () => {
+        await upsertWorkspaceConnection({
+          id: "conn-slack-peek",
+          provider: "slack",
+          label: "Team Slack",
+          allowedApps: ["dispatch"],
+        });
+        await upsertWorkspaceConnectionGrant({
+          id: "grant-brain-peek",
+          connectionId: "conn-slack-peek",
+          appId: "brain",
+          credentialRefs: [{ key: "SLACK_BOT_TOKEN", scope: "org" }],
+        });
+        await writeAppSecret({
+          key: "SLACK_BOT_TOKEN",
+          value: "xoxb-peek-token",
+          scope: "org",
+          scopeId: "org-1",
+        });
+      },
+    );
+
+    const resolved = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionCredentialForApp({
+          appId: "brain",
+          provider: "slack",
+          key: "SLACK_BOT_TOKEN",
+          recordUsage: false,
+        }),
+    );
+    expect(resolved).toMatchObject({
+      available: true,
+      status: "resolved",
+      value: "xoxb-peek-token",
+    });
+
+    const connection = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () => getWorkspaceConnection("conn-slack-peek"),
+    );
+    expect(connection?.lastUsedAt).toBeNull();
   }, 15_000);
 
   it("reports missing workspace connections and missing grants without reading env credentials", async () => {

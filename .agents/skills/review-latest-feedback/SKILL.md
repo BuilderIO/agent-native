@@ -17,15 +17,57 @@ sources. Resolve repo-owned bugs at their seam; do not encode reports
 globally or stop at triage. Every run leaves a disposition, including
 why items remain open. Cluster symptoms under a Builder thread and cursor.
 
-This is a reply-producing workflow, not a reaction-only workflow. Apply the
-reply rules in `address-feedback-with-replies` to every actionable Slack item.
-The moment this skill adds `👀` to a Slack parent, that parent enters a
-mandatory reply ledger. Before the run ends, re-read every ledger item and
-confirm that the invoking Slack identity has posted a concise **Fixed**, **In
-progress**, or **Clarification needed** disposition. **In progress** requires
-thread ownership or an active-fix signal and must be revisited next run. A bot
-forward, another person's reply, or `👀` alone never satisfies the ledger. Do
-not finish while a marked actionable parent has only `👀` or an unrelated reply.
+This is a reply-producing workflow, not a reaction-only workflow. Apply
+`address-feedback-with-replies` to Slack items. Any own `👀` enters a ledger:
+re-read it before finishing and verify the invoking identity posted **Fixed**,
+**In progress**, or **Clarification needed**. **In progress** requires existing
+ownership and must be revisited; an eye, bot forward, or other person's reply
+alone is never enough.
+
+Every Slack reply from this workflow must clearly disclose that it is
+automated. Append `this was sent from a bot.` to each reporter-facing
+reply, including clarification, in-progress, fixed, and post-ship follow-ups.
+Keep the required thank-you and plain-language status before the disclosure.
+
+## Per-parent eye ledger
+
+The start cursor is not a stop cursor. After selecting it, continue newest to
+oldest through the entire declared bounded window. First use only the readable
+parent-level evidence to classify ownership and whether the report is an
+objective clear bug; this preflight is read-only and does not require full
+investigation. Every eligible clear-bug parent that this run addresses,
+investigates, verifies, groups, or uses as evidence then gets the invoking
+identity's `👀` reaction before its full-thread read or code investigation, a
+reaction read-back, and its own final disposition. Grouping symptoms never
+substitutes a representative reaction: each parent keeps its own eye and
+reply-ledger row. Before reporting completion, re-read every ledger parent and
+its reactions; no eligible clear-bug parent may be left without the invoking
+identity's eye and an auditable invoking-identity disposition.
+
+## Scope: clear bugs only
+
+This is a bug sweep, not a general UX review. “Comprehensive” means covering
+every clear bug in the bounded window, not reacting to every message. A clear
+bug has observable broken behavior: a click or submit does nothing, an action
+errors, data is lost or reverted, the result is wrong, or a working flow
+regressed. Treat a credible “nothing happens” report as valid evidence; do not
+ask the reporter to prove the click before inspecting the owning path.
+
+Do not add `👀`, ask a question, reply, or change code for a preference,
+product idea, copy or layout suggestion, praise, status update, merge/review
+request, bot forward, duplicate, or other random message. Do not turn a
+subjective UX concern into a product decision by asking which option people
+prefer. Design feedback, including Design clips and imported-design usability,
+routes to Sid and is not addressed in this sweep. Content remains with Alice.
+
+If an older run already added `👀` to an out-of-scope item, undo that reaction
+with the connected Slack removal action when one is available. Do not reply,
+ask a compensating question, investigate it as a bug, or add another reaction.
+If a mistaken status reply from this workflow is already there, delete it when
+that is safe; otherwise edit that existing reply to a brief `Skipped` note.
+If the connector cannot remove reactions, record the exact parent for manual
+cleanup and leave the thread otherwise untouched. New items must pass the
+clear-bug gate before any external write.
 
 ## Start cursor
 
@@ -33,7 +75,7 @@ Use the product feedback Slack channel configured for the workspace. In this
 repository that is currently `#product-agent-native-feedback` (`C0ATH3CCZT4`);
 if the invocation names another channel, use that channel instead.
 
-Scan the channel newest to oldest and choose the most recent parent message
+Scan the channel newest to oldest and choose the most recent clear-bug parent
 without a verified disposition from the invoking Slack identity - **Fixed**, an
 open **In progress** ownership reply, or an open **Clarification needed**
 question. An `👀` reaction is only an investigation marker and never suppresses
@@ -47,9 +89,9 @@ actionable, then continue toward older messages, processing each actionable
 message that is still unhandled. Read the full parent, every reply and
 reaction, and all linked issues, PRs, screenshots, runs, and commits before
 deciding. The candidate worklist stays cross-app and cross-source: later scope
-clarifications add eligible categories; they never remove identified Slack,
-GitHub, or Sentry candidates. Keep non-Design alongside Design and carry every
-candidate into the final disposition, even when only some are fixed.
+clarifications add eligible categories; they never remove identified clear-bug
+Slack, GitHub, or Sentry candidates. Keep the worklist focused on objective
+failures and carry every clear bug into the final disposition.
 
 For GitHub issues and Sentry, use their native state and links as corroborating
 cursor signals: prioritize recent open or unresolved items with no clear
@@ -103,39 +145,14 @@ still blocks the fix.
 
 ## Answered clarifications come first
 
-A clarification question is a pending state, not a disposition, regardless of
-which in-scope workflow posted it. Before scanning for new messages, re-read
-every thread this workflow, the companion `address-feedback-with-replies`
-workflow, or `@agent-native` asked a question in that has not since been fixed
-or otherwise dispositioned, oldest question first. Treat the complete thread
-as the source of truth for whether the request is answered, not the workflow
-that posted it.
-
-- **The requested detail was answered or resolved** - re-read the complete
-  thread and rebuild its evidence ledger first. That thread is the run's first
-  work item. It re-enters triage as a concrete bug carrying the new evidence,
-  ahead of anything newer in the channel: someone answered and is waiting on a
-  fix.
-- **No semantic answer or resolution yet** - leave the existing clarification
-  pending and record its timestamp in the recap. A partial or unrelated reply
-  does not clear it. Do not add a second clarification to the same thread; an
-  unanswered request stays visible instead of ageing out of the cursor.
-
-When any participant semantically answers the exact question previously asked
-by this workflow, the companion `address-feedback-with-replies` workflow, or
-`@agent-native`, or explicitly resolves it, do not just record the answer or
-leave the old clarification as the disposition. Read the entire thread again,
-use the new evidence to attempt the fix in this run, and post a new **Fixed**
-reply when the fix is verified. A partial or unrelated reply does not clear the
-old clarification or authorize another question. Ask a new question only for
-one specific, non-repeating detail that still blocks the fix after the earlier
-request is answered or resolved. An answered clarification is never a reason
-to skip the thread or continue scanning newer messages.
-
-An in-scope clarification question is what makes a thread eligible for the
-first work item, which is why this pass runs first. Without it every thread
-with a question can become invisible on later runs and the answer is never
-read.
+A clarification is a pending state, not a disposition. Before new-message
+scanning, re-read every open question from this workflow, its companion, or
+`@agent-native`, oldest first. If any participant answers or resolves the exact
+request, rebuild the evidence and attempt the underlying clear-bug fix first;
+then replace the question with **Fixed** when verified. A partial or unrelated
+reply leaves the one request pending, with no duplicate question. Ask again
+only for one specific, non-repeating blocker. An answered subjective product
+question does not re-enter triage; leave it with its owner.
 
 ## Clarification follow-up aging
 
@@ -222,6 +239,14 @@ continue the handoff; do not ask the reporter to repeat details. Keep doing
 this until each open ownership item is **Fixed** or has a genuinely new,
 specific missing reporter or product input.
 
+Before declaring the run complete, re-read every thread where this workflow
+posted a reply through the current end and inspect responses to those replies.
+After every Slack reply, perform that complete-thread read-back before
+continuing. Treat any response as new evidence: re-investigate, attempt and
+verify any needed fix, post the next disclosed update, and read the thread
+again. Repeat until no unprocessed follow-up remains. The final recap and ship
+handoff must come after this pass.
+
 ## Resolution and ownership gate
 
 Do not infer missing reporter evidence merely because a thread lacks a
@@ -236,11 +261,12 @@ handoff without asking the reporter to restate the issue. A resolution reply
 from another author may still need an invoking-identity ledger reply, but it
 is not missing evidence.
 
-Only ask for clarification when the evidence ledger still contains one specific
-reporter or product detail that blocks a safe fix and no resolution or
-ownership signal answers it. Every clarification reply starts with a brief
-thank-you, then asks that one question. **Clarification needed** is an internal
-disposition, not reporter-facing prose.
+Only ask for clarification when the evidence ledger still contains one
+specific reporter detail that blocks a safe fix to an otherwise clear bug and
+no resolution or ownership signal answers it. Never ask a subjective product
+question merely to choose among plausible UX options. Every clarification
+reply starts with a brief thank-you, then asks that one question.
+**Clarification needed** is an internal disposition, not reporter-facing prose.
 
 ## Required reading and tools
 
@@ -276,18 +302,18 @@ Do not infer a Sentry “no results” state from an unavailable API.
 Build one checklist per item with its source link, symptom, expected behavior,
 evidence, likely owner, and disposition. Use this order:
 
-1. **Mark before investigating** - after the bounded newest-message search
-   identifies a concrete repo-owned or missing-evidence Slack item, verify the
-   invoking identity and reaction state. If it has no own `👀`, add it as the
-   first external write and read it back before the full thread, linked
-   evidence, delegation, code, or clarification. Another identity's eye does
-   not satisfy this run. If reaction state or the write is unavailable, record
-   unavailable or unverified and stop that item. GitHub and Sentry items have
-   no Slack parent, so use the same evidence-first triage without a reaction.
-   - Concrete small Design UI or interaction bugs are in scope. Apply the same
-     evidence, reaction, fix, verification, and reply gates without narrowing
-     the sweep to Design; route broad redesigns, subjective suggestions, or
-     non-repo bugs to Sid.
+1. **Classify before marking** - after the bounded newest-message search,
+   filter for a clear, observable bug. Verify the invoking identity and
+   reaction state only for that bug. If it has no own `👀`, add it as the first
+   external write and read it back before the full thread, linked evidence,
+   delegation, code, or clarification. Another identity's eye does not satisfy
+   this run. If reaction state or the write is unavailable, record unavailable
+   or unverified and stop that item. GitHub and Sentry items have no Slack
+   parent, so use the same evidence-first triage without a reaction.
+   - Design feedback is routed to Sid. Do not react, investigate, fix,
+     clarify, or reply to Design feedback in this sweep; keep its source link
+     in the internal recap only. If another agent or owner is already handling
+     it, treat that ownership as final for this sweep too.
    - All Content app feedback is owned by Alice. Leave those items for Alice;
      do not automatically react, investigate, fix, clarify, reply, or dispatch
      them. Record the source and ownership in the disposition.
@@ -297,7 +323,8 @@ evidence, likely owner, and disposition. Use this order:
    verification is green.
 3. **Missing reporter evidence with no resolution signal** - after the `👀`
    marker and full-thread review, ask one specific question naming the exact
-   reproduction, input, or surface needed to choose and verify a safe fix. If a
+   reproduction, input, or surface needed to choose and verify a safe fix to an
+   otherwise clear bug. If a
    participant or `@agent-native` already identified, fixed, or is fixing the
    issue, use that evidence and do not ask a duplicate question. If a needed
    linked artifact is inaccessible, ask for access or a fresh/replacement link
@@ -353,54 +380,22 @@ failure modes, surfaces, or owners.
    action read-back, browser path, or live check. For UI changes, exercise the
    running surface. For Sentry reports, confirm the affected release and
    distinguish a source fix from deployed and observed-live recovery.
-6. This skill is authorized to react to actionable Slack threads and must post
-   one concise in-thread update through the invoking Slack identity for every
-   actionable parent it marked `👀`, not only for items whose code it changed.
-   Post only after the fix or
-   clarification is ready. A **Fixed** reply says that the fix is complete and
-   when it should be live. An **In progress** reply acknowledges existing
-   ownership or active fixing, starts with a thank-you, and says we will follow
-   up after verification - it must not ask the reporter to repeat
-   details. A **Clarification needed** reply asks one concrete question about
-   missing reporter or product input, but only after the
-   resolution and ownership gate above passes. Start that reply by thanking
-   the reporter, then ask for the smallest useful evidence - such as a deck URL
-   and/or request ID - as help to investigate rather than as a terse demand.
-   Keep implementation and verification evidence in the internal recap, not the
-   reporter-facing reply. `👀` is the first external action, never the final
-   disposition. Do not end the run with an eye-only item, a bot-forward, or a
-   generic acknowledgement. A vague progress update is invalid, but a
-   concrete **In progress** ownership reply is valid when the resolution gate
-   supports it. If internal
-   verification is unavailable, keep investigating or run the missing check; do
-   not turn an internal blocker into a reporter question or claim **Fixed**.
-   If a later classification discovers that an eye-marked item is a duplicate,
-   external, or informational, still clear the ledger with a concise honest
-   disposition rather than leaving the eye unexplained.
-   Before posting **Clarification needed**, run the full-thread evidence gate
-   again against the latest thread body. Confirm that the requested field is
-   absent from the parent, every reply, and every accessible linked artifact;
-   also confirm that no participant or `@agent-native` has already identified,
-   fixed, or started fixing the issue. If either the field or a resolution
-   signal is present, use it and keep investigating instead of asking again.
-   Check the complete thread for an earlier clarification from this workflow or
-   `@agent-native`. Determine whether the exact requested detail has been
-   answered or explicitly resolved anywhere in the thread, including by another
-   participant or accessible linked evidence. A partial or unrelated reply does
-   not clear it. If it remains unresolved, do not post another question;
-   preserve its timestamp and leave the thread pending. If it is resolved, use
-   the evidence and attempt the fix before considering one new question for one
-   specific remaining blocker.
-   If a needed linked artifact is recorded as inaccessible, the access or
-   replacement request is valid - do not describe its contents as absent. Do
-   not post vague progress, technical internals, or a diagnosis that leaves a
-   safely fixable bug undone. Re-read every thread after posting and confirm the
-   reply landed under the intended parent. A fix reply authored by this skill's
-   own identity is a handled marker on the next run; a clarification reply
-   satisfies this run's reply obligation but leaves the thread pending an
-   answer. The answered-clarifications pass must re-enter the thread and try the
-   fix when any participant supplies the requested detail or an explicit
-   resolution.
+6. For every clear-bug parent marked `👀`, post one concise in-thread update
+   after the fix or clarification is ready. **Fixed** must say the verified
+   change will be on beta later today. **In progress** requires concrete
+   existing ownership, thanks the reporter, and asks no duplicate question.
+   **Clarification needed** asks one specific missing reporter question only
+   after the full-thread evidence and ownership gates. Keep internal blockers
+   internal and omit implementation details from the reply.
+   For any Slack write, verify the exact parent from a full-thread read, use its
+   `thread_ts`, and re-read afterward. Never reply to a search-result or
+   adjacent timestamp. If later classification finds an already-eyed item is
+   out of scope or owned by another agent, remove the reaction when possible,
+   delete a mistaken own reply when safe, and otherwise leave a concise
+   **Skipped** edit. If reaction removal is unavailable, record the exact
+   parent for manual cleanup and add no new Slack message or reaction.
+   Answered clarifications re-enter only when the underlying item is a clear
+   bug; use the new evidence and attempt the fix before asking anything else.
 7. Do not close, label, assign, or comment on GitHub issues or Sentry unless
    the invocation explicitly authorizes those mutations. Link the issue or
    event in the recap instead.
@@ -481,8 +476,8 @@ queried and the cursor and filters are stated.
 
 When multiple source items were grouped into one similar-feedback cluster, name
 the representative item and list the grouped source links in that row. Record
-one Builder dispatch for the cluster, while preserving the disposition of every
-individual report.
+one Builder dispatch for the cluster, while preserving the eye reaction,
+reply-ledger result, and disposition of every individual report.
 
 ## Related skills
 

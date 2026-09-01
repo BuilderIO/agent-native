@@ -43,7 +43,7 @@ interface NavigateCommand extends Partial<NavigationState> {
  *
  * Route conventions (keep in sync with the route files in app/routes):
  *
- *   /                           -> library
+ *   /home                       -> library
  *   /library                    -> library
  *   /library?q=...              -> library (with search)
  *   /library/folder/:folderId   -> library (with folderId)
@@ -146,7 +146,7 @@ export function stateFromLocation(
   }
   if (p === "/notifications") return { view: "notifications" };
   if (p.startsWith("/settings")) return { view: "settings" };
-  if (p === "/library" || p === "/" || p === "") {
+  if (p === "/library" || p === "/home") {
     return {
       view: "library",
       ...(searchTerm ? { search: searchTerm } : {}),

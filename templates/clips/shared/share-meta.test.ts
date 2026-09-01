@@ -67,7 +67,7 @@ describe("Clips share metadata", () => {
     });
   });
 
-  it("uses a video frame in crawler metadata when no thumbnail is stored", () => {
+  it("uses a valid default image when no thumbnail is stored", () => {
     const meta = buildClipsShareMeta({
       origin: "https://clips.example.com",
       basePath: "/clips",
@@ -86,7 +86,7 @@ describe("Clips share metadata", () => {
     expect(meta).toContainEqual({
       property: "og:image",
       content:
-        "https://clips.example.com/clips/api/agent-frame.jpg?id=rec-1&atMs=350",
+        "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9c533fed169648069bffaed652ec0897",
     });
     expect(meta).toContainEqual({
       name: "twitter:card",
@@ -126,7 +126,7 @@ describe("Clips share metadata", () => {
     ).toBe("animated");
   });
 
-  it("uses a public video frame when a recording has no stored thumbnail", () => {
+  it("uses the default image for a public clip without a stored thumbnail", () => {
     const imageUrl = resolveClipsSocialImageUrl({
       recording: {
         id: "rec-1",
@@ -140,7 +140,7 @@ describe("Clips share metadata", () => {
     });
 
     expect(imageUrl).toBe(
-      "https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs=350",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9c533fed169648069bffaed652ec0897",
     );
   });
 

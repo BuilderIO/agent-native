@@ -17,6 +17,7 @@ vi.mock("./auth.js", () => ({
 vi.mock("./framework-request-handler.js", () => ({
   FRAMEWORK_AUTH_EARLY_PATHS: [
     "/_agent-native/auth",
+    "/",
     "/sign-in",
     "/_agent-native/sign-in",
     "/_agent-native/login",
@@ -65,6 +66,7 @@ describe("createAuthPlugin", () => {
       {
         paths: [
           "/_agent-native/auth",
+          "/",
           "/sign-in",
           "/_agent-native/sign-in",
           "/_agent-native/login",
@@ -102,6 +104,7 @@ describe("createAuthPlugin", () => {
       nitroApp,
       [
         "/_agent-native/auth",
+        "/",
         "/sign-in",
         "/_agent-native/sign-in",
         "/_agent-native/login",
@@ -132,6 +135,7 @@ describe("createAuthPlugin", () => {
       nitroApp,
       [
         "/_agent-native/auth",
+        "/",
         "/sign-in",
         "/_agent-native/sign-in",
         "/_agent-native/login",

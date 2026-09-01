@@ -10,6 +10,7 @@ export interface NavigationState {
   selectedThreadIds?: string[];
   search?: string;
   label?: string;
+  filter?: string;
   activeInboxTab?: string;
   activeAccounts?: string[];
   queuedDraftId?: string;

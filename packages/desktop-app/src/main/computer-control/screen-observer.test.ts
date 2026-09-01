@@ -2,10 +2,15 @@ import { describe, expect, it, vi } from "vitest";
 
 import { EphemeralScreenObserver } from "./screen-observer";
 
-function source(bytes = Buffer.from("png"), width = 800, height = 600) {
+function source(
+  bytes = Buffer.from("png"),
+  width = 800,
+  height = 600,
+  name = "Confidential Customer Window",
+) {
   return {
     id: "screen:1:0",
-    name: "Confidential Customer Window",
+    name,
     thumbnail: {
       isEmpty: () => false,
       getSize: () => ({ width, height }),
@@ -45,6 +50,27 @@ describe("EphemeralScreenObserver", () => {
     expect(observer.take(frame.handle, "other-task")).toBeUndefined();
     expect(observer.take(frame.handle, "task-1")?.toString()).toBe("png");
     expect(observer.take(frame.handle, "task-1")).toBeUndefined();
+  });
+
+  it("matches app names embedded in native window titles", async () => {
+    const observer = new EphemeralScreenObserver({
+      desktopCapturer: {
+        getSources: vi.fn(async () => [
+          source(Buffer.from("window-png"), 800, 600, "Inbox - Google Chrome"),
+        ]),
+      },
+      permissionStatus: () => ({
+        screenRecording: "granted",
+        accessibility: true,
+      }),
+      handle: () => "window-handle",
+    });
+
+    const frame = await observer.capture("task-1", undefined, "Google Chrome");
+
+    expect(observer.take(frame.handle, "task-1")?.toString()).toBe(
+      "window-png",
+    );
   });
 
   it("rejects oversized dimensions and PNG payloads", async () => {

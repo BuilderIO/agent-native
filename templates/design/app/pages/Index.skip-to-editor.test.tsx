@@ -131,22 +131,26 @@ vi.mock("@/hooks/use-design-systems", () => ({
         id: "default-system",
         title: "Default system",
         isDefault: true,
+        data: "{}",
       },
       {
         id: "linked-system",
         title: "Linked system",
         isDefault: false,
+        data: "{}",
       },
       {
         id: "override-system",
         title: "Override system",
         isDefault: false,
+        data: "{}",
       },
     ],
     defaultSystem: {
       id: "default-system",
       title: "Default system",
       isDefault: true,
+      data: "{}",
     },
     isLoading: false,
   }),
@@ -179,6 +183,7 @@ beforeEach(async () => {
     adaptationPending: false,
     templateBaselineFiles: [{ id: "file-1", contentHash: "baseline" }],
   });
+  mocks.generateTitle.mockResolvedValue(undefined);
   mocks.queryClient.invalidateQueries.mockResolvedValue(undefined);
   mocks.promptProps = null;
   container = document.createElement("div");
@@ -196,6 +201,27 @@ afterEach(async () => {
 });
 
 describe("Index skip to editor", () => {
+  it("keeps starter prompts in the collaborative intake flow", async () => {
+    mocks.createDesign.mockResolvedValue(undefined);
+
+    const starterPrompt = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "home.starterDashboard",
+    );
+    expect(starterPrompt).toBeDefined();
+
+    await act(async () => {
+      starterPrompt?.click();
+      await Promise.resolve();
+    });
+
+    expect(mocks.writePendingGeneration).toHaveBeenCalledWith(
+      "design-1",
+      expect.objectContaining({
+        skipQuestions: undefined,
+      }),
+    );
+  });
+
   it("persists one empty shell before navigating without starting generation", async () => {
     let resolveCreate: (() => void) | undefined;
     mocks.createDesign.mockReturnValue(

@@ -15,6 +15,7 @@ import {
   mutateDesignData,
   type DesignDataRecord,
 } from "../server/lib/design-data-mutation.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
 import {
   mergeCanvasFramePlacements,
@@ -351,18 +352,22 @@ export default defineAction({
       height: 680,
     }),
   },
-  run: async ({
-    designId,
-    connectionId,
-    routes,
-    paths,
-    defaultWidth,
-    defaultHeight,
-    startX,
-    startY,
-    gap,
-  }) => {
+  run: async (
+    {
+      designId,
+      connectionId,
+      routes,
+      paths,
+      defaultWidth,
+      defaultHeight,
+      startX,
+      startY,
+      gap,
+    },
+    context,
+  ) => {
     await assertAccess("design", designId, "editor");
+    await snapshotDesignBeforeAgentEdit(designId, context);
     const { ownerEmail, orgId } = await resolveLocalhostConnectionScope();
     const db = getDb();
 

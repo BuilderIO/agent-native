@@ -222,6 +222,10 @@ describe("EventDetailPopover characterization", () => {
     calendarContext.setEventDetailSidebar.mockClear();
     calendarContext.setSidebarEvent.mockClear();
     calendarContext.setFocusedEvent.mockClear();
+    updateEventMutate.mockImplementation(
+      (_input: unknown, options?: { onSettled?: () => void }) =>
+        options?.onSettled?.(),
+    );
   });
 
   afterEach(() => {
@@ -272,10 +276,32 @@ describe("EventDetailPopover characterization", () => {
       'div[class*="radix-popover-content-available-height"]',
     );
     expect(content).toBeTruthy();
-    expect(content?.className).toContain("w-[min(420px,calc(100vw-2rem))]");
-    expect(content?.innerHTML).toContain(
-      "text-[11px] font-medium uppercase tracking-wider",
+    expect(content?.className).toContain("w-[min(284px,calc(100vw-2rem))]");
+    expect(content?.innerHTML).toContain("text-[13px] font-medium");
+  });
+
+  it("makes the event options visible and scrolls to them when opened", () => {
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent()}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const optionsButton = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="eventForm.eventOptions"]',
     );
+    expect(optionsButton).toBeTruthy();
+    act(() => optionsButton!.click());
+
+    expect(optionsButton?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector(`#event-more-options-event-1`)).toBeTruthy();
+    expect(document.body.textContent).toContain("eventForm.showAs");
   });
 
   it("keeps the fallback label out of the input when renaming an unnamed event", () => {
@@ -792,6 +818,7 @@ describe("EventDetailPopover characterization", () => {
         location: "Room B",
         sendUpdates: "all",
       }),
+      expect.objectContaining({ onSettled: expect.any(Function) }),
     );
   });
 
@@ -849,6 +876,68 @@ describe("EventDetailPopover characterization", () => {
         location: "Room B",
         sendUpdates: "none",
       }),
+      expect.objectContaining({ onSettled: expect.any(Function) }),
+    );
+  });
+
+  it("offers series scope before removing Google Meet from a recurring event", async () => {
+    const event = baseEvent({
+      id: "event-recurring",
+      accountEmail: "steve@example.com",
+      recurringEventId: "series-1",
+      hangoutLink: "https://meet.google.com/abc-defg-hij",
+    });
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const removeButton = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="eventForm.delete eventForm.googleMeet"]',
+    );
+    expect(removeButton).toBeTruthy();
+
+    await act(async () => {
+      removeButton!.click();
+      await flushMicrotasks();
+    });
+
+    expect(document.body.textContent).toContain("eventForm.applyChangesTo");
+    expect(document.body.textContent).toContain("eventForm.thisEvent");
+    expect(document.body.textContent).toContain("eventForm.allEvents");
+    expect(updateEventMutate).not.toHaveBeenCalled();
+
+    const allEventsOption = document.querySelector<HTMLButtonElement>(
+      "#guest-update-scope-all",
+    );
+    expect(allEventsOption).toBeTruthy();
+    act(() => allEventsOption!.click());
+
+    const confirmButton = findByExactText<HTMLButtonElement>(
+      "button",
+      "eventForm.updateEvent",
+    );
+    expect(confirmButton).toBeTruthy();
+    await act(async () => {
+      confirmButton!.click();
+      await flushMicrotasks();
+    });
+
+    expect(updateEventMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "event-recurring",
+        removeGoogleMeet: true,
+        scope: "all",
+      }),
+      expect.objectContaining({ onSettled: expect.any(Function) }),
     );
   });
 

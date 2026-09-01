@@ -1055,6 +1055,10 @@ const messages = {
       "This can't be undone. Your recording so far will be permanently deleted.",
     resume: "Resume",
     discardRecording: "Discard recording",
+    restart: "Restart recording",
+    restartShortcut: "Restart (⌥⇧R)",
+    restartQuestion: "Start a new recording?",
+    restartConfirm: "Restart",
   },
   countdownOverlay: {
     startsIn: "Recording starts in {{count}}",
@@ -1528,6 +1532,15 @@ const messages = {
       "Open Clips from the menu bar to retry this saved upload; no need to re-record.",
     removeFailedClip: "Remove this failed clip.",
     remove: "Remove",
+    statusStalled: "stalled",
+    uploadAtRisk: "Taking longer than usual",
+    uploadAtRiskDetail:
+      "Still trying to save this clip. This can take a few minutes.",
+    retry: "Retry",
+    retrying: "Retrying…",
+    retryFailed: "Couldn't retry this upload.",
+    retryUnavailableHere:
+      "Retry is only available on the device or browser where this was recorded.",
     viewsCount: "{{count}} views",
     recordingMenu: "Recording menu",
     moveToFolder: "Move to folder",

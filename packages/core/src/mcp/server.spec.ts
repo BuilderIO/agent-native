@@ -1974,7 +1974,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(askAgent.inputSchema.properties.maxWaitMs).toEqual({
       type: "number",
       description:
-        "Maximum inline wait in milliseconds. Hosted MCP clamps this to 25000ms.",
+        "Maximum inline wait in milliseconds. Hosted MCP clamps this to 20000ms.",
     });
 
     const call = await callWeb(
@@ -2908,6 +2908,65 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(openLink.desktopUrl).toContain("view=thing&id=thing-42");
     expect(new URL(openLink.vscodeUrl).searchParams.get("url")).toBe(
       openLink.webUrl,
+    );
+  });
+
+  it("does not use stateless JSON-RPC ids as retry identity", async () => {
+    const requestIdentityConfig = {
+      ...config,
+      actions: {
+        "request-identity": {
+          tool: {
+            description: "Return the request retry identity",
+            parameters: { type: "object" as const, properties: {} },
+          },
+          readOnly: true,
+          run: async () => {
+            const { getRequestContext } =
+              await import("../server/request-context.js");
+            return { mcpRequestId: getRequestContext()?.mcpRequestId ?? null };
+          },
+        },
+      },
+    };
+    const call = (retryToken?: string) =>
+      callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 17,
+          method: "tools/call",
+          params: { name: "request-identity", arguments: {} },
+        },
+        {
+          headers: {
+            "x-agent-native-mcp-full-catalog": "1",
+            ...(retryToken
+              ? { "x-agent-native-mcp-retry-token": retryToken }
+              : {}),
+          },
+          config: requestIdentityConfig,
+        },
+      );
+
+    const withoutToken = await call();
+    const withoutTokenAfterReconnect = await call();
+    expect(withoutToken.result.structuredContent).toEqual({
+      mcpRequestId: null,
+    });
+    expect(withoutTokenAfterReconnect.result.structuredContent).toEqual({
+      mcpRequestId: null,
+    });
+
+    const retry = await call("retry-17");
+    const retryAfterReconnect = await call("retry-17");
+    expect(retry.result.structuredContent).toEqual({
+      mcpRequestId: "stateless:retry-17",
+    });
+    expect(retryAfterReconnect.result.structuredContent).toEqual(
+      retry.result.structuredContent,
+    );
+    expect((await call("retry-18")).result.structuredContent).not.toEqual(
+      retry.result.structuredContent,
     );
   });
 
@@ -4232,5 +4291,50 @@ describe("handleMcpRequest — Node request objects use the v2 web handler", () 
     expect(event._handled).toBeUndefined();
     expect((res as Response).status).toBe(200);
     expect(event.node.res.headersSent).toBe(false);
+  });
+});
+
+describe("handleMcpRequest — $mcp_initialize analytics", () => {
+  const events: any[] = [];
+
+  beforeEach(async () => {
+    process.env.ACCESS_TOKEN = "test-access-token";
+    events.length = 0;
+    const { registerTrackingProvider } =
+      await import("../tracking/registry.js");
+    registerTrackingProvider({
+      name: "spec-collector",
+      track: (event) => {
+        events.push(event);
+      },
+    });
+  });
+
+  afterEach(async () => {
+    delete process.env.ACCESS_TOKEN;
+    const { unregisterTrackingProvider } =
+      await import("../tracking/registry.js");
+    unregisterTrackingProvider("spec-collector");
+  });
+
+  it("records the client name, version, and protocol from the handshake", async () => {
+    await callWeb({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "Claude Code", version: "1.2.3" },
+      },
+    });
+
+    const init = events.find((event) => event.name === "$mcp_initialize");
+    expect(init).toBeDefined();
+    expect(init.properties.$mcp_client_name).toBe("Claude Code");
+    expect(init.properties.$mcp_client_version).toBe("1.2.3");
+    expect(init.properties.$mcp_vendor_client).toBe("claude-code");
+    expect(init.properties.$mcp_protocol_version).toBe("2025-06-18");
+    expect(init.properties.$mcp_source).toBe("http");
   });
 });

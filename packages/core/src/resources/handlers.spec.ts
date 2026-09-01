@@ -15,6 +15,7 @@ const mockEnsurePersonalDefaults = vi.fn();
 const mockCanWriteLocalWorkspaceResourcePath = vi.fn();
 const mockIsLocalWorkspaceResourceId = vi.fn();
 const mockUploadFile = vi.fn();
+const mockCanUpdateAutomationResource = vi.fn();
 
 vi.mock("./store.js", () => ({
   SHARED_OWNER: "__shared__",
@@ -46,6 +47,11 @@ vi.mock("./store.js", () => ({
 
 vi.mock("../server/auth.js", () => ({
   getSession: vi.fn().mockResolvedValue({ email: "test@test.com" }),
+}));
+
+vi.mock("../automations/service.js", () => ({
+  canUpdateAutomationResource: (...args: any[]) =>
+    mockCanUpdateAutomationResource(...args),
 }));
 
 const mockGetOrgContext = vi.fn().mockResolvedValue({
@@ -100,6 +106,7 @@ describe("resource handlers", () => {
     mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(false);
     mockIsLocalWorkspaceResourceId.mockReturnValue(false);
     mockUploadFile.mockResolvedValue(null);
+    mockCanUpdateAutomationResource.mockResolvedValue(false);
     vi.mocked(getSession).mockResolvedValue({ email: "test@test.com" } as any);
     mockGetOrgContext.mockResolvedValue({
       email: "test@test.com",
@@ -372,6 +379,31 @@ describe("resource handlers", () => {
         "nosniff",
       );
       expect(result).toBeInstanceOf(Response);
+    });
+
+    it("does not expose legacy webhook tokens to read-only members", async () => {
+      mockResourceGet.mockResolvedValue({
+        id: "legacy-webhook",
+        path: "jobs/legacy-webhook.md",
+        owner: "__shared__",
+        content: `---
+triggerType: webhook
+webhookToken: ${"a".repeat(43)}
+---
+
+Legacy webhook.`,
+        mimeType: "text/markdown",
+      });
+
+      const result = await handleGetResource({
+        _params: { id: "legacy-webhook" },
+        _query: {},
+        context: {},
+      });
+
+      expect(lastStatus).toBe(404);
+      expect(result).toEqual({ error: "Resource not found" });
+      expect(mockCanUpdateAutomationResource).toHaveBeenCalled();
     });
 
     it("downloads empty content with a sanitized attachment filename", async () => {

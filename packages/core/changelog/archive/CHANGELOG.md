@@ -1,3 +1,23 @@
+## 0.161.17
+
+### Patch Changes
+
+- 34496d7: Sanitize every tool schema at the engine boundary, not just `defineAction` ones.
+  Hand-written tools (extensions, MCP, context tools) and third-party MCP server
+  schemas bypassed the sanitizer entirely, so `extension-data-set` shipped a `data`
+  property with no `type` and OpenAI 400'd the whole request — every tool in the
+  payload, not just that one.
+
+## 0.161.16
+
+### Patch Changes
+
+- c940f4c: Record a rejected Builder credential on the transcription path so it is not
+  retried forever. The chat engine already marks a 401/403 and stops reusing that
+  credential for the auth-failure TTL; transcription threw the raw upstream text
+  and marked nothing, so one unusable credential re-sent the same doomed request
+  on every attempt — 24 identical "Missing Authentication header" 401s in a day.
+
 ## 0.161.15
 
 ### Patch Changes

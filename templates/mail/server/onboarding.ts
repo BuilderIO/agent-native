@@ -46,7 +46,7 @@ registerOnboardingStep({
       description:
         "One-click Google sign-in using the workspace's managed OAuth connection. Only you can use this connection.",
       payload: {
-        url: "/_agent-native/connections/oauth/gmail/start?scope=user&appId=mail&return=/",
+        url: "/_agent-native/connections/oauth/gmail/start?scope=user&appId=mail&return=/home",
         external: false,
       },
     },
@@ -57,7 +57,7 @@ registerOnboardingStep({
       description:
         "Workspace admins can connect once and make this Gmail connection available to selected apps or everyone in the workspace.",
       payload: {
-        url: "/_agent-native/connections/oauth/gmail/start?scope=organization&appId=mail&return=/",
+        url: "/_agent-native/connections/oauth/gmail/start?scope=organization&appId=mail&return=/home",
         external: false,
       },
     },

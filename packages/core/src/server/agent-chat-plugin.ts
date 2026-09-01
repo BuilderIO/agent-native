@@ -88,6 +88,7 @@ import {
   type AgentLoopOutcome,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
+import type { ActiveRun } from "../agent/run-manager.js";
 import {
   callerHasRunAccess,
   callerHasThreadAccess,
@@ -113,6 +114,7 @@ import { attachToolSearch } from "../agent/tool-search.js";
 import type {
   AgentChatAttachment,
   AgentChatEvent,
+  AgentChatScope,
   MentionItemMedia,
   MentionProvider,
 } from "../agent/types.js";
@@ -154,7 +156,6 @@ import {
   isProductionServerlessFunctionRuntime,
   isTransientDatabaseError,
 } from "../db/client.js";
-import { isFeatureFlagEnabled } from "../feature-flags/index.js";
 import {
   filterFrameworkToolGroups,
   resolveFrameworkTools,
@@ -200,13 +201,24 @@ import {
 } from "../shared/analytics-platform.js";
 import { docsUrl } from "../shared/docs-url.js";
 import {
+  AGENT_CHAT_STREAM_PATH,
+  AGENT_CHAT_STREAM_TOKEN_SUFFIX,
+  AGENT_CHAT_STREAM_TOKEN_TTL_SECONDS,
+  createAgentChatStreamToken,
+  isAgentChatStreamingRuntime,
+  readAgentChatStreamBearerToken,
+  verifyAgentChatStreamToken,
+} from "./agent-chat-stream.js";
+import {
   handleSharedThreadRequest,
   type SharedThreadRouteDependencies,
 } from "./agent-chat/shared-thread.js";
 import { discoverAgents } from "./agent-discovery.js";
 import {
+  resolveAgentRunOrgId,
   resolveAgentRunOwnerContext,
   runWithAgentRunContext,
+  seedAgentRunOwnerContext,
   seedBackgroundAgentRunOwnerContext,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
@@ -323,6 +335,7 @@ import {
   filterDirectA2AActions,
   filterReadOnlyActions,
   isSelectedA2AReceiver,
+  shouldSelectedA2AReceiverOwnObjective,
   resolveInitialToolNames,
   runA2AAgentLoop,
   runMCPAgentLoop,
@@ -428,6 +441,43 @@ export { resolveRecurringJobsBuildMarker };
 export { scheduledTriggerAvailability };
 export { shouldDisableRecurringJobsRuntime };
 export { finalizeClaimedAgentChatProcessRunFailure };
+
+function hasSuccessfulSideEffect(run: Pick<ActiveRun, "events">): boolean {
+  return run.events.some(
+    ({ event }) =>
+      event.type === "tool_done" &&
+      event.completedSideEffect === true &&
+      event.isError !== true,
+  );
+}
+
+export async function runPostAgentTurnAutosave(
+  callback: AgentChatPluginOptions["onAgentTurnComplete"] | undefined,
+  scope: AgentChatScope | null | undefined,
+  run: ActiveRun,
+): Promise<void> {
+  if (!callback || !scope || !hasSuccessfulSideEffect(run)) return;
+
+  try {
+    await callback(scope, run);
+  } catch (error) {
+    captureError(error, {
+      route: "agent-chat",
+      aiTraceId: run.runId,
+      tags: {
+        source: "agent-chat",
+        failureClass: "post-agent-turn-autosave",
+      },
+      extra: {
+        runId: run.runId,
+        threadId: run.threadId,
+        scopeType: scope.type,
+        scopeId: scope.id,
+      },
+    });
+    console.error("[agent-chat] post-agent-turn autosave failed:", error);
+  }
+}
 
 /**
  * The model this mount runs with, when the caller does not pass one per request.
@@ -687,6 +737,9 @@ export function createAgentChatPlugin(
         (env === "development" || env === "test") &&
         getAppConfig().agent.mode !== "production";
       const routePath = options?.path ?? "/_agent-native/agent-chat";
+      const streamTokenPath =
+        routePath.replace(/\/+$/, "") + AGENT_CHAT_STREAM_TOKEN_SUFFIX;
+      const streamingRuntime = isAgentChatStreamingRuntime();
       const a2aAgentDelegationEnabled =
         resolveA2AAgentDelegationEnabled(options);
 
@@ -1951,17 +2004,12 @@ export function createAgentChatPlugin(
           const extra = await resolveExtraContext(context.event, owner);
 
           const correlation = sanitizeA2ACorrelationMetadata(context.metadata);
-          const receiverOwnsObjective =
-            isSelectedA2AReceiver(
-              correlation.selectedReceiverApp,
-              options?.appId,
-            ) &&
-            !!options?.a2aReceiverOwnershipFlag &&
-            (await isFeatureFlagEnabled(options.a2aReceiverOwnershipFlag, {
-              userEmail,
-              userKey: userEmail,
-              orgId: getRequestOrgId() ?? undefined,
-            }));
+          const receiverOwnsObjective = shouldSelectedA2AReceiverOwnObjective({
+            authenticatedCallerEmail: userEmail,
+            enabled: !!options?.selectedA2AReceiverOwnsObjective,
+            selectedReceiverApp: correlation.selectedReceiverApp,
+            appId: options?.appId,
+          });
           const a2aStoredModel = await getStoredModelForEngine(a2aEngine, {
             appId: options?.appId,
           });
@@ -2217,6 +2265,7 @@ export function createAgentChatPlugin(
                     result: event.result,
                     isError: event.isError,
                     completedSideEffect: event.completedSideEffect,
+                    artifacts: event.artifacts,
                   });
                   const artifactBaseUrl = resolveArtifactBaseUrl(context.event);
                   const recoverableArtifactMessage =
@@ -2694,6 +2743,7 @@ export function createAgentChatPlugin(
                       result: event.result,
                       isError: event.isError,
                       completedSideEffect: event.completedSideEffect,
+                      artifacts: event.artifacts,
                     });
                   }
                 },
@@ -2754,11 +2804,11 @@ export function createAgentChatPlugin(
       const getOrgIdFromEvent = async (
         event: any,
       ): Promise<string | undefined> => {
-        if (options?.resolveOrgId) {
-          return (await options.resolveOrgId(event)) ?? undefined;
-        }
-        const session = await getSession(event).catch(() => null);
-        return session?.orgId ?? undefined;
+        return resolveAgentRunOrgId({
+          event,
+          ownerContext: await resolveOwnerContext(event),
+          resolveOrgId: options?.resolveOrgId,
+        });
       };
 
       registerChatThreadsShareable();
@@ -2830,12 +2880,16 @@ export function createAgentChatPlugin(
 
       // Callback to persist agent response when run finishes (even if client disconnected).
       // Reconstructs the assistant message from buffered events and appends to thread_data.
-      const onRunComplete = async (run: any, threadId: string | undefined) => {
+      const onRunComplete = async (
+        run: ActiveRun,
+        threadId: string | undefined,
+      ) => {
         const runThreadId = String(run?.threadId ?? threadId ?? "");
         if (!threadId) {
           if (runThreadId) preRunGitStatusByThread.delete(runThreadId);
           return;
         }
+        const chatScope = getRequestRunContext()?.chatScope;
         // Serialize the read-modify-write against the same thread's other
         // `thread_data` writers (setThreadQueuedMessages, setThreadEngineMeta,
         // the frontend-triggered saves below). Without the lock, a concurrent
@@ -2852,6 +2906,7 @@ export function createAgentChatPlugin(
             run.events ?? [],
             run.runId,
             {
+              scope: chatScope,
               suppressInternalContinuation: true,
               turnId:
                 typeof run.turnId === "string" && run.turnId
@@ -2893,6 +2948,7 @@ export function createAgentChatPlugin(
               typeof run.turnId === "string" && run.turnId
                 ? run.turnId
                 : undefined,
+            parentId: run.parentId,
           });
 
           // Store debug metadata so we can inspect what the LLM actually
@@ -2917,9 +2973,18 @@ export function createAgentChatPlugin(
           );
         });
 
-        // Keep SQL run completion gated only on durable thread data. Follow-up
-        // hooks are useful, but they should never leave agent_runs stuck
-        // "running" if an automation/checkpoint path stalls.
+        // Checkpoint creation is part of durable turn completion. The helper
+        // catches and reports its own failures, so a broken app checkpoint does
+        // not strand the run while a successful checkpoint cannot be lost when
+        // a serverless invocation exits.
+        await runPostAgentTurnAutosave(
+          options?.onAgentTurnComplete,
+          chatScope,
+          run,
+        );
+
+        // Event triggers and local git checkpoints remain best effort and do
+        // not extend the durable chat persistence gate.
         void (async () => {
           // Emit agent.turn.completed for automation triggers.
           //
@@ -3808,7 +3873,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             runCtx.runId = runId;
           }
         },
-        onRunComplete: async (run: any, threadId: string | undefined) => {
+        onRunComplete: async (run: ActiveRun, threadId: string | undefined) => {
           if (threadId) _runSendByThread.delete(threadId);
           await onRunComplete(run, threadId);
         },
@@ -3866,7 +3931,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   runCtx.runId = runId;
                 }
               },
-              onRunComplete: async (run: any, threadId: string | undefined) => {
+              onRunComplete: async (
+                run: ActiveRun,
+                threadId: string | undefined,
+              ) => {
                 if (threadId) _runSendByThread.delete(threadId);
                 await onRunComplete(run, threadId);
               },
@@ -4124,7 +4192,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               runCtx.runId = runId;
             }
           },
-          onRunComplete: async (run: any, threadId: string | undefined) => {
+          onRunComplete: async (
+            run: ActiveRun,
+            threadId: string | undefined,
+          ) => {
             if (threadId) _runSendByThread.delete(threadId);
             await onRunComplete(run, threadId);
           },
@@ -6305,6 +6376,74 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         );
       };
 
+      // A Function URL is a separate origin, so the browser cannot send the
+      // Amplify session cookie with the stream request. Mint a short-lived,
+      // audience-bound handoff on the authenticated foreground origin.
+      getH3App(nitroApp).use(
+        streamTokenPath,
+        defineEventHandler(async (event) => {
+          setResponseHeader(event, "Cache-Control", "private, no-store");
+          if (getMethod(event) !== "GET") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          const session = await getSession(event);
+          if (!session?.email) {
+            setResponseStatus(event, 401);
+            return { error: "Authentication required" };
+          }
+          try {
+            return {
+              token: await createAgentChatStreamToken({
+                ownerEmail: session.email,
+                orgId: session.orgId ?? null,
+              }),
+              ttlSeconds: AGENT_CHAT_STREAM_TOKEN_TTL_SECONDS,
+            };
+          } catch (error) {
+            console.error("[agent-chat] stream token unavailable:", error);
+            setResponseStatus(event, 503);
+            return { error: "Agent-chat streaming is not configured" };
+          }
+        }),
+      );
+
+      if (streamingRuntime) {
+        // The exact public-path registry bypasses the normal cookie guard for
+        // this one route. The route immediately below still verifies the
+        // purpose-bound bearer token before entering the shared chat handler.
+        const app = getH3App(nitroApp);
+        registerAuthPublicPaths([AGENT_CHAT_STREAM_PATH], app);
+        app.use(
+          AGENT_CHAT_STREAM_PATH,
+          withTransientDatabaseFallback(
+            AGENT_CHAT_STREAM_PATH,
+            async (event) => {
+              setResponseHeader(event, "Cache-Control", "private, no-store");
+              if (getMethod(event) !== "POST") {
+                setResponseStatus(event, 405);
+                return { error: "Method not allowed" };
+              }
+              const principal = await verifyAgentChatStreamToken(
+                readAgentChatStreamBearerToken(
+                  getHeader(event, "authorization"),
+                ) ?? "",
+              );
+              if (!principal) {
+                setResponseStatus(event, 401);
+                return { error: "Authentication required" };
+              }
+              seedAgentRunOwnerContext(event, {
+                owner: principal.ownerEmail,
+                anonymous: false,
+                orgId: principal.orgId,
+              });
+              return invokeAgentChatHandler(event);
+            },
+          ),
+        );
+      }
+
       // ─── Durable background agent-chat run processor ──────────────────────
       // Self-fire target for a long chat turn. The foreground POST claims the
       // run slot, inserts the run row, and `fireInternalDispatch`es here; this
@@ -7155,49 +7294,37 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       });
 
       // ─── Trigger Dispatcher (event-based automations) ─────────────────
-      if (disableRecurringJobsRuntime) {
-        if (process.env.DEBUG) {
-          console.log(
-            "[triggers] Trigger dispatcher disabled for local development",
+      // Event and webhook automations remain live when the recurring scheduler
+      // is disabled; only the cron driver is gated above.
+      const { initTriggerDispatcher } =
+        await import("../triggers/dispatcher.js");
+      await initTriggerDispatcher({
+        getActions: getBackgroundActionEntries,
+        getSystemPrompt: async (owner: string) => {
+          const resources = await loadResourcesForPrompt(
+            owner,
+            lazyContext,
+            options?.appId,
+            undefined,
+            { disabledFrameworkGroups },
           );
-        }
-      } else {
-        try {
-          const { initTriggerDispatcher } =
-            await import("../triggers/dispatcher.js");
-          await initTriggerDispatcher({
-            getActions: getBackgroundActionEntries,
-            getSystemPrompt: async (owner: string) => {
-              const resources = await loadResourcesForPrompt(
-                owner,
-                lazyContext,
-                options?.appId,
-                undefined,
-                { disabledFrameworkGroups },
-              );
-              const schemaBlock = lazyContext
-                ? ""
-                : await buildSchemaBlock(owner, databaseToolsMode);
-              return basePrompt + resources + schemaBlock;
-            },
-            // See the matching comment on schedulerDeps.getInitialToolNames
-            // above — same shared `basePrompt`, same reasoning.
-            getInitialToolNames: (automation?: RecurringJobContext) => [
-              ...effectiveInitialToolNames,
-              "manage-jobs",
-              "manage-progress",
-              ...(automation?.meta.mcpTools ?? []),
-            ],
-            apiKey: options?.apiKey,
-            model: resolveConfiguredAgentModel(options),
-            appId: options?.appId,
-          });
-          if (process.env.DEBUG)
-            console.log("[triggers] Trigger dispatcher initialized");
-        } catch {
-          // Triggers module not available — skip silently
-        }
-      }
+          const schemaBlock = lazyContext
+            ? ""
+            : await buildSchemaBlock(owner, databaseToolsMode);
+          return basePrompt + resources + schemaBlock;
+        },
+        // See the matching comment on schedulerDeps.getInitialToolNames
+        // above — same shared `basePrompt`, same reasoning.
+        getInitialToolNames: (automation?: RecurringJobContext) => [
+          ...effectiveInitialToolNames,
+          "manage-jobs",
+          "manage-progress",
+          ...(automation?.meta.mcpTools ?? []),
+        ],
+        apiKey: options?.apiKey,
+        model: resolveConfiguredAgentModel(options),
+        appId: options?.appId,
+      });
     })().catch((err) => {
       // If the init fails, the routes never get registered and requests
       // to /_agent-native/agent-chat silently 404. Register a fallback

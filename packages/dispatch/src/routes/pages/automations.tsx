@@ -1,5 +1,3 @@
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { PromptComposer } from "@agent-native/core/client/composer";
 import { useChangeVersions } from "@agent-native/core/client/hooks";
 import {
   IconFileSearch,
@@ -13,16 +11,12 @@ import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { AutomationCreateDialog } from "../../components/automation-create-dialog";
 import { AutomationDetailsPanel } from "../../components/automation-details-panel";
 import { DispatchShell } from "../../components/dispatch-shell";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../../components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -134,57 +128,24 @@ function useToggleAutomation() {
   });
 }
 
-function CreateAutomationButton() {
+function CreateAutomationButton({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
-  const [scope, setScope] = useState<"personal" | "organization">("personal");
-
-  function handleSubmit(text: string) {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    window.dispatchEvent(
-      new CustomEvent("agent-panel:set-mode", {
-        detail: { mode: "chat" },
-      }),
-    );
-    sendToAgentChat({
-      message: trimmed,
-      context: `The user wants to create a new automation. Scope: ${scope}. Use manage-automations with action=define to create it. Ask clarifying questions if needed about what event to trigger on, conditions, and what actions to take.`,
-      submit: true,
-      newTab: true,
-    });
-    setOpen(false);
-  }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button size="sm">
-          <IconPlus size={14} />
-          New automation
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-[min(100vw-2rem,24rem)] p-3">
-        <p className="pb-2 text-sm font-semibold text-foreground">
-          New automation
-        </p>
-        <PromptComposer
-          autoFocus
-          placeholder="Describe what you want to automate..."
-          draftScope="dispatch-automations:create"
-          onSubmit={handleSubmit}
-        />
-        <select
-          value={scope}
-          onChange={(event) =>
-            setScope(event.target.value as "personal" | "organization")
-          }
-          className="mt-2 w-full cursor-pointer rounded-md border border-input bg-background px-3 py-1.5 text-xs text-foreground"
-        >
-          <option value="personal">Personal</option>
-          <option value="organization">Organization</option>
-        </select>
-      </PopoverContent>
-    </Popover>
+    <>
+      <Button size="sm" onClick={() => setOpen(true)}>
+        <IconPlus size={14} />
+        New automation
+      </Button>
+      <AutomationCreateDialog
+        open={open}
+        onOpenChange={setOpen}
+        onCreated={() => {
+          setOpen(false);
+          onCreated();
+        }}
+      />
+    </>
   );
 }
 
@@ -194,6 +155,7 @@ export default function AutomationsRoute() {
   const [query, setQuery] = useState("");
   const automationsQuery = useAutomations();
   const toggleAutomation = useToggleAutomation();
+  const queryClient = useQueryClient();
   const automations = automationsQuery.data ?? [];
   const visibleAutomations = useMemo(
     () =>
@@ -215,6 +177,7 @@ export default function AutomationsRoute() {
         item.event,
         item.schedule,
         item.scheduleDescription,
+        item.webhookPath,
         item.body,
         item.model,
         item.domain,
@@ -259,7 +222,7 @@ export default function AutomationsRoute() {
   return (
     <DispatchShell
       title="Automations"
-      description="See scheduled and event-triggered jobs, inspect their checks and past runs, pause them, or ask the agent to create one."
+      description="Create schedule, webhook, or app-event automations, then inspect their checks and past runs."
     >
       <section className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -304,7 +267,14 @@ export default function AutomationsRoute() {
                 <SelectItem value="all">All apps</SelectItem>
               </SelectContent>
             </Select>
-            <CreateAutomationButton />
+            <CreateAutomationButton
+              onCreated={() => {
+                toast.success("Automation created");
+                void queryClient.invalidateQueries({
+                  queryKey: AUTOMATIONS_QUERY_KEY,
+                });
+              }}
+            />
           </div>
         </div>
 

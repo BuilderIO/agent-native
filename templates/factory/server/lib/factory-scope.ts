@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import type { getDb } from "../db/index.js";
 import {
+  factoryAuditEvents,
   factoryDefinitions,
   factoryGraphVersions,
   triageConfig,
@@ -250,6 +251,13 @@ export function orgFactoryFeedbackFilter(
   factoryId: string,
 ): SQL {
   return orgFactoryFilter(triageFeedback, orgId, factoryId);
+}
+
+export function orgFactoryAuditEventFilter(
+  orgId: string,
+  factoryId: string,
+): SQL {
+  return orgFactoryFilter(factoryAuditEvents, orgId, factoryId);
 }
 
 export function resolveAutomationFactoryId(

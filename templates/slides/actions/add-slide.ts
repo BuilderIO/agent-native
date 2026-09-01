@@ -15,7 +15,10 @@ import { z } from "zod";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import {
+  createDeckVersionSnapshot,
+  deckVersionChatContextFromAction,
+} from "../server/lib/deck-versions.js";
 import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
 import {
   createLayoutFitRevision,
@@ -170,17 +173,20 @@ export default defineAction({
     }),
   },
   http: false,
-  run: async ({
-    deckId,
-    content,
-    slideId,
-    layout,
-    notes,
-    position,
-    contextPackId,
-    contextModeOverride,
-    reuseLabels,
-  }) =>
+  run: async (
+    {
+      deckId,
+      content,
+      slideId,
+      layout,
+      notes,
+      position,
+      contextPackId,
+      contextModeOverride,
+      reuseLabels,
+    },
+    ctx,
+  ) =>
     withDeckLock(deckId, async () => {
       await assertAccess("deck", deckId, "editor");
       const db = getDb();
@@ -345,7 +351,15 @@ export default defineAction({
             data: row.data,
             ownerEmail: row.ownerEmail,
           },
-          { label: "Before adding slide", db: tx },
+          {
+            force:
+              ctx?.caller === "tool" ||
+              ctx?.caller === "mcp" ||
+              ctx?.caller === "a2a",
+            chatContext: deckVersionChatContextFromAction(ctx),
+            label: "Before adding slide",
+            db: tx,
+          },
         );
         const updateResult = await tx
           .update(schema.decks)
