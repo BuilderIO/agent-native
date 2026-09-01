@@ -2188,13 +2188,12 @@ ${embeddedAuthCss}
     justify-content: flex-end;
     align-items: center;
     position: absolute;
-    height: 2rem;
     padding: 0;
     top: max(1rem, env(safe-area-inset-top));
     inset-inline-end: calc(max(1rem, env(safe-area-inset-right)) + 2.5rem);
     z-index: 2;
   }
-  .auth-marketing-learn-more { font-size: 0.9rem; }
+  .auth-marketing-learn-more { font-size: 0.8rem; }
   .auth-marketing-home.has-bottom-right-learn-more .auth-marketing-top-right {
     top: auto;
     bottom: max(1rem, env(safe-area-inset-bottom));
@@ -2239,10 +2238,11 @@ ${embeddedAuthCss}
       inset-inline-end: auto;
     }
     .auth-marketing-home.has-bottom-right-learn-more .auth-marketing-top-right {
-      top: max(1rem, env(safe-area-inset-top));
-      bottom: auto;
-      inset-inline-start: max(1rem, env(safe-area-inset-left));
+      top: auto;
+      bottom: max(1rem, env(safe-area-inset-bottom));
+      inset-inline-start: 50%;
       inset-inline-end: auto;
+      transform: translateX(-50%);
     }
     .auth-marketing-home .auth-marketing-layout { min-height: auto; }
     .auth-marketing-home .auth-marketing-shell { display: block; }
