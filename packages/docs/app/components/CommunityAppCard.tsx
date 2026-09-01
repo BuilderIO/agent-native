@@ -28,6 +28,7 @@ export function CommunityAppCard({ app }: { app: CommunityApp }) {
   const t = useT();
   const { locale } = useLocale();
   const appPath = sitePathForLocale(`/apps/community/${app.slug}`, locale);
+  const hasMeta = app.status === "comingSoon" || (app.githubStars ?? 0) > 0;
 
   return (
     <article className="group flex min-w-0 flex-col overflow-hidden border border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)]">
@@ -48,28 +49,26 @@ export function CommunityAppCard({ app }: { app: CommunityApp }) {
             />
           ) : null}
         </div>
-        <div className="flex flex-auto flex-col items-start gap-[var(--spacing-3)] p-[var(--spacing-5)]">
+        <div className="flex flex-auto flex-col items-start gap-[5px] p-[var(--spacing-5)]">
           <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
             {app.name}
           </h3>
-          {/* Sits where the first-party cards put their eyebrow: mono caps in
-              the accent, above the description rather than below it. */}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] uppercase tracking-[0.04em] text-[var(--b-text-eyebrow)]">
-            {app.status ? (
-              <span>
-                {app.status === "new"
-                  ? t("templatesPage.communityNew")
-                  : t("templatesPage.communityComingSoon")}
-              </span>
-            ) : null}
-            {app.githubStars && app.githubStars > 0 ? (
-              <span>
-                {t("templatesPage.communityGithubStars", {
-                  count: app.githubStars.toLocaleString(locale),
-                })}
-              </span>
-            ) : null}
-          </div>
+          {/* Rendered only when it has something to say: an empty row would
+              still take a gap from the column above the description. */}
+          {hasMeta ? (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] uppercase tracking-[0.04em] text-[var(--b-text-eyebrow)]">
+              {app.status === "comingSoon" ? (
+                <span>{t("templatesPage.communityComingSoon")}</span>
+              ) : null}
+              {app.githubStars && app.githubStars > 0 ? (
+                <span>
+                  {t("templatesPage.communityGithubStars", {
+                    count: app.githubStars.toLocaleString(locale),
+                  })}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
           <p className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]">
             {app.description}
           </p>
