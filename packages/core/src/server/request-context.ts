@@ -148,6 +148,8 @@ export interface RequestRunContext {
 export interface RequestContext {
   /** True for synthetic browser checks whose telemetry must not be recorded. */
   isSyntheticTraffic?: boolean;
+  /** Stable MCP request key used to make transport retries idempotent. */
+  mcpRequestId?: string;
   userEmail?: string;
   userName?: string;
   orgId?: string;

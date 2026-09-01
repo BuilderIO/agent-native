@@ -5,66 +5,73 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
-  COMMUNITY_TEMPLATE_SUBMISSION_URL,
-  communityTemplateCliCommand,
-  communityTemplates,
-} from "../app/components/CommunityTemplateCard";
+  COMMUNITY_APP_SUBMISSION_URL,
+  communityApps,
+  findCommunityApp,
+} from "../app/components/community-apps";
+import { buildCommunitySubmissionUrl } from "../app/components/CommunityAppSubmissionForm";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../..");
 
-describe("community templates", () => {
-  it("builds the canonical community install command", () => {
-    expect(
-      communityTemplateCliCommand({
-        name: "Example",
-        description: "An example template.",
-        repository: "acme/example",
-      }),
-    ).toBe(
-      "npx @agent-native/core@latest create my-app --template https://github.com/acme/example",
-    );
-    expect(
-      communityTemplateCliCommand({
-        name: "Inbox",
-        description: "An app selected from a workspace repository.",
-        repository: "acme/workspace",
-        app: "inbox",
-        ref: "v1.2.0",
-      }),
-    ).toBe(
-      "npx @agent-native/core@latest create my-app --template 'https://github.com/acme/workspace?app=inbox#v1.2.0'",
-    );
+describe("community apps", () => {
+  it("includes the seeded Nomad listing with a screenshot gallery", () => {
+    const nomad = findCommunityApp("nomad");
+
+    expect(nomad).toMatchObject({
+      name: "Nomad",
+      sourceUrl: "https://github.com/BuilderIO/agent-native/pull/2454",
+      status: "new",
+    });
+    expect(nomad?.screenshots).toHaveLength(3);
+    for (const screenshot of nomad?.screenshots ?? []) {
+      expect(screenshot).toMatch(/^\/community\/nomad\/.+\.jpg$/);
+    }
   });
 
-  it("keeps catalog entries installable and uniquely keyed by repository app", () => {
-    const entries = new Set<string>();
+  it("keeps community slugs unique and URLs reviewable", () => {
+    const slugs = new Set<string>();
 
-    for (const template of communityTemplates) {
-      expect(template.repository).toMatch(/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/);
-      if (template.app) {
-        expect(template.app).toMatch(/^[a-z][a-z0-9-]*$/);
-        expect(template.app).not.toBe("dispatch");
+    for (const app of communityApps) {
+      expect(app.slug).toMatch(/^[a-z][a-z0-9-]*$/);
+      expect(slugs.has(app.slug)).toBe(false);
+      slugs.add(app.slug);
+      expect(app.name.trim()).not.toBe("");
+      expect(app.description.trim()).not.toBe("");
+      for (const screenshot of app.screenshots) {
+        expect(screenshot).toMatch(/^(\/|https:\/\/)/);
       }
-      if (template.ref) {
-        expect(template.ref).not.toContain("..");
+      for (const url of [app.demoUrl, app.repositoryUrl, app.sourceUrl]) {
+        if (url) expect(new URL(url).protocol).toBe("https:");
       }
-      const key = `${template.repository}:${template.app ?? ""}`;
-      expect(entries.has(key)).toBe(false);
-      entries.add(key);
-      expect(template.name.trim()).not.toBe("");
-      expect(template.description.trim()).not.toBe("");
-      if (template.demoUrl) {
-        expect(new URL(template.demoUrl).protocol).toBe("https:");
-      }
-      if (template.screenshot) {
-        expect(new URL(template.screenshot).protocol).toBe("https:");
+      if (app.githubStars !== undefined) {
+        expect(app.githubStars).toBeGreaterThanOrEqual(0);
       }
     }
   });
 
-  it("links the catalog CTA to a checked-in GitHub submission form", () => {
-    expect(COMMUNITY_TEMPLATE_SUBMISSION_URL).toContain(
+  it("builds a prefilled GitHub issue URL from the submission form", () => {
+    const url = new URL(
+      buildCommunitySubmissionUrl({
+        name: "Example app",
+        appUrl: "https://example.com/app",
+        description: "A useful community app.",
+        repositoryUrl: "https://github.com/acme/example",
+        screenshots: "https://example.com/one.png\nhttps://example.com/two.png",
+      }),
+    );
+
+    expect(url.origin + url.pathname).toBe(
+      "https://github.com/BuilderIO/agent-native/issues/new",
+    );
+    expect(url.searchParams.get("title")).toBe("Community app: Example app");
+    expect(url.searchParams.get("body")).toContain(
+      "https://example.com/two.png",
+    );
+  });
+
+  it("keeps a manual GitHub issue form available for reviewers", () => {
+    expect(COMMUNITY_APP_SUBMISSION_URL).toContain(
       "template=community-template.yml",
     );
 
@@ -77,9 +84,9 @@ describe("community templates", () => {
       ),
       "utf-8",
     );
+    expect(form).toContain("id: app_url");
     expect(form).toContain("id: repository");
-    expect(form).toContain("id: workspace_app");
-    expect(form).toContain("id: demo");
+    expect(form).toContain("id: screenshots");
     expect(form).toContain("id: readiness");
   });
 });

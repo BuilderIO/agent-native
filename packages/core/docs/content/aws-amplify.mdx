@@ -155,6 +155,57 @@ See [SSR Caching](/docs/ssr-caching) for the shared policy and
 [Amplify's cache-key documentation](https://docs.aws.amazon.com/amplify/latest/userguide/cache-key-cookies.html)
 for the hosting setting.
 
+## Streaming requests
+
+Nitro's agent-chat and framework sync endpoints use `text/event-stream` and
+are intentionally private and non-cacheable. The framework sends a named
+keepalive frame every ten seconds on the shared sync stream so an idle
+connection stays open through CloudFront; keep these routes out of custom
+cache rules. The public SSR shell and hashed assets remain edge-cacheable.
+
+Amplify compute instances can run for up to 15 minutes, but managed Amplify
+Hosting still sits behind a CloudFront path that may buffer token-sized
+chunks. That is a compute lifetime, not a guarantee that a browser receives
+each chunk immediately.
+
+For direct token streaming, keep Amplify Hosting as the app and SSR origin and
+add a dedicated Nitro Lambda Function URL:
+
+```bash
+cd templates/calendar
+agent-native amplify-stream \
+  --amplify-app-id <amplify-app-id> \
+  --branch main \
+  --region us-east-1 \
+  --env-file .env
+```
+
+The command builds with Nitro's `aws-lambda` preset and response-streaming
+runtime, creates or updates a Node.js 24 Lambda with a 900-second timeout,
+configures a `RESPONSE_STREAM` Function URL, merges
+`VITE_AGENT_NATIVE_AGENT_CHAT_STREAM_URL` into the selected Amplify branch,
+and starts a branch release. The browser first gets a short-lived bearer token
+from the same-origin Amplify app, then sends the chat POST to the Function URL.
+No AWS SDK or Amplify-specific runtime package is required.
+
+The Function URL is intentionally a direct origin: do not put CloudFront or a
+cache in front of the stream endpoint. The SSR shell, React Router `.data`
+shell, and hashed assets keep the normal shared SWR and immutable edge-cache
+policy above. The CLI needs AWS CLI credentials with permission to manage the
+Lambda, IAM role, Function URL, and Amplify branch release. `APP_URL`,
+`BETTER_AUTH_SECRET`, the database variables, and provider credentials still
+come from the app's `.env` and must identify the same foreground deployment.
+
+Use `--skip-release` when you only want to update the branch variable. The
+next Amplify build must include that variable so the client knows the stream
+origin. If the handoff is unavailable, the client logs a warning and uses the
+normal Amplify chat route, preserving availability without claiming direct
+streaming.
+
+See [AWS's Amplify deployment specification](https://docs.aws.amazon.com/amplify/latest/userguide/ssr-deployment-specification.html)
+and [AWS Lambda response streaming](https://docs.aws.amazon.com/lambda/latest/dg/configuration-response-streaming.html)
+for the platform limits and Function URL contract.
+
 ## Verify the deployment
 
 After the first build, check the public URL and confirm that:

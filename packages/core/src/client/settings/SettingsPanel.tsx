@@ -3202,7 +3202,7 @@ function SettingsPanelContent({
                   id={settingsSectionDomId("automations")}
                   icon={<IconBolt size={14} />}
                   title="Automations"
-                  subtitle="Scheduled and event-triggered agent tasks."
+                  subtitle="Scheduled, event-triggered, and webhook-triggered agent tasks."
                   grouped
                   flat
                   open={openSection === "automations"}
@@ -3210,7 +3210,7 @@ function SettingsPanelContent({
                 >
                   <SettingsRow
                     label="Automations"
-                    description="Schedule agent tasks or run them from events."
+                    description="Schedule agent tasks or run them from events and webhooks."
                     control={
                       <a
                         href="/settings/agent/automations"
@@ -3536,7 +3536,7 @@ function SettingsPanelContent({
             id={settingsSectionDomId("automations")}
             icon={<IconBolt size={14} />}
             title="Automations"
-            subtitle="Scheduled and event-triggered agent tasks."
+            subtitle="Scheduled, event-triggered, and webhook-triggered agent tasks."
             flat
             open={openSection === "automations"}
             onToggle={() => toggle("automations")}

@@ -267,6 +267,12 @@ export function AgentTerminal({
         term.dispose();
       }
 
+      function disposeIfCancelled() {
+        if (!disposed) return false;
+        disposeTerminal();
+        return true;
+      }
+
       // Discover WebSocket URL
       let wsUrl = wsUrlProp;
       let resolvedCommand = command;
@@ -275,7 +281,9 @@ export function AgentTerminal({
           const res = await fetch(
             agentNativePath("/_agent-native/agent-terminal-info"),
           );
+          if (disposeIfCancelled()) return;
           const info: TerminalInfo = await res.json();
+          if (disposeIfCancelled()) return;
           if (!info.available) {
             setError(info.error || "Agent terminal not available");
             disposeTerminal();
@@ -288,6 +296,7 @@ export function AgentTerminal({
             resolvedCommand = info.command;
           }
         } catch (err) {
+          if (disposeIfCancelled()) return;
           setError("Failed to discover terminal server");
           disposeTerminal();
           return;
@@ -470,6 +479,11 @@ export function AgentTerminal({
 
     let cleanup: (() => void) | undefined;
     void init().then((fn) => {
+      if (disposed) {
+        fn?.();
+        cleanupMessageHandler?.();
+        return;
+      }
       cleanup = fn;
     });
 

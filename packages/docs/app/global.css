@@ -1903,6 +1903,10 @@ html.dark .shiki span {
   overflow-x: auto;
 }
 
+.templates-index-page :where(.grid) > * {
+  min-width: 0;
+}
+
 /* Feature cards */
 .feature-card {
   border: 1px solid var(--docs-border);

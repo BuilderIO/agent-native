@@ -415,14 +415,16 @@ describe("askGrantedDispatchMcpApp", () => {
           { type: "text", text: "Build a weekly active users dashboard." },
         ],
       },
-      {
+      expect.objectContaining({
         async: true,
+        deadlineMs: expect.any(Number),
+        idempotencyKey: expect.stringMatching(/^ask-app:/),
         metadata: {
           userEmail: "owner@example.test",
           orgDomain: "builder.io",
           requestOrigin: "http://localhost:8092",
         },
-      },
+      }),
     );
     expect(result).toMatchObject({
       app: "analytics",
@@ -431,6 +433,31 @@ describe("askGrantedDispatchMcpApp", () => {
       taskId: "task-1",
       status: "completed",
     });
+  });
+
+  it("reuses the MCP request identity for transport retries", async () => {
+    const requestContext = {
+      userEmail: "owner@example.test",
+      orgId: "org-1",
+      requestOrigin: "http://localhost:8092",
+      mcpRequestId: "session-1:request-42",
+    };
+
+    await runWithRequestContext(requestContext, () =>
+      askGrantedDispatchMcpApp("analytics", "Retry this request.", {
+        async: true,
+      }),
+    );
+    await runWithRequestContext(requestContext, () =>
+      askGrantedDispatchMcpApp("analytics", "Retry this request.", {
+        async: true,
+      }),
+    );
+
+    const firstKey = mocks.a2aSend.mock.calls[0]?.[1].idempotencyKey;
+    const secondKey = mocks.a2aSend.mock.calls[1]?.[1].idempotencyKey;
+    expect(firstKey).toMatch(/^ask-app:v1:[0-9a-f]{64}$/);
+    expect(secondKey).toBe(firstKey);
   });
 
   it("preserves authenticated structured mutation receipts from the target app", async () => {
@@ -742,6 +769,14 @@ describe("askGrantedDispatchMcpApp", () => {
       message:
         'ask_app is still working. Call ask_app_status with taskId "task-working" to retrieve the final response.',
     });
+    expect(mocks.a2aSend).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        async: true,
+        deadlineMs: expect.any(Number),
+        idempotencyKey: expect.stringMatching(/^ask-app:/),
+      }),
+    );
   });
 
   it("counts submission and every poll against one inline deadline", async () => {

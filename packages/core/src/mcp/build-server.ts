@@ -303,6 +303,8 @@ export interface MCPRequestMeta {
   clientName?: string;
   /** Explicit framework client hint from `x-agent-native-mcp-client`. */
   clientHint?: string;
+  /** Optional retry token for stateless HTTP MCP calls. */
+  mcpRetryToken?: string;
   /** Explicit opt-in to the full tool catalog for code/stdio style clients. */
   fullCatalog?: boolean;
   /**
@@ -333,7 +335,7 @@ export interface MCPRequestMeta {
 }
 
 const ASK_AGENT_DEFAULT_INLINE_WAIT_MS = 20_000;
-const ASK_AGENT_MAX_INLINE_WAIT_MS = 25_000;
+const ASK_AGENT_MAX_INLINE_WAIT_MS = 20_000;
 
 function boundedAskAgentWaitMs(raw: unknown): number {
   if (raw == null || raw === "") return ASK_AGENT_DEFAULT_INLINE_WAIT_MS;
@@ -1893,13 +1895,17 @@ export async function createMCPServerForRequest(
    * (e.g. design `export-coding-handoff`'s signed raw-code URL) resolve the
    * correct local-workspace origin instead of a prod/localhost fallback.
    */
-  async function withCallerContext<T>(fn: () => Promise<T>): Promise<T> {
+  async function withCallerContext<T>(
+    fn: () => Promise<T>,
+    mcpRequestId?: string,
+  ): Promise<T> {
     const orgId = await orgIdPromise;
     return runWithRequestContext(
       {
         userEmail: effectiveIdentity?.userEmail,
         orgId,
         ...(requestMeta?.origin ? { requestOrigin: requestMeta.origin } : {}),
+        ...(mcpRequestId ? { mcpRequestId } : {}),
       },
       fn,
     ) as Promise<T>;
@@ -2111,7 +2117,7 @@ export async function createMCPServerForRequest(
               maxWaitMs: {
                 type: "number",
                 description:
-                  "Maximum inline wait in milliseconds. Hosted MCP clamps this to 25000ms.",
+                  "Maximum inline wait in milliseconds. Hosted MCP clamps this to 20000ms.",
               },
             },
             required: ["message"],
@@ -2144,6 +2150,23 @@ export async function createMCPServerForRequest(
       // Set at each failure return below so the emitted event carries the
       // reason, not just `isError: true` recovered from the rendered result.
       let failure: { errorType: string; errorMessage: string } | undefined;
+      const jsonRpcRequestId =
+        typeof ctx.mcpReq.id === "string" ||
+        (typeof ctx.mcpReq.id === "number" && Number.isFinite(ctx.mcpReq.id))
+          ? String(ctx.mcpReq.id)
+          : undefined;
+      // Stateless HTTP has no connection identity. JSON-RPC ids are commonly
+      // reused after a client reconnects, so they cannot identify a replay on
+      // their own. A caller that needs stateless retry safety supplies a
+      // per-logical-request token through the transport header.
+      const mcpRequestId =
+        jsonRpcRequestId === undefined
+          ? undefined
+          : ctx.sessionId
+            ? `${ctx.sessionId}:${jsonRpcRequestId}`
+            : requestMeta?.mcpRetryToken
+              ? `stateless:${requestMeta.mcpRetryToken}`
+              : undefined;
       const result = await withCallerContext(async () => {
         const { name, arguments: args } = request.params;
 
@@ -2381,7 +2404,7 @@ export async function createMCPServerForRequest(
             isError: true,
           };
         }
-      });
+      }, mcpRequestId);
 
       const toolName = request.params?.name;
       const calledEntry = actions[toolName];

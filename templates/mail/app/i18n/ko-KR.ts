@@ -44,12 +44,17 @@ const messages = {
       noMatches: "일치하는 결과 없음",
       localResults: "이 받은편지함에서",
       searchingGmail: "Gmail 검색 중...",
+      saveAsTab: "탭으로 저장",
+      saveAsTabPrompt: "이 탭 이름 지정",
+      saveAsTabFailed: "이 탭을 저장하지 못했습니다. 다시 시도해 주세요.",
+      filtersLimitReached: "필터는 최대 20개까지 저장할 수 있습니다.",
     },
     tabSettings: {
       views: "조회수",
       categories: "카테고리",
       rename: "이름 변경",
       renameTab: "탭 이름 변경",
+      savedFilters: "저장된 필터",
       help: "체크한 항목은 탭으로 표시됩니다. 라벨 이메일은 받은편지함에서 분리됩니다.",
     },
     accounts: {

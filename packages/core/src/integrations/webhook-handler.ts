@@ -49,6 +49,7 @@ import {
 } from "../agent/thread-data-builder.js";
 import { attachToolSearch } from "../agent/tool-search.js";
 import type { ContinuationReason } from "../agent/types.js";
+import type { ArtifactReceipt } from "../artifacts/detect.js";
 import {
   createThread,
   getThread,
@@ -197,6 +198,7 @@ type ToolDoneEvent = {
   result: string;
   isError?: boolean;
   completedSideEffect?: boolean;
+  artifacts?: ArtifactReceipt[];
 };
 
 export type IntegrationResponseDeliveryTaskPayload = {
@@ -350,6 +352,7 @@ function collectToolResultSummaries(
       result: event.result,
       isError: event.isError,
       completedSideEffect: event.completedSideEffect,
+      artifacts: event.artifacts,
     }));
 }
 
@@ -364,7 +367,11 @@ function collectCompletedMutationToolResultSummaries(
         event.completedSideEffect === true &&
         event.isError !== true,
     )
-    .map((event) => ({ tool: event.tool, result: event.result }));
+    .map((event) => ({
+      tool: event.tool,
+      result: event.result,
+      artifacts: event.artifacts,
+    }));
 }
 
 export type ResolvedIntegrationApiKey = ResolvedOwnerApiKey;
