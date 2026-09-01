@@ -274,6 +274,26 @@ export function serializeBodyHydration(
     attemptedAt: item.bodyHydrationAttemptedAt,
     error: item.bodyHydrationError,
     version: item.bodyHydrationVersion,
+    reason:
+      item.bodyHydrationReason === "empty_body" ||
+      item.bodyHydrationReason === "not_found" ||
+      item.bodyHydrationReason === "auth_failed" ||
+      item.bodyHydrationReason === "access_denied" ||
+      item.bodyHydrationReason === "transient_read_failure" ||
+      item.bodyHydrationReason === "malformed_body" ||
+      item.bodyHydrationReason === "unsupported_content" ||
+      item.bodyHydrationReason === "conversion_failed"
+        ? item.bodyHydrationReason
+        : undefined,
+    providerStatus: item.bodyHydrationProviderStatus ?? undefined,
+    attemptCount:
+      item.bodyHydrationAttemptCount > 0
+        ? item.bodyHydrationAttemptCount
+        : undefined,
+    retryable:
+      item.bodyHydrationRetryable === null
+        ? undefined
+        : item.bodyHydrationRetryable === 1,
   };
 }
 
