@@ -26,6 +26,32 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain('const localCount = localCounts["__inboxTotal"]');
   });
 
+  it("uses the saved-filter-exclusive local count for a plain Inbox", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("if (savedFilterQueries.length > 0)");
+    expect(source).toContain('return localCounts["__inboxExclusive"] ?? 0;');
+    expect(source).toContain('total["__inboxExclusive"]');
+    expect(source).toContain(
+      "const savedFilterThreads = savedFilterThreadIds(",
+    );
+    expect(source).toContain(
+      "filtered.filter((e) => !savedFilterThreads.has(inboxThreadKey(e)))",
+    );
+  });
+
+  it("groups badge rows with the rendered list's thread identity", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'import { groupIntoThreads } from "@/lib/threads";',
+    );
+    expect(source).toContain("const threadRows = groupIntoThreads(filtered);");
+    expect(source).toContain(
+      "filterInboxTabEmails(filtered, null, pinnedLabels, savedFilterQueries)",
+    );
+  });
+
   it("collapses the native rail while the per-app chat is open", () => {
     const source = appLayoutSource();
 

@@ -537,21 +537,60 @@ const koKR = {
     title: "귀하가 소유한 오픈 소스 에이전트 기반 앱",
     eyebrow: "작동하는 app에서 시작하고 agent가 발전시키게 하세요.",
     body: "모든 것을 맞춤 설정할 수 있습니다.",
+    firstPartyTitle: "Agent-Native가 만든 앱",
     community:
       "빈 앱에서 시작하고 싶다면 프레임워크 가이드로 처음부터 시작하세요.",
     createYourOwn: "처음부터 시작",
-    communityTitle: "커뮤니티 템플릿",
+    communityTitle: "커뮤니티 앱",
     communityDescription:
-      "작성자가 직접 관리하는 독립 앱입니다. 공개 GitHub 저장소에서 설치하거나 호스팅 버전이 있으면 먼저 사용해 보세요.",
-    submitCommunityTemplate: "템플릿 제출",
+      "작성자가 관리하는 앱을 찾아보세요. 호스팅 버전이 있으면 사용해 보고, 소스 코드를 확인해 직접 맞춤 설정할 수 있습니다.",
+    submitCommunityTemplate: "GitHub 양식 열기",
     communityEmpty:
-      "커뮤니티 등록을 받고 있습니다. 명확한 목적의 Agent-Native 앱을 공개 저장소에 게시하고 카탈로그에 제출하세요.",
+      "커뮤니티 등록을 받고 있습니다. 명확한 목적의 Agent-Native 앱을 게시하고 카탈로그에 제출하세요.",
     publishGuide: "게시 가이드 읽기",
     communityTrust:
-      "커뮤니티 템플릿은 타사 코드입니다. 실행하기 전에 저장소, 라이선스, 종속성 및 설치 스크립트를 검토하세요.",
+      "커뮤니티 앱은 타사 코드입니다. 실행하기 전에 소스 코드, 라이선스, 종속성 및 설치 스크립트를 검토하세요.",
     copyCommunityInstallCommand: "설치 명령 복사",
     viewRepository: "저장소 보기",
     tryCommunityDemo: "데모 사용해 보기",
+    customizeDescription: "이 코드는 완전히 맞춤 설정할 수 있습니다.",
+    customizeOnline: "온라인에서 맞춤 설정",
+    customizeLocally: "로컬에서 맞춤 설정",
+    communityNew: "새 앱",
+    communityComingSoon: "곧 공개",
+    communityGithubStars: "GitHub 별 {{count}}개",
+    tryCommunityApp: "앱 사용해 보기",
+    viewCommunitySource: "소스 코드 보기",
+    communityEyebrow: "커뮤니티 앱",
+    communityScreenshots: "스크린샷",
+    previousScreenshot: "이전 스크린샷",
+    nextScreenshot: "다음 스크린샷",
+    communityNoScreenshots: "검토 후 여기에 스크린샷이 표시됩니다.",
+    communityScreenshotAlt: "{{name}} 스크린샷 {{index}}",
+    communityNoHostedVersion:
+      "호스팅 버전이 곧 제공됩니다. 소스 링크에서 개발 상황을 확인하세요.",
+    communitySubmissionTitle: "커뮤니티 앱 공유",
+    communitySubmissionDescription:
+      "앱을 찾을 수 있는 곳과 기능을 알려 주세요. 목록에 게시하기 전에 내용을 검토합니다.",
+    communitySubmissionName: "앱 이름",
+    communitySubmissionNamePlaceholder: "고객 지원 허브",
+    communitySubmissionUrl: "앱 URL",
+    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionDescriptionLabel: "설명",
+    communitySubmissionDescriptionPlaceholder:
+      "앱은 무엇을 하며 누구를 위한 것인가요?",
+    communitySubmissionRepository: "GitHub 저장소 (선택 사항)",
+    communitySubmissionRepositoryPlaceholder:
+      "https://github.com/owner/repository",
+    communitySubmissionScreenshots: "스크린샷 URL (선택 사항)",
+    communitySubmissionScreenshotsPlaceholder:
+      "공개 이미지 URL을 한 줄에 하나씩 입력하세요",
+    communitySubmissionSubmit: "GitHub로 계속",
+    communitySubmissionReady:
+      "GitHub issue 초안이 준비되었습니다. 그곳에서 제출을 완료하세요.",
+    communitySubmissionOpenDraft: "초안 열기",
+    communitySubmissionValidation:
+      "이름, 설명, 유효한 앱 URL을 입력하세요. 선택한 URL도 유효해야 합니다.",
   },
   buildFromScratch: {
     title: "처음부터 만들기",
