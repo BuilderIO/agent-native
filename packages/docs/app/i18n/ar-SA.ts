@@ -579,9 +579,13 @@ const arSA = {
     communitySubmissionRepositoryPlaceholder:
       "https://github.com/owner/repository",
     communitySubmissionScreenshots: "لقطات الشاشة (اختياري)",
-    communitySubmissionScreenshotsPlaceholder:
-      "حتى 5 صور PNG أو JPG أو WebP. بحد أقصى 1.5 ميجابايت لكل صورة.",
+    communitySubmissionScreenshotsPlaceholder: "اسحب حتى 5 صور إلى هنا",
+    communitySubmissionScreenshotDropHint:
+      "PNG أو JPG أو WebP. بحد أقصى 1.5 ميجابايت لكل صورة.",
     communitySubmissionScreenshotSlot: "لقطة الشاشة {{index}}",
+    communitySubmissionScreenshotsAdd: "إضافة لقطات شاشة",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 محددة",
+    communitySubmissionScreenshotRemove: "إزالة لقطة الشاشة {{index}}",
     communitySubmissionSubmit: "إرسال التطبيق",
     communitySubmissionReady: "شكرًا. سنراجع تطبيقك قبل نشره.",
     communitySubmissionValidation:

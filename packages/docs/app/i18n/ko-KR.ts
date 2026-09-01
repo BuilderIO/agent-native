@@ -583,9 +583,12 @@ const koKR = {
     communitySubmissionRepositoryPlaceholder:
       "https://github.com/owner/repository",
     communitySubmissionScreenshots: "스크린샷 (선택 사항)",
-    communitySubmissionScreenshotsPlaceholder:
-      "PNG, JPG 또는 WebP 이미지를 최대 5개까지 업로드하세요. 각 1.5MB 이하.",
+    communitySubmissionScreenshotsPlaceholder: "여기에 최대 5개의 이미지 드롭",
+    communitySubmissionScreenshotDropHint: "PNG, JPG 또는 WebP. 각 1.5MB 이하.",
     communitySubmissionScreenshotSlot: "스크린샷 {{index}}",
+    communitySubmissionScreenshotsAdd: "스크린샷 추가",
+    communitySubmissionScreenshotsCount: "{{count}} / 5개 선택됨",
+    communitySubmissionScreenshotRemove: "스크린샷 {{index}} 제거",
     communitySubmissionSubmit: "앱 제출",
     communitySubmissionReady: "감사합니다. 게시하기 전에 앱을 검토하겠습니다.",
     communitySubmissionValidation:

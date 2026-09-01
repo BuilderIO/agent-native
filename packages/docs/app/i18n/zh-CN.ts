@@ -571,9 +571,13 @@ const zhCN = {
     communitySubmissionRepositoryPlaceholder:
       "https://github.com/owner/repository",
     communitySubmissionScreenshots: "截图（可选）",
-    communitySubmissionScreenshotsPlaceholder:
-      "最多上传 5 张 PNG、JPG 或 WebP 图片。每张不超过 1.5 MB。",
+    communitySubmissionScreenshotsPlaceholder: "将最多 5 张图片拖到这里",
+    communitySubmissionScreenshotDropHint:
+      "PNG、JPG 或 WebP。每张不超过 1.5 MB。",
     communitySubmissionScreenshotSlot: "截图 {{index}}",
+    communitySubmissionScreenshotsAdd: "添加截图",
+    communitySubmissionScreenshotsCount: "已选择 {{count}} / 5",
+    communitySubmissionScreenshotRemove: "移除截图 {{index}}",
     communitySubmissionSubmit: "提交应用",
     communitySubmissionReady: "谢谢。我们会在发布前审核你的应用。",
     communitySubmissionValidation:

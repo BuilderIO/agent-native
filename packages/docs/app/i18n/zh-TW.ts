@@ -569,9 +569,13 @@ const messages = {
     communitySubmissionRepositoryPlaceholder:
       "https://github.com/owner/repository",
     communitySubmissionScreenshots: "螢幕截圖（選填）",
-    communitySubmissionScreenshotsPlaceholder:
-      "最多上傳 5 張 PNG、JPG 或 WebP 圖片。每張不超過 1.5 MB。",
+    communitySubmissionScreenshotsPlaceholder: "將最多 5 張圖片拖曳到這裡",
+    communitySubmissionScreenshotDropHint:
+      "PNG、JPG 或 WebP。每張不超過 1.5 MB。",
     communitySubmissionScreenshotSlot: "螢幕截圖 {{index}}",
+    communitySubmissionScreenshotsAdd: "新增螢幕截圖",
+    communitySubmissionScreenshotsCount: "已選取 {{count}} / 5",
+    communitySubmissionScreenshotRemove: "移除螢幕截圖 {{index}}",
     communitySubmissionSubmit: "提交應用程式",
     communitySubmissionReady: "謝謝。我們會在刊登前審核你的應用程式。",
     communitySubmissionValidation:
