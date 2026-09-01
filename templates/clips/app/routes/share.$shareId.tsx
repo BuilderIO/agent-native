@@ -1570,6 +1570,11 @@ export default function ShareRoute() {
               <AgentPanel
                 emptyStateText={t("recordingPage.askAboutClip")}
                 dynamicSuggestions={false}
+                scope={
+                  recording
+                    ? { type: "recording" as const, id: recording.id }
+                    : null
+                }
                 missingApiKeySetupLayout="sidebar"
                 suggestions={[
                   t("recordingPage.summarizeClip"),

@@ -14,8 +14,8 @@ import {
 import { sitePathForLocale } from "./docs-locale";
 import { Button } from "./website-redesign/ds/button";
 
-const COMMUNITY_FORM_NAME = "community-app-submission";
-const SCREENSHOT_FIELDS = [
+export const COMMUNITY_FORM_NAME = "community-app-submission";
+export const SCREENSHOT_FIELDS = [
   "screenshot_1",
   "screenshot_2",
   "screenshot_3",
@@ -30,17 +30,48 @@ type SelectedScreenshot = {
   previewUrl: string;
 };
 
-type CommunitySubmissionValues = {
+export type CommunitySubmissionDraft = {
   name: string;
   appUrl: string;
   description: string;
   repositoryUrl: string;
+  screenshotFiles: File[];
 };
 
+type CommunitySubmissionValues = Omit<
+  CommunitySubmissionDraft,
+  "screenshotFiles"
+>;
+
+function createSelectedScreenshots(files: File[]) {
+  return files.map((file) => ({
+    file,
+    previewUrl: URL.createObjectURL(file),
+  }));
+}
+
+export function normalizeHttpUrl(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed || /^[a-z][a-z\d+.-]*:/i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
 function isHttpUrl(value: string) {
-  if (!URL.canParse(value)) return false;
-  const url = new URL(value);
+  const normalized = normalizeHttpUrl(value);
+  if (!URL.canParse(normalized)) return false;
+  const url = new URL(normalized);
   return url.protocol === "http:" || url.protocol === "https:";
+}
+
+export function isGitHubRepositoryUrl(value: string) {
+  if (!isHttpUrl(value)) return false;
+  const url = new URL(normalizeHttpUrl(value));
+  const hostname = url.hostname.toLowerCase();
+  const pathSegments = url.pathname.split("/").filter(Boolean);
+  return (
+    (hostname === "github.com" || hostname === "www.github.com") &&
+    pathSegments.length >= 2
+  );
 }
 
 function isValidScreenshot(file: File) {
@@ -69,20 +100,30 @@ function createScreenshotDataTransfer(): DataTransfer | null {
 const fieldClassName =
   "w-full rounded-[var(--b-radius)] border border-solid border-[var(--b-border-default)] bg-[var(--b-bg-inset)] px-3 py-2.5 font-[family-name:var(--b-font-sans)] text-sm leading-[1.4] text-[var(--b-text-primary)] outline-none transition-[border-color,box-shadow] placeholder:text-[var(--b-text-muted)] focus:border-[var(--b-action-primary-bg)] focus:ring-2 focus:ring-[var(--b-action-primary-effect)]";
 
-export function CommunityAppSubmissionForm() {
+type CommunityAppSubmissionFormProps = {
+  draft?: CommunitySubmissionDraft;
+  onDraftChange?: (draft: CommunitySubmissionDraft) => void;
+};
+
+export function CommunityAppSubmissionForm({
+  draft,
+  onDraftChange,
+}: CommunityAppSubmissionFormProps = {}) {
   const t = useT();
   const { locale } = useLocale();
   const formId = useId();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hiddenInputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const previewUrlsRef = useRef<Set<string>>(new Set());
-  const [values, setValues] = useState<CommunitySubmissionValues>({
-    name: "",
-    appUrl: "",
-    description: "",
-    repositoryUrl: "",
-  });
-  const [screenshots, setScreenshots] = useState<SelectedScreenshot[]>([]);
+  const [values, setValues] = useState<CommunitySubmissionValues>(() => ({
+    name: draft?.name ?? "",
+    appUrl: draft?.appUrl ?? "",
+    description: draft?.description ?? "",
+    repositoryUrl: draft?.repositoryUrl ?? "",
+  }));
+  const [screenshots, setScreenshots] = useState<SelectedScreenshot[]>(() =>
+    createSelectedScreenshots(draft?.screenshotFiles ?? []),
+  );
   const [isDragActive, setIsDragActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -96,6 +137,13 @@ export function CommunityAppSubmissionForm() {
     }
     previewUrlsRef.current = activePreviewUrls;
   }, [screenshots]);
+
+  useEffect(() => {
+    onDraftChange?.({
+      ...values,
+      screenshotFiles: screenshots.map((screenshot) => screenshot.file),
+    });
+  }, [onDraftChange, screenshots, values]);
 
   useEffect(() => {
     return () => {
@@ -121,6 +169,11 @@ export function CommunityAppSubmissionForm() {
   function updateValue(field: keyof CommunitySubmissionValues, value: string) {
     setValues((current) => ({ ...current, [field]: value }));
     setError(null);
+  }
+
+  function normalizeUrlField(field: "appUrl" | "repositoryUrl") {
+    const normalized = normalizeHttpUrl(values[field]);
+    if (normalized !== values[field]) updateValue(field, normalized);
   }
 
   function handleScreenshotChange(event: ChangeEvent<HTMLInputElement>) {
@@ -183,8 +236,21 @@ export function CommunityAppSubmissionForm() {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     const formData = new FormData(event.currentTarget);
-    const appUrl = String(formData.get("app_url") ?? "").trim();
-    const repositoryUrl = String(formData.get("repository_url") ?? "").trim();
+    const rawAppUrl = String(formData.get("app_url") ?? "");
+    const rawRepositoryUrl = String(formData.get("repository_url") ?? "");
+    const appUrl = normalizeHttpUrl(rawAppUrl);
+    const repositoryUrl = normalizeHttpUrl(rawRepositoryUrl);
+
+    if (appUrl !== rawAppUrl || repositoryUrl !== rawRepositoryUrl) {
+      setValues((current) => ({ ...current, appUrl, repositoryUrl }));
+      const appUrlInput = event.currentTarget.elements.namedItem("app_url");
+      const repositoryUrlInput =
+        event.currentTarget.elements.namedItem("repository_url");
+      if (appUrlInput instanceof HTMLInputElement) appUrlInput.value = appUrl;
+      if (repositoryUrlInput instanceof HTMLInputElement) {
+        repositoryUrlInput.value = repositoryUrl;
+      }
+    }
     const uploadedFiles = SCREENSHOT_FIELDS.map((field) =>
       formData.get(field),
     ).filter((value): value is File => value instanceof File && value.size > 0);
@@ -193,7 +259,7 @@ export function CommunityAppSubmissionForm() {
       !String(formData.get("name") ?? "").trim() ||
       !String(formData.get("description") ?? "").trim() ||
       !isHttpUrl(appUrl) ||
-      (repositoryUrl && !isHttpUrl(repositoryUrl)) ||
+      (repositoryUrl && !isGitHubRepositoryUrl(repositoryUrl)) ||
       uploadedFiles.some((file) => !isValidScreenshot(file))
     ) {
       event.preventDefault();
@@ -254,9 +320,13 @@ export function CommunityAppSubmissionForm() {
           id={`${formId}-url`}
           name="app_url"
           required
-          type="url"
+          type="text"
+          inputMode="url"
+          autoComplete="url"
+          spellCheck={false}
           value={values.appUrl}
           onChange={(event) => updateValue("appUrl", event.target.value)}
+          onBlur={() => normalizeUrlField("appUrl")}
           placeholder={t("templatesPage.communitySubmissionUrlPlaceholder")}
           className={fieldClassName}
         />
@@ -293,9 +363,13 @@ export function CommunityAppSubmissionForm() {
         <input
           id={`${formId}-repository`}
           name="repository_url"
-          type="url"
+          type="text"
+          inputMode="url"
+          autoComplete="url"
+          spellCheck={false}
           value={values.repositoryUrl}
           onChange={(event) => updateValue("repositoryUrl", event.target.value)}
+          onBlur={() => normalizeUrlField("repositoryUrl")}
           placeholder={t(
             "templatesPage.communitySubmissionRepositoryPlaceholder",
           )}
@@ -447,6 +521,39 @@ export function CommunityAppSubmissionForm() {
           {t("templatesPage.communitySubmissionSubmit")}
         </Button>
       </div>
+    </form>
+  );
+}
+
+export function CommunityAppSubmissionNetlifyDetectionForm() {
+  const { locale } = useLocale();
+
+  return (
+    <form
+      name={COMMUNITY_FORM_NAME}
+      method="post"
+      action={`${sitePathForLocale("/apps", locale)}?community-submission=received`}
+      encType="multipart/form-data"
+      data-netlify="true"
+      data-netlify-honeypot="bot-field"
+      className="hidden"
+      aria-hidden="true"
+    >
+      <input type="hidden" name="form-name" value={COMMUNITY_FORM_NAME} />
+      <input name="bot-field" tabIndex={-1} autoComplete="off" />
+      <input name="name" tabIndex={-1} />
+      <input name="app_url" tabIndex={-1} />
+      <textarea name="description" tabIndex={-1} />
+      <input name="repository_url" tabIndex={-1} />
+      {SCREENSHOT_FIELDS.map((field) => (
+        <input
+          key={field}
+          name={field}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          tabIndex={-1}
+        />
+      ))}
     </form>
   );
 }

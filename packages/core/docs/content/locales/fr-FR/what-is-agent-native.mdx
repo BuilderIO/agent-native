@@ -5,31 +5,42 @@ description: "Ce qu’est Agent-Native, le fonctionnement de son architecture d�
 
 # Qu’est-ce qu’Agent-Native ?
 
-Agent-Native est un framework TypeScript open source pour créer des applications
-qui servent à la fois les personnes et les agents IA. Vous définissez une seule
-fois les fonctionnalités de votre application sous forme d’[actions](/docs/actions-overview) :
-des fonctions typées que votre UI React appelle depuis le code et que les agents
-utilisent comme outils.
+Agent-Native est un framework TypeScript open source pour créer des agents
+autonomes avec des interfaces intuitives. Vous définissez chaque capacité une
+seule fois sous forme d’[action](/docs/actions-overview) : une fonction typée que
+l’agent utilise comme outil et que l’UI appelle depuis le code.
 
-## Pourquoi créer des applications ainsi
+## Pourquoi créer des agents avec des UI
 
-La plupart des applications sont conçues pour qu’une personne travaille dans
-l’UI. Ajouter un agent introduit une autre façon d’utiliser le produit. Pour que
-les deux constituent un seul produit, trois conditions doivent être réunies :
+<WireframeBlock id="doc-block-agent-ui-why">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:minmax(0,1fr) 54px minmax(0,1.15fr);gap:18px;align-items:center;padding:28px;min-height:420px;box-sizing:border-box'><section style='display:flex;flex-direction:column;gap:14px;align-items:center'><strong style='font-size:20px'>Agent avec seulement un champ de texte</strong><div class='wf-card' style='width:100%;min-height:250px;display:flex;flex-direction:column;gap:18px;padding:20px;box-sizing:border-box;border-radius:calc(var(--wf-radius) * 0.45)'><span class='wf-muted'>Agent</span><div style='flex:1;display:flex;align-items:center;justify-content:center'><div class='wf-box' style='width:72%;height:42px;border-radius:calc(var(--wf-radius) * 0.45)'></div></div></div><span class='wf-muted'>Que peut-il faire ?</span></section><div aria-hidden='true' style='font-size:32px;text-align:center'>&rarr;</div><section style='display:flex;flex-direction:column;gap:14px;align-items:center'><strong style='font-size:20px'>Agent avec une UI</strong><div class='wf-card' style='width:100%;min-height:250px;display:flex;flex-direction:column;gap:10px;padding:16px;box-sizing:border-box;border-radius:calc(var(--wf-radius) * 0.45)'><strong>Présentation de lancement</strong><div style='display:flex;gap:7px'><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>Plan</span><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>Diapositives</span><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>Révision</span></div><div style='display:grid;grid-template-columns:minmax(0,1fr) 104px;gap:10px;flex:1;min-height:0'><div style='display:grid;grid-template-columns:42px minmax(0,1fr);gap:8px;min-width:0'><div style='display:flex;flex-direction:column;gap:7px'><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;padding:12px;text-align:center;border-radius:calc(var(--wf-radius) * 0.45)'><strong>Lancement produit T3</strong></div></div><aside class='wf-box' style='display:flex;flex-direction:column;gap:8px;padding:10px;min-width:0;border-radius:calc(var(--wf-radius) * 0.45)'><strong>Agent</strong><div style='flex:1'></div><div style='display:flex;align-items:center;gap:6px'><div class='wf-box' style='height:26px;flex:1;border-radius:calc(var(--wf-radius) * 0.45)'></div><button aria-hidden='true' tabindex='-1' style='width:26px;height:26px;padding:0;border-radius:calc(var(--wf-radius) * 0.45)'>&uarr;</button></div></aside></div></div><span class='wf-muted'>Agent et UI dans le même espace de travail</span></section></div>"
+    }
+  />
+</WireframeBlock>
 
-- **L’agent doit avoir accès au produit.** Avec un ensemble d’outils distinct et
-  plus réduit, il reste limité, et vous maintenez deux implémentations qui
-  divergent à mesure que l’application évolue.
-- **Les personnes ont toujours besoin d’une UI d’application.** Le chat convient
-  pour déléguer du travail, mais pas toujours pour consulter des informations,
-  comparer des options, examiner des modifications ou partager les résultats.
-- **Le travail doit pouvoir passer de l’un à l’autre.** Une personne doit pouvoir
-  examiner ou modifier le travail de l’agent, et l’agent doit pouvoir reprendre
-  à partir de là sans recommencer.
+Les agents de programmation peuvent donner l’impression qu’un champ de texte
+suffit. Mais ce champ n’est qu’une partie de leur environnement de travail. Le
+code fournit le contexte, les outils leur donnent des moyens d’agir clairement,
+et les fichiers, tests et aperçus rendent les résultats visibles.
 
-L’architecture Agent-Native répond à ces exigences. Les personnes peuvent
-travailler dans l’UI ou déléguer un résultat à l’agent, puis passer de l’un à
-l’autre sans perdre leur progression.
+La plupart des activités intellectuelles ne disposent pas de cette structure.
+Face à un champ de texte vide, les personnes doivent deviner ce que l’agent peut
+faire, le contexte dont il dispose et ce qu’elles doivent lui demander.
+
+Une UI apporte ce qui manque au champ de texte. Elle rend les capacités de
+l’agent visibles, intègre le contexte et les workflows à l’expérience, et permet
+de voir et de façonner le travail au fil de son avancement.
+
+Agent-Native permet de créer des agents de cette manière. L’UI offre des points
+de départ clairs sans réduire l’agent à un workflow figé. Comme l’agent et l’UI
+utilisent les mêmes capacités, les personnes peuvent déléguer du travail à
+l’agent, l’examiner ou le modifier dans l’UI, puis passer de l’un à l’autre sans
+perdre leur progression.
+
+## Comment fonctionne Agent-Native
 
 <Video
   src="https://cdn.builder.io/o/assets%2Fc5b47d20f6a943e485717e5895739988%2Fc88d506c160142ae9b8618616ceedcea%2Fcompressed?apiKey=c5b47d20f6a943e485717e5895739988&token=c88d506c160142ae9b8618616ceedcea&alt=media&optimized=true"
@@ -38,38 +49,22 @@ l’autre sans perdre leur progression.
   caption="Regardez une introduction de quatre minutes à l’architecture Agent-Native."
 />
 
-## Comment fonctionne Agent-Native
+Agent-Native relie l’agent et l’UI grâce à trois fondations partagées :
 
-Une application Agent-Native donne aux personnes et aux agents deux manières de
-travailler avec le même produit :
+- **[Actions partagées](/docs/actions-overview).** Chaque capacité est définie
+  une seule fois. L’agent l’appelle comme un outil et l’UI l’appelle depuis le
+  code. Les deux chemins utilisent la même validation, les mêmes autorisations
+  et la même implémentation.
+- **[Données partagées](/docs/server-database).** Les actions lisent et mettent à
+  jour les mêmes données. Le travail de l’agent apparaît donc dans l’UI, et le
+  travail effectué dans l’UI reste accessible à l’agent.
+- **[État partagé de l’application](/docs/context-awareness).** L’état de
+  l’application décrit ce qui se passe dans l’UI, comme la page en cours,
+  l’enregistrement sélectionné ou la vue active. Agent-Native fournit l’état
+  pertinent à l’agent comme contexte pour qu’il comprenne sur quoi la personne
+  travaille.
 
-- **L’UI** permet de parcourir, modifier, examiner et partager le travail.
-- **L’agent** gère le travail que les personnes lui délèguent.
-
-Trois fondations partagées rendent cela possible :
-
-- **Opérations partagées.** Les personnes les déclenchent depuis l’UI et les
-  agents les appellent directement. Agent-Native définit chaque opération une
-  seule fois sous forme d’[action](/docs/actions-overview).
-- **Les [données partagées](/docs/server-database)** contiennent le travail et
-  les informations que l’application doit conserver : fiches client, plans de
-  projet, conversations ou rapports. L’UI et l’agent les lisent et les mettent
-  tous deux à jour.
-- **L’[état partagé de l’application](/docs/context-awareness)** décrit ce qui
-  se passe maintenant, comme la page en cours, l’enregistrement sélectionné ou
-  la vue active. Le framework fournit l’état pertinent à l’agent comme contexte.
-
-```mermaid
-graph TD
-  UI[UI] --> App[Une application]
-  Agent[Agent] --> App
-  App --- Operations[Opérations partagées]
-  App --- Data[Données partagées]
-  App --- State[État partagé de l’application]
-```
-
-L’agent ne clique pas dans l’UI. Il appelle les mêmes actions que l’UI, avec la
-même validation, les mêmes autorisations et la même implémentation.
+L’agent ne clique pas dans l’UI. Il passe par la même couche d’actions que l’UI.
 
 Par exemple, une personne peut attribuer un ticket de support dans l’UI ou
 demander à l’agent de le faire. Les deux chemins exécutent la même action et
@@ -80,13 +75,15 @@ le modifier, puis laisser l’agent poursuivre.
 
 Agent-Native convient lorsque :
 
-- l’agent doit effectuer un véritable travail dans l’application, pas seulement répondre ;
-- les personnes ont besoin d’une UI pour examiner, modifier, approuver ou partager le travail ;
-- le travail doit circuler entre l’UI et l’agent sans perdre progression ni contexte.
+- l’agent doit effectuer un véritable travail, pas seulement répondre ;
+- les personnes ont besoin d’une UI pour voir ce que l’agent peut faire et pour
+  examiner, modifier, approuver ou partager son travail ;
+- les personnes doivent pouvoir passer de l’agent à l’UI sans perdre la
+  progression ni le contexte.
 
 Pour une seule réponse générée, appelez directement un modèle. Pour un flux fixe
 et prévisible, une logique d’application ou une automatisation classique est plus
-simple. Utilisez Agent-Native lorsque l’UI et l’agent ont tous deux un rôle
+simple. Utilisez Agent-Native lorsque l’agent et l’UI ont tous deux un rôle
 continu dans le même travail.
 
 ## Étapes suivantes
