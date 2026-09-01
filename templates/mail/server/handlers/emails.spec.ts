@@ -7,13 +7,15 @@ function emailsHandlerSource(): string {
 }
 
 describe("emails handler Gmail draft listing", () => {
-  it("hydrates drafts and saved-filter inboxes while keeping other lists on metadata", () => {
+  it("hydrates drafts and attachment-filter inboxes while keeping other lists on metadata", () => {
     const source = emailsHandlerSource();
 
     expect(source).toContain("threadFormat:");
     expect(source).toContain('view === "drafts"');
+    expect(source).toContain("const isPlainInboxRequest =");
+    expect(source).toContain("const hasAttachmentSavedFilter =");
     expect(source).toContain(
-      "(needsSavedFilterParts && (settings?.savedFilters?.length ?? 0) > 0)",
+      "searchQueryNeedsAttachmentMetadata(filter.query)",
     );
     expect(source).toContain('"full"');
     expect(source).toContain('"metadata"');

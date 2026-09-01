@@ -91,6 +91,8 @@ import {
   pinnedTriageLabels,
   augmentSelfSentLabels,
   filterInboxTabEmails,
+  inboxThreadKey,
+  savedFilterThreadIds,
 } from "@/lib/inbox-tabs";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { groupIntoThreads } from "@/lib/threads";
@@ -546,8 +548,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     const inboxRows = groupIntoThreads(
       filterInboxTabEmails(filtered, null, pinnedLabels, savedFilterQueries),
     );
+    const savedFilterThreads = savedFilterThreadIds(
+      filtered,
+      savedFilterQueries,
+    );
     const savedFilterExclusiveRows = groupIntoThreads(
-      filterInboxTabEmails(filtered, null, [], savedFilterQueries),
+      filtered.filter((e) => !savedFilterThreads.has(inboxThreadKey(e))),
     );
     total["__inboxTotal"] = threadRows.length;
     unread["__inboxTotal"] = threadRows.filter(

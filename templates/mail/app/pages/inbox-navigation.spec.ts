@@ -182,9 +182,11 @@ describe("Inbox navigation commands", () => {
     const source = emailsHandlerSource();
 
     expect(source).toContain(
-      'const needsSavedFilterParts = view === "inbox" && !q && !label;',
+      'const isPlainInboxRequest = view === "inbox" && !q && !label;',
     );
-    expect(source).toContain("(settings?.savedFilters?.length ?? 0) > 0");
+    expect(source).toContain(
+      "searchQueryNeedsAttachmentMetadata(filter.query)",
+    );
     expect(source).toContain("threadFormat:");
   });
 

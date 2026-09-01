@@ -3,7 +3,10 @@ import { readAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getSetting } from "@agent-native/core/settings";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels.js";
-import { emailMessageMatchesSearch } from "@shared/search.js";
+import {
+  emailMessageMatchesSearch,
+  searchQueryNeedsAttachmentMetadata,
+} from "@shared/search.js";
 import { z } from "zod";
 
 import {
@@ -117,7 +120,7 @@ async function fetchEmailList(
     const needsSavedFilterParts =
       effectiveView === "inbox" &&
       !effectiveSearch &&
-      savedFilterQueries.length > 0;
+      savedFilterQueries.some(searchQueryNeedsAttachmentMetadata);
     const hasNoteToSelf = pinnedLabels.includes("note-to-self");
     const clients = googleConnected ? await getClients(ownerEmail) : [];
     const connectedEmails = new Set(
