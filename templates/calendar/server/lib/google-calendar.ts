@@ -556,6 +556,10 @@ export async function exchangeCode(
     { ...tokens, ...(photoUrl ? { photoUrl } : {}) } as Record<string, unknown>,
     owner ?? email,
   );
+  // A cached "no timezone" result from before this account existed (or was
+  // disconnected) must not keep suppressing this peer's working-hours
+  // filter now that they've just connected.
+  invalidateAccountTimezoneCache(email);
 
   return email;
 }
@@ -660,6 +664,13 @@ function cacheAccountTimezone(key: string, value: string | null): void {
  * stable profile value) since it's reachable from unauthenticated public
  * booking routes and would otherwise hit Google's API on every request.
  */
+/** Clears any cached (positive or negative) timezone result for one email. */
+export function invalidateAccountTimezoneCache(email: string): void {
+  accountTimezoneCache.delete(email.trim().toLowerCase());
+}
+
+const accountTimezoneInFlight = new Map<string, Promise<string | null>>();
+
 export async function getGoogleAccountTimezone(
   email: string | undefined,
 ): Promise<string | null> {
@@ -671,6 +682,23 @@ export async function getGoogleAccountTimezone(
     accountTimezoneCache.delete(key);
   }
 
+  // Coalesce concurrent misses for the same email (e.g. several visitors
+  // hitting the same public booking link at once) onto a single lookup
+  // instead of each independently refreshing tokens and calling Google.
+  const inFlight = accountTimezoneInFlight.get(key);
+  if (inFlight) return inFlight;
+
+  const lookup = resolveGoogleAccountTimezone(key, email).finally(() => {
+    accountTimezoneInFlight.delete(key);
+  });
+  accountTimezoneInFlight.set(key, lookup);
+  return lookup;
+}
+
+async function resolveGoogleAccountTimezone(
+  key: string,
+  email: string,
+): Promise<string | null> {
   let accounts: Awaited<ReturnType<typeof listOAuthAccountsByOwner>>;
   try {
     accounts = (await listOAuthAccountsByOwner("google", email)).filter(
@@ -693,21 +721,30 @@ export async function getGoogleAccountTimezone(
     accounts.find((a) => a.accountId.trim().toLowerCase() === key) ??
     accounts[0];
 
+  // Refresh once, up front — retrying this per Calendar-call attempt below
+  // would re-derive a fresh token from the same request each time and
+  // needlessly re-refresh even after a successful refresh, and a refresh
+  // failure here is not the transient-network case the retry below exists
+  // for (getValidAccessToken already distinguishes permanent vs. transient
+  // refresh failures internally).
+  let accessToken: string;
+  try {
+    const tokens = account.tokens as unknown as GoogleTokens;
+    accessToken = await getValidAccessToken(account.accountId, tokens, email);
+  } catch {
+    // coercion-ok: same reasoning as the lookup catch above.
+    return null;
+  }
+
   let timezone: string | null = null;
   let resolved = false;
-  // One immediate retry: a transient network blip here would otherwise be
-  // indistinguishable from a peer having no resolvable time zone at all,
-  // silently skipping their saved working-hours filter for this request
-  // (not just failing to cache a negative result, which the catch below
-  // already avoids).
+  // One immediate retry of just the Calendar call: a transient network
+  // blip here would otherwise be indistinguishable from a peer having no
+  // resolvable time zone at all, silently skipping their saved
+  // working-hours filter for this request (not just failing to cache a
+  // negative result, which the catch below already avoids).
   for (let attempt = 0; attempt < 2 && !resolved; attempt++) {
     try {
-      const tokens = account.tokens as unknown as GoogleTokens;
-      const accessToken = await getValidAccessToken(
-        account.accountId,
-        tokens,
-        email,
-      );
       const calendar = await calendarGetCalendar(accessToken, "primary");
       timezone = isCalendarTimezone(calendar?.timeZone)
         ? calendar.timeZone
@@ -1092,6 +1129,7 @@ export async function getAuthStatus(
 
 export async function disconnect(email?: string): Promise<void> {
   await deleteOAuthTokens("google", email);
+  if (email) invalidateAccountTimezoneCache(email);
 }
 
 export async function listEvents(

@@ -8,6 +8,7 @@ const createOAuth2ClientMock = vi.hoisted(() => vi.fn());
 const oauth2GetUserInfoMock = vi.hoisted(() => vi.fn());
 const peopleGetProfileMock = vi.hoisted(() => vi.fn());
 const calendarGetEventMock = vi.hoisted(() => vi.fn());
+const calendarGetCalendarMock = vi.hoisted(() => vi.fn());
 const calendarListEventsMock = vi.hoisted(() => vi.fn());
 const calendarFreeBusyMock = vi.hoisted(() => vi.fn());
 const calendarInsertEventMock = vi.hoisted(() => vi.fn());
@@ -83,6 +84,7 @@ vi.mock("./google-api.js", () => ({
   peopleGetProfile: peopleGetProfileMock,
   calendarListEvents: calendarListEventsMock,
   calendarGetEvent: calendarGetEventMock,
+  calendarGetCalendar: calendarGetCalendarMock,
   calendarInsertEvent: calendarInsertEventMock,
   calendarDeleteEvent: calendarDeleteEventMock,
   calendarPatchEvent: calendarPatchEventMock,
@@ -103,8 +105,11 @@ import {
   createEvent,
   moveEvent,
   deleteEvent,
+  disconnect,
   getClientForAccount,
   getDefaultAccountSelection,
+  getGoogleAccountTimezone,
+  invalidateAccountTimezoneCache,
   listEvents,
   listOverlayEvents,
   rsvpEvent,
@@ -804,6 +809,146 @@ describe("calendar event listing", () => {
     expect(result.errors).toEqual([
       expect.objectContaining({ email: "person@example.com" }),
     ]);
+  });
+});
+
+describe("Google account time zone lookup", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "peer@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+  });
+
+  it("reuses the same access token across a Calendar-call retry instead of refreshing again", async () => {
+    calendarGetCalendarMock
+      .mockRejectedValueOnce(new Error("transient"))
+      .mockResolvedValueOnce({ timeZone: "America/Chicago" });
+
+    await expect(
+      getGoogleAccountTimezone("peer@example.com"),
+    ).resolves.toBe("America/Chicago");
+
+    expect(calendarGetCalendarMock).toHaveBeenCalledTimes(2);
+    expect(calendarGetCalendarMock.mock.calls[0][0]).toBe("access-token");
+    expect(calendarGetCalendarMock.mock.calls[1][0]).toBe("access-token");
+  });
+
+  it("coalesces concurrent lookups for the same email into a single provider read", async () => {
+    let resolveCalendar: (value: { timeZone: string }) => void;
+    calendarGetCalendarMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCalendar = resolve;
+      }),
+    );
+
+    const first = getGoogleAccountTimezone("coalesce-peer@example.com");
+    const second = getGoogleAccountTimezone("coalesce-peer@example.com");
+    resolveCalendar!({ timeZone: "America/Chicago" });
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      "America/Chicago",
+      "America/Chicago",
+    ]);
+    expect(listOAuthAccountsByOwnerMock).toHaveBeenCalledTimes(1);
+    expect(calendarGetCalendarMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops serving a cached negative result once the account is invalidated", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+
+    await expect(
+      getGoogleAccountTimezone("negative-peer@example.com"),
+    ).resolves.toBeNull();
+    await expect(
+      getGoogleAccountTimezone("negative-peer@example.com"),
+    ).resolves.toBeNull();
+    expect(listOAuthAccountsByOwnerMock).toHaveBeenCalledTimes(1);
+
+    invalidateAccountTimezoneCache("negative-peer@example.com");
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "negative-peer@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarGetCalendarMock.mockResolvedValue({ timeZone: "America/Chicago" });
+
+    await expect(
+      getGoogleAccountTimezone("negative-peer@example.com"),
+    ).resolves.toBe("America/Chicago");
+    expect(listOAuthAccountsByOwnerMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("invalidates the cached time zone when the account reconnects", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+    await expect(
+      getGoogleAccountTimezone("steve@example.com"),
+    ).resolves.toBeNull();
+
+    createOAuth2ClientMock.mockReturnValue({
+      getToken: vi.fn().mockResolvedValue({
+        access_token: "fresh-access-token",
+        refresh_token: "refresh-token",
+        expires_in: 3600,
+        token_type: "Bearer",
+        scope: "scope",
+      }),
+    });
+    oauth2GetUserInfoMock.mockResolvedValue({ email: "steve@example.com" });
+    process.env.GOOGLE_CLIENT_ID = "client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    resolveSecretMock.mockImplementation(async (key: string) => {
+      const value = process.env[key];
+      return typeof value === "string" && value.length > 0 ? value : null;
+    });
+    runWithRequestContextMock.mockImplementation(
+      (_context: unknown, callback: () => unknown) => callback(),
+    );
+    await exchangeCode(
+      "oauth-code",
+      undefined,
+      "https://app.example.com/_agent-native/google/callback",
+    );
+
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarGetCalendarMock.mockResolvedValue({ timeZone: "America/Chicago" });
+
+    await expect(
+      getGoogleAccountTimezone("steve@example.com"),
+    ).resolves.toBe("America/Chicago");
+  });
+
+  it("invalidates the cached time zone on disconnect", async () => {
+    calendarGetCalendarMock.mockResolvedValue({ timeZone: "America/Chicago" });
+    await expect(
+      getGoogleAccountTimezone("disconnect-peer@example.com"),
+    ).resolves.toBe("America/Chicago");
+
+    await disconnect("disconnect-peer@example.com");
+
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+    await expect(
+      getGoogleAccountTimezone("disconnect-peer@example.com"),
+    ).resolves.toBeNull();
+    expect(listOAuthAccountsByOwnerMock).toHaveBeenCalledTimes(2);
   });
 });
 
