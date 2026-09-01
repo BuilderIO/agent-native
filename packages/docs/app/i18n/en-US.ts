@@ -542,7 +542,7 @@ const enUS = {
     communityTitle: "Community apps",
     communityDescription:
       "Discover apps maintained by their authors. Try a hosted version when one is available, or inspect the source and customize it yourself.",
-    submitCommunityTemplate: "Open the GitHub form",
+    submitCommunityTemplate: "Submit an app",
     communityEmpty:
       "Community listings are open. Publish a focused Agent-Native app and submit it for the catalog.",
     publishGuide: "Read the publishing guide",
@@ -580,14 +580,19 @@ const enUS = {
     communitySubmissionRepository: "GitHub repository (optional)",
     communitySubmissionRepositoryPlaceholder:
       "https://github.com/owner/repository",
-    communitySubmissionScreenshots: "Screenshot URLs (optional)",
-    communitySubmissionScreenshotsPlaceholder: "One public image URL per line",
-    communitySubmissionSubmit: "Continue to GitHub",
+    communitySubmissionScreenshots: "Screenshots (optional)",
+    communitySubmissionScreenshotsPlaceholder: "Drop up to 5 images here",
+    communitySubmissionScreenshotDropHint:
+      "PNG, JPG, or WebP. 1.5 MB max each.",
+    communitySubmissionScreenshotSlot: "Screenshot {{index}}",
+    communitySubmissionScreenshotsAdd: "Add screenshots",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 selected",
+    communitySubmissionScreenshotRemove: "Remove screenshot {{index}}",
+    communitySubmissionSubmit: "Submit app",
     communitySubmissionReady:
-      "Your GitHub issue draft is ready. Finish submitting it there.",
-    communitySubmissionOpenDraft: "Open the draft",
+      "Thanks. We will review your app before publishing it.",
     communitySubmissionValidation:
-      "Add a name, description, and valid app URL. Optional URLs must also be valid.",
+      "Add a name, description, and valid app URL. Upload PNG, JPG, or WebP images up to 1.5 MB each.",
   },
   buildFromScratch: {
     title: "Build from scratch",

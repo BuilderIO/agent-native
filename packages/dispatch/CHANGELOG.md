@@ -1,5 +1,21 @@
 # @agent-native/dispatch
 
+## 0.33.0
+
+### Minor Changes
+
+- 1fc5184: Add friendly automation schedules and webhook triggers.
+
+### Patch Changes
+
+- 4d86bff: Update shared auth pages with per-app product previews and learn-more links.
+- bbbac69: Keep pending Builder app reservations visible for 30 days.
+- Release all public npm packages with a patch version bump.
+- 4deb8a1: Make hosted ask_app submissions retry-safe and return before the MCP transport deadline.
+- Updated dependencies [e74593d]
+- Updated dependencies
+  - @agent-native/toolkit@0.19.1
+
 ## 0.32.0
 
 ### Minor Changes
@@ -855,13 +871,5 @@
 - Updated dependencies [277be3f]
 - Updated dependencies [277be3f]
   - @agent-native/toolkit@0.13.2
-
-## 0.17.2
-
-### Patch Changes
-
-- c71d383: Keep connected messaging chats out of app history by default, with an opt-in all-sources view and stable Dispatch branding.
-- Updated dependencies [c71d383]
-  - @agent-native/toolkit@0.13.1
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

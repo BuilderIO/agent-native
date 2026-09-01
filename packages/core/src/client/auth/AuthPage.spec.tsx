@@ -52,6 +52,16 @@ describe("AuthPage", () => {
     );
   });
 
+  it("places Calendar's learn-more link in the bottom-right corner", () => {
+    const props = propsFromHtml(
+      getOnboardingHtml({ requestHost: "calendar.agent-native.com" }),
+    );
+    const html = renderToString(<AuthPage {...props} />);
+
+    expect(props.marketing?.learnMorePlacement).toBe("bottom-right");
+    expect(html).toContain("has-bottom-right-learn-more");
+  });
+
   it("keeps the magic-link entry and completion surfaces in the React tree", () => {
     const props = propsFromHtml(getOnboardingHtml({ authMode: "magic-link" }));
     const html = renderToString(<AuthPage {...props} />);

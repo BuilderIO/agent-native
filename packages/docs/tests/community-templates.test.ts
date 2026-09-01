@@ -5,11 +5,9 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
-  COMMUNITY_APP_SUBMISSION_URL,
   communityApps,
   findCommunityApp,
 } from "../app/components/community-apps";
-import { buildCommunitySubmissionUrl } from "../app/components/CommunityAppSubmissionForm";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../..");
@@ -50,43 +48,29 @@ describe("community apps", () => {
     }
   });
 
-  it("builds a prefilled GitHub issue URL from the submission form", () => {
-    const url = new URL(
-      buildCommunitySubmissionUrl({
-        name: "Example app",
-        appUrl: "https://example.com/app",
-        description: "A useful community app.",
-        repositoryUrl: "https://github.com/acme/example",
-        screenshots: "https://example.com/one.png\nhttps://example.com/two.png",
-      }),
-    );
-
-    expect(url.origin + url.pathname).toBe(
-      "https://github.com/BuilderIO/agent-native/issues/new",
-    );
-    expect(url.searchParams.get("title")).toBe("Community app: Example app");
-    expect(url.searchParams.get("body")).toContain(
-      "https://example.com/two.png",
-    );
-  });
-
-  it("keeps a manual GitHub issue form available for reviewers", () => {
-    expect(COMMUNITY_APP_SUBMISSION_URL).toContain(
-      "template=community-template.yml",
-    );
-
+  it("uses a native multipart form for screenshot uploads", () => {
     const form = fs.readFileSync(
       path.join(
         repoRoot,
-        ".github",
-        "ISSUE_TEMPLATE",
-        "community-template.yml",
+        "packages",
+        "docs",
+        "app",
+        "components",
+        "CommunityAppSubmissionForm.tsx",
       ),
       "utf-8",
     );
-    expect(form).toContain("id: app_url");
-    expect(form).toContain("id: repository");
-    expect(form).toContain("id: screenshots");
-    expect(form).toContain("id: readiness");
+    expect(form).toContain('encType="multipart/form-data"');
+    expect(form).toContain('data-netlify="true"');
+    expect(form).toContain('name="form-name"');
+    expect(form).toContain("multiple");
+    expect(form).toContain("onDrop={handleDrop}");
+    expect(form).toContain("removeScreenshot");
+    expect(form).toContain("typeof DataTransfer");
+    expect(form).toContain("ClipboardEvent");
+    expect(form).toContain("new DataTransfer()");
+    expect(form).toContain("name={field}");
+    expect(form).toContain('"screenshot_5"');
+    expect(form).not.toContain("Screenshot URLs");
   });
 });

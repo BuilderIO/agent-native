@@ -1,9 +1,14 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+
 import { expect, test, type Page } from "@playwright/test";
+import type { TestInfo } from "@playwright/test";
 
 import { isQaTestEmail } from "../../../packages/core/src/shared/qa-test-email";
 import { collectAppPageErrors, renderedText } from "../../beta/lib/app";
 import {
   createQaEmail,
+  isMailosaurInconclusiveError,
   verificationLinkFor,
   waitForVerificationEmail,
 } from "../lib/mailosaur";
@@ -68,10 +73,19 @@ function assertBetterAuthSession(
 
 const targets = selectedSignupTargets();
 
+function recordMailosaurInconclusive(
+  testInfo: TestInfo,
+  message: string,
+): void {
+  const marker = testInfo.outputPath("mailosaur-inconclusive.txt");
+  mkdirSync(dirname(marker), { recursive: true });
+  writeFileSync(marker, `${message}\n`, "utf8");
+}
+
 for (const target of targets) {
   test(`${target.environment} ${target.app} completes email signup without a refresh`, async ({
     page,
-  }) => {
+  }, testInfo) => {
     test.setTimeout(360_000);
     const { errors, thirdParty } = collectAppPageErrors(page, target.origin);
     const failedRequests: string[] = [];
@@ -116,8 +130,14 @@ for (const target of targets) {
       await expect(page.locator("#magic-link-form")).toBeVisible();
     });
 
-    await test.step("request a fresh magic link", async () => {
-      const emailPromise = waitForVerificationEmail(email, emailRequestedAt);
+    const message = await test.step("request a fresh magic link", async () => {
+      const emailResult = waitForVerificationEmail(
+        email,
+        emailRequestedAt,
+      ).then(
+        (message) => ({ status: "fulfilled" as const, message }),
+        (error) => ({ status: "rejected" as const, error }),
+      );
       await page.locator("#m-email").fill(email);
       await page.locator("#magic-link-submit").click({ noWaitAfter: true });
       await expect(page.locator("#magic-link-success")).toBeVisible();
@@ -127,24 +147,35 @@ for (const target of targets) {
         "magic-link request was not observed",
       ).not.toEqual([]);
       expect(magicLinkStatuses.at(-1)).toBe(200);
-      const message = await emailPromise;
 
-      await test.step("use the secure same-origin link from the inbox", async () => {
-        const verificationLink = verificationLinkFor(message, target.origin);
-        const response = await page.goto(verificationLink, {
-          waitUntil: "domcontentloaded",
-        });
-        expect(
-          response,
-          `${target.app} verification produced no response`,
-        ).toBeTruthy();
-        expect(
-          response!.status(),
-          `${target.app} verification returned an error`,
-        ).toBeLessThan(400);
-        expect(new URL(page.url()).origin).toBe(target.origin);
-        expect(new URL(page.url()).pathname).not.toMatch(/sign-in|login/i);
+      const result = await emailResult;
+      if (result.status === "rejected") {
+        if (isMailosaurInconclusiveError(result.error)) {
+          recordMailosaurInconclusive(testInfo, result.error.message);
+          testInfo.skip(true, `INCONCLUSIVE: ${result.error.message}`);
+          return null;
+        }
+        throw result.error;
+      }
+      return result.message;
+    });
+    if (!message) return;
+
+    await test.step("use the secure same-origin link from the inbox", async () => {
+      const verificationLink = verificationLinkFor(message, target.origin);
+      const response = await page.goto(verificationLink, {
+        waitUntil: "domcontentloaded",
       });
+      expect(
+        response,
+        `${target.app} verification produced no response`,
+      ).toBeTruthy();
+      expect(
+        response!.status(),
+        `${target.app} verification returned an error`,
+      ).toBeLessThan(400);
+      expect(new URL(page.url()).origin).toBe(target.origin);
+      expect(new URL(page.url()).pathname).not.toMatch(/sign-in|login/i);
     });
 
     await test.step("prove the session works before any refresh", async () => {

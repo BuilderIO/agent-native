@@ -234,6 +234,10 @@ jobs:
         run: |
           set -euo pipefail
           : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          # The Netlify CLI uses DEPLOY_ID=0 during local prebuilt builds. Use
+          # the checked-out source revision so fixed auth assets get a new URL
+          # on every source deploy, including branch and beta deployments.
+          export AGENT_NATIVE_BUILD_ID="$(git rev-parse HEAD)"
           if [[ "$TARGET" == "beta" ]]; then
             # Beta is built from the release commit with branch-deploy context,
             # so production-scoped Netlify variables are not applied. Export

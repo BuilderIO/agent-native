@@ -14,6 +14,7 @@ class MockTerminal {
   dispose = vi.fn();
   loadAddon = vi.fn();
   open = vi.fn();
+  focus = vi.fn();
   onData = vi.fn((handler: (data: string) => void) => {
     this.emitData = handler;
     return { dispose: vi.fn() };
@@ -232,6 +233,28 @@ describe("AgentTerminal", () => {
     expect(MockWebSocket.instances[0].url).toBe(
       "ws://127.0.0.1:12345/ws?token=desktop-secret&command=codex",
     );
+    expect(terminals[0]?.focus).toHaveBeenCalled();
+    expect(terminals[0]?.write).not.toHaveBeenCalledWith(
+      expect.stringContaining("[terminal]"),
+    );
+  });
+
+  it("focuses only when the terminal becomes active", async () => {
+    renderTerminal({
+      wsUrl: "ws://127.0.0.1:12345/ws",
+      autoFocus: false,
+    });
+    await waitForSocketCount(1);
+    await flushTimers();
+
+    expect(terminals[0]?.focus).not.toHaveBeenCalled();
+
+    renderTerminal({
+      wsUrl: "ws://127.0.0.1:12345/ws",
+      autoFocus: true,
+    });
+
+    expect(terminals[0]?.focus).toHaveBeenCalledOnce();
   });
 
   it("shows setup-status errors and suppresses reconnects", async () => {
