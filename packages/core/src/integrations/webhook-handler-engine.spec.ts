@@ -205,17 +205,36 @@ vi.mock("../agent/run-manager.js", () => ({
           createdAt: Date.now(),
         });
       };
-      Promise.resolve(runFn(send, new AbortController().signal)).then(() =>
-        onComplete?.({
-          runId,
-          threadId,
-          events,
-          status: "completed",
-          subscribers: new Set(),
-          abort: new AbortController(),
-          startedAt: Date.now(),
-        }),
-      );
+      Promise.resolve(runFn(send, new AbortController().signal))
+        .then(() =>
+          onComplete?.({
+            runId,
+            threadId,
+            events,
+            status: "completed",
+            subscribers: new Set(),
+            abort: new AbortController(),
+            startedAt: Date.now(),
+          }),
+        )
+        .catch((error) => {
+          send({
+            type: "error",
+            error: error instanceof Error ? error.message : String(error),
+            ...(typeof error?.errorCode === "string"
+              ? { errorCode: error.errorCode }
+              : {}),
+          });
+          return onComplete?.({
+            runId,
+            threadId,
+            events,
+            status: "errored",
+            subscribers: new Set(),
+            abort: new AbortController(),
+            startedAt: Date.now(),
+          });
+        });
       return {
         runId,
         threadId,
@@ -722,6 +741,180 @@ describe("integration webhook handler engine resolution", () => {
         expect.objectContaining({ externalThreadId: "thread-1" }),
         expect.objectContaining({ placeholderRef: undefined }),
       );
+    },
+  );
+
+  it(
+    "re-resolves a rejected service-principal credential before any agent output",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+      }));
+      const rejected = Object.assign(new Error("Unauthorized"), {
+        errorCode: "http_401",
+      });
+      getConfiguredEngineNameForRequestMock.mockResolvedValue("ai-sdk:openai");
+      resolveOwnerEngineApiKeyMock
+        .mockResolvedValueOnce({
+          apiKey: "rejected-test-key",
+          apiKeyEnvVar: "OPENAI_API_KEY",
+        })
+        .mockResolvedValueOnce({
+          apiKey: "fallback-test-key",
+          apiKeyEnvVar: "BUILDER_PRIVATE_KEY",
+        });
+      resolveEngineMock
+        .mockResolvedValueOnce({
+          name: "ai-sdk:openai",
+          defaultModel: "gpt-5.6-sol",
+          stream: vi.fn(),
+        })
+        .mockResolvedValueOnce({
+          name: "builder",
+          defaultModel: "gpt-5.6-sol",
+          stream: vi.fn(),
+        });
+      runAgentLoopMock
+        .mockRejectedValueOnce(rejected)
+        .mockImplementationOnce(async ({ send }) => {
+          send({ type: "text", text: "fallback completed" });
+        });
+
+      await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        engine: "builder",
+        apiKey: "",
+        ownerEmail: "integration@fake",
+        orgId: "org-qa",
+        principalType: "service",
+        appId: "dispatch",
+      });
+
+      expect(runAgentLoopMock).toHaveBeenCalledTimes(2);
+      expect(resolveEngineMock.mock.calls[0]?.[0]).toMatchObject({
+        engineOption: "ai-sdk:openai",
+        apiKey: "rejected-test-key",
+      });
+      expect(resolveEngineMock.mock.calls[1]?.[0]).toMatchObject({
+        engineOption: "builder",
+        apiKey: "fallback-test-key",
+      });
+      expect(getConfiguredEngineNameForRequestMock).toHaveBeenCalledOnce();
+      expect(sendResponse).toHaveBeenCalledOnce();
+      expect(sendResponse.mock.calls[0]?.[0].text).toBe("fallback completed");
+      expect(sendResponse.mock.calls[0]?.[2]).toMatchObject({
+        idempotencyKey: "integration-response:task-qa",
+      });
+      expect(stageTaskDeliveryPayloadMock).toHaveBeenCalled();
+    },
+  );
+
+  it(
+    "updates the native progress target after an ambiguous terminal failure",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+        messageRefs: ["stream-qa"],
+      }));
+      const complete = vi.fn(async () => {
+        throw new Error("chat.stopStream transport failed");
+      });
+      const adapter = {
+        ...createAdapter(sendResponse),
+        startRunProgress: async () => ({
+          ref: { kind: "slack-stream", streamTs: "stream-qa" },
+          responseTargetRef: "stream-qa",
+          onEvent: vi.fn(async () => undefined),
+          complete,
+        }),
+      };
+      runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+        send({ type: "text", text: "completed once" });
+      });
+
+      await processIntegrationTask(pendingTask(), {
+        adapter,
+        systemPrompt: "system",
+        actions: {},
+        engine: "builder",
+        apiKey: "",
+        ownerEmail: "integration@fake",
+        orgId: "org-qa",
+        principalType: "service",
+        appId: "dispatch",
+      });
+
+      expect(complete).toHaveBeenCalledOnce();
+      expect(sendResponse).toHaveBeenCalledOnce();
+      expect(sendResponse).toHaveBeenCalledWith(
+        expect.objectContaining({ text: "completed once" }),
+        expect.any(Object),
+        expect.objectContaining({
+          placeholderRef: "stream-qa",
+          strictTargetRef: true,
+          idempotencyKey: "integration-response:task-qa",
+        }),
+      );
+      expect(stageTaskDeliveryPayloadMock).toHaveBeenCalledWith(
+        "task-qa",
+        expect.stringContaining('"strictTargetRef":true'),
+      );
+    },
+  );
+
+  it(
+    "delivers one terminal response when no distinct credential fallback exists",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+      }));
+      const rejected = Object.assign(new Error("Unauthorized"), {
+        errorCode: "http_401",
+      });
+      getConfiguredEngineNameForRequestMock.mockResolvedValue("ai-sdk:openai");
+      resolveOwnerEngineApiKeyMock.mockResolvedValue({
+        apiKey: "same-rejected-test-key",
+        apiKeyEnvVar: "OPENAI_API_KEY",
+      });
+      resolveEngineMock.mockResolvedValue({
+        name: "ai-sdk:openai",
+        defaultModel: "gpt-5.6-sol",
+        stream: vi.fn(),
+      });
+      runAgentLoopMock.mockRejectedValueOnce(rejected);
+
+      await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        engine: "builder",
+        apiKey: "",
+        ownerEmail: "integration@fake",
+        orgId: "org-qa",
+        principalType: "service",
+        appId: "dispatch",
+      });
+
+      expect(runAgentLoopMock).toHaveBeenCalledOnce();
+      expect(sendResponse).toHaveBeenCalledOnce();
+      expect(sendResponse.mock.calls[0]?.[2]).toMatchObject({
+        idempotencyKey: "integration-response:task-qa",
+      });
+      expect(sendResponse.mock.calls[0]?.[0].text).toContain(
+        "Settings > Agent > AI providers",
+      );
+      expect(sendResponse.mock.calls[0]?.[0].text).not.toContain(
+        "same-rejected-test-key",
+      );
+      expect(stageTaskDeliveryPayloadMock).toHaveBeenCalled();
     },
   );
 
