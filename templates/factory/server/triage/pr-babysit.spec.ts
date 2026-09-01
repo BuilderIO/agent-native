@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   babysitFingerprint,
+  babysitOutOfScopeClause,
+  formatBabysitAuditSummary,
+  hasCompletePassingChecks,
   hasMergeConflict,
-  isBuilderBotLogin,
   reconcileBabysitState,
-  shouldBabysitBuilderBotPullRequest,
+  shouldRequestBabysitWork,
   type BabysitInput,
   type ReviewCommentObservation,
 } from "./pr-babysit.js";
@@ -27,10 +29,47 @@ const comment = (
 
 const baseInput: BabysitInput = {
   comments: [],
-  checks: [],
+  checks: [check("ci", "passed")],
+  checksCoverage: "complete",
 };
 
 describe("reconcileBabysitState", () => {
+  it("requires complete, non-empty, all-passed check evidence", () => {
+    expect(
+      hasCompletePassingChecks({ checksCoverage: "complete", checks: [] }),
+    ).toBe(false);
+    expect(
+      hasCompletePassingChecks({
+        checksCoverage: "complete",
+        checks: [check("pending", "queued")],
+      }),
+    ).toBe(false);
+    expect(
+      hasCompletePassingChecks({
+        checksCoverage: "complete",
+        checks: [check("running", "in_progress")],
+      }),
+    ).toBe(false);
+    expect(
+      hasCompletePassingChecks({
+        checksCoverage: "complete",
+        checks: [check("failed", "failed")],
+      }),
+    ).toBe(false);
+    expect(
+      hasCompletePassingChecks({
+        checksCoverage: "complete",
+        checks: [check("cancelled", "cancelled")],
+      }),
+    ).toBe(false);
+    expect(
+      hasCompletePassingChecks({
+        checksCoverage: "complete",
+        checks: [check("passed", "passed")],
+      }),
+    ).toBe(true);
+  });
+
   it("treats a comment with no reply as unanswered", () => {
     const result = reconcileBabysitState({
       ...baseInput,
@@ -233,24 +272,42 @@ describe("reconcileBabysitState", () => {
     expect(result.isClean).toBe(false);
   });
 
-  it("is clean when nothing is outstanding and nothing was truncated", () => {
+  it("is never clean when check evidence is partial", () => {
     const result = reconcileBabysitState({
       ...baseInput,
+      checks: [check("CI", "passed")],
+      checksCoverage: "partial",
+    });
+
+    expect(result.checksCoverage).toBe("partial");
+    expect(result.isClean).toBe(false);
+  });
+
+  it("requires explicit complete, non-empty check evidence", () => {
+    const missingCoverage = reconcileBabysitState({
       comments: [],
       checks: [],
     });
+    expect(missingCoverage.checksCoverage).toBe("unknown");
+    expect(missingCoverage.isClean).toBe(false);
 
-    expect(result.commentsTruncated).toBe(false);
-    expect(result.isClean).toBe(true);
+    const emptyCompleteCoverage = reconcileBabysitState({
+      comments: [],
+      checks: [],
+      checksCoverage: "complete",
+    });
+    expect(emptyCompleteCoverage.isClean).toBe(false);
+
+    const complete = reconcileBabysitState(baseInput);
+    expect(complete.commentsTruncated).toBe(false);
+    expect(complete.isClean).toBe(true);
   });
 });
 
-describe("builder bot babysit policy", () => {
+describe("babysit work policy", () => {
   const clean = reconcileBabysitState(baseInput);
 
-  it("recognizes Builder bot login variants and conflicts", () => {
-    expect(isBuilderBotLogin("builder-io-bot[bot]")).toBe(true);
-    expect(isBuilderBotLogin("human-reviewer")).toBe(false);
+  it("recognizes merge conflicts", () => {
     expect(
       hasMergeConflict({ mergeable: false, mergeableState: "dirty" }),
     ).toBe(true);
@@ -259,10 +316,9 @@ describe("builder bot babysit policy", () => {
     ).toBe(false);
   });
 
-  it("only requests work for a Builder bot PR with outstanding evidence", () => {
+  it("requests work for outstanding evidence, not for a clean snapshot", () => {
     expect(
-      shouldBabysitBuilderBotPullRequest({
-        author: "builder-io-bot",
+      shouldRequestBabysitWork({
         mergeable: true,
         mergeableState: "clean",
         snapshot: clean,
@@ -273,21 +329,19 @@ describe("builder bot babysit policy", () => {
       checks: [check("ci", "failed")],
     });
     expect(
-      shouldBabysitBuilderBotPullRequest({
-        author: "builder-io-bot[bot]",
+      shouldRequestBabysitWork({
         mergeable: true,
         mergeableState: "clean",
         snapshot: failing,
       }),
     ).toBe(true);
     expect(
-      shouldBabysitBuilderBotPullRequest({
-        author: "human-reviewer",
+      shouldRequestBabysitWork({
         mergeable: false,
         mergeableState: "dirty",
-        snapshot: failing,
+        snapshot: clean,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("changes the durable fingerprint when review state changes", () => {
@@ -307,6 +361,15 @@ describe("builder bot babysit policy", () => {
         snapshot: clean,
         reviewStates: ["changes_requested"],
       }),
+    );
+  });
+
+  it("names the pull request and author in the audit sentence", () => {
+    expect(
+      formatBabysitAuditSummary(3917, babysitOutOfScopeClause("steve8708")),
+    ).toBe("#3917 skipped; author steve8708 is out of scope.");
+    expect(formatBabysitAuditSummary(null, babysitOutOfScopeClause(null))).toBe(
+      "Item skipped; out of scope.",
     );
   });
 });

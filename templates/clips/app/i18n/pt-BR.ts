@@ -1082,6 +1082,10 @@ const messages = {
       "Essa ação não pode ser desfeita. Sua gravação até agora será excluída permanentemente.",
     resume: "Retomar",
     discardRecording: "Descartar gravação",
+    restart: "Reiniciar gravação",
+    restartShortcut: "Reiniciar (⌥⇧R)",
+    restartQuestion: "Iniciar uma nova gravação?",
+    restartConfirm: "Reiniciar",
   },
   countdownOverlay: {
     startsIn: "A gravação começa em {{count}}",
@@ -1557,6 +1561,15 @@ const messages = {
       "Abra o Clips pela barra de menus para tentar novamente este upload salvo; não é preciso gravar de novo.",
     removeFailedClip: "Remover este clip com falha.",
     remove: "Remover",
+    statusStalled: "travado",
+    uploadAtRisk: "Está demorando mais que o normal",
+    uploadAtRiskDetail:
+      "Ainda estamos tentando salvar este clipe. Isso pode levar alguns minutos.",
+    retry: "Tentar novamente",
+    retrying: "Tentando novamente…",
+    retryFailed: "Não foi possível repetir este envio.",
+    retryUnavailableHere:
+      "Tentar novamente só está disponível no dispositivo ou navegador em que isso foi gravado.",
     viewsCount: "{{count}} visualizações",
     recordingMenu: "Menu da gravação",
     moveToFolder: "Mover para pasta",

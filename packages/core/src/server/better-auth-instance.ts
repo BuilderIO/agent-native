@@ -103,7 +103,9 @@ import {
   recordActiveGoogleSignInCredentials,
   resolveGoogleSignInCredentials,
 } from "./google-oauth-credentials.js";
+import { withJwksRotationRecovery } from "./jwks-secret-rotation.js";
 import { readMagicLinkSignupAttribution } from "./magic-link-attribution.js";
+import { getConfiguredOriginAllowlist } from "./origin-allowlist.js";
 import {
   getRequestContext,
   hasContinuationLocalRequestContext,
@@ -1746,7 +1748,14 @@ async function createBetterAuthInstance(
         email,
         magicLinkUrl: deliveredMagicLinkUrl,
       });
-      await sendEmail({ to: email, subject, html, text, appSender });
+      await sendEmail({
+        to: email,
+        subject,
+        html,
+        text,
+        appSender,
+        disableClickTracking: true,
+      });
     },
   });
 
@@ -1754,6 +1763,7 @@ async function createBetterAuthInstance(
     basePath,
     baseURL: appUrl,
     database,
+    trustedOrigins: [...getConfiguredOriginAllowlist()],
     // Auth schema relations are intentionally not registered here. Keep the
     // experimental relational-query path off so a bundled Drizzle adapter
     // cannot recurse while resolving a session or account join.
@@ -1786,6 +1796,7 @@ async function createBetterAuthInstance(
           html,
           text,
           appSender,
+          disableClickTracking: true,
           templateId: CORE_RESET_PASSWORD_EMAIL_ID,
         });
       },
@@ -1819,8 +1830,20 @@ async function createBetterAuthInstance(
           html,
           text,
           appSender,
+          disableClickTracking: true,
           templateId: CORE_VERIFY_SIGNUP_EMAIL_ID,
         });
+      },
+    },
+    user: {
+      additionalFields: {
+        // Keep this internal profile field in Better Auth's adapter reads and
+        // writes without exposing it as a client-controlled auth field.
+        onboardingRole: {
+          type: "string",
+          required: false,
+          input: false,
+        },
       },
     },
     socialProviders,
@@ -2002,13 +2025,17 @@ async function createBetterAuthInstance(
     },
     plugins: [
       magicLinkPlugin,
-      // JWT: issue tokens for A2A calls, JWKS endpoint for verification
-      jwt({
-        jwt: {
-          issuer: appUrl,
-          expirationTime: "15m",
-        },
-      }),
+      // JWT: issue tokens for A2A calls, JWKS endpoint for verification.
+      // Wrapped so a rotated BETTER_AUTH_SECRET (which orphans the encrypted
+      // jwks row) heals in place instead of 500ing every get-session.
+      withJwksRotationRecovery(
+        jwt({
+          jwt: {
+            issuer: appUrl,
+            expirationTime: "15m",
+          },
+        }),
+      ),
       // Bearer: accept Bearer tokens on API requests
       bearer(),
       ...(config?.plugins ?? []),

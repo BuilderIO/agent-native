@@ -85,6 +85,7 @@ describe("update-event working locations", () => {
       allDay: false,
       source: "google",
       accountEmail: "owner@example.com",
+      organizer: { email: "owner@example.com", self: true },
       attendees: [{ email: "guest@example.com" }],
       createdAt: "2026-07-06T00:00:00.000Z",
       updatedAt: "2026-07-06T00:00:00.000Z",
@@ -117,6 +118,84 @@ describe("update-event working locations", () => {
       accountEmail: "secondary@example.com",
       updated: ["accountEmail"],
     });
+    expect(updateEventMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects moving an event when the current user is not its organizer", async () => {
+    getAuthStatusMock.mockResolvedValue({
+      accounts: [{ email: "secondary@example.com" }],
+    });
+    getEventMock.mockResolvedValue({
+      id: "google-event-1",
+      title: "Team meeting",
+      description: "Agenda",
+      location: "Conference room",
+      start: "2026-07-07T15:00:00.000Z",
+      end: "2026-07-07T15:30:00.000Z",
+      allDay: false,
+      source: "google",
+      accountEmail: "owner@example.com",
+      organizer: { email: "organizer@example.com", self: false },
+      attendees: [
+        { email: "owner@example.com", self: true, organizer: false },
+        { email: "organizer@example.com", organizer: true },
+      ],
+      createdAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        action.run({
+          id: "google-event-1",
+          accountEmail: "owner@example.com",
+          targetAccountEmail: "secondary@example.com",
+        }),
+      ),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      statusCode: 400,
+      message: "Only the event organizer can move or reschedule this event.",
+    });
+
+    expect(moveEventMock).not.toHaveBeenCalled();
+    expect(updateEventMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects rescheduling an event when the current user is not its organizer", async () => {
+    getEventMock.mockResolvedValue({
+      id: "google-event-1",
+      title: "Team meeting",
+      description: "Agenda",
+      location: "Conference room",
+      start: "2026-07-07T15:00:00.000Z",
+      end: "2026-07-07T15:30:00.000Z",
+      allDay: false,
+      source: "google",
+      accountEmail: "owner@example.com",
+      organizer: { email: "organizer@example.com", self: false },
+      attendees: [
+        { email: "owner@example.com", self: true, organizer: false },
+        { email: "organizer@example.com", organizer: true },
+      ],
+      createdAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        action.run({
+          id: "google-event-1",
+          accountEmail: "owner@example.com",
+          start: "2026-07-07T16:00:00.000Z",
+          end: "2026-07-07T16:30:00.000Z",
+        }),
+      ),
+    ).rejects.toThrow(
+      "Only the event organizer can move or reschedule this event.",
+    );
+
+    expect(moveEventMock).not.toHaveBeenCalled();
     expect(updateEventMock).not.toHaveBeenCalled();
   });
 
@@ -480,6 +559,27 @@ describe("update-event working locations", () => {
       expect.objectContaining({ location: "Conference room B" }),
       expect.any(Object),
     );
+  });
+
+  it("passes Google Meet removal through to the calendar service", async () => {
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.com" },
+      () =>
+        action.run({
+          id: "google-event-1",
+          removeGoogleMeet: true,
+        }),
+    );
+
+    expect(updateEventMock).toHaveBeenCalledWith(
+      "event-1",
+      { accountEmail: "owner@example.com" },
+      expect.objectContaining({ removeGoogleMeet: true }),
+    );
+    expect(result).toMatchObject({
+      id: "google-event-1",
+      removedGoogleMeet: true,
+    });
   });
 
   it("does not try to convert a normal event into a working-location event", async () => {

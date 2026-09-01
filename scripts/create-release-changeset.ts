@@ -26,7 +26,7 @@ export function parseReleaseBumpType(
 
 export function releaseChangesetContents(bump: ReleaseBumpType): string {
   const packages = NPM_PUBLISH_PACKAGE_NAMES.map(
-    (name) => `"${name}": ${bump}`,
+    (name) => `"${name}": ${name === "@agent-native/core" ? "patch" : bump}`,
   ).join("\n");
 
   return `---\n${packages}\n---\nRelease all public npm packages with a ${bump} version bump.\n`;

@@ -11,6 +11,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { withSourceFileWriteLock } from "../server/source-workspace.js";
 import { assertDesignHtmlEditIntegrity } from "../shared/html-integrity.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
@@ -198,6 +199,7 @@ export default defineAction({
     }
 
     await assertAccess("design", file.designId, "editor");
+    await snapshotDesignBeforeAgentEdit(file.designId, context);
 
     // Optimistic-concurrency guard (cross-pipeline write-race fix): a content
     // update here is a FULL-document write that, when syncCollab runs, is

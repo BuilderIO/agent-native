@@ -1,11 +1,8 @@
 import { resolveCredential } from "@agent-native/core/credentials";
 import { isLocalDatabase } from "@agent-native/core/db";
-import { orgMembers, resolveOrgIdForEmail } from "@agent-native/core/org";
+import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import { readAppSecret } from "@agent-native/core/secrets";
 import { resolveWorkspaceConnectionCredentialForApp } from "@agent-native/core/workspace-connections";
-import { eq, sql } from "drizzle-orm";
-
-import { getDb } from "../db/index.js";
 
 function getVaultOrgId(): string | undefined {
   return process.env.AGENT_VAULT_ORG_ID?.trim() || undefined;
@@ -13,6 +10,7 @@ function getVaultOrgId(): string | undefined {
 
 export interface ResolveConnectorSecretOptions {
   orgId?: string | null;
+  recordUsage?: boolean;
 }
 
 const WORKSPACE_PROVIDER_BY_KEY: Record<string, string> = {
@@ -111,14 +109,6 @@ export class VaultUnavailableError extends Error {
   }
 }
 
-async function listOrgIdsForEmail(userEmail: string): Promise<string[]> {
-  const rows = await getDb()
-    .select({ orgId: orgMembers.orgId })
-    .from(orgMembers)
-    .where(eq(sql`lower(${orgMembers.email})`, userEmail));
-  return Array.from(new Set(rows.map((row) => row.orgId).filter(Boolean)));
-}
-
 async function readVaultSecret(
   key: string,
   scope: "user" | "org" | "workspace",
@@ -145,9 +135,9 @@ async function readVaultSecret(
 }
 
 /**
- * Resolve a workspace connector key without assuming the caller's active org.
- * Dispatch may sync a workspace key under another org, so memberships and the
- * designated vault org are part of the lookup rather than a fallback afterthought.
+ * Resolve a workspace connector key for the requested organization only.
+ * The designated vault org is the only extra org searched — never every
+ * membership — so an org-A Factory job cannot pick up org-B's token.
  */
 export async function resolveConnectorSecret(
   key: string,
@@ -155,7 +145,7 @@ export async function resolveConnectorSecret(
   options: ResolveConnectorSecretOptions = {},
 ): Promise<string | undefined> {
   const userEmail = ownerEmail.trim().toLowerCase();
-  const primaryOrgId =
+  const requestedOrgId =
     options.orgId?.trim() || (await resolveOrgIdForEmail(userEmail));
 
   const workspaceProvider = WORKSPACE_PROVIDER_BY_KEY[key];
@@ -166,7 +156,8 @@ export async function resolveConnectorSecret(
         provider: workspaceProvider,
         key,
         userEmail,
-        orgId: primaryOrgId,
+        orgId: requestedOrgId,
+        recordUsage: options.recordUsage,
       });
       if (connected.available && connected.value) return connected.value.trim();
     } catch (error) {
@@ -177,12 +168,10 @@ export async function resolveConnectorSecret(
   const userSecret = await readVaultSecret(key, "user", userEmail);
   if (userSecret) return userSecret;
 
-  const membershipOrgIds = await listOrgIdsForEmail(userEmail);
+  const vaultOrgId = getVaultOrgId();
   const orgIds = Array.from(
     new Set(
-      [primaryOrgId, ...membershipOrgIds].filter((id): id is string =>
-        Boolean(id),
-      ),
+      [requestedOrgId, vaultOrgId].filter((id): id is string => Boolean(id)),
     ),
   );
 
@@ -193,7 +182,7 @@ export async function resolveConnectorSecret(
     }
   }
 
-  if (orgIds.length === 0) {
+  if (!requestedOrgId) {
     const soloSecret = await readVaultSecret(
       key,
       "workspace",
@@ -207,14 +196,6 @@ export async function resolveConnectorSecret(
     if (legacySecret?.trim()) return legacySecret.trim();
   }
 
-  const vaultOrgId = getVaultOrgId();
-  if (vaultOrgId && !orgIds.includes(vaultOrgId)) {
-    for (const scope of ["org", "workspace"] as const) {
-      const vaultSecret = await readVaultSecret(key, scope, vaultOrgId);
-      if (vaultSecret) return vaultSecret;
-    }
-  }
-
   // Hosted Factory keeps Slack/GitHub/Sentry vault-only. Local `pnpm dev`
   // sqlite may still read `.env` so polling works without a Dispatch connection.
   if (!VAULT_ONLY_KEYS.has(key) || canUseLocalProviderEnvFallback()) {
@@ -223,4 +204,79 @@ export async function resolveConnectorSecret(
   }
 
   return undefined;
+}
+
+export function slackConnectorKey(
+  workspace: "primary" | "secondary" = "primary",
+): "SLACK_BOT_TOKEN" | "SLACK_BOT_TOKEN_2" {
+  return workspace === "secondary" ? "SLACK_BOT_TOKEN_2" : "SLACK_BOT_TOKEN";
+}
+
+export function connectorKeysForSource(
+  source: "slack" | "github" | "sentry",
+  slackWorkspace: "primary" | "secondary" = "primary",
+): readonly string[] {
+  if (source === "slack") return [slackConnectorKey(slackWorkspace)];
+  if (source === "github") return ["GITHUB_TOKEN"];
+  return ["SENTRY_SERVER_TOKEN", "SENTRY_AUTH_TOKEN"];
+}
+
+/** Presence only — never return the secret value to callers. */
+export async function hasConnectorSecret(
+  keys: string | readonly string[],
+  ownerEmail: string,
+  options: ResolveConnectorSecretOptions = {},
+): Promise<boolean> {
+  const list = typeof keys === "string" ? [keys] : keys;
+  for (const key of list) {
+    const value = await resolveConnectorSecret(key, ownerEmail, options);
+    if (value) return true;
+  }
+  return false;
+}
+
+export async function resolveFactoryConnectorReadiness(
+  ownerEmail: string,
+  options: ResolveConnectorSecretOptions = {},
+): Promise<{
+  slack: boolean;
+  slackSecondary: boolean;
+  github: boolean;
+  sentry: boolean;
+}> {
+  const readinessOptions = { ...options, recordUsage: false };
+  const [slack, slackSecondary, github, sentry] = await Promise.all([
+    hasConnectorSecret("SLACK_BOT_TOKEN", ownerEmail, readinessOptions),
+    hasConnectorSecret("SLACK_BOT_TOKEN_2", ownerEmail, readinessOptions),
+    hasConnectorSecret("GITHUB_TOKEN", ownerEmail, readinessOptions),
+    hasConnectorSecret(
+      ["SENTRY_SERVER_TOKEN", "SENTRY_AUTH_TOKEN"],
+      ownerEmail,
+      readinessOptions,
+    ),
+  ]);
+  return { slack, slackSecondary, github, sentry };
+}
+
+export async function assertFactoryConnectorReady(
+  source: "slack" | "github" | "sentry",
+  ownerEmail: string,
+  options: ResolveConnectorSecretOptions & {
+    slackWorkspace?: "primary" | "secondary";
+    verb?: "creating" | "saving";
+  } = {},
+): Promise<void> {
+  const verb = options.verb ?? "creating";
+  const label =
+    source === "slack" ? "Slack" : source === "github" ? "GitHub" : "Sentry";
+  const ready = await hasConnectorSecret(
+    connectorKeysForSource(source, options.slackWorkspace),
+    ownerEmail,
+    options,
+  );
+  if (!ready) {
+    throw new Error(
+      `Connect ${label} in Dispatch or add a vault token before ${verb} this job.`,
+    );
+  }
 }

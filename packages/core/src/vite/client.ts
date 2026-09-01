@@ -1634,7 +1634,7 @@ function getCoreSourceAliases(
 }
 
 export interface NitroOptions {
-  /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "cloudflare_pages", "cloudflare_module"). Default: "node" */
+  /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "aws_amplify", "cloudflare_pages", "cloudflare_module"). Default: "node" */
   preset?: string;
   /** Source directory for server files. Default: "./server" */
   srcDir?: string;
@@ -3500,6 +3500,73 @@ function nitroPresetMarkerPlugin(
   };
 }
 
+const AUTH_CLIENT_ASSET_PATH = "assets/auth-client.js";
+
+function authClientEntryPath(): string {
+  const sourceEntry = path.resolve(__dirname, "../client/auth/entry.tsx");
+  return fs.existsSync(sourceEntry)
+    ? sourceEntry
+    : path.resolve(__dirname, "../client/auth/entry.js");
+}
+
+function authClientAssetPlugin(): Plugin {
+  const entry = authClientEntryPath();
+  let isBuild = false;
+  let hasReactRouterHmr = false;
+  return {
+    name: "agent-native-auth-client-asset",
+    applyToEnvironment(environment) {
+      return environment.name === "client";
+    },
+    configResolved(config) {
+      isBuild = config.command === "build";
+      hasReactRouterHmr = config.plugins.some((plugin) =>
+        plugin.name?.startsWith("react-router"),
+      );
+    },
+    buildStart() {
+      if (!isBuild) return;
+      this.emitFile({
+        type: "chunk",
+        id: entry,
+        fileName: AUTH_CLIENT_ASSET_PATH,
+      });
+    },
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const pathname = new URL(req.url ?? "/", "http://agent-native.local")
+          .pathname;
+        if (
+          req.method !== "GET" ||
+          !pathname.endsWith(`/${AUTH_CLIENT_ASSET_PATH}`)
+        ) {
+          next();
+          return;
+        }
+
+        void server
+          .transformRequest(entry)
+          .then((result) => {
+            if (!result?.code) {
+              res.statusCode = 500;
+              res.end("Unable to transform the auth client asset.");
+              return;
+            }
+            const authClientCode = hasReactRouterHmr
+              ? `import ${JSON.stringify(
+                  `${server.config.base.replace(/\/+$/, "")}/@id/__x00__virtual:react-router/inject-hmr-runtime`,
+                )};\n${result.code}`
+              : result.code;
+            res.statusCode = 200;
+            res.setHeader("Content-Type", "application/javascript");
+            res.end(authClientCode);
+          })
+          .catch(next);
+      });
+    },
+  };
+}
+
 function createAgentNativePlugins(
   options: ClientConfigOptions | AgentNativeVitePluginOptions,
   {
@@ -3530,6 +3597,7 @@ function createAgentNativePlugins(
     appChangelogRawPlugin(),
     actionTypesPlugin(),
     agentsBundlePlugin({ agentNativeConfig: options.agentNativeConfig }),
+    authClientAssetPlugin(),
     autoReloadOnOptimizeDep(),
     fullReloadOnOptimizeDep504(),
     embedDevFrameHeaders(),

@@ -155,33 +155,6 @@
   animation: clips-collapsible-up 120ms ease-out;
 }
 
-.clips-share-content {
-  container: clips-share-content / inline-size;
-}
-
-.clips-share-metadata-description {
-  order: 2;
-}
-
-.clips-share-metadata-actions {
-  order: 1;
-}
-
-@container clips-share-content (min-width: 860px) {
-  .clips-share-metadata {
-    align-items: flex-start;
-    flex-direction: row;
-  }
-
-  .clips-share-metadata-description {
-    order: 1;
-  }
-
-  .clips-share-metadata-actions {
-    order: 2;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .clips-collapsible-content[data-state] {
     animation-duration: 1ms;
@@ -208,9 +181,9 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--border));
+  background: hsl(var(--muted-foreground) / 0.22);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.4);
+  background: hsl(var(--muted-foreground) / 0.34);
 }

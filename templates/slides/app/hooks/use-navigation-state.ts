@@ -150,7 +150,7 @@ export function useNavigationState() {
       method: "DELETE",
       headers: { "X-Agent-Native-CSRF": "1", "X-Request-Source": TAB_ID },
     }).catch(() => {});
-    let path = "/";
+    let path = "/home";
 
     if (cmd.deckId) {
       path = `/deck/${cmd.deckId}`;

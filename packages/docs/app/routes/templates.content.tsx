@@ -108,6 +108,7 @@ export default function ContentTemplate() {
           </span>
         }
         title={t("templateLanding.content.s003")}
+        customizeTemplate={template}
         description={<p className="m-0">{t("templateLanding.content.s004")}</p>}
         headingAction={
           <a

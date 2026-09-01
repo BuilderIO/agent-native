@@ -46,6 +46,10 @@ export interface SendEmailArgs {
   subject: string;
   html: string;
   text?: string;
+  /** Keep security-sensitive links out of provider click-tracking redirects. */
+  disableClickTracking?: boolean;
+  /** Use deployment credentials for process-owned sends, not request-scoped overrides. */
+  useDeploymentCredentials?: boolean;
   from?: string;
   /**
    * Display-name-only override. Keeps the configured (domain-verified) sending
@@ -118,11 +122,16 @@ interface EmailTransportConfig {
   from?: string;
 }
 
-async function resolveEmailTransport(): Promise<EmailTransportConfig> {
+async function resolveEmailTransport(
+  useDeploymentCredentials = false,
+): Promise<EmailTransportConfig> {
+  const resolve = useDeploymentCredentials
+    ? (key: string) => readDeployCredentialEnv(key) ?? null
+    : resolveSecret;
   const [resendApiKey, sendgridApiKey, from] = await Promise.all([
-    resolveSecret("RESEND_API_KEY"),
-    resolveSecret("SENDGRID_API_KEY"),
-    resolveSecret("EMAIL_FROM"),
+    resolve("RESEND_API_KEY"),
+    resolve("SENDGRID_API_KEY"),
+    resolve("EMAIL_FROM"),
   ]);
   const resolvedFrom = from ?? undefined;
   if (resendApiKey) {
@@ -287,7 +296,7 @@ async function deliverEmail(
   args: SendEmailArgs,
   signal?: AbortSignal,
 ): Promise<DeliveryOutcome> {
-  const config = await resolveEmailTransport();
+  const config = await resolveEmailTransport(args.useDeploymentCredentials);
   signal?.throwIfAborted();
   const provider = config.provider;
   const branded = resolveAppSender(config.from, args.appSender);
@@ -371,6 +380,11 @@ async function deliverEmail(
         : undefined,
     ].filter((value): value is string => Boolean(value));
     if (categories.length) sgPayload.categories = categories;
+    if (args.disableClickTracking) {
+      sgPayload.tracking_settings = {
+        click_tracking: { enable: false },
+      };
+    }
     const sgHeaders: Record<string, string> = {};
     if (args.inReplyTo) sgHeaders["In-Reply-To"] = args.inReplyTo;
     if (args.references) sgHeaders["References"] = args.references;

@@ -63,6 +63,7 @@ const frFR = {
     dialogLabel: "Rechercher la documentation",
     placeholder: "Rechercher la documentation...",
     empty: "Saisissez une requête pour chercher dans toute la documentation",
+    toggleChatSidebar: "Afficher ou masquer la barre latérale du chat",
     loadError: "La recherche n’a pas pu se charger. Réessayez.",
     retry: "Réessayer",
     noResults: 'Aucun résultat pour "{{query}}"',
@@ -502,7 +503,7 @@ const frFR = {
     },
     showcase: {
       title: "Que pouvez-vous construire avec Agent-Native ?",
-      body: "Commencez par un chat, un outil interne ciblé, ou un produit complet destiné aux clients. Chaque app donne aux utilisateurs une UI et aux agents les outils pour faire le même travail.",
+      body: "Des apps agentiques qui comprennent votre travail, passent à l’action et collaborent avec vous. Créez la vôtre ou essayez l’une de ces apps open source.",
       browseApps: "Parcourir les apps",
       scrollLeft: "Défiler les apps vers la gauche",
       scrollRight: "Défiler les apps vers la droite",
@@ -518,7 +519,7 @@ const frFR = {
       community: "Communauté",
       legal: "Mentions légales",
       docs: "Documentation",
-      actions: "Actions",
+      download: "Télécharger",
       apps: "Apps",
       privacyPolicy: "Politique de confidentialité",
       saasTerms: "Conditions SaaS",
@@ -538,21 +539,60 @@ const frFR = {
     eyebrow:
       "Partez d'une app fonctionnelle et laissez l'agent la faire évoluer.",
     body: "Vous pouvez tout personnaliser.",
+    firstPartyTitle: "Créées par Agent-Native",
     community:
       "Vous préférez une app vide ? Commencez de zéro avec le guide du framework.",
     createYourOwn: "Commencer de zéro",
-    communityTitle: "Modèles de la communauté",
+    communityTitle: "Applications de la communauté",
     communityDescription:
-      "Des applications indépendantes maintenues par leurs auteurs. Installez-les depuis un dépôt GitHub public ou essayez une version hébergée lorsqu’elle existe.",
-    submitCommunityTemplate: "Proposer votre modèle",
+      "Découvrez des applications maintenues par leurs auteurs. Essayez une version hébergée lorsqu’elle existe, ou consultez le code source pour la personnaliser.",
+    submitCommunityTemplate: "Ouvrir le formulaire GitHub",
     communityEmpty:
-      "Les soumissions communautaires sont ouvertes. Publiez une application Agent-Native ciblée dans un dépôt public et proposez-la au catalogue.",
+      "Les soumissions communautaires sont ouvertes. Publiez une application Agent-Native ciblée et proposez-la au catalogue.",
     publishGuide: "Lire le guide de publication",
     communityTrust:
-      "Les modèles communautaires sont du code tiers. Vérifiez le dépôt, la licence, les dépendances et les scripts d’installation avant de l’exécuter.",
+      "Les applications communautaires sont du code tiers. Vérifiez le code source, la licence, les dépendances et les scripts d’installation avant de les exécuter.",
     copyCommunityInstallCommand: "Copier la commande d’installation",
     viewRepository: "Voir le dépôt",
     tryCommunityDemo: "Essayer la démo",
+    customizeDescription: "Vous pouvez personnaliser entièrement ce code.",
+    customizeOnline: "Personnaliser en ligne",
+    customizeLocally: "Personnaliser localement",
+    communityNew: "Nouveau",
+    communityComingSoon: "Bientôt disponible",
+    communityGithubStars: "{{count}} étoiles GitHub",
+    tryCommunityApp: "Essayer l’application",
+    viewCommunitySource: "Voir le code source",
+    communityEyebrow: "Application communautaire",
+    communityScreenshots: "Captures d’écran",
+    previousScreenshot: "Capture précédente",
+    nextScreenshot: "Capture suivante",
+    communityNoScreenshots: "Les captures apparaîtront ici après validation.",
+    communityScreenshotAlt: "Capture {{index}} de {{name}}",
+    communityNoHostedVersion:
+      "Une version hébergée arrive bientôt. Suivez le développement via le code source.",
+    communitySubmissionTitle: "Partager une application communautaire",
+    communitySubmissionDescription:
+      "Indiquez où trouver votre application et ce qu’elle fait. Nous vérifierons les informations avant de publier la fiche.",
+    communitySubmissionName: "Nom de l’application",
+    communitySubmissionNamePlaceholder: "Centre de support client",
+    communitySubmissionUrl: "URL de l’application",
+    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionDescriptionLabel: "Description",
+    communitySubmissionDescriptionPlaceholder:
+      "Que fait l’application et à qui s’adresse-t-elle ?",
+    communitySubmissionRepository: "Dépôt GitHub (facultatif)",
+    communitySubmissionRepositoryPlaceholder:
+      "https://github.com/owner/repository",
+    communitySubmissionScreenshots: "URLs des captures (facultatif)",
+    communitySubmissionScreenshotsPlaceholder:
+      "Une URL d’image publique par ligne",
+    communitySubmissionSubmit: "Continuer vers GitHub",
+    communitySubmissionReady:
+      "Le brouillon de votre issue GitHub est prêt. Terminez l’envoi sur GitHub.",
+    communitySubmissionOpenDraft: "Ouvrir le brouillon",
+    communitySubmissionValidation:
+      "Ajoutez un nom, une description et une URL d’application valide. Les URLs facultatives doivent également être valides.",
   },
   buildFromScratch: {
     title: "Créer de zéro",
@@ -590,7 +630,7 @@ const frFR = {
     clips: {
       replaces: "Remplace ou complète Loom, Granola et Wisprflow",
       description:
-        "Enregistrements d'écran avec capture de débogage du navigateur, notes de réunion synchronisées avec le calendrier et dictée vocale Fn-hold — le tout transcrit, résumé et consultable, avec un agent capable de les modifier.",
+        "Enregistre votre écran, vos réunions et vos notes vocales afin que les agents comprennent ce qui s’est passé et agissent.",
     },
     plan: {
       replaces: "Mode plan visuel pour Codex, Claude Code et agents de code",
@@ -600,27 +640,27 @@ const frFR = {
     design: {
       replaces: "Remplace ou complète les outils de prototypage design",
       description:
-        "Studio de prototypage HTML agent-native. Générez des designs Alpine/Tailwind interactifs, comparez les variantes, ajustez les contrôles en direct et exportez le résultat.",
+        "Transforme vos instructions en designs interactifs conformes à votre système de design tandis que l’agent affine chaque écran selon vos retours.",
     },
     content: {
       replaces: "Remplace ou augmente Obsidian pour MDX, Notion, Google Docs",
       description:
-        "Modifiez les fichiers Markdown/MDX locaux comme Obsidian, générez de riches blocs personnalisés interactifs et utilisez un agent AI pour rédiger, réécrire et publier.",
+        "Travaille avec vos documents pendant qu’un agent rédige dans votre style, crée du contenu interactif et publie sur votre site.",
     },
     slides: {
       replaces: "Remplace ou augmente Google Slides, Pitch",
       description:
-        "Générez des présentations complètes à partir d’une invite. Modifiez visuellement ou conversationnellement. Génération d'images AI, 8 mises en page et mode de présentation intégrés.",
+        "Crée des présentations modifiables et conformes à votre marque à partir d’instructions ou de diapositives existantes, que l’agent peut créer, modifier et affiner.",
     },
     analytics: {
       replaces: "Alternative open source à Amplitude et FullStory",
       description:
-        "Connectez n'importe quelle source de données, demandez n'importe quel graphique, créez des tableaux de bord réutilisables. L'agent écrit SQL, génère des visualisations et fait évoluer l'application.",
+        "Connecte vos données pour qu’un agent réponde aux questions en langage courant et transforme les résultats en graphiques et tableaux de bord.",
     },
     mail: {
       replaces: "Remplace ou augmente Superhuman, Gmail",
       description:
-        "Client de messagerie de style Superhuman avec raccourcis clavier, triage AI, prise en charge multi-comptes et automatisations de messagerie. Possédez le flux de travail de votre boîte de réception.",
+        "Une boîte de réception pensée pour le clavier, où un agent hiérarchise les e-mails, rédige les réponses, résume les fils et assure le suivi.",
     },
     forms: {
       replaces: "Remplace ou augmente Typeform, Google Forms",
@@ -631,12 +671,12 @@ const frFR = {
       replaces:
         "Remplace ou augmente DAMs, les bibliothèques d'actifs de marque et les générateurs multimédia AI",
       description:
-        "Gestionnaire d'actifs numériques pour les téléchargements, les bibliothèques de marques, les références consultables et la génération d'images/vidéos de marque que d'autres applications peuvent appeler via A2A ou intégrer en tant que sélecteur.",
+        "Offre aux agents une bibliothèque partagée de règles, d’images et de vidéos de marque pour créer et choisir des médias conformes dans vos applications.",
     },
     calendar: {
       replaces: "Remplace ou augmente Google Calendar, Calendly",
       description:
-        "Calendrier complet avec synchronisation Google, gestion des disponibilités et page de réservation publique. L'agent trouve des créneaux libres, crée des événements et gère votre emploi du temps.",
+        "Réunit vos calendriers Google afin qu’un agent trouve des créneaux, planifie ou reprogramme des événements et gère les réservations.",
     },
     dispatch: {
       replaces: "Contrôle de mission pour vos applications natives d'agent",
@@ -1631,7 +1671,7 @@ const frFR = {
   },
   downloadPage: {
     title: "Télécharger Agent-Native",
-    body: "Toutes vos apps agent-native dans une seule interface de bureau. Apps de production intégrées, avec un mode dev pour le développement local.",
+    body: "Essayez des applications agentiques pour les réunions, le design, les présentations, les données, la planification, l'e-mail et plus encore, le tout dans une seule application de bureau.",
     openDesktop: "Ouvrir Agent-Native",
     downloadInstaller: "Télécharger l'installateur",
     downloadStarted: "Téléchargement démarré",
@@ -1640,27 +1680,33 @@ const frFR = {
     checkingRelease: "Recherche de la dernière version desktop...",
     retry: "Réessayer",
     unavailable: "Installateur indisponible pour cette plateforme",
+    allPlatforms: "Toutes les plateformes",
     stable: "Stable",
     nightly: "Nightly",
-    switchToNightly: "Passer aux builds Nightly",
-    switchToStable: "Passer aux builds stables",
-    runFromSource: "Ou lancer depuis le code source",
+    runFromSource: "Créez le vôtre",
     runFromSourceBody:
-      "Pas encore d'installateur pour votre plateforme, ou vous préférez la CLI ? Créez une nouvelle app avec npm et lancez-la localement; fonctionne sur macOS, Windows et Linux.",
+      "Créez une application Agent-Native depuis la ligne de commande et lancez-la localement sur macOS, Windows ou Linux.",
     platforms: {
       mac: {
         primary: "Télécharger pour Apple Silicon",
         alternative: "Mac Intel",
+        gridPrimary: "Apple Silicon",
+        gridAlternative: "Intel",
       },
       windows: {
         primary: "Télécharger pour Windows",
         alternative: "ARM64",
+        gridPrimary: "Installateur x64",
+        gridAlternative: "Installateur Arm64",
         note: "Windows 10 ou version ultérieure.",
       },
       linux: {
         primary: "Télécharger l'archive Linux",
         appImage: "Télécharger l'AppImage",
         deb: "Télécharger le .deb",
+        gridPrimary: "x86_64",
+        gridAppImage: "Universel",
+        gridDeb: "Debian / Ubuntu",
         note: "L'archive fonctionne sans FUSE. AppImage peut nécessiter FUSE 2 sur certaines distributions.",
       },
     },
@@ -2152,8 +2198,9 @@ const frFR = {
     dispatchDevelopers: "Guide développeur",
     forms: "Formulaires",
     formsOverview: "Vue d'ensemble",
-    formsBuildingPublishing: "Création et publication",
-    formsResponses: "Réponses et aperçus",
+    formsFeatures: "Fonctionnalités",
+    formsAgent: "Parler à l'agent",
+    formsIntegrations: "Utilisation multi-apps",
     docsComponents: "Docs Components",
     formsDevelopers: "Guide développeur",
   },

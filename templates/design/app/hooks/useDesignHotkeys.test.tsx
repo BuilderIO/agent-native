@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   isDesignHotkeyEditableTarget,
+  isDesignHistoryHotkeyTarget,
   useDesignHotkeys,
   type UseDesignHotkeysProps,
 } from "./useDesignHotkeys";
@@ -22,6 +23,19 @@ describe("isDesignHotkeyEditableTarget", () => {
     expect(isDesignHotkeyEditableTarget(textbox)).toBe(true);
 
     root.remove();
+  });
+
+  it("recognizes history controls without broadening the editable scope", () => {
+    const markedInput = document.createElement("input");
+    markedInput.setAttribute("data-design-history-hotkeys", "true");
+    const ordinaryInput = document.createElement("input");
+    document.body.append(markedInput, ordinaryInput);
+
+    expect(isDesignHistoryHotkeyTarget(markedInput)).toBe(true);
+    expect(isDesignHistoryHotkeyTarget(ordinaryInput)).toBe(false);
+
+    markedInput.remove();
+    ordinaryInput.remove();
   });
 });
 
@@ -103,6 +117,26 @@ async function withNavigatorPlatform(
 }
 
 describe("useDesignHotkeys — current Figma tool bindings", () => {
+  it("routes history chords from marked design controls only", async () => {
+    const onUndo = vi.fn();
+    await withHotkeys({ onUndo }, () => {
+      const markedInput = document.createElement("input");
+      markedInput.setAttribute("data-design-history-hotkeys", "true");
+      const ordinaryInput = document.createElement("input");
+      document.body.append(markedInput, ordinaryInput);
+
+      const designUndo = dispatchKey("z", { metaKey: true }, markedInput);
+      const ordinaryUndo = dispatchKey("z", { metaKey: true }, ordinaryInput);
+
+      expect(designUndo.defaultPrevented).toBe(true);
+      expect(ordinaryUndo.defaultPrevented).toBe(false);
+
+      markedInput.remove();
+      ordinaryInput.remove();
+    });
+    expect(onUndo).toHaveBeenCalledTimes(1);
+  });
+
   it("leaves bare Cmd/Ctrl+R native but keeps Shift+Cmd/Ctrl+R paste-to-replace", async () => {
     const onRename = vi.fn();
     const onPasteToReplace = vi.fn();

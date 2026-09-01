@@ -34,10 +34,11 @@
  * so a hit must never reprint the secret it found.
  */
 
-import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { execGuardCommand } from "./lib/changed-lines.mjs";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -238,7 +239,7 @@ function isSkippedPath(rel) {
 }
 
 function listTrackedFiles() {
-  const out = execFileSync("git", ["ls-files"], {
+  const out = execGuardCommand("git", ["ls-files"], {
     cwd: REPO_ROOT,
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,

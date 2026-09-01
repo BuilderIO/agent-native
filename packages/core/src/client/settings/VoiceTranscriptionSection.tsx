@@ -23,12 +23,10 @@ import React, { useCallback, useEffect, useState } from "react";
 
 import { buildSettingsRoute } from "../../navigation/index.js";
 import { agentNativePath } from "../api-path.js";
+import { BuilderConnectPopover } from "./BuilderConnectPopover.js";
 import { SettingsRow } from "./SettingsRow.js";
 import { SettingsSkeleton } from "./SettingsSkeleton.js";
-import {
-  openBuilderConnectPopup,
-  useBuilderStatus,
-} from "./useBuilderStatus.js";
+import { useBuilderConnectFlow, useBuilderStatus } from "./useBuilderStatus.js";
 
 type TranscriptionMode = "mac-native" | "google-realtime" | "batch";
 
@@ -141,7 +139,17 @@ export function VoiceTranscriptionSection({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [cleanupEnabled, setCleanupEnabled] = useState<boolean | null>(null);
-  const { status: builderStatus } = useBuilderStatus();
+  const { status: builderStatus, refetch: refetchBuilderStatus } =
+    useBuilderStatus();
+  const builderConnect = useBuilderConnectFlow({
+    popupUrl: builderStatus?.connectUrl,
+    provisionAccount: true,
+    trackingSource: "voice_transcription_settings",
+    trackingFlow: "voice_transcription",
+    onConnected: () => {
+      void refetchBuilderStatus();
+    },
+  });
   const builderRealtimeReady =
     !!builderStatus?.privateKeyConfigured &&
     !!builderStatus?.publicKeyConfigured;
@@ -334,7 +342,7 @@ export function VoiceTranscriptionSection({
       if (!googleRealtimeConfigured) {
         focusKey("GOOGLE_APPLICATION_CREDENTIALS");
       } else if (!builderRealtimeReady) {
-        openBuilderConnect();
+        builderConnect.start({ provisionAccount: false });
       }
       return;
     }
@@ -343,14 +351,6 @@ export function VoiceTranscriptionSection({
     setTranscriptionMode(next);
     setProvider(nextProvider);
     void persist(next, nextProvider, instructions, previous);
-  };
-
-  const openBuilderConnect = () => {
-    openBuilderConnectPopup({
-      url: builderStatus?.connectUrl,
-      source: "voice_transcription_settings",
-      features: "noopener,noreferrer,width=600,height=700",
-    });
   };
 
   const chooseBatchProvider = (next: Provider) => {
@@ -461,16 +461,17 @@ export function VoiceTranscriptionSection({
                   Ready
                 </span>
               ) : googleRealtimeConfigured ? (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openBuilderConnect();
-                  }}
-                  className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                <BuilderConnectPopover
+                  flow={builderConnect}
+                  onTriggerClick={(event) => event.stopPropagation()}
                 >
-                  Connect Builder.io
-                </button>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                  >
+                    Connect Builder.io
+                  </button>
+                </BuilderConnectPopover>
               ) : (
                 <button
                   type="button"
@@ -568,16 +569,17 @@ export function VoiceTranscriptionSection({
                     Ready
                   </span>
                 ) : googleRealtimeConfigured ? (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openBuilderConnect();
-                    }}
-                    className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
+                  <BuilderConnectPopover
+                    flow={builderConnect}
+                    onTriggerClick={(event) => event.stopPropagation()}
                   >
-                    Connect Builder.io
-                  </button>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
+                    >
+                      Connect Builder.io
+                    </button>
+                  </BuilderConnectPopover>
                 ) : (
                   <button
                     type="button"
@@ -622,16 +624,17 @@ export function VoiceTranscriptionSection({
                     Connected
                   </span>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openBuilderConnect();
-                    }}
-                    className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
+                  <BuilderConnectPopover
+                    flow={builderConnect}
+                    onTriggerClick={(event) => event.stopPropagation()}
                   >
-                    Connect Builder.io
-                  </button>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
+                    >
+                      Connect Builder.io
+                    </button>
+                  </BuilderConnectPopover>
                 )
               }
             />

@@ -74,6 +74,13 @@ export function createPollEventsHandler(
       safePush(JSON.stringify(change));
     };
 
+    const pushHeartbeat = () => {
+      if (closed) return;
+      // A named event keeps the keepalive out of the client's JSON message
+      // handler while still writing a packet through edge idle timeouts.
+      void stream.push({ event: "heartbeat", data: "" });
+    };
+
     // Awareness fast-path: forward cursor/presence events immediately.
     // No ring-buffer needed — clients reconcile on the next poll if SSE is down.
     const pushAwareness = (change: AwarenessChangeEvent) => {
@@ -96,8 +103,12 @@ export function createPollEventsHandler(
       getAwarenessEmitter().on(AWARENESS_CHANGE_EVENT, pushAwareness);
     }
 
+    pushHeartbeat();
+    const heartbeatTimer = setInterval(pushHeartbeat, 10_000);
+
     stream.onClosed(() => {
       closed = true;
+      clearInterval(heartbeatTimer);
       state.getPollEmitter().off(POLL_CHANGE_EVENT, push);
       if (forwardAwareness) {
         getAwarenessEmitter().off(AWARENESS_CHANGE_EVENT, pushAwareness);

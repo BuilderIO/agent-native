@@ -1,6 +1,9 @@
-import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
+import { appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
-import { openBuilderConnectPopup } from "@agent-native/core/client/settings";
+import {
+  BuilderConnectPopover,
+  useBuilderConnectFlow,
+} from "@agent-native/core/client/settings";
 import {
   BUILDER_CREDITS_UPGRADE_URL,
   isBuilderCreditsExhaustedMessage,
@@ -15,7 +18,7 @@ import {
   IconBolt,
   IconRefresh,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -617,118 +620,19 @@ function TranscriptSetupCard({
   onRetry?: () => void;
 }) {
   const t = useT();
-  const [builderConfigured, setBuilderConfigured] = useState<boolean | null>(
-    null,
-  );
-  const [connecting, setConnecting] = useState(false);
-  const [connectError, setConnectError] = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const mountedRef = useRef(true);
-  const inFlightRef = useRef(false);
-  const visibilityHandlerRef = useRef<(() => void) | null>(null);
-
-  const autoRetryRef = useRef(false);
-  const onRetryRef = useRef(onRetry);
-
-  useEffect(() => {
-    onRetryRef.current = onRetry;
-  }, [onRetry]);
-
-  const stopVisibilityHandler = useCallback(() => {
-    if (visibilityHandlerRef.current) {
-      document.removeEventListener(
-        "visibilitychange",
-        visibilityHandlerRef.current,
-      );
-      visibilityHandlerRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    fetch(agentNativePath("/_agent-native/builder/status"))
-      .then((r) =>
-        r.ok ? (r.json() as Promise<{ configured: boolean }>) : null,
-      )
-      .then((s) => {
-        if (mountedRef.current) setBuilderConfigured(s?.configured ?? false);
-      })
-      .catch(() => {
-        if (mountedRef.current) setBuilderConfigured(false);
-      });
-    return () => {
-      mountedRef.current = false;
-      if (pollRef.current) clearInterval(pollRef.current);
-      stopVisibilityHandler();
-    };
-  }, [stopVisibilityHandler]);
-
-  useEffect(() => {
-    if (!builderConfigured || autoRetryRef.current) return;
-    if (!isConnectedBuilderRetryable(failureReason)) return;
-    autoRetryRef.current = true;
-    const handle = window.setTimeout(() => onRetryRef.current?.(), 250);
-    return () => window.clearTimeout(handle);
-  }, [builderConfigured, failureReason]);
-
-  const handleConnect = useCallback(() => {
-    if (pollRef.current) clearInterval(pollRef.current);
-    stopVisibilityHandler();
-    inFlightRef.current = false;
-    setConnecting(true);
-    setConnectError(null);
-
-    openBuilderConnectPopup({ source: "clips_transcript_panel" });
-
-    const start = Date.now();
-    const tick = async () => {
-      if (document.hidden || inFlightRef.current) return;
-      inFlightRef.current = true;
-      const controller = new AbortController();
-      const abortTimer = setTimeout(
-        () => controller.abort(),
-        Math.max(10_000, 2000 * 4),
-      );
-      try {
-        const r = await fetch(
-          agentNativePath("/_agent-native/builder/status"),
-          {
-            signal: controller.signal,
-          },
-        );
-        if (!r.ok) return;
-        const s = (await r.json()) as { configured: boolean };
-        if (!mountedRef.current) {
-          clearInterval(pollRef.current!);
-          stopVisibilityHandler();
-          return;
-        }
-        if (s.configured) {
-          clearInterval(pollRef.current!);
-          stopVisibilityHandler();
-          setBuilderConfigured(true);
-          setConnecting(false);
-          onRetry?.();
-        } else if (Date.now() - start > 5 * 60 * 1000) {
-          clearInterval(pollRef.current!);
-          stopVisibilityHandler();
-          setConnecting(false);
-          setConnectError(t("transcriptPanel.builderNoResponse"));
-        }
-      } catch {
-        // coercion-ok: a transient poll error keeps the loop running; the
-        // 5-minute bound above surfaces builderNoResponse if it never succeeds.
-      } finally {
-        clearTimeout(abortTimer);
-        inFlightRef.current = false;
-      }
-    };
-    pollRef.current = setInterval(() => void tick(), 2000);
-    visibilityHandlerRef.current = () => {
-      if (!document.hidden) void tick();
-    };
-    document.addEventListener("visibilitychange", visibilityHandlerRef.current);
-  }, [onRetry, stopVisibilityHandler, t]);
+  const builderConnect = useBuilderConnectFlow({
+    provisionAccount: true,
+    trackingSource: "clips_transcript_panel",
+    trackingFlow: "transcription",
+    onConnected: () => {
+      if (isConnectedBuilderRetryable(failureReason)) onRetry?.();
+    },
+  });
+  const builderConfigured = builderConnect.statusResolved
+    ? builderConnect.configured
+    : null;
+  const connecting = builderConnect.connecting;
+  const connectError = builderConnect.error;
 
   const isProviderError =
     !isBuilderCreditsExhaustedMessage(failureReason) &&
@@ -805,24 +709,25 @@ function TranscriptSetupCard({
                 ) : null}
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={handleConnect}
-                disabled={connecting || builderConfigured === null}
-                className="shrink-0 inline-flex items-center gap-1 text-[11px] font-medium border border-border rounded px-2 py-1 bg-background hover:bg-accent disabled:opacity-50 transition-colors"
-              >
-                {connecting ? (
-                  <>
-                    <IconLoader2 className="h-3 w-3 animate-spin" />
-                    {t("transcriptPanel.waiting")}
-                  </>
-                ) : (
-                  <>
-                    <IconExternalLink className="h-3 w-3" />
-                    Connect
-                  </>
-                )}
-              </button>
+              <BuilderConnectPopover flow={builderConnect}>
+                <button
+                  type="button"
+                  disabled={connecting || builderConfigured === null}
+                  className="shrink-0 inline-flex items-center gap-1 rounded border border-border bg-background px-2 py-1 text-[11px] font-medium transition-colors hover:bg-accent disabled:opacity-50"
+                >
+                  {connecting ? (
+                    <>
+                      <IconLoader2 className="h-3 w-3 animate-spin" />
+                      {t("transcriptPanel.waiting")}
+                    </>
+                  ) : (
+                    <>
+                      <IconExternalLink className="h-3 w-3" />
+                      Connect
+                    </>
+                  )}
+                </button>
+              </BuilderConnectPopover>
             )}
           </div>
           {connectError && (

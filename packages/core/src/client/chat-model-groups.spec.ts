@@ -114,7 +114,7 @@ describe("buildChatModelGroups", () => {
         },
         {
           name: "ai-sdk:google",
-          label: "Gemini",
+          label: "Google AI",
           supportedModels: ["gemini-3.5-flash"],
           requiredEnvVars: ["GOOGLE_GENERATIVE_AI_API_KEY"],
         },
@@ -126,7 +126,7 @@ describe("buildChatModelGroups", () => {
         },
         {
           name: "ai-sdk:openrouter",
-          label: "OpenRouter",
+          label: "Router",
           supportedModels: ["z-ai/glm-5.2"],
           requiredEnvVars: ["OPENROUTER_API_KEY"],
         },
@@ -154,10 +154,10 @@ describe("buildChatModelGroups", () => {
     expect(groups.map((group) => group.label)).toEqual([
       "OpenAI",
       "Claude",
-      "Gemini",
-      "OpenRouter",
+      "Google AI",
+      "Router",
     ]);
-    expect(groups.find((group) => group.label === "Gemini")).toMatchObject({
+    expect(groups.find((group) => group.label === "Google AI")).toMatchObject({
       engine: "ai-sdk:google",
       configured: true,
     });
@@ -171,11 +171,34 @@ describe("buildChatModelGroups", () => {
     expect(groups.find((group) => group.label === "Claude")).toMatchObject({
       models: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-4-8"],
     });
-    expect(groups.find((group) => group.label === "OpenRouter")).toMatchObject({
+    expect(groups.find((group) => group.label === "Router")).toMatchObject({
       engine: "ai-sdk:openrouter",
       models: ["z-ai/glm-5.2"],
       configured: true,
     });
+  });
+
+  it("hides unconfigured Gemini and OpenRouter, including stale selections", () => {
+    const groups = buildChatModelGroups({
+      currentEngineName: "ai-sdk:openrouter",
+      currentModel: "z-ai/glm-5.2",
+      engines: [
+        {
+          name: "ai-sdk:google",
+          label: "Gemini",
+          supportedModels: ["gemini-3.5-flash"],
+          requiredEnvVars: ["GOOGLE_GENERATIVE_AI_API_KEY"],
+        },
+        {
+          name: "ai-sdk:openrouter",
+          label: "OpenRouter",
+          supportedModels: ["z-ai/glm-5.2"],
+          requiredEnvVars: ["OPENROUTER_API_KEY"],
+        },
+      ],
+    });
+
+    expect(groups).toEqual([]);
   });
 
   it("keeps a hidden provider visible when it is the current engine", () => {
@@ -202,7 +225,7 @@ describe("buildChatModelGroups", () => {
     ]);
   });
 
-  it("puts OpenRouter after other installed custom providers", () => {
+  it("keeps custom providers visible when OpenRouter is unavailable", () => {
     const groups = buildChatModelGroups({
       engines: [
         {
@@ -220,10 +243,7 @@ describe("buildChatModelGroups", () => {
       ],
     });
 
-    expect(groups.map((group) => group.label)).toEqual([
-      "Custom",
-      "OpenRouter",
-    ]);
+    expect(groups.map((group) => group.label)).toEqual(["Custom"]);
   });
 
   it("keeps the current engine visible without re-adding unsupported current models", () => {
@@ -291,9 +311,134 @@ describe("buildChatModelGroups", () => {
     expect(groups).toEqual([
       {
         engine: "builder",
-        label: "Builder.io Gateway",
+        label: "Claude",
         models: ["claude-sonnet-5"],
         configured: true,
+      },
+    ]);
+  });
+
+  it("offers the Builder models on the gateway lane, with no connect step", () => {
+    const groups = buildChatModelGroups({
+      // A Fusion preview / Builder-credits deploy: `/builder/status` answers for
+      // the identity lane only, so `builderConnected` is false here.
+      builderConnected: false,
+      currentEngineName: "anthropic",
+      engines: [
+        {
+          name: "builder",
+          label: "Builder.io Gateway",
+          supportedModels: [
+            "auto",
+            "gpt-5-6-luna",
+            "claude-opus-4-8",
+            "gemini-3-1-pro",
+          ],
+          requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+          configured: true,
+        },
+        {
+          name: "anthropic",
+          label: "Claude",
+          supportedModels: ["claude-sonnet-5"],
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+          configured: false,
+        },
+      ],
+    });
+
+    expect(groups).toEqual([
+      {
+        engine: "builder",
+        label: "OpenAI",
+        models: ["gpt-5-6-luna"],
+        configured: true,
+      },
+      {
+        engine: "builder",
+        label: "Claude",
+        models: ["claude-opus-4-8"],
+        configured: true,
+      },
+      {
+        engine: "builder",
+        label: "Gemini",
+        models: ["gemini-3-1-pro"],
+        configured: true,
+      },
+      { engine: "builder", label: "More", models: ["auto"], configured: true },
+    ]);
+  });
+
+  it("keeps a provider key the customer pasted selectable next to the gateway", () => {
+    const groups = buildChatModelGroups({
+      configuredKeys: ["ANTHROPIC_API_KEY"],
+      engines: [
+        {
+          name: "builder",
+          label: "Builder.io Gateway",
+          supportedModels: ["gpt-5-6-luna"],
+          requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+          configured: true,
+        },
+        {
+          name: "anthropic",
+          label: "Claude",
+          supportedModels: ["claude-sonnet-5"],
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+          configured: true,
+        },
+        {
+          name: "ai-sdk:openai",
+          label: "OpenAI",
+          supportedModels: ["gpt-5.6-luna"],
+          requiredEnvVars: ["OPENAI_API_KEY"],
+          configured: false,
+        },
+      ],
+    });
+
+    expect(groups).toEqual([
+      {
+        engine: "builder",
+        label: "OpenAI",
+        models: ["gpt-5-6-luna"],
+        configured: true,
+      },
+      {
+        engine: "anthropic",
+        label: "Claude",
+        models: ["claude-sonnet-5"],
+        configured: true,
+      },
+    ]);
+  });
+
+  it("leaves the picker untouched when the server could not resolve readiness", () => {
+    const groups = buildChatModelGroups({
+      engines: [
+        {
+          name: "builder",
+          label: "Builder.io Gateway",
+          supportedModels: ["gpt-5-6-luna"],
+          requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+          configuredError: "settings store unavailable",
+        },
+        {
+          name: "anthropic",
+          label: "Claude",
+          supportedModels: ["claude-sonnet-5"],
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        },
+      ],
+    });
+
+    expect(groups).toEqual([
+      {
+        engine: "anthropic",
+        label: "Claude",
+        models: ["claude-sonnet-5"],
+        configured: false,
       },
     ]);
   });

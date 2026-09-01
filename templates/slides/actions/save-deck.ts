@@ -13,7 +13,6 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -35,9 +34,12 @@ import {
 import {
   assertDesignSystemReadable,
   assertValidAspectRatio,
+  assertDeckWriteApplied,
   deckDesignSystemId,
   deckHttpError,
   deckTitle,
+  deckRevisionWhere,
+  nextDeckRevision,
   type DeckPayload,
 } from "./_deck-write.js";
 import { withDeckLock } from "./patch-deck.js";
@@ -153,28 +155,39 @@ export default defineAction({
           ) ?? requestedTitle;
         assertHumanReadableDeckTitle(title);
         deck.title = title;
+        const updatedAt = nextDeckRevision(access.resource.updatedAt);
+        deck.updatedAt = updatedAt;
         await assertDesignSystemReadable(nextDesignSystemId);
-        if (shouldSnapshotDeckWrite(access.resource, title, deck)) {
-          await createDeckVersionSnapshot(
-            {
-              id: access.resource.id,
-              title: access.resource.title,
-              data: access.resource.data,
-              ownerEmail: access.resource.ownerEmail as string,
-            },
-            { label: "Before editor save" },
-          );
-        }
-        await db
-          .update(schema.decks)
-          .set({
-            title,
-            data: JSON.stringify(deck),
-            designSystemId:
-              nextDesignSystemId ?? access.resource.designSystemId,
-            updatedAt: now,
-          })
-          .where(eq(schema.decks.id, deckId));
+        await db.transaction(async (tx: any) => {
+          if (shouldSnapshotDeckWrite(access.resource, title, deck)) {
+            await createDeckVersionSnapshot(
+              {
+                id: access.resource.id,
+                title: access.resource.title,
+                data: access.resource.data,
+                ownerEmail: access.resource.ownerEmail as string,
+              },
+              { label: "Before editor save", db: tx },
+            );
+          }
+          const updateResult = await tx
+            .update(schema.decks)
+            .set({
+              title,
+              data: JSON.stringify(deck),
+              designSystemId:
+                nextDesignSystemId ?? access.resource.designSystemId,
+              updatedAt,
+            })
+            .where(
+              deckRevisionWhere(
+                schema.decks,
+                deckId,
+                access.resource.updatedAt,
+              ),
+            );
+          assertDeckWriteApplied(updateResult, deckId, "deck save");
+        });
       } else {
         // Viewer-only access — same 404 as no-access so we don't leak that the
         // deck exists with restricted permissions.

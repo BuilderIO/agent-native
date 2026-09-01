@@ -32,6 +32,7 @@ import {
 } from "h3";
 
 import { UPLOAD_RETRY_RESUME_FLAG } from "../../../../../shared/feature-flags.js";
+import { isRetryableUploadInterruption } from "../../../../../shared/upload-interruption.js";
 import { getDb, schema } from "../../../../db/index.js";
 import {
   listRecordingChunkKeys,
@@ -47,7 +48,6 @@ import {
   getResumableSession,
 } from "../../../../lib/resumable-session.js";
 import { abortResumableUploadSession } from "../../../../lib/resumable-upload-cleanup.js";
-import { isRetryableUploadInterruption } from "../../../../lib/upload-interruption.js";
 import {
   UPLOAD_LEASE_MS,
   uploadLeaseExpiry,

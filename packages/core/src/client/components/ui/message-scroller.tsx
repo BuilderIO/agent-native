@@ -41,7 +41,10 @@ function MessageScrollerProvider(props: MessageScrollerProviderProps) {
 function MessageScroller({ className, ...props }: MessageScrollerRootProps) {
   return (
     <ShadcnMessageScroller.Root
-      className={cn("relative flex min-h-0 flex-1 flex-col", className)}
+      className={cn(
+        "relative flex min-h-0 flex-1 flex-col overflow-hidden",
+        className,
+      )}
       {...props}
     />
   );

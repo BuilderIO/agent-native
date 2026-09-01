@@ -212,9 +212,16 @@ export class MultiFrontierHost {
         error: { message: "The provider sign-in terminal did not open." },
       };
     }
-    return providerId === "codex"
-      ? { status: this.#codexStatus }
-      : { status: sanitizeStatus(await this.#readClaudeStatus(), "claude") };
+    if (providerId === "codex") {
+      if (this.#platform === "darwin") {
+        this.#codexStatus = sanitizeStatus(
+          await this.#codex.refresh(),
+          "codex",
+        );
+      }
+      return { status: this.#codexStatus };
+    }
+    return { status: sanitizeStatus(await this.#readClaudeStatus(), "claude") };
   }
 
   async list(): Promise<MultiFrontierRendererState[]> {

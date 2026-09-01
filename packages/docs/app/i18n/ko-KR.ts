@@ -63,6 +63,7 @@ const koKR = {
     dialogLabel: "문서 검색",
     placeholder: "문서 검색...",
     empty: "입력해서 모든 문서를 검색하세요",
+    toggleChatSidebar: "채팅 사이드바 전환",
     loadError: "검색을 불러오지 못했습니다. 다시 시도해 주세요.",
     retry: "다시 시도",
     noResults: "“{{query}}”에 대한 결과가 없습니다",
@@ -501,7 +502,7 @@ const koKR = {
     },
     showcase: {
       title: "Agent-Native로 무엇을 만들 수 있나요?",
-      body: "채팅, 집중된 내부 도구, 또는 완전한 고객 대면 제품으로 시작하세요. 모든 앱은 사용자에게 UI를, 에이전트에게 같은 일을 할 수 있는 도구를 제공합니다.",
+      body: "업무를 이해하고, 행동하며, 함께 협업하는 에이전틱 앱입니다. 직접 만들거나 이 오픈 소스 앱 중 하나를 사용해 보세요.",
       browseApps: "앱 살펴보기",
       scrollLeft: "앱 왼쪽으로 스크롤",
       scrollRight: "앱 오른쪽으로 스크롤",
@@ -517,7 +518,7 @@ const koKR = {
       community: "커뮤니티",
       legal: "법적 고지",
       docs: "문서",
-      actions: "액션",
+      download: "다운로드",
       apps: "앱",
       privacyPolicy: "개인정보 처리방침",
       saasTerms: "SaaS 약관",
@@ -536,21 +537,60 @@ const koKR = {
     title: "귀하가 소유한 오픈 소스 에이전트 기반 앱",
     eyebrow: "작동하는 app에서 시작하고 agent가 발전시키게 하세요.",
     body: "모든 것을 맞춤 설정할 수 있습니다.",
+    firstPartyTitle: "Agent-Native가 만든 앱",
     community:
       "빈 앱에서 시작하고 싶다면 프레임워크 가이드로 처음부터 시작하세요.",
     createYourOwn: "처음부터 시작",
-    communityTitle: "커뮤니티 템플릿",
+    communityTitle: "커뮤니티 앱",
     communityDescription:
-      "작성자가 직접 관리하는 독립 앱입니다. 공개 GitHub 저장소에서 설치하거나 호스팅 버전이 있으면 먼저 사용해 보세요.",
-    submitCommunityTemplate: "템플릿 제출",
+      "작성자가 관리하는 앱을 찾아보세요. 호스팅 버전이 있으면 사용해 보고, 소스 코드를 확인해 직접 맞춤 설정할 수 있습니다.",
+    submitCommunityTemplate: "GitHub 양식 열기",
     communityEmpty:
-      "커뮤니티 등록을 받고 있습니다. 명확한 목적의 Agent-Native 앱을 공개 저장소에 게시하고 카탈로그에 제출하세요.",
+      "커뮤니티 등록을 받고 있습니다. 명확한 목적의 Agent-Native 앱을 게시하고 카탈로그에 제출하세요.",
     publishGuide: "게시 가이드 읽기",
     communityTrust:
-      "커뮤니티 템플릿은 타사 코드입니다. 실행하기 전에 저장소, 라이선스, 종속성 및 설치 스크립트를 검토하세요.",
+      "커뮤니티 앱은 타사 코드입니다. 실행하기 전에 소스 코드, 라이선스, 종속성 및 설치 스크립트를 검토하세요.",
     copyCommunityInstallCommand: "설치 명령 복사",
     viewRepository: "저장소 보기",
     tryCommunityDemo: "데모 사용해 보기",
+    customizeDescription: "이 코드는 완전히 맞춤 설정할 수 있습니다.",
+    customizeOnline: "온라인에서 맞춤 설정",
+    customizeLocally: "로컬에서 맞춤 설정",
+    communityNew: "새 앱",
+    communityComingSoon: "곧 공개",
+    communityGithubStars: "GitHub 별 {{count}}개",
+    tryCommunityApp: "앱 사용해 보기",
+    viewCommunitySource: "소스 코드 보기",
+    communityEyebrow: "커뮤니티 앱",
+    communityScreenshots: "스크린샷",
+    previousScreenshot: "이전 스크린샷",
+    nextScreenshot: "다음 스크린샷",
+    communityNoScreenshots: "검토 후 여기에 스크린샷이 표시됩니다.",
+    communityScreenshotAlt: "{{name}} 스크린샷 {{index}}",
+    communityNoHostedVersion:
+      "호스팅 버전이 곧 제공됩니다. 소스 링크에서 개발 상황을 확인하세요.",
+    communitySubmissionTitle: "커뮤니티 앱 공유",
+    communitySubmissionDescription:
+      "앱을 찾을 수 있는 곳과 기능을 알려 주세요. 목록에 게시하기 전에 내용을 검토합니다.",
+    communitySubmissionName: "앱 이름",
+    communitySubmissionNamePlaceholder: "고객 지원 허브",
+    communitySubmissionUrl: "앱 URL",
+    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionDescriptionLabel: "설명",
+    communitySubmissionDescriptionPlaceholder:
+      "앱은 무엇을 하며 누구를 위한 것인가요?",
+    communitySubmissionRepository: "GitHub 저장소 (선택 사항)",
+    communitySubmissionRepositoryPlaceholder:
+      "https://github.com/owner/repository",
+    communitySubmissionScreenshots: "스크린샷 URL (선택 사항)",
+    communitySubmissionScreenshotsPlaceholder:
+      "공개 이미지 URL을 한 줄에 하나씩 입력하세요",
+    communitySubmissionSubmit: "GitHub로 계속",
+    communitySubmissionReady:
+      "GitHub issue 초안이 준비되었습니다. 그곳에서 제출을 완료하세요.",
+    communitySubmissionOpenDraft: "초안 열기",
+    communitySubmissionValidation:
+      "이름, 설명, 유효한 앱 URL을 입력하세요. 선택한 URL도 유효해야 합니다.",
   },
   buildFromScratch: {
     title: "처음부터 만들기",
@@ -587,7 +627,7 @@ const koKR = {
     clips: {
       replaces: "Loom, Granola, Wisprflow를 대체하거나 보강",
       description:
-        "브라우저 디버그 캡처, 캘린더에 동기화된 회의 메모, Fn 보류 음성 받아쓰기가 포함된 화면 녹화 — 모두 기록, 요약 및 검색 가능하며 에이전트는 이를 편집할 수 있습니다.",
+        "화면, 회의, 음성 메모를 기록해 에이전트가 상황을 이해하고 필요한 조치를 취하게 합니다.",
     },
     plan: {
       replaces: "Codex, Claude Code 및 코딩 에이전트를 위한 시각적 계획 모드",
@@ -597,28 +637,28 @@ const koKR = {
     design: {
       replaces: "디자인 프로토타이핑 도구를 대체하거나 보강",
       description:
-        "Agent-Native HTML 프로토타이핑 스튜디오. 대화형 Alpine/Tailwind 디자인을 생성하고, 변형을 비교하고, 라이브 조정 컨트롤을 다듬고, 결과를 내보냅니다.",
+        "프롬프트를 디자인 시스템에 맞는 대화형 디자인으로 바꾸고, 에이전트가 피드백으로 각 화면을 다듬습니다.",
     },
     content: {
       replaces:
         "MDX, Notion, Google Docs에 대해 Obsidian을 대체하거나 확장합니다.",
       description:
-        "Obsidian와 같은 로컬 Markdown/MDX 파일을 편집하고, 풍부한 대화형 사용자 정의 블록을 생성하고, AI 에이전트를 사용하여 초안을 작성하고 다시 작성하고 게시합니다.",
+        "문서를 다루면서 에이전트가 당신의 문체로 초안을 작성하고, 대화형 콘텐츠를 만들고, 사이트에 게시합니다.",
     },
     slides: {
       replaces: "Google Slides, Pitch을 대체하거나 확장합니다.",
       description:
-        "프롬프트에서 전체 프레젠테이션을 생성합니다. 시각적으로 또는 대화식으로 편집하세요. AI 이미지 생성, 8가지 레이아웃 및 프레젠테이션 모드가 내장되어 있습니다.",
+        "프롬프트나 기존 슬라이드에서 브랜드에 맞는 편집 가능한 프레젠테이션을 만들고, 에이전트가 제작, 편집, 개선합니다.",
     },
     analytics: {
       replaces: "Amplitude 및 FullStory에 대한 오픈 소스 대안",
       description:
-        "모든 데이터 소스를 연결하고, 차트에 대한 메시지를 표시하고, 재사용 가능한 대시보드를 구축하세요. 에이전트는 SQL을 작성하고 시각화를 생성하며 앱을 발전시킵니다.",
+        "데이터를 연결해 에이전트가 쉬운 말로 질문에 답하고 결과를 차트와 대시보드로 만듭니다.",
     },
     mail: {
       replaces: "Superhuman, Gmail을 대체하거나 확장합니다.",
       description:
-        "키보드 단축키, AI 분류, 다중 계정 지원 및 이메일 자동화를 갖춘 Superhuman 스타일 이메일 클라이언트입니다. 받은 편지함 워크플로를 소유하세요.",
+        "키보드 중심의 받은편지함에서 에이전트가 메일 우선순위를 정하고, 답장을 작성하고, 대화를 요약하며, 후속 조치를 합니다.",
     },
     forms: {
       replaces: "Typeform, Google Forms을 대체하거나 확장합니다.",
@@ -629,12 +669,12 @@ const koKR = {
       replaces:
         "DAMs, 브랜드 자산 라이브러리 및 AI 미디어 생성기를 대체하거나 강화합니다.",
       description:
-        "다른 앱이 A2A을 통해 호출하거나 선택기로 삽입할 수 있는 업로드, 브랜드 라이브러리, 검색 가능한 참조 및 브랜드 이미지/동영상 생성을 위한 디지털 자산 관리자입니다.",
+        "브랜드 가이드라인, 이미지, 동영상의 공유 라이브러리를 에이전트에게 제공해 앱에서 브랜드에 맞는 미디어를 만들고 선택하게 합니다.",
     },
     calendar: {
       replaces: "Google Calendar, Calendly을 대체하거나 확장합니다.",
       description:
-        "Google 동기화, 가용성 관리 및 공개 예약 페이지가 포함된 전체 달력입니다. 상담원은 빈 슬롯을 찾아 이벤트를 생성하고 일정을 관리합니다.",
+        "여러 Google Calendar를 모아 에이전트가 빈 시간을 찾고, 일정을 잡거나 변경하며, 예약을 관리합니다.",
     },
     dispatch: {
       replaces: "에이전트 기반 앱의 임무 제어",
@@ -1616,7 +1656,7 @@ const koKR = {
   },
   downloadPage: {
     title: "Agent-Native 다운로드",
-    body: "모든 agent-native 앱을 하나의 데스크톱 셸에서 사용하세요. 프로덕션 앱이 내장되어 있고 로컬 개발용 dev 모드 토글이 있습니다.",
+    body: "회의, 디자인, 프레젠테이션, 데이터, 일정 관리, 이메일 등을 위한 에이전틱 앱을 하나의 데스크톱 앱에서 사용해 보세요.",
     openDesktop: "Agent-Native 열기",
     downloadInstaller: "설치 프로그램 다운로드",
     downloadStarted: "다운로드가 시작되었습니다",
@@ -1625,27 +1665,33 @@ const koKR = {
     checkingRelease: "최신 데스크톱 릴리스를 확인하는 중...",
     retry: "다시 시도",
     unavailable: "이 플랫폼에서는 설치 프로그램을 사용할 수 없습니다",
+    allPlatforms: "모든 플랫폼",
     stable: "안정",
     nightly: "Nightly",
-    switchToNightly: "Nightly 빌드로 전환",
-    switchToStable: "안정 빌드로 전환",
-    runFromSource: "또는 소스에서 실행",
+    runFromSource: "직접 만들기",
     runFromSourceBody:
-      "아직 해당 플랫폼용 설치 프로그램이 없거나 CLI를 선호하시나요? npm으로 새 앱을 스캐폴드하고 로컬에서 실행하세요. macOS, Windows, Linux에서 작동합니다.",
+      "명령줄에서 Agent-Native 앱을 생성하고 macOS, Windows, Linux에서 로컬로 실행하세요.",
     platforms: {
       mac: {
         primary: "Apple Silicon용 다운로드",
         alternative: "Intel Mac용",
+        gridPrimary: "Apple Silicon",
+        gridAlternative: "Intel",
       },
       windows: {
         primary: "Windows용 다운로드",
         alternative: "ARM64",
+        gridPrimary: "x64 설치 프로그램",
+        gridAlternative: "Arm64 설치 프로그램",
         note: "Windows 10 이상.",
       },
       linux: {
         primary: "Linux 아카이브 다운로드",
         appImage: "AppImage 다운로드",
         deb: ".deb 다운로드",
+        gridPrimary: "x86_64",
+        gridAppImage: "범용",
+        gridDeb: "Debian / Ubuntu",
         note: "아카이브는 FUSE 없이 동작합니다. 일부 배포판에서는 AppImage에 FUSE 2가 필요할 수 있습니다.",
       },
     },
@@ -2133,8 +2179,9 @@ const koKR = {
     dispatchDevelopers: "개발자 가이드",
     forms: "양식",
     formsOverview: "개요",
-    formsBuildingPublishing: "빌드 및 게시",
-    formsResponses: "응답 및 인사이트",
+    formsFeatures: "기능",
+    formsAgent: "Agent와 대화",
+    formsIntegrations: "앱 간 사용",
     docsComponents: "Docs Components",
     formsDevelopers: "개발자 가이드",
   },

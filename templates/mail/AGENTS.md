@@ -14,7 +14,7 @@ Read the relevant skill before deeper work:
 - `draft-queue` for org and Slack draft review/send workflows.
 - `contacts-and-crm` for resolving recipients and CRM reach.
 - `mail-backends` for real Gmail vs synthetic local fallback.
-- `inbox-automations` for automation rules and Gmail-native filters.
+- `inbox-automations` for automation rules, AI filtering, and Gmail-native filters.
 - `provider-api-scans` for raw provider API calls and staged large scans.
 
 ## Core Rules
@@ -73,7 +73,9 @@ Read the relevant skill before deeper work:
 | `mark-read` / `mark-thread-read` / `star-email` / `archive-email` / `unarchive-email` / `trash-email` / `untrash-email` / `move-email` | Message/thread state; `mark-read` does bulk cleanup. |
 | `send-scheduled-email-now` / `cancel-scheduled-email` | Send or cancel a scheduled send. |
 | `manage-gmail-filters` | Gmail-native filters. |
-| `manage-automations` / `trigger-automations` | Inbox automation rules. |
+| `manage-automations` | Recurring and event-triggered automations shown in Settings. |
+| `manage-email-rules` / `trigger-automations` | Inbox automation rules. |
+| `get-ai-filter` / `apply-ai-filter` | Reversible AI filtering, feedback, and learned instructions. |
 | `respond-calendar-invite` | Accept/decline/tentative an invite. |
 | `get-mail-settings` / `update-mail-settings` / `import-gmail-signature` | Signature and writing style. |
 | `manage-snippets` | Saved reply snippets. |
@@ -88,6 +90,7 @@ Read the relevant skill before deeper work:
 - `navigate` moves the UI via `view`, `threadId`, `settingsSection`,
   `queuedDraftId`, or `composeDraftId`; the accepted values are listed in
   `inbox-reads-and-triage`.
+- `settingsSection: "ai-filter"` opens the AI filter controls and review ledger.
 
 ## Source Changes
 

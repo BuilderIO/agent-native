@@ -221,7 +221,7 @@ describe("signInJourney", () => {
         legacyReturn,
       });
       expect(journey.resumeHref.startsWith("//")).toBe(false);
-      expect(journey.resumeHref).toBe("/");
+      expect(journey.resumeHref).toBe("/home");
     },
   );
 
@@ -243,7 +243,7 @@ describe("signInJourney", () => {
     ]) {
       const journey = signInJourney({ at });
       expect(journey.signInHref).toBeNull();
-      expect(journey.resumeHref).toBe("/");
+      expect(journey.resumeHref).toBe("/home");
     }
   });
 
@@ -252,7 +252,7 @@ describe("signInJourney", () => {
     // auth entry path, so the resume target was the login page itself.
     const journey = signInJourney({ at: "/myapp/login", basePath: "/myapp" });
     expect(journey.signInHref).toBeNull();
-    expect(journey.resumeHref).toBe("/myapp");
+    expect(journey.resumeHref).toBe("/myapp/home");
   });
 
   it("signInHref is null — not a fallback — when already at sign-in", () => {
@@ -279,7 +279,47 @@ describe("signInJourney", () => {
       at: SIGN_IN_ENTRY_PATH,
       continuation: "not-a-real-token-%%%",
     });
-    expect(journey.resumeHref).toBe("/");
+    expect(journey.resumeHref).toBe("/home");
+  });
+
+  it("uses the configured app home for an invalid continuation", () => {
+    expect(
+      signInJourney({
+        at: SIGN_IN_ENTRY_PATH,
+        continuation: "not-a-real-token-%%%",
+        homePath: "/inbox",
+      }).resumeHref,
+    ).toBe("/inbox");
+    expect(
+      signInJourney({
+        at: "/mail/sign-in",
+        basePath: "/mail",
+        continuation: "not-a-real-token-%%%",
+        homePath: "/inbox",
+      }).resumeHref,
+    ).toBe("/mail/inbox");
+  });
+
+  it("rejects unsafe configured home paths", () => {
+    for (const homePath of [
+      "https://evil.example",
+      "//evil.example",
+      "/inbox?next=/evil",
+      "/inbox#evil",
+      "/inbox/../evil",
+      "/sign-in",
+      "/workspace/sign-in",
+      "/workspace/_agent-native/sign-in",
+      "/workspace/login",
+      "/workspace/signup",
+    ]) {
+      expect(
+        signInJourney({ at: SIGN_IN_ENTRY_PATH, homePath }).resumeHref,
+      ).toBe("/home");
+    }
+    expect(
+      signInJourney({ at: SIGN_IN_ENTRY_PATH, homePath: "/" }).resumeHref,
+    ).toBe("/");
   });
 
   it("preserves search params for login-form-at-this-URL routes", () => {
@@ -314,7 +354,7 @@ describe("signInJourneyInlineScript", () => {
       encodeContinuation: (p: string | null) => string;
       homeHref: () => string;
     };
-    expect(evaluated.homeHref()).toBe("/mail");
+    expect(evaluated.homeHref()).toBe("/mail/home");
     expect(evaluated.encodeContinuation("/mail/inbox")).toBe(
       encodeContinuation("/mail/inbox", "/mail"),
     );
@@ -324,5 +364,10 @@ describe("signInJourneyInlineScript", () => {
     expect(evaluated.signInJourney({ at: "/mail/login" })).toEqual(
       signInJourney({ at: "/mail/login", basePath: "/mail" }),
     );
+
+    const configured = new Function(
+      `${script}; return __anCreateSignInJourney("/mail", "/inbox");`,
+    )() as { homeHref: () => string };
+    expect(configured.homeHref()).toBe("/mail/inbox");
   });
 });

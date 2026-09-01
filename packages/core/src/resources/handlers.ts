@@ -7,7 +7,9 @@ import {
 } from "h3";
 import { createError } from "h3";
 
+import { canUpdateAutomationResource } from "../automations/service.js";
 import { uploadFile } from "../file-upload/index.js";
+import { parseJobResource } from "../jobs/frontmatter.js";
 import { getOrgContext } from "../org/context.js";
 import { getSession } from "../server/auth.js";
 import {
@@ -440,6 +442,30 @@ export async function handleGetResource(event: any) {
   if (!canReadOwner(resource.owner, email, orgId)) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
+  }
+
+  if (
+    resource.path.startsWith("jobs/") &&
+    resource.path.endsWith(".md") &&
+    /^webhookToken\s*:/m.test(resource.content)
+  ) {
+    let legacyWebhookMeta: ReturnType<typeof parseJobResource>["meta"];
+    try {
+      legacyWebhookMeta = parseJobResource(resource.content).meta;
+    } catch {
+      setResponseStatus(event, 404);
+      return { error: "Resource not found" };
+    }
+    if (
+      legacyWebhookMeta.webhookToken &&
+      !(await canUpdateAutomationResource(
+        { userEmail: email, orgId, appId: legacyWebhookMeta.appId },
+        resource,
+      ))
+    ) {
+      setResponseStatus(event, 404);
+      return { error: "Resource not found" };
+    }
   }
 
   const query = getQuery(event);

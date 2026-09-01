@@ -60,6 +60,11 @@ describe("resolveBuilderApiAuthorization", () => {
     await expect(resolveBuilderApiAuthorization(ASSETS_WRITE)).resolves.toBe(
       "Bearer <OAUTH_TOKEN_EXAMPLE>",
     );
+    expect(getBuilderOAuthSessionMock).toHaveBeenCalledWith(
+      "user@example.com",
+      null,
+      ASSETS_WRITE,
+    );
     // OAuth wins outright — the legacy key is never even consulted.
     expect(resolveBuilderPrivateKeyMock).not.toHaveBeenCalled();
   });
@@ -144,6 +149,7 @@ describe("resolveBuilderApiAuthorization", () => {
     expect(getBuilderOAuthSessionMock).toHaveBeenCalledWith(
       "user@example.com",
       "org-recording",
+      ASSETS_WRITE,
     );
   });
 
@@ -168,6 +174,11 @@ describe("canAuthorizeBuilderApiRequest", () => {
 
     await expect(canAuthorizeBuilderApiRequest(ASSETS_WRITE)).resolves.toBe(
       false,
+    );
+    expect(getBuilderOAuthSessionMock).toHaveBeenCalledWith(
+      "user@example.com",
+      null,
+      ASSETS_WRITE,
     );
   });
 

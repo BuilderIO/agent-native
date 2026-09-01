@@ -11,14 +11,30 @@ const dbMocks = vi.hoisted(() => ({
   getDb: vi.fn(),
 }));
 
+const backendMocks = vi.hoisted(() => ({
+  get: vi.fn(),
+}));
+
+const firstPartyMocks = vi.hoisted(() => ({
+  query: vi.fn(),
+}));
+
 vi.mock("@agent-native/core/settings", () => settingsMocks);
 vi.mock("../db/index.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../db/index.js")>()),
   getDb: dbMocks.getDb,
 }));
+vi.mock("./first-party-analytics-backend.js", () => ({
+  getFirstPartyAnalyticsBackend: backendMocks.get,
+}));
+vi.mock("./first-party-analytics.js", () => ({
+  queryFirstPartyAnalytics: firstPartyMocks.query,
+}));
 
 import {
+  buildBigQueryAlertQuery,
   deleteAnalyticsAlertRule,
+  evaluateAndNotifyAnalyticsAlertRule,
   evaluateAnalyticsAlertRuleRows,
   ensureDefaultAnalyticsAlertRules,
   getAnalyticsAlertRuleDefaults,
@@ -133,6 +149,8 @@ describe("analytics alert evaluation", () => {
     settingsMocks.getUserSetting.mockReset();
     settingsMocks.putUserSetting.mockReset();
     dbMocks.getDb.mockReset();
+    backendMocks.get.mockReset();
+    firstPartyMocks.query.mockReset();
   });
 
   afterEach(() => {
@@ -219,6 +237,255 @@ describe("analytics alert evaluation", () => {
 
     expect(result.triggered).toBe(true);
     expect(result.observedValue).toBe(2);
+  });
+
+  it("loads candidate events from BigQuery when the scope has cut over", async () => {
+    backendMocks.get.mockResolvedValue({ sink: "bigquery", table: null });
+    firstPartyMocks.query.mockResolvedValue({
+      rows: [
+        {
+          id: "evt-1",
+          event_name: "agent_run_terminal",
+          user_id: null,
+          anonymous_id: null,
+          user_key: "user-1",
+          session_id: "session-1",
+          timestamp: "2026-08-31T12:00:00.000Z",
+          event_date: "2026-08-31",
+          received_at: "2026-08-31T12:00:01.000Z",
+          url: null,
+          path: null,
+          hostname: null,
+          referrer: null,
+          app: "chat",
+          template: "chat",
+          signed_in: "true",
+          properties: JSON.stringify({
+            status: "completed",
+            deployment_environment: "production",
+          }),
+          context: "{}",
+        },
+      ],
+      schema: [],
+    });
+    dbMocks.getDb.mockReturnValue({
+      update: () => ({
+        set: () => ({ where: async () => undefined }),
+      }),
+    });
+
+    const result = await evaluateAndNotifyAnalyticsAlertRule(
+      {
+        id: "rule-1",
+        name: "Production chat errors",
+        description: "",
+        eventName: "agent_run_terminal",
+        filters: [
+          { field: "properties.status", value: "errored" },
+          {
+            field: "properties.deployment_environment",
+            value: "production",
+          },
+        ],
+        thresholdMode: "event_count",
+        distinctBy: null,
+        threshold: 1,
+        windowMinutes: 10,
+        cooldownMinutes: 60,
+        severity: "critical",
+        channels: ["inbox"],
+        emailRecipients: [],
+        slackWebhookUrl: null,
+        webhookUrl: null,
+        enabled: true,
+        lastEvaluatedAt: null,
+        lastTriggeredAt: null,
+        lastStatus: null,
+        lastError: null,
+        createdAt: "2026-08-31T12:00:00.000Z",
+        updatedAt: "2026-08-31T12:00:00.000Z",
+        ownerEmail: "owner@example.test",
+        orgId: "org-1",
+      },
+      new Date("2026-08-31T12:05:00.000Z"),
+    );
+
+    expect(result.status).toBe("ok");
+    expect(firstPartyMocks.query).toHaveBeenCalledWith(
+      expect.stringContaining("JSON_VALUE(properties, '$.status') = 'errored'"),
+      { userEmail: "owner@example.test", orgId: "org-1" },
+    );
+  });
+
+  it("builds a scoped BigQuery query with positive alert filters", () => {
+    const query = buildBigQueryAlertQuery(
+      {
+        eventName: "agent_run_terminal",
+        filters: [
+          { field: "properties.status", value: "errored" },
+          { field: "properties.deployment_environment", value: "beta" },
+        ],
+        ownerEmail: "owner@example.test",
+        orgId: "org-1",
+      },
+      "2026-08-31T12:00:00.000Z",
+      "2026-08-31T12:10:00.000Z",
+    );
+
+    expect(query).toContain("org_id = 'org-1'");
+    expect(query).toContain("event_name = 'agent_run_terminal'");
+    expect(query).toContain("JSON_VALUE(properties, '$.status') = 'errored'");
+    expect(query).toContain(
+      "JSON_VALUE(properties, '$.deployment_environment') = 'beta'",
+    );
+  });
+
+  it("normalizes personal BigQuery alert scope by email case", () => {
+    const query = buildBigQueryAlertQuery(
+      {
+        eventName: "agent_run_terminal",
+        filters: [],
+        ownerEmail: "Owner@Example.Test",
+        orgId: null,
+      },
+      "2026-08-31T12:00:00.000Z",
+      "2026-08-31T12:10:00.000Z",
+    );
+
+    expect(query).toContain("LOWER(owner_email) = LOWER('Owner@Example.Test')");
+  });
+
+  it("preserves null and structured JSON filter semantics in BigQuery", () => {
+    const query = buildBigQueryAlertQuery(
+      {
+        eventName: "agent_run_terminal",
+        filters: [
+          { field: "user_id", value: null },
+          { field: "properties.tags", op: "exists", value: true },
+          { field: "properties.status", op: "in", value: [null, "errored"] },
+        ],
+        ownerEmail: "owner@example.test",
+        orgId: "org-1",
+      },
+      "2026-08-31T12:00:00.000Z",
+      "2026-08-31T12:10:00.000Z",
+    );
+
+    expect(query).toContain("user_id IS NULL");
+    expect(query).not.toContain("JSON_VALUE(properties, '$.tags')");
+    expect(query).not.toContain("JSON_VALUE(properties, '$.status')");
+  });
+
+  it("keeps JSON filters for the in-memory evaluator and pushes string contains", () => {
+    const query = buildBigQueryAlertQuery(
+      {
+        eventName: "agent_run_terminal",
+        filters: [
+          { field: "app", op: "contains", value: "chat" },
+          { field: "properties.message", op: "contains", value: "bug" },
+          { field: "properties.payload", value: { kind: "bug" } },
+        ],
+        ownerEmail: "owner@example.test",
+        orgId: "org-1",
+      },
+      "2026-08-31T12:00:00.000Z",
+      "2026-08-31T12:10:00.000Z",
+    );
+
+    expect(query).toContain("STRPOS(COALESCE(app, ''), 'chat') > 0");
+    expect(query).not.toContain("JSON_VALUE(properties, '$.message')");
+    expect(query).not.toContain("JSON_VALUE(properties, '$.payload')");
+  });
+
+  it("fails closed for unsupported BigQuery alert fields", () => {
+    expect(() =>
+      buildBigQueryAlertQuery(
+        {
+          eventName: "agent_run_terminal",
+          filters: [{ field: "properties.message[0]", value: "bug" }],
+          ownerEmail: "owner@example.test",
+          orgId: "org-1",
+        },
+        "2026-08-31T12:00:00.000Z",
+        "2026-08-31T12:10:00.000Z",
+      ),
+    ).toThrow("unsupported field");
+  });
+
+  it("paginates BigQuery alert candidates before evaluating deferred filters", async () => {
+    backendMocks.get.mockResolvedValue({ sink: "bigquery", table: null });
+    const page = Array.from({ length: 5_000 }, (_, index) => ({
+      id: `evt-${index}`,
+      event_name: "agent_run_terminal",
+      timestamp: "2026-08-31T12:00:00.123456Z",
+      properties: "{}",
+      context: "{}",
+    }));
+    firstPartyMocks.query
+      .mockResolvedValueOnce({ rows: page, schema: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "evt-final",
+            event_name: "agent_run_terminal",
+            timestamp: "2026-08-31T11:59:59.000Z",
+            properties: JSON.stringify({ status: "errored" }),
+            context: "{}",
+          },
+        ],
+        schema: [],
+      });
+    dbMocks.getDb.mockReturnValue({
+      update: () => ({
+        set: () => ({ where: async () => undefined }),
+      }),
+    });
+
+    const result = await evaluateAndNotifyAnalyticsAlertRule(
+      {
+        id: "rule-1",
+        name: "Production chat errors",
+        description: "",
+        eventName: "agent_run_terminal",
+        filters: [
+          { field: "properties.status", op: "contains", value: "errored" },
+        ],
+        thresholdMode: "event_count",
+        distinctBy: null,
+        threshold: 2,
+        windowMinutes: 10,
+        cooldownMinutes: 60,
+        severity: "critical",
+        channels: ["inbox"],
+        emailRecipients: [],
+        slackWebhookUrl: null,
+        webhookUrl: null,
+        enabled: true,
+        lastEvaluatedAt: null,
+        lastTriggeredAt: null,
+        lastStatus: null,
+        lastError: null,
+        createdAt: "2026-08-31T12:00:00.000Z",
+        updatedAt: "2026-08-31T12:00:00.000Z",
+        ownerEmail: "owner@example.test",
+        orgId: "org-1",
+      },
+      new Date("2026-08-31T12:05:00.000Z"),
+    );
+
+    expect(result.status).toBe("ok");
+    expect(result.observedValue).toBe(1);
+    expect(firstPartyMocks.query).toHaveBeenCalledTimes(2);
+    expect(firstPartyMocks.query.mock.calls[1]?.[0]).toContain(
+      "TIMESTAMP('2026-08-31T12:00:00.123456Z')",
+    );
+    expect(firstPartyMocks.query.mock.calls[1]?.[0]).toContain(
+      "id < 'evt-4999'",
+    );
+    expect(firstPartyMocks.query.mock.calls[1]?.[0]).toContain(
+      ") AS analytics_alert_page WHERE (timestamp < TIMESTAMP('",
+    );
   });
 
   it("keeps sweep ordering fair instead of cycling only recently evaluated rules", () => {

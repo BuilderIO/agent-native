@@ -6,12 +6,103 @@ import {
 
 import type { TranscriptSegment } from "./transcript-segments";
 
-export const CLIP_AGENT_CONTEXT_VERSION = 1;
+export const CLIP_AGENT_CONTEXT_VERSION = 2;
 export const AGENT_CONTEXT_ENDPOINT = "/api/agent-context.json";
 export const AGENT_TRANSCRIPT_ENDPOINT = "/api/agent-transcript.json";
 export const AGENT_FRAME_ENDPOINT = "/api/agent-frame.jpg";
 export const CLIP_AGENT_ACCESS_TOKEN_PREFIX = "clip-agent-context";
 export const CLIPS_AGENT_ACCESS_PARAM = AGENT_ACCESS_PARAM || "agent_access";
+export const CLIPS_WEBMCP_MAX_TRANSCRIPT_SEGMENTS = 50;
+
+export const CLIPS_WEBMCP_TOOL_NAMES = {
+  context: "clips-get-context",
+  transcript: "clips-get-transcript",
+  frame: "clips-get-frame",
+} as const;
+
+export const CLIPS_WEBMCP_INPUT_SCHEMAS = {
+  context: {
+    type: "object",
+    properties: {},
+    additionalProperties: false,
+  },
+  transcript: {
+    type: "object",
+    properties: {
+      startMs: {
+        type: "number",
+        minimum: 0,
+        description: "Only return segments that overlap this start time.",
+      },
+      endMs: {
+        type: "number",
+        minimum: 0,
+        description: "Only return segments that overlap this end time.",
+      },
+      startIndex: {
+        type: "integer",
+        minimum: 0,
+        description:
+          "Stable segment index for pagination; prefer nextStartIndex from the previous page.",
+      },
+      maxSegments: {
+        type: "integer",
+        minimum: 1,
+        maximum: CLIPS_WEBMCP_MAX_TRANSCRIPT_SEGMENTS,
+        description: "Maximum number of transcript segments to return.",
+      },
+    },
+    additionalProperties: false,
+  },
+  frame: {
+    type: "object",
+    properties: {
+      atMs: {
+        type: "number",
+        minimum: 0,
+        description: "Video timestamp in milliseconds.",
+      },
+    },
+    required: ["atMs"],
+    additionalProperties: false,
+  },
+};
+
+export const CLIPS_WEBMCP_TOOL_DEFINITIONS = [
+  {
+    name: CLIPS_WEBMCP_TOOL_NAMES.context,
+    title: "Get clip context",
+    description:
+      "Read clip metadata, readiness, transcript status, and the existing fallback API URLs.",
+    inputSchema: CLIPS_WEBMCP_INPUT_SCHEMAS.context,
+    annotations: { readOnlyHint: true, untrustedContentHint: true },
+  },
+  {
+    name: CLIPS_WEBMCP_TOOL_NAMES.transcript,
+    title: "Get clip transcript",
+    description:
+      "Read timestamped transcript segments. Use nextStartIndex to page through long transcripts without losing overlapping segments.",
+    inputSchema: CLIPS_WEBMCP_INPUT_SCHEMAS.transcript,
+    annotations: { readOnlyHint: true, untrustedContentHint: true },
+  },
+  {
+    name: CLIPS_WEBMCP_TOOL_NAMES.frame,
+    title: "Get clip frame",
+    description:
+      "Get a JPEG image URL for the clip at a requested video timestamp.",
+    inputSchema: CLIPS_WEBMCP_INPUT_SCHEMAS.frame,
+    availability: "ready",
+    annotations: { readOnlyHint: true, untrustedContentHint: true },
+  },
+];
+
+export const CLIPS_WEBMCP_DISCOVERY = {
+  protocol: "WebMCP",
+  scope: "page-local",
+  tools: CLIPS_WEBMCP_TOOL_DEFINITIONS,
+  instructions:
+    "If this clip page is open in a WebMCP-capable browser, list its page tools before using clips-get-context, clips-get-transcript, or clips-get-frame. Use nextStartIndex for transcript pagination so overlapping segments are not lost. If WebMCP is unavailable, use agentContextUrl and the existing apis.context, apis.transcript, and apis.frame URLs instead.",
+};
 
 export type AgentClipReadiness = {
   state: "preparing" | "ready" | "failed";
@@ -67,9 +158,10 @@ export function buildAgentDiscoveryPayload({
     recordingStatus: status ?? "unknown",
     agentReadiness: readiness,
     agentContextUrl,
+    webmcp: CLIPS_WEBMCP_DISCOVERY,
     instructions:
       readiness.instruction ??
-      "Fetch agentContextUrl for the transcript and JPEG frame URLs. Fetch the frame URLs to SEE the screen, not just read the transcript.",
+      "Fetch agentContextUrl for the transcript and JPEG frame URLs. If the page is open in a WebMCP-capable browser, list its page tools first and use them when available. Use nextStartIndex when paging transcript segments so overlapping segments are not lost. Fetch the frame URLs to SEE the screen, not just read the transcript.",
   };
 }
 
@@ -168,6 +260,10 @@ export function buildAgentApiUrls(
 export function safeMs(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.round(value));
+}
+
+export function nextAgentTranscriptStartMs(endMs: number): number {
+  return Math.min(Number.MAX_SAFE_INTEGER, safeMs(endMs) + 1);
 }
 
 export function formatAgentTimestamp(ms: number): string {

@@ -13,7 +13,7 @@ import type {
 } from "../jobs/frontmatter.js";
 
 export interface TriggerFrontmatter extends JobFrontmatter {
-  /** "schedule" = cron-based (legacy jobs). "event" = fires on bus event. */
+  /** "schedule" = cron, "event" = bus event, "webhook" = public POST. */
   triggerType: JobTriggerType;
   /**
    * "agentic" = full runAgentLoop; the only mode `manage-automations` will

@@ -287,7 +287,7 @@ const LOGOS: Logo[] = LOGO_ENTRIES.map((entry) => ({
         width={entry.srcWidth}
         height={entry.srcHeight}
         crossOrigin="anonymous"
-        sizes="(max-width: 768px) 17vw, (max-width: 1400px) 11vw, 156px"
+        sizes="(max-width: 768px) 17vw, (max-width: 1300px) 11vw, 145px"
         loading="lazy"
         decoding="async"
         className={entry.fill ? LOGO_IMG_FILL_CLASS : LOGO_IMG_CLASS}

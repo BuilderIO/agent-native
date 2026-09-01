@@ -17,7 +17,7 @@ import { FIRST_PARTY_DASHBOARD_ID } from "../server/lib/first-party-metric-catal
 
 export default defineAction({
   description:
-    "Get a SQL analytics dashboard by ID. By default this returns compact panel summaries and layout/order fields without giant SQL strings; use includeConfig=true only when you need the full dashboard config for a detailed SQL/config edit.",
+    "Get a SQL analytics dashboard by ID. By default this returns compact panel summaries, layout/order fields, and current-version certification status without giant SQL strings; use includeConfig=true only when you need the full dashboard config for a detailed SQL/config edit.",
   schema: z.object({
     id: z.string().describe("The dashboard ID"),
     includeConfig: z

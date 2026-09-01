@@ -16,8 +16,8 @@
  *
  * CI flake strategy (do not fight Vite first-load dep optimization):
  * 1. Poll the unauthenticated JSON API from process launch until it returns 401.
- * 2. One page.goto to `/` so auto-login runs in the browser.
- * 3. Poll for Home / auth — never re-goto during active Vite reloads.
+ * 2. One page.goto to `/home` so local auto-login runs before the public shell.
+ * 3. Navigate to `/` and verify the authenticated client handoff to `/home`.
  * 4. waitForViteDepsQuiet(server logs) before strict assertions.
  * 5. Retry goto/evaluate only for transient Playwright navigation errors.
  */
@@ -956,8 +956,8 @@ async function waitForAuthenticatedShell(
 ): Promise<string> {
   const serverLogs = running.logs;
 
-  log(`navigating to ${baseUrl}/ (auto-login path)`);
-  await gotoCommitted(page, `${baseUrl}/`);
+  log(`navigating to ${baseUrl}/home (auto-login path)`);
+  await gotoCommitted(page, `${baseUrl}/home`);
 
   const homeLink = page.getByRole("link", { name: /^(Home|Chat)$/ });
   const shellDeadline = Date.now() + shellTimeoutMs;
@@ -994,6 +994,19 @@ async function waitForAuthenticatedShell(
 
   const sessionEmail = await readAuthenticatedSessionEmail(page, baseUrl);
   log(`authenticated session: ${sessionEmail}`);
+
+  log(`navigating to ${baseUrl}/ (public shell handoff)`);
+  await gotoCommitted(page, `${baseUrl}/`);
+  await waitForHomeLink(page, shellTimeoutMs, {
+    baseUrl,
+    renavigateOnTimeout: true,
+  });
+  assert.equal(
+    new URL(page.url()).pathname,
+    "/home",
+    "authenticated public root should hand off to /home",
+  );
+
   return sessionEmail;
 }
 
@@ -1127,7 +1140,7 @@ async function main(): Promise<void> {
     console.log(`  url:      ${running.baseUrl}`);
     console.log(`  app:      ${appDir}`);
     console.log(
-      "  checked:  scaffold → install → dev server → auto-login → /agent → / (Chat)",
+      "  checked:  scaffold → install → dev server → /home auth → / handoff → Chat",
     );
     console.log(
       "  checked:  unauthenticated startup poll recovers to HTTP 401",

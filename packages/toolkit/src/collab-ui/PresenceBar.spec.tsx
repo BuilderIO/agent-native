@@ -21,24 +21,36 @@ describe("PresenceBar", () => {
     act(() => root.unmount());
     container.remove();
     vi.restoreAllMocks();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
-  it("gives the integrated AI editing label space after the avatar", () => {
+  it("shows AI initials with an editing tooltip", () => {
+    vi.useFakeTimers();
     act(() => {
-      root.render(
-        <PresenceBar
-          activeUsers={[]}
-          agentPresent
-          agentActive
-          showAgentEditingDot={false}
-        />,
-      );
+      root.render(<PresenceBar activeUsers={[]} agentActive agentPresent />);
     });
 
-    const label = Array.from(container.querySelectorAll("span")).find(
-      (element) => element.textContent === "AI editing",
+    const avatar = container.querySelector<HTMLElement>(
+      '[aria-label="AI is editing"]',
     );
-    expect(label?.style.padding).toBe("0px 0px 0px 2px");
+    expect(avatar?.textContent).toBe("AI");
+    expect(container.textContent).toBe("AI");
+
+    act(() => {
+      avatar?.dispatchEvent(new Event("pointermove", { bubbles: true }));
+      vi.advanceTimersByTime(200);
+    });
+
+    expect(
+      document
+        .querySelector('[data-agent-native-tooltip="true"]')
+        ?.textContent?.includes("AI is editing"),
+    ).toBe(true);
+
+    act(() => {
+      root.render(<PresenceBar activeUsers={[]} agentPresent />);
+    });
+    expect(container.querySelector('[aria-label="AI agent"]')).not.toBeNull();
   });
 });

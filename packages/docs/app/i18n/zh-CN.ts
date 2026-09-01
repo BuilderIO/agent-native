@@ -62,6 +62,7 @@ const zhCN = {
     dialogLabel: "搜索文档",
     placeholder: "搜索文档...",
     empty: "输入内容以搜索所有文档",
+    toggleChatSidebar: "切换聊天侧边栏",
     loadError: "搜索加载失败。请重试。",
     retry: "重试",
     noResults: "未找到“{{query}}”的结果",
@@ -492,7 +493,7 @@ const zhCN = {
     },
     showcase: {
       title: "你能用 Agent-Native 构建什么？",
-      body: "从聊天、专注的内部工具，到完整的面向客户的产品，任何形态都可以从这里开始。每个应用都为用户提供 UI，也为 agent 提供完成同样工作的工具。",
+      body: "理解你的工作、采取行动并与你协作的智能体应用。构建你自己的应用，或试用这些开源应用中的一个。",
       browseApps: "浏览应用",
       scrollLeft: "向左滚动应用",
       scrollRight: "向右滚动应用",
@@ -508,7 +509,7 @@ const zhCN = {
       community: "社区",
       legal: "法律",
       docs: "文档",
-      actions: "行动",
+      download: "下载",
       apps: "应用",
       privacyPolicy: "隐私政策",
       saasTerms: "SaaS 条款",
@@ -527,20 +528,55 @@ const zhCN = {
     title: "您拥有的开源、代理本机应用程序",
     eyebrow: "从一个可运行的 app 开始，让 agent 继续改进它。",
     body: "你可以自定义一切。",
+    firstPartyTitle: "Agent-Native 官方应用",
     community: "想要空白应用？从框架指南开始从零构建。",
     createYourOwn: "从零开始",
-    communityTitle: "社区模板",
+    communityTitle: "社区应用",
     communityDescription:
-      "由作者独立维护的应用。可从公开 GitHub 仓库安装；如有托管版本，也可以先在线体验。",
-    submitCommunityTemplate: "提交你的模板",
+      "探索由作者维护的社区应用。有托管版本时可以先体验，也可以查看源代码并自行定制。",
+    submitCommunityTemplate: "打开 GitHub 表单",
     communityEmpty:
-      "社区目录现已开放。请将专注于明确场景的 Agent-Native 应用发布到公开仓库并提交收录。",
+      "社区目录现已开放。请发布专注于明确场景的 Agent-Native 应用并提交收录。",
     publishGuide: "阅读发布指南",
     communityTrust:
-      "社区模板属于第三方代码。运行前请检查仓库、许可证、依赖项和安装脚本。",
+      "社区应用属于第三方代码。运行前请检查源代码、许可证、依赖项和安装脚本。",
     copyCommunityInstallCommand: "复制安装命令",
     viewRepository: "查看仓库",
     tryCommunityDemo: "体验演示",
+    customizeDescription: "你可以完全自定义这份代码。",
+    customizeOnline: "在线定制",
+    customizeLocally: "本地定制",
+    communityNew: "新应用",
+    communityComingSoon: "即将推出",
+    communityGithubStars: "{{count}} 个 GitHub 星标",
+    tryCommunityApp: "试用应用",
+    viewCommunitySource: "查看源代码",
+    communityEyebrow: "社区应用",
+    communityScreenshots: "截图",
+    previousScreenshot: "上一张截图",
+    nextScreenshot: "下一张截图",
+    communityNoScreenshots: "审核后将在这里显示截图。",
+    communityScreenshotAlt: "{{name}} 截图 {{index}}",
+    communityNoHostedVersion: "托管版本即将推出。通过源代码链接关注开发进展。",
+    communitySubmissionTitle: "分享社区应用",
+    communitySubmissionDescription:
+      "告诉我们在哪里找到你的应用以及它的用途。发布目录前，我们会先审核这些信息。",
+    communitySubmissionName: "应用名称",
+    communitySubmissionNamePlaceholder: "客户支持中心",
+    communitySubmissionUrl: "应用 URL",
+    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionDescriptionLabel: "描述",
+    communitySubmissionDescriptionPlaceholder: "应用做什么，适合哪些人？",
+    communitySubmissionRepository: "GitHub 仓库（可选）",
+    communitySubmissionRepositoryPlaceholder:
+      "https://github.com/owner/repository",
+    communitySubmissionScreenshots: "截图 URL（可选）",
+    communitySubmissionScreenshotsPlaceholder: "每行填写一个公开图片 URL",
+    communitySubmissionSubmit: "继续前往 GitHub",
+    communitySubmissionReady: "GitHub issue 草稿已准备好，请在那里完成提交。",
+    communitySubmissionOpenDraft: "打开草稿",
+    communitySubmissionValidation:
+      "请填写名称、描述和有效的应用 URL。可选 URL 也必须有效。",
   },
   buildFromScratch: {
     title: "从零开始构建",
@@ -574,8 +610,7 @@ const zhCN = {
   templates: {
     clips: {
       replaces: "替代或增强 Loom、Granola 和 Wisprflow",
-      description:
-        "带有浏览器调试捕获、日历同步会议记录和 Fn-hold 语音听写的屏幕录制 — 所有这些都经过转录、总结和搜索，代理可以编辑其中任何内容。",
+      description: "录制屏幕、会议和语音笔记，让代理了解发生了什么并采取行动。",
     },
     plan: {
       replaces: "面向 Codex、Claude Code 和编码代理的可视化计划模式",
@@ -585,27 +620,27 @@ const zhCN = {
     design: {
       replaces: "替代或增强设计原型工具",
       description:
-        "Agent-Native HTML 原型工作室。生成交互式 Alpine/Tailwind 设计，比较变体，实时微调控件，并导出结果。",
+        "将提示转化为符合你的设计系统的交互式设计，同时由代理根据反馈完善每个界面。",
     },
     content: {
       replaces: "替换或增强 Obsidian 为 MDX、Notion、Google Docs",
       description:
-        "编辑本地 Markdown/MDX 文件（如 Obsidian），生成丰富的交互式自定义块，并使用 AI 代理来起草、重写和发布。",
+        "处理你的文档，同时由代理以你的口吻起草内容、创建交互式内容并发布到你的网站。",
     },
     slides: {
       replaces: "替换或增强 Google Slides、Pitch",
       description:
-        "根据提示生成完整的演示文稿。视觉或对话方式编辑。 AI 图像生成、8 种布局和内置演示模式。",
+        "根据提示或现有幻灯片创建符合品牌且可编辑的演示文稿，代理可以创建、编辑和完善。",
     },
     analytics: {
       replaces: "Amplitude 和 FullStory 的开源替代品",
       description:
-        "连接任何数据源、提示任何图表、构建可重用的仪表板。代理编写 SQL、生成可视化并改进应用程序。",
+        "连接你的数据，让代理用通俗语言回答问题，并将结果转化为图表和仪表板。",
     },
     mail: {
       replaces: "替换或增强 Superhuman、Gmail",
       description:
-        "Superhuman 风格的电子邮件客户端，具有键盘快捷键、AI 分类、多帐户支持和电子邮件自动化。拥有您的收件箱工作流程。",
+        "一个键盘优先的收件箱，代理可以排列邮件优先级、起草回复、总结会话并持续跟进。",
     },
     forms: {
       replaces: "替换或增强 Typeform、Google Forms",
@@ -615,12 +650,12 @@ const zhCN = {
     assets: {
       replaces: "替换或增强 DAMs、品牌资产库和 AI 媒体生成器",
       description:
-        "用于上传、品牌库、可搜索参考和品牌图像/视频生成的数字资产管理器，其他应用程序可以通过 A2A 调用或嵌入为选择器。",
+        "为代理提供共享的品牌指南、图片和视频库，以便在各个应用中创建和选择符合品牌的媒体。",
     },
     calendar: {
       replaces: "替换或增强 Google Calendar、Calendly",
       description:
-        "具有 Google 同步、可用性管理和公共预订页面的完整日历。该代理会查找空闲时段、创建活动并管理您的日程安排。",
+        "汇集你的多个 Google 日历，让代理查找空闲时间、安排或重新安排活动，并管理预约。",
     },
     dispatch: {
       replaces: "代理本机应用程序的任务控制",
@@ -1595,7 +1630,7 @@ const zhCN = {
   },
   downloadPage: {
     title: "下载 Agent-Native",
-    body: "所有 agent-native 应用都在一个桌面外壳中。内置生产应用，并提供用于本地开发的开发模式开关。",
+    body: "试用面向会议、设计、演示文稿、数据、日程安排、邮件等场景的智能体应用，全部集成在一个桌面应用中。",
     openDesktop: "打开 Agent-Native",
     downloadInstaller: "下载安装程序",
     downloadStarted: "下载已开始",
@@ -1604,27 +1639,33 @@ const zhCN = {
     checkingRelease: "正在检查最新桌面版...",
     retry: "重试",
     unavailable: "此平台暂无安装程序",
+    allPlatforms: "所有平台",
     stable: "稳定版",
     nightly: "Nightly",
-    switchToNightly: "切换到 Nightly 构建",
-    switchToStable: "切换到稳定版构建",
-    runFromSource: "或从源码运行",
+    runFromSource: "自己构建",
     runFromSourceBody:
-      "还没有适用于你平台的安装程序，或更喜欢 CLI？使用 npm 创建新应用并在本地运行；支持 macOS、Windows 和 Linux。",
+      "通过命令行创建一个 Agent-Native 应用，并在 macOS、Windows 或 Linux 上本地运行。",
     platforms: {
       mac: {
         primary: "下载 Apple Silicon 版本",
         alternative: "Intel Mac 版本",
+        gridPrimary: "Apple Silicon",
+        gridAlternative: "Intel",
       },
       windows: {
         primary: "下载 Windows 版本",
         alternative: "ARM64",
+        gridPrimary: "x64 安装程序",
+        gridAlternative: "Arm64 安装程序",
         note: "Windows 10 或更高版本。",
       },
       linux: {
         primary: "下载 Linux 归档包",
         appImage: "下载 AppImage",
         deb: "下载 .deb",
+        gridPrimary: "x86_64",
+        gridAppImage: "通用",
+        gridDeb: "Debian / Ubuntu",
         note: "归档包无需 FUSE 即可使用。某些发行版上的 AppImage 可能需要 FUSE 2。",
       },
     },
@@ -2105,8 +2146,9 @@ const zhCN = {
     dispatchDevelopers: "开发者指南",
     forms: "表单",
     formsOverview: "概览",
-    formsBuildingPublishing: "构建与发布",
-    formsResponses: "回复与洞察",
+    formsFeatures: "功能",
+    formsAgent: "与 Agent 对话",
+    formsIntegrations: "跨应用使用",
     docsComponents: "Docs Components",
     formsDevelopers: "开发者指南",
   },

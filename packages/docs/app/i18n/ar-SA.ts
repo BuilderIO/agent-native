@@ -63,6 +63,7 @@ const arSA = {
     dialogLabel: "البحث في الوثائق",
     placeholder: "ابحث في الوثائق...",
     empty: "اكتب للبحث في كل الوثائق",
+    toggleChatSidebar: "تبديل الشريط الجانبي للدردشة",
     loadError: "تعذر تحميل البحث. حاول مرة أخرى.",
     retry: "حاول مرة أخرى",
     noResults: "لا توجد نتائج لـ “{{query}}”",
@@ -498,7 +499,7 @@ const arSA = {
     },
     showcase: {
       title: "ما الذي يمكنك بناؤه باستخدام Agent-Native؟",
-      body: "ابدأ بالدردشة، أو بأداة داخلية مركّزة، أو بمنتج كامل موجّه للعملاء. كل تطبيق يمنح المستخدمين واجهة ويمنح الوكلاء الأدوات لأداء العمل نفسه.",
+      body: "تطبيقات وكيلة تفهم عملك وتتخذ الإجراءات وتتعاون معك. أنشئ تطبيقك أو جرّب أحد هذه التطبيقات مفتوحة المصدر.",
       browseApps: "استعرض التطبيقات",
       scrollLeft: "تمرير التطبيقات إلى اليسار",
       scrollRight: "تمرير التطبيقات إلى اليمين",
@@ -514,7 +515,7 @@ const arSA = {
       community: "المجتمع",
       legal: "قانوني",
       docs: "الوثائق",
-      actions: "الإجراءات",
+      download: "تنزيل",
       apps: "التطبيقات",
       privacyPolicy: "سياسة الخصوصية",
       saasTerms: "شروط SaaS",
@@ -533,20 +534,57 @@ const arSA = {
     title: "تطبيقات الوكيل الأصلية مفتوحة المصدر التي تمتلكها",
     eyebrow: "ابدأ من app جاهز ودع الوكيل يطوره.",
     body: "يمكنك تخصيص كل شيء.",
+    firstPartyTitle: "من إنشاء Agent-Native",
     community: "تريد تطبيقا فارغا؟ ابدأ من الصفر مع دليل إطار العمل.",
     createYourOwn: "ابدأ من الصفر",
-    communityTitle: "قوالب المجتمع",
+    communityTitle: "تطبيقات المجتمع",
     communityDescription:
-      "تطبيقات مستقلة يصونها مؤلفوها. ثبّتها من مستودع GitHub عام أو جرّب نسخة مستضافة عندما تكون متاحة.",
-    submitCommunityTemplate: "أرسل قالبك",
+      "اكتشف تطبيقات يديرها مؤلفوها. جرّب النسخة المستضافة عند توفرها، أو راجع المصدر وخصص التطبيق بنفسك.",
+    submitCommunityTemplate: "افتح نموذج GitHub",
     communityEmpty:
-      "باب الإدراج في المجتمع مفتوح. انشر تطبيق Agent-Native مركّزًا في مستودع عام وأرسله إلى الكتالوج.",
+      "باب الإدراج في المجتمع مفتوح. انشر تطبيق Agent-Native مركّزًا وأرسله إلى الكتالوج.",
     publishGuide: "اقرأ دليل النشر",
     communityTrust:
-      "قوالب المجتمع شيفرة من جهات خارجية. راجع المستودع والترخيص والاعتماديات وبرامج التثبيت قبل تشغيلها.",
+      "تطبيقات المجتمع شيفرة من جهات خارجية. راجع المصدر والترخيص والاعتماديات وبرامج التثبيت قبل تشغيلها.",
     copyCommunityInstallCommand: "نسخ أمر التثبيت",
     viewRepository: "عرض المستودع",
     tryCommunityDemo: "تجربة العرض",
+    customizeDescription: "يمكنك تخصيص هذه الشيفرة بالكامل.",
+    customizeOnline: "تخصيص عبر الإنترنت",
+    customizeLocally: "تخصيص محليًا",
+    communityNew: "جديد",
+    communityComingSoon: "قريبًا",
+    communityGithubStars: "{{count}} نجمة على GitHub",
+    tryCommunityApp: "تجربة التطبيق",
+    viewCommunitySource: "عرض المصدر",
+    communityEyebrow: "تطبيق مجتمعي",
+    communityScreenshots: "لقطات الشاشة",
+    previousScreenshot: "لقطة الشاشة السابقة",
+    nextScreenshot: "لقطة الشاشة التالية",
+    communityNoScreenshots: "ستظهر لقطات الشاشة هنا بعد المراجعة.",
+    communityScreenshotAlt: "لقطة شاشة {{name}} رقم {{index}}",
+    communityNoHostedVersion:
+      "ستتوفر نسخة مستضافة قريبًا. تابع التطوير عبر رابط المصدر.",
+    communitySubmissionTitle: "شارك تطبيقًا مجتمعيًا",
+    communitySubmissionDescription:
+      "أخبرنا أين نجد تطبيقك وماذا يفعل. سنراجع التفاصيل قبل نشر الإدراج.",
+    communitySubmissionName: "اسم التطبيق",
+    communitySubmissionNamePlaceholder: "مركز دعم العملاء",
+    communitySubmissionUrl: "رابط التطبيق",
+    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionDescriptionLabel: "الوصف",
+    communitySubmissionDescriptionPlaceholder:
+      "ماذا يفعل التطبيق ولمن هو مخصص؟",
+    communitySubmissionRepository: "مستودع GitHub (اختياري)",
+    communitySubmissionRepositoryPlaceholder:
+      "https://github.com/owner/repository",
+    communitySubmissionScreenshots: "روابط لقطات الشاشة (اختياري)",
+    communitySubmissionScreenshotsPlaceholder: "رابط صورة عام واحد في كل سطر",
+    communitySubmissionSubmit: "المتابعة إلى GitHub",
+    communitySubmissionReady: "مسودة issue على GitHub جاهزة. أكمل الإرسال هناك.",
+    communitySubmissionOpenDraft: "فتح المسودة",
+    communitySubmissionValidation:
+      "أضف اسمًا ووصفًا ورابط تطبيق صالحًا. يجب أن تكون الروابط الاختيارية صالحة أيضًا.",
   },
   buildFromScratch: {
     title: "ابنِ من الصفر",
@@ -583,7 +621,7 @@ const arSA = {
     clips: {
       replaces: "يستبدل أو يعزز Loom وGranola وWisprflow",
       description:
-        "تسجيلات الشاشة مع التقاط تصحيح أخطاء المتصفح، وملاحظات الاجتماع المتزامنة مع التقويم، والإملاء الصوتي مع الاستمرار Fn - كلها مكتوبة وملخصة وقابلة للبحث، مع وكيل يمكنه تحرير أي منها.",
+        "يسجل شاشتك واجتماعاتك وملاحظاتك الصوتية كي يفهم الوكلاء ما حدث ويتخذوا الإجراء المناسب.",
     },
     plan: {
       replaces: "وضع تخطيط مرئي لـ Codex وClaude Code ووكلاء البرمجة",
@@ -593,27 +631,27 @@ const arSA = {
     design: {
       replaces: "يستبدل أو يعزز أدوات نمذجة التصميم",
       description:
-        "استوديو نمذجة HTML agent-native. أنشئ تصاميم Alpine/Tailwind تفاعلية، قارن النسخ، حسّن عناصر التحكم مباشرة، وصدّر النتيجة.",
+        "يحوّل التعليمات إلى تصاميم تفاعلية تتبع نظام التصميم الخاص بك، بينما يحسّن الوكيل كل شاشة بناءً على الملاحظات.",
     },
     content: {
       replaces: "يستبدل أو يزيد Obsidian لـ MDX، Notion، Google Docs",
       description:
-        "قم بتحرير ملفات Markdown/MDX المحلية مثل Obsidian، وقم بإنشاء كتل مخصصة تفاعلية غنية، واستخدم وكيل AI للصياغة وإعادة الكتابة والنشر.",
+        "يعمل على مستنداتك بينما يكتب الوكيل بأسلوبك وينشئ محتوى تفاعليًا وينشره على موقعك.",
     },
     slides: {
       replaces: "يستبدل أو يزيد Google Slides، Pitch",
       description:
-        "إنشاء عروض تقديمية كاملة من موجه. تحرير بصريا أو محادثة. AI إنشاء الصور و8 تخطيطات ووضع العرض التقديمي المدمج.",
+        "ينشئ عروضًا تقديمية قابلة للتعديل ومتوافقة مع علامتك من التعليمات أو الشرائح الحالية، ويمكن للوكيل إنشاءها وتحريرها وتحسينها.",
     },
     analytics: {
       replaces: "البديل مفتوح المصدر لـ Amplitude وFullStory",
       description:
-        "قم بتوصيل أي مصدر بيانات، والمطالبة بأي مخطط، وإنشاء لوحات معلومات قابلة لإعادة الاستخدام. يقوم الوكيل بكتابة SQL وإنشاء تصورات وتطوير التطبيق.",
+        "يربط بياناتك كي يجيب الوكيل عن الأسئلة بلغة بسيطة ويحوّل النتائج إلى مخططات ولوحات معلومات.",
     },
     mail: {
       replaces: "يستبدل أو يزيد Superhuman، Gmail",
       description:
-        "عميل بريد إلكتروني بنمط Superhuman مع اختصارات لوحة المفاتيح، وAI الفرز، ودعم الحسابات المتعددة، وأتمتة البريد الإلكتروني. امتلك سير عمل البريد الوارد الخاص بك.",
+        "صندوق وارد مصمم للعمل بلوحة المفاتيح، حيث يرتب الوكيل البريد حسب الأولوية ويصوغ الردود ويلخص المحادثات ويتابعها.",
     },
     forms: {
       replaces: "يستبدل أو يزيد Typeform، Google Forms",
@@ -624,12 +662,12 @@ const arSA = {
       replaces:
         "يستبدل أو يعزز DAMs ومكتبات أصول العلامة التجارية وAI ومولدات الوسائط",
       description:
-        "مدير الأصول الرقمية للتحميلات ومكتبات العلامات التجارية والمراجع القابلة للبحث وإنشاء الصور/مقاطع الفيديو الخاصة بالعلامة التجارية والتي يمكن للتطبيقات الأخرى الاتصال بها من خلال A2A أو تضمينها كمنتقي.",
+        "يوفر للوكلاء مكتبة مشتركة من إرشادات العلامة والصور ومقاطع الفيديو لإنشاء وسائط متوافقة مع العلامة واختيارها عبر التطبيقات.",
     },
     calendar: {
       replaces: "يستبدل أو يزيد Google Calendar، Calendly",
       description:
-        "تقويم كامل مع مزامنة Google وإدارة التوفر وصفحة حجز عامة. يجد الوكيل فتحات مفتوحة، وينشئ الأحداث، ويدير الجدول الزمني الخاص بك.",
+        "يجمع تقاويم Google الخاصة بك كي يجد الوكيل وقتًا مناسبًا ويجدول الأحداث أو يعيد جدولتها ويدير الحجوزات.",
     },
     dispatch: {
       replaces: "التحكم في المهمة لتطبيقات الوكيل الأصلية",
@@ -1610,7 +1648,7 @@ const arSA = {
   },
   downloadPage: {
     title: "تنزيل Agent-Native",
-    body: "كل تطبيقاتك agent-native في واجهة سطح مكتب واحدة. تطبيقات الإنتاج مدمجة، مع تبديل وضع التطوير للتطوير المحلي.",
+    body: "جرّب تطبيقات وكيلية للاجتماعات والتصميم والعروض التقديمية والبيانات والجدولة والبريد الإلكتروني والمزيد، كلها في تطبيق سطح مكتب واحد.",
     openDesktop: "افتح Agent-Native",
     downloadInstaller: "تنزيل المثبّت",
     downloadStarted: "بدأ التنزيل",
@@ -1619,27 +1657,33 @@ const arSA = {
     checkingRelease: "جارٍ التحقق من أحدث إصدار لسطح المكتب...",
     retry: "إعادة المحاولة",
     unavailable: "المثبّت غير متاح لهذه المنصة",
+    allPlatforms: "جميع المنصات",
     stable: "مستقر",
     nightly: "Nightly",
-    switchToNightly: "التبديل إلى إصدارات Nightly",
-    switchToStable: "التبديل إلى الإصدارات المستقرة",
-    runFromSource: "أو شغّله من المصدر",
+    runFromSource: "أنشئ تطبيقك الخاص",
     runFromSourceBody:
-      "لا يوجد مثبّت لمنصتك بعد، أو تفضّل CLI؟ أنشئ تطبيقًا جديدًا باستخدام npm وشغّله محليًا — يعمل على macOS وWindows وLinux.",
+      "أنشئ تطبيق Agent-Native من سطر الأوامر وشغّله محليًا على macOS أو Windows أو Linux.",
     platforms: {
       mac: {
         primary: "تنزيل لإصدار Apple Silicon",
         alternative: "Mac بمعالج Intel",
+        gridPrimary: "Apple Silicon",
+        gridAlternative: "Intel",
       },
       windows: {
         primary: "تنزيل لإصدار Windows",
         alternative: "ARM64",
+        gridPrimary: "مثبّت x64",
+        gridAlternative: "مثبّت Arm64",
         note: "Windows 10 أو أحدث.",
       },
       linux: {
         primary: "تنزيل أرشيف Linux",
         appImage: "تنزيل AppImage",
         deb: "تنزيل .deb",
+        gridPrimary: "x86_64",
+        gridAppImage: "عام",
+        gridDeb: "Debian / Ubuntu",
         note: "يعمل الأرشيف بدون FUSE. قد يتطلب AppImage إصدار FUSE 2 في بعض التوزيعات.",
       },
     },
@@ -2126,8 +2170,9 @@ const arSA = {
     dispatchDevelopers: "دليل المطور",
     forms: "النماذج",
     formsOverview: "نظرة عامة",
-    formsBuildingPublishing: "الإنشاء والنشر",
-    formsResponses: "الردود والرؤى",
+    formsFeatures: "الميزات",
+    formsAgent: "التحدث مع الوكيل",
+    formsIntegrations: "الاستخدام عبر التطبيقات",
     docsComponents: "Docs Components",
     formsDevelopers: "دليل المطور",
   },

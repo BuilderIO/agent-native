@@ -102,7 +102,7 @@ describe("SqlChart refresh feedback", () => {
       '[data-dashboard-report-loading="true"]',
     );
     expect(loadingSkeleton).not.toBeNull();
-    expect(loadingSkeleton?.className).toContain("animate-pulse");
+    expect(loadingSkeleton?.className).toContain("skeleton-shimmer");
     expect(loadingSkeleton?.className).toContain(
       "analytics-dashboard-panel-skeleton",
     );
