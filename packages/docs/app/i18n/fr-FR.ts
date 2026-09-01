@@ -555,8 +555,7 @@ const frFR = {
     copyCommunityInstallCommand: "Copier la commande d’installation",
     viewRepository: "Voir le dépôt",
     tryCommunityDemo: "Essayer la démo",
-    customizeDescription:
-      "Utilisez cette app comme point de départ. Personnalisez-la selon vos besoins.",
+    customizeDescription: "Utilisez cette app comme point de départ.",
     customizeOnline: "En ligne",
     customizeOnlineBadge: "Rejoindre la liste d'attente",
     customizeLocally: "Local",

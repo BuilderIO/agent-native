@@ -543,7 +543,7 @@ const zhCN = {
     copyCommunityInstallCommand: "复制安装命令",
     viewRepository: "查看仓库",
     tryCommunityDemo: "体验演示",
-    customizeDescription: "以这个应用为起点，按你的需求进行定制。",
+    customizeDescription: "以这个应用为起点。",
     customizeOnline: "在线",
     customizeOnlineBadge: "加入等候名单",
     customizeLocally: "本地",

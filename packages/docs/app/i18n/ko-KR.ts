@@ -553,8 +553,7 @@ const koKR = {
     copyCommunityInstallCommand: "설치 명령 복사",
     viewRepository: "저장소 보기",
     tryCommunityDemo: "데모 사용해 보기",
-    customizeDescription:
-      "이 앱을 시작점으로 사용하고 필요에 맞게 맞춤 설정하세요.",
+    customizeDescription: "이 앱을 시작점으로 사용하세요.",
     customizeOnline: "온라인",
     customizeOnlineBadge: "대기자 명단 등록",
     customizeLocally: "로컬",

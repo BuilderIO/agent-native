@@ -556,8 +556,7 @@ const esES = {
     copyCommunityInstallCommand: "Copiar comando de instalación",
     viewRepository: "Ver repositorio",
     tryCommunityDemo: "Probar demo",
-    customizeDescription:
-      "Usa esta app como punto de partida. Personalízala según tus necesidades.",
+    customizeDescription: "Usa esta app como punto de partida.",
     customizeOnline: "En línea",
     customizeOnlineBadge: "Unirse a la lista de espera",
     customizeLocally: "Local",

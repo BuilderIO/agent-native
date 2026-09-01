@@ -541,7 +541,7 @@ const messages = {
     copyCommunityInstallCommand: "複製安裝指令",
     viewRepository: "查看儲存庫",
     tryCommunityDemo: "體驗示範",
-    customizeDescription: "以這個應用程式為起點，依你的需求進行自訂。",
+    customizeDescription: "以這個應用程式為起點。",
     customizeOnline: "線上",
     customizeOnlineBadge: "加入候補名單",
     customizeLocally: "本機",

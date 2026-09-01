@@ -549,8 +549,7 @@ const arSA = {
     copyCommunityInstallCommand: "نسخ أمر التثبيت",
     viewRepository: "عرض المستودع",
     tryCommunityDemo: "تجربة العرض",
-    customizeDescription:
-      "استخدم هذا التطبيق كنقطة بداية وخصّصه بما يناسب احتياجاتك.",
+    customizeDescription: "استخدم هذا التطبيق كنقطة بداية.",
     customizeOnline: "عبر الإنترنت",
     customizeOnlineBadge: "انضم إلى قائمة الانتظار",
     customizeLocally: "محلي",

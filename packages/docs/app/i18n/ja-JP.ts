@@ -553,8 +553,7 @@ const jaJP = {
     copyCommunityInstallCommand: "インストールコマンドをコピー",
     viewRepository: "リポジトリを見る",
     tryCommunityDemo: "デモを試す",
-    customizeDescription:
-      "このアプリを出発点として、必要に合わせてカスタマイズできます。",
+    customizeDescription: "このアプリを出発点として使えます。",
     customizeOnline: "オンライン",
     customizeOnlineBadge: "ウェイトリストに登録",
     customizeLocally: "ローカル",

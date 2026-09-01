@@ -549,8 +549,7 @@ const hiIN = {
     copyCommunityInstallCommand: "इंस्टॉल कमांड कॉपी करें",
     viewRepository: "रिपॉज़िटरी देखें",
     tryCommunityDemo: "डेमो आज़माएँ",
-    customizeDescription:
-      "इस ऐप को शुरुआती बिंदु के रूप में उपयोग करें और अपनी ज़रूरत के अनुसार customize करें।",
+    customizeDescription: "इस ऐप को शुरुआती बिंदु के रूप में उपयोग करें।",
     customizeOnline: "ऑनलाइन",
     customizeOnlineBadge: "वेटलिस्ट में शामिल हों",
     customizeLocally: "लोकल",

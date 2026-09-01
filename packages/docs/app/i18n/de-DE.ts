@@ -555,8 +555,7 @@ const deDE = {
     copyCommunityInstallCommand: "Installationsbefehl kopieren",
     viewRepository: "Repository ansehen",
     tryCommunityDemo: "Demo testen",
-    customizeDescription:
-      "Nutze diese App als Ausgangspunkt. Passe sie an deine Anforderungen an.",
+    customizeDescription: "Nutze diese App als Ausgangspunkt.",
     customizeOnline: "Online",
     customizeOnlineBadge: "Warteliste beitreten",
     customizeLocally: "Lokal",

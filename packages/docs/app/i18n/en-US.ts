@@ -552,8 +552,7 @@ const enUS = {
     copyCommunityInstallCommand: "Copy install command",
     viewRepository: "View repository",
     tryCommunityDemo: "Try demo",
-    customizeDescription:
-      "Use this app as a starting point. Customize it to fit your needs.",
+    customizeDescription: "Use this app as a starting point.",
     customizeOnline: "Online",
     customizeOnlineBadge: "Join waitlist",
     customizeLocally: "Local",
