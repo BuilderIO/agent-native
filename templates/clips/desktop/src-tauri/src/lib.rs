@@ -99,6 +99,17 @@ pub fn run() {
                     _ => {}
                 }
             }
+            // The popover and camera bubble are separate native windows. If
+            // the popover is closed before its webview emits the visibility
+            // event, tear down the bubble from the native lifecycle instead.
+            if window.label() == "popover"
+                && matches!(
+                    event,
+                    tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
+                )
+            {
+                clips::close_bubble_if_idle(window.app_handle());
+            }
         })
         .invoke_handler(tauri::generate_handler![
             // clips commands
@@ -147,6 +158,7 @@ pub fn run() {
             clips::complete_voice_dictation,
             clips::paste_last_dictation,
             clips::set_recording_state,
+            clips::release_recording_state,
             clips::set_meeting_active,
             clips::get_active_meeting_id,
             clips::quit_teardown_done,
@@ -495,6 +507,7 @@ pub fn run() {
                         dlog!("[clips-tray] popover blur, elapsed_ms={}", elapsed_ms);
                         if elapsed_ms >= 1500 {
                             let _ = handle.hide();
+                            clips::close_bubble_if_idle(&app_handle);
                             let _ = app_handle.emit("clips:popover-visible", false);
                         }
                     }

@@ -413,3 +413,19 @@ Pour une analyse plus complexe :
 Claude Code calls: ask-agent(message: "Prepare a full breakdown of Q3 signups by source, with trends")
 → The analytics agent runs multiple queries, reasons about the data, and returns a formatted report
 ```
+
+## Découverte avec fetch
+
+Agent-Native fournit également un catalogue de compatibilité HTTP à
+`GET /.well-known/mcp.json`. Un agent peut le récupérer avec `fetch` ou `curl`,
+même sans navigateur ouvert. Il décrit les endpoints d'actions, leurs schémas
+JSON, le caractère en lecture seule et les exigences d'authentification. Les
+outils peuvent être appelés via `POST /mcp/tool/:name`; l'authentification,
+l'autorisation, la validation et l'isolation du tenant restent côté serveur.
+
+Il s'agit d'une convention de compatibilité Agent-Native, pas d'un élément de
+WebMCP ou de MCP Streamable HTTP. `/mcp` reste l'endpoint MCP standard et les
+outils locaux de `document.modelContext` restent disponibles dans les navigateurs
+compatibles. Clips publie `agentContextUrl` et des URL directes vers le transcript
+complet et les images JPEG, afin que le contenu soit accessible directement par
+HTTP.
