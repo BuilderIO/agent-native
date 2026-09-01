@@ -21,6 +21,8 @@ describe("DefaultSpinner", () => {
     act(() => root.unmount());
     container.remove();
     delete window.__agentNativeLoadingLabelIndex;
+    delete window.__agentNativeLoadingLabelHydrated;
+    delete window.__agentNativeLoadingLabelInterval;
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
   });
@@ -108,5 +110,13 @@ describe("DefaultSpinner", () => {
     expect((container.firstElementChild as HTMLElement).style.height).toBe(
       "100%",
     );
+  });
+
+  it("marks the static shell as hydrated", () => {
+    act(() => {
+      root.render(<DefaultSpinner />);
+    });
+
+    expect(window.__agentNativeLoadingLabelHydrated).toBe(true);
   });
 });

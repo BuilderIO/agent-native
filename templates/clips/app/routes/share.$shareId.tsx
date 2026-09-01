@@ -464,7 +464,11 @@ export default function ShareRoute() {
   const [commentAtMs, setCommentAtMs] = useState(0);
   const [commentDraft, setCommentDraft] = useState("");
   const [isPlayerFullscreen, setIsPlayerFullscreen] = useState(false);
-  const { session, isLoading: sessionLoading } = useSession();
+  const {
+    session,
+    isLoading: sessionLoading,
+    status: sessionStatus,
+  } = useSession();
   const requestAccess = useActionMutation<
     {
       alreadyHasAccess: boolean;
@@ -595,10 +599,9 @@ export default function ShareRoute() {
       const data = await res.json().catch(() => ({}));
       return { ok: res.ok, status: res.status, data };
     },
-    // Private/org share links are public-shell routes, so the first render can
-    // happen before the browser session is known. Waiting avoids a transient
-    // anonymous 401/404 becoming the authenticated viewer's final state.
-    enabled: !!shareId && !sessionLoading,
+    // Let public shares resolve without waiting for auth. A session-loading
+    // 401/404 remains behind the spinner until the authenticated retry.
+    enabled: !!shareId,
     refetchInterval: (q) => {
       const payload = (q.state.data as { data?: any } | undefined)?.data;
       const rec = payload?.recording;
@@ -868,7 +871,15 @@ export default function ShareRoute() {
     }
   }
 
-  if (sessionLoading || dataQ.isLoading) {
+  const sessionNeedsRetry =
+    sessionStatus === "loading" || sessionStatus === "signing-out";
+  const shareNeedsSession =
+    !dataQ.data ||
+    dataQ.data.status === 401 ||
+    dataQ.data.status === 404 ||
+    !dataQ.data.data?.recording;
+
+  if (dataQ.isLoading || (sessionNeedsRetry && shareNeedsSession)) {
     return (
       <>
         {agentDiscovery}
@@ -1115,9 +1126,9 @@ export default function ShareRoute() {
     canDownloadRecording || isLoomEmbedBacked ? recording.videoUrl : null;
 
   return (
-    <div className="clips-recording-view flex min-h-screen w-full max-w-full flex-col overflow-x-hidden bg-background xl:h-screen xl:flex-row xl:overflow-hidden [&_.agent-composer-root]:!bg-background [&_.agent-composer-root]:!border-0">
+    <div className="clips-recording-view flex h-[var(--agent-native-viewport-height,100vh)] min-h-0 w-full max-w-full flex-col overflow-hidden bg-background xl:h-screen xl:flex-row xl:overflow-hidden [&_.agent-composer-root]:!bg-background [&_.agent-composer-root]:!border-0">
       {agentDiscovery}
-      <div className="flex w-full min-w-0 flex-col xl:flex-1">
+      <div className="flex min-h-0 w-full min-w-0 flex-col xl:flex-1">
         <header className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 px-3 py-2 sm:px-4 sm:py-3 xl:flex-nowrap">
           {session ? (
             <Button
@@ -1237,7 +1248,7 @@ export default function ShareRoute() {
           </div>
         </header>
 
-        <div className="flex flex-col gap-0 overflow-hidden p-0 sm:gap-4 sm:p-4 xl:min-h-0 xl:flex-1 xl:overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col gap-0 overflow-hidden p-0 sm:gap-4 sm:p-4 xl:min-h-0 xl:flex-1 xl:overflow-hidden">
           <div className="relative aspect-video w-full xl:min-h-0 xl:flex-1 xl:aspect-auto">
             <VideoPlayer
               ref={playerRef}
@@ -1468,7 +1479,7 @@ export default function ShareRoute() {
         </div>
       </div>
 
-      <aside className="flex min-h-[420px] w-full min-w-0 shrink-0 flex-col bg-muted xl:min-h-0 xl:w-[380px] xl:flex">
+      <aside className="flex min-h-0 min-w-0 flex-1 flex-col bg-muted xl:w-[380px] xl:flex-none">
         <Tabs
           value={panel}
           onValueChange={setPanel}
