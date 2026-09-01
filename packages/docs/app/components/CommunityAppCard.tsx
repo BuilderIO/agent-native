@@ -10,12 +10,26 @@ import { Link } from "react-router";
 import { BuilderImage } from "./builder-image";
 import type { CommunityApp } from "./community-apps";
 import { sitePathForLocale } from "./docs-locale";
+import { buttonClassName } from "./website-redesign/ds/button";
 
 const CARD_ARROW_CLASS = [
   "mt-auto flex h-8 w-8 items-center justify-center rounded-[var(--b-radius)] border border-solid border-[var(--b-action-secondary-border)] bg-transparent text-[var(--b-text-primary)]",
   "transition-[background,border-color,color] duration-150 ease-[ease]",
   "group-hover:border-[var(--b-text-primary)] group-hover:bg-[var(--b-text-primary)] group-hover:text-[var(--b-bg-page)]",
 ].join(" ");
+
+// Same pairing the first-party cards use, so the two grids read as one set.
+const cardPrimaryActionClass = buttonClassName({
+  variant: "white",
+  compact: true,
+  className: "flex-1 uppercase",
+});
+
+const cardSecondaryActionClass = buttonClassName({
+  variant: "secondary",
+  compact: true,
+  className: "flex-1 uppercase",
+});
 
 function trackCommunityEvent(
   event: string,
@@ -38,7 +52,7 @@ export function CommunityAppCard({ app }: { app: CommunityApp }) {
         className="flex min-w-0 flex-1 flex-col no-underline"
         onClick={() => trackCommunityEvent("click community app", app, "card")}
       >
-        <div className="relative flex aspect-[320/256] items-center justify-center overflow-hidden border-b border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-raised)]">
+        <div className="relative flex aspect-[320/256] items-center justify-center overflow-hidden border-b border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)]">
           {app.screenshots[0] ? (
             <BuilderImage
               src={app.screenshots[0]}
@@ -58,10 +72,9 @@ export function CommunityAppCard({ app }: { app: CommunityApp }) {
               <IconArrowUpRight size={16} stroke={1.75} />
             </span>
           </div>
-          <p className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]">
-            {app.description}
-          </p>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] uppercase tracking-[0.04em] text-[var(--b-text-muted)]">
+          {/* Sits where the first-party cards put their eyebrow: mono caps in
+              the accent, above the description rather than below it. */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] uppercase tracking-[0.04em] text-[var(--b-text-eyebrow)]">
             {app.status ? (
               <span>
                 {app.status === "new"
@@ -77,10 +90,13 @@ export function CommunityAppCard({ app }: { app: CommunityApp }) {
               </span>
             ) : null}
           </div>
+          <p className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]">
+            {app.description}
+          </p>
         </div>
       </Link>
 
-      <div className="flex flex-wrap gap-2 border-t border-solid border-[var(--b-border-subtle)] p-[var(--spacing-5)] pt-0">
+      <div className="flex flex-wrap gap-2 border-t border-solid border-[var(--b-border-subtle)] px-[var(--spacing-5)] pt-[var(--spacing-4)] pb-[var(--spacing-5)]">
         {app.demoUrl ? (
           <a
             href={app.demoUrl}
@@ -89,7 +105,7 @@ export function CommunityAppCard({ app }: { app: CommunityApp }) {
             onClick={() =>
               trackCommunityEvent("click community app demo", app, "card")
             }
-            className="inline-flex min-h-8 flex-1 items-center justify-center gap-2 border border-solid border-[var(--b-action-primary-bg)] bg-[var(--b-action-primary-bg)] px-3 py-2 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] font-semibold uppercase leading-none tracking-[0.02em] text-[var(--b-action-primary-text)] no-underline transition-[background-color] duration-150 hover:bg-[var(--b-action-primary-hover)] hover:no-underline"
+            className={cardPrimaryActionClass}
           >
             <IconExternalLink size={14} aria-hidden="true" />
             {t("templatesPage.tryCommunityApp")}
@@ -103,7 +119,7 @@ export function CommunityAppCard({ app }: { app: CommunityApp }) {
             onClick={() =>
               trackCommunityEvent("click community app source", app, "card")
             }
-            className="inline-flex min-h-8 flex-1 items-center justify-center gap-2 border border-solid border-[var(--b-action-secondary-border)] bg-transparent px-3 py-2 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] font-semibold uppercase leading-none tracking-[0.02em] text-[var(--b-action-secondary-text)] no-underline transition-[background-color,border-color] duration-150 hover:border-[var(--b-text-primary)] hover:bg-[var(--b-action-secondary-hover)] hover:no-underline"
+            className={cardSecondaryActionClass}
           >
             {app.repositoryUrl ? (
               <IconBrandGithub size={14} aria-hidden="true" />
