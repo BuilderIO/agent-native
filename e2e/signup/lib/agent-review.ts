@@ -153,41 +153,64 @@ export async function reviewSignupJourney(
     });
   }
 
-  const response = await fetch(ANTHROPIC_API, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 2_000,
-      messages: [{ role: "user", content }],
-    }),
-    signal: AbortSignal.timeout(120_000),
-  });
+  let formatError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const requestContent =
+      attempt === 0
+        ? content
+        : [
+            {
+              type: "text",
+              text: "The previous response did not match the requested JSON schema. Return the exact schema again, using only high, medium, or low for finding severity.",
+            },
+            ...content,
+          ];
+    const response = await fetch(ANTHROPIC_API, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 2_000,
+        messages: [{ role: "user", content: requestContent }],
+      }),
+      signal: AbortSignal.timeout(120_000),
+    });
 
-  if (!response.ok) {
-    // An unreadable body and an empty body are different facts, and the one
-    // job this error has is to say why the review did not happen.
-    const body = await response.text().then(
-      (text) => text.slice(0, 300),
-      (error) => `<body unreadable: ${String(error)}>`,
-    );
-    throw new Error(
-      `Agent review request failed: HTTP ${response.status} ${body}`,
-    );
+    if (!response.ok) {
+      // An unreadable body and an empty body are different facts, and the one
+      // job this error has is to say why the review did not happen.
+      const body = await response.text().then(
+        (text) => text.slice(0, 300),
+        (error) => `<body unreadable: ${String(error)}>`,
+      );
+      throw new Error(
+        `Agent review request failed: HTTP ${response.status} ${body}`,
+      );
+    }
+
+    try {
+      const payload = (await response.json()) as {
+        content?: Array<{ type: string; text?: string }>;
+      };
+      const text = payload.content?.find(
+        (block) => block.type === "text",
+      )?.text;
+      if (!text) {
+        throw new Error("Agent review response contained no text block.");
+      }
+      return coerceReview(extractJson(text));
+    } catch (error) {
+      formatError = error;
+    }
   }
 
-  const payload = (await response.json()) as {
-    content?: Array<{ type: string; text?: string }>;
-  };
-  const text = payload.content?.find((block) => block.type === "text")?.text;
-  if (!text) {
-    throw new Error("Agent review response contained no text block.");
-  }
-  return coerceReview(extractJson(text));
+  throw formatError instanceof Error
+    ? formatError
+    : new Error(String(formatError));
 }
 
 export function renderReviewMarkdown(

@@ -22,13 +22,20 @@ function step(): JourneyStep {
 }
 
 function respondWith(text: string, ok = true, status = 200) {
-  globalThis.fetch = (async () =>
-    ({
+  respondWithSequence([text], ok, status);
+}
+
+function respondWithSequence(texts: string[], ok = true, status = 200) {
+  let index = 0;
+  globalThis.fetch = (async () => {
+    const text = texts[Math.min(index++, texts.length - 1)] ?? "";
+    return {
       ok,
       status,
       json: async () => ({ content: [{ type: "text", text }] }),
       text: async () => text,
-    }) as unknown as Response) as typeof fetch;
+    } as unknown as Response;
+  }) as typeof fetch;
 }
 
 afterEach(() => {
@@ -70,6 +77,17 @@ test("an unknown severity fails rather than being silently downgraded", async ()
     () => reviewSignupJourney("clips", "beta", [step()]),
     /unrecognised severity/,
   );
+});
+
+test("a malformed model response gets one format-only retry", async () => {
+  process.env.ANTHROPIC_API_KEY = "test-key";
+  respondWithSequence([
+    '{"summary":"x","findings":[{"severity":"catastrophic"}]}',
+    '{"summary":"ok","findings":[]}',
+  ]);
+  const review = await reviewSignupJourney("clips", "beta", [step()]);
+  assert.equal(review.summary, "ok");
+  assert.deepEqual(review.findings, []);
 });
 
 test("a fenced JSON reply parses into findings", async () => {
