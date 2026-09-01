@@ -181,6 +181,11 @@ export function RecordingPill() {
   const toolbarDraggingRef = useRef(false);
   const toolbarDragGenerationRef = useRef(0);
   const toolbarMoveFrameRef = useRef<number | null>(null);
+  const toolbarMovePromiseRef = useRef<Promise<void> | null>(null);
+  const toolbarPendingMoveRef = useRef<{
+    generation: number;
+    startPromise: Promise<unknown>;
+  } | null>(null);
   const toolbarDragStartPromiseRef = useRef<Promise<unknown>>(
     Promise.resolve(),
   );
@@ -1056,6 +1061,50 @@ export function RecordingPill() {
 
   // ---- interactions ----
 
+  function queueToolbarDragMove(
+    generation: number,
+    startPromise: Promise<unknown>,
+  ): Promise<void> {
+    toolbarPendingMoveRef.current = { generation, startPromise };
+    if (toolbarMovePromiseRef.current) return toolbarMovePromiseRef.current;
+
+    const movePromise = (async () => {
+      while (toolbarPendingMoveRef.current) {
+        const pendingMove = toolbarPendingMoveRef.current;
+        toolbarPendingMoveRef.current = null;
+        await pendingMove.startPromise;
+        if (
+          !toolbarDraggingRef.current ||
+          toolbarDragGenerationRef.current !== pendingMove.generation
+        ) {
+          continue;
+        }
+        await safeInvoke("toolbar_drag_move");
+      }
+    })();
+    toolbarMovePromiseRef.current = movePromise;
+    void movePromise.then(() => {
+      if (toolbarMovePromiseRef.current !== movePromise) return;
+      toolbarMovePromiseRef.current = null;
+      const pendingMove = toolbarPendingMoveRef.current;
+      if (pendingMove) {
+        void queueToolbarDragMove(
+          pendingMove.generation,
+          pendingMove.startPromise,
+        );
+      }
+    });
+    return movePromise;
+  }
+
+  async function waitForToolbarDragMoves(generation: number): Promise<void> {
+    while (toolbarDragGenerationRef.current === generation) {
+      const movePromise = toolbarMovePromiseRef.current;
+      if (!movePromise) return;
+      await movePromise;
+    }
+  }
+
   function handlePillPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (!hasTauri || event.pointerType !== "mouse" || event.button !== 0) {
       return;
@@ -1094,18 +1143,9 @@ export function RecordingPill() {
       ) {
         return;
       }
-      // Rust reads the live cursor, so replaying every pointer event only
-      // creates stale movement. Match the camera bubble: one unqueued sample
-      // per animation frame and let the newest cursor position win.
-      void startPromise.then(() => {
-        if (
-          !toolbarDraggingRef.current ||
-          toolbarDragGenerationRef.current !== generation
-        ) {
-          return;
-        }
-        void safeInvoke("toolbar_drag_move");
-      });
+      // Rust reads the live cursor, so keep one move in flight and retain only
+      // the newest pending frame instead of replaying stale cursor samples.
+      void queueToolbarDragMove(generation, startPromise);
     });
   }
 
@@ -1123,27 +1163,20 @@ export function RecordingPill() {
     } catch {
       // The pointer may already have been released by the platform.
     }
-    void startPromise
-      // Take one final live cursor sample after the last pointermove. This is
-      // the only move we await; there is no historical queue to drain.
-      .then(() => {
-        if (toolbarDragGenerationRef.current !== generation) return;
-        return safeInvoke("toolbar_drag_move");
-      })
-      .then(() => {
-        if (toolbarDragGenerationRef.current !== generation) return;
-        return safeInvoke("toolbar_drag_end");
-      })
-      .then(() => {
-        if (toolbarDragGenerationRef.current !== generation) return;
-        return new Promise<void>((resolve) =>
-          setTimeout(resolve, NATIVE_DOCK_SETTLE_MS),
-        );
-      })
-      .then(() => {
-        if (toolbarDragGenerationRef.current !== generation) return;
-        void settleNativePlayheadDock();
-      });
+    void (async () => {
+      await startPromise;
+      await waitForToolbarDragMoves(generation);
+      if (toolbarDragGenerationRef.current !== generation) return;
+      await safeInvoke("toolbar_drag_move");
+      if (toolbarDragGenerationRef.current !== generation) return;
+      await safeInvoke("toolbar_drag_end");
+      if (toolbarDragGenerationRef.current !== generation) return;
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, NATIVE_DOCK_SETTLE_MS),
+      );
+      if (toolbarDragGenerationRef.current !== generation) return;
+      void settleNativePlayheadDock();
+    })();
   }
 
   const card = completionCardState(doneStage, {
