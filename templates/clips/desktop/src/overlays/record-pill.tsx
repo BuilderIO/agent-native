@@ -1118,6 +1118,7 @@ export function RecordingPill() {
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
     } catch {
+      // coercion-ok: pointer capture is optional; native dragging remains authoritative
       // Pointer capture is best-effort; the native window can still finish a
       // short drag before the pointer leaves the overlay.
     }
@@ -1161,6 +1162,7 @@ export function RecordingPill() {
     try {
       event.currentTarget.releasePointerCapture(event.pointerId);
     } catch {
+      // coercion-ok: the platform may release capture before this best-effort cleanup
       // The pointer may already have been released by the platform.
     }
     void (async () => {

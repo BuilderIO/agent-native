@@ -452,7 +452,8 @@ describe("the recording playhead has a shared visual source", () => {
     expect(source).toContain('invoke("toolbar_set_bounds"');
     expect(source).toContain("positionRecordingPlayheadAtEdge");
     expect(source).toContain("playheadDockTransitioningRef");
-    expect(source).not.toContain("toolbarMovePromiseRef");
+    expect(source).toContain("toolbarMovePromiseRef");
+    expect(source).toContain("waitForToolbarDragMoves");
     expect(source).not.toContain("playheadSlotRef");
     expect(source).toContain("settleNativePlayheadDock");
     expect(source).toContain('safeInvoke("toolbar_save_position"');
