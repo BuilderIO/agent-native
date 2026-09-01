@@ -234,6 +234,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
   }
+  if (typeof entry.endsTurn === "boolean") {
+    out.endsTurn = entry.endsTurn;
+  }
   if (typeof entry.dedupe === "boolean") {
     out.dedupe = entry.dedupe;
   }
