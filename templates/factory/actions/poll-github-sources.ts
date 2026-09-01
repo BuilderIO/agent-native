@@ -102,6 +102,7 @@ export default defineAction({
     let issueCount = 0;
     let pullRequestCount = 0;
     let added = 0;
+    let updated = 0;
     const newlyObserved: NewlyObservedSource[] = [];
 
     await db.transaction(async (tx) => {
@@ -149,6 +150,7 @@ export default defineAction({
           ? issue.updatedAt
           : (existing?.lastSeenAt ?? issue.updatedAt);
         if (!existing) added += 1;
+        else updated += 1;
         if (!existing || sourceChanged) {
           newlyObserved.push({
             itemId: id,
@@ -248,6 +250,7 @@ export default defineAction({
         const updatedAt = sourceChanged ? now : (existing?.updatedAt ?? now);
         const lastSeenAt = pullRequest.updatedAt;
         if (!existing) added += 1;
+        else updated += 1;
         if (!existing || (sourceChanged && status === "pr_observed")) {
           newlyObserved.push({
             itemId: id,
@@ -315,7 +318,15 @@ export default defineAction({
           kind: "observed",
           source: "github",
           summary: "No open GitHub issues or pull requests were observed.",
-          details: { repository: repositoryName },
+          details: {
+            repository: repositoryName,
+            inboxLimit,
+            added: 0,
+            updated: 0,
+            authorFiltered: 0,
+            newlyObserved: 0,
+            truncated: false,
+          },
         },
         factoryId,
       );
@@ -332,7 +343,13 @@ export default defineAction({
             repository: repositoryName,
             issues: issueCount,
             pullRequests: pullRequestCount,
+            inboxLimit,
+            added,
+            updated,
+            authorFiltered: 0,
             newlyObserved: newlyObserved.length,
+            truncated: added + updated < issues.length + pullRequests.length,
+            itemIds: newlyObserved.map((item) => item.itemId),
           },
         },
         factoryId,

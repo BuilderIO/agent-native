@@ -17,6 +17,11 @@ export type FactoryAuditItemSnapshot = {
   summary: string | null;
   source: string | null;
   sourceUrl: string | null;
+  status?: string | null;
+  createdAt?: string | null;
+  lastSeenAt?: string | null;
+  slackBuilderReplyAt?: string | null;
+  slackDisposition?: string | null;
   userLabels?: Record<string, string>;
 };
 
@@ -32,7 +37,8 @@ export type FactoryAuditItemOutcome =
   | "held"
   | "dispatched"
   | "failed"
-  | "inspected";
+  | "inspected"
+  | "left";
 
 export type FactoryAuditReportItem = {
   itemId: string;
@@ -50,6 +56,9 @@ export type FactoryAuditReportItem = {
   guards: string | null;
   events: FactoryAuditEventRecord[];
   latestAt: string;
+  listedStatus: string | null;
+  firstSeenThisRun: boolean;
+  builderAlreadyStarted: boolean;
   userLabels?: Record<string, string>;
 };
 
@@ -70,10 +79,20 @@ export type FactoryAuditCounts = {
   held: number;
   dispatched: number;
   failed: number;
+  added: number;
+  listed: number;
+  left: number;
+  inboxLimit: number | null;
+  workLimit: number | null;
+  authorFiltered: number | null;
+  updated: number | null;
 };
 
 export type FactoryAuditReport = {
   counts: FactoryAuditCounts;
+  inbox: FactoryAuditReportItem[];
+  work: FactoryAuditReportItem[];
+  actions: FactoryAuditReportItem[];
   items: FactoryAuditReportItem[];
   trace: FactoryAuditTraceStep[];
 };
@@ -94,8 +113,13 @@ export function projectFactoryAuditReport(
     window ? runsInWindow(runs, window) : runs,
   );
   const chronological = [...events].sort(byCreatedAtAsc);
+  const listed = listedItemSnapshots(chronological);
+  const inboxIds = inboxItemIds(chronological);
+  const addedCount = readAddedCount(chronological, inboxIds.size);
+  const pollRollup = pollRollupEvent(chronological);
+  const listEvent = reviewListEvent(chronological);
 
-  const primaryItemIds = new Set<string>();
+  const primaryItemIds = new Set<string>([...listed.keys(), ...inboxIds]);
   for (const event of chronological) {
     if (!event.itemId) continue;
     if (
@@ -116,28 +140,52 @@ export function projectFactoryAuditReport(
         ),
         itemsById.get(itemId),
         latestRunByItem.get(itemId),
+        listed.get(itemId) ?? null,
+        inboxIds.has(itemId),
+        window,
       ),
     )
     .sort(
       (left, right) =>
         new Date(right.latestAt).getTime() - new Date(left.latestAt).getTime(),
     );
+  const itemsByReportId = new Map(
+    reportItems.map((item) => [item.itemId, item]),
+  );
+  const work = [...listed.keys()]
+    .map((itemId) => itemsByReportId.get(itemId))
+    .filter((item): item is FactoryAuditReportItem => Boolean(item));
+  const inbox = [...inboxIds]
+    .map((itemId) => itemsByReportId.get(itemId))
+    .filter((item): item is FactoryAuditReportItem => Boolean(item));
+  const actions = reportItems.filter(
+    (item) => item.outcome === "dispatched" || item.outcome === "failed",
+  );
+  const investigated = reportItems.filter((item) => item.outcome !== "left");
 
   const counts: FactoryAuditCounts = {
-    newlyObserved: uniqueItemIds(
-      chronological.filter((event) => isPollEvent(event) && event.itemId),
-    ).size,
-    scanned: scannedItemCount(chronological),
-    investigated: reportItems.length,
+    newlyObserved: addedCount,
+    scanned: listed.size > 0 ? listed.size : scannedItemCount(chronological),
+    investigated: investigated.length,
     held: reportItems.filter((item) => item.outcome === "held").length,
     dispatched: reportItems.filter((item) => item.outcome === "dispatched")
       .length,
     failed: reportItems.filter((item) => item.outcome === "failed").length,
+    added: addedCount,
+    listed: listed.size,
+    left: reportItems.filter((item) => item.outcome === "left").length,
+    inboxLimit: readNumberDetail(pollRollup?.details, "inboxLimit"),
+    workLimit: readNumberDetail(listEvent?.details, "limit"),
+    authorFiltered: readNumberDetail(pollRollup?.details, "authorFiltered"),
+    updated: readNumberDetail(pollRollup?.details, "updated"),
   };
 
   return {
     counts,
-    items: reportItems,
+    inbox,
+    work,
+    actions,
+    items: work.length > 0 ? work : investigated,
     trace: collapseTrace(chronological),
   };
 }
@@ -147,6 +195,9 @@ function projectItem(
   events: FactoryAuditEventRecord[],
   item: FactoryAuditItemSnapshot | undefined,
   run: FactoryAuditRunSnapshot | undefined,
+  listed: ListedItemSnapshot | null,
+  addedThisRun: boolean,
+  window?: { startedAt: number; finishedAt: number | null },
 ): FactoryAuditReportItem {
   const decision = events.find((event) => event.kind === "decision") ?? null;
   const dispatch =
@@ -156,10 +207,20 @@ function projectItem(
       new Date(event.createdAt).getTime() > new Date(latest).getTime()
         ? event.createdAt
         : latest,
-    events[0]?.createdAt ?? new Date(0).toISOString(),
+    events[0]?.createdAt ?? item?.createdAt ?? new Date(0).toISOString(),
   );
   const dispatchError = readDispatchError(dispatch, run);
-  const outcome = itemOutcome(decision, dispatch, dispatchError);
+  const opened = events.some((event) => INVESTIGATE_ACTIONS.has(event.action));
+  let outcome = itemOutcome(decision, dispatch, dispatchError);
+  if (outcome === "inspected" && listed && !opened) outcome = "left";
+  const firstSeenThisRun =
+    addedThisRun || createdDuringWindow(item?.createdAt, window);
+  const listedStatus = listed?.status ?? item?.status ?? null;
+  const builderAlreadyStarted =
+    listedStatus === "automation_started" ||
+    Boolean(item?.slackBuilderReplyAt) ||
+    Boolean(item?.slackDisposition) ||
+    startedBeforeWindow(run, window);
 
   return {
     itemId,
@@ -174,7 +235,7 @@ function projectItem(
     status:
       outcome === "failed"
         ? "error"
-        : outcome === "held"
+        : outcome === "held" || outcome === "left"
           ? "skipped"
           : "success",
     rationale: decision?.summary ?? dispatch?.summary ?? null,
@@ -185,6 +246,9 @@ function projectItem(
     guards: readGuardSummary(decision?.details?.guardResults),
     events,
     latestAt,
+    listedStatus,
+    firstSeenThisRun,
+    builderAlreadyStarted,
     userLabels: item?.userLabels,
   };
 }
@@ -200,6 +264,125 @@ function itemOutcome(
   if (decision?.status === "skipped") return "held";
   if (decision) return "held";
   return "inspected";
+}
+
+type ListedItemSnapshot = {
+  status: string | null;
+  outcome: string | null;
+};
+
+function listedItemSnapshots(
+  events: FactoryAuditEventRecord[],
+): Map<string, ListedItemSnapshot> {
+  const listed = new Map<string, ListedItemSnapshot>();
+  for (const event of events) {
+    if (event.action !== "list-triage-items") continue;
+    const rows = event.details.listedItems;
+    if (Array.isArray(rows)) {
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        const itemId = (row as { itemId?: unknown }).itemId;
+        if (typeof itemId !== "string" || !itemId) continue;
+        const status = (row as { status?: unknown }).status;
+        const outcome = (row as { outcome?: unknown }).outcome;
+        listed.set(itemId, {
+          status: typeof status === "string" && status ? status : null,
+          outcome: typeof outcome === "string" && outcome ? outcome : null,
+        });
+      }
+      continue;
+    }
+    for (const itemId of eventItemIds(event)) {
+      if (!listed.has(itemId)) {
+        listed.set(itemId, { status: null, outcome: null });
+      }
+    }
+  }
+  return listed;
+}
+
+function pollRollupEvent(
+  events: FactoryAuditEventRecord[],
+): FactoryAuditEventRecord | null {
+  return (
+    events.find(
+      (event) =>
+        isPollEvent(event) &&
+        !event.itemId &&
+        (typeof event.details.inboxLimit === "number" ||
+          typeof event.details.added === "number" ||
+          typeof event.details.newlyObserved === "number"),
+    ) ??
+    events.find((event) => isPollEvent(event) && !event.itemId) ??
+    null
+  );
+}
+
+function reviewListEvent(
+  events: FactoryAuditEventRecord[],
+): FactoryAuditEventRecord | null {
+  const lists = events.filter((event) => event.action === "list-triage-items");
+  return (
+    [...lists].reverse().find((event) => event.details.needsReview === true) ??
+    lists[lists.length - 1] ??
+    null
+  );
+}
+
+function inboxItemIds(events: FactoryAuditEventRecord[]): Set<string> {
+  const ids = new Set<string>();
+  const rollup = pollRollupEvent(events);
+  if (rollup) {
+    for (const itemId of eventItemIds(rollup)) ids.add(itemId);
+  }
+  for (const event of events) {
+    if (!isPollEvent(event) || !event.itemId) continue;
+    if (isEmptyObservation(event)) continue;
+    ids.add(event.itemId);
+  }
+  return ids;
+}
+
+function readAddedCount(
+  events: FactoryAuditEventRecord[],
+  fallback: number,
+): number {
+  const rollup = pollRollupEvent(events);
+  const added = readNumberDetail(rollup?.details, "added");
+  if (added !== null) return added;
+  const newlyObserved = readNumberDetail(rollup?.details, "newlyObserved");
+  if (newlyObserved !== null) return newlyObserved;
+  return fallback;
+}
+
+function readNumberDetail(
+  details: Record<string, unknown> | undefined,
+  key: string,
+): number | null {
+  const value = details?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function createdDuringWindow(
+  createdAt: string | null | undefined,
+  window?: { startedAt: number; finishedAt: number | null },
+): boolean {
+  if (!createdAt || !window) return false;
+  const at = Date.parse(createdAt);
+  if (!Number.isFinite(at)) return false;
+  const start = window.startedAt - 5_000;
+  const end = (window.finishedAt ?? Date.now()) + 5_000;
+  return at >= start && at <= end;
+}
+
+function startedBeforeWindow(
+  run: FactoryAuditRunSnapshot | undefined,
+  window?: { startedAt: number; finishedAt: number | null },
+): boolean {
+  if (!run || !window) return Boolean(run);
+  const at = Date.parse(run.startedAt);
+  if (!Number.isFinite(at)) return false;
+  return at < window.startedAt - 5_000;
 }
 
 function readDispatchError(

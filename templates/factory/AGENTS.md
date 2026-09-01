@@ -61,7 +61,7 @@ decisions, feedback, agent runs, and provider audit records.
 | `govern-factory-pull-request` | Apply PR evidence and ownership gates. |
 | `babysit-factory-pull-request` / `propose-pr-babysit-status` | Post the bot PR poke, or propose babysit status without writing. |
 | `list-factory-automations` / `create-factory-automation` / `save-factory-automation` / `run-factory-automation` | List, create, edit, or run jobs. Factories start empty. Hosted Slack/GitHub/Sentry jobs need a workspace connection or vault token. Author filters use Slack `U`/`W` or GitHub numeric ids. Limits are action-enforced. |
-| `list-factory-audit` | Inspect runs, evidence, and provider actions for one factory. |
+| `list-factory-audit` | Inspect inbox additions, items this run worked on, and provider actions for one factory. |
 | `get-factory-automation-health` | Inspect scheduler heartbeat and last error. |
 | `suggest-factory-rules` | Mine feedback into proposals. |
 | `reconcile-triage-run` | Persist PR-monitor observations; no GitHub write. |
