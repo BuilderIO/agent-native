@@ -1083,6 +1083,10 @@ export default function CodeAgentsHub({
     setChatFirstSurfacePanelOpen,
     setScheduledTasksOpen,
   ]);
+  const openChatFirstNewChat = useCallback(() => {
+    setHasChatFirstActiveChat(false);
+    returnToChatFirstChats();
+  }, [returnToChatFirstChats]);
   const handleTerminalPromptSubmit = useCallback((prompt: string) => {
     const request: DesktopTerminalPromptRequest = {
       id: ++terminalPromptSequence.current,
@@ -1193,7 +1197,7 @@ export default function CodeAgentsHub({
   const chatFirstNavigation = useMemo(
     () => ({
       activeTab: activeChatFirstPrimaryTab,
-      onNewChat: returnToChatFirstChats,
+      onNewChat: openChatFirstNewChat,
       onOpenChats: returnToChatFirstChats,
       onOpenAllApps: openChatFirstAllApps,
       onOpenIntegrations: () => openChatFirstApp("dispatch", "/integrations"),
@@ -1203,6 +1207,7 @@ export default function CodeAgentsHub({
       activeChatFirstPrimaryTab,
       openChatFirstApp,
       openChatFirstAllApps,
+      openChatFirstNewChat,
       openScheduledTasks,
       returnToChatFirstChats,
     ],
@@ -2880,8 +2885,13 @@ export default function CodeAgentsHub({
   const showTerminalSurface =
     terminalPreferences.enabled &&
     (terminalSessionStarted || hasChatFirstActiveChat || chatFirstAppSelected);
+  const canRenderChatFirstSurfacePanel =
+    hasChatFirstActiveChat &&
+    !chatFirstAllAppsOpen &&
+    !scheduledTasksOpen &&
+    (!chatFirstAppSelected || activeChatFirstSurfaceTab?.placement === "side");
   const canToggleChatFirstSurfacePanel =
-    hasChatFirstActiveChat && !chatFirstAppSelected;
+    canRenderChatFirstSurfacePanel && !chatFirstAppSelected;
   return (
     <QueryClientProvider client={codeAgentsQueryClient}>
       <div
@@ -3128,11 +3138,7 @@ export default function CodeAgentsHub({
             </div>
           )}
         />
-        {chatFirstSurfacePanel.open &&
-        (hasChatFirstActiveChat ||
-          (activeChatFirstSurfaceTab?.kind === "app" &&
-            activeChatFirstSurfaceTab.placement === "side")) &&
-        !chatFirstAppTakesMain ? (
+        {chatFirstSurfacePanel.open && canRenderChatFirstSurfacePanel ? (
           <ChatFirstSurfacePanel
             width={chatFirstSurfaceResize.width}
             onResizePointerDown={chatFirstSurfaceResize.onPointerDown}
