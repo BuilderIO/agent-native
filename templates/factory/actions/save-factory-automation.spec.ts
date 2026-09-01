@@ -170,6 +170,32 @@ describe("save-factory-automation", () => {
     expect(resourcePutIfCurrentMock).toHaveBeenCalled();
   });
 
+  it("surfaces a missing connector as an action failure when saving an enabled job", async () => {
+    assertFactoryConnectorReadyMock.mockRejectedValue(
+      new Error(
+        "Connect Slack in Dispatch or add a vault token before saving this job.",
+      ),
+    );
+    const { default: action } = await import("./save-factory-automation.js");
+    await expect(
+      action.run(
+        {
+          factoryId: "support-triage",
+          automationId: "resource-1",
+          name: "factories/support-triage/factory-slack-feedback",
+          prompt: "Watch Slack more closely.",
+          enabled: true,
+        },
+        { userEmail: "teammate@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      message:
+        "Connect Slack in Dispatch or add a vault token before saving this job.",
+      actionContractError: true,
+    });
+    expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+  });
+
   it("surfaces a vault outage as an action failure when saving an enabled job", async () => {
     assertFactoryConnectorReadyMock.mockRejectedValue(
       new VaultUnavailableError("vault timeout"),

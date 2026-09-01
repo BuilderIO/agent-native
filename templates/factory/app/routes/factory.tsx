@@ -27,6 +27,8 @@ import {
   canSaveFactoryAutomation,
   dispatchIntegrationsHref,
   emptyAutomationForm,
+  factoryAutomationConnectionsFromConfig,
+  factoryAutomationReadinessFailed,
   formAuthorFilter,
   formatDailyTime,
   isDestinationReady,
@@ -905,7 +907,10 @@ function AutomationsView({
   );
   const configQuery = useActionQuery<{
     connections?: FactoryAutomationConnections;
+    readinessError?: string | null;
   }>("get-triage-config", { factoryId });
+  const connections = factoryAutomationConnectionsFromConfig(configQuery);
+  const readinessError = factoryAutomationReadinessFailed(configQuery);
   const appsQuery = useActionQuery("list-workspace-apps", {
     includeAgentCards: false,
   });
@@ -1243,7 +1248,7 @@ function AutomationsView({
                     draft.canUpdate === false ||
                     !isDestinationReady(
                       draft.source ?? "slack",
-                      configQuery.data?.connections,
+                      connections,
                       draft.slackWorkspace ?? "primary",
                     )
                   }
@@ -1263,7 +1268,7 @@ function AutomationsView({
                     draft.canUpdate === false ||
                     !canSaveFactoryAutomation(
                       automationToForm(draft),
-                      configQuery.data?.connections,
+                      connections,
                     )
                   }
                 >
@@ -1283,8 +1288,8 @@ function AutomationsView({
             <>
               <FactoryAutomationFields
                 form={automationToForm(draft)}
-                connections={configQuery.data?.connections}
-                readinessError={Boolean(configQuery.error)}
+                connections={connections}
+                readinessError={readinessError}
                 workspaceIntegrationsHref={workspaceIntegrationsHref}
                 onChange={(next) => {
                   const authors = persistAuthorFilter(

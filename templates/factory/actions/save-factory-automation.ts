@@ -162,7 +162,9 @@ export default defineAction({
         });
       } catch (error) {
         if (error instanceof VaultUnavailableError) fail(error.message);
-        throw error;
+        fail(
+          error instanceof Error ? error.message : "Connector is not ready.",
+        );
       }
     }
     const config = {

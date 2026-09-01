@@ -45,8 +45,10 @@ describe("Factory route factory switching", () => {
     expect(source).toContain("automationEditorTitle");
     expect(source).toContain("text-lg font-semibold");
     expect(source).toContain("showSource={false}");
-    expect(source).toContain("connections={configQuery.data?.connections}");
-    expect(source).toContain("readinessError={Boolean(configQuery.error)}");
+    expect(source).toContain("factoryAutomationConnectionsFromConfig");
+    expect(source).toContain("factoryAutomationReadinessFailed");
+    expect(source).toContain("connections={connections}");
+    expect(source).toContain("readinessError={readinessError}");
     expect(source).toContain("canSaveFactoryAutomation(");
     expect(source).toContain("isDestinationReady(");
     expect(source).toContain(

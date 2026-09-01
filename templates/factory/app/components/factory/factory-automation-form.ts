@@ -164,6 +164,24 @@ export function isDestinationFilled(
   return false;
 }
 
+export function factoryAutomationConnectionsFromConfig(query: {
+  error?: unknown;
+  data?: {
+    connections?: FactoryAutomationConnections;
+    readinessError?: string | null;
+  };
+}): FactoryAutomationConnections | undefined {
+  if (query.error || query.data?.readinessError) return undefined;
+  return query.data?.connections;
+}
+
+export function factoryAutomationReadinessFailed(query: {
+  error?: unknown;
+  data?: { readinessError?: string | null };
+}): boolean {
+  return Boolean(query.error || query.data?.readinessError);
+}
+
 export function canCreateFactoryAutomation(
   form: FactoryAutomationFormState,
   connections?: FactoryAutomationConnections,

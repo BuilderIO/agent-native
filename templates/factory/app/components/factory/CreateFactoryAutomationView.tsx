@@ -16,6 +16,8 @@ import {
   defaultWorkLimit,
   dispatchIntegrationsHref,
   emptyAutomationForm,
+  factoryAutomationConnectionsFromConfig,
+  factoryAutomationReadinessFailed,
   parseDailyTime,
   persistAuthorFilter,
   type AutomationSource,
@@ -63,6 +65,7 @@ export function CreateFactoryAutomationView({
   );
   const configQuery = useActionQuery<{
     connections?: FactoryAutomationConnections;
+    readinessError?: string | null;
   }>("get-triage-config", { factoryId });
   const appsQuery = useActionQuery("list-workspace-apps", {
     includeAgentCards: false,
@@ -72,7 +75,8 @@ export function CreateFactoryAutomationView({
     [templatesQuery.data],
   );
   const authors = persistAuthorFilter(form.authorFilter, form.authorIds);
-  const connections = configQuery.data?.connections;
+  const connections = factoryAutomationConnectionsFromConfig(configQuery);
+  const readinessError = factoryAutomationReadinessFailed(configQuery);
   const canCreate = canCreateFactoryAutomation(form, connections);
   const workspaceIntegrationsHref = dispatchIntegrationsHref(appsQuery.data);
 
@@ -166,7 +170,7 @@ export function CreateFactoryAutomationView({
         form={form}
         onChange={setForm}
         connections={connections}
-        readinessError={Boolean(configQuery.error)}
+        readinessError={readinessError}
         workspaceIntegrationsHref={workspaceIntegrationsHref}
         showGuardrails
         guardrails={t("factoryRoute.automationGuardrailsSummary", {

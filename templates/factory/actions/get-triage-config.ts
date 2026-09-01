@@ -16,7 +16,7 @@ import {
 
 export default defineAction({
   description:
-    "Read Factory observation settings for the selected factory. Secret values are never returned.",
+    "Read Factory observation settings for the selected factory. Secret values are never returned. A connector outage is returned as readinessError and does not drop inbox or observation settings.",
   schema: z.object({
     factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
   }),
@@ -27,10 +27,27 @@ export default defineAction({
       workspaceMemberIdentityFromContext(context),
     );
     const emailReadiness = await getEmailReadiness();
-    const connections = await resolveFactoryConnectorReadiness(userEmail, {
-      orgId,
-    });
     const row = await readTriageConfigRow(getDb(), orgId, factoryId);
+    let connections:
+      | Awaited<ReturnType<typeof resolveFactoryConnectorReadiness>>
+      | undefined;
+    let readinessError: string | undefined;
+    try {
+      connections = await resolveFactoryConnectorReadiness(userEmail, {
+        orgId,
+      });
+    } catch (error) {
+      readinessError =
+        error instanceof Error
+          ? error.message
+          : "Connector readiness is unavailable.";
+    }
+    const readiness = connections
+      ? { connections }
+      : {
+          readinessError:
+            readinessError ?? "Connector readiness is unavailable.",
+        };
     if (!row) {
       return {
         factoryId,
@@ -51,7 +68,7 @@ export default defineAction({
         automationFailureAlertsEnabled: true,
         automationFailureAlertEmail: null,
         emailReadiness,
-        connections,
+        ...readiness,
       };
     }
     return {
@@ -63,7 +80,7 @@ export default defineAction({
       automationFailureAlertsEnabled: row.automationFailureAlertsEnabled === 1,
       automationFailureAlertEmail: row.automationFailureAlertEmail,
       emailReadiness,
-      connections,
+      ...readiness,
     };
   },
 });

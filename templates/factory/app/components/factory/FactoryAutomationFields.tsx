@@ -92,11 +92,10 @@ export function FactoryAutomationFields({
 }) {
   const t = useT();
   const [authorDraft, setAuthorDraft] = useState("");
-  const destinationReady = isDestinationReady(
-    form.source,
-    connections,
-    form.slackWorkspace,
-  );
+  const destinationReady =
+    !readinessError &&
+    isDestinationReady(form.source, connections, form.slackWorkspace);
+  const destinationLocked = disabled || (form.enabled && !destinationReady);
   const workspaceIntegrationsHref =
     workspaceIntegrationsHrefProp ?? "/dispatch/admin/integrations";
   const showIdentity =
@@ -132,11 +131,10 @@ export function FactoryAutomationFields({
           : null;
   const showMissingBanner = Boolean(
     missingBanner &&
+    !readinessError &&
     isConnectorExplicitlyMissing(form.source, connections, form.slackWorkspace),
   );
-  const showReadinessErrorBanner = Boolean(
-    form.source && readinessError && !connections,
-  );
+  const showReadinessErrorBanner = Boolean(form.source && readinessError);
 
   function addAuthorId() {
     const id = authorDraft.trim();
@@ -251,7 +249,7 @@ export function FactoryAutomationFields({
                     })
                   }
                   placeholder={t("triage.slackChannelPlaceholder")}
-                  disabled={disabled || !destinationReady}
+                  disabled={destinationLocked}
                   className={fieldControlClass}
                 />
               }
@@ -270,7 +268,7 @@ export function FactoryAutomationFields({
                     onChange({ ...form, repository: event.target.value })
                   }
                   placeholder={t("triage.repositoryPlaceholder")}
-                  disabled={disabled || !destinationReady}
+                  disabled={destinationLocked}
                   className={fieldControlClass}
                 />
               }
@@ -293,7 +291,7 @@ export function FactoryAutomationFields({
                       })
                     }
                     placeholder={t("triage.sentryOrgPlaceholder")}
-                    disabled={disabled || !destinationReady}
+                    disabled={destinationLocked}
                     className={fieldControlClass}
                   />
                 }
@@ -315,7 +313,7 @@ export function FactoryAutomationFields({
                       })
                     }
                     placeholder={t("triage.sentryProjectPlaceholder")}
-                    disabled={disabled || !destinationReady}
+                    disabled={destinationLocked}
                     className={fieldControlClass}
                   />
                 }

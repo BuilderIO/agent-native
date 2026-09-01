@@ -5,6 +5,8 @@ import {
   canSaveFactoryAutomation,
   dispatchIntegrationsHref,
   emptyAutomationForm,
+  factoryAutomationConnectionsFromConfig,
+  factoryAutomationReadinessFailed,
   formAuthorFilter,
   isConnectorExplicitlyMissing,
   isDestinationFilled,
@@ -92,6 +94,42 @@ describe("factory-automation-form destination gating", () => {
     expect(isConnectorExplicitlyMissing("slack")).toBe(false);
     expect(isConnectorExplicitlyMissing("slack", disconnected)).toBe(true);
     expect(isConnectorExplicitlyMissing("slack", connected)).toBe(false);
+  });
+
+  it("ignores cached connections when readiness failed", () => {
+    const cached = { slack: true, github: true, sentry: true };
+    expect(
+      factoryAutomationConnectionsFromConfig({
+        data: { connections: cached },
+        error: new Error("vault timeout"),
+      }),
+    ).toBeUndefined();
+    expect(
+      factoryAutomationReadinessFailed({
+        data: { connections: cached },
+        error: new Error("vault timeout"),
+      }),
+    ).toBe(true);
+    expect(
+      factoryAutomationConnectionsFromConfig({
+        data: { readinessError: "vault timeout" },
+      }),
+    ).toBeUndefined();
+    expect(
+      factoryAutomationReadinessFailed({
+        data: { readinessError: "vault timeout" },
+      }),
+    ).toBe(true);
+    expect(
+      factoryAutomationConnectionsFromConfig({
+        data: { connections: cached },
+      }),
+    ).toEqual(cached);
+    expect(
+      factoryAutomationReadinessFailed({
+        data: { connections: cached },
+      }),
+    ).toBe(false);
   });
 
   it("lets Save disable a job when the connector is missing", () => {

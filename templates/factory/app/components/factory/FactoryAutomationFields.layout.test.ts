@@ -21,7 +21,9 @@ describe("FactoryAutomationFields connection banner", () => {
     expect(source).toContain("isConnectorExplicitlyMissing");
     expect(source).toContain("workspaceIntegrationsHref");
     expect(source).not.toContain("buildSettingsRoute");
-    expect(source).toContain("disabled={disabled || !destinationReady}");
+    expect(source).toContain("disabled={destinationLocked}");
+    expect(source).toContain("form.enabled && !destinationReady");
+    expect(source).toContain("form.source && readinessError");
     expect(source.indexOf("showMissingBanner")).toBeLessThan(
       source.indexOf("factoryRoute.automationCardRunTitle"),
     );
