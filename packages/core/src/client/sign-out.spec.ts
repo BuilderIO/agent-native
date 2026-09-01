@@ -2,6 +2,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { BETA_REDIRECT_STORAGE_KEY } from "../shared/environment-lanes.js";
+
 // `signingOut` is deliberately one-way for the life of a document, so every
 // case needs a fresh module rather than a reset hook.
 async function loadSignOut() {
@@ -90,6 +92,41 @@ describe("signOut", () => {
     await pending;
     expect(replace).toHaveBeenCalledTimes(1);
     expect(replace.mock.calls[0][0]).toContain("/sign-in?c=");
+  });
+
+  it("clears the beta redirect marker before leaving after revocation", async () => {
+    const { signOut } = await loadSignOut();
+    const originalLocalStorage = Object.getOwnPropertyDescriptor(
+      window,
+      "localStorage",
+    );
+    const values = new Map([[BETA_REDIRECT_STORAGE_KEY, "future"]]);
+    const removeItem = vi.fn((key: string) => values.delete(key));
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        removeItem,
+        setItem: vi.fn(),
+      },
+    });
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(JSON.stringify({ ok: true }))),
+      );
+
+      await signOut();
+
+      expect(removeItem).toHaveBeenCalledWith(BETA_REDIRECT_STORAGE_KEY);
+      expect(values.has(BETA_REDIRECT_STORAGE_KEY)).toBe(false);
+      expect(replace).toHaveBeenCalledTimes(1);
+    } finally {
+      if (originalLocalStorage) {
+        Object.defineProperty(window, "localStorage", originalLocalStorage);
+      } else {
+        delete (window as Window & { localStorage?: Storage }).localStorage;
+      }
+    }
   });
 
   it("notifies other tabs again after revocation settles", async () => {

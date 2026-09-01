@@ -1,3 +1,4 @@
+import { BETA_REDIRECT_STORAGE_KEY } from "../shared/environment-lanes.js";
 /**
  * The one client-side sign-out.
  *
@@ -88,5 +89,10 @@ async function signOutFlow(options: SignOutOptions): Promise<void> {
   completeSignOut();
   // `replace`, not `assign`: the dead authenticated URL must not stay in
   // history, or Back lands on a shell with no session.
+  try {
+    window.localStorage.removeItem(BETA_REDIRECT_STORAGE_KEY);
+  } catch {
+    // coercion-ok: local storage is optional; sign-out must still complete.
+  }
   window.location.replace(options.redirectTo ?? buildSignInReturnHref());
 }

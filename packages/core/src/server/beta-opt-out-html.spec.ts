@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { SSR_BETA_REDIRECT_MARKER } from "../shared/ssr-beta-redirect.js";
 import {
   BETA_OPT_OUT_PERSISTENCE_MARKER,
   injectBetaOptOutPersistence,
@@ -12,8 +13,16 @@ describe("injectBetaOptOutPersistence", () => {
     );
 
     expect(html).toContain(BETA_OPT_OUT_PERSISTENCE_MARKER);
+    expect(html).toContain(SSR_BETA_REDIRECT_MARKER);
+    expect(html.indexOf(SSR_BETA_REDIRECT_MARKER)).toBeLessThan(
+      html.indexOf("</head>"),
+    );
+    expect(html.indexOf(SSR_BETA_REDIRECT_MARKER)).toBeLessThan(
+      html.indexOf("data-agent-native-beta-opt-out"),
+    );
     expect(html).toContain("agentNativeBetaOptOut");
     expect(html).toContain("agent-native:beta-opt-out-until");
+    expect(html).toContain("agent-native:beta-redirect-until");
     expect(html).toContain("window.localStorage.setItem");
     expect(html).toContain("window.history.replaceState");
     expect(html).toContain('id="environment-switcher"');
@@ -65,6 +74,9 @@ describe("injectBetaOptOutPersistence", () => {
     const reinjected = injectBetaOptOutPersistence(html);
 
     expect(reinjected).toBe(html);
+    expect(reinjected.match(/data-agent-native-beta-redirect/g)).toHaveLength(
+      1,
+    );
     expect(reinjected.match(/data-agent-native-beta-opt-out/g)).toHaveLength(1);
     expect(
       reinjected.match(/data-agent-native-environment-switcher/g),
@@ -89,6 +101,7 @@ describe("injectBetaOptOutPersistence", () => {
     `);
 
     expect(html).toContain(BETA_OPT_OUT_PERSISTENCE_MARKER);
+    expect(html).toContain(SSR_BETA_REDIRECT_MARKER);
     expect(html.match(/id="environment-switcher"/g)).toHaveLength(1);
     expect(html.match(/id="environment-production-link"/g)).toHaveLength(1);
     expect(html.match(/id="environment-hide-badge"/g)).toHaveLength(1);

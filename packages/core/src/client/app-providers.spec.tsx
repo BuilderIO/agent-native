@@ -167,6 +167,9 @@ describe("AppProviders session gate", () => {
     expect(
       container.querySelector('[data-testid="app-content"]'),
     ).not.toBeNull();
+    expect(
+      container.querySelector('script[data-agent-native-beta-redirect="1"]'),
+    ).toBeNull();
     expect(useSessionMock).not.toHaveBeenCalled();
     expect(replaceMock).not.toHaveBeenCalled();
   });
@@ -177,6 +180,10 @@ describe("AppProviders session gate", () => {
     renderProviders({});
 
     expect(container.querySelector('[data-testid="app-content"]')).toBeNull();
+    expect(
+      container.querySelector('script[data-agent-native-beta-redirect="1"]'),
+    ).not.toBeNull();
+    expect(container.firstElementChild?.tagName).toBe("SCRIPT");
     expect(useSessionMock).toHaveBeenCalled();
     expect(replaceMock).toHaveBeenCalledWith(
       `/sign-in?c=${encodeContinuation("/inbox")}`,
@@ -191,6 +198,9 @@ describe("AppProviders session gate", () => {
     expect(
       container.querySelector('[data-testid="app-content"]'),
     ).not.toBeNull();
+    expect(
+      container.querySelector('script[data-agent-native-beta-redirect="1"]'),
+    ).toBeNull();
     expect(useSessionMock).not.toHaveBeenCalled();
     expect(replaceMock).not.toHaveBeenCalled();
   });
