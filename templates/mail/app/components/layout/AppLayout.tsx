@@ -546,12 +546,19 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     const inboxRows = groupIntoThreads(
       filterInboxTabEmails(filtered, null, pinnedLabels, savedFilterQueries),
     );
+    const savedFilterExclusiveRows = groupIntoThreads(
+      filterInboxTabEmails(filtered, null, [], savedFilterQueries),
+    );
     total["__inboxTotal"] = threadRows.length;
     unread["__inboxTotal"] = threadRows.filter(
       (thread) => thread.hasUnread,
     ).length;
     total["inbox"] = inboxRows.length;
     unread["inbox"] = inboxRows.filter((thread) => thread.hasUnread).length;
+    total["__inboxExclusive"] = savedFilterExclusiveRows.length;
+    unread["__inboxExclusive"] = savedFilterExclusiveRows.filter(
+      (thread) => thread.hasUnread,
+    ).length;
     // Count threads per pinned label using the exact same membership rule as
     // the rendered list: latest message has the label; "important" is
     // exclusive of any other pinned tab.
@@ -1174,8 +1181,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   // Math.max makes badges grow as more pages happen to be loaded.
   const getInboxCount = (kind: CountKind) => {
     const localCounts = localCountsForKind(kind);
-    if (!hasPinnedFilters && savedFilterQueries.length > 0) {
-      return localCounts["inbox"] ?? 0;
+    if (savedFilterQueries.length > 0) {
+      return localCounts["__inboxExclusive"] ?? 0;
     }
     const inboxLabel = resolveLabelForCount("inbox");
     const countField = countFieldForKind(kind);

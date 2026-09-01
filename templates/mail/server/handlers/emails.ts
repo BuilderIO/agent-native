@@ -430,6 +430,10 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       // Fetch label name mapping from all accounts (cached)
       const accountTokens = await getAccountTokens(email);
       const labelMap = await getCachedLabelMap(accountTokens);
+      const needsSavedFilterParts = view === "inbox" && !q && !label;
+      const settings = needsSavedFilterParts
+        ? await readSettings(email)
+        : undefined;
 
       const listResult = await listInboxEmails({
         ownerEmail: email,
@@ -438,7 +442,13 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         label,
         limit: pageLimit,
         pageTokens,
-        threadFormat: view === "drafts" ? "full" : "metadata",
+        // Metadata responses omit MIME parts. Saved-filter partitioning
+        // needs attachment filenames for has:attachment/filename queries.
+        threadFormat:
+          view === "drafts" ||
+          (needsSavedFilterParts && (settings?.savedFilters?.length ?? 0) > 0)
+            ? "full"
+            : "metadata",
         threadCandidateLimit: q ? 80 : undefined,
         accountTokens,
         labelMap,

@@ -18,7 +18,13 @@ import {
   FOCUS_COMPOSE_DRAFT_EVENT,
   useComposeState,
 } from "@/hooks/use-compose-state";
-import { useEmails, useMarkRead, useSettings } from "@/hooks/use-emails";
+import {
+  EMPTY_LABELS,
+  useEmails,
+  useLabels,
+  useMarkRead,
+  useSettings,
+} from "@/hooks/use-emails";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -332,6 +338,10 @@ export function InboxPage() {
 
   const googleStatus = useGoogleAuthStatus();
   const { activeAccounts } = useAccountFilter();
+  const { data: labelsData } = useLabels(
+    activeAccounts.size > 0 ? [...activeAccounts] : undefined,
+  );
+  const labels = labelsData ?? EMPTY_LABELS;
 
   // Memoize every derived array — the emails memo depends on these, and fresh
   // array refs on every render were cascading into EmailThread as unstable
@@ -355,6 +365,25 @@ export function InboxPage() {
     [pinnedLabels],
   );
   const hasNoteToSelf = pinnedLabels.includes("note-to-self");
+  const activeLabelRecord = useMemo(() => {
+    if (!activeLabel) return undefined;
+    const normalizedId = activeLabel.includes("/")
+      ? activeLabel
+          .slice(activeLabel.lastIndexOf("/") + 1)
+          .replace(/_/g, " ")
+          .toLowerCase()
+      : activeLabel.toLowerCase();
+    return labels.find(
+      (label) =>
+        label.id === activeLabel ||
+        label.id === normalizedId ||
+        label.name.toLowerCase() === activeLabel.toLowerCase(),
+    );
+  }, [activeLabel, labels]);
+  const activeLabelIsInboxScoped =
+    !!activeLabel &&
+    activeLabelRecord?.type !== "user" &&
+    isInboxScopedAppLabel(activeLabelRecord?.id ?? activeLabel);
 
   // Always fetch from the URL view (inbox, starred, etc.).
   // Top-bar triage tabs (Important / pinned labels / "Other") are slices of
@@ -400,7 +429,7 @@ export function InboxPage() {
     view === "inbox" &&
     mailLabelsInclude(triageLabels, activeLabel);
   const mailboxWideLabelTab =
-    view === "inbox" && !!activeLabel && !isInboxScopedAppLabel(activeLabel);
+    view === "inbox" && !!activeLabel && !activeLabelIsInboxScoped;
   const clientSliceTab = isPinnedTab && !searchQuery && !mailboxWideLabelTab;
   const isOtherTab =
     view === "inbox" &&
@@ -475,7 +504,7 @@ export function InboxPage() {
       // Gmail labels keep thread membership when any fetched message carries
       // the label, so replies don't disappear just because the latest row
       // differs; inbox-scoped app labels stay a latest-message slice.
-      const isInboxScopedLabel = isInboxScopedAppLabel(activeLabel);
+      const isInboxScopedLabel = activeLabelIsInboxScoped;
       const hasLabel = (e: (typeof filtered)[0]) =>
         mailLabelsInclude(e.labelIds, activeLabel);
       const latestByThread = new Map<string, (typeof filtered)[0]>();
@@ -534,6 +563,7 @@ export function InboxPage() {
     isGoogleConnected,
     connectedEmails,
     hasNoteToSelf,
+    activeLabelIsInboxScoped,
     savedFilterQueries,
   ]);
 

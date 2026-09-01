@@ -29,10 +29,9 @@ describe("AppLayout inbox rail count", () => {
   it("uses the saved-filter-exclusive local count for a plain Inbox", () => {
     const source = appLayoutSource();
 
-    expect(source).toContain(
-      "if (!hasPinnedFilters && savedFilterQueries.length > 0)",
-    );
-    expect(source).toContain('return localCounts["inbox"] ?? 0;');
+    expect(source).toContain("if (savedFilterQueries.length > 0)");
+    expect(source).toContain('return localCounts["__inboxExclusive"] ?? 0;');
+    expect(source).toContain('total["__inboxExclusive"]');
   });
 
   it("groups badge rows with the rendered list's thread identity", () => {

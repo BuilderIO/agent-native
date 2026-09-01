@@ -114,6 +114,10 @@ async function fetchEmailList(
         : undefined;
     const savedFilterQueries =
       settings?.savedFilters?.map((filter) => filter.query) ?? [];
+    const needsSavedFilterParts =
+      effectiveView === "inbox" &&
+      !effectiveSearch &&
+      savedFilterQueries.length > 0;
     const hasNoteToSelf = pinnedLabels.includes("note-to-self");
     const clients = googleConnected ? await getClients(ownerEmail) : [];
     const connectedEmails = new Set(
@@ -184,7 +188,9 @@ async function fetchEmailList(
         undefined,
         {
           mode: "threads",
-          threadFormat: "metadata",
+          // Metadata responses omit MIME parts. Saved-filter partitioning
+          // needs attachment filenames for has:attachment/filename queries.
+          threadFormat: needsSavedFilterParts ? "full" : "metadata",
           accountEmails:
             selectedAccountEmails.length > 0
               ? selectedAccountEmails
