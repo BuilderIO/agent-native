@@ -1912,7 +1912,7 @@ function SqlDashboardPageContent({
               tabs: [
                 {
                   value: "context",
-                  label: "Context",
+                  label: t("creativeContext.share.tabLabel"),
                   content: (
                     <CreativeContextShareTab
                       resource={{

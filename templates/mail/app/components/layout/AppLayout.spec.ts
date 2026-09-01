@@ -63,6 +63,13 @@ describe("AppLayout inbox rail count", () => {
     );
   });
 
+  it("reserves desktop content space while the unpinned sidebar is open", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("!isMobile &&\n              showSidebar &&");
+    expect(source).toContain('sidebarOpen && !isMobile && "ps-64"');
+  });
+
   it("keeps the explicit Other inbox tab and search restoration path", () => {
     const source = appLayoutSource();
 

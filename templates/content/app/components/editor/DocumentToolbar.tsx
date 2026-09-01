@@ -956,7 +956,7 @@ export function DocumentToolbar({
                   tabs: [
                     {
                       value: "context",
-                      label: "Context",
+                      label: t("creativeContext.share.tabLabel"),
                       content: (
                         <CreativeContextShareTab
                           resource={{
@@ -965,7 +965,10 @@ export function DocumentToolbar({
                             resourceId: documentId,
                             title: documentTitle || "Untitled",
                             updatedAt: documentUpdatedAt ?? undefined,
-                            preview: { kind: "document", label: "Document" },
+                            preview: {
+                              kind: "document",
+                              label: t("root.commandDocumentsHeading"),
+                            },
                           }}
                         />
                       ),

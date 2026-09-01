@@ -436,8 +436,7 @@ const enUS = {
   homepage: {
     hero: {
       title: "The agentic application framework",
-      bodyLine1:
-        "Build for AI agents without building a second product for users.",
+      bodyLine1: "Build autonomous agents with intuitive UIs.",
       bodyLine2: "Bring your own LLM. Deploy anywhere.",
       tryAnApp: "Try an app",
     },
@@ -574,13 +573,12 @@ const enUS = {
     communitySubmissionName: "App name",
     communitySubmissionNamePlaceholder: "Customer Support Hub",
     communitySubmissionUrl: "App URL",
-    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "Description",
     communitySubmissionDescriptionPlaceholder:
       "What does the app do, and who is it for?",
     communitySubmissionRepository: "GitHub repository (optional)",
-    communitySubmissionRepositoryPlaceholder:
-      "https://github.com/owner/repository",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
     communitySubmissionScreenshots: "Screenshots (optional)",
     communitySubmissionScreenshotsPlaceholder: "Drop up to 5 images here",
     communitySubmissionScreenshotDropHint:
@@ -592,8 +590,15 @@ const enUS = {
     communitySubmissionSubmit: "Submit app",
     communitySubmissionReady:
       "Thanks. We will review your app before publishing it.",
-    communitySubmissionValidation:
-      "Add a name, description, and valid app URL. Upload PNG, JPG, or WebP images up to 1.5 MB each.",
+    communitySubmissionNameError: "Enter an app name.",
+    communitySubmissionDescriptionError: "Add a short description.",
+    communitySubmissionUrlError: "Enter a valid app link, such as example.com.",
+    communitySubmissionRepositoryError: "Enter a GitHub repository link.",
+    communitySubmissionScreenshotsError:
+      "Use PNG, JPG, or WebP images up to 1.5 MB each, with up to 5 images.",
+    communitySubmissionSubmitError:
+      "Couldn’t submit right now. Check the highlighted fields and try again.",
+    communitySubmissionSubmitting: "Submitting…",
   },
   buildFromScratch: {
     title: "Build from scratch",

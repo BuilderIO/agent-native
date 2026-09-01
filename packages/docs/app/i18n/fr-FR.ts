@@ -438,8 +438,7 @@ const frFR = {
   homepage: {
     hero: {
       title: "Le framework des applications agentic",
-      bodyLine1:
-        "Créez pour les agents IA sans construire un second produit pour les utilisateurs.",
+      bodyLine1: "Créez des agents autonomes avec des interfaces intuitives.",
       bodyLine2: "Apportez votre propre LLM. Déployez où vous voulez.",
       tryAnApp: "Essayer une app",
     },
@@ -577,13 +576,12 @@ const frFR = {
     communitySubmissionName: "Nom de l’application",
     communitySubmissionNamePlaceholder: "Centre de support client",
     communitySubmissionUrl: "URL de l’application",
-    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "Description",
     communitySubmissionDescriptionPlaceholder:
       "Que fait l’application et à qui s’adresse-t-elle ?",
     communitySubmissionRepository: "Dépôt GitHub (facultatif)",
-    communitySubmissionRepositoryPlaceholder:
-      "https://github.com/owner/repository",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
     communitySubmissionScreenshots: "Captures d’écran (facultatif)",
     communitySubmissionScreenshotsPlaceholder: "Déposez jusqu’à 5 images ici",
     communitySubmissionScreenshotDropHint:
@@ -595,8 +593,17 @@ const frFR = {
     communitySubmissionSubmit: "Envoyer l’application",
     communitySubmissionReady:
       "Merci. Nous examinerons votre application avant de la publier.",
-    communitySubmissionValidation:
-      "Ajoutez un nom, une description et une URL d’application valide. Importez des images PNG, JPG ou WebP de 1,5 Mo maximum chacune.",
+    communitySubmissionNameError: "Saisissez un nom d’application.",
+    communitySubmissionDescriptionError: "Ajoutez une courte description.",
+    communitySubmissionUrlError:
+      "Saisissez un lien d’application valide, par exemple example.com.",
+    communitySubmissionRepositoryError:
+      "Saisissez un lien vers un dépôt GitHub.",
+    communitySubmissionScreenshotsError:
+      "Utilisez des images PNG, JPG ou WebP de 1,5 Mo maximum chacune, avec 5 images au maximum.",
+    communitySubmissionSubmitError:
+      "Impossible d’envoyer le formulaire pour le moment. Vérifiez les champs signalés, puis réessayez.",
+    communitySubmissionSubmitting: "Envoi…",
   },
   buildFromScratch: {
     title: "Créer de zéro",

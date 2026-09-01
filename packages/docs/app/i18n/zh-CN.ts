@@ -430,7 +430,7 @@ const zhCN = {
   homepage: {
     hero: {
       title: "面向 agentic 应用的框架",
-      bodyLine1: "为 agent 构建，无需为用户单独打造第二个产品。",
+      bodyLine1: "构建配备直观 UI 的自主型 agent。",
       bodyLine2: "使用你自己的 LLM，随处部署。",
       tryAnApp: "试用应用",
     },
@@ -564,12 +564,11 @@ const zhCN = {
     communitySubmissionName: "应用名称",
     communitySubmissionNamePlaceholder: "客户支持中心",
     communitySubmissionUrl: "应用 URL",
-    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "描述",
     communitySubmissionDescriptionPlaceholder: "应用做什么，适合哪些人？",
     communitySubmissionRepository: "GitHub 仓库（可选）",
-    communitySubmissionRepositoryPlaceholder:
-      "https://github.com/owner/repository",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
     communitySubmissionScreenshots: "截图（可选）",
     communitySubmissionScreenshotsPlaceholder: "将最多 5 张图片拖到这里",
     communitySubmissionScreenshotDropHint:
@@ -580,8 +579,14 @@ const zhCN = {
     communitySubmissionScreenshotRemove: "移除截图 {{index}}",
     communitySubmissionSubmit: "提交应用",
     communitySubmissionReady: "谢谢。我们会在发布前审核你的应用。",
-    communitySubmissionValidation:
-      "请填写名称、描述和有效的应用 URL。请上传 PNG、JPG 或 WebP 图片，每张不超过 1.5 MB。",
+    communitySubmissionNameError: "请输入应用名称。",
+    communitySubmissionDescriptionError: "请添加简短描述。",
+    communitySubmissionUrlError: "请输入有效的应用链接，例如 example.com。",
+    communitySubmissionRepositoryError: "请输入 GitHub 仓库链接。",
+    communitySubmissionScreenshotsError:
+      "请使用 PNG、JPG 或 WebP 图片，每张不超过 1.5 MB，最多上传 5 张。",
+    communitySubmissionSubmitError: "暂时无法提交。请检查标记的字段后重试。",
+    communitySubmissionSubmitting: "提交中…",
   },
   buildFromScratch: {
     title: "从零开始构建",

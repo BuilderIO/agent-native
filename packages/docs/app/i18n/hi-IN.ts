@@ -436,7 +436,7 @@ const hiIN = {
   homepage: {
     hero: {
       title: "एजेंटिक एप्लिकेशन फ्रेमवर्क",
-      bodyLine1: "उपयोगकर्ताओं के लिए दूसरा प्रोडक्ट बनाए बिना AI एजेंट्स के लिए बनाएं।",
+      bodyLine1: "सहज UI वाले स्वायत्त एजेंट बनाएं।",
       bodyLine2: "अपना LLM लाएं। कहीं भी डिप्लॉय करें।",
       tryAnApp: "कोई ऐप आज़माएं",
     },
@@ -571,13 +571,12 @@ const hiIN = {
     communitySubmissionName: "ऐप का नाम",
     communitySubmissionNamePlaceholder: "कस्टमर सपोर्ट हब",
     communitySubmissionUrl: "ऐप URL",
-    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "विवरण",
     communitySubmissionDescriptionPlaceholder:
       "ऐप क्या करता है और यह किसके लिए है?",
     communitySubmissionRepository: "GitHub रिपॉज़िटरी (वैकल्पिक)",
-    communitySubmissionRepositoryPlaceholder:
-      "https://github.com/owner/repository",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
     communitySubmissionScreenshots: "स्क्रीनशॉट (वैकल्पिक)",
     communitySubmissionScreenshotsPlaceholder: "यहाँ अधिकतम 5 इमेज ड्रॉप करें",
     communitySubmissionScreenshotDropHint: "PNG, JPG या WebP। प्रत्येक 1.5 MB तक।",
@@ -588,8 +587,15 @@ const hiIN = {
     communitySubmissionSubmit: "ऐप सबमिट करें",
     communitySubmissionReady:
       "धन्यवाद। प्रकाशित करने से पहले हम आपके ऐप की समीक्षा करेंगे।",
-    communitySubmissionValidation:
-      "नाम, विवरण और मान्य ऐप URL जोड़ें। PNG, JPG या WebP इमेज अपलोड करें, प्रत्येक 1.5 MB तक।",
+    communitySubmissionNameError: "ऐप का नाम दर्ज करें।",
+    communitySubmissionDescriptionError: "छोटा विवरण जोड़ें।",
+    communitySubmissionUrlError: "मान्य ऐप लिंक दर्ज करें, जैसे example.com।",
+    communitySubmissionRepositoryError: "GitHub रिपॉज़िटरी लिंक दर्ज करें।",
+    communitySubmissionScreenshotsError:
+      "PNG, JPG या WebP इमेज इस्तेमाल करें, प्रत्येक 1.5 MB तक और अधिकतम 5 इमेज।",
+    communitySubmissionSubmitError:
+      "अभी सबमिट नहीं हो सका। चिह्नित फ़ील्ड जाँचकर फिर कोशिश करें।",
+    communitySubmissionSubmitting: "सबमिट हो रहा है…",
   },
   buildFromScratch: {
     title: "शुरू से बनाएँ",

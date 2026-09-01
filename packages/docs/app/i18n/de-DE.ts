@@ -439,7 +439,7 @@ const deDE = {
     hero: {
       title: "Das Framework für agentische Anwendungen",
       bodyLine1:
-        "Baue für KI-Agenten, ohne ein zweites Produkt für Nutzer zu bauen.",
+        "Entwickle autonome Agenten mit intuitiven Benutzeroberflächen.",
       bodyLine2: "Bring dein eigenes LLM mit. Deploye überall.",
       tryAnApp: "App ausprobieren",
     },
@@ -577,13 +577,12 @@ const deDE = {
     communitySubmissionName: "App-Name",
     communitySubmissionNamePlaceholder: "Kundensupport-Zentrale",
     communitySubmissionUrl: "App-URL",
-    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "Beschreibung",
     communitySubmissionDescriptionPlaceholder:
       "Was macht die App und für wen ist sie gedacht?",
     communitySubmissionRepository: "GitHub-Repository (optional)",
-    communitySubmissionRepositoryPlaceholder:
-      "https://github.com/owner/repository",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
     communitySubmissionScreenshots: "Screenshots (optional)",
     communitySubmissionScreenshotsPlaceholder: "Bis zu 5 Bilder hierher ziehen",
     communitySubmissionScreenshotDropHint:
@@ -595,8 +594,16 @@ const deDE = {
     communitySubmissionSubmit: "App einreichen",
     communitySubmissionReady:
       "Danke. Wir prüfen deine App vor der Veröffentlichung.",
-    communitySubmissionValidation:
-      "Füge einen Namen, eine Beschreibung und eine gültige App-URL hinzu. Lade PNG-, JPG- oder WebP-Bilder mit jeweils maximal 1,5 MB hoch.",
+    communitySubmissionNameError: "Gib einen App-Namen ein.",
+    communitySubmissionDescriptionError: "Füge eine kurze Beschreibung hinzu.",
+    communitySubmissionUrlError:
+      "Gib einen gültigen App-Link ein, z. B. example.com.",
+    communitySubmissionRepositoryError: "Gib einen GitHub-Repository-Link ein.",
+    communitySubmissionScreenshotsError:
+      "Verwende PNG-, JPG- oder WebP-Bilder mit jeweils maximal 1,5 MB und höchstens 5 Bilder.",
+    communitySubmissionSubmitError:
+      "Die Übermittlung ist gerade nicht möglich. Prüfe die markierten Felder und versuche es erneut.",
+    communitySubmissionSubmitting: "Wird gesendet…",
   },
   buildFromScratch: {
     title: "Von Grund auf bauen",

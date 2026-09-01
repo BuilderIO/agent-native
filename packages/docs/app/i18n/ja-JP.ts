@@ -437,8 +437,7 @@ const jaJP = {
   homepage: {
     hero: {
       title: "agentic アプリケーションのための framework",
-      bodyLine1:
-        "ユーザー向けに別のプロダクトを作らずに、AI エージェント向けに構築できます。",
+      bodyLine1: "直感的な UI を備えた自律型エージェントを構築できます。",
       bodyLine2: "好きな LLM を持ち込んで、どこにでもデプロイできます。",
       tryAnApp: "アプリを試す",
     },
@@ -575,13 +574,12 @@ const jaJP = {
     communitySubmissionName: "アプリ名",
     communitySubmissionNamePlaceholder: "カスタマーサポートハブ",
     communitySubmissionUrl: "アプリ URL",
-    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "説明",
     communitySubmissionDescriptionPlaceholder:
       "アプリの機能と対象ユーザーを教えてください。",
     communitySubmissionRepository: "GitHub リポジトリ（任意）",
-    communitySubmissionRepositoryPlaceholder:
-      "https://github.com/owner/repository",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
     communitySubmissionScreenshots: "スクリーンショット（任意）",
     communitySubmissionScreenshotsPlaceholder: "最大5枚の画像をここにドロップ",
     communitySubmissionScreenshotDropHint: "PNG、JPG、WebP。各1.5 MBまで。",
@@ -592,8 +590,17 @@ const jaJP = {
     communitySubmissionSubmit: "アプリを送信",
     communitySubmissionReady:
       "ありがとうございます。公開前にアプリを確認します。",
-    communitySubmissionValidation:
-      "名前、説明、有効なアプリ URL を入力してください。PNG、JPG、WebP 画像は各 1.5 MB までアップロードできます。",
+    communitySubmissionNameError: "アプリ名を入力してください。",
+    communitySubmissionDescriptionError: "短い説明を追加してください。",
+    communitySubmissionUrlError:
+      "example.com のような有効なアプリリンクを入力してください。",
+    communitySubmissionRepositoryError:
+      "GitHub リポジトリのリンクを入力してください。",
+    communitySubmissionScreenshotsError:
+      "PNG、JPG、WebP 画像を使用してください。各 1.5 MB まで、最大 5 枚です。",
+    communitySubmissionSubmitError:
+      "現在送信できません。強調表示された項目を確認して、もう一度お試しください。",
+    communitySubmissionSubmitting: "送信中…",
   },
   buildFromScratch: {
     title: "ゼロから構築",
