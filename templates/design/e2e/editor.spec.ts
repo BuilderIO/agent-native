@@ -121,6 +121,38 @@ test("share dialog uses editor panel chrome", async ({ page }, testInfo) => {
   await cdpScreenshot(page, testInfo.outputPath("share-dialog-compact.png"));
 });
 
+test("right rail actions row keeps the Share button inside the panel", async ({
+  page,
+}) => {
+  const actionsRow = page.locator(
+    '[data-design-chrome-region="right-toolbar-actions"]',
+  );
+  await expect(actionsRow).toBeVisible();
+
+  // Icon-only at the rail's 240px default width; the label lives on the tooltip.
+  await expect(
+    page.getByRole("button", { name: "Add to Context" }),
+  ).toBeVisible();
+
+  const shareButton = page
+    .getByRole("button", { name: /^share(?: \(.+\))?$/i })
+    .first();
+  await expect(shareButton).toBeVisible();
+
+  const rowBox = await actionsRow.boundingBox();
+  const shareBox = await shareButton.boundingBox();
+  if (!rowBox || !shareBox) throw new Error("missing right rail action boxes");
+
+  expect(shareBox.width).toBeGreaterThan(0);
+  expect(shareBox.x).toBeGreaterThanOrEqual(rowBox.x - 1);
+  expect(shareBox.x + shareBox.width).toBeLessThanOrEqual(
+    rowBox.x + rowBox.width + 1,
+  );
+  expect(
+    await actionsRow.evaluate((node) => node.scrollWidth - node.clientWidth),
+  ).toBeLessThanOrEqual(1);
+});
+
 test("screen overview adds and targets frames from the unified breakpoint control", async ({
   page,
 }) => {
