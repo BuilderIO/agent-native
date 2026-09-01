@@ -67,14 +67,14 @@ describe("TemplateCard artwork", () => {
 });
 
 describe("TemplateCard copy", () => {
-  it("puts the muted eyebrow above the description", () => {
+  it("renders only the description, matching the homepage carousel card", () => {
     const { container } = renderCard("clips");
 
     const paragraphs = Array.from(container.querySelectorAll("article p"));
-    expect(paragraphs[0]?.textContent).toBe(
+    expect(paragraphs).toHaveLength(1);
+    expect(paragraphs[0]?.textContent).toContain("Record your screen.");
+    expect(container.textContent).not.toContain(
       "Screen recordings your AI can actually watch",
     );
-    expect(paragraphs[0]?.className).toContain("text-[var(--b-text-muted)]");
-    expect(paragraphs[1]?.textContent).toContain("Record your screen.");
   });
 });

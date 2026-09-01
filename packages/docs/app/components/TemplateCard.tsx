@@ -161,21 +161,10 @@ export function TemplateCard({ template }: { template: Template }) {
   const templatePath = sitePathForLocale(`/apps/${template.slug}`, locale);
   const heroCopy =
     template.slug === "clips"
-      ? {
-          replaces: t("templateLanding.clips.s007"),
-          description: t("templateLanding.clips.s008"),
-        }
+      ? { description: t("templateLanding.clips.s008") }
       : template.slug === "slides"
-        ? {
-            replaces: [
-              t("templateLanding.slides.s006Primary"),
-              t("templateLanding.slides.s006Secondary"),
-            ].join(" "),
-            description: t("templateLanding.slides.s007"),
-          }
+        ? { description: t("templateLanding.slides.s007") }
         : null;
-  const replaces =
-    heroCopy?.replaces ?? t(`templates.${template.slug}.replaces`);
   const description =
     heroCopy?.description ?? t(`templates.${template.slug}.description`);
   const art = APP_ART[template.slug];
@@ -252,9 +241,6 @@ export function TemplateCard({ template }: { template: Template }) {
           <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
             {template.name}
           </h3>
-          <p className="m-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] uppercase tracking-[0.04em] text-[var(--b-text-muted)]">
-            {replaces}
-          </p>
           <p className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]">
             {description}
           </p>
