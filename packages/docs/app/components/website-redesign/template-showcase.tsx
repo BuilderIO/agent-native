@@ -94,6 +94,8 @@ const APPS: ShowcaseApp[] = [
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd8f72ede40714d5f80adcc885b71afb6",
     imageLight:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd7e394cf1fd54a078881358a944c8280",
+    hoverImage:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F57c4390f1de84f7b8a0a7deb23c66723",
     href: "/apps/analytics",
   },
   {
@@ -103,6 +105,8 @@ const APPS: ShowcaseApp[] = [
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F18c4d2061c584743aa4915169de8f6b2",
     imageLight:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3351715f7c6a402f9f006d83d333dc58",
+    hoverImage:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc2eef0b6d7094103ad27b4862c62d0ce",
     href: "/apps/calendar",
   },
   {
@@ -112,6 +116,8 @@ const APPS: ShowcaseApp[] = [
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F1dab5941bced4ea88b6c29ca9c8842f5",
     imageLight:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5b10f254a3f8464b8b03a4786ec85761",
+    hoverImage:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F31179e9a6b9644ec8b38814a1e6b20cd",
     href: "/apps/mail",
   },
   {
@@ -121,6 +127,8 @@ const APPS: ShowcaseApp[] = [
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F505903e15f1445e589d76da4702953c0",
     imageLight:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcb8bc4b883e649a7ba64b3a500b1f555",
+    hoverImage:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F864e389c665a46ffbed69775c59a41f3",
     href: "/apps/assets",
   },
   {
@@ -130,6 +138,8 @@ const APPS: ShowcaseApp[] = [
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F54069e80e822449b935ae764a1982a96",
     imageLight:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdd23954911e94101a7a0f0393a195dad",
+    hoverImage:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffcf581e411064991829076493eef41b3",
     href: "/apps/content",
   },
 ];
