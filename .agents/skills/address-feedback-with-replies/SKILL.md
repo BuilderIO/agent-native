@@ -30,15 +30,15 @@ here. Content remains with Alice.
 One exception: an `:upvote:` from the invoking identity promotes an otherwise
 out-of-scope UX or feature request into scope - that reaction is the product
 decision, so build the smallest version rather than asking which variant is
-wanted. It does not transfer ownership: Design and Content remain with Sid or
-Alice, and work in those areas requires the mapped owner's authorization or an
-explicit assignment. Both workflows may record the **Shipped** disposition for
-an authorized upvoted improvement; this standalone workflow must accept and
-complete that path itself. Everything in this file about voice, evidence, and
-verification applies to an upvoted item unchanged. The ledger treats
-**Shipped** as the terminal disposition for that authorized upvoted path.
-An authorized upvoted item may therefore end with a **Shipped** reply; the
-companion ledger records it as terminal just like **Fixed**.
+wanted. The upvote is the authorization — do not wait for a second sign-off.
+It does not transfer ownership: an upvoted Design or Content item still gets
+built, with Sid or Alice named in the recap row so the mapped owner is not
+surprised by a change in their area. Naming them is a courtesy, not a gate.
+Both workflows may record the **Shipped** disposition for an upvoted
+improvement; this standalone workflow must accept and complete that path
+itself. Everything in this file about voice, evidence, and verification
+applies to an upvoted item unchanged. The ledger treats **Shipped** as its
+terminal disposition, just like **Fixed**.
 Even when invoked alone, this workflow asks at most three new clarification
 questions per run across all threads, ranked by which answer would unblock a
 safe fix.
@@ -119,11 +119,11 @@ Apply the shared `address-feedback` **Choose the fix altitude** gate before
 reacting, editing code, or replying. It selects the smallest owning seam and
 prevents one subjective report from becoming a global instruction.
 
-Once classified as a clear bug or an authorized upvoted improvement, add `👀`
+Once classified as a clear bug or an upvoted improvement, add `👀`
 before investigation or delegation. Leave subjective/product, policy,
 informational, bot-forward, status-only, non-repo-owned, and Design items
-without reaction, reply, or code unless the upvote and ownership gate put them
-in scope; Design goes to Sid unless explicitly assigned.
+without reaction, reply, or code unless the invoking identity's `:upvote:` put
+them in scope; Design goes to Sid unless upvoted or explicitly assigned.
 
 `👀` is an investigation marker, not a handled marker. An eye-only clear bug
 remains open until verification and its final user-facing status are complete.
