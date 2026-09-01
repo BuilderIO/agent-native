@@ -4529,8 +4529,8 @@ function normalizeOptionalToolPlaceholders(
  * time. Evidence-gated exactly like `normalizeOptionalToolPlaceholders`:
  * only coerce a field whose CURRENT value fails schema validation (so a
  * legitimate string value is never touched — a field schema-valid as a
- * string is never also schema-valid as object/array) and whose parsed form
- * passes. Never touches values that are already the right shape.
+ * string is never also schema-valid as object/array). Match the parsed
+ * CONTAINER only; validating its contents here hides the real defect.
  */
 function coerceStringifiedJsonToolValues(
   schema: RawJsonSchema | undefined,
@@ -4561,7 +4561,11 @@ function coerceStringifiedJsonToolValues(
       continue;
     }
     if (typeof parsed !== "object" || parsed === null) continue;
-    if (!schemaAcceptsToolValue(propertySchema, parsed)) continue;
+    const parsedContainer = Array.isArray(parsed) ? "array" : "object";
+    const containerMatches = Array.isArray(expectedType)
+      ? expectedType.includes(parsedContainer)
+      : expectedType === parsedContainer;
+    if (!containerMatches) continue;
     normalized ??= { ...(input as Record<string, unknown>) };
     normalized[key] = parsed;
   }

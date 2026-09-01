@@ -534,7 +534,7 @@ const zhCN = {
     communityTitle: "社区应用",
     communityDescription:
       "探索由作者维护的社区应用。有托管版本时可以先体验，也可以查看源代码并自行定制。",
-    submitCommunityTemplate: "打开 GitHub 表单",
+    submitCommunityTemplate: "提交应用",
     communityEmpty:
       "社区目录现已开放。请发布专注于明确场景的 Agent-Native 应用并提交收录。",
     publishGuide: "阅读发布指南",
@@ -570,13 +570,14 @@ const zhCN = {
     communitySubmissionRepository: "GitHub 仓库（可选）",
     communitySubmissionRepositoryPlaceholder:
       "https://github.com/owner/repository",
-    communitySubmissionScreenshots: "截图 URL（可选）",
-    communitySubmissionScreenshotsPlaceholder: "每行填写一个公开图片 URL",
-    communitySubmissionSubmit: "继续前往 GitHub",
-    communitySubmissionReady: "GitHub issue 草稿已准备好，请在那里完成提交。",
-    communitySubmissionOpenDraft: "打开草稿",
+    communitySubmissionScreenshots: "截图（可选）",
+    communitySubmissionScreenshotsPlaceholder:
+      "最多上传 5 张 PNG、JPG 或 WebP 图片。每张不超过 1.5 MB。",
+    communitySubmissionScreenshotSlot: "截图 {{index}}",
+    communitySubmissionSubmit: "提交应用",
+    communitySubmissionReady: "谢谢。我们会在发布前审核你的应用。",
     communitySubmissionValidation:
-      "请填写名称、描述和有效的应用 URL。可选 URL 也必须有效。",
+      "请填写名称、描述和有效的应用 URL。请上传 PNG、JPG 或 WebP 图片，每张不超过 1.5 MB。",
   },
   buildFromScratch: {
     title: "从零开始构建",

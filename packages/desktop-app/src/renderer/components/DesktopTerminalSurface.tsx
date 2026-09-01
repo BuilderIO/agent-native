@@ -200,11 +200,9 @@ export default function DesktopTerminalSurface({
               {onAgentChange ? (
                 <>
                   <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <span className="desktop-dropdown-item__main">
-                        <IconTerminal2 size={14} className="shrink-0" />
-                        Provider
-                      </span>
+                    <DropdownMenuSubTrigger className="gap-2">
+                      <IconTerminal2 size={14} className="shrink-0" />
+                      Provider
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent className="w-52">
                       {DESKTOP_TERMINAL_AGENT_OPTIONS.map((option) => (
