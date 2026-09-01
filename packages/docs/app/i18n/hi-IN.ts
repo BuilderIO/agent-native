@@ -579,9 +579,12 @@ const hiIN = {
     communitySubmissionRepositoryPlaceholder:
       "https://github.com/owner/repository",
     communitySubmissionScreenshots: "स्क्रीनशॉट (वैकल्पिक)",
-    communitySubmissionScreenshotsPlaceholder:
-      "अधिकतम 5 PNG, JPG या WebP इमेज। प्रत्येक 1.5 MB तक।",
+    communitySubmissionScreenshotsPlaceholder: "यहाँ अधिकतम 5 इमेज ड्रॉप करें",
+    communitySubmissionScreenshotDropHint: "PNG, JPG या WebP। प्रत्येक 1.5 MB तक।",
     communitySubmissionScreenshotSlot: "स्क्रीनशॉट {{index}}",
+    communitySubmissionScreenshotsAdd: "स्क्रीनशॉट जोड़ें",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 चुने गए",
+    communitySubmissionScreenshotRemove: "स्क्रीनशॉट {{index}} हटाएँ",
     communitySubmissionSubmit: "ऐप सबमिट करें",
     communitySubmissionReady:
       "धन्यवाद। प्रकाशित करने से पहले हम आपके ऐप की समीक्षा करेंगे।",

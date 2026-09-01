@@ -7,8 +7,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { builderBlocksHash, builderEntryBlocks } from "../shared/builder-mdx";
 import {
   builderCmsListEntryFields,
+  BuilderCmsContentEntryReadError,
   listBuilderCmsModels,
   readBuilderCmsContentEntry,
+  readBuilderCmsContentEntryResult,
   readBuilderCmsContentEntries,
   readBuilderCmsEntryLiveState,
   readBuilderCmsModelFields,
@@ -956,11 +958,10 @@ describe("Builder CMS read client", () => {
     }
   });
 
-  it("falls back to the legacy Builder CMS test search label", async () => {
+  it("uses the current Builder browse tool without legacy search fallback", async () => {
     resolveBuilderCredentialMock.mockImplementation(async (key) =>
       key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
     );
-    const legacySearchText = ["Agent", "Native"].join(" ") + " Test";
     const toolResponse = (content: unknown[]) =>
       new Response(
         JSON.stringify({
@@ -994,9 +995,6 @@ describe("Builder CMS read client", () => {
           status: 200,
         }),
       )
-      .mockResolvedValueOnce(toolResponse([]))
-      .mockResolvedValueOnce(toolResponse([]))
-      .mockResolvedValueOnce(toolResponse([entry]))
       .mockResolvedValueOnce(toolResponse([entry]));
 
     const result = await readBuilderCmsContentEntries({
@@ -1007,17 +1005,15 @@ describe("Builder CMS read client", () => {
     expect(result.entries).toMatchObject([
       { id: "legacy-entry", title: "Legacy test entry" },
     ]);
-    const searchTexts = fetchImpl.mock.calls
-      .slice(3, 5)
-      .map(
-        ([, request]) =>
-          JSON.parse(
-            typeof (request as RequestInit).body === "string"
-              ? (request as RequestInit).body
-              : (JSON.stringify((request as RequestInit).body) ?? ""),
-          ).params.arguments.searchText,
-      );
-    expect(searchTexts).toEqual(["Agent-Native Test", legacySearchText]);
+    const browseBody = JSON.parse(
+      String((fetchImpl.mock.calls[2]?.[1] as RequestInit).body),
+    );
+    expect(browseBody.params).toMatchObject({
+      name: "browse_model_content",
+      arguments: { modelName: "agent-native-blog-article-test" },
+    });
+    expect(browseBody.params.arguments).not.toHaveProperty("offset");
+    expect(browseBody.params.arguments).not.toHaveProperty("enrich");
   });
 
   it("paginates Builder content through the Content API up to the read limit", async () => {
@@ -1282,11 +1278,10 @@ describe("Builder CMS read client", () => {
     expect(JSON.parse(String(entryInit.body))).toMatchObject({
       method: "tools/call",
       params: {
-        name: "get_builder_content",
+        name: "browse_model_content",
         arguments: {
           modelName: "blog_article",
-          limit: 1,
-          query: { id: "builder-entry-1" },
+          limit: 100,
         },
       },
     });
@@ -1309,6 +1304,60 @@ describe("Builder CMS read client", () => {
       }),
     ).rejects.toThrow("Builder.io access expired");
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes a provider-confirmed empty entry from a missing entry", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
+    resolveBuilderCredentialMock.mockResolvedValue("public-key");
+
+    const found = await readBuilderCmsContentEntryResult({
+      model: "blog_article",
+      entryId: "empty-entry",
+      fetchImpl: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              id: "empty-entry",
+              data: { title: "Intentionally empty", blocks: [] },
+            }),
+            { status: 200 },
+          ),
+      ) as unknown as typeof fetch,
+    });
+    const missing = await readBuilderCmsContentEntryResult({
+      model: "blog_article",
+      entryId: "missing-entry",
+      fetchImpl: vi.fn(
+        async () => new Response(null, { status: 404 }),
+      ) as unknown as typeof fetch,
+    });
+
+    expect(found).toMatchObject({ state: "found", providerStatus: "http_200" });
+    expect(found.entry?.rawEntry?.data?.blocks).toEqual([]);
+    expect(missing).toEqual({
+      state: "not_found",
+      entry: null,
+      providerStatus: "http_404",
+    });
+  });
+
+  it("preserves actionable retry evidence for Builder read failures", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
+    resolveBuilderCredentialMock.mockResolvedValue("public-key");
+
+    await expect(
+      readBuilderCmsContentEntryResult({
+        model: "blog_article",
+        entryId: "rate-limited-entry",
+        fetchImpl: vi.fn(
+          async () => new Response(null, { status: 429 }),
+        ) as unknown as typeof fetch,
+      }),
+    ).rejects.toMatchObject<Partial<BuilderCmsContentEntryReadError>>({
+      reason: "transient_read_failure",
+      providerStatus: "http_429",
+      retryable: true,
+    });
   });
 
   it("can return an initial partial Builder Content API page for fast refresh", async () => {
@@ -1594,88 +1643,26 @@ describe("Builder CMS read client", () => {
     });
   });
 
-  it("continues a 597-entry MCP source from offset 500", async () => {
+  it("rejects unsupported MCP offset continuation instead of replaying page one", async () => {
     resolveBuilderCredentialMock.mockImplementation(async (key) =>
       key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
     );
-    const entries = Array.from({ length: 597 }, (_, index) => ({
-      id: `builder-entry-${index + 1}`,
-      data: { title: `Builder title ${index + 1}` },
-    }));
-    const pageRequests: Array<{ limit: number; offset: number }> = [];
-    const fetchImpl = vi.fn(async (_input: string, init?: RequestInit) => {
-      const body = JSON.parse(
-        typeof init?.body === "string"
-          ? init.body
-          : (JSON.stringify(init?.body) ?? ""),
-      ) as {
-        method: string;
-        params?: {
-          name?: string;
-          arguments?: { limit?: number; offset?: number };
-        };
-      };
-      if (body.method === "server/discover") {
-        expect(init?.headers).not.toHaveProperty("mcp-method");
-        expect(init?.headers).not.toHaveProperty("mcp-protocol-version");
-        expect(body.params).toEqual({});
-        return new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            result: { supportedVersions: ["2026-07-28"] },
-          }),
-          { status: 200 },
-        );
-      }
-      if (body.method === "initialize") {
-        return new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
-          status: 200,
-          headers: { "mcp-session-id": "session-597" },
-        });
-      }
-      if (body.method === "notifications/initialized") {
-        return new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
-          status: 200,
-        });
-      }
-      const limit = Number(body.params?.arguments?.limit);
-      const offset = Number(body.params?.arguments?.offset);
-      pageRequests.push({ limit, offset });
-      return new Response(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          result: {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  content: entries.slice(offset, offset + limit),
-                }),
-              },
-            ],
-          },
-        }),
-        { status: 200 },
-      );
-    });
+    const fetchImpl = vi.fn();
 
-    const result = await readBuilderCmsContentEntries({
-      model: "blog_article",
-      limit: 500,
-      offset: 500,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "blog_article",
+        limit: 500,
+        offset: 500,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "error",
+      entries: [],
+      message:
+        "Builder Publish MCP does not support offset pagination for content reads.",
     });
-
-    expect(pageRequests).toEqual([{ limit: 100, offset: 500 }]);
-    expect(result.entries).toHaveLength(97);
-    expect(result.progress).toMatchObject({
-      startOffset: 500,
-      nextOffset: 597,
-      fetchedEntryCount: 597,
-      hasMore: false,
-      partial: false,
-      readMode: "mcp",
-    });
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("falls back to the 2024 MCP protocol when 2025 initialize is rejected", async () => {
