@@ -438,8 +438,7 @@ const esES = {
   homepage: {
     hero: {
       title: "El framework de aplicaciones agentic",
-      bodyLine1:
-        "Crea para agentes de IA sin construir un segundo producto para los usuarios.",
+      bodyLine1: "Crea agentes autónomos con interfaces intuitivas.",
       bodyLine2: "Usa tu propio LLM. Despliega donde quieras.",
       tryAnApp: "Probar una app",
     },

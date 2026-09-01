@@ -437,8 +437,7 @@ const koKR = {
   homepage: {
     hero: {
       title: "에이전틱 애플리케이션 프레임워크",
-      bodyLine1:
-        "사용자를 위한 두 번째 제품을 따로 만들지 않고도 AI 에이전트를 위해 개발하세요.",
+      bodyLine1: "직관적인 UI를 갖춘 자율형 에이전트를 구축하세요.",
       bodyLine2: "원하는 LLM을 사용하고 어디에나 배포하세요.",
       tryAnApp: "앱 사용해 보기",
     },

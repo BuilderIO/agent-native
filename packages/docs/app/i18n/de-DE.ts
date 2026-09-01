@@ -439,7 +439,7 @@ const deDE = {
     hero: {
       title: "Das Framework für agentische Anwendungen",
       bodyLine1:
-        "Baue für KI-Agenten, ohne ein zweites Produkt für Nutzer zu bauen.",
+        "Entwickle autonome Agenten mit intuitiven Benutzeroberflächen.",
       bodyLine2: "Bring dein eigenes LLM mit. Deploye überall.",
       tryAnApp: "App ausprobieren",
     },

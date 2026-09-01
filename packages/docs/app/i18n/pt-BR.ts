@@ -436,8 +436,7 @@ const ptBR = {
   homepage: {
     hero: {
       title: "O framework para aplicativos agentic",
-      bodyLine1:
-        "Construa para agentes de IA sem construir um segundo produto para os usuários.",
+      bodyLine1: "Crie agentes autônomos com interfaces intuitivas.",
       bodyLine2: "Traga seu próprio LLM. Implante em qualquer lugar.",
       tryAnApp: "Experimentar um app",
     },
