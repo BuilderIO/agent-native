@@ -162,11 +162,13 @@ export default function TemplatesPage() {
               </div>
             ) : null}
 
-            {/* Breaks out and restores the padding for the same reason as the
-                section above: this is a section-level divider, so it belongs on
-                the full measure rather than stopping at the text inset. */}
-            <div className="-mx-4 mt-16 grid gap-8 border-t border-solid border-[var(--b-border-default)] px-4 pt-10 sm:-mx-6 sm:px-6 lg:grid-cols-[minmax(220px,0.7fr)_minmax(0,1.3fr)] lg:gap-16">
-              <div>
+            {/* Breaks out for the divider, but unlike the sections above it
+                does not restore the padding here: the grid's own content box
+                has to span the full measure for its thirds to land on the
+                page's column rules, so each cell carries the page padding and
+                the gutter is cell padding rather than a grid gap. */}
+            <div className="-mx-4 mt-16 grid gap-8 border-t border-solid border-[var(--b-border-default)] pt-10 sm:-mx-6 lg:grid-cols-3 lg:gap-0">
+              <div className="px-4 sm:px-6 lg:pr-[var(--spacing-8)]">
                 <h3 className={`m-0 ${SECTION_HEADING_CLASS}`}>
                   {t("templatesPage.communitySubmissionTitle")}
                 </h3>
@@ -182,7 +184,9 @@ export default function TemplatesPage() {
                   {t("templatesPage.submitCommunityTemplate")}
                 </a>
               </div>
-              <CommunityAppSubmissionForm />
+              <div className="px-4 sm:px-6 lg:col-span-2 lg:pl-[var(--spacing-8)]">
+                <CommunityAppSubmissionForm />
+              </div>
             </div>
 
             <p className="mt-8 max-w-[720px] font-[family-name:var(--b-font-sans)] text-sm leading-[1.4] text-[var(--b-text-muted)]">
