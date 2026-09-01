@@ -95,7 +95,7 @@ const APPS: ShowcaseApp[] = [
     imageLight:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd7e394cf1fd54a078881358a944c8280",
     hoverImage:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F57c4390f1de84f7b8a0a7deb23c66723",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F86fceab19cea46e892213ba4a3253946",
     href: "/apps/analytics",
   },
   {
@@ -106,7 +106,7 @@ const APPS: ShowcaseApp[] = [
     imageLight:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3351715f7c6a402f9f006d83d333dc58",
     hoverImage:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc2eef0b6d7094103ad27b4862c62d0ce",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6fdc04396df44037ac70ddf1f469fca4",
     href: "/apps/calendar",
   },
   {
@@ -117,7 +117,7 @@ const APPS: ShowcaseApp[] = [
     imageLight:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5b10f254a3f8464b8b03a4786ec85761",
     hoverImage:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F31179e9a6b9644ec8b38814a1e6b20cd",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa8c41edbfc94449aba80081b681ad6a5",
     href: "/apps/mail",
   },
   {
@@ -139,7 +139,7 @@ const APPS: ShowcaseApp[] = [
     imageLight:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdd23954911e94101a7a0f0393a195dad",
     hoverImage:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffcf581e411064991829076493eef41b3",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcafd0f4b75fd485298eb83dd48dd66f1",
     href: "/apps/content",
   },
 ];
