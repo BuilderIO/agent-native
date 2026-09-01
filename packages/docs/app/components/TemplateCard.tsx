@@ -180,7 +180,9 @@ function TemplateLaunchButton({ template }: { template: Template }) {
   const hasDemoUrl = "demoUrl" in template && template.demoUrl;
 
   return (
-    <div className="mt-auto flex flex-wrap gap-2 pt-1">
+    // Breaks out of the card's content padding the same way the title rule
+    // does, so both dividers meet the card edges.
+    <div className="-mx-[var(--spacing-5)] mt-auto flex w-[calc(100%+2*var(--spacing-5))] flex-wrap gap-2 border-t border-solid border-[var(--b-border-subtle)] px-[var(--spacing-5)] pt-[var(--spacing-4)]">
       {hasDemoUrl ? (
         <Button
           variant="white"
@@ -302,7 +304,11 @@ export function TemplateCard({ template }: { template: Template }) {
         )}
       </Link>
       <div className="flex flex-auto flex-col items-start gap-[var(--spacing-3)] p-[var(--spacing-5)]">
-        <div className="flex w-full items-center justify-between gap-2 border-b border-solid border-[var(--b-border-subtle)] pb-[var(--spacing-3)]">
+        {/* Breaks out of the content block's padding so the rule meets both
+            card edges, then restores it so the title stays aligned with the
+            copy beneath. Uses the same token both ways, so it tracks the
+            padding across breakpoints. */}
+        <div className="-mx-[var(--spacing-5)] flex w-[calc(100%+2*var(--spacing-5))] items-center justify-between gap-2 border-b border-solid border-[var(--b-border-subtle)] px-[var(--spacing-5)] pb-[var(--spacing-3)]">
           <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
             {template.name}
           </h3>
