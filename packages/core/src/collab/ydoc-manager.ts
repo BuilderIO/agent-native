@@ -260,20 +260,12 @@ async function persistMergedState(
     }
   }
 
-  // Exhausting the CAS means a peer kept winning the row. For a pinned
-  // whole-document write that IS the conflict: the unconditional save below
-  // would overwrite the edit that beat us and report success, which is the
-  // exact loss the pin exists to prevent.
-  if (validatedBaseVersion !== undefined) {
-    throw new CollabBaseVersionConflictError(
-      `Document ${docId} kept changing while the edit was being applied; the write was not saved.`,
-    );
-  }
-  // All CAS attempts failed — fall back to unconditional save.
-  const textSnapshot = getTextSnapshot();
-  validateTextSnapshot?.(textSnapshot);
-  await saveYDocState(docId, Y.encodeStateAsUpdate(doc), textSnapshot);
-  noteCachedVersion(docId, doc, null);
+  // Exhausting the CAS means a peer kept winning the row — pinned or not. The
+  // old fallback saved unconditionally and returned normally, so the caller
+  // saw a clean success over someone else's clobbered edit.
+  throw new CollabBaseVersionConflictError(
+    `Document ${docId} kept changing while the edit was being applied; the write was not saved.`,
+  );
 }
 
 /**
@@ -343,14 +335,8 @@ async function mergeNewerStoredState(
 /**
  * Get or load a Yjs document by ID. Creates a new empty doc if none exists.
  */
-export async function getDoc(docId: string): Promise<Y.Doc> {
-  const cached = _cache.get(docId);
-  if (cached) {
-    cached.lastAccess = Date.now();
-    await mergeNewerStoredState(docId, cached);
-    return cached.doc;
-  }
-
+/** Cold-load path shared by both entry points. */
+async function loadDoc(docId: string): Promise<Y.Doc> {
   const inFlight = _loadLocks.get(docId);
   if (inFlight) return inFlight;
 
@@ -400,6 +386,46 @@ export async function getDoc(docId: string): Promise<Y.Doc> {
 }
 
 /**
+ * The write path's doc. It deliberately skips the peer-state refresh that
+ * `getDoc` performs: a mutation diffs `newText` against this text, and a base
+ * that has just absorbed a peer's edit turns that diff into an explicit
+ * deletion of it. `persistMergedState` merges the peer during the CAS instead,
+ * where both edits survive — and skipping the probe saves a round trip on
+ * every write.
+ */
+export async function getDocForWrite(docId: string): Promise<Y.Doc> {
+  const cached = _cache.get(docId);
+  if (cached) {
+    cached.lastAccess = Date.now();
+    return cached.doc;
+  }
+  return loadDoc(docId);
+}
+
+/**
+ * A mutation applies its diff to the cached doc and only then persists. Until
+ * that CAS lands the write may still be rejected and the doc released, so a
+ * read that slips in between would serve content that never becomes durable.
+ * Readers wait for the write in flight rather than observe it.
+ */
+async function awaitPendingWrite(docId: string): Promise<void> {
+  const pending = _writeLocks.get(docId);
+  if (pending) await pending.catch(() => {});
+}
+
+export async function getDoc(docId: string): Promise<Y.Doc> {
+  await awaitPendingWrite(docId);
+  const cached = _cache.get(docId);
+  if (cached) {
+    cached.lastAccess = Date.now();
+    await mergeNewerStoredState(docId, cached);
+    return cached.doc;
+  }
+
+  return loadDoc(docId);
+}
+
+/**
  * Apply a binary Yjs update (from a client) to a document.
  * Persists the result and emits a change event.
  */
@@ -409,7 +435,7 @@ export async function applyUpdate(
   requestSource?: string,
 ): Promise<void> {
   return withDocWriteLock(docId, async () => {
-    const doc = await getDoc(docId);
+    const doc = await getDocForWrite(docId);
     // The cached doc is already up-to-date from the initial load or a previous
     // write in this process. No redundant applyStoredState() here — cross-
     // process writes are merged inside persistMergedState when needed.
@@ -459,7 +485,7 @@ export async function applyText(
   } = {},
 ): Promise<string> {
   return withDocWriteLock(docId, async () => {
-    const doc = await getDoc(docId);
+    const doc = await getDocForWrite(docId);
     // getDoc has just merged any peer state and recorded the row version that
     // merge corresponds to. Both are read here with no await between them, so
     // the validated text and the pinned version describe the same state — a
@@ -497,13 +523,13 @@ export async function applyText(
         validatedBaseVersion,
       );
     } catch (error) {
-      if (options.validateSnapshot) {
-        // The target diff and any cross-process state merged during the CAS
-        // read now live only in this cached Y.Doc. Destroy it before throwing:
-        // neither the rejected update nor a compensating rollback should ever
-        // be persisted/emitted to connected clients.
-        releaseDoc(docId);
-      }
+      // The rejected diff, and any cross-process state merged during the CAS
+      // read, now live only in this cached Y.Doc. Destroy it before throwing:
+      // neither the rejected update nor a compensating rollback should ever be
+      // persisted or emitted. Gating this on validateSnapshot left a pinned
+      // caller's rejected mutation cached forever, so the next successful
+      // write folded peer state on top of durably-rejected content.
+      releaseDoc(docId);
       throw error;
     }
 
@@ -528,7 +554,7 @@ export async function searchAndReplace(
   requestSource?: string,
 ): Promise<{ found: boolean; update: Uint8Array }> {
   return withDocWriteLock(docId, async () => {
-    const doc = await getDoc(docId);
+    const doc = await getDocForWrite(docId);
     const fragment = doc.getXmlFragment("default");
 
     // Capture the update produced by the transaction
@@ -628,7 +654,7 @@ export async function applyJson(
   requestSource?: string,
 ): Promise<void> {
   return withDocWriteLock(docId, async () => {
-    const doc = await getDoc(docId);
+    const doc = await getDocForWrite(docId);
     const update = applyJsonDiff(doc, fieldName, newJson, "server");
 
     if (update.length === 0) return;
@@ -655,7 +681,7 @@ export async function applyPatchOps(
   requestSource?: string,
 ): Promise<void> {
   return withDocWriteLock(docId, async () => {
-    const doc = await getDoc(docId);
+    const doc = await getDocForWrite(docId);
     const update = applyJsonPatch(doc, fieldName, ops, "server");
 
     if (update.length === 0) return;

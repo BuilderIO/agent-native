@@ -60,6 +60,30 @@ describe("getDesignBottomToolbarMode", () => {
     ).toBe("commenter");
   });
 
+  it("gives an editor the tools before any file exists", () => {
+    // A new design has no file rows; the draw tools create the first one, so
+    // gating the toolbar on a file hid it exactly when it was needed.
+    expect(
+      getDesignBottomToolbarMode({
+        isSignedIn: true,
+        canEditDesign: true,
+        canCommentDesign: true,
+        hasActiveFile: false,
+      }),
+    ).toBe("editor");
+  });
+
+  it("still needs a file before offering comment-only tools", () => {
+    expect(
+      getDesignBottomToolbarMode({
+        isSignedIn: true,
+        canEditDesign: false,
+        canCommentDesign: true,
+        hasActiveFile: false,
+      }),
+    ).toBe("hidden");
+  });
+
   it("hides the toolbar without a session or active file", () => {
     expect(
       getDesignBottomToolbarMode({

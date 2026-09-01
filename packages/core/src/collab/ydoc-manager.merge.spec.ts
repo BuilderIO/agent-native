@@ -366,7 +366,10 @@ describe("ydoc-manager applyText (agent full-text path)", () => {
           if (base !== "base") throw new Error("stale base");
         },
       }),
-    ).rejects.toThrow("stale base");
+      // Rejected either by the caller's own base check or by the pinned
+      // version failing the CAS — the write path no longer pre-merges the
+      // peer, so which guard fires depends on ordering. Both are the conflict.
+    ).rejects.toThrow(/stale base|moved from version|kept changing/);
 
     // The caller's whole-document candidate never replaced the human's edit,
     // and nothing was persisted or broadcast.

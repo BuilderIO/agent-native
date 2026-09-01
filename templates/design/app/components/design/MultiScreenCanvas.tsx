@@ -10457,7 +10457,9 @@ const Screen = memo(function Screen({
         }}
         onMouseLeave={() => updateDirectHover(false)}
         className={cn(
-          "group/artboard relative block overflow-visible rounded-lg bg-background text-left outline-none transition-colors",
+          // Square corners: a screen is a page, and a rounded card implies a
+          // corner radius the exported document does not have.
+          "group/artboard relative block overflow-visible bg-background text-left outline-none transition-colors",
           "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
           emphasized
             ? "text-foreground"
@@ -11109,7 +11111,7 @@ function BreakpointPreviewRow({
               tabIndex={0}
               data-screen-card
               className={cn(
-                "group/artboard relative block cursor-pointer overflow-visible rounded-lg bg-background text-left outline-none transition-colors",
+                "group/artboard relative block cursor-pointer overflow-visible bg-background text-left outline-none transition-colors",
                 "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
               )}
               style={{ width: frameWidth, height: frameHeight }}

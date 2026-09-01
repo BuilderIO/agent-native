@@ -158,7 +158,7 @@ describe("LayoutContextProperties", () => {
     expect(markup).not.toContain("Clip content");
   });
 
-  it("offers Clip content on a frame, not on a drawn shape or text", () => {
+  it("offers Clip content on containers, not on drawn shapes or text", () => {
     // Clipping is a container's decision. A screen is clipped from birth (see
     // blankScreenHtml) rather than through this toggle.
     const shown = (info: Parameters<typeof element>[0]) =>
@@ -170,6 +170,8 @@ describe("LayoutContextProperties", () => {
       ).includes("Clip content");
 
     expect(shown({ primitiveKind: "frame", sourceId: "frame-1" })).toBe(true);
+    // Generated and imported markup is full of plain containers; they clip too.
+    expect(shown({ tagName: "section", sourceId: "section-1" })).toBe(true);
     expect(shown({ primitiveKind: "rectangle", sourceId: "rect-1" })).toBe(
       false,
     );

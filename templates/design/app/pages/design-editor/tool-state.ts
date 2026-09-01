@@ -140,10 +140,12 @@ export function getDesignBottomToolbarMode(args: {
   canCommentDesign: boolean;
   hasActiveFile: boolean;
 }): DesignBottomToolbarMode {
-  if (!args.isSignedIn || !args.hasActiveFile || !args.canCommentDesign) {
-    return "hidden";
-  }
-  return args.canEditDesign ? "editor" : "commenter";
+  if (!args.isSignedIn || !args.canCommentDesign) return "hidden";
+  // An editor needs the tools before a file exists: a new design has no file
+  // rows at all, and the draw tools are what create the first one. Commenting
+  // still needs something to comment on.
+  if (args.canEditDesign) return "editor";
+  return args.hasActiveFile ? "commenter" : "hidden";
 }
 
 export function getSingleScreenCreationTool(args: {

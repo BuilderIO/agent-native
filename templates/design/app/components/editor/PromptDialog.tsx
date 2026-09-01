@@ -490,6 +490,10 @@ export default function PromptPopover({
   }, []);
   useEffect(() => {
     if (open) return;
+    // A submit closes the popover immediately and may still fail, which
+    // reopens it to restore the typed prompt. Resetting to the start choice
+    // here would hide that restored composer behind the two cards.
+    if (submittingRef.current) return;
     setShowStartChoice(offerStartChoice);
     skipInFlightRef.current = false;
     setSkipInFlight(false);
@@ -531,6 +535,9 @@ export default function PromptPopover({
     if (open) return;
     setAssetsPickerOpen(false);
     setTemplatePickerOpen(false);
+    // Same reason as above: a still-running submit owns these until it either
+    // commits them or fails and hands the composer back with its attachments.
+    if (submittingRef.current) return;
     setPickedAssets([]);
     setSelectedUploadFiles([]);
     // Only sticks for the session immediately following a failed submit; a
@@ -906,7 +913,17 @@ export default function PromptPopover({
               type="button"
               data-start-with-ai
               disabled={loading}
-              onClick={() => setShowStartChoice(false)}
+              onClick={() => {
+                setShowStartChoice(false);
+                // autoFocus already ran while the composer was display:none,
+                // so revealing it leaves no caret. Focus it once it is shown.
+                requestAnimationFrame(() => {
+                  const composer = document.querySelector<HTMLElement>(
+                    "[data-agent-native-prompt-popover] .ProseMirror",
+                  );
+                  composer?.focus();
+                });
+              }}
               className="flex cursor-pointer flex-col gap-1.5 rounded-lg border border-transparent bg-[var(--design-editor-accent-color)] px-3 py-3 text-left text-[color:var(--design-editor-accent-contrast-color)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <IconSparkles className="size-5 shrink-0" />

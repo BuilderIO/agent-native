@@ -16073,18 +16073,39 @@ function DesignEditor() {
    * one property at a time recomputes each from the same pre-event projection,
    * so the last write drops the earlier ones.
    */
+  /** Screens whose on-screen state came from a preview tick and has not been
+   *  persisted yet, so a commit that computes identical content still saves. */
+  const unsavedPreviewScreenRef = useRef<Set<string>>(new Set());
   const commitSelectedScreenStyles = useCallback(
     (patch: Record<string, string>, meta?: StyleChangeMeta) => {
       const screenId = selectedScreenGeometry?.id;
       if (!screenId || !canEditDesignRef.current) return;
       if (!selectedScreenOwnsItsMarkup) return;
+      const previewOnly = meta?.phase === "preview";
       const content = getProjectionContentForScreen(screenId);
       const next = setBodyInlineStyles(content, patch);
-      if (next === null || next === content) return;
+      // A URL-backed screen has no <body> to patch.
+      if (next === null) return;
+      if (next === content) {
+        // Preview ticks paint without persisting, and they move the projection
+        // this reads from — so the gesture's final commit computes an identical
+        // document and used to return here, leaving the edit on screen but
+        // never in the file. A commit re-saves the previewed content instead.
+        if (previewOnly || !unsavedPreviewScreenRef.current.has(screenId)) {
+          return;
+        }
+        unsavedPreviewScreenRef.current.delete(screenId);
+        applyFileContentUpdate(screenId, content, {
+          persist: true,
+          recordHistory: true,
+        });
+        return;
+      }
       // A colour drag emits a preview tick per frame; painting them without
       // persisting keeps the canvas live without a save per tick, and the
       // gesture's commit is what lands in history and the file.
-      const previewOnly = meta?.phase === "preview";
+      if (previewOnly) unsavedPreviewScreenRef.current.add(screenId);
+      else unsavedPreviewScreenRef.current.delete(screenId);
       applyFileContentUpdate(screenId, next, {
         persist: !previewOnly,
         recordHistory: !previewOnly,
