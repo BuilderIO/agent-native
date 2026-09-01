@@ -152,6 +152,21 @@ describe("buildNotionAuthUrl", () => {
       expect(state.n).toBe(cookieValue);
     });
 
+    it("uses the forwarded origin in the OAuth redirect URI", async () => {
+      const event = mockEvent("http://internal/api/notion/auth-url", {
+        headers: {
+          "x-forwarded-host": "beta.content.agent-native.com",
+          "x-forwarded-proto": "https",
+        },
+      });
+
+      const url = await buildNotionAuthUrl(event, "/page/abc123");
+
+      expect(new URL(url).searchParams.get("redirect_uri")).toBe(
+        "https://beta.content.agent-native.com/api/notion/callback",
+      );
+    });
+
     it("signs redirectPath so the callback's HMAC verification accepts it", async () => {
       const event = mockEvent("http://localhost/api/notion/auth-url");
       const url = await buildNotionAuthUrl(event, "/page/abc123");

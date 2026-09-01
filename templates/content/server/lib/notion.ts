@@ -11,7 +11,13 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { createError, getHeader, setCookie, type H3Event } from "h3";
+import {
+  createError,
+  getHeader,
+  getRequestURL,
+  setCookie,
+  type H3Event,
+} from "h3";
 
 import { canonicalizeNfm } from "../../shared/nfm.js";
 
@@ -78,10 +84,7 @@ export class NotionApiError extends Error {
 }
 
 function getOrigin(event: H3Event): string {
-  const req = event.node?.req;
-  const host = req?.headers["x-forwarded-host"] || req?.headers.host;
-  const proto = req?.headers["x-forwarded-proto"] || "http";
-  return `${String(proto)}://${String(host)}`;
+  return getRequestURL(event, { xForwardedHost: true }).origin;
 }
 
 /**
