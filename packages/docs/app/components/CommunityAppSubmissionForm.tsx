@@ -17,6 +17,7 @@ import {
 } from "../lib/community-form-client";
 import { sitePathForLocale } from "./docs-locale";
 import { Button } from "./website-redesign/ds/button";
+import { IconButton } from "./website-redesign/ds/icon-button";
 
 export const COMMUNITY_FORM_NAME = "community-app-submission";
 const SCREENSHOT_MAX_COUNT = 5;
@@ -595,10 +596,8 @@ export function CommunityAppSubmissionForm({
                   loading="lazy"
                   decoding="async"
                 />
-                <Button
+                <IconButton
                   type="button"
-                  variant="secondary-icon"
-                  icon={IconX}
                   aria-label={t(
                     "templatesPage.communitySubmissionScreenshotRemove",
                     { index: index + 1 },
@@ -607,11 +606,11 @@ export function CommunityAppSubmissionForm({
                     "templatesPage.communitySubmissionScreenshotRemove",
                     { index: index + 1 },
                   )}
-                  className="absolute top-2 right-2 size-8 p-0"
+                  className="absolute top-2 right-2 size-8 bg-[var(--b-bg-page)]/90"
                   onClick={() => removeScreenshot(index)}
                 >
-                  {null}
-                </Button>
+                  <IconX size={16} />
+                </IconButton>
                 <p className="m-0 truncate border-t border-solid border-[var(--b-border-default)] px-2.5 py-2 font-[family-name:var(--b-font-sans)] text-xs text-[var(--b-text-secondary)]">
                   {screenshot.file.name}
                 </p>
