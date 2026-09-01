@@ -8,8 +8,10 @@ import {
 } from "./db-admin-connections";
 
 const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const NUMERIC_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
 const MUTATING_WORD_RE =
   /(^|[^A-Za-z_])(insert|update|delete|replace|create|alter|drop|truncate|merge)(?=[^A-Za-z_]|$)/i;
+const MAX_SOURCE_ROWS = 500;
 
 function sanitizeSqlForInspection(sql: string): string {
   let out = "";
@@ -92,6 +94,14 @@ function assertReadOnlySql(sql: string): void {
   if (statement.includes(";")) {
     throw new Error("Source SQL must be a single statement.");
   }
+  if (/\binto\b/i.test(statement)) {
+    throw new Error("Source SQL must not use SELECT INTO.");
+  }
+  if (
+    /\bfor\s+(?:no\s+key\s+)?(?:update|share|key\s+share)\b/i.test(statement)
+  ) {
+    throw new Error("Source SQL must not lock rows.");
+  }
   if (MUTATING_WORD_RE.test(statement)) {
     throw new Error("Source SQL must be read-only.");
   }
@@ -111,13 +121,34 @@ function normalizeColumnName(value: unknown, label: string): string {
   return value.trim();
 }
 
+function canonicalNumeric(value: string): string | null {
+  const text = value.trim();
+  if (!NUMERIC_RE.test(text)) return null;
+  const sign = text.startsWith("-") ? "-" : "";
+  const unsigned = text.replace(/^[+-]/, "");
+  const [integerPart, fractionPart = ""] = unsigned.split(".");
+  const integer = integerPart.replace(/^0+(?=\d)/, "") || "0";
+  const fraction = fractionPart.replace(/0+$/, "");
+  if (integer === "0" && !fraction) return "0";
+  return `${sign}${integer}${fraction ? `.${fraction}` : ""}`;
+}
+
 function rowKey(value: unknown): string | null {
   if (value === null || value === undefined) return null;
-  const kind = typeof value;
-  if (kind === "string") return `s:${value}`;
-  if (kind === "number") return `n:${Number.isNaN(value) ? "NaN" : value}`;
-  if (kind === "boolean") return `b:${value ? "1" : "0"}`;
-  if (kind === "bigint") return `i:${value.toString()}`;
+  if (typeof value === "string") {
+    const numeric = canonicalNumeric(value);
+    return numeric ? `n:${numeric}` : `s:${value}`;
+  }
+  if (typeof value === "number") {
+    const numeric = Number.isFinite(value)
+      ? canonicalNumeric(String(value))
+      : null;
+    return numeric
+      ? `n:${numeric}`
+      : `n:${Number.isNaN(value) ? "NaN" : value}`;
+  }
+  if (typeof value === "boolean") return `b:${value ? "1" : "0"}`;
+  if (typeof value === "bigint") return `n:${value.toString()}`;
   return `j:${JSON.stringify(value)}`;
 }
 
@@ -169,6 +200,7 @@ type SourceResult = {
   connectionId: string;
   rows: Record<string, unknown>[];
   columns: string[];
+  truncated: boolean;
 };
 
 type NormalizedProjection = {
@@ -255,7 +287,7 @@ function buildRows(
     }
     return {
       rows,
-      truncated: source.rows.length > rows.length,
+      truncated: source.truncated || source.rows.length > rows.length,
     };
   }
 
@@ -280,10 +312,10 @@ function buildRows(
   if (!left || !right)
     throw new Error("Join source ids must match the supplied sources.");
 
-  if (!left.columns.includes(join.leftColumn)) {
+  if (left.columns.length > 0 && !left.columns.includes(join.leftColumn)) {
     throw new Error(`Left join column "${join.leftColumn}" was not found.`);
   }
-  if (!right.columns.includes(join.rightColumn)) {
+  if (right.columns.length > 0 && !right.columns.includes(join.rightColumn)) {
     throw new Error(`Right join column "${join.rightColumn}" was not found.`);
   }
 
@@ -354,7 +386,8 @@ function buildRows(
 
   return {
     rows: output.slice(0, limit),
-    truncated: output.length > limit,
+    truncated:
+      sources.some((source) => source.truncated) || output.length > limit,
   };
 }
 
@@ -428,6 +461,11 @@ function normalizeProjections(
   return normalized;
 }
 
+function boundedSourceSql(sql: string): string {
+  const statement = sql.trim().replace(/;\s*$/, "");
+  return `SELECT * FROM (${statement}\n) AS "__agent_native_source" LIMIT ${MAX_SOURCE_ROWS + 1}`;
+}
+
 export async function runDbAdminFederatedRead(
   ctx: DbAdminAdminContext,
   args: FederatedDbAdminReadArgs,
@@ -441,17 +479,22 @@ export async function runDbAdminFederatedRead(
         ctx,
         source.connectionId,
         async (runtime, connection) => {
-          const result = await runSql(
-            source.sql,
-            source.params,
-            {},
-            runtime as DbAdminRuntime,
-          );
+          const sql = boundedSourceSql(source.sql);
+          const read = (dbRuntime: DbAdminRuntime) =>
+            runSql(sql, source.params, {}, dbRuntime);
+          const result =
+            runtime.dialect === "postgres" && runtime.db?.transaction
+              ? await runtime.db.transaction(async (tx) => {
+                  await tx.execute("SET TRANSACTION READ ONLY");
+                  return read({ ...runtime, db: tx });
+                })
+              : await read(runtime as DbAdminRuntime);
           return {
             sourceId: sourceIds[index],
             connectionId: connection.id,
-            rows: result.rows,
+            rows: result.rows.slice(0, MAX_SOURCE_ROWS),
             columns: pickRowColumns(result.rows[0], result.columns),
+            truncated: result.rows.length > MAX_SOURCE_ROWS,
           } satisfies SourceResult;
         },
       ),
@@ -512,6 +555,7 @@ export async function runDbAdminFederatedRead(
         connectionId: source.connectionId,
         rowCount: source.rows.length,
         columns: source.columns,
+        truncated: source.truncated,
       })),
       ...(join
         ? {

@@ -43,8 +43,8 @@ describe("db-admin-federated-read", () => {
         return {
           columns: ["user_id", "total"],
           rows: [
-            { user_id: 1, total: 10 },
-            { user_id: 1, total: 15 },
+            { user_id: "1", total: 10 },
+            { user_id: "1", total: 15 },
           ],
           rowsAffected: 0,
           durationMs: 1,
@@ -72,9 +72,7 @@ describe("db-admin-federated-read", () => {
         ],
         join: {
           kind: "inner",
-          leftSourceId: "users",
           leftColumn: "id",
-          rightSourceId: "orders",
           rightColumn: "user_id",
         },
         projections: [
@@ -87,6 +85,9 @@ describe("db-admin-federated-read", () => {
 
     expect(mocks.withDbAdminConnectionRuntime).toHaveBeenCalledTimes(2);
     expect(mocks.runSql).toHaveBeenCalledTimes(2);
+    expect(
+      mocks.runSql.mock.calls.every(([sql]) => /LIMIT 501$/.test(sql)),
+    ).toBe(true);
     expect(result).toMatchObject({
       widget: "data-table",
       widgetId: "analytics.db-admin.federated-read.v1",
@@ -115,6 +116,34 @@ describe("db-admin-federated-read", () => {
         totalRows: 2,
       },
     });
+  });
+
+  it("uses a read-only transaction for Postgres sources", async () => {
+    const execute = vi.fn().mockResolvedValue({ rows: [], rowsAffected: 0 });
+    const transaction = vi.fn(async (callback) => callback({ execute } as any));
+    mocks.withDbAdminConnectionRuntime.mockImplementation(
+      async (_ctx, connectionId, fn) =>
+        fn(
+          { dialect: "postgres", db: { transaction } } as any,
+          { id: connectionId } as any,
+        ),
+    );
+
+    await runDbAdminFederatedRead(
+      { userEmail: "alice@example.com", orgId: "org_1", role: "admin" },
+      {
+        sources: [
+          {
+            connectionId: "conn-users",
+            sourceId: "users",
+            sql: "SELECT id, name FROM users",
+          },
+        ],
+      },
+    );
+
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenCalledWith("SET TRANSACTION READ ONLY");
   });
 
   it("prefixes rows for a single source when no projection is supplied", async () => {
@@ -154,6 +183,26 @@ describe("db-admin-federated-read", () => {
       ),
     ).rejects.toThrow(/select or with/i);
 
+    expect(mocks.runSql).not.toHaveBeenCalled();
+  });
+
+  it("rejects SELECT INTO before opening a database runtime", async () => {
+    await expect(
+      runDbAdminFederatedRead(
+        { userEmail: "alice@example.com", orgId: "org_1", role: "admin" },
+        {
+          sources: [
+            {
+              connectionId: "conn-users",
+              sourceId: "users",
+              sql: "SELECT id INTO copied_users FROM users",
+            },
+          ],
+        },
+      ),
+    ).rejects.toThrow(/select into/i);
+
+    expect(mocks.withDbAdminConnectionRuntime).not.toHaveBeenCalled();
     expect(mocks.runSql).not.toHaveBeenCalled();
   });
 
@@ -218,5 +267,73 @@ describe("db-admin-federated-read", () => {
         "orders.total": null,
       },
     ]);
+  });
+
+  it("allows an empty right source in a left join", async () => {
+    mocks.runSql.mockImplementation(async (sql: string) => {
+      if (sql.includes("FROM users")) {
+        return {
+          columns: ["id", "name"],
+          rows: [{ id: 1, name: "Ada" }],
+          rowsAffected: 0,
+          durationMs: 1,
+        };
+      }
+      return { columns: [], rows: [], rowsAffected: 0, durationMs: 1 };
+    });
+
+    const result = await runDbAdminFederatedRead(
+      { userEmail: "alice@example.com", orgId: "org_1", role: "admin" },
+      {
+        sources: [
+          {
+            connectionId: "conn-users",
+            sourceId: "users",
+            sql: "SELECT id, name FROM users",
+          },
+          {
+            connectionId: "conn-orders",
+            sourceId: "orders",
+            sql: "SELECT user_id, total FROM orders",
+          },
+        ],
+        join: {
+          kind: "left",
+          leftColumn: "id",
+          rightColumn: "user_id",
+        },
+        limit: 10,
+      },
+    );
+
+    expect(result.summary).toMatchObject({ truncated: false });
+    expect(result.table.rows).toEqual([{ "users.id": 1, "users.name": "Ada" }]);
+  });
+
+  it("reports the hard source cap as truncation", async () => {
+    mocks.runSql.mockResolvedValue({
+      columns: ["id"],
+      rows: Array.from({ length: 501 }, (_, id) => ({ id })),
+      rowsAffected: 0,
+      durationMs: 1,
+    });
+
+    const result = await runDbAdminFederatedRead(
+      { userEmail: "alice@example.com", orgId: "org_1", role: "admin" },
+      {
+        sources: [
+          {
+            connectionId: "conn-users",
+            sourceId: "users",
+            sql: "SELECT id FROM users LIMIT 999999",
+          },
+        ],
+        limit: 500,
+      },
+    );
+
+    expect(result.summary).toMatchObject({ truncated: true });
+    expect(result.table.rows).toHaveLength(500);
+    expect(result.table).toMatchObject({ sampledRows: 500, truncated: true });
   });
 });

@@ -71,4 +71,20 @@ describe("list-connected-database-tables", () => {
     ).rejects.toThrow("Connected database not found: missing");
     expect(mocks.withDbAdminConnectionRuntime).not.toHaveBeenCalled();
   });
+
+  it("requires an explicit bounded selection for a large registry", async () => {
+    mocks.listDbAdminConnections.mockResolvedValue(
+      Array.from({ length: 21 }, (_, index) => ({
+        id: `connection-${index}`,
+        name: `Connection ${index}`,
+        appId: null,
+        appUrl: null,
+      })),
+    );
+
+    await expect(action.run({}, {} as never)).rejects.toThrow(
+      "Specify at most 20 connectionIds",
+    );
+    expect(mocks.withDbAdminConnectionRuntime).not.toHaveBeenCalled();
+  });
 });

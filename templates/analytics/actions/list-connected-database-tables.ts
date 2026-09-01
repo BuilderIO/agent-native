@@ -8,6 +8,8 @@ import {
   withDbAdminConnectionRuntime,
 } from "../server/lib/db-admin-connections";
 
+const MAX_DATABASES_PER_CATALOG = 20;
+
 export default defineAction({
   description:
     "List the public tables and views available in the admin-connected agent-native app databases. Call this before db-admin-federated-read when table or column names are unknown. It requires an active organization owner/admin role and never returns database URLs, tokens, or secret values. Omit connectionIds to inspect every connected database, or pass a bounded subset.",
@@ -40,6 +42,14 @@ export default defineAction({
   run: async ({ connectionIds }, ctx) => {
     const admin = await requireDbAdminContextFromRequest(ctx);
     const connections = await listDbAdminConnections(admin);
+    if (
+      (!connectionIds || connectionIds.length === 0) &&
+      connections.length > MAX_DATABASES_PER_CATALOG
+    ) {
+      throw new Error(
+        `Specify at most ${MAX_DATABASES_PER_CATALOG} connectionIds when cataloging more than ${MAX_DATABASES_PER_CATALOG} databases.`,
+      );
+    }
     const selected = connectionIds?.length
       ? connections.filter((connection) =>
           connectionIds.includes(connection.id),
