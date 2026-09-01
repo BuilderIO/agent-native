@@ -38,6 +38,23 @@ describe("recording playhead positioning", () => {
     });
   });
 
+  it("switches to horizontal top and bottom docks", () => {
+    expect(dockRecordingPlayhead(700, 20, sizes, viewport)).toEqual({
+      left: 645,
+      top: 16,
+      orientation: "horizontal",
+      dock: "top",
+      slot: null,
+    });
+    expect(dockRecordingPlayhead(700, 820, sizes, viewport)).toEqual({
+      left: 645,
+      top: 842,
+      orientation: "horizontal",
+      dock: "bottom",
+      slot: null,
+    });
+  });
+
   it("switches to a vertical right dock without leaving the viewport", () => {
     expect(dockRecordingPlayhead(1_300, 400, sizes, viewport)).toEqual({
       left: 1_382,

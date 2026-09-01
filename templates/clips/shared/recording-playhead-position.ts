@@ -170,9 +170,13 @@ export function dockRecordingPlayhead(
   edgeThreshold = RECORDING_PLAYHEAD_EDGE_THRESHOLD,
 ): RecordingPlayheadPosition {
   const proposedRight = proposedLeft + sizes.horizontal.width;
+  const proposedBottom = proposedTop + sizes.horizontal.height;
   const viewportRight = viewport.left + viewport.width;
+  const viewportBottom = viewport.top + viewport.height;
   const nearLeft = proposedLeft <= viewport.left + gutter + edgeThreshold;
   const nearRight = proposedRight >= viewportRight - gutter - edgeThreshold;
+  const nearTop = proposedTop <= viewport.top + gutter + edgeThreshold;
+  const nearBottom = proposedBottom >= viewportBottom - gutter - edgeThreshold;
 
   if (nearLeft || nearRight) {
     const dock: Exclude<RecordingPlayheadDock, "free"> = nearRight
@@ -187,6 +191,20 @@ export function dockRecordingPlayhead(
       gutter,
     );
     return { ...position, orientation: "vertical", dock, slot };
+  }
+
+  if (nearTop || nearBottom) {
+    const dock: Exclude<RecordingPlayheadDock, "free"> = nearTop
+      ? "top"
+      : "bottom";
+    const position = positionRecordingPlayheadAtDock(
+      dock,
+      null,
+      sizes.horizontal,
+      viewport,
+      gutter,
+    );
+    return { ...position, orientation: "horizontal", dock, slot: null };
   }
 
   const position = clampRecordingPlayheadPosition(
