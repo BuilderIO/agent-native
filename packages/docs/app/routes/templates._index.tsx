@@ -87,7 +87,7 @@ export default function TemplatesPage() {
               where it read as one more app. Left transparent, unlike the
               heading bands, so the page's column rules carry through it. */}
           <section aria-labelledby="build-from-scratch-heading">
-            <div className="flex flex-col items-center gap-[var(--spacing-4)] py-16 text-center">
+            <div className="flex flex-col items-center gap-[var(--spacing-4)] py-[120px] text-center">
               <h2
                 id="build-from-scratch-heading"
                 className={`m-0 ${SECTION_HEADING_CLASS}`}
@@ -165,37 +165,33 @@ export default function TemplatesPage() {
               </div>
             ) : null}
 
-            {/* Breaks out of the section padding so the divider spans the full
-                measure, then restores it so the copy stays on the page grid. */}
-            <div className="-mx-4 border-t border-solid border-[var(--b-border-default)] px-4 sm:-mx-6 sm:px-6">
-              <div className="flex flex-col items-center gap-[var(--spacing-4)] py-16 text-center">
-                <h3 className={`m-0 ${SECTION_HEADING_CLASS}`}>
-                  {t("templatesPage.communitySubmissionTitle")}
-                </h3>
-                <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
-                  {t("templatesPage.communitySubmissionDescription")}
-                </p>
-                <div className="mt-[var(--spacing-2)] flex flex-col items-center gap-[var(--spacing-4)]">
-                  <CommunityAppSubmissionDialog />
-                  {submissionReceived ? (
-                    <p
-                      role="status"
-                      className="m-0 font-[family-name:var(--b-font-sans)] text-sm leading-[1.4] text-[var(--b-text-secondary)]"
-                    >
-                      {t("templatesPage.communitySubmissionReady")}
-                    </p>
-                  ) : null}
-                </div>
-                <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-sm leading-[1.4] text-[var(--b-text-muted)]">
-                  {t("templatesPage.communityTrust")}{" "}
-                  <a
-                    href={sitePathForLocale("/docs/creating-templates", locale)}
-                    className="text-[var(--b-text-link)] underline underline-offset-2"
+            <div className="flex flex-col items-center gap-[var(--spacing-4)] pt-[120px] pb-16 text-center">
+              <h3 className={`m-0 ${SECTION_HEADING_CLASS}`}>
+                {t("templatesPage.communitySubmissionTitle")}
+              </h3>
+              <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+                {t("templatesPage.communitySubmissionDescription")}
+              </p>
+              <div className="mt-[var(--spacing-2)] flex flex-col items-center gap-[var(--spacing-4)]">
+                <CommunityAppSubmissionDialog />
+                {submissionReceived ? (
+                  <p
+                    role="status"
+                    className="m-0 font-[family-name:var(--b-font-sans)] text-sm leading-[1.4] text-[var(--b-text-secondary)]"
                   >
-                    {t("templatesPage.publishGuide")}
-                  </a>
-                </p>
+                    {t("templatesPage.communitySubmissionReady")}
+                  </p>
+                ) : null}
               </div>
+              <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-sm leading-[1.4] text-[var(--b-text-muted)]">
+                {t("templatesPage.communityTrust")}{" "}
+                <a
+                  href={sitePathForLocale("/docs/creating-templates", locale)}
+                  className="text-[var(--b-text-link)] underline underline-offset-2"
+                >
+                  {t("templatesPage.publishGuide")}
+                </a>
+              </p>
             </div>
           </section>
         </GridInner>
