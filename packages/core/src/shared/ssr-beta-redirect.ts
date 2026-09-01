@@ -11,10 +11,12 @@ export const SSR_BETA_REDIRECT_MARKER = 'data-agent-native-beta-redirect="1"';
 
 /**
  * The marker is a performance hint set after the client verifies a Builder
- * employee session. It is never an authorization check; the normal session
- * gate remains responsible for access control.
+ * employee session. The browser re-checks the current session before using
+ * it, so it never becomes an authorization check.
  */
-export function getSsrBetaRedirectScriptBody(): string {
+export function getSsrBetaRedirectScriptBody(
+  sessionPath = "/_agent-native/auth/session",
+): string {
   return `(function __anEarlyBetaRedirect() {
   if (window.__agentNativeBetaRedirectStarted) return;
   window.__agentNativeBetaRedirectStarted = true;
@@ -98,29 +100,63 @@ export function getSsrBetaRedirectScriptBody(): string {
   }
 
   var redirectExpiry = Number(storedRedirect);
-  if (!Number.isFinite(redirectExpiry) || redirectExpiry <= Date.now()) {
-    if (storedRedirect !== null) {
-      try {
-        window.localStorage.removeItem(${JSON.stringify(BETA_REDIRECT_STORAGE_KEY)});
-      } catch (error) {
-        void error;
-      }
+  function clearRedirectMarker() {
+    try {
+      window.localStorage.removeItem(${JSON.stringify(BETA_REDIRECT_STORAGE_KEY)});
+    } catch (error) {
+      void error;
     }
+  }
+
+  if (!Number.isFinite(redirectExpiry) || redirectExpiry <= Date.now()) {
+    if (storedRedirect !== null) clearRedirectMarker();
     return;
   }
 
-  currentUrl.protocol = 'https:';
-  currentUrl.hostname = betaHost;
-  currentUrl.port = '';
-  currentUrl.searchParams.delete(${JSON.stringify(BETA_OPT_OUT_QUERY_PARAM)});
-  try {
-    window.location.replace(currentUrl.toString());
-  } catch (error) {
+  if (typeof window.fetch !== 'function') return;
+
+  window.fetch(${JSON.stringify(sessionPath)}, {
+    credentials: 'same-origin',
+    cache: 'no-store',
+    headers: { 'Accept': 'application/json' }
+  }).then(function (response) {
+    if (!response || !response.ok) {
+      if (response && (response.status === 401 || response.status === 403)) {
+        clearRedirectMarker();
+        return null;
+      }
+      return undefined;
+    }
+    return response.json();
+  }).then(function (session) {
+    if (session === undefined) return;
+    var email = session && !session.error && typeof session.email === 'string'
+      ? session.email.trim().toLowerCase()
+      : '';
+    if (!email.endsWith('@builder.io')) {
+      clearRedirectMarker();
+      return;
+    }
+
+    currentUrl.protocol = 'https:';
+    currentUrl.hostname = betaHost;
+    currentUrl.port = '';
+    currentUrl.searchParams.delete(${JSON.stringify(BETA_OPT_OUT_QUERY_PARAM)});
+    try {
+      window.location.replace(currentUrl.toString());
+    } catch (error) {
+      void error;
+    }
+  }).catch(function (error) {
     void error;
-  }
+    // A transient session failure must leave production usable; retry the hint
+    // on a later navigation instead of redirecting without a current session.
+  });
 })();`;
 }
 
-export function getSsrBetaRedirectScript(): string {
-  return `<script ${SSR_BETA_REDIRECT_MARKER}>${getSsrBetaRedirectScriptBody()}</script>`;
+export function getSsrBetaRedirectScript(
+  sessionPath = "/_agent-native/auth/session",
+): string {
+  return `<script ${SSR_BETA_REDIRECT_MARKER}>${getSsrBetaRedirectScriptBody(sessionPath)}</script>`;
 }

@@ -11,6 +11,7 @@ import {
   getSsrBetaRedirectScript,
   SSR_BETA_REDIRECT_MARKER,
 } from "../shared/ssr-beta-redirect.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
 
 export const BETA_OPT_OUT_PERSISTENCE_MARKER =
   "Persist the beta opt-out before authentication";
@@ -240,7 +241,13 @@ const betaOptOutPersistenceScript = `<script data-agent-native-beta-opt-out>
 export function injectBetaOptOutPersistence(loginHtml: string): string {
   let html = loginHtml;
   if (!html.includes(SSR_BETA_REDIRECT_MARKER)) {
-    html = insertBeforeClosingTag(html, getSsrBetaRedirectScript(), "</head>");
+    html = insertBeforeClosingTag(
+      html,
+      getSsrBetaRedirectScript(
+        `${getConfiguredAppBasePath()}/_agent-native/auth/session`,
+      ),
+      "</head>",
+    );
   }
   if (!html.includes(BETA_OPT_OUT_PERSISTENCE_MARKER)) {
     html = insertBeforeClosingTag(html, betaOptOutPersistenceScript, "</body>");
