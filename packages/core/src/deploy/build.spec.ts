@@ -361,6 +361,14 @@ describe("resolveNitroBuildReplacements", () => {
     );
   });
 
+  it("uses the client build fallback when no server build metadata exists", () => {
+    const replacements = resolveNitroBuildReplacements({});
+
+    expect(replacements["process.env.AGENT_NATIVE_BUILD_ID"]).toBe(
+      JSON.stringify("development"),
+    );
+  });
+
   it("prefers the shared Agent-Native build id over source revisions", () => {
     const replacements = resolveNitroBuildReplacements({
       AGENT_NATIVE_BUILD_ID: " agent-build-123 ",

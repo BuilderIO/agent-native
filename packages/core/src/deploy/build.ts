@@ -5645,7 +5645,7 @@ export function resolveNitroBuildReplacements(
   const configuredDeploymentEnvironment =
     deploymentEnvironment?.trim() ||
     env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT?.trim();
-  const buildId = resolveAgentNativeBuildId(env, "");
+  const buildId = resolveAgentNativeBuildId(env, "development");
   return {
     // Netlify exposes DEPLOY_ID only while building. Embed it into the Nitro
     // function so preview OAuth relays can target this immutable deployment
