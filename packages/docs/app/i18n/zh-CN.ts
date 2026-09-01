@@ -564,12 +564,11 @@ const zhCN = {
     communitySubmissionName: "应用名称",
     communitySubmissionNamePlaceholder: "客户支持中心",
     communitySubmissionUrl: "应用 URL",
-    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com 或 https://example.com",
     communitySubmissionDescriptionLabel: "描述",
     communitySubmissionDescriptionPlaceholder: "应用做什么，适合哪些人？",
     communitySubmissionRepository: "GitHub 仓库（可选）",
-    communitySubmissionRepositoryPlaceholder:
-      "https://github.com/owner/repository",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
     communitySubmissionScreenshots: "截图（可选）",
     communitySubmissionScreenshotsPlaceholder: "将最多 5 张图片拖到这里",
     communitySubmissionScreenshotDropHint:
@@ -581,7 +580,7 @@ const zhCN = {
     communitySubmissionSubmit: "提交应用",
     communitySubmissionReady: "谢谢。我们会在发布前审核你的应用。",
     communitySubmissionValidation:
-      "请填写名称、描述和有效的应用 URL。请上传 PNG、JPG 或 WebP 图片，每张不超过 1.5 MB。",
+      "请填写名称和描述，然后输入类似 example.com 的应用链接。我们会自动为你添加 https://。如果添加代码仓库，请使用 github.com 链接。请上传 PNG、JPG 或 WebP 图片，每张不超过 1.5 MB。",
   },
   buildFromScratch: {
     title: "从零开始构建",
