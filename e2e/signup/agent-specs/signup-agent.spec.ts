@@ -73,6 +73,7 @@ async function capture(
   label: string,
   consoleErrors: string[],
   networkEvents: string[],
+  pendingRequests: Map<string, number>,
 ): Promise<JourneyStep> {
   const domDiagnostics = await page
     .evaluate(() => {
@@ -125,14 +126,22 @@ async function capture(
       );
     })
     .catch((error) => `<DOM diagnostics unreadable: ${String(error)}>`);
+  const pending = [...pendingRequests.entries()].map(
+    ([url, startedAt]) =>
+      `PENDING ${new URL(url).pathname} ${Date.now() - startedAt}ms`,
+  );
+  const requestDiagnostics = [...networkEvents.slice(-30), ...pending];
+  console.log(
+    `[signup-agent] ${label} network: ${requestDiagnostics.join(" | ") || "none"}`,
+  );
   const visibleText = await page
     .locator("body")
     .innerText()
     .then(
       (text) =>
-        `${text.slice(0, 6_000)}\n\nDOM diagnostics:\n${domDiagnostics}`,
+        `${text.slice(0, 6_000)}\n\nDOM diagnostics:\n${domDiagnostics}\n\nNetwork diagnostics:\n${requestDiagnostics.join(" | ") || "none"}`,
       (error) =>
-        `<page text unreadable: ${String(error)}>\n\nDOM diagnostics:\n${domDiagnostics}`,
+        `<page text unreadable: ${String(error)}>\n\nDOM diagnostics:\n${domDiagnostics}\n\nNetwork diagnostics:\n${requestDiagnostics.join(" | ") || "none"}`,
     );
 
   return {
@@ -144,7 +153,7 @@ async function capture(
     visibleText,
     screenshot: await page.screenshot({ fullPage: false }),
     consoleErrors: [...consoleErrors],
-    networkEvents: [...networkEvents],
+    networkEvents: requestDiagnostics,
   };
 }
 
@@ -209,7 +218,15 @@ for (const target of targets) {
         waitUntil: "domcontentloaded",
       });
       await renderedText(page, `${target.origin}/sign-in`);
-      steps.push(await capture(page, "sign-in page", errors, networkEvents));
+      steps.push(
+        await capture(
+          page,
+          "sign-in page",
+          errors,
+          networkEvents,
+          pendingRequests,
+        ),
+      );
     });
 
     await test.step("request a sign-in link", async () => {
@@ -227,7 +244,13 @@ for (const target of targets) {
       // whether the submit visibly did anything.
       await page.waitForTimeout(4_000);
       steps.push(
-        await capture(page, "after requesting the link", errors, networkEvents),
+        await capture(
+          page,
+          "after requesting the link",
+          errors,
+          networkEvents,
+          pendingRequests,
+        ),
       );
       const message = await emailPromise;
       const link = verificationLinkFor(message, target.origin);
@@ -239,6 +262,7 @@ for (const target of targets) {
           "after following the emailed link",
           errors,
           networkEvents,
+          pendingRequests,
         ),
       );
     });
@@ -247,7 +271,13 @@ for (const target of targets) {
       await page.reload({ waitUntil: "domcontentloaded" });
       await waitForReviewSurface(page);
       steps.push(
-        await capture(page, "after a browser reload", errors, networkEvents),
+        await capture(
+          page,
+          "after a browser reload",
+          errors,
+          networkEvents,
+          pendingRequests,
+        ),
       );
     });
 
