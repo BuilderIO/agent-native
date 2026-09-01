@@ -215,11 +215,10 @@ function projectItem(
   if (outcome === "inspected" && listed && !opened) outcome = "left";
   const firstSeenThisRun =
     addedThisRun || createdDuringWindow(item?.createdAt, window);
-  const listedStatus = listed?.status ?? item?.status ?? null;
+  const listedStatus = listed?.status ?? null;
   const builderAlreadyStarted =
     listedStatus === "automation_started" ||
-    Boolean(item?.slackBuilderReplyAt) ||
-    Boolean(item?.slackDisposition) ||
+    occurredBeforeWindow(item?.slackBuilderReplyAt, window) ||
     startedBeforeWindow(run, window);
 
   return {
@@ -304,18 +303,17 @@ function listedItemSnapshots(
 function pollRollupEvent(
   events: FactoryAuditEventRecord[],
 ): FactoryAuditEventRecord | null {
-  return (
-    events.find(
-      (event) =>
-        isPollEvent(event) &&
-        !event.itemId &&
-        (typeof event.details.inboxLimit === "number" ||
-          typeof event.details.added === "number" ||
-          typeof event.details.newlyObserved === "number"),
-    ) ??
-    events.find((event) => isPollEvent(event) && !event.itemId) ??
-    null
+  const scored = events.filter(
+    (event) =>
+      isPollEvent(event) &&
+      !event.itemId &&
+      (typeof event.details.inboxLimit === "number" ||
+        typeof event.details.added === "number" ||
+        typeof event.details.newlyObserved === "number"),
   );
+  if (scored.length > 0) return scored[scored.length - 1] ?? null;
+  const polls = events.filter((event) => isPollEvent(event) && !event.itemId);
+  return polls[polls.length - 1] ?? null;
 }
 
 function reviewListEvent(
@@ -360,6 +358,16 @@ function readNumberDetail(
 ): number | null {
   const value = details?.[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function occurredBeforeWindow(
+  createdAt: string | null | undefined,
+  window?: { startedAt: number; finishedAt: number | null },
+): boolean {
+  if (!createdAt || !window) return false;
+  const at = Date.parse(createdAt);
+  if (!Number.isFinite(at)) return false;
+  return at < window.startedAt - 5_000;
 }
 
 function createdDuringWindow(

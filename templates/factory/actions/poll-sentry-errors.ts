@@ -31,6 +31,19 @@ import {
 } from "../server/triage/review-state.js";
 import { createSentryClient } from "../server/triage/sentry-client.js";
 
+export function sentryPollObservationSummary(
+  observedCount: number,
+  added: number,
+): string {
+  if (observedCount === 0) {
+    return "No unresolved Sentry errors were observed.";
+  }
+  if (added === 0) {
+    return `Observed ${observedCount} unresolved Sentry error${observedCount === 1 ? "" : "s"}; none were new.`;
+  }
+  return `Added ${added} new Sentry error${added === 1 ? "" : "s"}.`;
+}
+
 export default defineAction({
   description:
     "Poll bounded unresolved Sentry issues for the configured organization and record them in the Factory queue. This does not change Sentry.",
@@ -247,10 +260,7 @@ export default defineAction({
         action: "poll-sentry-errors",
         kind: "observed",
         source: "sentry",
-        summary:
-          added === 0
-            ? "No unresolved Sentry errors were observed."
-            : `Added ${added} new Sentry error${added === 1 ? "" : "s"}.`,
+        summary: sentryPollObservationSummary(observedIssues.length, added),
         details: {
           sentryOrgSlug,
           inboxLimit,

@@ -125,9 +125,7 @@ export default defineAction({
       accepted.push(envelope);
     }
     const truncatedByAuthor = accepted.length < result.envelopes.length;
-    let nextHistoryCursor = truncatedByAuthor
-      ? (historyCursor ?? null)
-      : result.nextHistoryCursor;
+    let nextHistoryCursor = result.nextHistoryCursor;
 
     const ingested: IngestionEnvelope[] = [];
     const addedEnvelopes: IngestionEnvelope[] = [];

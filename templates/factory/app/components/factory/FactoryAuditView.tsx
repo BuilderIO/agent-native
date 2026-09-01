@@ -436,9 +436,7 @@ function AuditRunDetail({
   const actions = run.actions ?? [];
   const items = run.items ?? [];
   const trace = run.trace ?? [];
-  const failedItems = [...actions, ...items].filter(
-    (item) => item.outcome === "failed",
-  );
+  const failedItems = uniqueFailedItems([...actions, ...items]);
 
   return (
     <>
@@ -976,6 +974,18 @@ function formatAuditAge(value: string | number, nowLabel: string) {
   const elapsedMonths = Math.floor(elapsedDays / 30);
   if (elapsedMonths < 12) return `${elapsedMonths}mo`;
   return `${Math.floor(elapsedMonths / 12)}y`;
+}
+
+function uniqueFailedItems(items: FactoryAuditItem[]): FactoryAuditItem[] {
+  const seen = new Set<string>();
+  const unique: FactoryAuditItem[] = [];
+  for (const item of items) {
+    if (item.outcome !== "failed") continue;
+    if (seen.has(item.itemId)) continue;
+    seen.add(item.itemId);
+    unique.push(item);
+  }
+  return unique;
 }
 
 function formatAuditLabel(value: string): string {

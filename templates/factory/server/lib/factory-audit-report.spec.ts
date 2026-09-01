@@ -457,6 +457,73 @@ describe("projectFactoryAuditReport", () => {
     expect(report.counts.added).toBe(0);
     expect(report.inbox).toHaveLength(0);
   });
+
+  it("uses the latest poll rollup when a run recorded more than one", () => {
+    const report = projectFactoryAuditReport([
+      event({
+        id: "first",
+        action: "poll-github-sources",
+        kind: "observed",
+        source: "github",
+        summary: "Polled 2 open pull requests.",
+        createdAt: "2026-08-21T23:00:00.000Z",
+        details: { added: 2, newlyObserved: 2, itemIds: ["old-a", "old-b"] },
+      }),
+      event({
+        id: "last",
+        action: "poll-github-sources",
+        kind: "observed",
+        source: "github",
+        summary: "Polled 2 open pull requests.",
+        createdAt: "2026-08-21T23:05:00.000Z",
+        details: { added: 0, newlyObserved: 0, updated: 1, itemIds: [] },
+      }),
+    ]);
+
+    expect(report.counts.added).toBe(0);
+    expect(report.counts.updated).toBe(1);
+    expect(report.inbox).toHaveLength(0);
+  });
+
+  it("does not mark an earlier run already started from later item state", () => {
+    const window = {
+      startedAt: Date.parse("2026-08-21T23:00:00.000Z"),
+      finishedAt: Date.parse("2026-08-21T23:10:00.000Z"),
+    };
+    const report = projectFactoryAuditReport(
+      [
+        event({
+          id: "list",
+          action: "list-triage-items",
+          kind: "read",
+          summary: "Loaded 1 review candidate.",
+          details: {
+            listedItems: [
+              { itemId: "left", status: "received", outcome: null },
+            ],
+            itemIds: ["left"],
+          },
+        }),
+      ],
+      [
+        {
+          id: "left",
+          title: "Later started",
+          summary: null,
+          source: "slack",
+          sourceUrl: null,
+          status: "automation_started",
+          slackBuilderReplyAt: "2026-08-21T23:30:00.000Z",
+          slackDisposition: "propose_fix",
+        },
+      ],
+      [],
+      window,
+    );
+
+    expect(report.work[0]?.listedStatus).toBe("received");
+    expect(report.work[0]?.builderAlreadyStarted).toBe(false);
+  });
 });
 
 describe("auditItemSubject", () => {
