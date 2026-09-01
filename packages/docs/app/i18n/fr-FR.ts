@@ -585,9 +585,13 @@ const frFR = {
     communitySubmissionRepositoryPlaceholder:
       "https://github.com/owner/repository",
     communitySubmissionScreenshots: "Captures d’écran (facultatif)",
-    communitySubmissionScreenshotsPlaceholder:
-      "Jusqu’à 5 images PNG, JPG ou WebP. 1,5 Mo chacune.",
+    communitySubmissionScreenshotsPlaceholder: "Déposez jusqu’à 5 images ici",
+    communitySubmissionScreenshotDropHint:
+      "PNG, JPG ou WebP. 1,5 Mo maximum chacune.",
     communitySubmissionScreenshotSlot: "Capture {{index}}",
+    communitySubmissionScreenshotsAdd: "Ajouter des captures",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 sélectionnées",
+    communitySubmissionScreenshotRemove: "Supprimer la capture {{index}}",
     communitySubmissionSubmit: "Envoyer l’application",
     communitySubmissionReady:
       "Merci. Nous examinerons votre application avant de la publier.",
