@@ -637,7 +637,7 @@ export function preparePtySpawn(
     return { command: commandPath, args };
   }
   return {
-    command: process.env.ComSpec || process.env.COMSPEC || "cmd.exe",
+    command: "cmd.exe",
     args: ["/d", "/s", "/c", commandPath, ...args],
   };
 }
