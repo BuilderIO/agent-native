@@ -721,6 +721,7 @@ pub fn hide_voice_wake_popover(app: &AppHandle) {
     if should_hide {
         if let Some(w) = app.get_webview_window("popover") {
             let _ = w.hide();
+            crate::clips::close_bubble_if_idle(app);
             let _ = app.emit("clips:popover-visible", false);
         }
     }

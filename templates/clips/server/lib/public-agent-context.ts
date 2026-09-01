@@ -11,6 +11,7 @@ import { getRequestURL, setResponseHeader, type H3Event } from "h3";
 import {
   buildAgentApiUrls,
   buildRecommendedFrames,
+  buildAgentHttpToolManifest,
   CLIPS_WEBMCP_DISCOVERY,
   getAgentClipReadiness,
   CLIP_AGENT_ACCESS_TOKEN_PREFIX,
@@ -631,7 +632,15 @@ export function buildPublicAgentContext({
   return {
     type: "agent-native.clip.context",
     version: CLIP_AGENT_CONTEXT_VERSION,
-    webmcp: CLIPS_WEBMCP_DISCOVERY,
+    webmcp: {
+      ...CLIPS_WEBMCP_DISCOVERY,
+      http: buildAgentHttpToolManifest({
+        contextUrl: api.contextUrl,
+        transcriptUrl: api.transcriptUrl,
+        frameUrlTemplate: api.frameUrlTemplate,
+        frameAvailable: clipIsReady && !isLoomEmbedBacked,
+      }),
+    },
     instructions,
     clip: {
       id: recording.id,
