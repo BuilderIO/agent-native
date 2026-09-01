@@ -7,7 +7,6 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, notInArray } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
-import { A2A_RECEIVER_OWNERSHIP_FLAG } from "../../shared/feature-flags.js";
 import * as schema from "../db/schema.js";
 import {
   documentVersionChatContextFromRun,
@@ -179,7 +178,7 @@ export default createAgentChatPlugin({
   appId: "content",
   onAgentTurnComplete: autosaveDocumentAfterAgentTurn,
   durableBackgroundRuns: true,
-  a2aReceiverOwnershipFlag: A2A_RECEIVER_OWNERSHIP_FLAG,
+  selectedA2AReceiverOwnsObjective: true,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INJECTED_INITIAL_TOOL_NAMES,
   mcp: {
