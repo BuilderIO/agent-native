@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { labelTabHref } from "./AppLayout";
+import { buildLabelDisplayNames, labelTabHref } from "./AppLayout";
 
 function appLayoutSource(): string {
   return readFileSync(new URL("./AppLayout.tsx", import.meta.url), "utf8");
@@ -184,5 +184,25 @@ describe("labelTabHref", () => {
     // inbox, so they keep the client-slice-of-inbox behavior on purpose.
     expect(labelTabHref("important")).toBe("/inbox?label=important");
     expect(labelTabHref("updates")).toBe("/inbox?label=updates");
+  });
+});
+
+describe("buildLabelDisplayNames", () => {
+  it("disambiguates labels that share a short name", () => {
+    const displayNames = buildLabelDisplayNames([
+      { id: "top", name: "automated notifications", type: "user" },
+      {
+        id: "nested",
+        name: "[Superhuman]/AI/Automated_notifications",
+        type: "user",
+      },
+      { id: "pitch", name: "[Superhuman]/AI/Pitch", type: "user" },
+    ]);
+
+    expect(displayNames.get("top")).toBe("automated notifications");
+    expect(displayNames.get("nested")).toBe(
+      "[Superhuman]/AI/Automated notifications",
+    );
+    expect(displayNames.get("pitch")).toBe("Pitch");
   });
 });

@@ -180,6 +180,27 @@ function shortLabelName(name: string): string {
   return name;
 }
 
+export function buildLabelDisplayNames(
+  labels: readonly Label[],
+): Map<string, string> {
+  const shortNameCounts = new Map<string, number>();
+  for (const label of labels) {
+    const shortName = shortLabelName(label.name).toLowerCase();
+    shortNameCounts.set(shortName, (shortNameCounts.get(shortName) ?? 0) + 1);
+  }
+
+  return new Map<string, string>(
+    labels.map((label) => {
+      const shortName = shortLabelName(label.name);
+      const displayName =
+        (shortNameCounts.get(shortName.toLowerCase()) ?? 0) > 1
+          ? label.name.replace(/_/g, " ")
+          : shortName;
+      return [label.id, displayName];
+    }),
+  );
+}
+
 function labelDepth(name: string): number {
   return Math.max(0, name.split("/").length - 1);
 }
@@ -374,6 +395,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     refetch: refetchLabels,
   } = useLabels(activeAccounts.size > 0 ? [...activeAccounts] : undefined);
   const labels = labelsData ?? EMPTY_LABELS;
+  const labelDisplayNames = useMemo(
+    () => buildLabelDisplayNames(labels),
+    [labels],
+  );
   const [tabSettingsOpen, setTabSettingsOpen] = useState(false);
   const [labelSearch, setLabelSearch] = useState("");
   // Spin the refresh icon only when the user clicked the button — background
@@ -671,7 +696,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           l.name.toLowerCase() === id.toLowerCase(),
       );
       if (lbl) {
-        const rawName = shortLabelName(lbl.name);
+        const rawName =
+          labelDisplayNames.get(lbl.id) || shortLabelName(lbl.name);
         const aliasedName = labelAliases[lbl.id] || labelAliases[id] || rawName;
         const displayKey = aliasedName.toLowerCase();
         if (seenLabels.has(displayKey)) continue;
@@ -719,6 +745,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     return tabs;
   }, [
     labels,
+    labelDisplayNames,
     pinnedLabels,
     labelAliases,
     savedFilters,
@@ -736,7 +763,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       const active = labels.find((label) => label.id === activeLabel);
       if (active) {
         const aliasedName =
-          labelAliases[active.id] || shortLabelName(active.name);
+          labelAliases[active.id] ||
+          labelDisplayNames.get(active.id) ||
+          shortLabelName(active.name);
         tabs.push({
           id: active.id,
           label: aliasedName,
@@ -749,7 +778,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       }
     }
     return tabs;
-  }, [activeLabel, labels, labelAliases, visibleTabs]);
+  }, [activeLabel, labels, labelAliases, labelDisplayNames, visibleTabs]);
 
   // System views NOT pinned (go in the "more" dropdown)
   const hiddenViews = useMemo(
@@ -774,14 +803,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     const filtered = labels.filter(
       (l) => !["inbox", ...collapsibleViews.map((v) => v.id)].includes(l.id),
     );
-    // Deduplicate by display name (different paths can have the same short name)
-    const seen = new Set<string>();
-    return filtered.filter((l) => {
-      const key = l.name.toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+    return filtered;
   }, [labels]);
 
   const handleCompose = useCallback(() => {
@@ -1431,6 +1453,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   <TabSettingsPopover
                     systemViews={collapsibleViews}
                     userLabels={userLabels}
+                    labelDisplayNames={labelDisplayNames}
                     pinnedLabels={pinnedLabels}
                     savedFilters={savedFilters}
                     labelAliases={labelAliases}
@@ -2455,6 +2478,7 @@ function CheckboxRow({
 function TabSettingsPopover({
   systemViews,
   userLabels,
+  labelDisplayNames,
   pinnedLabels,
   savedFilters,
   labelAliases,
@@ -2466,6 +2490,7 @@ function TabSettingsPopover({
 }: {
   systemViews: { id: string; labelKey: string }[];
   userLabels: Label[];
+  labelDisplayNames: ReadonlyMap<string, string>;
   pinnedLabels: string[];
   savedFilters: SavedMailFilter[];
   labelAliases: Record<string, string>;
@@ -2639,7 +2664,10 @@ function TabSettingsPopover({
               const isPinned = pinnedLabels.includes(label.id);
               const isEditing = editingId === label.id;
               const alias = labelAliases[label.id];
-              const displayName = alias || shortLabelName(label.name);
+              const displayName =
+                alias ||
+                labelDisplayNames.get(label.id) ||
+                shortLabelName(label.name);
 
               return (
                 <div key={label.id} className="group flex items-center">
@@ -2662,7 +2690,10 @@ function TabSettingsPopover({
                             setEditingId(null);
                           }}
                           className="flex-1 bg-transparent text-[13px] text-foreground outline-none border-b border-primary/50 px-0 py-0.5"
-                          placeholder={shortLabelName(label.name)}
+                          placeholder={
+                            labelDisplayNames.get(label.id) ||
+                            shortLabelName(label.name)
+                          }
                         />
                       </div>
                     ) : (

@@ -32,7 +32,7 @@ export function gmailSearchClause(q: string | undefined): string {
 export function gmailLabelSearchClause(label: string): string {
   const value = label.trim().replace(/\s+/g, "-").replace(/"/g, '\\"');
   if (!value) return "";
-  return /[/"()]/.test(value) ? `label:"${value}"` : `label:${value}`;
+  return /["()]/.test(value) ? `label:"${value}"` : `label:${value}`;
 }
 
 export function gmailAppLabelSearchClause(label: string): string {
