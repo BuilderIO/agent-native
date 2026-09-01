@@ -16,6 +16,19 @@ export interface CreateDrizzleConfigOptions {
    * Defaults to `./data/app.db`.
    */
   sqliteFile?: string;
+  /**
+   * Connection URL for drizzle-kit, taking precedence over `DATABASE_URL` and
+   * `<APP_NAME>_DATABASE_URL`. Pass the direct endpoint wherever the app's
+   * pooled URL cannot run DDL: a Neon pooler is PgBouncer in transaction mode,
+   * which breaks migrations. Blank or unset falls back to the environment, so
+   * passing a host's `DATABASE_URL_UNPOOLED` stays correct where only
+   * `DATABASE_URL` is set.
+   *
+   * Only drizzle-kit reads this. The running app resolves its own URL through
+   * `db/client`, so pointing migrations at a direct endpoint leaves request
+   * traffic on the pooler.
+   */
+  url?: string;
 }
 
 export type DrizzleKitDialect = "postgresql" | "sqlite" | "turso";
@@ -76,10 +89,10 @@ function pgliteDataDirFromUrl(url: string): string {
 /**
  * Create a dialect-detecting drizzle-kit config.
  *
- * Inspects `process.env.DATABASE_URL` and picks the right `dialect` +
- * `dbCredentials` for Postgres (Neon/Supabase), Turso/libsql, or local SQLite.
- * Falls back to `file:./data/app.db` when `DATABASE_URL` is unset so local dev
- * keeps working.
+ * Inspects the `url` option, then the `DATABASE_URL` environment variable, and
+ * picks the right `dialect` + `dbCredentials` for Postgres (Neon/Supabase),
+ * Turso/libsql, or local SQLite. Falls back to `file:./data/app.db` when
+ * neither is set so local dev keeps working.
  *
  * Additionally refuses to run when invoked via `drizzle-kit push` against a
  * Neon DATABASE_URL — that invocation pattern dropped framework tables in
@@ -112,7 +125,8 @@ export function createDrizzleConfig(
   // Mirror getDatabaseUrl / getDatabaseAuthToken from @agent-native/core (db/client)
   // without importing — drizzle-kit configs should stay side-effect-free.
   const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
-  const envUrl =
+  const resolvedUrl =
+    opts.url?.trim() ||
     (appName && process.env[`${appName}_DATABASE_URL`]) ||
     process.env.DATABASE_URL ||
     "";
@@ -133,8 +147,8 @@ export function createDrizzleConfig(
   // Set `ALLOW_DRIZZLE_PUSH_ON_NEON=1` to override (never do this in CI).
   // ---------------------------------------------------------------------
   if (
-    envUrl &&
-    isNeonUrl(envUrl) &&
+    resolvedUrl &&
+    isNeonUrl(resolvedUrl) &&
     isDrizzlePushInvocation() &&
     process.env.ALLOW_DRIZZLE_PUSH_ON_NEON !== "1"
   ) {
@@ -151,10 +165,10 @@ export function createDrizzleConfig(
         "SQL only). See CLAUDE.md / AGENTS.md 'No breaking database",
         "changes' rule and scripts/guard-no-drizzle-push.mjs.",
         "",
-        "Detected DATABASE_URL host: " +
+        "Detected database host: " +
           (() => {
             try {
-              return new URL(envUrl).host;
+              return new URL(resolvedUrl).host;
             } catch {
               return "(unparseable)";
             }
@@ -164,33 +178,33 @@ export function createDrizzleConfig(
   }
 
   // URI schemes are case-insensitive per RFC 3986; normalize before matching.
-  const envScheme = envUrl.toLowerCase();
-  const envIsPostgres =
-    envScheme.startsWith("postgres://") ||
-    envScheme.startsWith("postgresql://");
-  const envIsPglite = isPgliteUrl(envUrl);
+  const resolvedScheme = resolvedUrl.toLowerCase();
+  const resolvedIsPostgres =
+    resolvedScheme.startsWith("postgres://") ||
+    resolvedScheme.startsWith("postgresql://");
+  const resolvedIsPglite = isPgliteUrl(resolvedUrl);
   // Only `libsql://` matches Turso. Plain `https://` is too broad — Turso's
   // HTTP endpoint is reachable via libsql:// in drizzle-kit, and a generic
   // https:// URL is far more likely to be a custom Postgres endpoint.
-  const envIsTurso = envScheme.startsWith("libsql://");
+  const resolvedIsTurso = resolvedScheme.startsWith("libsql://");
   const detectedDialect: DrizzleKitDialect =
-    envIsPostgres || envIsPglite
+    resolvedIsPostgres || resolvedIsPglite
       ? "postgresql"
-      : envIsTurso
+      : resolvedIsTurso
         ? "turso"
         : "sqlite";
   const dialect = opts.dialect ?? detectedDialect;
-  const useEnvironmentUrl =
-    envUrl &&
-    ((dialect === "postgresql" && (envIsPostgres || envIsPglite)) ||
-      (dialect === "turso" && envIsTurso) ||
+  const useResolvedUrl =
+    resolvedUrl &&
+    ((dialect === "postgresql" && (resolvedIsPostgres || resolvedIsPglite)) ||
+      (dialect === "turso" && resolvedIsTurso) ||
       (dialect === "sqlite" &&
-        !envIsPostgres &&
-        !envIsPglite &&
-        !envIsTurso &&
-        envScheme.startsWith("file:")));
-  const url = useEnvironmentUrl
-    ? envUrl
+        !resolvedIsPostgres &&
+        !resolvedIsPglite &&
+        !resolvedIsTurso &&
+        resolvedScheme.startsWith("file:")));
+  const url = useResolvedUrl
+    ? resolvedUrl
     : dialect === "postgresql"
       ? "postgres://localhost/app"
       : dialect === "turso"
@@ -201,7 +215,7 @@ export function createDrizzleConfig(
 
   if (dialect === "turso" && !envAuthToken) {
     throw new Error(
-      "createDrizzleConfig: DATABASE_URL is a libsql:// URL but DATABASE_AUTH_TOKEN " +
+      "createDrizzleConfig: the database URL is a libsql:// URL but DATABASE_AUTH_TOKEN " +
         "is not set. Set DATABASE_AUTH_TOKEN (or <APP_NAME>_DATABASE_AUTH_TOKEN) so " +
         "drizzle-kit can authenticate against Turso.",
     );
