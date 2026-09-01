@@ -467,11 +467,12 @@ export async function startTranscriptionCapture(
     try {
       if (desiredPaused) {
         await stopTranscriptionEngine(engine);
+        timeline.pause();
         paused = true;
         pauseFinalsSettleUntil = Date.now() + WHISPER_STOP_SETTLE_MS;
         console.log(`[clips-recorder] transcription paused (${engine})`);
       } else {
-        engine = await startTranscriptionEngine({
+        const nextEngine = await startTranscriptionEngine({
           mic,
           captureSystem,
           voiceProcessing: opts?.voiceProcessing,
@@ -480,14 +481,21 @@ export async function startTranscriptionCapture(
         // stop()/cancel() can run during the await above; if it did, the new
         // engine would leak (mic/system capture stays live). Tear it down.
         if (disposed) {
-          await stopTranscriptionEngine(engine).catch(() => {});
+          await stopTranscriptionEngine(nextEngine).catch(() => {});
           return;
         }
         // A resumed Whisper capture is a fresh native session whose timestamps
         // otherwise begin at zero. Rebase it to the recorder's active elapsed
         // time, excluding the pause, before any new speech can finalize.
+        try {
+          await resetTranscriptionTimeline(nextEngine, timeline.current());
+        } catch (err) {
+          await stopTranscriptionEngine(nextEngine).catch(() => {});
+          throw err;
+        }
+        engine = nextEngine;
+        timeline.resume();
         paused = false;
-        await resetTranscriptionTimeline(engine, timeline.current());
         console.log(`[clips-recorder] transcription resumed (${engine})`);
       }
     } catch (err) {
@@ -547,13 +555,11 @@ export async function startTranscriptionCapture(
     },
     async pause() {
       if (disposed) return;
-      timeline.pause();
       desiredPaused = true;
       await applyAudioState();
     },
     async resume() {
       if (disposed) return;
-      timeline.resume();
       desiredPaused = false;
       await applyAudioState();
     },
