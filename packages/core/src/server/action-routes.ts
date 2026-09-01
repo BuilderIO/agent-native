@@ -30,6 +30,7 @@ import {
   seedAgentRunOwnerContext,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
 import {
   getAllowedCorsOrigin as resolveAllowedCorsOrigin,
@@ -309,6 +310,26 @@ export interface MountActionRoutesOptions {
    * the action route declaratively. See {@link ActionRouteAuthAdapter}.
    */
   actionRouteAuth?: ActionRouteAuthAdapter;
+}
+
+/** Public HTTP discovery metadata for agents that do not run a browser. */
+export interface WebMcpManifestOptions {
+  name: string;
+  description: string;
+  title?: string;
+  version?: string;
+  websiteUrl?: string;
+  icons?: Array<{
+    src: string;
+    mimeType?: string;
+    sizes?: string[];
+    theme?: "light" | "dark";
+  }>;
+}
+
+export interface MountWebMcpActionRoutesOptions extends MountActionRoutesOptions {
+  /** Optional branding included in `/.well-known/mcp.json`. */
+  manifest?: WebMcpManifestOptions;
 }
 
 interface MountActionRoutesInternalOptions extends MountActionRoutesOptions {
@@ -821,10 +842,58 @@ export function mountActionRoutes(
   mountActionRoutesInternal(nitroApp, actions, options);
 }
 
+function buildWebMcpCompatibilityManifest(
+  event: any,
+  actions: Record<string, ActionEntry>,
+  options?: WebMcpManifestOptions,
+) {
+  const baseUrl = `${getForwardedRequestOrigin(event)}${getConfiguredAppBasePath()}`;
+  const urlFor = (path: string) => `${baseUrl}${path}`;
+  const tools = Object.entries(actions).map(([name, entry]) => {
+    const inputSchema = entry.tool.parameters ?? {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    };
+    return {
+      name,
+      description: entry.tool.description,
+      parameters: inputSchema,
+      inputSchema,
+      endpoint: urlFor(`/mcp/tool/${encodeURIComponent(name)}`),
+      method: "POST" as const,
+      readOnly: entry.readOnly === true,
+      requiresAuth: entry.requiresAuth !== false,
+    };
+  });
+
+  return {
+    schema_version: "v1" as const,
+    protocol: "WebMCP" as const,
+    name: options?.name ?? "Agent",
+    ...(options?.title ? { title: options.title } : {}),
+    description: options?.description ?? "Agent-Native app agent",
+    version: options?.version ?? "1.0.0",
+    ...(options?.websiteUrl ? { website_url: options.websiteUrl } : {}),
+    ...(options?.icons ? { icons: options.icons } : {}),
+    endpoints: {
+      mcp: urlFor("/mcp"),
+      httpTools: urlFor("/mcp/tool"),
+      authenticatedWebMcp: urlFor("/_agent-native/webmcp/manifest"),
+      a2a: urlFor("/.well-known/agent-card.json"),
+    },
+    webmcp: {
+      scope: "page-local" as const,
+      browserRequired: true,
+    },
+    tools,
+  };
+}
+
 export function mountWebMcpActionRoutes(
   nitroApp: any,
   actions: Record<string, ActionEntry>,
-  options?: MountActionRoutesOptions,
+  options?: MountWebMcpActionRoutesOptions,
 ) {
   const eligible = Object.fromEntries(
     Object.entries(actions).filter(
@@ -834,9 +903,38 @@ export function mountWebMcpActionRoutes(
         entry.needsApproval === undefined,
     ),
   );
-  if (Object.keys(eligible).length === 0) return;
 
   const app = getH3App(nitroApp);
+  // These routes own their auth decision: the manifest is public metadata,
+  // while each action handler distinguishes public actions from protected
+  // ones using the same `requiresAuth` contract as normal HTTP actions.
+  registerAuthPublicPaths(
+    [
+      "/_agent-native/webmcp/manifest",
+      "/_agent-native/webmcp/actions",
+      "/mcp/tool",
+    ],
+    app,
+  );
+  app.use(
+    "/.well-known/mcp.json",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "GET") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed. Use GET." };
+      }
+      setResponseHeader(event, "Cache-Control", "no-store");
+      setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+      return buildWebMcpCompatibilityManifest(
+        event,
+        eligible,
+        options?.manifest,
+      );
+    }),
+  );
+
+  if (Object.keys(eligible).length === 0) return;
+
   app.use(
     "/_agent-native/webmcp/manifest",
     defineEventHandler(async (event) => {
@@ -858,13 +956,15 @@ export function mountWebMcpActionRoutes(
     }),
   );
 
-  mountActionRoutesInternal(nitroApp, eligible, {
-    ...options,
-    routePrefix: "/_agent-native/webmcp/actions",
-    includeAgentOnly: true,
-    forcePost: true,
-    caller: "webmcp",
-    actionRouteAuth: undefined,
-    allowDelegatedCaller: false,
-  });
+  for (const routePrefix of ["/_agent-native/webmcp/actions", "/mcp/tool"]) {
+    mountActionRoutesInternal(nitroApp, eligible, {
+      ...options,
+      routePrefix,
+      includeAgentOnly: true,
+      forcePost: true,
+      caller: "webmcp",
+      actionRouteAuth: undefined,
+      allowDelegatedCaller: false,
+    });
+  }
 }
