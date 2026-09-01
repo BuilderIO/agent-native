@@ -10,19 +10,19 @@ import { useRef, useState, type ReactNode } from "react";
 import { Link, useParams, type LoaderFunctionArgs } from "react-router";
 
 import { BuilderImage } from "../components/builder-image";
-import { sitePathForLocale } from "../components/docs-locale";
-import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import {
   findCommunityApp,
   type CommunityApp,
 } from "../components/community-apps";
-import { trackEvent } from "../components/TemplateCard";
+import { sitePathForLocale } from "../components/docs-locale";
+import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import {
   TemplateHero,
   TemplateLandingShell,
 } from "../components/template-landing";
-import { withDefaultSocialImage, withTemplateSocialImage } from "../seo";
+import { trackEvent } from "../components/TemplateCard";
 import enUS from "../i18n/en-US";
+import { withDefaultSocialImage, withTemplateSocialImage } from "../seo";
 
 export function loader({ params }: LoaderFunctionArgs) {
   if (!findCommunityApp(params.slug)) {
@@ -73,7 +73,7 @@ function ScreenshotCarousel({ app }: { app: CommunityApp }) {
     <div className="relative">
       <div className="mb-3 flex items-center justify-between gap-4 px-3 sm:px-4">
         <p className="m-0 font-mono text-xs uppercase tracking-[0.12em] text-[var(--fg-secondary)]">
-          {t("templatesPage.communityScreenshots")} {" "}
+          {t("templatesPage.communityScreenshots")}{" "}
           <span aria-live="polite">
             {activeIndex + 1}/{app.screenshots.length}
           </span>
@@ -107,19 +107,16 @@ function ScreenshotCarousel({ app }: { app: CommunityApp }) {
         onScroll={(event) => {
           const viewport = event.currentTarget;
           const children = Array.from(viewport.children);
-          const nextIndex = children.reduce(
-            (closest, child, index) => {
-              const distance = Math.abs(
-                (child as HTMLElement).offsetLeft - viewport.scrollLeft,
-              );
-              const closestDistance = Math.abs(
-                (children[closest] as HTMLElement).offsetLeft -
-                  viewport.scrollLeft,
-              );
-              return distance < closestDistance ? index : closest;
-            },
-            0,
-          );
+          const nextIndex = children.reduce((closest, child, index) => {
+            const distance = Math.abs(
+              (child as HTMLElement).offsetLeft - viewport.scrollLeft,
+            );
+            const closestDistance = Math.abs(
+              (children[closest] as HTMLElement).offsetLeft -
+                viewport.scrollLeft,
+            );
+            return distance < closestDistance ? index : closest;
+          }, 0);
           setActiveIndex(nextIndex);
         }}
       >
