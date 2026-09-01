@@ -1084,14 +1084,26 @@ export function RecordingPill() {
       return;
     }
     event.preventDefault();
+    const generation = toolbarDragGenerationRef.current;
+    const startPromise = toolbarDragStartPromiseRef.current;
     toolbarMoveFrameRef.current = requestAnimationFrame(() => {
       toolbarMoveFrameRef.current = null;
-      if (!toolbarDraggingRef.current) return;
+      if (
+        !toolbarDraggingRef.current ||
+        toolbarDragGenerationRef.current !== generation
+      ) {
+        return;
+      }
       // Rust reads the live cursor, so replaying every pointer event only
       // creates stale movement. Match the camera bubble: one unqueued sample
       // per animation frame and let the newest cursor position win.
-      void toolbarDragStartPromiseRef.current.then(() => {
-        if (!toolbarDraggingRef.current) return;
+      void startPromise.then(() => {
+        if (
+          !toolbarDraggingRef.current ||
+          toolbarDragGenerationRef.current !== generation
+        ) {
+          return;
+        }
         void safeInvoke("toolbar_drag_move");
       });
     });
@@ -1101,6 +1113,7 @@ export function RecordingPill() {
     if (!toolbarDraggingRef.current || event.pointerType !== "mouse") return;
     toolbarDraggingRef.current = false;
     const generation = toolbarDragGenerationRef.current;
+    const startPromise = toolbarDragStartPromiseRef.current;
     if (toolbarMoveFrameRef.current !== null) {
       cancelAnimationFrame(toolbarMoveFrameRef.current);
       toolbarMoveFrameRef.current = null;
@@ -1110,17 +1123,23 @@ export function RecordingPill() {
     } catch {
       // The pointer may already have been released by the platform.
     }
-    void toolbarDragStartPromiseRef.current
+    void startPromise
       // Take one final live cursor sample after the last pointermove. This is
       // the only move we await; there is no historical queue to drain.
-      .then(() => safeInvoke("toolbar_drag_move"))
-      .then(() => safeInvoke("toolbar_drag_end"))
-      .then(
-        () =>
-          new Promise<void>((resolve) =>
-            setTimeout(resolve, NATIVE_DOCK_SETTLE_MS),
-          ),
-      )
+      .then(() => {
+        if (toolbarDragGenerationRef.current !== generation) return;
+        return safeInvoke("toolbar_drag_move");
+      })
+      .then(() => {
+        if (toolbarDragGenerationRef.current !== generation) return;
+        return safeInvoke("toolbar_drag_end");
+      })
+      .then(() => {
+        if (toolbarDragGenerationRef.current !== generation) return;
+        return new Promise<void>((resolve) =>
+          setTimeout(resolve, NATIVE_DOCK_SETTLE_MS),
+        );
+      })
       .then(() => {
         if (toolbarDragGenerationRef.current !== generation) return;
         void settleNativePlayheadDock();
