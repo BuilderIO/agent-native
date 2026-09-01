@@ -94,7 +94,7 @@ export default function TemplatesPage() {
         <GridInner className="pt-[var(--spacing-12)] pb-[var(--spacing-4)]">
           {/* A row rather than a card: it is no longer a cell in the grid, so
               the copy sits on the left and the two actions on the right. */}
-          <div className="flex items-center justify-between gap-[var(--spacing-8)] border border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-raised)] p-[var(--spacing-8)] mobile:flex-col mobile:items-start">
+          <div className="flex items-center justify-between gap-[var(--spacing-8)] border border-solid border-[var(--b-border-subtle)] p-[var(--spacing-8)] mobile:flex-col mobile:items-start">
             <div className="flex flex-col gap-[var(--spacing-2)]">
               <h2 className={HEADING_4_CLASS}>{t("buildFromScratch.title")}</h2>
               <p className={PARAGRAPH_2_CLASS}>
