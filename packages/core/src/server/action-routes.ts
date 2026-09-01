@@ -905,15 +905,17 @@ export function mountWebMcpActionRoutes(
   );
 
   const app = getH3App(nitroApp);
+  const actionRoutePrefixes = ["/_agent-native/webmcp/actions", "/mcp/tool"];
+  const actionRoutePaths = actionRoutePrefixes.flatMap((routePrefix) =>
+    Object.keys(eligible).map(
+      (name) => `${routePrefix}/${encodeURIComponent(name)}`,
+    ),
+  );
   // These routes own their auth decision: the manifest is public metadata,
   // while each action handler distinguishes public actions from protected
   // ones using the same `requiresAuth` contract as normal HTTP actions.
   registerAuthPublicPaths(
-    [
-      "/_agent-native/webmcp/manifest",
-      "/_agent-native/webmcp/actions",
-      "/mcp/tool",
-    ],
+    ["/_agent-native/webmcp/manifest", ...actionRoutePaths],
     app,
   );
   app.use(
@@ -956,7 +958,7 @@ export function mountWebMcpActionRoutes(
     }),
   );
 
-  for (const routePrefix of ["/_agent-native/webmcp/actions", "/mcp/tool"]) {
+  for (const routePrefix of actionRoutePrefixes) {
     mountActionRoutesInternal(nitroApp, eligible, {
       ...options,
       routePrefix,

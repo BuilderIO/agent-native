@@ -84,7 +84,7 @@ describe("agent clip context helpers", () => {
         name: "clips-get-frame",
         method: "GET",
         endpoint:
-          "https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs={timestampMs}",
+          "https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs={atMs}",
         responseType: "image/jpeg",
       },
     ]);
@@ -105,6 +105,7 @@ describe("agent clip context helpers", () => {
     });
     expect(manifest.tools).toHaveLength(3);
     expect(manifest.tools[1].parameters).toEqual(manifest.tools[1].inputSchema);
+    expect(manifest.tools[2].endpoint).toContain("atMs={atMs}");
   });
 
   it("builds shareable agent API URLs with base path and token", () => {

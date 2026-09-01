@@ -311,13 +311,22 @@ export function buildAgentHttpToolManifest({
     responseType,
   });
 
+  // Keep the legacy apis.frame.urlTemplate placeholder stable while the
+  // schema-driven HTTP manifest uses the declared `atMs` input name.
+  const httpFrameUrlTemplate = frameUrlTemplate.replace(
+    /\{timestampMs\}/g,
+    "{atMs}",
+  );
+
   return {
     schema_version: "v1" as const,
     browserRequired: false,
     tools: [
       tool(context, contextUrl, "application/json"),
       tool(transcript, transcriptUrl, "application/json"),
-      ...(frameAvailable ? [tool(frame, frameUrlTemplate, "image/jpeg")] : []),
+      ...(frameAvailable
+        ? [tool(frame, httpFrameUrlTemplate, "image/jpeg")]
+        : []),
     ],
   };
 }

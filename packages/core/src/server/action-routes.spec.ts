@@ -2509,6 +2509,15 @@ describe("mountWebMcpActionRoutes", () => {
       ({ path }) => path === "/mcp/tool/eligible",
     );
 
+    expect(mockRegisterAuthPublicPaths).toHaveBeenCalledWith(
+      [
+        "/_agent-native/webmcp/manifest",
+        "/_agent-native/webmcp/actions/eligible",
+        "/mcp/tool/eligible",
+      ],
+      nitroApp,
+    );
+
     const compatibilityManifest = await compatibilityRoute?.handler({
       _method: "GET",
       _headers: {
