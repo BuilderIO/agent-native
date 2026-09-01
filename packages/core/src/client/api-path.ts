@@ -200,3 +200,25 @@ export function agentNativePath(path: string): string {
   if (!path.startsWith(FRAMEWORK_ROUTE_PREFIX)) return path;
   return appPath(path);
 }
+
+/**
+ * Optional cross-origin response-streaming endpoint. The browser uses the
+ * normal same-origin chat route to mint a short-lived bearer token first.
+ */
+export function agentChatStreamingUrl(): string | undefined {
+  const value = clientEnv()?.VITE_AGENT_NATIVE_AGENT_CHAT_STREAM_URL;
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const candidate = value.trim();
+  const base =
+    typeof window === "undefined"
+      ? "http://agent-native.invalid"
+      : window.location.href;
+  if (!URL.canParse(candidate, base)) {
+    return undefined;
+  }
+  const url = new URL(candidate, base);
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return undefined;
+  }
+  return candidate;
+}

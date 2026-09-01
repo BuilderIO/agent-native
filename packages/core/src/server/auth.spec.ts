@@ -2104,6 +2104,24 @@ describe("server/auth", () => {
       expect(result).toBeUndefined();
     });
 
+    it("lets auth marketing WebP assets reach the public static handler", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      await expect(
+        guard(createMockEvent({ path: "/auth-marketing/analytics.webp" })),
+      ).resolves.toBeUndefined();
+    });
+
     it("allows public workspace app pages while keeping API and framework routes protected", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");

@@ -80,6 +80,7 @@ import {
   decideRecordingVisibilityAction,
   isMobileRecorderRuntime,
 } from "@/lib/recording-visibility";
+import { uploadChunkRequest } from "@/lib/upload-request";
 import { cn } from "@/lib/utils";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
@@ -1642,9 +1643,9 @@ export default function RecordRoute() {
 
             let chunkRes: Response;
             try {
-              chunkRes = await fetch(url, {
-                method: "POST",
-                headers: { "Content-Type": uploadMimeType },
+              chunkRes = await uploadChunkRequest({
+                url,
+                contentType: uploadMimeType,
                 body: await slice.arrayBuffer(),
                 signal: chunkAbort.signal,
               });
@@ -1702,9 +1703,9 @@ export default function RecordRoute() {
         const { index, slice, url } = finalChunkDesc;
         let chunkRes: Response | null = null;
         try {
-          chunkRes = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": uploadMimeType },
+          chunkRes = await uploadChunkRequest({
+            url,
+            contentType: uploadMimeType,
             body: await slice.arrayBuffer(),
             signal: abort.signal,
           });
