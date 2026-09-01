@@ -42,7 +42,7 @@ import { getDbExec, isPostgres } from "../db/client.js";
 import {
   getDialect,
   getCloudflareD1Binding,
-  getDatabaseUrl,
+  getRuntimeDatabaseUrl,
   getDatabaseAuthToken,
   closePgliteClients,
   getPgliteClient,
@@ -2073,7 +2073,7 @@ export async function buildDatabaseConfig(
   dialect: string,
 ): Promise<BetterAuthOptions["database"]> {
   if (dialect === "postgres") {
-    const url = getDatabaseUrl();
+    const url = getRuntimeDatabaseUrl();
     const {
       buildResilientNeonPool,
       buildResilientPostgresJsClient,
@@ -2158,7 +2158,7 @@ export async function buildDatabaseConfig(
   }
 
   // SQLite / libsql
-  const url = getDatabaseUrl("file:./data/app.db");
+  const url = getRuntimeDatabaseUrl("file:./data/app.db");
 
   if (url.startsWith("file:") || !url.includes("://")) {
     // Local SQLite via better-sqlite3

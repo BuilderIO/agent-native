@@ -10,6 +10,7 @@ import path from "path";
  * (dynamic import) so this module can be loaded in any runtime (Node.js,
  * Cloudflare Workers, edge) without failing on missing native deps.
  */
+import { getAppConfig } from "../app-config/index.js";
 import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
 import {
   beginDatabaseOperation,
@@ -100,6 +101,35 @@ export function getDatabaseUrl(fallback = ""): string {
   );
 }
 
+function getConfiguredUnpooledDatabaseUrl(): string | undefined {
+  const appName = getAppEnvPrefix();
+  return (
+    (appName && process.env[`${appName}_DATABASE_URL_UNPOOLED`]) ||
+    getAppConfig().runtime.databaseUrlUnpooled
+  );
+}
+
+function stripNeonPooler(url: string): string {
+  return url.replace(/-pooler(\.[a-z0-9.-]+\.neon\.tech)/, "$1");
+}
+
+/**
+ * Resolve the URL used by request-time database clients.
+ *
+ * A serverless Neon pooler can stall while the direct endpoint remains
+ * healthy, leaving auth and the first app query on the loading screen. Use an
+ * explicit unpooled URL when supplied; otherwise derive the direct endpoint
+ * for serverless runtimes. Keep getDatabaseUrl pooled for scripts and release
+ * checks that intentionally inspect the configured deployment value.
+ */
+export function getRuntimeDatabaseUrl(fallback = ""): string {
+  const unpooled = getConfiguredUnpooledDatabaseUrl();
+  if (unpooled) return stripNeonPooler(unpooled);
+
+  const url = getDatabaseUrl(fallback);
+  return isServerlessRuntime() ? stripNeonPooler(url) : url;
+}
+
 /** Same per-app resolution for DATABASE_AUTH_TOKEN (used by Turso/libsql). */
 export function getDatabaseAuthToken(): string | undefined {
   const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
@@ -127,22 +157,14 @@ function getAppEnvPrefix(): string | undefined {
  * Non-Neon URLs and already-direct Neon URLs are returned unchanged.
  */
 export function getMigrationDatabaseUrl(): string {
-  const appName = getAppEnvPrefix();
-  const appUnpooled = appName
-    ? process.env[`${appName}_DATABASE_URL_UNPOOLED`]
-    : undefined;
-  const url =
-    appUnpooled ||
-    process.env.NETLIFY_DATABASE_URL_UNPOOLED ||
-    process.env.DATABASE_URL_UNPOOLED ||
-    getDatabaseUrl();
+  const url = getConfiguredUnpooledDatabaseUrl() || getDatabaseUrl();
   // Neon pooler hostname: ep-<id>-pooler.<region>.<cloud>.neon.tech
   // Direct hostname:      ep-<id>.<region>.<cloud>.neon.tech
   // The region between `-pooler.` and `.neon.tech` can contain multiple
   // dot-separated labels (e.g. `c-7.us-east-1.aws`), so the matched segment
   // must allow dots — `[a-z0-9.-]+` — not just a single label. Anchoring on the
   // stable `.neon.tech` suffix keeps this from touching non-Neon hosts.
-  return url.replace(/-pooler(\.[a-z0-9.-]+\.neon\.tech)/, "$1");
+  return stripNeonPooler(url);
 }
 
 export function isLocalSqliteUrl(url: string): boolean {
@@ -2099,7 +2121,7 @@ async function initClient(): Promise<void> {
   if (_exec) return;
 
   const dialect = getDialect();
-  const url = getDatabaseUrl("file:./data/app.db");
+  const url = getRuntimeDatabaseUrl("file:./data/app.db");
   _exec = await createDbExecInternal(
     {
       url,

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 const mockExecute = vi.hoisted(() => vi.fn());
 
 vi.mock("./client.js", () => ({
-  getDatabaseUrl: () => "postgres://localhost/test",
+  getRuntimeDatabaseUrl: () => "postgres://localhost/test",
   getDialect: () => "postgres",
   getDbExec: () => ({ execute: mockExecute }),
 }));

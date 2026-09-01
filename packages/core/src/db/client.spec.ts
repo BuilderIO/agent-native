@@ -406,6 +406,53 @@ describe("PGlite optional dependency", () => {
   });
 });
 
+describe("getRuntimeDatabaseUrl", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("uses the direct Neon endpoint in serverless runtimes", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv(
+      "DATABASE_URL",
+      "postgresql://user:pass@ep-round-heart-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require",
+    );
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { getRuntimeDatabaseUrl } = await import("./client.js");
+
+    expect(getRuntimeDatabaseUrl()).toBe(
+      "postgresql://user:pass@ep-round-heart.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require",
+    );
+  });
+
+  it("prefers an explicit unpooled URL", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://pooled.example/db");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "postgres://direct.example/db");
+
+    const { getRuntimeDatabaseUrl } = await import("./client.js");
+
+    expect(getRuntimeDatabaseUrl()).toBe("postgres://direct.example/db");
+  });
+
+  it("keeps pooled URLs unchanged outside serverless runtimes", async () => {
+    vi.stubEnv(
+      "DATABASE_URL",
+      "postgresql://user:pass@ep-round-heart-pooler.c-7.us-east-1.aws.neon.tech/neondb",
+    );
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "");
+
+    const { getRuntimeDatabaseUrl } = await import("./client.js");
+
+    expect(getRuntimeDatabaseUrl()).toBe(
+      "postgresql://user:pass@ep-round-heart-pooler.c-7.us-east-1.aws.neon.tech/neondb",
+    );
+  });
+});
+
 describe("getMigrationDatabaseUrl", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
