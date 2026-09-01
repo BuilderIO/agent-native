@@ -74,6 +74,14 @@ export function getCloudflareD1Binding(): unknown {
   return runtime.__cf_env?.DB ?? runtime.__env__?.DB;
 }
 
+function hasCloudflareRuntimeBinding(): boolean {
+  const runtime = globalThis as typeof globalThis & {
+    __cf_env?: unknown;
+    __env__?: unknown;
+  };
+  return runtime.__cf_env !== undefined || runtime.__env__ !== undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Per-app DATABASE_URL resolution
 // ---------------------------------------------------------------------------
@@ -102,11 +110,17 @@ export function getDatabaseUrl(fallback = ""): string {
 }
 
 function getConfiguredUnpooledDatabaseUrl(): string | undefined {
-  const appName = getAppEnvPrefix();
   return (
-    (appName && process.env[`${appName}_DATABASE_URL_UNPOOLED`]) ||
+    getConfiguredAppDatabaseUrl("DATABASE_URL_UNPOOLED") ||
     getAppConfig().runtime.databaseUrlUnpooled
   );
+}
+
+function getConfiguredAppDatabaseUrl(
+  suffix: "DATABASE_URL" | "DATABASE_URL_UNPOOLED",
+): string | undefined {
+  const appName = getAppEnvPrefix();
+  return appName ? process.env[`${appName}_${suffix}`] : undefined;
 }
 
 function stripNeonPooler(url: string): string {
@@ -123,7 +137,13 @@ function stripNeonPooler(url: string): string {
  * checks that intentionally inspect the configured deployment value.
  */
 export function getRuntimeDatabaseUrl(fallback = ""): string {
-  const unpooled = getConfiguredUnpooledDatabaseUrl();
+  const appUnpooled = getConfiguredAppDatabaseUrl("DATABASE_URL_UNPOOLED");
+  if (appUnpooled) return stripNeonPooler(appUnpooled);
+
+  const appUrl = getConfiguredAppDatabaseUrl("DATABASE_URL");
+  if (appUrl) return isServerlessRuntime() ? stripNeonPooler(appUrl) : appUrl;
+
+  const unpooled = getAppConfig().runtime.databaseUrlUnpooled;
   if (unpooled) return stripNeonPooler(unpooled);
 
   const url = getDatabaseUrl(fallback);
@@ -465,8 +485,8 @@ let _dialect: Dialect | undefined;
 export function getDialect(): Dialect {
   if (_dialect !== undefined) return _dialect;
 
-  // DATABASE_URL takes priority over D1 when set.
-  const url = getDatabaseUrl();
+  // The effective runtime URL takes priority over D1 when set.
+  const url = getRuntimeDatabaseUrl();
   if (
     url.startsWith("postgres://") ||
     url.startsWith("postgresql://") ||
@@ -526,9 +546,9 @@ function dialectForConfig(config: DbExecConfig): Dialect {
  * would read and write each other's settings, oauth tokens, and app state.
  */
 export function isLocalDatabase(): boolean {
-  if (isPgliteUrl(getDatabaseUrl())) return true;
+  const url = getRuntimeDatabaseUrl();
+  if (isPgliteUrl(url)) return true;
   if (getDialect() !== "sqlite") return false;
-  const url = getDatabaseUrl();
   return url === "" || url.startsWith("file:");
 }
 
@@ -976,7 +996,8 @@ export function isServerlessRuntime(): boolean {
     !!process.env.VERCEL ||
     !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
     !!process.env.LAMBDA_TASK_ROOT ||
-    !!process.env.CF_PAGES
+    !!process.env.CF_PAGES ||
+    hasCloudflareRuntimeBinding()
   );
 }
 
