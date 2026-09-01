@@ -3456,19 +3456,32 @@ export function App({
       // further below hasn't run yet at this point, so reset this on every
       // early return in this block.
       recordingFlowGateRef.current = true;
+      const releaseRecordingFlowGate = () => {
+        recordingFlowGateRef.current = false;
+        invoke("set_recording_state", { active: false }).catch(() => {});
+      };
+      // Native blur cleanup also runs while the permission prompt or display
+      // picker is open, before the later recording-state update below.
+      try {
+        await invoke("set_recording_state", { active: true });
+      } catch (err) {
+        releaseRecordingFlowGate();
+        console.error("[clips-popover] could not hold recording state:", err);
+        return null;
+      }
       try {
         const granted = await invoke<boolean>(
           "request_macos_screen_recording_access",
         );
         if (!granted) {
-          recordingFlowGateRef.current = false;
+          releaseRecordingFlowGate();
           setReadinessOpen(true);
           setRecError(MACOS_SCREEN_PERMISSION_MESSAGE);
           openPrivacySettings("screen");
           return null;
         }
       } catch (err) {
-        recordingFlowGateRef.current = false;
+        releaseRecordingFlowGate();
         setReadinessOpen(true);
         setRecError(err instanceof Error ? err.message : String(err));
         return null;
@@ -3486,7 +3499,7 @@ export function App({
           // themselves on the chosen screen the first time they are shown.
           await pickFullscreenRecordingDisplay();
         } catch (err) {
-          recordingFlowGateRef.current = false;
+          releaseRecordingFlowGate();
           if (err instanceof Error && err.name === "AbortError") {
             // User cancelled the screen picker (Escape) — abort silently,
             // same as dismissing the native macOS screen picker.
