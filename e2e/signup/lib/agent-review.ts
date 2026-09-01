@@ -40,6 +40,8 @@ review, so you know the shape of what matters:
 The first-run onboarding welcome screen is expected for a brand-new account. Do NOT report it
 just because it has no app shell, account control, or navigation yet; only report onboarding
 when a visible action was attempted and the screen demonstrably fails to advance.
+The harness clicks through that expected onboarding after the initial post-link capture, so
+use the later "after completing first-run onboarding" capture to judge whether the app opened.
 
 The post-link and post-reload captures wait up to 15 seconds for readable content. Treat a
 loader that is still present in both captures as a real stall; do not call a single brief

@@ -36,6 +36,46 @@ async function waitForReviewSurface(page: Page): Promise<void> {
   }
 }
 
+async function completeFirstRunOnboarding(page: Page): Promise<boolean> {
+  const intro = page.locator('[data-onboarding-screen="intro"]');
+  if (!(await intro.isVisible().catch(() => false))) return false;
+
+  await intro.getByRole("button", { name: "Continue", exact: true }).click();
+  const ownKeys = page.locator('[data-testid="first-run-use-own-keys"]');
+  await expect(ownKeys).toBeVisible();
+  await ownKeys.click();
+
+  const manualContinue = page.getByRole("button", {
+    name: /^Continue(?: to tools)?$/,
+  });
+  await expect(manualContinue).toBeVisible();
+  await manualContinue.click();
+
+  const toolsFooter = page.locator('[data-testid="onboarding-tools-footer"]');
+  if (await toolsFooter.isVisible().catch(() => false)) {
+    await toolsFooter.getByRole("button", { name: /skip for now/i }).click();
+  }
+
+  const role = page.locator('[data-testid="first-run-role"]');
+  if (await role.isVisible().catch(() => false)) {
+    await role.getByRole("button", { name: /skip for now/i }).click();
+  }
+
+  // Slides adds one app-owned screen after the shared flow. Skipping it keeps
+  // the review focused on signup/session behavior instead of generating data.
+  const appExtensionSkip = page.getByRole("button", {
+    name: "Skip",
+    exact: true,
+  });
+  if ((await appExtensionSkip.count()) > 0) {
+    await expect(appExtensionSkip).toBeVisible();
+    await appExtensionSkip.click();
+  }
+
+  await expect(page.locator("[data-first-run-app-hidden]")).toHaveCount(0);
+  return true;
+}
+
 /**
  * One app per run by default. The deterministic canary already covers every
  * app every day; this lane spends model tokens, so it walks the fleet on a
@@ -265,6 +305,18 @@ for (const target of targets) {
           pendingRequests,
         ),
       );
+      if (await completeFirstRunOnboarding(page)) {
+        await waitForReviewSurface(page);
+        steps.push(
+          await capture(
+            page,
+            "after completing first-run onboarding",
+            errors,
+            networkEvents,
+            pendingRequests,
+          ),
+        );
+      }
     });
 
     await test.step("reload the way a stuck user would", async () => {
