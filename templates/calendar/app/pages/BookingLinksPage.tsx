@@ -2898,9 +2898,11 @@ function BookingPreview({
                     }}
                     className={cn(
                       "rounded-md border px-2 py-1.5 text-center text-[11px] cursor-pointer",
-                      (slot.start
-                        ? selectedSlotStart === slot.start
-                        : selectedSlot === slot.label)
+                      (
+                        slot.start
+                          ? selectedSlotStart === slot.start
+                          : selectedSlot === slot.label
+                      )
                         ? "border-primary bg-primary/10 text-primary"
                         : "border-border/60 text-muted-foreground hover:bg-accent/60 hover:border-primary/30",
                     )}

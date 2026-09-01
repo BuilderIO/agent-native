@@ -23,11 +23,29 @@ export interface EligibleHostAvailability {
   timezone?: string;
 }
 
+async function overlaysBack(
+  candidateEmail: string,
+  ownerEmail: string,
+): Promise<boolean> {
+  const candidateOverlay = (await getUserSetting(
+    candidateEmail,
+    "calendar-overlay-people",
+  )) as { people: OverlayPerson[] } | null;
+  return (candidateOverlay?.people ?? []).some(
+    (person) => person.email.toLowerCase() === ownerEmail,
+  );
+}
+
 /**
  * Cross-references booking-link hosts against the owner's calendar overlay
- * ("subscribed peer") list. Only hosts the owner has explicitly overlaid get
- * their real working-hours schedule and time zone used for hard-filtering —
- * everyone else keeps today's free/busy-only behavior.
+ * ("subscribed peer") list. Only hosts the owner has explicitly overlaid,
+ * AND who have reciprocally overlaid the owner back, get their real
+ * working-hours schedule and time zone used for hard-filtering — everyone
+ * else keeps today's free/busy-only behavior. The reciprocal check matters
+ * because overlay membership alone is just the owner's own setting: without
+ * it, an owner could add any registered email with no relationship required
+ * and have that stranger's private schedule and time zone read and enriched
+ * onto an anonymous public booking link.
  */
 export async function getEligibleHostAvailability(
   ownerEmail: string | undefined,
@@ -45,12 +63,20 @@ export async function getEligibleHostAvailability(
   if (overlayEmails.size === 0) return [];
 
   const owner = ownerEmail.toLowerCase();
-  const eligibleEmails = Array.from(
+  const candidateEmails = Array.from(
     new Set(
       hostEmails
         .map((email) => email.toLowerCase())
         .filter((email) => email !== owner && overlayEmails.has(email)),
     ),
+  );
+  if (candidateEmails.length === 0) return [];
+
+  const reciprocity = await Promise.all(
+    candidateEmails.map((email) => overlaysBack(email, owner)),
+  );
+  const eligibleEmails = candidateEmails.filter(
+    (_email, index) => reciprocity[index],
   );
   if (eligibleEmails.length === 0) return [];
 

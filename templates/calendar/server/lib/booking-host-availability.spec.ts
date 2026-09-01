@@ -26,6 +26,24 @@ const WEEKLY_SCHEDULE = {
   sunday: { enabled: false, slots: [] },
 };
 
+// Most tests exercise a fully reciprocal owner<->peer overlay relationship,
+// so their `calendar-overlay-people` mock also needs to answer for the
+// peer's own settings read (peer must have overlaid the owner back).
+function withReciprocalOverlay(
+  peerEmail: string,
+  handleOtherKeys: (email: string, key: string) => unknown,
+) {
+  return async (email: string, key: string) => {
+    if (email === "owner@example.com" && key === "calendar-overlay-people") {
+      return { people: [{ email: peerEmail, color: "#fff" }] };
+    }
+    if (email === peerEmail && key === "calendar-overlay-people") {
+      return { people: [{ email: "owner@example.com", color: "#fff" }] };
+    }
+    return handleOtherKeys(email, key);
+  };
+}
+
 describe("getEligibleHostAvailability", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -42,15 +60,7 @@ describe("getEligibleHostAvailability", () => {
 
   it("skips hosts not in the owner's overlay list", async () => {
     getUserSettingMock.mockImplementation(
-      async (email: string, key: string) => {
-        if (
-          email === "owner@example.com" &&
-          key === "calendar-overlay-people"
-        ) {
-          return { people: [{ email: "peer@example.com", color: "#fff" }] };
-        }
-        return null;
-      },
+      withReciprocalOverlay("peer@example.com", () => null),
     );
 
     await expect(
@@ -60,7 +70,7 @@ describe("getEligibleHostAvailability", () => {
     ).resolves.toEqual([]);
   });
 
-  it("returns schedule and timezone for an overlaid host with saved availability", async () => {
+  it("skips an overlaid host who has not reciprocally overlaid the owner back", async () => {
     getUserSettingMock.mockImplementation(
       async (email: string, key: string) => {
         if (
@@ -68,6 +78,11 @@ describe("getEligibleHostAvailability", () => {
           key === "calendar-overlay-people"
         ) {
           return { people: [{ email: "peer@example.com", color: "#fff" }] };
+        }
+        // peer's own overlay list is empty (or doesn't include the owner) -
+        // the owner added peer, but peer never added the owner back.
+        if (email === "peer@example.com" && key === "calendar-overlay-people") {
+          return { people: [] };
         }
         if (email === "peer@example.com" && key === "calendar-availability") {
           return {
@@ -77,6 +92,24 @@ describe("getEligibleHostAvailability", () => {
         }
         return null;
       },
+    );
+
+    await expect(
+      getEligibleHostAvailability("owner@example.com", ["peer@example.com"]),
+    ).resolves.toEqual([]);
+  });
+
+  it("returns schedule and timezone for an overlaid host with saved availability", async () => {
+    getUserSettingMock.mockImplementation(
+      withReciprocalOverlay("peer@example.com", (email, key) => {
+        if (email === "peer@example.com" && key === "calendar-availability") {
+          return {
+            timezone: "America/Chicago",
+            weeklySchedule: WEEKLY_SCHEDULE,
+          };
+        }
+        return null;
+      }),
     );
 
     await expect(
@@ -92,18 +125,7 @@ describe("getEligibleHostAvailability", () => {
 
   it("falls back to free/busy-only for an overlaid host with no saved schedule or Google time zone", async () => {
     getUserSettingMock.mockImplementation(
-      async (email: string, key: string) => {
-        if (
-          email === "owner@example.com" &&
-          key === "calendar-overlay-people"
-        ) {
-          return { people: [{ email: "peer@example.com", color: "#fff" }] };
-        }
-        if (email === "peer@example.com" && key === "calendar-availability") {
-          return null;
-        }
-        return null;
-      },
+      withReciprocalOverlay("peer@example.com", () => null),
     );
 
     await expect(
@@ -113,18 +135,12 @@ describe("getEligibleHostAvailability", () => {
 
   it("omits the schedule when a host has one but no time zone resolves from any source", async () => {
     getUserSettingMock.mockImplementation(
-      async (email: string, key: string) => {
-        if (
-          email === "owner@example.com" &&
-          key === "calendar-overlay-people"
-        ) {
-          return { people: [{ email: "peer@example.com", color: "#fff" }] };
-        }
+      withReciprocalOverlay("peer@example.com", (email, key) => {
         if (email === "peer@example.com" && key === "calendar-availability") {
           return { weeklySchedule: WEEKLY_SCHEDULE };
         }
         return null;
-      },
+      }),
     );
 
     await expect(
@@ -134,13 +150,7 @@ describe("getEligibleHostAvailability", () => {
 
   it("falls back to calendar-settings.timezone when no schedule saved", async () => {
     getUserSettingMock.mockImplementation(
-      async (email: string, key: string) => {
-        if (
-          email === "owner@example.com" &&
-          key === "calendar-overlay-people"
-        ) {
-          return { people: [{ email: "peer@example.com", color: "#fff" }] };
-        }
+      withReciprocalOverlay("peer@example.com", (email, key) => {
         if (email === "peer@example.com" && key === "calendar-availability") {
           return null;
         }
@@ -148,7 +158,7 @@ describe("getEligibleHostAvailability", () => {
           return { timezone: "Europe/Berlin" };
         }
         return null;
-      },
+      }),
     );
 
     await expect(
@@ -160,15 +170,7 @@ describe("getEligibleHostAvailability", () => {
 
   it("falls back to the peer's connected Google account time zone when nothing is saved", async () => {
     getUserSettingMock.mockImplementation(
-      async (email: string, key: string) => {
-        if (
-          email === "owner@example.com" &&
-          key === "calendar-overlay-people"
-        ) {
-          return { people: [{ email: "peer@example.com", color: "#fff" }] };
-        }
-        return null;
-      },
+      withReciprocalOverlay("peer@example.com", () => null),
     );
     getGoogleAccountTimezoneMock.mockResolvedValue("America/Chicago");
 
@@ -184,13 +186,7 @@ describe("getEligibleHostAvailability", () => {
 
   it("prefers calendar-availability.timezone over calendar-settings.timezone", async () => {
     getUserSettingMock.mockImplementation(
-      async (email: string, key: string) => {
-        if (
-          email === "owner@example.com" &&
-          key === "calendar-overlay-people"
-        ) {
-          return { people: [{ email: "peer@example.com", color: "#fff" }] };
-        }
+      withReciprocalOverlay("peer@example.com", (email, key) => {
         if (email === "peer@example.com" && key === "calendar-availability") {
           return {
             timezone: "America/Chicago",
@@ -201,7 +197,7 @@ describe("getEligibleHostAvailability", () => {
           return { timezone: "Europe/Berlin" };
         }
         return null;
-      },
+      }),
     );
 
     await expect(
