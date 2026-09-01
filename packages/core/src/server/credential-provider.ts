@@ -287,13 +287,18 @@ export function isHostedWorkspaceRuntime(): boolean {
 }
 
 /**
- * Whether this process is a deployed serverless/container runtime rather than
- * a developer's machine. Each of these is set BY the platform, so a production
- * build run locally sets none of them however its env file is populated.
+ * Whether a hosting PLATFORM marked this process as one of its runtimes.
+ *
+ * Deliberately excludes `NODE_ENV`: that one is set by the app's own env file,
+ * so it travels with a copied `.env` to a laptop and proves nothing about
+ * where the process is running. Every marker here is written by the platform
+ * itself, so a local run of a production build has none of them. Callers that
+ * only need "is this production-shaped" should use `isProductionLikeRuntime`;
+ * use this one where mistaking a developer's machine for the deployment has a
+ * consequence beyond the process itself.
  */
-export function isProductionLikeRuntime(): boolean {
+export function hasPlatformRuntimeMarker(): boolean {
   return (
-    process.env.NODE_ENV === "production" ||
     /^(1|true)$/i.test(process.env.NETLIFY ?? "") ||
     /^(1|true)$/i.test(process.env.VERCEL ?? "") ||
     /^(1|true)$/i.test(process.env.CF_PAGES ?? "") ||
@@ -305,6 +310,10 @@ export function isProductionLikeRuntime(): boolean {
       process.env.RENDER,
     )
   );
+}
+
+export function isProductionLikeRuntime(): boolean {
+  return process.env.NODE_ENV === "production" || hasPlatformRuntimeMarker();
 }
 
 /**

@@ -11,9 +11,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockRegistered = vi.hoisted(() => vi.fn());
 const mockHosted = vi.hoisted(() => vi.fn());
+const mockUnavailable = vi.hoisted(() => vi.fn());
 vi.mock("./realtime-registration.js", () => ({
   isHostedRealtimeTransport: mockHosted,
   resolveRegisteredRealtimeChannel: mockRegistered,
+  realtimeRegistrationUnavailable: mockUnavailable,
 }));
 
 import * as builderBrowser from "./builder-browser.js";
@@ -27,6 +29,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockHosted.mockReturnValue(true);
   mockRegistered.mockResolvedValue(null);
+  mockUnavailable.mockReturnValue(false);
   delete process.env.BUILDER_PROJECT_ID;
   delete process.env.AGENT_NATIVE_REALTIME_HMAC_SECRET;
 });
@@ -114,6 +117,21 @@ describe("health: realtime", () => {
     mockRegistered.mockResolvedValue(null);
     const absent = await runDbHealthProbe(okExec);
     expect(absent.realtime.unavailable).toBeUndefined();
+  });
+
+  it("reports an unreachable gateway even though registration fails soft", async () => {
+    // Self-registration resolves to `null` for BOTH "the org is not in the
+    // rollout" and "we never reached the gateway". Only the second is
+    // `unavailable`, and reading it off the resolver's return value alone
+    // cannot tell them apart.
+    mockRegistered.mockResolvedValue(null);
+    mockUnavailable.mockReturnValue(true);
+    const { realtime } = await runDbHealthProbe(okExec);
+    expect(realtime).toEqual({
+      transport: "hosted",
+      registered: false,
+      unavailable: true,
+    });
   });
 
   it("bounds the realtime resolution the same way it bounds the DB probe", async () => {

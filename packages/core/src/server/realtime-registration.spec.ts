@@ -6,7 +6,7 @@ const mockGetSetting = vi.hoisted(() => vi.fn());
 const mockPutSetting = vi.hoisted(() => vi.fn());
 const mockSelfUrl = vi.hoisted(() => vi.fn());
 const mockHostedWorkspace = vi.hoisted(() => vi.fn());
-const mockProductionRuntime = vi.hoisted(() => vi.fn());
+const mockPlatformMarker = vi.hoisted(() => vi.fn());
 const mockDeployEnv = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
@@ -31,10 +31,11 @@ vi.mock("./credential-provider.js", () => ({
   // the same absence the module sees in production.
   readDeployCredentialEnv: (key: string) => process.env[key] || undefined,
   isHostedWorkspaceRuntime: mockHostedWorkspace,
-  isProductionLikeRuntime: mockProductionRuntime,
+  hasPlatformRuntimeMarker: mockPlatformMarker,
 }));
 
 import {
+  realtimeRegistrationUnavailable,
   resetRealtimeRegistrationCache,
   resolveRegisteredRealtimeChannel,
 } from "./realtime-registration.js";
@@ -65,7 +66,7 @@ beforeEach(() => {
   mockGetDatabaseUrl.mockReturnValue(DB_URL);
   mockSelfUrl.mockReturnValue("https://slides.agent-native.com");
   mockHostedWorkspace.mockReturnValue(false);
-  mockProductionRuntime.mockReturnValue(true);
+  mockPlatformMarker.mockReturnValue(true);
   mockDeployEnv.mockReturnValue("production");
   mockGetSetting.mockResolvedValue(null);
   mockPutSetting.mockResolvedValue(undefined);
@@ -227,17 +228,27 @@ describe("resolveRegisteredRealtimeChannel", () => {
     // production never heals from: its own fingerprint still matches, so it
     // never re-registers.
     vi.stubEnv("DEPLOY_PRIME_URL", "");
-    mockProductionRuntime.mockReturnValue(false);
+    mockPlatformMarker.mockReturnValue(false);
     await expect(resolveRegisteredRealtimeChannel()).resolves.toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("registers on the canonical origin from a real deployed runtime", async () => {
-    // A self-hosted container or a Vercel function has no Netlify deploy vars,
-    // but the platform does mark itself (NODE_ENV=production, VERCEL,
-    // AWS_LAMBDA_FUNCTION_NAME, …) and a laptop does not.
+    // A Vercel function or a Lambda has no Netlify deploy vars, but the
+    // PLATFORM marks itself (VERCEL, AWS_LAMBDA_FUNCTION_NAME, K_SERVICE, …).
     vi.stubEnv("DEPLOY_PRIME_URL", "");
     await expect(resolveRegisteredRealtimeChannel()).resolves.toEqual(CHANNEL);
+  });
+
+  it("does not accept NODE_ENV=production as a substitute for that marker", async () => {
+    // NODE_ENV lives in the app's own env file, so it travels to a laptop with
+    // a copied `.env` and says nothing about where the process runs. It is the
+    // one signal a developer running a production build locally would have.
+    vi.stubEnv("DEPLOY_PRIME_URL", "");
+    vi.stubEnv("NODE_ENV", "production");
+    mockPlatformMarker.mockReturnValue(false);
+    await expect(resolveRegisteredRealtimeChannel()).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("re-registers when the Builder credential moves to another org", async () => {
@@ -281,6 +292,92 @@ describe("resolveRegisteredRealtimeChannel", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  describe("separating 'told no' from 'could not ask'", () => {
+    // `/_agent-native/health` reports these as different fields, and on a
+    // diagnostic endpoint the difference is the whole point. Collapsing an
+    // unreachable gateway into the same `null` a rollout refusal produces is
+    // what made "is this deploy on the gateway?" unanswerable.
+    it.each([
+      [
+        "a network failure",
+        () => fetchMock.mockRejectedValue(new Error("ETIMEDOUT")),
+      ],
+      ["a 5xx", () => fetchMock.mockResolvedValue(ok({}, 503))],
+    ])("marks %s unavailable", async (_name, arrange) => {
+      arrange();
+      await expect(resolveRegisteredRealtimeChannel()).resolves.toBeNull();
+      expect(realtimeRegistrationUnavailable()).toBe(true);
+    });
+
+    it.each([
+      [
+        "the rollout flag",
+        () => fetchMock.mockResolvedValue(ok({ code: "flag_off" }, 403)),
+      ],
+      [
+        "a refused credential",
+        () => fetchMock.mockResolvedValue(ok({ code: "no_owner" }, 401)),
+      ],
+      [
+        "an unusable body",
+        () => fetchMock.mockResolvedValue(ok({ channelId: "rt_abc" })),
+      ],
+    ])("does not mark %s unavailable", async (_name, arrange) => {
+      arrange();
+      await expect(resolveRegisteredRealtimeChannel()).resolves.toBeNull();
+      expect(realtimeRegistrationUnavailable()).toBe(false);
+    });
+
+    it("clears once a channel resolves", async () => {
+      fetchMock.mockRejectedValue(new Error("ETIMEDOUT"));
+      await resolveRegisteredRealtimeChannel();
+      expect(realtimeRegistrationUnavailable()).toBe(true);
+
+      resetRealtimeRegistrationCache();
+      fetchMock.mockResolvedValue(ok(CHANNEL));
+      await expect(resolveRegisteredRealtimeChannel()).resolves.toEqual(
+        CHANNEL,
+      );
+      expect(realtimeRegistrationUnavailable()).toBe(false);
+    });
+  });
+
+  it("does not let a superseded attempt overwrite the current registration", async () => {
+    // The first attempt is still in flight when the inputs rotate. When it
+    // finally resolves it must not persist or memoize its channel: that is the
+    // one the current inputs just moved away from, and writing it back also
+    // makes the next request miss on fingerprint and register a third time.
+    const rotatedUrl = DB_URL.replace("pw@", "rotated@");
+    let releaseOriginal: (v: Response) => void = () => {};
+    fetchMock.mockImplementation((_url: string, init: { body: string }) => {
+      const { databaseUrl } = JSON.parse(init.body);
+      if (databaseUrl === rotatedUrl) {
+        return Promise.resolve(
+          ok({ channelId: "rt_rotated", hmacSecret: "r".repeat(64) }),
+        );
+      }
+      return new Promise<Response>((r) => (releaseOriginal = r));
+    });
+
+    const first = resolveRegisteredRealtimeChannel();
+    await Promise.resolve();
+    mockGetDatabaseUrl.mockReturnValue(rotatedUrl);
+    await resolveRegisteredRealtimeChannel();
+    mockPutSetting.mockClear();
+
+    // The superseded attempt lands last.
+    releaseOriginal(ok(CHANNEL));
+    await first;
+
+    expect(mockPutSetting).not.toHaveBeenCalled();
+    // The memo still answers with the rotated channel, so no re-registration.
+    fetchMock.mockClear();
+    await expect(resolveRegisteredRealtimeChannel()).resolves.toMatchObject({
+      channelId: "rt_rotated",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("ignores a malformed gateway response rather than minting against it", async () => {

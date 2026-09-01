@@ -13,7 +13,9 @@ instead of four. Pipeline-injected channels still win, and anything missing
 (no key, a non-Postgres database, a deploy preview, the org not in the rollout)
 leaves the app on its own `/_agent-native/poll`.
 
-Registration also requires the process to actually be a deployed runtime when
-the platform does not name this deploy's own URL, so a production build run on
-a laptop cannot repoint production's channel at another database. It logs why
-when it declines.
+When the platform does not name this deploy's own URL (`DEPLOY_PRIME_URL` /
+`DEPLOY_URL` / `URL`), registration additionally requires a platform runtime
+marker — `NETLIFY`, `VERCEL`, `K_SERVICE`, `AWS_LAMBDA_FUNCTION_NAME` and the
+like, not `NODE_ENV` — so a production build run on a laptop cannot repoint
+production's channel at another database. A self-hosted deploy that sets
+neither should set `URL` to its own origin; it logs why when it declines.

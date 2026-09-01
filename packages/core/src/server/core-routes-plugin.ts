@@ -236,7 +236,10 @@ import { handleIdentitySso } from "./identity-sso.js";
 import { createOpenRouteHandler } from "./open-route.js";
 import { createPollEventsHandler } from "./poll-events.js";
 import { createPollHandler } from "./poll.js";
-import { isHostedRealtimeTransport } from "./realtime-registration.js";
+import {
+  isHostedRealtimeTransport,
+  realtimeRegistrationUnavailable,
+} from "./realtime-registration.js";
 import {
   createRealtimeTokenHandler,
   resolveActiveRealtimeChannel,
@@ -627,7 +630,15 @@ async function resolveRealtimeHealth(): Promise<
   } catch {
     return { transport, registered: false, unavailable: true };
   }
-  if (!channelId) return { transport, registered: false };
+  if (!channelId) {
+    // Self-registration fails soft to `null`, so the absence of a channel does
+    // not say which kind of absence it is. Ask: a gateway we could not reach
+    // is `unavailable`, an org that is not in the rollout is simply not
+    // registered, and this endpoint exists to tell an operator which.
+    return realtimeRegistrationUnavailable()
+      ? { transport, registered: false, unavailable: true }
+      : { transport, registered: false };
+  }
   return {
     transport,
     registered: true,

@@ -32,8 +32,8 @@ import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import { getSetting, putSetting } from "../settings/store.js";
 import {
   getBuilderGatewayBaseUrl,
+  hasPlatformRuntimeMarker,
   isHostedWorkspaceRuntime,
-  isProductionLikeRuntime,
   readDeployCredentialEnv,
 } from "./credential-provider.js";
 import { resolveDeployEnvironment } from "./deploy-environment.js";
@@ -106,9 +106,23 @@ interface RegistrationInputs {
   fingerprint: string;
 }
 
+/**
+ * Why there is no channel. `declined` is an answer from the gateway (the org
+ * is not in the rollout, the credential was refused, the body was unusable);
+ * `unavailable` is not an answer at all (timeout, DNS, connection refused).
+ * `/_agent-native/health` reports them as different fields on purpose — "this
+ * deploy has no channel" and "we could not find out" send you to different
+ * places — so the distinction must survive the resolver rather than
+ * collapsing into `null` here.
+ */
+type RegistrationFailure = "declined" | "unavailable";
+type RegistrationResult =
+  | { channel: RealtimeChannel }
+  | { channel: null; failure: RegistrationFailure };
+
 let memo: {
   fingerprint: string;
-  channel: RealtimeChannel | null;
+  result: RegistrationResult;
   at: number;
 } | null = null;
 /** Single-flight, keyed by fingerprint: concurrent requests on a cold isolate
@@ -119,10 +133,30 @@ let inFlight: {
   promise: Promise<RealtimeChannel | null>;
 } | null = null;
 
+/**
+ * The inputs of the most recently STARTED attempt.
+ *
+ * An attempt whose fingerprint is no longer this one has been superseded, and
+ * must not write the memo or the settings row when it finally resolves: it
+ * would restore the pre-rotation channel over the current one, and the next
+ * request would then see a fingerprint miss and register all over again.
+ */
+let currentFingerprint: string | null = null;
+
 /** Test seam. */
 export function resetRealtimeRegistrationCache(): void {
   memo = null;
   inFlight = null;
+  currentFingerprint = null;
+}
+
+/**
+ * True when the last resolution failed to REACH the gateway, as opposed to
+ * being told no. Read by the health probe, which promises that split; every
+ * other caller only needs the channel.
+ */
+export function realtimeRegistrationUnavailable(): boolean {
+  return memo?.result.channel === null && memo.result.failure === "unavailable";
 }
 
 export function isHostedRealtimeTransport(): boolean {
@@ -243,20 +277,21 @@ function collectInputs(): RegistrationInputs | null {
   // Production never heals — its own stored fingerprint still matches, so it
   // never re-registers — and tails the wrong database indefinitely.
   //
-  // So the fallback additionally requires this process to actually BE a
-  // deployed runtime. `isProductionLikeRuntime` reads vars the platform sets
-  // (NETLIFY, VERCEL, AWS_LAMBDA_FUNCTION_NAME, K_SERVICE, RENDER, CF_PAGES,
-  // NODE_ENV=production), none of which a laptop sets however its env file is
-  // populated.
+  // So the fallback additionally requires a marker written by the PLATFORM —
+  // `hasPlatformRuntimeMarker`, not `isProductionLikeRuntime`. The difference
+  // is the whole guard: `NODE_ENV=production` lives in the app's own env file
+  // and therefore travels to a laptop with a copied `.env`, which is precisely
+  // the process this is meant to exclude.
   const fromPlatform = Boolean(
     process.env.DEPLOY_PRIME_URL || process.env.DEPLOY_URL || process.env.URL,
   );
-  if (!fromPlatform && !isProductionLikeRuntime()) {
+  if (!fromPlatform && !hasPlatformRuntimeMarker()) {
     warnOnce(
       "self-url",
-      "[realtime] this process does not look like a deployed runtime and its platform did " +
-        "not name a per-deploy URL, so registering the app's canonical origin could repoint " +
-        "production's channel; staying on local sync.",
+      "[realtime] no per-deploy URL from the platform and no platform runtime marker, so " +
+        "this could be a local run of a production build; refusing to register the app's " +
+        "canonical origin. Staying on local sync. Set URL (or DEPLOY_URL) to this " +
+        "deployment's own origin on a self-hosted deploy.",
     );
     return null;
   }
@@ -352,7 +387,7 @@ async function readRejectionCode(res: Response): Promise<string | undefined> {
 
 async function postRegistration(
   inputs: RegistrationInputs,
-): Promise<RealtimeChannel | null> {
+): Promise<RegistrationResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REGISTER_TIMEOUT_MS);
   try {
@@ -385,16 +420,26 @@ async function postRegistration(
           `[realtime] gateway registration failed (${res.status}${code ? `: ${code}` : ""}); staying on local sync`,
         );
       }
-      return null;
+      // The gateway answered. A 5xx is the one status that is a failure to
+      // serve rather than a decision, so it reads as unavailable.
+      return {
+        channel: null,
+        failure: res.status >= 500 ? "unavailable" : "declined",
+      };
     }
     const body = (await res.json()) as Partial<RealtimeChannel>;
-    if (!body?.channelId || !body?.hmacSecret) return null;
-    return { channelId: body.channelId, hmacSecret: body.hmacSecret };
+    if (!body?.channelId || !body?.hmacSecret) {
+      return { channel: null, failure: "declined" };
+    }
+    return {
+      channel: { channelId: body.channelId, hmacSecret: body.hmacSecret },
+    };
   } catch (err) {
     console.warn(
       `[realtime] gateway registration failed (${(err as Error)?.message ?? err}); staying on local sync`,
     );
-    return null;
+    // Abort, DNS, connection refused, unreadable body: we never got an answer.
+    return { channel: null, failure: "unavailable" };
   } finally {
     clearTimeout(timeout);
   }
@@ -402,12 +447,18 @@ async function postRegistration(
 
 async function register(
   inputs: RegistrationInputs,
-): Promise<RealtimeChannel | null> {
+): Promise<RegistrationResult> {
   const stored = await readStored(inputs.fingerprint);
-  if (stored) return stored;
+  if (stored) return { channel: stored };
 
-  const channel = await postRegistration(inputs);
-  if (!channel) return null;
+  const result = await postRegistration(inputs);
+  const channel = result.channel;
+  if (!channel) return result;
+
+  // A superseded attempt must not persist: its channel is the one the current
+  // inputs just moved away from, and writing it here would also make the next
+  // request miss on fingerprint and register a third time.
+  if (currentFingerprint !== inputs.fingerprint) return result;
 
   try {
     // Fans out no sync event, in either direction: `poll.ts` skips this key
@@ -427,7 +478,7 @@ async function register(
       `[realtime] could not persist the registration (${(err as Error)?.message ?? err}); it will be re-fetched next cold start`,
     );
   }
-  return channel;
+  return result;
 }
 
 /**
@@ -445,7 +496,7 @@ export async function resolveRegisteredRealtimeChannel(): Promise<RealtimeChanne
   if (!inputs) return null;
 
   if (memo && memo.fingerprint === inputs.fingerprint) {
-    if (memo.channel) return memo.channel;
+    if (memo.result.channel) return memo.result.channel;
     if (Date.now() - memo.at < FAILURE_BACKOFF_MS) return null;
   }
 
@@ -454,10 +505,16 @@ export async function resolveRegisteredRealtimeChannel(): Promise<RealtimeChanne
   // own fingerprint must still get registered.
   if (inFlight?.fingerprint === inputs.fingerprint) return inFlight.promise;
 
+  currentFingerprint = inputs.fingerprint;
   const attempt = register(inputs)
-    .then((channel) => {
-      memo = { fingerprint: inputs.fingerprint, channel, at: Date.now() };
-      return channel;
+    .then((result) => {
+      // Same reason `register` skips the persist: a superseded attempt
+      // resolving late must not put the pre-rotation channel back in the memo
+      // on top of the current one.
+      if (currentFingerprint === inputs.fingerprint) {
+        memo = { fingerprint: inputs.fingerprint, result, at: Date.now() };
+      }
+      return result.channel;
     })
     .finally(() => {
       if (inFlight?.fingerprint === inputs.fingerprint) inFlight = null;
