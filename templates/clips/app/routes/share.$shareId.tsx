@@ -468,7 +468,9 @@ export default function ShareRoute() {
     session,
     isLoading: sessionLoading,
     status: sessionStatus,
+    retry: retrySession,
   } = useSession();
+  const retriedUnavailableSessionRef = useRef(false);
   const requestAccess = useActionMutation<
     {
       alreadyHasAccess: boolean;
@@ -871,19 +873,69 @@ export default function ShareRoute() {
     }
   }
 
-  const sessionNeedsRetry =
-    sessionStatus === "loading" || sessionStatus === "signing-out";
   const shareNeedsSession =
     !dataQ.data ||
     dataQ.data.status === 401 ||
     dataQ.data.status === 404 ||
     !dataQ.data.data?.recording;
+  const sessionNeedsRetry =
+    sessionStatus === "loading" ||
+    sessionStatus === "signing-out" ||
+    (sessionStatus === "unavailable" &&
+      shareNeedsSession &&
+      !retriedUnavailableSessionRef.current);
+
+  useEffect(() => {
+    if (
+      sessionStatus === "authenticated" ||
+      sessionStatus === "unauthenticated"
+    ) {
+      retriedUnavailableSessionRef.current = false;
+    }
+    if (
+      sessionStatus !== "unavailable" ||
+      !shareNeedsSession ||
+      retriedUnavailableSessionRef.current
+    ) {
+      return;
+    }
+    retriedUnavailableSessionRef.current = true;
+    retrySession();
+  }, [retrySession, sessionStatus, shareNeedsSession]);
 
   if (dataQ.isLoading || (sessionNeedsRetry && shareNeedsSession)) {
     return (
       <>
         {agentDiscovery}
         <DefaultSpinner />
+      </>
+    );
+  }
+
+  if (
+    sessionStatus === "unavailable" &&
+    shareNeedsSession &&
+    retriedUnavailableSessionRef.current
+  ) {
+    return (
+      <>
+        {agentDiscovery}
+        <EndState
+          title={t("sharePage.somethingWentWrong")}
+          message={t("sharePage.pleaseTryAgain")}
+          action={
+            <Button
+              size="sm"
+              onClick={() => {
+                retriedUnavailableSessionRef.current = false;
+                retrySession();
+                void dataQ.refetch();
+              }}
+            >
+              {t("sharePage.checkAgain")}
+            </Button>
+          }
+        />
       </>
     );
   }
@@ -1128,7 +1180,7 @@ export default function ShareRoute() {
   return (
     <div className="clips-recording-view flex h-[var(--agent-native-viewport-height,100vh)] min-h-0 w-full max-w-full flex-col overflow-hidden bg-background xl:h-screen xl:flex-row xl:overflow-hidden [&_.agent-composer-root]:!bg-background [&_.agent-composer-root]:!border-0">
       {agentDiscovery}
-      <div className="flex min-h-0 w-full min-w-0 flex-col xl:flex-1">
+      <div className="flex min-h-0 w-full min-w-0 flex-col overflow-y-auto xl:flex-1 xl:overflow-y-hidden">
         <header className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 px-3 py-2 sm:px-4 sm:py-3 xl:flex-nowrap">
           {session ? (
             <Button

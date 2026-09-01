@@ -23,11 +23,18 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("enabled: !!shareId");
     expect(route).toContain('sessionStatus === "loading"');
     expect(route).toContain('sessionStatus === "signing-out"');
+    expect(route).toContain('sessionStatus === "unavailable"');
+    expect(route).toContain("retry: retrySession,");
+    expect(route).toContain("retrySession();");
+    expect(route).toContain("retriedUnavailableSessionRef");
+    expect(route).toContain('t("sharePage.checkAgain")');
+    expect(route).toContain("void dataQ.refetch();");
     expect(route).toContain("dataQ.data.status === 401");
     expect(route).toContain("dataQ.data.status === 404");
     expect(route).toContain(
       "h-[var(--agent-native-viewport-height,100vh)] min-h-0",
     );
+    expect(route).toContain("overflow-y-auto xl:flex-1 xl:overflow-y-hidden");
     expect(route).toContain("request-recording-access");
     expect(route).toContain("RequestAccessDialog");
     expect(route).toContain("requesterEmail");

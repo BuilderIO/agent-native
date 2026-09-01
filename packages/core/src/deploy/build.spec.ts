@@ -1310,6 +1310,8 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     expect(html).toContain("__agentNativeLoadingLabelHydrated");
     expect(html).toContain("__agentNativeLoadingLabelInterval");
     expect(html).toContain("clearInterval");
+    expect(html).toContain("MutationObserver");
+    expect(html).toContain("loader.isConnected");
     expect(html).toContain("an-cube-pulse");
     expect(html).toContain(renderToStaticMarkup(createElement(DefaultSpinner)));
     expect(html).not.toContain("an-spin");
