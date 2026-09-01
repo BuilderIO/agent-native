@@ -98,6 +98,45 @@ describe("BubbleToolbar", () => {
     toolbarElement = null;
   });
 
+  it("starts a comment from selected text on Mod+Shift+M when cleanup is enabled", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+      content: "<p>Comment on this text</p>",
+    });
+    editor.commands.setTextSelection({ from: 1, to: 8 });
+    const onComment = vi.fn();
+
+    root = createRoot(toolbarElement);
+    act(() =>
+      root!.render(
+        <BubbleToolbar
+          editor={editor!}
+          onComment={onComment}
+          commentsUiCleanupEnabled
+        />,
+      ),
+    );
+    act(() => {
+      editor!.view.dom.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "m",
+          metaKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(onComment).toHaveBeenCalledOnce();
+    expect(onComment.mock.calls[0]?.[0]).toBe("Comment");
+    expect(onComment.mock.calls[0]?.[3]).toEqual({ from: 1, to: 8 });
+  });
+
   it("opens the link input for selected editor text on Mod+K", () => {
     editorElement = document.createElement("div");
     toolbarElement = document.createElement("div");

@@ -179,6 +179,43 @@ describe("comments sidebar layout", () => {
     expect(source).not.toContain("scrollIntoView");
     expect(source).toContain("data-comment-connector");
     expect(source).toContain("data-unanchored-comments");
+    expect(source).toContain("if (!active) return null");
+    expect(source).not.toContain(
+      'data-comment-connector={active ? "active" : "idle"}',
+    );
+  });
+
+  it("keeps comment actions named and available to keyboard focus", () => {
+    const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain('aria-label={t("comments.askAi")}');
+    expect(source).toContain('aria-label={t("comments.resolve")}');
+    expect(source).toContain('aria-label={t("comments.submit")}');
+    expect(source).toContain('aria-label={t("comments.reopen")}');
+    expect(source).toContain("group-focus-within/thread:opacity-100");
+    expect(source).not.toContain("hidden group-hover/thread:flex");
+    expect(source).toContain("aria-expanded={showResolved}");
+  });
+
+  it("captures inline comment activation at the document state boundary", () => {
+    const source = readFileSync("app/components/editor/DocumentEditor.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain('target?.closest("[data-comment-thread]")');
+    expect(source).toContain("activateCommentThread(threadId)");
+  });
+
+  it("recomputes anchors when comment indicators are restored", () => {
+    const source = readFileSync("app/components/editor/VisualEditor.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toMatch(
+      /scheduleApply\(false\);[\s\S]*?commentsUiCleanupEnabled[\s\S]*?showCommentIndicators/,
+    );
   });
 
   it("keeps the pending composer in normal flow on narrow sheets", () => {

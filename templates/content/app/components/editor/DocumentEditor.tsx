@@ -8,6 +8,7 @@ import {
   emailToName,
   type CollabUser,
 } from "@agent-native/core/client/collab";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   setClientAppState,
   useAvatarUrl,
@@ -17,10 +18,13 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { Document, DocumentSyncStatus } from "@shared/api";
+import { CONTENT_COMMENTS_UI_CLEANUP_FLAG } from "@shared/feature-flags";
 import {
   IconDatabase,
   IconFileText,
   IconLoader2,
+  IconMessageCircle,
+  IconMessageCircleOff,
   IconX,
 } from "@tabler/icons-react";
 import { IconLock } from "@tabler/icons-react";
@@ -1870,6 +1874,10 @@ function DocumentEditorBody({
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const [utilityPanel, setUtilityPanel] = useState<DocumentUtilityPanel>(null);
+  const commentsUiCleanupEnabled = useFeatureFlag(
+    CONTENT_COMMENTS_UI_CLEANUP_FLAG.key,
+  );
+  const [showCommentIndicators, setShowCommentIndicators] = useState(true);
   const activeThreadId = hoveredThreadId ?? selectedThreadId;
   const { data: threads, isLoading: commentsLoading } = useComments(
     !isLocalFileDocument ? documentId : null,
@@ -2109,11 +2117,35 @@ function DocumentEditorBody({
   const utilityPanelContent = utilityPanel ? (
     <div className="w-full min-w-0 bg-background" data-document-utility-panel>
       <div className="sticky top-0 z-10 flex h-12 items-center border-b border-border bg-background px-4">
-        <h2 className="text-sm font-semibold">{utilityPanelTitle}</h2>
-        {hasUtilityRailSpace ? (
+        <h2
+          className="text-sm font-semibold"
+          aria-hidden={!hasUtilityRailSpace || undefined}
+        >
+          {utilityPanelTitle}
+        </h2>
+        {utilityPanel === "comments" && commentsUiCleanupEnabled ? (
           <button
             type="button"
             className="ms-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-pressed={showCommentIndicators}
+            aria-label={t("comments.title")}
+            onClick={() => setShowCommentIndicators((visible) => !visible)}
+          >
+            {showCommentIndicators ? (
+              <IconMessageCircle size={16} />
+            ) : (
+              <IconMessageCircleOff size={16} />
+            )}
+          </button>
+        ) : null}
+        {hasUtilityRailSpace ? (
+          <button
+            type="button"
+            className={cn(
+              "flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              !(utilityPanel === "comments" && commentsUiCleanupEnabled) &&
+                "ms-auto",
+            )}
             aria-label={t("editor.toolbar.closeUtilityPanel")}
             onClick={() => handleUtilityPanelChange(null)}
           >
@@ -2154,9 +2186,15 @@ function DocumentEditorBody({
         data-document-print-root
         onClickCapture={(event) => {
           const target = event.target as HTMLElement | null;
-          if (
-            target?.closest("[data-comments-sidebar], [data-comment-thread]")
-          ) {
+          const commentHighlight = target?.closest("[data-comment-thread]");
+          const threadId = commentHighlight?.getAttribute(
+            "data-comment-thread",
+          );
+          if (threadId) {
+            activateCommentThread(threadId);
+            return;
+          }
+          if (target?.closest("[data-comments-sidebar]")) {
             return;
           }
           clearCommentFocus();
@@ -2506,6 +2544,8 @@ function DocumentEditorBody({
                                 ? activateCommentThread
                                 : undefined
                             }
+                            commentsUiCleanupEnabled={commentsUiCleanupEnabled}
+                            showCommentIndicators={showCommentIndicators}
                             onJoinTitle={joinFirstBodyBlockToTitle}
                             notionPageLinks={notionPageLinks}
                             onOpenNotionPageLink={handleOpenNotionPageLink}

@@ -655,6 +655,16 @@ export function CommentsSidebar({
           {t("comments.empty")}
         </div>
       ) : null}
+      {isLoading ? (
+        <div className="space-y-3 px-2 pt-3" aria-hidden="true">
+          {[0, 1].map((item) => (
+            <div
+              key={item}
+              className="h-28 animate-pulse rounded-lg bg-muted/60"
+            />
+          ))}
+        </div>
+      ) : null}
       {/* Pending new comment — positioned at the selection Y offset */}
       {pendingComment && (
         <div
@@ -782,7 +792,9 @@ export function CommentsSidebar({
       {resolvedThreads.length > 0 && (
         <div className="mx-2 mr-4 mt-4 mb-6">
           <button
+            type="button"
             onClick={() => setShowResolved((v) => !v)}
+            aria-expanded={showResolved}
             className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent"
           >
             <IconChevronDown
@@ -819,24 +831,20 @@ function CommentConnector({
   cardTop: number;
   active: boolean;
 }) {
+  if (!active) return null;
   const cardPoint = cardTop + 20;
-  if (Math.abs(anchorTop - cardPoint) < 6) return null;
+  if (Math.abs(anchorTop - cardPoint) < 12) return null;
   const top = Math.min(anchorTop, cardPoint);
   const height = Math.abs(anchorTop - cardPoint);
-  const colorClass = active ? "border-primary/60" : "border-border";
 
   return (
-    <div aria-hidden data-comment-connector={active ? "active" : "idle"}>
+    <div aria-hidden data-comment-connector="active">
       <span
-        className={`pointer-events-none absolute left-1 w-2 border-t ${colorClass}`}
-        style={{ top: anchorTop }}
-      />
-      <span
-        className={`pointer-events-none absolute left-1 border-s ${colorClass}`}
+        className="pointer-events-none absolute left-1 border-s border-primary/60"
         style={{ top, height }}
       />
       <span
-        className={`pointer-events-none absolute left-1 w-2 border-t ${colorClass}`}
+        className="pointer-events-none absolute left-1 w-2 border-t border-primary/60"
         style={{ top: cardPoint }}
       />
     </div>
@@ -924,10 +932,12 @@ function ThreadView({
     >
       <div className="relative p-3 pb-2">
         {/* Hover actions — top right, Notion style pill */}
-        <div className="absolute top-2 right-2 hidden group-hover/thread:flex items-center rounded-md bg-accent/80 ring-1 ring-border/50">
+        <div className="pointer-events-none absolute top-2 right-2 flex items-center rounded-md bg-accent/80 opacity-0 ring-1 ring-border/50 transition-opacity group-hover/thread:pointer-events-auto group-hover/thread:opacity-100 group-focus-within/thread:pointer-events-auto group-focus-within/thread:opacity-100">
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                type="button"
+                aria-label={t("comments.askAi")}
                 onClick={(e) => {
                   e.stopPropagation();
                   onSendToAI();
@@ -943,6 +953,8 @@ function ThreadView({
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
+                  type="button"
+                  aria-label={t("comments.resolve")}
                   onClick={(e) => {
                     e.stopPropagation();
                     onResolve();
@@ -958,6 +970,17 @@ function ThreadView({
         </div>
 
         {/* Comments */}
+        <button
+          type="button"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-2 focus:z-10 focus:rounded focus:bg-background focus:px-2 focus:py-1 focus:text-xs focus:ring-2 focus:ring-ring"
+          aria-expanded={isExpanded}
+          onClick={(event) => {
+            event.stopPropagation();
+            onExpand();
+          }}
+        >
+          {t("comments.reply")}
+        </button>
         {thread.comments.map((c) => (
           <div key={c.id} className="mb-3 last:mb-0">
             <div className="flex items-center gap-2 mb-0.5">
@@ -1006,6 +1029,8 @@ function ThreadView({
             />
             <div className="absolute right-1 bottom-0.5 flex items-center gap-0.5">
               <button
+                type="button"
+                aria-label={t("comments.submit")}
                 onClick={onSubmitReply}
                 disabled={!replyText.trim() || isSubmitting}
                 className="p-1 rounded-full text-muted-foreground/40 hover:text-foreground disabled:opacity-30"
@@ -1052,8 +1077,10 @@ function ResolvedThreadView({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                type="button"
+                aria-label={t("comments.reopen")}
                 onClick={onReopen}
-                className="p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/resolved:opacity-100"
+                className="p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/resolved:opacity-100 group-focus-within/resolved:opacity-100 focus:opacity-100"
               >
                 <IconArrowBackUp size={14} />
               </button>

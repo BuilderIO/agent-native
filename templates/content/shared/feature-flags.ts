@@ -10,6 +10,14 @@ export const A2A_RECEIVER_OWNERSHIP_FLAG = defineFeatureFlag({
     "Prefer Content's declared local capabilities when another app delegates an objective to Content.",
 });
 
+export const CONTENT_COMMENTS_UI_CLEANUP_FLAG = defineFeatureFlag({
+  key: "content.comments-ui-cleanup",
+  displayName: "Content comments UI cleanup",
+  description:
+    "Enable cleaner comment threads, persistent inline indicators, and comment keyboard shortcuts.",
+});
+
 export const CONTENT_FEATURE_FLAGS = defineFeatureFlags([
   A2A_RECEIVER_OWNERSHIP_FLAG,
+  CONTENT_COMMENTS_UI_CLEANUP_FLAG,
 ]);
