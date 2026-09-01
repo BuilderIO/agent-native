@@ -20,8 +20,8 @@ import {
 const HEADING_3_CLASS =
   "m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-3)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]";
 
-const HEADING_5_CLASS =
-  "m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]";
+const HEADING_4_CLASS =
+  "m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-4)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]";
 
 const PARAGRAPH_2_CLASS =
   "m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]";
@@ -84,74 +84,54 @@ export default function TemplatesPage() {
             {featuredTemplates.map((template) => (
               <TemplateCard key={template.name} template={template} />
             ))}
+          </div>
+        </GridInner>
+      </PageSection>
 
-            {/* Not a card component like the apps above: it holds two
-                interactive children of its own, and nesting those inside the
-                card's anchor would be invalid. Vertically centred rather than
-                top-aligned since it has no screenshot to anchor its top.
-                It is the only cell in the last row, so nothing stretches it to
-                an app card's height — the aspect ratio is one card's own
-                proportions (a 433px column, screenshot plus copy), which
-                tracks the column width instead of pinning a pixel height.
-                aspect-ratio only sets a preferred size, so the copy can still
-                push the tile taller at narrow widths. */}
-            <div className="flex aspect-[433/560] flex-col items-start justify-center gap-[var(--spacing-4)] bg-[var(--b-bg-page)] p-[var(--spacing-5)] transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)]">
-              <h2 className={HEADING_5_CLASS}>{t("buildFromScratch.title")}</h2>
+      <PageSection>
+        {/* The top padding is the spacer between the card grid and this band;
+            the section's own gridlines carry through it. */}
+        <GridInner className="pt-[var(--spacing-12)] pb-[var(--spacing-4)]">
+          {/* A row rather than a card: it is no longer a cell in the grid, so
+              the copy sits on the left and the two actions on the right. */}
+          <div className="flex items-center justify-between gap-[var(--spacing-8)] border border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-raised)] p-[var(--spacing-8)] mobile:flex-col mobile:items-start">
+            <div className="flex flex-col gap-[var(--spacing-2)]">
+              <h2 className={HEADING_4_CLASS}>{t("buildFromScratch.title")}</h2>
               <p className={PARAGRAPH_2_CLASS}>
                 {t("buildFromScratch.description")}
               </p>
-              {/* Wraps rather than shrinks: the ds Button labels are
-                  whitespace-nowrap, so in a one-column card they stack
-                  instead of overflowing. */}
-              <div className="mt-[var(--spacing-2)] flex flex-wrap gap-[var(--spacing-2)]">
-                <BuildOnlinePopover
-                  location="templates_index"
-                  trigger={
-                    // Caps come from CSS, not the label: an all-caps string
-                    // becomes the accessible name and screen readers spell it
-                    // out letter by letter.
-                    <Button
-                      variant="white"
-                      icon={null}
-                      compact
-                      className="uppercase"
-                    >
-                      {t("buildFromScratch.buildOnline")}
-                    </Button>
-                  }
-                />
-                <Button
-                  variant="secondary"
-                  icon={null}
-                  compact
-                  href={sitePathForLocale("/docs/getting-started", locale)}
-                  data-an-prefetch="viewport"
-                  onClick={() =>
-                    trackEvent("start from scratch", {
-                      location: "templates_index",
-                      action: "read_docs",
-                    })
-                  }
-                  className="uppercase"
-                >
-                  {t("buildFromScratch.readDocs")}
-                </Button>
-              </div>
             </div>
-
-            {/* 12 apps plus the tile above leaves the last row one cell short
-                at both 3 and 2 columns, and an empty cell would show the
-                grid's own background — the divider color — with no card there
-                to paint over it. These spacers paint page-bg into those slots:
-                two of them at 3 columns, one at 2, none at 1. */}
-            <div
-              aria-hidden="true"
-              className="bg-[var(--b-bg-page)] narrow:hidden"
-            />
-            <div
-              aria-hidden="true"
-              className="bg-[var(--b-bg-page)] mobile:hidden"
-            />
+            {/* Wraps rather than shrinks: the ds Button labels are
+                whitespace-nowrap, so at narrow widths they stack instead of
+                overflowing the row. */}
+            <div className="flex shrink-0 flex-wrap gap-[var(--spacing-3)]">
+              <BuildOnlinePopover
+                location="templates_index"
+                trigger={
+                  // Caps come from CSS, not the label: an all-caps string
+                  // becomes the accessible name and screen readers spell it
+                  // out letter by letter.
+                  <Button variant="white" icon={null} className="uppercase">
+                    {t("buildFromScratch.buildOnline")}
+                  </Button>
+                }
+              />
+              <Button
+                variant="secondary"
+                icon={null}
+                href={sitePathForLocale("/docs/getting-started", locale)}
+                data-an-prefetch="viewport"
+                onClick={() =>
+                  trackEvent("start from scratch", {
+                    location: "templates_index",
+                    action: "read_docs",
+                  })
+                }
+                className="uppercase"
+              >
+                {t("buildFromScratch.readDocs")}
+              </Button>
+            </div>
           </div>
         </GridInner>
       </PageSection>
