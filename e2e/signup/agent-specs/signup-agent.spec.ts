@@ -24,16 +24,33 @@ const REVIEW_SURFACE_TIMEOUT_MS = 15_000;
 const REVIEW_SURFACE_LOADING_SELECTOR =
   "[data-first-run-startup-loading]:visible, [aria-busy='true']:visible, .skeleton-shimmer:visible";
 
-async function waitForReviewSurface(page: Page): Promise<void> {
+type PostLinkState = "onboarding" | "app" | "unresolved";
+
+async function waitForPostLinkState(page: Page): Promise<PostLinkState> {
   const deadline = Date.now() + REVIEW_SURFACE_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    const text = await page.locator("body").innerText();
+    if (
+      (await page.locator('[data-onboarding-screen="intro"]:visible').count()) >
+      0
+    ) {
+      return "onboarding";
+    }
+    const bodyText = await page
+      .locator("body")
+      .innerText()
+      .catch(() => "");
+    const appHidden = page.locator('[data-first-run-app-hidden="true"]');
     const loadingSurface = page.locator(REVIEW_SURFACE_LOADING_SELECTOR);
-    if (text.trim().length >= 40 && (await loadingSurface.count()) === 0) {
-      return;
+    if (
+      bodyText.trim().length >= 40 &&
+      (await appHidden.count()) === 0 &&
+      (await loadingSurface.count()) === 0
+    ) {
+      return "app";
     }
     await page.waitForTimeout(500);
   }
+  return "unresolved";
 }
 
 async function completeFirstRunOnboarding(page: Page): Promise<boolean> {
@@ -159,6 +176,9 @@ async function capture(
             ".agent-panel-root",
             "[data-agent-empty-state]",
             "[data-first-run-startup-loading]",
+            "[data-onboarding-screen]",
+            "[data-onboarding-loading]",
+            "[data-first-run-app-hidden]",
           ].flatMap(describe),
         },
         null,
@@ -295,7 +315,7 @@ for (const target of targets) {
       const message = await emailPromise;
       const link = verificationLinkFor(message, target.origin);
       await page.goto(link, { waitUntil: "domcontentloaded" });
-      await waitForReviewSurface(page);
+      const postLinkState = await waitForPostLinkState(page);
       steps.push(
         await capture(
           page,
@@ -305,8 +325,9 @@ for (const target of targets) {
           pendingRequests,
         ),
       );
-      if (await completeFirstRunOnboarding(page)) {
-        await waitForReviewSurface(page);
+      if (postLinkState === "onboarding") {
+        await completeFirstRunOnboarding(page);
+        await waitForPostLinkState(page);
         steps.push(
           await capture(
             page,
@@ -321,7 +342,7 @@ for (const target of targets) {
 
     await test.step("reload the way a stuck user would", async () => {
       await page.reload({ waitUntil: "domcontentloaded" });
-      await waitForReviewSurface(page);
+      await waitForPostLinkState(page);
       steps.push(
         await capture(
           page,
