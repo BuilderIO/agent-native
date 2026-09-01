@@ -167,6 +167,7 @@ const messages = {
     nextYear: "下一年",
     otherCalendars: "其他行事曆",
     otherCalendarsDescription: "新增隊友的行事曆或訂閱公開行事曆 URL",
+    overlayCalendarUnavailable: "目前無法載入 {{email}} 的行事曆",
     previousYear: "上一年",
     showCalendar: "顯示行事曆",
   },
