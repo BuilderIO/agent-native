@@ -65,3 +65,16 @@ describe("TemplateCard artwork", () => {
     expect(classes[0]).not.toContain("group-hover:opacity-100");
   });
 });
+
+describe("TemplateCard copy", () => {
+  it("puts the eyebrow above the description in the brand accent", () => {
+    const { container } = renderCard("clips");
+
+    const paragraphs = Array.from(container.querySelectorAll("article p"));
+    expect(paragraphs[0]?.textContent).toBe(
+      "Screen recordings your AI can actually watch",
+    );
+    expect(paragraphs[0]?.className).toContain("text-[var(--b-text-eyebrow)]");
+    expect(paragraphs[1]?.textContent).toContain("Record your screen.");
+  });
+});

@@ -13,6 +13,9 @@ export type ButtonVariant =
   | "primary-icon"
   | "secondary"
   | "secondary-icon"
+  // Borderless, muted and a step smaller — for the third action in a row,
+  // where a third outlined button would compete with the first two.
+  | "tertiary"
   // Stays white in both themes; see --b-action-white-* in tokens.css.
   | "white";
 
@@ -43,7 +46,16 @@ type ButtonAsAnchor = CommonProps &
 type ButtonProps = ButtonAsButton | ButtonAsAnchor;
 
 const baseClass =
-  "inline-flex cursor-pointer select-none items-center justify-center gap-[6px] whitespace-nowrap rounded-[var(--b-radius)] border border-solid py-[10px] font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] font-semibold leading-none tracking-[0.02em] no-underline outline-none transition-[background,box-shadow,border-color] duration-150";
+  "inline-flex cursor-pointer select-none items-center justify-center gap-[6px] whitespace-nowrap rounded-[var(--b-radius)] border border-solid py-[10px] font-[family-name:var(--b-font-mono)] font-semibold leading-none tracking-[0.02em] no-underline outline-none transition-[background,box-shadow,color,border-color] duration-150";
+
+// Kept out of `baseClass` on purpose: two arbitrary `text-[length:…]`
+// utilities on one element resolve by stylesheet order, not by attribute
+// order, so a variant cannot reliably override one coming from the base.
+function variantSizeClass(variant: ButtonVariant) {
+  return variant === "tertiary"
+    ? "text-[length:var(--b-t-label-2)]"
+    : "text-[length:var(--b-t-label-1)]";
+}
 
 // For the elements this component cannot own: a Radix `asChild` trigger and a
 // react-router `Link` both need to be the rendered element themselves, so they
@@ -61,6 +73,7 @@ export function buttonClassName({
 } = {}) {
   return [
     baseClass,
+    variantSizeClass(variant),
     compact ? "px-3" : "px-4",
     variantTextClass(variant),
     variantClasses(variant, dimBorder),
@@ -82,6 +95,8 @@ function variantTextClass(variant: ButtonVariant) {
       return "text-[var(--b-action-primary-bg)]";
     case "white":
       return "text-[var(--b-action-white-text)]";
+    case "tertiary":
+      return "text-[var(--b-text-muted)] hover:text-[var(--b-text-primary)] data-[force=hover]:text-[var(--b-text-primary)]";
     case "secondary":
     case "secondary-icon":
     default:
@@ -104,6 +119,10 @@ function variantClasses(variant: ButtonVariant, dimBorder?: boolean) {
       return "border-[var(--b-action-primary-border)] bg-transparent";
     case "white":
       return "border-[var(--b-action-white-border)] bg-[var(--b-action-white-bg)] hover:bg-[var(--b-action-white-hover)] data-[force=hover]:bg-[var(--b-action-white-hover)]";
+    // Transparent rather than border-0: the border box still reserves its
+    // 1px, so a tertiary button lines up with outlined siblings in a row.
+    case "tertiary":
+      return "border-transparent bg-transparent";
     case "secondary":
     case "secondary-icon":
     default:

@@ -11,12 +11,17 @@ import { TemplateDocsLink } from "./template-docs";
 import { APP_ART } from "./website-redesign/app-art";
 import { Button, buttonClassName } from "./website-redesign/ds/button";
 
-// Compact padding because three of these share one card row; `flex-1` makes
-// them equal width, so the tighter padding only buys wrap headroom.
+// Compact padding because three of these share one card row.
 const cardSecondaryActionClass = buttonClassName({
   variant: "secondary",
   compact: true,
-  className: "flex-1 uppercase",
+  className: "uppercase",
+});
+
+const cardTertiaryActionClass = buttonClassName({
+  variant: "tertiary",
+  compact: true,
+  className: "uppercase",
 });
 
 export { trackEvent };
@@ -172,38 +177,42 @@ function TemplateLaunchButton({ template }: { template: Template }) {
   const hasDemoUrl = "demoUrl" in template && template.demoUrl;
 
   return (
-    <div className="mt-auto flex flex-wrap gap-2 pt-1">
-      {hasDemoUrl ? (
-        <Button
-          variant="white"
-          icon={IconArrowUpRight}
-          href={template.demoUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(event) => {
-            applyFirstTouchAttributionToLink(event.currentTarget);
-            trackEvent("click try demo", {
-              template: template.slug,
-              location: "card",
-            });
-          }}
-          className="flex-1 whitespace-nowrap uppercase"
-        >
-          {t("common.tryIt")}
-        </Button>
-      ) : null}
-      <CustomizeTemplatePopover
-        template={template}
-        location="card"
-        className={cardSecondaryActionClass}
-      />
-      {/* A direct flex item rather than a link inside a flex-1 wrapper: the
-          wrapper stretched to the row height but the link kept its own content
-          height, which is what left this one shorter than its siblings. */}
+    <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-1">
+      {/* The two committing actions read as one pair, so they travel together
+          and the docs link is what wraps away from them when space runs out. */}
+      <div className="flex flex-wrap gap-2">
+        {hasDemoUrl ? (
+          <Button
+            variant="white"
+            icon={IconArrowUpRight}
+            href={template.demoUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(event) => {
+              applyFirstTouchAttributionToLink(event.currentTarget);
+              trackEvent("click try demo", {
+                template: template.slug,
+                location: "card",
+              });
+            }}
+            className="uppercase"
+          >
+            {t("common.tryIt")}
+          </Button>
+        ) : null}
+        <CustomizeTemplatePopover
+          template={template}
+          location="card"
+          className={cardSecondaryActionClass}
+        />
+      </div>
+      {/* A direct flex item rather than a link inside a wrapper: the wrapper
+          stretched to the row height but the link kept its own content height,
+          which is what left this one shorter than its siblings. */}
       <TemplateDocsLink
         template={template}
         location="card"
-        className={cardSecondaryActionClass}
+        className={cardTertiaryActionClass}
       />
     </div>
   );
@@ -305,11 +314,11 @@ export function TemplateCard({ template }: { template: Template }) {
         <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
           {template.name}
         </h3>
+        <p className="m-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] uppercase tracking-[0.04em] text-[var(--b-text-eyebrow)]">
+          {replaces}
+        </p>
         <p className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]">
           {description}
-        </p>
-        <p className="m-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] uppercase tracking-[0.04em] text-[var(--b-text-muted)]">
-          {replaces}
         </p>
         <TemplateLaunchButton template={template} />
       </div>
