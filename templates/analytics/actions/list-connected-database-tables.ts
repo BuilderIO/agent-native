@@ -12,11 +12,11 @@ const MAX_DATABASES_PER_CATALOG = 20;
 
 export default defineAction({
   description:
-    "List the public tables and views available in the admin-connected agent-native app databases. Call this before db-admin-federated-read when table or column names are unknown. It requires an active organization owner/admin role and never returns database URLs, tokens, or secret values. Omit connectionIds to inspect every connected database, or pass a bounded subset.",
+    "List the public tables and views available in the admin-connected agent-native app databases. Call this before db-admin-federated-read when table or column names are unknown. It requires an active organization owner/admin role and never returns database URLs, tokens, or secret values. Omit connectionIds to inspect every connected database when the registry has at most 20 entries; pass a bounded subset for larger registries.",
   schema: z.object({
     connectionIds: z
       .array(z.string().trim().min(1).max(200))
-      .max(20)
+      .max(MAX_DATABASES_PER_CATALOG)
       .optional(),
   }),
   outputSchema: z.object({
