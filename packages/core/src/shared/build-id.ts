@@ -14,7 +14,7 @@ export function resolveAgentNativeBuildId(
 ): string {
   for (const key of BUILD_ID_ENV_KEYS) {
     const value = env[key]?.trim();
-    if (value) return value;
+    if (value && !(key === "DEPLOY_ID" && value === "0")) return value;
   }
   return fallback;
 }

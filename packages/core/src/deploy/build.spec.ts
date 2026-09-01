@@ -312,6 +312,21 @@ describe("AWS Amplify runtime output", () => {
 });
 
 describe("resolveNitroBuildReplacements", () => {
+  it("falls back to the source build id before Netlify assigns a deploy id", () => {
+    expect(
+      resolveNitroBuildReplacements({
+        DEPLOY_ID: "0",
+        AGENT_NATIVE_BUILD_ID: "source-sha",
+      })["process.env.AGENT_NATIVE_BUILD_ID"],
+    ).toBe(JSON.stringify("source-sha"));
+    expect(
+      resolveNitroBuildReplacements({
+        DEPLOY_ID: "deploy-id",
+        AGENT_NATIVE_BUILD_ID: "source-sha",
+      })["process.env.AGENT_NATIVE_BUILD_ID"],
+    ).toBe(JSON.stringify("deploy-id"));
+  });
+
   it("embeds release migration ownership into the Nitro server bundle", () => {
     const replacements = resolveNitroBuildReplacements({
       AGENT_NATIVE_RELEASE_MIGRATIONS: " 1 ",
@@ -1395,9 +1410,16 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     );
     expect(html).toContain('import("/assets/entry.client-abc.js")');
     expect(html).toContain('href="/assets/root.css"');
-    expect(html).toContain("Churning");
+    expect(html).toContain("var(--agent-native-viewport-height, 100vh)");
     expect(html).toContain("__agentNativeLoadingLabelIndex");
     expect(html).toContain("Math.random()");
+    expect(html).toContain("setInterval");
+    expect(html).toContain("__agentNativeLoadingLabelHydrated");
+    expect(html).toContain("__agentNativeLoadingLabelInterval");
+    expect(html).toContain("__agentNativeLoadingLabelCleanup");
+    expect(html).toContain("clearInterval");
+    expect(html).toContain("MutationObserver");
+    expect(html).toContain("loader.isConnected");
     expect(html).toContain("an-cube-pulse");
     expect(html).toContain(renderToStaticMarkup(createElement(DefaultSpinner)));
     expect(html).not.toContain("an-spin");

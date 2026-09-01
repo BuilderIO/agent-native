@@ -27,6 +27,13 @@ function viewScreenSource(): string {
   );
 }
 
+function emailsHandlerSource(): string {
+  return readFileSync(
+    new URL("../../server/handlers/emails.ts", import.meta.url),
+    "utf8",
+  );
+}
+
 function navigateActionSource(): string {
   return readFileSync(
     new URL("../../actions/navigate.ts", import.meta.url),
@@ -64,6 +71,10 @@ describe("Inbox navigation commands", () => {
     const source = inboxSource();
 
     expect(source).toContain("const mailboxWideLabelTab =");
+    expect(source).toContain('activeLabelRecord?.type !== "user"');
+    expect(source).toContain(
+      "const clientSliceTab = isPinnedTab && !searchQuery && !mailboxWideLabelTab;",
+    );
     expect(source).toContain(
       'const emailView = activeSavedFilter\n    ? "all"',
     );
@@ -115,8 +126,76 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain("selectedAccountSet");
     expect(source).toContain("accountEmails:");
     expect(source).toContain("filterInboxTabEmails");
+    expect(source).toContain("activeTriageTab");
+    expect(source).toContain("triageLabels.includes(label)");
     expect(source).toContain("nav.activeInboxTab");
     expect(source).toContain("nav.activeAccounts");
+  });
+
+  it("keeps saved-filter threads out of the agent plain Inbox snapshot", () => {
+    const source = viewScreenSource();
+
+    expect(source).toContain(
+      'effectiveView !== "inbox" || effectiveSearch || label',
+    );
+    expect(source).toContain(
+      "const savedFilterThreads = savedFilterThreadIds(",
+    );
+    expect(source).toContain("!savedFilterThreads.has(inboxThreadKey(email))");
+  });
+
+  it("keeps saved-filter threads out of a plain inbox route", () => {
+    const source = inboxSource();
+
+    expect(source).toContain(
+      'if (view === "inbox" && !searchQuery && savedFilterQueries.length > 0)',
+    );
+    expect(source).toContain(
+      "const savedFilterThreads = savedFilterThreadIds(",
+    );
+    expect(source).toContain(
+      "return filtered.filter((e) => !savedFilterThreads.has(inboxThreadKey(e)))",
+    );
+  });
+
+  it("keeps ordinary pinned labels mailbox-wide in agent snapshots", () => {
+    const source = viewScreenSource();
+
+    expect(source).toContain("isInboxScopedAppLabel(label)");
+  });
+
+  it("filters full Gmail threads before collapsing the agent snapshot", () => {
+    const source = viewScreenSource();
+
+    expect(source).toContain(
+      "const preparedMessages = messages.map((m: any) =>",
+    );
+    expect(source).toContain(
+      "latestPerThread(applyActiveInboxTab(preparedMessages))",
+    );
+    expect(source).toContain(
+      'threadFormat: needsSavedFilterParts ? "full" : "metadata"',
+    );
+  });
+
+  it("hydrates Gmail parts for the inbox saved-filter partition", () => {
+    const source = emailsHandlerSource();
+
+    expect(source).toContain(
+      'const isPlainInboxRequest = view === "inbox" && !q && !label;',
+    );
+    expect(source).toContain(
+      "searchQueryNeedsAttachmentMetadata(filter.query)",
+    );
+    expect(source).toContain("threadFormat:");
+  });
+
+  it("disambiguates custom labels that share a system label name", () => {
+    const source = inboxSource();
+
+    expect(source).toContain('activeLabelRecord?.type !== "user"');
+    expect(source).toContain("const labels = labelsData ?? EMPTY_LABELS;");
+    expect(source).toContain("const activeLabelIsInboxScoped =");
   });
 });
 
