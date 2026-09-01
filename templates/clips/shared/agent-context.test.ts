@@ -55,7 +55,11 @@ describe("agent clip context helpers", () => {
       "For browser-independent access from any HTTP client",
     );
     expect(payload.webmcp.instructions).toContain(
-      "its page tools provide the same capabilities",
+      "For a complete transcript, use the HTTP apis.transcript URL",
+    );
+    expect(payload.webmcp.instructions).toContain("bounded read-only access");
+    expect(payload.webmcp.instructions).toContain(
+      "its sourceUrl points to the HTTP transcript",
     );
   });
 

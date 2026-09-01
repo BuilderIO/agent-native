@@ -259,14 +259,17 @@ WebMCP-capable browser, the page also registers these read-only tools:
 | WebMCP tool | Purpose |
 | --- | --- |
 | `clips-get-context` | Clip metadata, readiness, transcript status, and HTTP API URLs |
-| `clips-get-transcript` | Timestamped transcript segments, with optional time bounds and stable-index pagination |
+| `clips-get-transcript` | Bounded timestamped segments, with optional time bounds and stable-index pagination; may omit fullText |
 | `clips-get-frame` | An existing authenticated JPEG frame URL for `atMs` |
 
-For any client, fetch the agent context URL and use its HTTP API URLs. If the
-page is already open in a WebMCP-capable browser, list its current page tools
-and use either equivalent path. The transcript tool returns `nextStartIndex`
-when another page exists; pass that value back as `startIndex` so overlapping
-transcript segments are not skipped.
+For any client, fetch the agent context URL and use its HTTP API URLs. For
+complete transcript text, use `apis.transcript`. If the page is already open
+in a WebMCP-capable browser, list its current page tools and use them for
+bounded inspection; `clips-get-transcript` may omit `fullText` or return a
+truncated result, so follow its `sourceUrl` for the complete HTTP transcript.
+The transcript tool returns `nextStartIndex` when another page exists; pass
+that value back as `startIndex` so overlapping transcript segments are not
+skipped.
 The URL endpoint accepts the same `startIndex`, `maxSegments`, `startMs`, and
 `endMs` parameters, and keeps `nextStartMs` for older clients. The frame tool
 returns an image URL and `mimeType: image/jpeg`; fetch that URL as an image

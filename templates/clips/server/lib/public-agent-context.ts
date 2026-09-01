@@ -601,7 +601,7 @@ export function buildPublicAgentContext({
       : []),
     ...(clipIsReady
       ? [
-          "Use the HTTP URLs in apis for browser-independent access. If this clip page is already open in a WebMCP-capable browser, its read-only page tools provide an equivalent path; list them when available.",
+          "Use the HTTP URLs in apis for browser-independent access. For complete transcript text, use apis.transcript. If this clip page is already open in a WebMCP-capable browser, list its read-only page tools for bounded access; WebMCP transcript results may omit fullText or be truncated, so follow sourceUrl for the complete transcript.",
         ]
       : []),
     ...transcriptStatusInstructions(transcript),

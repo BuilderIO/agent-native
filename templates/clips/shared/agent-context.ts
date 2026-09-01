@@ -81,7 +81,7 @@ export const CLIPS_WEBMCP_TOOL_DEFINITIONS = [
     name: CLIPS_WEBMCP_TOOL_NAMES.transcript,
     title: "Get clip transcript",
     description:
-      "Read timestamped transcript segments. Use nextStartIndex to page through long transcripts without losing overlapping segments.",
+      "Read bounded timestamped transcript segments. Use nextStartIndex to page through long transcripts without losing overlapping segments. For complete transcript text, follow sourceUrl to the HTTP transcript endpoint.",
     inputSchema: CLIPS_WEBMCP_INPUT_SCHEMAS.transcript,
     annotations: { readOnlyHint: true, untrustedContentHint: true },
   },
@@ -101,7 +101,7 @@ export const CLIPS_WEBMCP_DISCOVERY = {
   scope: "page-local",
   tools: CLIPS_WEBMCP_TOOL_DEFINITIONS,
   instructions:
-    "For browser-independent access from any HTTP client, fetch agentContextUrl and use its apis.context, apis.transcript, and apis.frame URLs. If this clip page is already open in a WebMCP-capable browser, its page tools provide the same capabilities; list them when available. Use nextStartIndex for transcript pagination so overlapping segments are not lost.",
+    "For browser-independent access from any HTTP client, fetch agentContextUrl and use its apis.context, apis.transcript, and apis.frame URLs. For a complete transcript, use the HTTP apis.transcript URL. If this clip page is already open in a WebMCP-capable browser, list its page tools for bounded read-only access; clips-get-transcript may omit fullText or return a truncated result, and its sourceUrl points to the HTTP transcript. Use nextStartIndex for transcript pagination so overlapping segments are not lost.",
 };
 
 export type AgentClipReadiness = {
@@ -161,7 +161,7 @@ export function buildAgentDiscoveryPayload({
     webmcp: CLIPS_WEBMCP_DISCOVERY,
     instructions:
       readiness.instruction ??
-      "Fetch agentContextUrl for the transcript and JPEG frame URLs; this works without a browser. If the page is already open in a WebMCP-capable browser, its page tools provide equivalent access; list them when available. Use nextStartIndex when paging transcript segments so overlapping segments are not lost. Fetch the frame URLs to SEE the screen, not just read the transcript.",
+      "Fetch agentContextUrl for the transcript and JPEG frame URLs; this works without a browser. Use apis.transcript for the complete transcript. If the page is already open in a WebMCP-capable browser, its page tools provide bounded read-only access; clips-get-transcript may omit fullText or return a truncated result, so follow its sourceUrl for the complete transcript. Use nextStartIndex when paging transcript segments so overlapping segments are not lost. Fetch the frame URLs to SEE the screen, not just read the transcript.",
   };
 }
 

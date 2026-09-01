@@ -94,7 +94,7 @@ describe("/api/agent-transcript route", () => {
     expect(result).toMatchObject({
       instructions: expect.arrayContaining([
         expect.stringContaining(
-          "Use this HTTP transcript endpoint directly; it works without a browser.",
+          "Use this HTTP transcript endpoint directly; it works without a browser and is the complete transcript path.",
         ),
       ]),
     });

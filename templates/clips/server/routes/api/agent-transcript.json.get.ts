@@ -218,7 +218,7 @@ export default defineEventHandler(async (event: H3Event) => {
           }),
     },
     instructions: [
-      "Use this HTTP transcript endpoint directly; it works without a browser. If this clip page is already open in a WebMCP-capable browser, its page tools provide an equivalent path; list them when available.",
+      "Use this HTTP transcript endpoint directly; it works without a browser and is the complete transcript path. If this clip page is already open in a WebMCP-capable browser, its page-local tools provide bounded access only; a WebMCP transcript result may omit fullText or be truncated, so follow sourceUrl for the complete transcript.",
       ...(agentReadiness.instruction ? [agentReadiness.instruction] : []),
       ...transcriptStatusInstructions(transcript),
     ],
