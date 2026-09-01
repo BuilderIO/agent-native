@@ -51,17 +51,20 @@ upvoted improvement is durable work even when it has no reply; keep it in the
 worklist until it has a terminal disposition.
 
 For each hit, read its full thread and identify the latest disposition from
-this workflow or its companion. Keep only an unanswered **Clarification
-needed** question in the pending-question set. **Fixed**, **Shipped**, **In
-progress**, and **Open - no reply** are not pending questions. Then:
+this workflow or its companion. Keep every unanswered **Clarification needed**
+question in the pending-question set, regardless of age. **Fixed**, **Shipped**,
+and **In progress** are not pending questions. Treat **Open - no reply** as
+terminal only for an eye-only item with no outstanding clarification; it never
+replaces an unanswered clarification question.
 
 Do not apply either age branch below to a terminal disposition. The age branches
 apply only when the latest status is an unanswered **Clarification needed**
 question.
 
 Only an unanswered **Clarification needed** thread may enter either age branch.
-Never add a thread whose latest reply is **Fixed**, **Shipped**, **In progress**,
-or **Open - no reply** to the pending-question set.
+Never add a thread whose latest reply is **Fixed**, **Shipped**, or **In progress**
+to the pending-question set. If an older thread was recorded **Open - no
+reply** despite an unanswered clarification, restore it to the pending set.
 
 - **Someone answered** → that is now the highest-priority item in the run.
   Rebuild the evidence and attempt the fix. Use a **Fixed** reply only after
@@ -72,8 +75,9 @@ or **Open - no reply** to the pending-question set.
   message is a nag, not a follow-up.
 - **No answer, posted over 4 days ago** → keep it in the open-question set.
   Do not remind, re-ask, or add a reaction. Recheck it through the unbounded
-  clarification search below and record `open - no reply` until it is answered
-  or explicitly resolved.
+  clarification search below and leave it as **Clarification needed** until it
+  is answered or explicitly resolved. `Open - no reply` is reserved for work
+  that has no outstanding clarification question.
 
 `after:<TODAY-5>` bounds the new-message scan only. It is not a retention
 policy for open questions. Before scanning newer messages, run a second search

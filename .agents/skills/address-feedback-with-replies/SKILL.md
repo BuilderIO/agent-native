@@ -179,6 +179,15 @@ for one specific, non-repeating detail that still blocks a clear-bug fix; never
 ask for a subjective product choice or evidence already present. For an
 inaccessible artifact, request access or a replacement link.
 
+### The standalone question budget
+
+This workflow inherits the hard cap from `review-latest-feedback`: at most
+three new clarification questions per invocation across all threads. When run
+alone, rank candidates by whether the answer would unblock a safe fix, handle
+existing clarification requests first, and leave candidates below the cut
+open without asking. Never turn the per-item question rule into an unbounded
+batch.
+
 There may be only one unanswered clarification request per thread. Before
 posting, re-read the complete thread for an earlier question from this
 workflow, the companion `review-latest-feedback` workflow, or `@agent-native`,
