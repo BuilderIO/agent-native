@@ -48,7 +48,7 @@ describe("AuthPage", () => {
     expect(html).toContain('class="marketing-panel"');
     expect(html).toContain('class="form-panel');
     expect(html).toMatch(
-      /class="form-panel[^\"]*">\s*<a[^>]+class="auth-marketing-learn-more"/,
+      /class="auth-marketing-top-right">\s*<a[^>]+class="auth-marketing-learn-more"/,
     );
   });
 

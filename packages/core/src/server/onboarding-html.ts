@@ -1309,13 +1309,14 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     margin: 0 auto;
   }
   .auth-marketing-learn-more {
-    align-self: flex-end;
-    margin-bottom: 1rem;
+    display: block;
     color: hsl(var(--foreground, 0 0% 90%));
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 0.875rem;
-    line-height: 1.5;
+    font-size: 1.5rem;
+    font-weight: 500;
+    line-height: 1;
     text-decoration: none;
+    white-space: nowrap;
   }
   .auth-marketing-learn-more:hover { color: hsl(var(--foreground, 0 0% 90%)); }
   .auth-marketing-learn-more-link { color: hsl(var(--primary, 195 100% 50%)); }
@@ -1436,11 +1437,20 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   .form-panel .card { max-width: 400px; }
   .form-panel .local-note { max-width: 400px; }
   @media (max-width: 900px) {
+    .auth-marketing-shell-with-top-right {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      min-height: auto;
+    }
+    .auth-marketing-top-right {
+      display: flex;
+      justify-content: flex-start;
+      flex: none;
+      padding: 1rem 1rem 0;
+    }
     .auth-marketing-learn-more {
-      align-self: flex-start;
-      margin-bottom: 1rem;
       font-size: 0.75rem;
-      text-align: start;
     }
     .split { flex-direction: column; min-height: auto; }
     .marketing-panel { padding: 4.25rem 1.5rem 1.5rem; }
@@ -2146,13 +2156,44 @@ ${embeddedAuthCss}
   .auth-root { width: 100%; }
   .auth-marketing-home { width: 100%; padding: 0; position: relative; overflow-x: hidden; }
   .auth-marketing-shell { padding: 0; }
+  .auth-marketing-home .auth-marketing-shell-with-top-right {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .auth-marketing-top-right {
+    display: flex;
+    justify-content: flex-end;
+    flex: none;
+    padding: 4rem clamp(2rem, 5.5vw, 6.625rem) 0;
+  }
+  .auth-marketing-home .auth-marketing-layout {
+    flex: 1;
+    min-height: 0;
+  }
   .auth-marketing-home .split { width: 100%; max-width: none; margin: 0; }
   .auth-marketing-home .marketing-panel { min-width: 0; }
-  .auth-marketing-home.has-product-screenshot .marketing-panel { padding-inline: 0 3.5rem; }
+  .auth-marketing-home.has-product-screenshot .marketing-panel {
+    padding-block: 0;
+    padding-inline: 0 3.5rem;
+  }
+  .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot-wrap,
+  .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot {
+    max-height: calc(100vh - 5.5rem);
+  }
   .auth-marketing-home .form-panel { min-width: 0; }
   .auth-marketing-home [data-agent-native-starfield] { position: fixed; inset: 0; width: 100%; height: 100%; }
   @media (max-width: 900px) {
+    body.has-marketing {
+      align-items: flex-start;
+      justify-content: flex-start;
+    }
+    .auth-marketing-home .auth-marketing-top-right {
+      padding: 1rem 3.5rem 0 1rem;
+    }
+    .auth-marketing-home .auth-marketing-layout { flex: none; min-height: auto; }
     .auth-marketing-home .auth-marketing-shell { display: block; }
+    .auth-marketing-home .auth-marketing-shell-with-top-right { display: flex; }
     .auth-marketing-home.has-product-screenshot .marketing-panel { display: none; }
   }
 `;
