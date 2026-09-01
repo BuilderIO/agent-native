@@ -576,7 +576,7 @@ const frFR = {
     communitySubmissionName: "Nom de l’application",
     communitySubmissionNamePlaceholder: "Centre de support client",
     communitySubmissionUrl: "URL de l’application",
-    communitySubmissionUrlPlaceholder: "example.com ou https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "Description",
     communitySubmissionDescriptionPlaceholder:
       "Que fait l’application et à qui s’adresse-t-elle ?",
@@ -593,8 +593,17 @@ const frFR = {
     communitySubmissionSubmit: "Envoyer l’application",
     communitySubmissionReady:
       "Merci. Nous examinerons votre application avant de la publier.",
-    communitySubmissionValidation:
-      "Ajoutez un nom et une description, puis saisissez un lien d’application comme example.com. Nous ajouterons https:// pour vous. Si vous ajoutez un dépôt, utilisez un lien github.com. Importez des images PNG, JPG ou WebP de 1,5 Mo maximum chacune.",
+    communitySubmissionNameError: "Saisissez un nom d’application.",
+    communitySubmissionDescriptionError: "Ajoutez une courte description.",
+    communitySubmissionUrlError:
+      "Saisissez un lien d’application valide, par exemple example.com.",
+    communitySubmissionRepositoryError:
+      "Saisissez un lien vers un dépôt GitHub.",
+    communitySubmissionScreenshotsError:
+      "Utilisez des images PNG, JPG ou WebP de 1,5 Mo maximum chacune, avec 5 images au maximum.",
+    communitySubmissionSubmitError:
+      "Impossible d’envoyer le formulaire pour le moment. Vérifiez les champs signalés, puis réessayez.",
+    communitySubmissionSubmitting: "Envoi…",
   },
   buildFromScratch: {
     title: "Créer de zéro",

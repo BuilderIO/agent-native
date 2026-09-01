@@ -52,7 +52,7 @@ describe("community apps", () => {
     }
   });
 
-  it("uses a native multipart form for screenshot uploads", () => {
+  it("uses the Forms upload flow for screenshot uploads", () => {
     const form = fs.readFileSync(
       path.join(
         repoRoot,
@@ -64,17 +64,15 @@ describe("community apps", () => {
       ),
       "utf-8",
     );
-    expect(form).toContain('encType="multipart/form-data"');
-    expect(form).toContain('data-netlify="true"');
-    expect(form).toContain('name="form-name"');
+    expect(form).toContain("uploadCommunityScreenshot");
+    expect(form).toContain("submitCommunityApp");
     expect(form).toContain("multiple");
     expect(form).toContain("onDrop={handleDrop}");
     expect(form).toContain("removeScreenshot");
-    expect(form).toContain("typeof DataTransfer");
-    expect(form).toContain("ClipboardEvent");
-    expect(form).toContain("new DataTransfer()");
-    expect(form).toContain("name={field}");
-    expect(form).toContain('"screenshot_5"');
+    expect(form).toContain('accept="image/jpeg,image/png,image/webp"');
+    expect(form).not.toContain("data-netlify");
+    expect(form).not.toContain("form-name");
+    expect(form).not.toContain("https for you");
     expect(form).not.toContain("Screenshot URLs");
   });
 
@@ -90,7 +88,7 @@ describe("community apps", () => {
     expect(isGitHubRepositoryUrl("github.com/owner")).toBe(false);
   });
 
-  it("keeps a static Netlify form declaration in the server-rendered route", () => {
+  it("does not declare a Netlify submission form in the route", () => {
     const route = fs.readFileSync(
       path.join(
         repoRoot,
@@ -102,6 +100,7 @@ describe("community apps", () => {
       ),
       "utf-8",
     );
-    expect(route).toContain("CommunityAppSubmissionNetlifyDetectionForm");
+    expect(route).not.toContain("Netlify");
+    expect(route).not.toContain("data-netlify");
   });
 });
