@@ -41,9 +41,13 @@ import {
   assertCanDeleteAsset,
   assertCanDraft,
   assertCanDraftAuthoredBy,
+  assertCanUseAssets,
+  assertCanUseRuns,
   canReadDraftAsset,
   canReadRun,
+  draftReadFilter,
   resolveDraftReadScope,
+  unrestrictedDraftReadScope,
 } from "./library-access.js";
 
 function grantRole(role: string) {
@@ -197,6 +201,77 @@ describe("library-access", () => {
         generationRunId: "run-theirs",
       }),
     ).toBe(true);
+  });
+
+  it("refuses another drafter's candidate as a generation or session input", async () => {
+    grantRole("viewer");
+    dbWithRuns([
+      { id: "run-mine", ownerEmail: "viewer@example.test" },
+      { id: "run-theirs", ownerEmail: "someone@example.test" },
+    ]);
+    const scope = await resolveDraftReadScope(["lib-1"]);
+    const draft = (id: string, generationRunId: string) => ({
+      id,
+      libraryId: "lib-1",
+      role: "generated",
+      status: "candidate",
+      generationRunId,
+    });
+
+    // The read boundary and the input boundary must agree, or the private
+    // candidate rule holds on lists and leaks through every id argument.
+    expect(() =>
+      assertCanUseAssets(
+        scope,
+        "lib-1",
+        "viewer",
+        [draft("asset-mine", "run-mine")],
+        "This generation",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertCanUseAssets(
+        scope,
+        "lib-1",
+        "viewer",
+        [draft("asset-theirs", "run-theirs")],
+        "This generation",
+      ),
+    ).toThrow(/Requires editor role .* draft asset-theirs/s);
+    expect(() =>
+      assertCanUseRuns(
+        scope,
+        "lib-1",
+        "viewer",
+        [{ id: "run-theirs", libraryId: "lib-1" }],
+        "A generation session",
+      ),
+    ).toThrow(/generation run run-theirs/);
+  });
+
+  it("narrows drafts in SQL so paging cannot hide the caller's own", async () => {
+    grantRole("viewer");
+    dbWithRuns([{ id: "run-mine", ownerEmail: "viewer@example.test" }]);
+    const scope = await resolveDraftReadScope(["lib-1"]);
+
+    const table = {
+      libraryId: "image_assets.library_id",
+      generationRunId: "image_assets.generation_run_id",
+    } as never;
+    // A clause, not a post-filter: `limit` must apply to authorized rows only.
+    expect(draftReadFilter(scope, table)).toBeDefined();
+    expect(
+      draftReadFilter(unrestrictedDraftReadScope(), table),
+    ).toBeUndefined();
+
+    // No approvable kit and no runs of their own must mean "no rows", never an
+    // unfiltered read.
+    const emptyScope = {
+      unrestricted: false,
+      approvableLibraryIds: new Set<string>(),
+      ownRunIds: new Set<string>(),
+    };
+    expect(draftReadFilter(emptyScope, table)).toBeDefined();
   });
 
   it("lets a draft author discard their own unsaved candidate only", async () => {

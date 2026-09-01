@@ -13,7 +13,11 @@ import {
   selectReferences,
 } from "../server/lib/generation.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
-import { assertCanDraft } from "../server/lib/library-access.js";
+import {
+  assertCanDraft,
+  assertCanUseAssets,
+  draftScopeForLibrary,
+} from "../server/lib/library-access.js";
 import { getObject } from "../server/lib/storage.js";
 import {
   compileVideoPrompt,
@@ -83,6 +87,9 @@ export default defineAction({
       libraryId,
     };
     const draftAccess = await assertCanDraft(args.libraryId);
+    // Inputs answer to the same author rule as reads: another drafter's
+    // candidate must not reach the provider as a source or a reference.
+    const draftScope = await draftScopeForLibrary(args.libraryId, draftAccess);
     const db = getDb();
     const [library] = await db
       .select()
@@ -124,6 +131,13 @@ export default defineAction({
       if (!sourceAsset.mimeType.startsWith("image/")) {
         throw new Error("sourceAssetId must refer to an image asset.");
       }
+      assertCanUseAssets(
+        draftScope,
+        args.libraryId,
+        draftAccess.role,
+        [sourceAsset],
+        "This video generation",
+      );
       sourceImage = {
         id: sourceAsset.id,
         mimeType: sourceAsset.mimeType,
@@ -139,6 +153,7 @@ export default defineAction({
     const references = sourceImage
       ? []
       : await selectReferences({
+          draftScope,
           libraryId: args.libraryId,
           collectionId: args.collectionId,
           categories: [args.category],

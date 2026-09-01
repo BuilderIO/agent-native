@@ -71,6 +71,16 @@ made:
   Content fetched by explicit id (`/api/assets/:id/content`, `get-asset`) stays
   gated on kit read access only, because cross-app embeds of a fresh candidate
   depend on it.
+- Draft *inputs* answer to the read rule too. `assertCanUseAssets` /
+  `assertCanUseRuns` guard every path that takes an asset or run id —
+  generation references, lineage source, subject, video source, and session
+  attachments — because a scope that holds on list surfaces but not on id
+  arguments is not a boundary. `selectReferences` takes a required `draftScope`
+  so a new generation path cannot forget it: the automatic pool scores every
+  asset in the kit, candidates included.
+- Paging happens after the filter, not before. `draftReadFilter` turns the scope
+  into a WHERE clause for `list-draft-assets`; filtering post-`limit` silently
+  drops the caller's own older drafts behind other people's newer ones.
 - `dismiss-variant-slots` re-reads every asset behind the slots it clears.
   Variant state is client-writable, so a slot id is never permission to delete:
   anything outside the state's kit, already saved, or authored by someone else

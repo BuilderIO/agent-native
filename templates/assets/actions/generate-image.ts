@@ -40,7 +40,11 @@ import {
   prepareGptImage2SkeletonInpaintImages,
 } from "../server/lib/image-processing.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
-import { assertCanDraft } from "../server/lib/library-access.js";
+import {
+  assertCanDraft,
+  assertCanUseAssets,
+  draftScopeForLibrary,
+} from "../server/lib/library-access.js";
 import {
   normalizePresetReferences,
   PRESET_REFERENCE_ROLE_MAP,
@@ -258,6 +262,9 @@ export default defineAction({
       libraryId,
     };
     const draftAccess = await assertCanDraft(args.libraryId);
+    // Inputs answer to the same author rule as reads: another drafter's
+    // candidate must not reach the provider as a reference or a source.
+    const draftScope = await draftScopeForLibrary(args.libraryId, draftAccess);
     const db = getDb();
     const [library] = await db
       .select()
@@ -279,6 +286,9 @@ export default defineAction({
           .select({
             id: schema.assets.id,
             libraryId: schema.assets.libraryId,
+            role: schema.assets.role,
+            status: schema.assets.status,
+            generationRunId: schema.assets.generationRunId,
           })
           .from(schema.assets)
           .where(eq(schema.assets.id, lineageAssetId))
@@ -289,6 +299,15 @@ export default defineAction({
       (!lineageAsset || lineageAsset.libraryId !== args.libraryId)
     ) {
       throw new Error("Source asset must belong to this asset library.");
+    }
+    if (lineageAsset) {
+      assertCanUseAssets(
+        draftScope,
+        args.libraryId,
+        draftAccess.role,
+        [lineageAsset],
+        "This generation",
+      );
     }
     const sessionCreativeContext =
       session && !contextOff
@@ -495,6 +514,9 @@ export default defineAction({
           id: schema.assets.id,
           libraryId: schema.assets.libraryId,
           mimeType: schema.assets.mimeType,
+          role: schema.assets.role,
+          status: schema.assets.status,
+          generationRunId: schema.assets.generationRunId,
         })
         .from(schema.assets)
         .where(eq(schema.assets.id, args.subjectAssetId))
@@ -505,6 +527,13 @@ export default defineAction({
       if (!subject.mimeType.startsWith("image/")) {
         throw new Error("Subject asset must be an image.");
       }
+      assertCanUseAssets(
+        draftScope,
+        args.libraryId,
+        draftAccess.role,
+        [subject],
+        "This generation",
+      );
     }
     const styleBrief = {
       ...parseJson<StyleBrief>(library.styleBrief, {}),
@@ -680,6 +709,7 @@ export default defineAction({
       const guidanceReferences =
         baseReferenceLimit > 0 || args.referenceAssetIds?.length
           ? await selectReferences({
+              draftScope,
               libraryId: args.libraryId,
               collectionId: resolvedCollectionId,
               categories: resolvedCategories,
@@ -711,6 +741,7 @@ export default defineAction({
       const autoReferences =
         referenceLimit > 0 || args.referenceAssetIds?.length
           ? await selectReferences({
+              draftScope,
               libraryId: args.libraryId,
               collectionId: resolvedCollectionId,
               categories: resolvedCategories,

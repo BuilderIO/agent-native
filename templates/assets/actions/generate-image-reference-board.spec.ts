@@ -34,11 +34,27 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
   resolveAccess: vi.fn(async () => ({ role: "owner" })),
 }));
+const unrestrictedScope = vi.hoisted(() => ({
+  unrestricted: true,
+  approvableLibraryIds: new Set<string>(),
+  ownRunIds: new Set<string>(),
+}));
+
 vi.mock("../server/lib/library-access.js", () => ({
   assertCanDraft: libraryAccessMock,
   assertCanApprove: libraryAccessMock,
   assertCanDraftAuthoredBy: libraryAccessMock,
   assertCanDeleteAsset: libraryAccessMock,
+  // The draft-input guards have their own tests; these specs exercise the
+  // surrounding behavior with an approver's unrestricted scope.
+  draftScopeForLibrary: vi.fn(async () => unrestrictedScope),
+  resolveDraftReadScope: vi.fn(async () => unrestrictedScope),
+  unrestrictedDraftReadScope: vi.fn(() => unrestrictedScope),
+  assertCanUseAssets: vi.fn(),
+  assertCanUseRuns: vi.fn(),
+  canReadDraftAsset: vi.fn(() => true),
+  canReadRun: vi.fn(() => true),
+  draftReadFilter: vi.fn(() => undefined),
 }));
 
 vi.mock("@agent-native/creative-context/server", () => ({
