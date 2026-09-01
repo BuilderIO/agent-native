@@ -32,24 +32,35 @@ async function getChildProcess(): Promise<typeof import("child_process")> {
   return _cp;
 }
 
+export function resolvePtySpawnHelper(ptyPackagePath: string): string {
+  const helper = path.join(
+    path.dirname(ptyPackagePath),
+    "prebuilds",
+    `${process.platform}-${process.arch}`,
+    "spawn-helper",
+  );
+  return helper
+    .replace("app.asar", "app.asar.unpacked")
+    .replace("node_modules.asar", "node_modules.asar.unpacked");
+}
+
+export function ensurePtySpawnHelperExecutable(helper: string): void {
+  if (!fs.existsSync(helper)) return;
+  if (!(fs.statSync(helper).mode & 0o100)) {
+    fs.chmodSync(helper, 0o755);
+    console.log(
+      `[terminal] Fixed non-executable node-pty spawn-helper at ${helper}`,
+    );
+  }
+}
+
 export function ensurePtySpawnHelperPermissions(): void {
   if (os.platform() === "win32") return;
   try {
     const req = createRequire(import.meta.url);
     const ptyPkg = req.resolve("node-pty/package.json");
-    const helper = path.join(
-      path.dirname(ptyPkg),
-      "prebuilds",
-      `${process.platform}-${process.arch}`,
-      "spawn-helper",
-    );
-    if (!fs.existsSync(helper)) return;
-    if (!(fs.statSync(helper).mode & 0o100)) {
-      fs.chmodSync(helper, 0o755);
-      console.log(
-        `[terminal] Fixed non-executable node-pty spawn-helper at ${helper}`,
-      );
-    }
+    const helper = resolvePtySpawnHelper(ptyPkg);
+    ensurePtySpawnHelperExecutable(helper);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code;
     if (code === "MODULE_NOT_FOUND" || code === "ERR_MODULE_NOT_FOUND") return;
@@ -60,15 +71,47 @@ export function ensurePtySpawnHelperPermissions(): void {
   }
 }
 
+function resolveTerminalShell(): string {
+  if (os.platform() === "win32") {
+    // config-ok: COMSPEC is an inherited host shell fact, not application configuration.
+    return process.env["COMSPEC"] || "cmd.exe";
+  }
+
+  // config-ok: SHELL is the user's inherited host shell, not application configuration.
+  const configuredShell = process.env.SHELL;
+  if (configuredShell && path.isAbsolute(configuredShell)) {
+    try {
+      if (fs.statSync(configuredShell).isFile()) return configuredShell;
+    } catch {
+      // coercion-ok: an invalid SHELL falls through to known system shells.
+    }
+  }
+
+  return (
+    ["/bin/zsh", "/bin/bash", "/bin/sh"].find((candidate) =>
+      fs.existsSync(candidate),
+    ) ?? "/bin/sh"
+  );
+}
+
 /**
  * Kill a process and all its descendants.
  * node-pty's kill() only sends a signal to the shell, but child processes
  * (like `builder`) may be in their own process group and survive as orphans.
  */
-async function killProcessTree(pid: number, _logPrefix: string): Promise<void> {
+async function killProcessTree(
+  pid: number,
+  _logPrefix: string,
+  killParent?: () => void,
+  isParentExited: () => boolean = () => false,
+): Promise<void> {
   const cp = await getChildProcess();
 
   if (os.platform() === "win32") {
+    if (isParentExited()) {
+      killParent?.();
+      return;
+    }
     try {
       cp.execSync(`taskkill /pid ${pid} /T /F`, { stdio: "ignore" });
     } catch {}
@@ -108,8 +151,11 @@ async function killProcessTree(pid: number, _logPrefix: string): Promise<void> {
   }
 
   try {
-    process.kill(pid, "SIGTERM");
-  } catch {}
+    if (killParent) killParent();
+    else process.kill(pid, "SIGTERM");
+  } catch {
+    // coercion-ok: the process may exit between enumeration and termination.
+  }
 
   // Force-kill any survivors after a short delay
   setTimeout(() => {
@@ -118,9 +164,13 @@ async function killProcessTree(pid: number, _logPrefix: string): Promise<void> {
         process.kill(childPid, "SIGKILL");
       } catch {}
     }
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch {}
+    if (!isParentExited()) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // coercion-ok: the process may exit before the delayed cleanup signal.
+      }
+    }
   }, 500);
 }
 
@@ -167,8 +217,7 @@ export async function createPtyWebSocketServer(
   const pty = await import("node-pty");
 
   const resolvedAppDir = path.resolve(appDir);
-  const shell =
-    os.platform() === "win32" ? "cmd.exe" : process.env.SHELL || "/bin/zsh";
+  const shell = resolveTerminalShell();
 
   const server = createHttpServer((req, res) => {
     // CORS headers
@@ -187,9 +236,15 @@ export async function createPtyWebSocketServer(
   });
 
   const wss = new WebSocketServer({ noServer: true });
+  let closed = false;
 
   // Handle WebSocket upgrades with optional auth
   server.on("upgrade", async (req, socket, head) => {
+    if (closed) {
+      socket.destroy();
+      return;
+    }
+
     const url = new URL(req.url || "/", `http://${req.headers.host}`);
     if (url.pathname !== "/ws") {
       socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
@@ -200,27 +255,49 @@ export async function createPtyWebSocketServer(
     if (authCheck) {
       try {
         const allowed = await authCheck(req);
+        if (closed || socket.destroyed) {
+          socket.destroy();
+          return;
+        }
         if (!allowed) {
           socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
           socket.destroy();
           return;
         }
       } catch {
+        if (closed || socket.destroyed) {
+          socket.destroy();
+          return;
+        }
         socket.write("HTTP/1.1 500 Internal Server Error\r\n\r\n");
         socket.destroy();
         return;
       }
     }
 
+    if (closed) {
+      socket.destroy();
+      return;
+    }
+
     wss.handleUpgrade(req, socket, head, (ws) => {
+      if (closed) {
+        ws.close();
+        return;
+      }
       wss.emit("connection", ws, req);
     });
   });
 
-  // Track active PTY processes for cleanup
-  const activePtys = new Set<ReturnType<typeof pty.spawn>>();
+  // Track idempotent disposers so server shutdown covers every live socket.
+  const activeDisposers = new Set<() => void>();
 
   wss.on("connection", async (ws: InstanceType<typeof WebSocket>, req) => {
+    if (closed) {
+      ws.close();
+      return;
+    }
+
     const url = new URL(req.url || "", `http://${req.headers.host}`);
     const command = url.searchParams.get("command") || defaultCommand;
     const extraFlags = url.searchParams.get("flags") || "";
@@ -251,7 +328,13 @@ export async function createPtyWebSocketServer(
 
     // Check if CLI is installed; if not, use npx to run it
     let useNpx = false;
-    if (!(await commandExists(command))) {
+    const commandInstalled = await commandExists(command);
+    if (closed) {
+      ws.close();
+      return;
+    }
+
+    if (!commandInstalled) {
       const registry = CLI_REGISTRY[command];
       if (registry?.installPackage) {
         console.log(`${logPrefix} ${command} CLI not found, will use npx`);
@@ -270,6 +353,10 @@ export async function createPtyWebSocketServer(
     try {
       if (getCommandArgs) commandArgs = await getCommandArgs(command);
     } catch (error) {
+      if (closed) {
+        ws.close();
+        return;
+      }
       sendStatus(
         "failed",
         error instanceof Error
@@ -277,6 +364,11 @@ export async function createPtyWebSocketServer(
           : "The terminal command could not be configured.",
       );
       if (ws.readyState === WebSocket.OPEN) ws.close();
+      return;
+    }
+
+    if (closed) {
+      ws.close();
       return;
     }
 
@@ -321,7 +413,30 @@ export async function createPtyWebSocketServer(
       return;
     }
 
-    activePtys.add(ptyProcess);
+    let disposed = false;
+    let parentExited = false;
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
+      activeDisposers.delete(dispose);
+      const killPty = () => {
+        try {
+          ptyProcess.kill();
+        } catch (err) {
+          console.warn(`${logPrefix} PTY cleanup failed:`, err);
+        }
+      };
+      void killProcessTree(
+        ptyProcess.pid,
+        logPrefix,
+        killPty,
+        () => parentExited,
+      ).catch((err) => {
+        console.warn(`${logPrefix} PTY tree cleanup failed:`, err);
+        killPty();
+      });
+    };
+    activeDisposers.add(dispose);
     console.log(`${logPrefix} PTY spawned (pid: ${ptyProcess.pid})`);
 
     ptyProcess.onData((data: string) => {
@@ -332,7 +447,8 @@ export async function createPtyWebSocketServer(
 
     ptyProcess.onExit(({ exitCode }) => {
       console.log(`${logPrefix} PTY exited with code ${exitCode}`);
-      activePtys.delete(ptyProcess);
+      parentExited = true;
+      dispose();
       if (exitCode === 127 && ws.readyState === WebSocket.OPEN) {
         ws.send(
           JSON.stringify({
@@ -406,8 +522,7 @@ export async function createPtyWebSocketServer(
       console.log(
         `${logPrefix} WebSocket closed, killing PTY tree (pid: ${ptyProcess.pid})`,
       );
-      activePtys.delete(ptyProcess);
-      void killProcessTree(ptyProcess.pid, logPrefix);
+      dispose();
     });
   });
 
@@ -427,10 +542,9 @@ export async function createPtyWebSocketServer(
         server,
         port: actualPort,
         close: () => {
-          for (const p of activePtys) {
-            void killProcessTree(p.pid, logPrefix);
-          }
-          activePtys.clear();
+          if (closed) return;
+          closed = true;
+          for (const dispose of [...activeDisposers]) dispose();
           wss.close();
           server.close();
         },

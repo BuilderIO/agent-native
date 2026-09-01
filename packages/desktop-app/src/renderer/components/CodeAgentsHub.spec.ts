@@ -539,19 +539,22 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain("!showTerminalSurface");
     expect(hubSource).toContain("hasChatFirstActiveChat");
     expect(hubSource).toContain("!chatFirstAppSelected");
+    expect(hubSource).toContain("const openChatFirstNewChat = useCallback(");
+    expect(hubSource).toContain("setHasChatFirstActiveChat(false)");
+    expect(hubSource).toContain("onNewChat: openChatFirstNewChat");
     expect(hubSource).toContain("chatFirstSurfacePanel.toggle");
     expect(hubSource).toContain("sidebarOpen={chatFirstSurfacePanel.open}");
     expect(hubSource).toContain(
       "onToggleSidebar={chatFirstSurfacePanel.toggle}",
     );
     expect(hubSource).toContain(
-      "{chatFirstSurfacePanel.open &&\n        (hasChatFirstActiveChat ||",
+      "{chatFirstSurfacePanel.open && canRenderChatFirstSurfacePanel ? (",
     );
     expect(hubSource).toContain(
-      '!hasChatFirstActiveChat &&\n      !(\n        activeChatFirstSurfaceTab?.kind === "app" &&\n        activeChatFirstSurfaceTab.placement === "side"',
+      'const canRenderChatFirstSurfacePanel =\n    hasChatFirstActiveChat &&\n    !chatFirstAllAppsOpen &&\n    !scheduledTasksOpen &&\n    (!chatFirstAppSelected || activeChatFirstSurfaceTab?.placement === "side");',
     );
     expect(hubSource).toContain(
-      "const canToggleChatFirstSurfacePanel =\n    hasChatFirstActiveChat && !chatFirstAppSelected;",
+      "const canToggleChatFirstSurfacePanel =\n    canRenderChatFirstSurfacePanel && !chatFirstAppSelected;",
     );
     expect(hubSource).toContain(
       'if (!hasChatFirstActiveChat) {\n        setChatFirstNotice("Open a chat to view browser surfaces.");',
