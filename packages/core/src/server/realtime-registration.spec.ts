@@ -251,6 +251,30 @@ describe("resolveRegisteredRealtimeChannel", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("re-registers when the gateway endpoint changes", async () => {
+    // A channel only exists on the gateway it was registered with. Repointing
+    // staging to production leaves the database, origin and credential
+    // unchanged, so without the endpoint in the fingerprint the app reuses a
+    // channel the new gateway has never heard of.
+    await resolveRegisteredRealtimeChannel();
+    const stored = mockPutSetting.mock.calls[0][1];
+    fetchMock.mockClear();
+    resetRealtimeRegistrationCache();
+    mockGetSetting.mockResolvedValue(stored);
+    process.env.AGENT_NATIVE_REALTIME_GATEWAY_URL =
+      "https://staging.example/rt";
+
+    try {
+      await resolveRegisteredRealtimeChannel();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0][0]).toBe(
+        "https://staging.example/rt/register",
+      );
+    } finally {
+      delete process.env.AGENT_NATIVE_REALTIME_GATEWAY_URL;
+    }
+  });
+
   it("re-registers when the Builder credential moves to another org", async () => {
     // The gateway scopes a channel to the org the key resolves to. Without the
     // credential in the fingerprint the app kept minting against the OLD org's

@@ -608,70 +608,153 @@ complemento:
 
 ## Puerta de enlace de sincronización en tiempo real alojada {#hosted-gateway}
 
-Las aplicaciones usan de forma predeterminada el transporte poll/SSE descrito
+De forma predeterminada, las aplicaciones usan el transporte poll/SSE descrito
 arriba. Cualquier aplicación puede optar por la puerta de enlace de
-sincronización en tiempo real alojada, que distribuye los eventos de
-sincronización entre varias instancias sin servidor en lugar de que cada
-instancia mantenga sus propias conexiones de larga duración.
+sincronización en tiempo real alojada, que sigue de forma centralizada la tabla
+`sync_events` de la aplicación y difunde los cambios a todos los clientes
+conectados, de modo que la entrega de cambios ya no depende de que cada
+instancia sin servidor mantenga sus propias conexiones de larga duración.
 
-- `AGENT_NATIVE_REALTIME_TRANSPORT=hosted` es la única variable que defines, y
-  definirla es la aceptación explícita: nada de esto ocurre en un despliegue
-  que no la haya definido. `AGENT_NATIVE_REALTIME_GATEWAY_URL` sobrescribe el
-  extremo de la puerta de enlace para entornos de prueba; si no se define, se
-  deriva de `BUILDER_GATEWAY_BASE_URL`.
-- En una aplicación alojada por Builder, el id de canal y el secreto de firma
-  (`AGENT_NATIVE_REALTIME_HMAC_SECRET`) son variables de entorno reservadas que
-  inyecta la ruta de aprovisionamiento de Builder: la canalización ya
-  aprovisionó la base de datos que lee la puerta de enlace.
-- **En cualquier otro lugar, la aplicación se registra sola, y eso significa
-  enviar a Builder la URL de tu base de datos.** Con la variable de transporte
-  definida, un despliegue respaldado por Postgres que tenga
-  `BUILDER_PRIVATE_KEY` envía una vez su cadena de conexión y su origen público
-  a la puerta de enlace, y recibe un id de canal y un secreto de firma. Builder
-  almacena esa cadena de conexión y se conecta a tu base de datos para seguir
-  `sync_events`; la conexión no es de solo lectura, ya que tanto la asignación
-  de versiones como la detección de cambios externos escriben. Si no quieres
-  eso, deja la variable de transporte sin definir: esa es toda la decisión, y
-  no hay ninguna otra vía que comparta la credencial. El registro se repite
-  cuando cambia la URL de la base de datos o el origen de la aplicación, de modo
-  que la rotación de credenciales se propaga sin volver a desplegar nada más.
-- La organización también debe estar habilitada para la puerta de enlace. Hasta
-  que lo esté, el registro se rechaza y la aplicación sigue con el sondeo local.
-- Solo se registran los despliegues de producción. Una vista previa de
-  despliegue mantiene la sincronización local, de modo que su credencial de base
-  de datos desechable nunca sale de la máquina y no se crea un canal por cada
-  pull request.
-- **La organización es el límite de confianza.** Cualquier credencial que pueda
-  registrar también puede volver a registrar un origen existente, lo que
-  devuelve el secreto de firma de ese canal y reapunta su base de datos. Tener
-  ese secreto permite emitir un token de suscripción para cualquier usuario de
-  la aplicación, lo que expone su *flujo de cambios* —qué registros cambiaron y
-  cuándo— pero no los registros en sí, ya que los clientes releen el contenido
-  desde la aplicación con su propia sesión. Trata una credencial de registro
-  como si abarcara toda la organización.
+La configuración depende de quién despliega la aplicación.
+
+### Aplicaciones alojadas por Builder: nada que hacer {#hosted-gateway-builder}
+
+Una aplicación desplegada por el pipeline de alojamiento de Builder se
+aprovisiona automáticamente. El despliegue inyecta el transporte, la URL de la
+puerta de enlace, el identificador de canal y el secreto de firma
+(`AGENT_NATIVE_REALTIME_HMAC_SECRET`) como variables de entorno reservadas,
+porque el pipeline ya aprovisionó la base de datos que lee la puerta de enlace.
+
+Para EXCLUIR un proyecto, añade un bloque `realtime` a su `builder.config.json`:
+
+```json
+{
+  "realtime": { "transport": "local" }
+}
+```
+
+### Desplegada en cualquier otro sitio: autorregistro {#hosted-gateway-self}
+
+Una aplicación en su propio Netlify, Vercel, contenedor o máquina virtual no
+tiene ese aprovisionamiento, así que se presenta ella misma a la puerta de
+enlace. Define una única variable de entorno en el despliegue:
+
+```bash
+AGENT_NATIVE_REALTIME_TRANSPORT=hosted
+```
+
+Definirla es el consentimiento explícito, y es la única variable que añade esta
+funcionalidad. En un despliegue que no la haya definido no ocurre nada de esto.
+
+El despliegue también debe cumplir cuatro condiciones, todas ellas habituales en
+una aplicación de producción normal:
+
+| Requisito | Por qué | Cómo comprobarlo |
+| --------- | ------- | ---------------- |
+| **Postgres en un host accesible públicamente** | La puerta de enlace marca la base de datos desde su propia red. PGlite, SQLite, `localhost`, `*.internal` y las direcciones IP desnudas se rechazan antes de que la cadena de conexión salga siquiera de tu máquina. | `DATABASE_URL` apunta a un Postgres gestionado como Neon |
+| **`BUILDER_PRIVATE_KEY` definida como variable de entorno del DESPLIEGUE** | Autentica el registro y decide qué organización de Builder es propietaria del canal. | Consulta la nota siguiente: este es el paso que más se pasa por alto |
+| **Un despliegue de producción** | Las vistas previas de despliegue conservan la sincronización local, de modo que una credencial de rama desechable nunca sale de la máquina y un repositorio activo no genera un canal por cada pull request. | `CONTEXT=production` / `BRANCH=production`, o `VERCEL_ENV=production` |
+| **La plataforma identifica el despliegue** | El registro se indexa por el origen público de la aplicación, así que un proceso que no es realmente el despliegue no debe reclamarlo. | Netlify, Vercel, AWS Lambda, Cloud Run, Render y Cloudflare Pages se identifican solos. En un contenedor o máquina virtual simple, define `URL` con el origen propio del despliegue |
+
+<Callout tone="warning">
+
+**Conectar Builder desde dentro de la aplicación no basta.** La conexión con
+Builder hecha en la aplicación guarda su credencial por usuario o por
+organización en el almacén de secretos de la aplicación. El autorregistro
+ignora deliberadamente esa credencial —la conexión de un solo usuario no debe
+inscribir la base de datos de todo el despliegue bajo la organización que
+casualmente hizo la primera petición— y lee únicamente una variable de entorno
+`BUILDER_PRIVATE_KEY` de nivel de despliegue. Una aplicación que muestra
+«Builder conectado» y no tiene esa variable seguirá con la sincronización local.
+
+</Callout>
+
+El registro ocurre entonces bajo demanda, en la primera petición que necesita un
+canal. La aplicación envía su cadena de conexión y su origen público, recibe un
+identificador de canal y un secreto de firma, y emite tokens de suscripción
+exactamente igual que una aplicación alojada por Builder. Se repite por sí solo
+cuando cambian la URL de la base de datos, el origen de la aplicación o la
+credencial de Builder, de modo que una rotación de credenciales se aplica sin
+volver a desplegar nada más.
+
+Los despliegues de workspace (varias aplicaciones servidas desde un mismo
+origen) no se autorregistran: las aplicaciones hermanas comparten un origen, y
+el registro se indexa por él, así que colisionarían en un mismo canal. Registran
+una línea indicándolo y se quedan con la sincronización local.
+
+### Verificar que funcionó {#hosted-gateway-verify}
+
+`GET /_agent-native/health` informa del resultado, y resolverlo realiza el
+registro, así que un solo curl activa y confirma a la vez:
+
+```bash
+curl -s https://your-app.example.com/_agent-native/health | jq .realtime
+```
+
+```json
+{
+  "transport": "hosted",
+  "registered": true,
+  "channelHash": "3f9a2c17"
+}
+```
+
+| Campo | Significado |
+| ----- | ----------- |
+| `transport` | `"hosted"` en cuanto la variable de entorno está definida, `"local"` en caso contrario. Si aquí pone `local`, la variable no llegó al despliegue en ejecución. |
+| `registered` | Se resolvió un canal. `false` significa que la aplicación sigue con su propio `/_agent-native/poll`. |
+| `channelHash` | Los primeros 8 caracteres de un SHA-256 del identificador de canal: suficiente para distinguir dos despliegues o confirmar una rotación, inútil para conectarse. El endpoint es público, así que el identificador nunca se publica. |
+| `unavailable` | Presente solo cuando la resolución FALLÓ, a diferencia de resolverse como «sin canal». Una puerta de enlace inaccesible y una aplicación sin registrar son problemas distintos. |
+
+Cuando `registered` es `false`, los registros del despliegue contienen una línea
+`[realtime]` con el motivo: una credencial rechazada, una URL de base de datos
+no analizable, un proceso que no parece ser el despliegue. Recorre la tabla de
+requisitos anterior en orden.
+
+### Qué almacena Builder y la frontera de confianza {#hosted-gateway-trust}
+
+**El autorregistro implica enviar a Builder la cadena de conexión de tu base de
+datos.** Builder la almacena y se conecta a tu base de datos para seguir
+`sync_events`. La conexión no es de solo lectura: tanto la asignación de
+versiones como la detección de cambios fuera de banda escriben. Si no quieres
+eso, deja la variable de transporte sin definir. Esa es toda la decisión, y no
+hay ninguna otra vía que comparta esa credencial.
+
+**La organización es la frontera de confianza.** Cualquier credencial capaz de
+registrarse puede también volver a registrar un origen existente, lo que
+devuelve el secreto de firma de ese canal y reorienta su base de datos. Poseer
+ese secreto permite emitir un token de suscripción para cualquier usuario de la
+aplicación, lo que expone su *flujo de cambios* —qué registros cambiaron y
+cuándo— pero no los registros en sí, ya que los clientes releen el contenido
+desde la aplicación con su propia sesión. Trata una credencial de registro como
+válida para toda la organización.
+
+### Cómo funciona {#hosted-gateway-mechanics}
+
 - `GET /_agent-native/realtime-token` emite un token de suscripción de corta
-  duración (10 minutos) y con ámbito de sesión que el navegador usa para abrir
-  la conexión con la puerta de enlace. Solo acepta el mismo origen y responde
+  duración (10 minutos) y limitado a la sesión, que el navegador usa para abrir
+  la conexión con la puerta de enlace. Solo acepta el mismo origen y devuelve
   401 sin una sesión activa.
 - `GET /_agent-native/can-see` es la comprobación de visibilidad por evento de
   la puerta de enlace: verifica un token de acceso firmado y luego vuelve a
-  ejecutar el propio `resolveAccess` de la aplicación, de modo que la puerta de
+  ejecutar el `resolveAccess` propio de la aplicación, de forma que la puerta de
   enlace nunca pueda reenviar un evento a alguien que ya perdió el acceso. Los
-  tipos de recurso desconocidos o los fallos de búsqueda fallan de forma segura
+  tipos de recurso desconocidos o los fallos de búsqueda fallan en modo cerrado
   (`{ allowed: false }`).
 - En Postgres, las aplicaciones alojadas asignan las versiones de sincronización
-  desde la base de datos (`dbAssignedVersions`) en lugar de un contador en
-  proceso, porque las instancias de la puerta de enlace y las instancias sin
-  servidor de la propia aplicación comparten una base de datos y deben coincidir
-  en el orden de escritura.
+  desde la base de datos (`dbAssignedVersions`) en lugar de desde un contador en
+  memoria, porque las instancias de la puerta de enlace y las instancias sin
+  servidor de la aplicación comparten una base de datos y deben coincidir en el
+  orden de escritura.
+- `AGENT_NATIVE_REALTIME_GATEWAY_URL` sobrescribe el endpoint de la puerta de
+  enlace para preproducción. Sin definir, se deriva de
+  `BUILDER_GATEWAY_BASE_URL`.
 
-Todos los fallos aquí son silenciosos por diseño: sin variable de transporte,
-sin clave de Builder, con una base de datos que no sea Postgres, con una
-organización aún no habilitada o con una puerta de enlace inalcanzable, la
-aplicación se queda con el sondeo local en lugar de dar error. Si la
-sincronización alojada no está activa cuando lo esperas, revisa esos puntos en
-ese orden: que `GET /_agent-native/realtime-token` devuelva 404 significa que no
-se resolvió ningún canal.
+Aquí todo fallo es silencioso por diseño: sin variable de transporte, sin clave
+de Builder de nivel de despliegue, con una base de datos que no es Postgres o
+con una puerta de enlace inaccesible, la aplicación se queda en el sondeo local
+en lugar de producir un error. Un 404 en `GET /_agent-native/realtime-token`
+significa que no se resolvió ningún canal.
 
 ## Seguridad {#security}
 

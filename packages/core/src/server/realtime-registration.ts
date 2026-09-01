@@ -169,21 +169,29 @@ export function isHostedRealtimeTransport(): boolean {
 }
 
 /**
- * What the stored channel is keyed to. The Builder credential is in here as
- * well as the database and origin: the gateway scopes a channel to the ORG the
- * key resolves to, so swapping `BUILDER_PRIVATE_KEY` to a different org has to
- * re-register. Without it an app moved between orgs kept minting tokens
- * against the old org's channel forever — the new org's rollout flag,
- * suspension and cap accounting never applying to it, the old org's governing
- * an app that no longer holds its credential.
+ * What the stored channel is keyed to.
+ *
+ * The Builder credential is in here as well as the database and origin: the
+ * gateway scopes a channel to the ORG the key resolves to, so swapping
+ * `BUILDER_PRIVATE_KEY` to a different org has to re-register. Without it an
+ * app moved between orgs kept minting tokens against the old org's channel
+ * forever — the new org's suspension and cap accounting never applying to it,
+ * the old org's governing an app that no longer holds its credential.
+ *
+ * So is the gateway endpoint, for the reason `registrationEndpoint` states:
+ * the channel only exists on the gateway it was registered with. Repointing an
+ * app from staging to production (or vice versa) leaves the stored fingerprint
+ * matching, so without this the app reuses a channel the new gateway has never
+ * heard of and every connect fails against a secret one side has never seen.
  */
 function fingerprintOf(
   databaseUrl: string,
   appUrl: string,
   privateKey: string,
+  endpoint: string,
 ): string {
   return createHash("sha256")
-    .update(`${databaseUrl}\n${appUrl}\n${privateKey}`)
+    .update(`${databaseUrl}\n${appUrl}\n${privateKey}\n${endpoint}`)
     .digest("hex")
     .slice(0, 32);
 }
@@ -306,11 +314,24 @@ function collectInputs(): RegistrationInputs | null {
     return null;
   }
 
+  // Inside the guard for the same reason `postRegistration` wraps its own call:
+  // a non-string base or a malformed override must decline like every other
+  // missing input, not reject out of the resolver.
+  let endpoint: string;
+  try {
+    endpoint = registrationEndpoint();
+  } catch {
+    console.warn(
+      "[realtime] the gateway endpoint could not be resolved; staying on local sync",
+    );
+    return null;
+  }
+
   return {
     databaseUrl,
     appUrl: origin,
     privateKey,
-    fingerprint: fingerprintOf(databaseUrl, origin, privateKey),
+    fingerprint: fingerprintOf(databaseUrl, origin, privateKey, endpoint),
   };
 }
 

@@ -608,63 +608,151 @@ plug-in:
 
 Por padrão, os aplicativos usam o transporte poll/SSE descrito acima. Qualquer
 aplicativo pode optar pelo gateway de sincronização em tempo real hospedado, que
-distribui os eventos de sincronização entre várias instâncias sem servidor em vez
-de cada instância manter suas próprias conexões de longa duração.
+acompanha centralmente a tabela `sync_events` do aplicativo e distribui as
+alterações a todos os clientes conectados — assim, a entrega de alterações
+deixa de depender de cada instância sem servidor manter suas próprias conexões
+de longa duração.
 
-- `AGENT_NATIVE_REALTIME_TRANSPORT=hosted` é a única variável que você define, e
-  defini-la é o consentimento explícito: nada disso acontece em uma implantação
-  que não a definiu. `AGENT_NATIVE_REALTIME_GATEWAY_URL` substitui o endpoint do
-  gateway para homologação; sem valor, ela é derivada de
-  `BUILDER_GATEWAY_BASE_URL`.
-- Em um aplicativo hospedado pelo Builder, o id do canal e o segredo de
-  assinatura (`AGENT_NATIVE_REALTIME_HMAC_SECRET`) são variáveis de ambiente
-  reservadas injetadas pelo caminho de provisionamento do Builder — o pipeline já
-  provisionou o banco de dados que o gateway lê.
-- **Em qualquer outro lugar, o aplicativo se registra sozinho, e isso significa
-  enviar ao Builder a URL do seu banco de dados.** Com a variável de transporte
-  definida, uma implantação apoiada em Postgres que tenha `BUILDER_PRIVATE_KEY`
-  envia uma vez sua string de conexão e sua origem pública ao gateway e recebe de
-  volta um id de canal e um segredo de assinatura. O Builder armazena essa string
-  de conexão e se conecta ao seu banco de dados para acompanhar `sync_events`; a
-  conexão não é somente leitura, já que tanto a alocação de versões quanto a
-  detecção de alterações fora de banda gravam. Se você não quiser isso, deixe a
-  variável de transporte sem definir — essa é toda a decisão, e não há outro
-  caminho que compartilhe a credencial. O registro é refeito quando a URL do
-  banco de dados ou a origem do aplicativo muda, de modo que a rotação de
-  credenciais é aplicada sem reimplantar mais nada.
-- A organização também precisa estar habilitada para o gateway. Até que esteja, o
-  registro é recusado e o aplicativo continua com o polling local.
-- Apenas implantações de produção se registram. Uma prévia de implantação
-  mantém a sincronização local, de modo que sua credencial de banco de dados
-  descartável nunca sai da máquina e não se cria um canal por pull request.
-- **A organização é o limite de confiança.** Qualquer credencial que possa
-  registrar também pode registrar novamente uma origem existente, o que devolve
-  o segredo de assinatura daquele canal e reaponta seu banco de dados. Ter esse
-  segredo permite emitir um token de inscrição para qualquer usuário do
-  aplicativo, expondo o *fluxo de alterações* dele — quais registros mudaram e
-  quando — mas não os registros em si, já que os clientes releem o conteúdo do
-  aplicativo com a própria sessão. Trate uma credencial de registro como algo
-  que vale para toda a organização.
-- `GET /_agent-native/realtime-token` emite um token de inscrição de curta duração
-  (10 minutos) e com escopo de sessão que o navegador usa para abrir a conexão com
-  o gateway. Ele aceita apenas a mesma origem e responde 401 sem uma sessão ativa.
+A configuração depende de quem implanta o aplicativo.
+
+### Aplicativos hospedados pelo Builder: nada a fazer {#hosted-gateway-builder}
+
+Um aplicativo implantado pelo pipeline de hospedagem do Builder é provisionado
+automaticamente. A implantação injeta o transporte, a URL do gateway, o
+identificador de canal e o segredo de assinatura
+(`AGENT_NATIVE_REALTIME_HMAC_SECRET`) como variáveis de ambiente reservadas,
+porque o pipeline já provisionou o banco de dados que o gateway lê.
+
+Para EXCLUIR um projeto, adicione um bloco `realtime` ao seu
+`builder.config.json`:
+
+```json
+{
+  "realtime": { "transport": "local" }
+}
+```
+
+### Implantado em qualquer outro lugar: autorregistro {#hosted-gateway-self}
+
+Um aplicativo no próprio Netlify, Vercel, contêiner ou VM não tem esse
+provisionamento, então ele mesmo se apresenta ao gateway. Defina uma única
+variável de ambiente na implantação:
+
+```bash
+AGENT_NATIVE_REALTIME_TRANSPORT=hosted
+```
+
+Defini-la é o consentimento explícito, e é a única variável que este recurso
+acrescenta. Nada disso acontece em uma implantação que não a tenha definido.
+
+A implantação também precisa atender a quatro requisitos, todos já satisfeitos
+por um aplicativo de produção comum:
+
+| Requisito | Por quê | Como verificar |
+| --------- | ------- | -------------- |
+| **Postgres em um host publicamente acessível** | O gateway disca para o banco de dados a partir da própria rede. PGlite, SQLite, `localhost`, `*.internal` e endereços IP nus são recusados antes que a string de conexão sequer saia da sua máquina. | `DATABASE_URL` aponta para um Postgres gerenciado, como o Neon |
+| **`BUILDER_PRIVATE_KEY` definida como variável de ambiente da IMPLANTAÇÃO** | Autentica o registro e decide qual organização do Builder é dona do canal. | Veja a observação abaixo — esta é a etapa que mais passa despercebida |
+| **Uma implantação de produção** | As pré-visualizações de implantação mantêm a sincronização local, de modo que uma credencial de branch descartável nunca sai da máquina e um repositório movimentado não cria um canal por pull request. | `CONTEXT=production` / `BRANCH=production`, ou `VERCEL_ENV=production` |
+| **A plataforma identifica a implantação** | O registro é indexado pela origem pública do aplicativo, então um processo que não é de fato a implantação não deve reivindicá-la. | Netlify, Vercel, AWS Lambda, Cloud Run, Render e Cloudflare Pages se identificam sozinhos. Em um contêiner ou VM simples, defina `URL` com a origem da própria implantação |
+
+<Callout tone="warning">
+
+**Conectar o Builder de dentro do aplicativo não é suficiente.** A conexão com o
+Builder feita no aplicativo guarda sua credencial por usuário ou por organização
+no cofre de segredos do aplicativo. O autorregistro ignora essa credencial de
+propósito — a conexão de um único usuário não deve inscrever o banco de dados da
+implantação inteira sob a organização que por acaso fez a primeira requisição —
+e lê apenas uma variável de ambiente `BUILDER_PRIVATE_KEY` no nível da
+implantação. Um aplicativo que mostra "Builder conectado" e não tem essa
+variável continuará na sincronização local.
+
+</Callout>
+
+O registro acontece então sob demanda, na primeira requisição que precisa de um
+canal. O aplicativo envia sua string de conexão e sua origem pública, recebe de
+volta um identificador de canal e um segredo de assinatura, e emite tokens de
+inscrição exatamente como um aplicativo hospedado pelo Builder. Ele se repete
+sozinho sempre que a URL do banco de dados, a origem do aplicativo ou a
+credencial do Builder mudam, de modo que uma rotação de credenciais é aplicada
+sem reimplantar mais nada.
+
+Implantações de workspace (vários aplicativos servidos a partir de uma mesma
+origem) não se autorregistram: aplicativos irmãos compartilham uma origem, e o
+registro é indexado por ela, então eles colidiriam em um único canal. Eles
+registram uma linha no log informando isso e permanecem na sincronização local.
+
+### Verificar se funcionou {#hosted-gateway-verify}
+
+`GET /_agent-native/health` informa o resultado, e resolvê-lo realiza o registro,
+então um único curl ao mesmo tempo ativa e confirma:
+
+```bash
+curl -s https://your-app.example.com/_agent-native/health | jq .realtime
+```
+
+```json
+{
+  "transport": "hosted",
+  "registered": true,
+  "channelHash": "3f9a2c17"
+}
+```
+
+| Campo | Significado |
+| ----- | ----------- |
+| `transport` | `"hosted"` assim que a variável de ambiente estiver definida, `"local"` caso contrário. Se aparecer `local`, a variável não chegou à implantação em execução. |
+| `registered` | Um canal foi resolvido. `false` significa que o aplicativo continua no próprio `/_agent-native/poll`. |
+| `channelHash` | Os 8 primeiros caracteres de um SHA-256 do identificador de canal — suficiente para distinguir duas implantações ou confirmar uma rotação, inútil para conectar. O endpoint é público, então o identificador em si nunca é publicado. |
+| `unavailable` | Presente apenas quando a resolução FALHOU, em contraste com resolver para "nenhum canal". Um gateway inacessível e um aplicativo não registrado são problemas diferentes. |
+
+Quando `registered` é `false`, os logs da implantação trazem uma linha
+`[realtime]` com o motivo: uma credencial recusada, uma URL de banco de dados
+não analisável, um processo que não parece ser a implantação. Percorra a tabela
+de requisitos acima na ordem.
+
+### O que o Builder armazena e a fronteira de confiança {#hosted-gateway-trust}
+
+**O autorregistro significa enviar ao Builder a string de conexão do seu banco
+de dados.** O Builder a armazena e se conecta ao seu banco de dados para
+acompanhar `sync_events`. A conexão não é somente leitura: tanto a alocação de
+versões quanto a detecção de alterações fora de banda escrevem. Se você não
+quiser isso, deixe a variável de transporte indefinida. Essa é toda a decisão, e
+não há outro caminho que compartilhe essa credencial.
+
+**A organização é a fronteira de confiança.** Qualquer credencial capaz de se
+registrar também pode reregistrar uma origem existente, o que devolve o segredo
+de assinatura daquele canal e redireciona seu banco de dados. Possuir esse
+segredo permite emitir um token de inscrição para qualquer usuário do
+aplicativo, o que expõe o *fluxo de alterações* dele — quais registros mudaram e
+quando — mas não os registros em si, já que os clientes releem o conteúdo do
+aplicativo com a própria sessão. Trate uma credencial de registro como válida
+para toda a organização.
+
+### Como funciona {#hosted-gateway-mechanics}
+
+- `GET /_agent-native/realtime-token` emite um token de inscrição de curta
+  duração (10 minutos), limitado à sessão, que o navegador usa para abrir a
+  conexão com o gateway. Aceita apenas a mesma origem e responde 401 sem uma
+  sessão ativa.
 - `GET /_agent-native/can-see` é a verificação de visibilidade por evento do
-  gateway: ele valida um token de acesso assinado e então reexecuta o próprio
-  `resolveAccess` do aplicativo, para que o gateway nunca encaminhe um evento a
-  alguém que já perdeu o acesso. Tipos de recurso desconhecidos ou falhas de
-  consulta falham de forma segura (`{ allowed: false }`).
-- No Postgres, aplicativos hospedados alocam as versões de sincronização a partir
-  do banco de dados (`dbAssignedVersions`) em vez de um contador em processo,
-  porque as instâncias do gateway e as instâncias sem servidor do próprio
-  aplicativo compartilham um banco de dados e precisam concordar sobre a ordem de
-  gravação.
+  gateway: ele valida um token de acesso assinado e então reexecuta o
+  `resolveAccess` do próprio aplicativo, de modo que o gateway nunca possa
+  encaminhar um evento a alguém que já perdeu o acesso. Tipos de recurso
+  desconhecidos ou falhas de consulta falham em modo fechado
+  (`{ allowed: false }`).
+- No Postgres, aplicativos hospedados alocam versões de sincronização a partir
+  do banco de dados (`dbAssignedVersions`) em vez de um contador em memória,
+  porque as instâncias do gateway e as instâncias sem servidor do aplicativo
+  compartilham um banco de dados e precisam concordar sobre a ordem de escrita.
+- `AGENT_NATIVE_REALTIME_GATEWAY_URL` substitui o endpoint do gateway para
+  homologação. Se não estiver definida, é derivada de
+  `BUILDER_GATEWAY_BASE_URL`.
 
-Todas as falhas aqui são silenciosas por design: sem variável de transporte, sem
-chave do Builder, com um banco de dados que não seja Postgres, com uma
-organização ainda não habilitada ou com um gateway inacessível, o aplicativo
-permanece no polling local em vez de gerar erro. Se o tempo real hospedado não
-estiver ativo quando você espera, verifique esses pontos nessa ordem — um 404 em
-`GET /_agent-native/realtime-token` significa que nenhum canal foi resolvido.
+Aqui toda falha é silenciosa por design: sem variável de transporte, sem chave
+do Builder no nível da implantação, com um banco de dados que não seja Postgres
+ou com um gateway inacessível, o aplicativo permanece no polling local em vez de
+gerar um erro. Um 404 em `GET /_agent-native/realtime-token` significa que
+nenhum canal foi resolvido.
 
 ## Segurança {#security}
 
