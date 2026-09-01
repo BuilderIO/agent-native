@@ -51,6 +51,57 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.176.3
+
+### Patch Changes
+
+- 453cb52: Accept Builder personal access tokens when saving credentials returned by account activation.
+- b734fd1: Let actions declare `endsTurn`, and unwrap a JSON-encoded tool argument on its container type.
+
+  `endsTurn` already stopped the agent loop for core's own `ask-question`, but
+  `defineAction` never exposed it, so a template action that puts a question or
+  form on screen could not say the turn was over. The loop asked the model for
+  another step and a completion guard scored the paused turn as a failure.
+
+  `coerceStringifiedJsonToolValues` also required a stringified argument's parsed
+  contents to fully validate before unwrapping it. A model that JSON-encoded an
+  array whose items were missing a property was told only "must be array" — never
+  the per-item defect — so it re-encoded the same payload until its retry budget
+  ran out.
+
+- 4d86bff: Update shared auth pages with per-app product previews and learn-more links.
+- aa826fc: Prevent optional Better Auth JWT response headers from breaking valid session checks.
+- f83b944: Add the /an Agent-Native app skill with Dispatch MCP and inline app workflows.
+- ab2d987: Offer the Builder.io models in the chat and prompt-box model pickers on the gateway lane, so an AI-enabled app in a Fusion preview or a Builder-credits deploy no longer needs a connect step before a model can be selected
+- 17740f6: Allow apps to configure their authenticated home route while defaulting every app to `/home`; set `homePath: "/"` to keep an app at the root.
+- e32b034: Allow workspace credential lookups to skip last-used recording for read-only readiness checks.
+- 8a151f8: Keep the hydrated auth client aligned with the cacheable SSR auth shell.
+- 2b38c4d: Fix Clips share loading and mobile viewport behavior.
+- 1fc5184: Add friendly automation schedules and webhook triggers.
+- ad860e5: Keep framework SSE connections alive through idle edge timeouts.
+- bbbac69: Keep pending Builder app reservations visible for 30 days.
+- dc10e35: Keep delegated objectives on their already-selected receiver's bounded local action surface without requiring an app-specific rollout flag.
+- 4b83a0d: Fix magic-link sign-in dropping the session after verify. Better Auth's `set-auth-token` is a signed `token.signature`, which is not the session table row. `getSession` now tries the unsigned token, decodes percent-encoded cookies before asking Better Auth, and persists that unsigned token as the framework session cookie.
+- Release all public npm packages with a patch version bump.
+- b67ffff: Dont include the template migrate-production script as something that can be auto-discovered by the actions framework
+- 2e531c9: Preserve verified artifact receipts across truncated tool results and interrupted-run recovery.
+- aa826fc: Keep the first-run onboarding surface available until its explicit completion succeeds.
+- b302bcf: Hold the root auth document until the auth routes finish mounting during a cold start.
+- 4deb8a1: Suppress synthetic signup identities that were reaching production analytics.
+  `isQaTestEmail` only matched plus-addressed `+qa-test-bot-…@`, so bare
+  `qa-test-bot-…@`, `an-e2e-probe-…@e2e.agent-native.test` and `e2e-…@example.com`
+  were tracked as real users. Matching now covers those shapes plus the RFC 2606
+  reserved TLDs, and stays narrow enough that ordinary addresses — including bare
+  `example.com` fixtures and plus-addresses — remain trackable.
+- 067307e: Improve desktop chat surfaces, terminal failure reporting, and scrollbar contrast.
+- 4deb8a1: Make hosted ask_app submissions retry-safe and return before the MCP transport deadline.
+- d8cd1c4: Make macOS Electron PTY spawning resilient to packaged helper paths and reliably clean up terminal processes.
+- 1355b35: Use direct Neon endpoints for serverless runtime database clients when the configured pooler stalls.
+- Updated dependencies [e74593d]
+- Updated dependencies
+  - @agent-native/toolkit@0.19.1
+  - @agent-native/recap-cli@0.5.23
+
 ## 0.176.2
 
 ### Patch Changes
@@ -1967,16 +2018,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 
 - efc5f92: Improve the self-hosting documentation with a fast local Docker quickstart and downloadable Chat fixture.
 - 9fed363: Teach generated workspaces to reuse shared settings, vault, OAuth, and onboarding primitives before building custom integration setup UI.
-
-## 0.161.18
-
-### Patch Changes
-
-- 9dd50a0: Drop JSON Schema keywords OpenAI's function validator rejects: unsupported
-  `format` values (`uri` from `z.string().url()` among them) and constraint-only
-  keywords like `patternProperties`, `not`, and `if`/`then`/`else`. Any one of them
-  400s the entire chat request, so a single `z.string().url()` in one tool broke
-  every turn that offered it.
-- f294ae3: Keep the Connect Builder and Custom keys actions side by side in the agent sidebar.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

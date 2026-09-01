@@ -24,6 +24,11 @@ async function createHarness() {
       { id: "calendar", name: "Calendar" },
     ],
     openApp,
+    getActiveAppContext: () => ({
+      appId: "mail",
+      appName: "Mail",
+      path: "/inbox",
+    }),
   });
   const url = await bridge.start();
   const registration = bridge.register();
@@ -54,7 +59,28 @@ describe("DesktopSurfaceMcpBridge", () => {
 
     const tools = await harness.client.listTools();
     expect(tools.tools.map((tool) => tool.name)).toEqual(
-      expect.arrayContaining(["list_apps", "open_app"]),
+      expect.arrayContaining([
+        "list_apps",
+        "open_app",
+        "get_active_app_context",
+      ]),
+    );
+
+    const context = await harness.client.callTool({
+      name: "get_active_app_context",
+      arguments: {},
+    });
+    const contextText = context.content?.find((item) => item.type === "text");
+    expect(
+      contextText?.type === "text" ? JSON.parse(contextText.text) : null,
+    ).toEqual(
+      expect.objectContaining({
+        activeApp: expect.objectContaining({
+          appId: "mail",
+          appName: "Mail",
+          path: "/inbox",
+        }),
+      }),
     );
 
     const apps = await harness.client.callTool({
