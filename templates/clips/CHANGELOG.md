@@ -3,6 +3,12 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-01
+
+### Improved
+
+- Clip editing uses a text-only Edit button for a cleaner toolbar.
+
 ## 2026-08-29
 
 ### Improved
