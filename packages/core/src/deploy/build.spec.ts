@@ -365,6 +365,36 @@ describe("resolveNitroBuildReplacements", () => {
       replacements["process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT"],
     ).toBe(JSON.stringify("beta"));
   });
+
+  it("falls back to the source revision for the server build id", () => {
+    const replacements = resolveNitroBuildReplacements({
+      COMMIT_REF: "commit-auth-client-123",
+    });
+
+    expect(replacements["process.env.AGENT_NATIVE_BUILD_ID"]).toBe(
+      JSON.stringify("commit-auth-client-123"),
+    );
+  });
+
+  it("uses the client build fallback when no server build metadata exists", () => {
+    const replacements = resolveNitroBuildReplacements({});
+
+    expect(replacements["process.env.AGENT_NATIVE_BUILD_ID"]).toBe(
+      JSON.stringify("development"),
+    );
+  });
+
+  it("prefers the shared Agent-Native build id over source revisions", () => {
+    const replacements = resolveNitroBuildReplacements({
+      AGENT_NATIVE_BUILD_ID: " agent-build-123 ",
+      COMMIT_REF: "commit-auth-client-123",
+    });
+
+    expect(replacements["process.env.AGENT_NATIVE_BUILD_ID"]).toBe(
+      JSON.stringify("agent-build-123"),
+    );
+  });
+
   it("embeds only the app's runtime package declarations for bundled engine checks", () => {
     const projectCwd = fs.mkdtempSync(
       path.join(process.cwd(), ".tmp-engine-package-marker-"),
