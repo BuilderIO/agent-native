@@ -477,6 +477,9 @@ export function useMeetingTranscription({
         });
         if (sessionRef.current !== session || session.stopping) {
           autoStopUnlisten();
+          // Route stale startup through the existing cleanup path so a
+          // replacement cannot leave a microphone or server row behind.
+          throw new Error("Meeting start cancelled.");
         } else {
           session.unlisten.push(autoStopUnlisten);
         }
