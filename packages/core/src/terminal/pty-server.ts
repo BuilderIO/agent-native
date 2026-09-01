@@ -450,9 +450,10 @@ export async function createPtyWebSocketServer(
     }
     console.log(`${logPrefix} Spawning PTY for ${command}`);
 
+    const preparedSpawn = preparePtySpawn(spawnCommand, spawnArgs);
     let ptyProcess: ReturnType<typeof pty.spawn>;
     try {
-      ptyProcess = pty.spawn(spawnCommand, spawnArgs, {
+      ptyProcess = pty.spawn(preparedSpawn.command, preparedSpawn.args, {
         name: "xterm-256color",
         cols: 120,
         rows: 40,
@@ -625,12 +626,32 @@ function readPtySessionContext(url: URL): PtySessionContext | null {
   };
 }
 
-function parseTerminalArguments(value: string): string[] {
+export function preparePtySpawn(
+  commandPath: string,
+  args: string[],
+  platform: NodeJS.Platform = process.platform,
+): { command: string; args: string[] } {
+  if (platform !== "win32") return { command: commandPath, args };
+  const extension = path.extname(commandPath).toLowerCase();
+  if (extension !== ".cmd" && extension !== ".bat") {
+    return { command: commandPath, args };
+  }
+  return {
+    command: process.env.ComSpec || process.env.COMSPEC || "cmd.exe",
+    args: ["/d", "/s", "/c", commandPath, ...args],
+  };
+}
+
+export function parseTerminalArguments(
+  value: string,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
   if (!value) return [];
   const args: string[] = [];
   let current = "";
   let quote: '"' | "'" | null = null;
   let escaped = false;
+  const preserveBackslashes = platform === "win32";
 
   const pushCurrent = () => {
     if (current) args.push(current);
@@ -643,7 +664,7 @@ function parseTerminalArguments(value: string): string[] {
       escaped = false;
       continue;
     }
-    if (character === "\\" && quote !== "'") {
+    if (character === "\\" && quote !== "'" && !preserveBackslashes) {
       escaped = true;
       continue;
     }

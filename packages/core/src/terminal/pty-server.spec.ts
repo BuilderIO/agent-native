@@ -162,6 +162,31 @@ describe("createPtyWebSocketServer", () => {
     );
   });
 
+  it("wraps Windows command shims with cmd.exe", async () => {
+    const { preparePtySpawn } = await import("./pty-server.js");
+    const commandPath = String.raw`C:\Users\steve\AppData\Roaming\npm\codex.cmd`;
+
+    expect(preparePtySpawn(commandPath, ["--full-auto"], "win32")).toEqual({
+      command: process.env.ComSpec || process.env.COMSPEC || "cmd.exe",
+      args: ["/d", "/s", "/c", commandPath, "--full-auto"],
+    });
+    expect(preparePtySpawn(commandPath, [], "darwin")).toEqual({
+      command: commandPath,
+      args: [],
+    });
+  });
+
+  it("preserves Windows path backslashes in terminal flags", async () => {
+    const { parseTerminalArguments } = await import("./pty-server.js");
+
+    expect(
+      parseTerminalArguments(
+        String.raw`--add-dir C:\Users\steve\Projects\framework`,
+        "win32",
+      ),
+    ).toEqual(["--add-dir", String.raw`C:\Users\steve\Projects\framework`]);
+  });
+
   it("repairs a non-executable packaged spawn helper", async () => {
     const helperDir = mkdtempSync(path.join(os.tmpdir(), "pty-helper-"));
     tempDirs.push(helperDir);
