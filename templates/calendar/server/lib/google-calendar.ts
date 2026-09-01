@@ -664,9 +664,17 @@ function cacheAccountTimezone(key: string, value: string | null): void {
  * stable profile value) since it's reachable from unauthenticated public
  * booking routes and would otherwise hit Google's API on every request.
  */
+// Bumped whenever an OAuth connect/disconnect invalidates a key, so an
+// in-flight lookup started before the mutation (reflecting pre-mutation
+// account state) can detect it should not write its result into the cache
+// once it finally resolves.
+const accountTimezoneEpoch = new Map<string, number>();
+
 /** Clears any cached (positive or negative) timezone result for one email. */
 export function invalidateAccountTimezoneCache(email: string): void {
-  accountTimezoneCache.delete(email.trim().toLowerCase());
+  const key = email.trim().toLowerCase();
+  accountTimezoneCache.delete(key);
+  accountTimezoneEpoch.set(key, (accountTimezoneEpoch.get(key) ?? 0) + 1);
 }
 
 const accountTimezoneInFlight = new Map<string, Promise<string | null>>();
@@ -688,7 +696,8 @@ export async function getGoogleAccountTimezone(
   const inFlight = accountTimezoneInFlight.get(key);
   if (inFlight) return inFlight;
 
-  const lookup = resolveGoogleAccountTimezone(key, email).finally(() => {
+  const epoch = accountTimezoneEpoch.get(key) ?? 0;
+  const lookup = resolveGoogleAccountTimezone(key, email, epoch).finally(() => {
     accountTimezoneInFlight.delete(key);
   });
   accountTimezoneInFlight.set(key, lookup);
@@ -698,6 +707,7 @@ export async function getGoogleAccountTimezone(
 async function resolveGoogleAccountTimezone(
   key: string,
   email: string,
+  epoch: number,
 ): Promise<string | null> {
   let accounts: Awaited<ReturnType<typeof listOAuthAccountsByOwner>>;
   try {
@@ -713,7 +723,9 @@ async function resolveGoogleAccountTimezone(
   }
 
   if (accounts.length === 0) {
-    cacheAccountTimezone(key, null);
+    if ((accountTimezoneEpoch.get(key) ?? 0) === epoch) {
+      cacheAccountTimezone(key, null);
+    }
     return null;
   }
 
@@ -764,7 +776,12 @@ async function resolveGoogleAccountTimezone(
     return null;
   }
 
-  cacheAccountTimezone(key, timezone);
+  // An OAuth connect/disconnect for this email during this lookup means the
+  // account state we just read is already stale - don't let it overwrite
+  // whatever `invalidateAccountTimezoneCache` cleared.
+  if ((accountTimezoneEpoch.get(key) ?? 0) === epoch) {
+    cacheAccountTimezone(key, timezone);
+  }
   return timezone;
 }
 
