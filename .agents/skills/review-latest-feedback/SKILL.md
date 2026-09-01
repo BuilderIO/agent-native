@@ -39,7 +39,10 @@ slack_search: "this was sent from a bot." in:<#CHANNEL> after:<TODAY-5>
   sort=timestamp sort_dir=asc
 ```
 
-For each hit, read its full thread. Then:
+For each hit, read its full thread and identify the latest disposition from
+this workflow or its companion. Keep only an unanswered **Clarification
+needed** question in the pending-question set. **Fixed**, **Shipped**, **In
+progress**, and **Open - no reply** are not pending questions. Then:
 
 - **Someone answered** → that is now the highest-priority item in the run.
   Rebuild the evidence and attempt the fix. Use a **Fixed** reply only after
@@ -67,7 +70,21 @@ questions in the worklist until they are answered or explicitly resolved. The
 Slack thread is the durable record of its id and status; do not drop an open
 question because it is old or because a new run has started.
 
-The two searches cover **every** run's questions, not just yours. Inspect the
+The companion workflow does not require the disclosure marker. Independently
+search its clarification wording across the channel, without an author filter
+or date cutoff, and classify each full thread before adding it to the pending
+set. For example:
+
+```
+slack_search: "if you can share" in:<#CHANNEL>
+  sort=timestamp sort_dir=asc
+```
+
+Repeat for the companion's other clarification wording, such as
+`"would help us investigate"`, and inspect author and thread metadata rather
+than treating every matching message as a question.
+
+These searches cover **every** run's questions, not just yours. Inspect the
 author and full thread so a later run under another valid workflow identity
 finds the existing question. Anything either search returns is already
 handled - never re-ask it, whichever run posted it.
@@ -129,12 +146,24 @@ Because the upvote already is the product decision, do not ask which variant
 people would prefer. Ship the smallest version that delivers the endorsed
 improvement, and let the reporter react to something real.
 
-Add `👀` from the invoking identity to each clear bug as you classify it, and
-read the reaction back. **The eye means "I have this," not "I owe you a
-message."** It is an investigation marker with no reply obligation — that
-coupling is what produced 23 questions in a single hour. If an earlier run
-eyed something out of scope, remove the reaction; do not post a compensating
-message.
+Add `👀` from the invoking identity to each clear bug or authorized upvoted
+improvement as it enters scope, and read the reaction back. Do not add it to an
+upvoted item that lacks the mapped owner's authorization; route that item
+instead. **The eye means "I have this," not "I owe you a message."** It is an
+investigation marker with no reply obligation - that coupling is what produced
+23 questions in a single hour. If an earlier run eyed something out of scope,
+remove the reaction; do not post a compensating message.
+
+Run an unbounded reaction search for the invoking identity's eyes as well:
+
+```
+slack_search: hasmy:eyes in:<#CHANNEL>
+```
+
+Read each matching parent and reaction. An eye-only clear bug or authorized
+upvoted improvement remains in the worklist and is rediscovered through this
+durable marker until it has a terminal disposition; it must not disappear when
+the message falls outside the five-day scan.
 
 Group repeat symptoms into one cluster with one owning investigation. Each
 report keeps its own eye and its own recap row; the cluster gets one fix.
@@ -258,8 +287,11 @@ Never ask for:
 - An internal blocker. Missing test tooling or a broken local install is your
   problem, never a reporter question.
 
-One unanswered question per thread, ever. If a needed artifact is inaccessible
-to you, ask for a fresh link — not for its contents again.
+At most one clarification question may be pending per thread at a time. Once it
+is answered or resolved, attempt the fix; if that exposes a different required
+detail, ask at most one new, non-repeating question. Never stack questions or
+repeat a pending one. If a needed artifact is inaccessible to you, ask for a
+fresh link - not for its contents again.
 
 ### Ask a fork, not for evidence
 

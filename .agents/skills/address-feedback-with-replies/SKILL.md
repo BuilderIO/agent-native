@@ -45,14 +45,14 @@ connector cannot remove reactions, record the exact parent for manual cleanup
 and leave the thread otherwise untouched. New messages must pass the clear-bug
 gate before any external write.
 
-Every clear-bug parent that receives `👀` enters the reply ledger. The reaction
-is not a reply or completion marker. Before finishing, re-read each eye-marked
-clear bug and verify the invoking identity posted **Fixed**, **In progress**, or
-**Clarification needed**, or recorded **Open - no reply** with a concrete
-reason. **In progress** requires concrete existing ownership or active fixing
-and must be revisited; a bot forward, another person's reply, or `👀` alone
-does not qualify. Mistaken out-of-scope eyes use the cleanup rule above, not a
-new reply.
+Every clear-bug parent or authorized upvoted improvement that receives `👀`
+enters the reply ledger. The reaction is not a reply or completion marker.
+Before finishing, re-read each eye-marked item and verify the invoking identity
+posted **Fixed**, **Shipped**, **In progress**, or **Clarification needed**, or
+recorded **Open - no reply** with a concrete reason. **In progress** requires
+concrete existing ownership or active fixing and must be revisited; a bot
+forward, another person's reply, or `👀` alone does not qualify. Mistaken
+out-of-scope eyes use the cleanup rule above, not a new reply.
 
 ## Prerequisites
 
@@ -112,10 +112,11 @@ Apply the shared `address-feedback` **Choose the fix altitude** gate before
 reacting, editing code, or replying. It selects the smallest owning seam and
 prevents one subjective report from becoming a global instruction.
 
-Once classified as a clear bug, add `👀` before investigation or delegation.
-Leave subjective/product, policy, informational, bot-forward, status-only,
-non-repo-owned, and Design items without reaction, reply, or code; Design goes
-to Sid unless explicitly assigned.
+Once classified as a clear bug or an authorized upvoted improvement, add `👀`
+before investigation or delegation. Leave subjective/product, policy,
+informational, bot-forward, status-only, non-repo-owned, and Design items
+without reaction, reply, or code unless the upvote and ownership gate put them
+in scope; Design goes to Sid unless explicitly assigned.
 
 `👀` is an investigation marker, not a handled marker. An eye-only clear bug
 remains open until verification and its final user-facing status are complete.
@@ -133,9 +134,9 @@ disposition.
 Never post the same sentence into several threads. When reports share one
 cause, reply once and record the rest as clustered.
 
-A clear-bug thread receives at most one external disposition per run:
-**Fixed**, **In progress**, **Clarification needed**, or **Open - no reply** with
-a reason. An already-eyed
+A tracked clear-bug or authorized upvoted improvement receives at most one
+external disposition per run: **Fixed**, **Shipped**, **In progress**,
+**Clarification needed**, or **Open - no reply** with a reason. An already-eyed
 item later found to be out of scope gets reaction cleanup and no new reply; if
 this workflow already replied, delete that reply when safe or edit it to one
 concise **Skipped** disposition. **Fixed** closes the current issue. **In progress** is
@@ -233,7 +234,7 @@ non-repeating question only if one specific required detail still blocks it.
    exact parent timestamp as `thread_ts`; never reply to a search-result
    timestamp or an adjacent thread. Before ending the run, mechanically
    audit the reply ledger: for every `👀` parent, record the invoking user's
-   reply timestamp and whether it is **Fixed**, **In progress**, or
+   reply timestamp and whether it is **Fixed**, **Shipped**, **In progress**, or
    **Clarification needed**, or **Open - no reply** with the reason. For a
    mistakenly eyed out-of-scope item, record reaction removal and no new reply
    instead. An eye-only clear bug means keep working the fix — it does not mean
