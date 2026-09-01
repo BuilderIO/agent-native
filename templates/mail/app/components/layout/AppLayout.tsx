@@ -2015,8 +2015,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         <div
           className={cn(
             "flex min-h-0 flex-1 flex-col",
-            sidebarPinned &&
-              !isMobile &&
+            !isMobile &&
+              showSidebar &&
               (showCollapsedSidebar ? "ps-12" : "ps-64"),
           )}
         >
@@ -2217,6 +2217,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 function StandardLayout({ children }: AppLayoutProps) {
   const t = useT();
   const location = useLocation();
+  const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const headerTitle = useHeaderTitle();
   const headerActions = useHeaderActions();
@@ -2440,7 +2441,12 @@ function StandardLayout({ children }: AppLayoutProps) {
 
       <InvitationBanner />
 
-      <main className="agent-native-app-main flex flex-1 overflow-hidden">
+      <main
+        className={cn(
+          "agent-native-app-main flex flex-1 overflow-hidden",
+          sidebarOpen && !isMobile && "ps-64",
+        )}
+      >
         {children}
       </main>
     </div>
