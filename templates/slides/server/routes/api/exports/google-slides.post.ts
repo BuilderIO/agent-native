@@ -67,7 +67,10 @@ export default defineEventHandler(async (event) => {
   try {
     account = await runWithRequestContext(
       { userEmail: sessionEmail, orgId: session.orgId },
-      () => getGoogleDocsAccessToken(sessionEmail),
+      () =>
+        getGoogleDocsAccessToken(sessionEmail, {
+          requireDriveUploadScope: true,
+        }),
     );
   } catch (error) {
     if (isGoogleReconnectError(error)) {

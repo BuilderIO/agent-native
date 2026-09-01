@@ -124,6 +124,10 @@ describe("google-slides connection failures", () => {
     };
 
     expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 409);
+    expect(mockGetGoogleDocsAccessToken).toHaveBeenCalledWith(
+      "owner@example.com",
+      { requireDriveUploadScope: true },
+    );
     expect(result).toEqual({
       error:
         "Google Drive connection expired. Connect Google again, then retry.",
