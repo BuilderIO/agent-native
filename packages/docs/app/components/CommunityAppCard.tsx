@@ -1,30 +1,15 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import {
-  IconArrowUpRight,
-  IconBrandGithub,
-  IconExternalLink,
-} from "@tabler/icons-react";
+import { IconArrowUpRight, IconBrandGithub } from "@tabler/icons-react";
 import { Link } from "react-router";
 
 import { BuilderImage } from "./builder-image";
 import type { CommunityApp } from "./community-apps";
 import { sitePathForLocale } from "./docs-locale";
-import { buttonClassName } from "./website-redesign/ds/button";
+import { Button, buttonClassName } from "./website-redesign/ds/button";
 
-const CARD_ARROW_CLASS = [
-  "mt-auto flex h-8 w-8 items-center justify-center rounded-[var(--b-radius)] border border-solid border-[var(--b-action-secondary-border)] bg-transparent text-[var(--b-text-primary)]",
-  "transition-[background,border-color,color] duration-150 ease-[ease]",
-  "group-hover:border-[var(--b-text-primary)] group-hover:bg-[var(--b-text-primary)] group-hover:text-[var(--b-bg-page)]",
-].join(" ");
-
-// Same pairing the first-party cards use, so the two grids read as one set.
-const cardPrimaryActionClass = buttonClassName({
-  variant: "white",
-  compact: true,
-  className: "flex-1 uppercase",
-});
-
+// Matches the secondary action on the first-party cards, so the two grids
+// read as one set.
 const cardSecondaryActionClass = buttonClassName({
   variant: "secondary",
   compact: true,
@@ -64,14 +49,9 @@ export function CommunityAppCard({ app }: { app: CommunityApp }) {
           ) : null}
         </div>
         <div className="flex flex-auto flex-col items-start gap-[var(--spacing-3)] p-[var(--spacing-5)]">
-          <div className="flex w-full items-start justify-between gap-3">
-            <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
-              {app.name}
-            </h3>
-            <span aria-hidden="true" className={CARD_ARROW_CLASS}>
-              <IconArrowUpRight size={16} stroke={1.75} />
-            </span>
-          </div>
+          <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {app.name}
+          </h3>
           {/* Sits where the first-party cards put their eyebrow: mono caps in
               the accent, above the description rather than below it. */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] uppercase tracking-[0.04em] text-[var(--b-text-eyebrow)]">
@@ -97,20 +77,27 @@ export function CommunityAppCard({ app }: { app: CommunityApp }) {
       </Link>
 
       <div className="flex flex-wrap gap-2 border-t border-solid border-[var(--b-border-subtle)] px-[var(--spacing-5)] pt-[var(--spacing-4)] pb-[var(--spacing-5)]">
-        {app.demoUrl ? (
-          <a
-            href={app.demoUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() =>
-              trackCommunityEvent("click community app demo", app, "card")
-            }
-            className={cardPrimaryActionClass}
-          >
-            <IconExternalLink size={14} aria-hidden="true" />
-            {t("templatesPage.tryCommunityApp")}
-          </a>
-        ) : null}
+        {/* Prefers the hosted demo and falls back to the app's own page, so
+            every card keeps one primary way in — which is what the arrow in
+            the title used to be. */}
+        <Button
+          variant="white"
+          icon={IconArrowUpRight}
+          compact
+          href={app.demoUrl ?? appPath}
+          target={app.demoUrl ? "_blank" : undefined}
+          rel={app.demoUrl ? "noopener noreferrer" : undefined}
+          onClick={() =>
+            trackCommunityEvent(
+              app.demoUrl ? "click community app demo" : "click community app",
+              app,
+              "card",
+            )
+          }
+          className="flex-1 uppercase"
+        >
+          {t("common.tryIt")}
+        </Button>
         {(app.repositoryUrl ?? app.sourceUrl) ? (
           <a
             href={app.repositoryUrl ?? app.sourceUrl}
