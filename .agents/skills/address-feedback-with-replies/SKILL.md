@@ -28,11 +28,13 @@ Design clips and imported-design usability, routes to Sid and is not handled
 here. Content remains with Alice.
 
 One exception: an `:upvote:` from the invoking identity promotes an otherwise
-out-of-scope UX or feature request into scope — that reaction is the product
+out-of-scope UX or feature request into scope - that reaction is the product
 decision, so build the smallest version rather than asking which variant is
-wanted. `review-latest-feedback` owns the discovery query and the **Shipped**
-disposition; everything in this file about voice, evidence, and verification
-applies to an upvoted item unchanged.
+wanted. It does not transfer ownership: Design and Content remain with Sid or
+Alice, and work in those areas requires the mapped owner's authorization or an
+explicit assignment. `review-latest-feedback` owns the discovery query and the
+**Shipped** disposition; everything in this file about voice, evidence, and
+verification applies to an upvoted item unchanged.
 
 If an earlier run already added `👀` to an out-of-scope item, remove that
 reaction with the connected Slack removal action when available. Do not add
@@ -46,10 +48,11 @@ gate before any external write.
 Every clear-bug parent that receives `👀` enters the reply ledger. The reaction
 is not a reply or completion marker. Before finishing, re-read each eye-marked
 clear bug and verify the invoking identity posted **Fixed**, **In progress**, or
-**Clarification needed**. **In progress** requires concrete existing ownership
-or active fixing and must be revisited; a bot forward, another person's reply,
-or `👀` alone does not qualify. Mistaken out-of-scope eyes use the cleanup rule
-above, not a new reply.
+**Clarification needed**, or recorded **Open - no reply** with a concrete
+reason. **In progress** requires concrete existing ownership or active fixing
+and must be revisited; a bot forward, another person's reply, or `👀` alone
+does not qualify. Mistaken out-of-scope eyes use the cleanup rule above, not a
+new reply.
 
 ## Prerequisites
 
@@ -130,7 +133,8 @@ Never post the same sentence into several threads. When reports share one
 cause, reply once and record the rest as clustered.
 
 A clear-bug thread receives at most one external disposition per run:
-**Fixed**, **In progress**, **Clarification needed**, or nothing. An already-eyed
+**Fixed**, **In progress**, **Clarification needed**, or **Open - no reply** with
+a reason. An already-eyed
 item later found to be out of scope gets reaction cleanup and no new reply; if
 this workflow already replied, delete that reply when safe or edit it to one
 concise **Skipped** disposition. **Fixed** closes the current issue. **In progress** is
@@ -229,7 +233,7 @@ non-repeating question only if one specific required detail still blocks it.
    timestamp or an adjacent thread. Before ending the run, mechanically
    audit the reply ledger: for every `👀` parent, record the invoking user's
    reply timestamp and whether it is **Fixed**, **In progress**, or
-   **Clarification needed**, or deliberate silence with the reason. For a
+   **Clarification needed**, or **Open - no reply** with the reason. For a
    mistakenly eyed out-of-scope item, record reaction removal and no new reply
    instead. An eye-only clear bug means keep working the fix — it does not mean
    manufacture a message to close the row. Do not create new reactions or

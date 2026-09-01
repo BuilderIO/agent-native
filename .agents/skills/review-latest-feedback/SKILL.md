@@ -35,36 +35,47 @@ see the previous run, which is why the follow-up never happened. Run this
 first, every time:
 
 ```
-slack_search: "this was sent from a bot." from:<@ME> in:<#CHANNEL> after:<TODAY-5>
+slack_search: "this was sent from a bot." in:<#CHANNEL> after:<TODAY-5>
   sort=timestamp sort_dir=asc
 ```
 
 For each hit, read its full thread. Then:
 
 - **Someone answered** → that is now the highest-priority item in the run.
-  Rebuild the evidence, attempt the fix, and replace the question with a
-  **Fixed** reply. Do not ask a follow-up question before attempting the fix.
+  Rebuild the evidence and attempt the fix. Use a **Fixed** reply only after
+  all four verification bars pass; otherwise keep the clarification open or
+  ask one remaining specific question. Do not ask a follow-up before trying
+  the fix.
 - **No answer, posted under 4 days ago** → leave it. Post nothing. A second
   message is a nag, not a follow-up.
-- **No answer, posted over 4 days ago** → the question failed. Drop it
-  silently: no reminder, no re-ask, no new reaction. Record it in the recap as
-  `abandoned - no answer in 4 days` and, if the bug still matters, carry it
-  forward as an internal investigation with no reporter dependency.
+- **No answer, posted over 4 days ago** → keep it in the open-question set.
+  Do not remind, re-ask, or add a reaction. Recheck it through the unbounded
+  clarification search below and record `open - no reply` until it is answered
+  or explicitly resolved.
 
-`after:<TODAY-5>` is the whole retention policy. Anything older is gone on
-purpose; a five-day search window with a four-day drop rule leaves one day of
-overlap so a question posted late on day 4 is still seen once.
+`after:<TODAY-5>` bounds the new-message scan only. It is not a retention
+policy for open questions. Before scanning newer messages, run a second search
+without an `after` filter:
 
-This search covers **every** run's questions, not just yours. Two runs four
-hours apart once asked the same thread for the same missing detail because
-neither could see the other; a third pair left contradicting dispositions on
-one thread. Anything the search returns is already handled — never re-ask it,
-whichever run posted it.
+```
+slack_search: "this was sent from a bot." in:<#CHANNEL>
+  sort=timestamp sort_dir=asc
+```
 
-Search for the disclosure string, not for your own display name — replies from
-this workflow are the only messages that carry it, and it survives edits. It
-is also the only signal a reporter has that they are talking to a bot, so a
-reply that ships without it is both undiscoverable here and a small lie in the
+Read each matching workflow clarification thread and keep unanswered
+questions in the worklist until they are answered or explicitly resolved. The
+Slack thread is the durable record of its id and status; do not drop an open
+question because it is old or because a new run has started.
+
+The two searches cover **every** run's questions, not just yours. Inspect the
+author and full thread so a later run under another valid workflow identity
+finds the existing question. Anything either search returns is already
+handled - never re-ask it, whichever run posted it.
+
+Search for the disclosure string, not for your own display name. Replies from
+this workflow are the messages that carry it, and it survives edits. It is
+also the only signal a reporter has that they are talking to a bot, so a reply
+that ships without it is both undiscoverable here and a small lie in the
 channel. Never omit it.
 
 ## Phase 1: scan and classify
@@ -86,10 +97,11 @@ turn a subjective concern into a poll about which option people prefer.
 
 ### `:upvote:` overrides the clear-bug gate
 
-An `:upvote:` from **the invoking identity** — not from anyone else — promotes
-an otherwise out-of-scope item into scope. It is the endorsement that settles
-the product question: someone read this suggestion and decided it should
-happen. Build it.
+An `:upvote:` from **the invoking identity** - not from anyone else - promotes
+an otherwise out-of-scope item into scope for its mapped owner. It is the
+endorsement that settles the product question, not a transfer of ownership.
+Build it only when the mapped owner or an explicit assignment authorizes work
+in that area.
 
 Find them alongside the newest-message scan:
 
@@ -109,8 +121,9 @@ else still applies: it gets the same `👀`, the same fix-altitude gate, the
 same verification, and it counts against the question budget.
 
 The upvote overrides the bug gate, not the ownership map. An upvoted Design or
-Content item still gets built — but name Sid or Alice in the recap row so the
-owner is not surprised by a change in their area.
+Content item stays with its mapped owner, Sid or Alice. Build it only with that
+owner's authorization or an explicit assignment; otherwise route it to the
+owner and do not change code. Name the owner in the recap row.
 
 Because the upvote already is the product decision, do not ask which variant
 people would prefer. Ship the smallest version that delivers the endorsed
