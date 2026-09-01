@@ -81,11 +81,10 @@ export default function TemplatesPage() {
           </section>
 
           {/* Its own band under the card grid rather than a cell inside it,
-              where it read as one more app. Opaque for the same reason as the
-              heading bands: the decorative column rules would otherwise run
-              straight through the centred copy. */}
+              where it read as one more app. Left transparent, unlike the
+              heading bands, so the page's column rules carry through it. */}
           <section aria-labelledby="build-from-scratch-heading">
-            <div className="-mx-[15px] flex flex-col items-center gap-[var(--spacing-4)] bg-[var(--b-bg-page)] px-[15px] pt-16 pb-4 text-center sm:-mx-[23px] sm:px-[23px]">
+            <div className="flex flex-col items-center gap-[var(--spacing-4)] py-16 text-center">
               <h2
                 id="build-from-scratch-heading"
                 className={`m-0 ${SECTION_HEADING_CLASS}`}
@@ -135,7 +134,7 @@ export default function TemplatesPage() {
               padding so the top rule spans the full measure, then restore it so
               the heading stays aligned with the rest of the page. */}
           <section
-            className="-mx-4 mt-24 border-t border-solid border-[var(--b-border-default)] px-4 sm:-mx-6 sm:px-6"
+            className="-mx-4 border-t border-solid border-[var(--b-border-default)] px-4 sm:-mx-6 sm:px-6"
             aria-labelledby="community-apps-heading"
           >
             {/* Same opaque heading band as the first-party section above. */}
