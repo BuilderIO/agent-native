@@ -99,6 +99,20 @@ describe("imageArtifactLinks", () => {
 });
 
 describe("serializeAssetSummary", () => {
+  beforeEach(() => {
+    restoreEnv();
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+    delete process.env.APP_URL;
+    delete process.env.URL;
+    delete process.env.DEPLOY_URL;
+    delete process.env.BETTER_AUTH_URL;
+  });
+
+  afterEach(() => {
+    restoreEnv();
+  });
+
   it("returns only the generation fields callers consume", () => {
     const summary = serializeAssetSummary({
       id: "asset-1",
