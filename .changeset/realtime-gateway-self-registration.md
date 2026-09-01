@@ -12,3 +12,8 @@ channel it gets back. The gateway URL is now derived from
 instead of four. Pipeline-injected channels still win, and anything missing
 (no key, a non-Postgres database, a deploy preview, the org not in the rollout)
 leaves the app on its own `/_agent-native/poll`.
+
+Registration also requires the process to actually be a deployed runtime when
+the platform does not name this deploy's own URL, so a production build run on
+a laptop cannot repoint production's channel at another database. It logs why
+when it declines.

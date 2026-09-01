@@ -286,7 +286,12 @@ export function isHostedWorkspaceRuntime(): boolean {
   );
 }
 
-function isProductionLikeRuntime(): boolean {
+/**
+ * Whether this process is a deployed serverless/container runtime rather than
+ * a developer's machine. Each of these is set BY the platform, so a production
+ * build run locally sets none of them however its env file is populated.
+ */
+export function isProductionLikeRuntime(): boolean {
   return (
     process.env.NODE_ENV === "production" ||
     /^(1|true)$/i.test(process.env.NETLIFY ?? "") ||

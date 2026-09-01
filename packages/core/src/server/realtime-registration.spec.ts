@@ -6,6 +6,7 @@ const mockGetSetting = vi.hoisted(() => vi.fn());
 const mockPutSetting = vi.hoisted(() => vi.fn());
 const mockSelfUrl = vi.hoisted(() => vi.fn());
 const mockHostedWorkspace = vi.hoisted(() => vi.fn());
+const mockProductionRuntime = vi.hoisted(() => vi.fn());
 const mockDeployEnv = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
@@ -30,6 +31,7 @@ vi.mock("./credential-provider.js", () => ({
   // the same absence the module sees in production.
   readDeployCredentialEnv: (key: string) => process.env[key] || undefined,
   isHostedWorkspaceRuntime: mockHostedWorkspace,
+  isProductionLikeRuntime: mockProductionRuntime,
 }));
 
 import {
@@ -53,12 +55,17 @@ beforeEach(() => {
   vi.clearAllMocks();
   resetRealtimeRegistrationCache();
   vi.stubGlobal("fetch", fetchMock);
+  // A deployed Netlify function: the platform names this deploy's own URL. The
+  // fallback rung (`app.url`, shared by every environment built from the prod
+  // env file) is gated separately below.
+  vi.stubEnv("DEPLOY_PRIME_URL", "https://slides.agent-native.com");
   process.env.AGENT_NATIVE_REALTIME_TRANSPORT = "hosted";
   process.env.BUILDER_PRIVATE_KEY = "bpk-test";
   mockIsPostgres.mockReturnValue(true);
   mockGetDatabaseUrl.mockReturnValue(DB_URL);
   mockSelfUrl.mockReturnValue("https://slides.agent-native.com");
   mockHostedWorkspace.mockReturnValue(false);
+  mockProductionRuntime.mockReturnValue(true);
   mockDeployEnv.mockReturnValue("production");
   mockGetSetting.mockResolvedValue(null);
   mockPutSetting.mockResolvedValue(undefined);
@@ -67,6 +74,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   delete process.env.AGENT_NATIVE_REALTIME_TRANSPORT;
   delete process.env.BUILDER_PRIVATE_KEY;
 });
@@ -90,8 +98,14 @@ describe("resolveRegisteredRealtimeChannel", () => {
     await resolveRegisteredRealtimeChannel();
     const [key, value] = mockPutSetting.mock.calls[0];
     expect(key).toBe("agent-native-realtime-registration");
-    expect(value).toMatchObject(CHANNEL);
+    expect(value.channelId).toBe(CHANNEL.channelId);
     expect(value.fingerprint).toEqual(expect.any(String));
+    // The row lives in the app's OWN database, and a Neon branch is a copy of
+    // it. A plaintext secret there mints valid tokens against the production
+    // channel for anyone with read access to any branch.
+    expect(value).not.toHaveProperty("hmacSecret");
+    expect(value.hmacSecretEncrypted).toMatch(/^v1:/);
+    expect(value.hmacSecretEncrypted).not.toContain(CHANNEL.hmacSecret);
   });
 
   it("reuses a stored channel without touching the network", async () => {
@@ -202,6 +216,71 @@ describe("resolveRegisteredRealtimeChannel", () => {
     arrange();
     await expect(resolveRegisteredRealtimeChannel()).resolves.toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not register the canonical origin from a process that may not be the deploy", async () => {
+    // No per-deploy platform var means `resolveSelfDispatchBaseUrl` fell back
+    // to `app.url` — the CANONICAL origin, shared by every environment built
+    // from the production env file. A built server run on a laptop against a
+    // branch database resolves "production" (the default with no platform
+    // context) and would repoint production's channel at that branch, which
+    // production never heals from: its own fingerprint still matches, so it
+    // never re-registers.
+    vi.stubEnv("DEPLOY_PRIME_URL", "");
+    mockProductionRuntime.mockReturnValue(false);
+    await expect(resolveRegisteredRealtimeChannel()).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("registers on the canonical origin from a real deployed runtime", async () => {
+    // A self-hosted container or a Vercel function has no Netlify deploy vars,
+    // but the platform does mark itself (NODE_ENV=production, VERCEL,
+    // AWS_LAMBDA_FUNCTION_NAME, …) and a laptop does not.
+    vi.stubEnv("DEPLOY_PRIME_URL", "");
+    await expect(resolveRegisteredRealtimeChannel()).resolves.toEqual(CHANNEL);
+  });
+
+  it("re-registers when the Builder credential moves to another org", async () => {
+    // The gateway scopes a channel to the org the key resolves to. Without the
+    // credential in the fingerprint the app kept minting against the OLD org's
+    // channel forever — the new org's rollout flag, suspension and cap
+    // accounting never applying to it.
+    await resolveRegisteredRealtimeChannel();
+    const stored = mockPutSetting.mock.calls[0][1];
+    fetchMock.mockClear();
+    resetRealtimeRegistrationCache();
+    mockGetSetting.mockResolvedValue(stored);
+    process.env.BUILDER_PRIVATE_KEY = "bpk-other-org";
+
+    await resolveRegisteredRealtimeChannel();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("logs a 403 that is not the rollout flag", async () => {
+    // Revoked key, org opt-out, suspension, unverified email and PAT policy all
+    // 403 here. Treating every one as "not in the rollout yet" sent operators to
+    // check a flag while the deployment re-POSTed forever in silence.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      fetchMock.mockResolvedValue(ok({ code: "invalid_credentials" }, 403));
+      await expect(resolveRegisteredRealtimeChannel()).resolves.toBeNull();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("invalid_credentials"),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("stays quiet for the rollout flag itself", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      fetchMock.mockResolvedValue(ok({ code: "flag_off" }, 403));
+      await expect(resolveRegisteredRealtimeChannel()).resolves.toBeNull();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("ignores a malformed gateway response rather than minting against it", async () => {

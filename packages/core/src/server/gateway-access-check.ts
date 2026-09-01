@@ -37,9 +37,11 @@ export function createGatewayAccessCheckHandler() {
 
     // Neither injected: a self-registered app. Resolve its own channel, or the
     // gateway's every sharee check 404s and shared-resource events are dropped
-    // for exactly the deployments self-registration exists to serve. Must use
-    // the SAME discriminator as the token mint (`realtime-token.ts`) — with
-    // either half injected this is a pipeline app and the env pair governs.
+    // for exactly the deployments self-registration exists to serve. This is
+    // the SAME discriminator `resolveActiveRealtimeChannel` applies — with
+    // either half injected this is a pipeline app and the env pair governs —
+    // spelled out here because this route has no request context and so must
+    // use the sync, env-only project id above.
     if (!secret && !expectedProjectId) {
       const registered = await resolveRegisteredRealtimeChannel().catch(
         () => null,

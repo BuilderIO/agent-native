@@ -236,11 +236,11 @@ import { handleIdentitySso } from "./identity-sso.js";
 import { createOpenRouteHandler } from "./open-route.js";
 import { createPollEventsHandler } from "./poll-events.js";
 import { createPollHandler } from "./poll.js";
+import { isHostedRealtimeTransport } from "./realtime-registration.js";
 import {
-  isHostedRealtimeTransport,
-  resolveRegisteredRealtimeChannel,
-} from "./realtime-registration.js";
-import { createRealtimeTokenHandler } from "./realtime-token.js";
+  createRealtimeTokenHandler,
+  resolveActiveRealtimeChannel,
+} from "./realtime-token.js";
 import {
   getRequestContext,
   hasRequestContext,
@@ -603,8 +603,18 @@ export interface DbHealthProbeResult {
  */
 /**
  * Never throws and never blocks the probe: a gateway that is slow or refusing
- * must not make an app look unhealthy. `resolveRegisteredRealtimeChannel`
- * already bounds itself (4s abort, memo, single-flight, failure backoff).
+ * must not make an app look unhealthy.
+ *
+ * `resolveActiveRealtimeChannel` is the one shared discriminator (see its
+ * doc). Using anything looser here is not a cosmetic difference — resolution
+ * REGISTERS on a miss, so a probe that fell back on half the rule would have
+ * one anonymous curl of this public endpoint POST a pipeline app's database
+ * credential to the gateway and start a duplicate channel tailing a database
+ * Builder already tails.
+ *
+ * The network call bounds itself (4s abort, memo, single-flight, failure
+ * backoff), but the DB reads on the way to it do not — hence the deadline the
+ * caller wraps this in.
  */
 async function resolveRealtimeHealth(): Promise<
   DbHealthProbeResult["realtime"]
@@ -613,10 +623,7 @@ async function resolveRealtimeHealth(): Promise<
   if (transport === "local") return { transport, registered: false };
   let channelId: string | undefined;
   try {
-    // The pipeline's injected channel wins, exactly as in the token mint.
-    channelId =
-      (await resolveBuilderBranchProjectId()) ||
-      (await resolveRegisteredRealtimeChannel())?.channelId;
+    channelId = (await resolveActiveRealtimeChannel())?.projectId;
   } catch {
     return { transport, registered: false, unavailable: true };
   }
@@ -631,6 +638,31 @@ async function resolveRealtimeHealth(): Promise<
   };
 }
 
+/**
+ * Resolve `promise`, or `onTimeout` if it has not settled by the probe
+ * deadline. The timer is always cleared: a pending one keeps a serverless
+ * function alive past its response.
+ */
+async function withHealthDeadline<T>(
+  promise: Promise<T>,
+  onTimeout: T,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise.catch(() => onTimeout),
+      new Promise<T>((resolve) => {
+        timer = setTimeout(
+          () => resolve(onTimeout),
+          DB_HEALTH_PROBE_DEADLINE_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export async function runDbHealthProbe(
   exec: () => { execute: (sql: string) => Promise<unknown> } = getDbExec,
   options: { schema?: boolean; pressure?: boolean } = {},
@@ -641,6 +673,10 @@ export async function runDbHealthProbe(
   let schema: DatabaseSchemaHealthResult | undefined;
   const dbExec = exec();
   let dbTimedOut = false;
+  // Started BEFORE the DB probe, not awaited after it. Both read the database,
+  // so running them in series charged every health check the realtime path's
+  // whole latency — up to a 4s gateway POST on a cold isolate — for nothing.
+  const realtimeProbe = resolveRealtimeHealth();
   try {
     // An UNBOUNDED await here is what took the docs site down: the health route
     // hung for 20-40s until the CDN returned 502, the keep-warm cron failed
@@ -680,7 +716,17 @@ export async function runDbHealthProbe(
       ? await probeDbPressure(dbExec, database.dialect, { trivialQueryMs })
       : { measured: false, reason: "database unreachable" };
   }
-  const realtime = await resolveRealtimeHealth();
+  // Same deadline, same reason as the `SELECT 1` above. `resolveRealtimeHealth`
+  // reaches the gateway through the app's own database (the project-id lookup
+  // and the stored-registration read), and those reads have no bound of their
+  // own: against a black-holed Postgres the probe would time out on SELECT 1
+  // and then hang here on the same dead pool — reintroducing the unbounded
+  // /health await documented above, one layer down.
+  const realtime = await withHealthDeadline(realtimeProbe, {
+    transport: isHostedRealtimeTransport() ? "hosted" : "local",
+    registered: false,
+    unavailable: true,
+  });
   return {
     ok: true,
     ready: db && (!schema || schema.ok),

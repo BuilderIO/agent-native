@@ -219,10 +219,16 @@ async function readMaxUpdatedAtRaw(
     ) => Promise<{ rows: Array<Record<string, unknown>> }>;
   },
   table: "application_state" | "settings" | "tools",
+  excludeKey?: string,
 ): Promise<unknown> {
   try {
     const result = await db.execute(
-      `SELECT MAX(updated_at) as max_ts FROM ${table}`,
+      excludeKey
+        ? {
+            sql: `SELECT MAX(updated_at) as max_ts FROM ${table} WHERE key != ?`,
+            args: [excludeKey],
+          }
+        : `SELECT MAX(updated_at) as max_ts FROM ${table}`,
     );
     return result.rows[0]?.max_ts;
   } catch {
@@ -238,8 +244,29 @@ async function readMaxUpdatedAt(
     ) => Promise<{ rows: Array<Record<string, unknown>> }>;
   },
   table: "application_state" | "settings" | "tools",
+  excludeKey?: string,
 ): Promise<number> {
-  return timestampValue(await readMaxUpdatedAtRaw(db, table));
+  return timestampValue(await readMaxUpdatedAtRaw(db, table, excludeKey));
+}
+
+/**
+ * The settings watermark deliberately cannot see the realtime registration row.
+ *
+ * `wireLocalEmitters` already skips that key so the isolate that WRITES it fans
+ * out nothing — but the cross-instance detector below has no key filter, and a
+ * bare `MAX(updated_at)` advancing makes every OTHER live isolate record a
+ * durable `key:"*"` settings change. That invalidates every connected client's
+ * settings queries for a write none of them can see, which is exactly what the
+ * emitter skip exists to prevent. Filtering here closes the second half.
+ * `settings_updated_at_idx` still serves this: the excluded key is one row, so
+ * a backwards index scan skips at most one tuple before it stops.
+ */
+async function readSettingsMaxUpdatedAt(db: {
+  execute: (
+    query: string | { sql: string; args?: unknown[] },
+  ) => Promise<{ rows: Array<Record<string, unknown>> }>;
+}): Promise<number> {
+  return readMaxUpdatedAt(db, "settings", REALTIME_REGISTRATION_SETTING_KEY);
 }
 
 async function readExtensionMarkerMaxUpdatedAt(db: {
@@ -1680,7 +1707,7 @@ export class AppSyncState {
       ] = await Promise.all([
         this.readMaxSyncEventVersion(),
         readMaxUpdatedAt(db, "application_state"),
-        readMaxUpdatedAt(db, "settings"),
+        readSettingsMaxUpdatedAt(db),
         readMaxUpdatedAtRaw(db, "tools"),
         readExtensionMarkerMaxUpdatedAt(db),
         readActionMarkerMaxUpdatedAt(db),
@@ -1814,7 +1841,7 @@ export class AppSyncState {
       ] = await Promise.all([
         readMaxUpdatedAt(db, "application_state"),
         readActionMarkerMaxUpdatedAt(db),
-        readMaxUpdatedAt(db, "settings"),
+        readSettingsMaxUpdatedAt(db),
         readMaxUpdatedAtRaw(db, "tools"),
       ]);
 

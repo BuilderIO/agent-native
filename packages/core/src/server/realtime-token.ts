@@ -51,6 +51,53 @@ export function getRealtimeSigningSecret(): string | undefined {
   return process.env[REALTIME_HMAC_SECRET_ENV]?.trim() || undefined;
 }
 
+/**
+ * The channel this app actually mints against: the pipeline's injected pair,
+ * or the one it registered for itself.
+ *
+ * The discriminator is the whole point and it has exactly one correct form:
+ * self-register only when NEITHER half of the injected pair is present. Either
+ * half alone means the hosting pipeline owns this app and already gave the
+ * gateway its database, so the fix for the missing half is a redeploy, not a
+ * second `rt_` channel tailing a database Builder already holds. Gating on the
+ * project id alone is not enough — `resolveBuilderBranchProjectId()` returns
+ * `""` for an UNREADABLE settings row as well as an absent one
+ * (builder-browser.ts), so one Neon blip would register a genuine pipeline
+ * app's database under a duplicate channel.
+ *
+ * This lives here because the mint is not the only caller: the public
+ * `/_agent-native/health` probe resolves it too (and registers on a miss), and
+ * a probe that used HALF the discriminator would do exactly that on one
+ * anonymous curl. `gateway-access-check.ts` applies the same rule against the
+ * SYNC, env-only project id — it runs without request context — so it spells
+ * it out rather than calling this.
+ *
+ * Callers must supply request context where they have it: the scoped-secret
+ * fallback inside `resolveBuilderBranchProjectId` reads the request-context
+ * ALS, and without it only env vars resolve.
+ *
+ * Rejects rather than swallowing: "no channel" and "could not find out" are
+ * different answers, and `/_agent-native/health` reports them as different
+ * fields. Callers that owe a client a status code catch it themselves.
+ */
+export async function resolveActiveRealtimeChannel(): Promise<{
+  projectId: string;
+  secret: string;
+} | null> {
+  const projectId = await resolveBuilderBranchProjectId();
+  const secret = getRealtimeSigningSecret();
+  if (projectId && secret) return { projectId, secret };
+  if (projectId || secret) return null;
+
+  // Not a pipeline app. Fall back to the channel it registered for itself,
+  // which exists only if someone set the hosted transport env var on this
+  // deployment.
+  const registered = await resolveRegisteredRealtimeChannel();
+  return registered
+    ? { projectId: registered.channelId, secret: registered.hmacSecret }
+    : null;
+}
+
 export function createRealtimeTokenHandler() {
   return defineEventHandler(async (event: H3Event) => {
     // Identity-bearing token, valid ~10 min — never cacheable by the browser or
@@ -86,37 +133,20 @@ export function createRealtimeTokenHandler() {
       // Async resolver so hosted apps whose project id lives in a
       // request-scoped app/org/workspace secret (not an env var) also work —
       // the sync env-only lookup would 404 them and silently drop the gateway.
-      let projectId = await resolveBuilderBranchProjectId();
-      let secret = getRealtimeSigningSecret();
-      // Self-register only when NEITHER half is present. Either one alone means
-      // the hosting pipeline owns this app and already gave the gateway its
-      // database, so the fix for the missing half is a redeploy, not a second
-      // `rt_` channel tailing a database Builder already holds. Gating on the
-      // project id alone was not enough: `resolveBuilderBranchProjectId()`
-      // returns "" for an UNREADABLE settings row as well as an absent one
-      // (builder-browser.ts), so one Neon blip on a cold isolate would have
-      // registered a genuine pipeline app's database.
-      if (!projectId && !secret) {
-        // Not a pipeline app. Fall back to the channel it registered for
-        // itself, which exists only if someone set the hosted transport env var
-        // on this deployment. `.catch` keeps the module's promise: every
-        // failure here is a 404 the client reads as "stay local", never a 500
-        // it would classify as transient and retry into.
-        const registered = await resolveRegisteredRealtimeChannel().catch(
-          () => null,
-        );
-        if (registered) {
-          projectId = registered.channelId;
-          secret = registered.hmacSecret;
-        }
-      }
-      if (!projectId || !secret) {
+      // coercion-ok: "not provisioned" and "could not resolve" are the same
+      // 404 to this client — one it reads as "stay local" and handles, unlike
+      // a 500 it would classify as transient and retry into more cold starts.
+      // `/_agent-native/health` is where the two are told apart, and it calls
+      // the same resolver without this catch.
+      const channel = await resolveActiveRealtimeChannel().catch(() => null);
+      if (!channel) {
         // Hosted realtime isn't provisioned for this app. 404 lets the client
         // fall back to the app's own /_agent-native/poll without treating it
         // as an auth failure.
         setResponseStatus(event, 404);
         return { error: "Realtime gateway not configured" };
       }
+      const { projectId, secret } = channel;
 
       const token = signRealtimeSubscribeToken(
         {

@@ -28,10 +28,12 @@ import { createHash } from "node:crypto";
 
 import { getDatabaseUrl, isPgliteUrl, isPostgres } from "../db/client.js";
 import { REALTIME_REGISTRATION_SETTING_KEY } from "../realtime-registration-key.js";
+import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import { getSetting, putSetting } from "../settings/store.js";
 import {
   getBuilderGatewayBaseUrl,
   isHostedWorkspaceRuntime,
+  isProductionLikeRuntime,
   readDeployCredentialEnv,
 } from "./credential-provider.js";
 import { resolveDeployEnvironment } from "./deploy-environment.js";
@@ -41,8 +43,9 @@ import { resolveSelfDispatchBaseUrl } from "./self-dispatch.js";
  * Deployment-wide, so this lives in the plain settings store rather than
  * `app_secrets` — that store scopes every row to a user, org or workspace, and
  * a realtime channel belongs to none of them. The row holds an HMAC secret, so
- * treat it like one: it is never returned by an app route, and the two
- * `getAllSettings` consumers both filter to `mcp-servers-remote` keys.
+ * treat it like one: the secret is stored ENCRYPTED (see `StoredRegistration`),
+ * it is never returned by an app route, and the two `getAllSettings` consumers
+ * both filter to `mcp-servers-remote` keys.
  *
  * The key is declared in its own module because `poll.ts` skips it when wiring
  * the settings emitter into the sync log and cannot import this one.
@@ -69,12 +72,28 @@ export interface RealtimeChannel {
   hmacSecret: string;
 }
 
-interface StoredRegistration extends RealtimeChannel {
+interface StoredRegistration {
+  channelId: string;
+  /**
+   * AES-256-GCM ciphertext (`v1:…`), not the secret.
+   *
+   * This row lives in the app's OWN database, and the standard way to make a
+   * preview or a dev branch is to copy that database — Neon's branches are
+   * copy-on-write clones of production. A plaintext secret here would ride
+   * along, and channel id + secret is the entire subscribe-token auth story:
+   * read access to any branch would mint valid tokens for arbitrary
+   * owner/orgId against the PRODUCTION channel. The key material is env-only
+   * (`*_SECRETS_ENCRYPTION_KEY` / `SECRETS_ENCRYPTION_KEY` /
+   * `BETTER_AUTH_SECRET`), so a copied database carries ciphertext and nothing
+   * that opens it.
+   */
+  hmacSecretEncrypted: string;
   /**
    * Digest of the inputs the channel was registered with. A rotated database
-   * password or a changed app origin changes this, which is what triggers
-   * re-registration — the gateway upserts on (org, appUrl) and hands back the
-   * same channel, so a rotation never invalidates a live stream.
+   * password, a changed app origin or a swapped Builder credential changes
+   * this, which is what triggers re-registration — the gateway upserts on
+   * (org, appUrl) and hands back the same channel, so a rotation never
+   * invalidates a live stream.
    */
   fingerprint: string;
   registeredAt: number;
@@ -115,9 +134,22 @@ export function isHostedRealtimeTransport(): boolean {
   return process.env.AGENT_NATIVE_REALTIME_TRANSPORT?.trim() === "hosted";
 }
 
-function fingerprintOf(databaseUrl: string, appUrl: string): string {
+/**
+ * What the stored channel is keyed to. The Builder credential is in here as
+ * well as the database and origin: the gateway scopes a channel to the ORG the
+ * key resolves to, so swapping `BUILDER_PRIVATE_KEY` to a different org has to
+ * re-register. Without it an app moved between orgs kept minting tokens
+ * against the old org's channel forever — the new org's rollout flag,
+ * suspension and cap accounting never applying to it, the old org's governing
+ * an app that no longer holds its credential.
+ */
+function fingerprintOf(
+  databaseUrl: string,
+  appUrl: string,
+  privateKey: string,
+): string {
   return createHash("sha256")
-    .update(`${databaseUrl}\n${appUrl}`)
+    .update(`${databaseUrl}\n${appUrl}\n${privateKey}`)
     .digest("hex")
     .slice(0, 32);
 }
@@ -172,7 +204,22 @@ function collectInputs(): RegistrationInputs | null {
   // the container's dev database under that key's org is the exact conflation
   // `canUseBuilderDeployCredentialFallbackForRequest` exists to prevent, so
   // this path declines there rather than inheriting someone else's identity.
-  if (isHostedWorkspaceRuntime()) return null;
+  //
+  // The predicate is broader than that rationale: `AGENT_NATIVE_WORKSPACE` is
+  // also baked into the function wrappers of a customer's own
+  // `agent-native deploy` workspace bundle, so a customer workspace app
+  // deployed to their own Netlify/Vercel declines here too. That is deliberate
+  // for now — sibling apps in a workspace share one origin, and the gateway
+  // upserts on (org, origin), so they would collide on one channel and repoint
+  // each other's database. It is not obvious from `registered: false`, so say
+  // it once rather than leaving an operator to infer it from the rollout flag.
+  if (isHostedWorkspaceRuntime()) {
+    warnOnce(
+      "workspace",
+      "[realtime] hosted realtime self-registration is not available to workspace deployments; staying on local sync",
+    );
+    return null;
+  }
 
   // Deployment-level only, via the one resolver for that key. A per-user
   // Builder OAuth connection authorizes that user's LLM calls; it must not
@@ -185,6 +232,35 @@ function collectInputs(): RegistrationInputs | null {
   // a deploy preview, and the gateway upserts a registration on (org, appUrl):
   // a preview posting the production origin with its own branch database would
   // repoint production's channel at the preview database.
+  //
+  // `resolveSelfDispatchBaseUrl` prefers the platform's per-deploy vars but
+  // falls back to `app.url`, the CANONICAL origin, which every environment
+  // built from the production env file shares. Registering that from a process
+  // that is NOT the production deployment is the failure the preview check
+  // above exists to prevent, arriving by a different door: a built server run
+  // on a laptop against a branch database resolves "production" (the default
+  // when no platform context vars are set) and repoints production's channel.
+  // Production never heals — its own stored fingerprint still matches, so it
+  // never re-registers — and tails the wrong database indefinitely.
+  //
+  // So the fallback additionally requires this process to actually BE a
+  // deployed runtime. `isProductionLikeRuntime` reads vars the platform sets
+  // (NETLIFY, VERCEL, AWS_LAMBDA_FUNCTION_NAME, K_SERVICE, RENDER, CF_PAGES,
+  // NODE_ENV=production), none of which a laptop sets however its env file is
+  // populated.
+  const fromPlatform = Boolean(
+    process.env.DEPLOY_PRIME_URL || process.env.DEPLOY_URL || process.env.URL,
+  );
+  if (!fromPlatform && !isProductionLikeRuntime()) {
+    warnOnce(
+      "self-url",
+      "[realtime] this process does not look like a deployed runtime and its platform did " +
+        "not name a per-deploy URL, so registering the app's canonical origin could repoint " +
+        "production's channel; staying on local sync.",
+    );
+    return null;
+  }
+
   let origin: string;
   try {
     origin = new URL(resolveSelfDispatchBaseUrl()).origin;
@@ -199,8 +275,16 @@ function collectInputs(): RegistrationInputs | null {
     databaseUrl,
     appUrl: origin,
     privateKey,
-    fingerprint: fingerprintOf(databaseUrl, origin),
+    fingerprint: fingerprintOf(databaseUrl, origin, privateKey),
   };
+}
+
+/** One line per reason per process: these are boot-time facts, not events. */
+const warnedOnce = new Set<string>();
+function warnOnce(key: string, message: string): void {
+  if (warnedOnce.has(key)) return;
+  warnedOnce.add(key);
+  console.warn(message);
 }
 
 async function readStored(
@@ -217,10 +301,13 @@ async function readStored(
     // gateway rejecting a token, not a blind timer.
     if (
       stored?.channelId &&
-      stored.hmacSecret &&
+      stored.hmacSecretEncrypted &&
       stored.fingerprint === fingerprint
     ) {
-      return { channelId: stored.channelId, hmacSecret: stored.hmacSecret };
+      return {
+        channelId: stored.channelId,
+        hmacSecret: decryptSecretValue(stored.hmacSecretEncrypted),
+      };
     }
   } catch (err) {
     // Settings table not ready (first boot, migration in flight). Registering
@@ -251,6 +338,18 @@ function registrationEndpoint(): string {
   return `${getBuilderGatewayBaseUrl().replace(/\/+$/, "")}/realtime/register`;
 }
 
+/** The server's disambiguating `{code}`, or undefined if it sent none. */
+async function readRejectionCode(res: Response): Promise<string | undefined> {
+  try {
+    const body = (await res.json()) as { code?: unknown };
+    return typeof body?.code === "string" ? body.code : undefined;
+  } catch {
+    // coercion-ok: "sent no code" and "sent an unparseable body" are the same
+    // answer to the caller, which logs the status either way.
+    return undefined;
+  }
+}
+
 async function postRegistration(
   inputs: RegistrationInputs,
 ): Promise<RealtimeChannel | null> {
@@ -272,10 +371,18 @@ async function postRegistration(
       }),
     });
     if (!res.ok) {
-      // 403 means the org isn't in the rollout yet — expected, not an error.
-      if (res.status !== 403) {
+      // A 403 is NOT only "the org isn't in the rollout yet". The same status
+      // comes back for a revoked or malformed key, an org that opted out of
+      // the gateway, a suspended org, an unverified email, and a PAT policy
+      // rejection — and the server distinguishes them in the body's `code`.
+      // Swallowing all of them sent an operator whose key was revoked to check
+      // a rollout flag, while the deployment silently re-POSTed every ten
+      // minutes forever with nothing in the logs.
+      const code =
+        res.status === 403 ? await readRejectionCode(res) : undefined;
+      if (code !== "flag_off") {
         console.warn(
-          `[realtime] gateway registration failed (${res.status}); staying on local sync`,
+          `[realtime] gateway registration failed (${res.status}${code ? `: ${code}` : ""}); staying on local sync`,
         );
       }
       return null;
@@ -303,10 +410,13 @@ async function register(
   if (!channel) return null;
 
   try {
-    // Fans out no sync event: `poll.ts` skips this key when wiring the settings
-    // emitter, the same way it skips the change-marker keys.
+    // Fans out no sync event, in either direction: `poll.ts` skips this key
+    // when wiring the settings emitter (this process) and excludes it from the
+    // settings watermark (every other live isolate), the same way it handles
+    // the change-marker keys.
     await putSetting(REGISTRATION_SETTING_KEY, {
-      ...channel,
+      channelId: channel.channelId,
+      hmacSecretEncrypted: encryptSecretValue(channel.hmacSecret),
       fingerprint: inputs.fingerprint,
       registeredAt: Date.now(),
     } satisfies StoredRegistration);
