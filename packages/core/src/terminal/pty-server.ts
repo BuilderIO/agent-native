@@ -32,24 +32,35 @@ async function getChildProcess(): Promise<typeof import("child_process")> {
   return _cp;
 }
 
+export function resolvePtySpawnHelper(ptyPackagePath: string): string {
+  const helper = path.join(
+    path.dirname(ptyPackagePath),
+    "prebuilds",
+    `${process.platform}-${process.arch}`,
+    "spawn-helper",
+  );
+  return helper
+    .replace("app.asar", "app.asar.unpacked")
+    .replace("node_modules.asar", "node_modules.asar.unpacked");
+}
+
+export function ensurePtySpawnHelperExecutable(helper: string): void {
+  if (!fs.existsSync(helper)) return;
+  if (!(fs.statSync(helper).mode & 0o100)) {
+    fs.chmodSync(helper, 0o755);
+    console.log(
+      `[terminal] Fixed non-executable node-pty spawn-helper at ${helper}`,
+    );
+  }
+}
+
 export function ensurePtySpawnHelperPermissions(): void {
   if (os.platform() === "win32") return;
   try {
     const req = createRequire(import.meta.url);
     const ptyPkg = req.resolve("node-pty/package.json");
-    const helper = path.join(
-      path.dirname(ptyPkg),
-      "prebuilds",
-      `${process.platform}-${process.arch}`,
-      "spawn-helper",
-    );
-    if (!fs.existsSync(helper)) return;
-    if (!(fs.statSync(helper).mode & 0o100)) {
-      fs.chmodSync(helper, 0o755);
-      console.log(
-        `[terminal] Fixed non-executable node-pty spawn-helper at ${helper}`,
-      );
-    }
+    const helper = resolvePtySpawnHelper(ptyPkg);
+    ensurePtySpawnHelperExecutable(helper);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code;
     if (code === "MODULE_NOT_FOUND" || code === "ERR_MODULE_NOT_FOUND") return;
@@ -58,6 +69,23 @@ export function ensurePtySpawnHelperPermissions(): void {
       (err as Error).message,
     );
   }
+}
+
+function resolveTerminalShell(): string {
+  if (os.platform() === "win32") return process.env.ComSpec || "cmd.exe";
+
+  const configuredShell = process.env.SHELL;
+  if (configuredShell && path.isAbsolute(configuredShell)) {
+    try {
+      if (fs.statSync(configuredShell).isFile()) return configuredShell;
+    } catch {}
+  }
+
+  return (
+    ["/bin/zsh", "/bin/bash", "/bin/sh"].find((candidate) =>
+      fs.existsSync(candidate),
+    ) ?? "/bin/sh"
+  );
 }
 
 /**
@@ -167,8 +195,7 @@ export async function createPtyWebSocketServer(
   const pty = await import("node-pty");
 
   const resolvedAppDir = path.resolve(appDir);
-  const shell =
-    os.platform() === "win32" ? "cmd.exe" : process.env.SHELL || "/bin/zsh";
+  const shell = resolveTerminalShell();
 
   const server = createHttpServer((req, res) => {
     // CORS headers
@@ -217,8 +244,8 @@ export async function createPtyWebSocketServer(
     });
   });
 
-  // Track active PTY processes for cleanup
-  const activePtys = new Set<ReturnType<typeof pty.spawn>>();
+  // Track idempotent disposers so server shutdown covers every live socket.
+  const activeDisposers = new Set<() => void>();
 
   wss.on("connection", async (ws: InstanceType<typeof WebSocket>, req) => {
     const url = new URL(req.url || "", `http://${req.headers.host}`);
@@ -321,7 +348,19 @@ export async function createPtyWebSocketServer(
       return;
     }
 
-    activePtys.add(ptyProcess);
+    let disposed = false;
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
+      activeDisposers.delete(dispose);
+      try {
+        ptyProcess.kill();
+      } catch (err) {
+        console.warn(`${logPrefix} PTY cleanup failed:`, err);
+      }
+      void killProcessTree(ptyProcess.pid, logPrefix);
+    };
+    activeDisposers.add(dispose);
     console.log(`${logPrefix} PTY spawned (pid: ${ptyProcess.pid})`);
 
     ptyProcess.onData((data: string) => {
@@ -332,7 +371,7 @@ export async function createPtyWebSocketServer(
 
     ptyProcess.onExit(({ exitCode }) => {
       console.log(`${logPrefix} PTY exited with code ${exitCode}`);
-      activePtys.delete(ptyProcess);
+      dispose();
       if (exitCode === 127 && ws.readyState === WebSocket.OPEN) {
         ws.send(
           JSON.stringify({
@@ -406,8 +445,7 @@ export async function createPtyWebSocketServer(
       console.log(
         `${logPrefix} WebSocket closed, killing PTY tree (pid: ${ptyProcess.pid})`,
       );
-      activePtys.delete(ptyProcess);
-      void killProcessTree(ptyProcess.pid, logPrefix);
+      dispose();
     });
   });
 
@@ -427,10 +465,7 @@ export async function createPtyWebSocketServer(
         server,
         port: actualPort,
         close: () => {
-          for (const p of activePtys) {
-            void killProcessTree(p.pid, logPrefix);
-          }
-          activePtys.clear();
+          for (const dispose of [...activeDisposers]) dispose();
           wss.close();
           server.close();
         },

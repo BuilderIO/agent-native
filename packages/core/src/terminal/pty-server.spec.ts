@@ -1,4 +1,12 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -17,6 +25,7 @@ interface FakePty {
   pid: number;
   write: ReturnType<typeof vi.fn>;
   resize: ReturnType<typeof vi.fn>;
+  kill: ReturnType<typeof vi.fn>;
   onData: ReturnType<typeof vi.fn>;
   onExit: ReturnType<typeof vi.fn>;
   emitData: (data: string) => void;
@@ -29,6 +38,7 @@ const spawn = vi.fn(() => {
     pid: 999_999 + ptys.length,
     write: vi.fn(),
     resize: vi.fn(),
+    kill: vi.fn(),
     onData: vi.fn((handler: (data: string) => void) => {
       pty.emitData = handler;
     }),
@@ -140,6 +150,32 @@ describe("createPtyWebSocketServer", () => {
     expect(spawn).not.toHaveBeenCalled();
   });
 
+  it("resolves packaged node-pty helpers into the unpacked app", async () => {
+    const { resolvePtySpawnHelper } = await import("./pty-server.js");
+
+    expect(
+      resolvePtySpawnHelper(
+        "/Applications/Agent-Native.app/Contents/Resources/app.asar/node_modules/node-pty/package.json",
+      ),
+    ).toBe(
+      `/Applications/Agent-Native.app/Contents/Resources/app.asar.unpacked/node_modules/node-pty/prebuilds/${process.platform}-${process.arch}/spawn-helper`,
+    );
+  });
+
+  it("repairs a non-executable packaged spawn helper", async () => {
+    const helperDir = mkdtempSync(path.join(os.tmpdir(), "pty-helper-"));
+    tempDirs.push(helperDir);
+    const helper = path.join(helperDir, "spawn-helper");
+    mkdirSync(path.dirname(helper), { recursive: true });
+    writeFileSync(helper, "helper");
+    chmodSync(helper, 0o644);
+
+    const { ensurePtySpawnHelperExecutable } = await import("./pty-server.js");
+    ensurePtySpawnHelperExecutable(helper);
+
+    expect(statSync(helper).mode & 0o100).toBeTruthy();
+  });
+
   it("only upgrades the terminal WebSocket route", async () => {
     const server = await createServer({ authCheck: () => true });
 
@@ -164,6 +200,27 @@ describe("createPtyWebSocketServer", () => {
     expect(message.message).toContain("not a recognized CLI");
     expect(spawn).not.toHaveBeenCalled();
     ws.close();
+  });
+
+  it("cleans up each PTY once across exit and WebSocket close", async () => {
+    const server = await createServer({ command: "builder" });
+    const ws = await openSocket(`ws://127.0.0.1:${server.port}/ws`);
+    await vi.waitFor(() => expect(ptys).toHaveLength(1));
+
+    ptys[0].emitExit(0);
+    ws.close();
+
+    await vi.waitFor(() => expect(ptys[0]?.kill).toHaveBeenCalledTimes(1));
+  });
+
+  it("cleans up active PTYs when the server closes", async () => {
+    const server = await createServer({ command: "builder" });
+    await openSocket(`ws://127.0.0.1:${server.port}/ws`);
+    await vi.waitFor(() => expect(ptys).toHaveLength(1));
+
+    server.close();
+
+    expect(ptys[0]?.kill).toHaveBeenCalledTimes(1);
   });
 
   it("rejects shell metacharacters in flags before spawning", async () => {
