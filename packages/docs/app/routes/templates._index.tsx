@@ -70,11 +70,14 @@ export default function TemplatesPage() {
             </div>
           </section>
 
+          {/* Same shape as the first-party section above: break out of the page
+              padding so the top rule spans the full measure, then restore it so
+              the heading stays aligned with the rest of the page. */}
           <section
-            className="mt-24 border-t border-solid border-[var(--b-border-default)] pt-16"
+            className="-mx-4 mt-24 border-t border-solid border-[var(--b-border-default)] px-4 pt-16 sm:-mx-6 sm:px-6"
             aria-labelledby="community-apps-heading"
           >
-            <div className="max-w-[720px]">
+            <div className="mb-6 max-w-[720px]">
               <h2
                 id="community-apps-heading"
                 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]"
@@ -87,14 +90,19 @@ export default function TemplatesPage() {
             </div>
 
             {communityApps.length > 0 ? (
-              <div className="mt-8 grid min-w-0 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              // Matches the first-party band, including the 1px inset that
+              // keeps this fill from painting over the decorative column rules.
+              <div className="-mx-[15px] grid min-w-0 gap-5 border-y border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] p-5 sm:-mx-[23px] sm:grid-cols-2 lg:grid-cols-3">
                 {communityApps.map((app) => (
                   <CommunityAppCard key={app.slug} app={app} />
                 ))}
               </div>
             ) : null}
 
-            <div className="mt-16 grid gap-8 border-t border-solid border-[var(--b-border-default)] pt-10 lg:grid-cols-[minmax(220px,0.7fr)_minmax(0,1.3fr)] lg:gap-16">
+            {/* Breaks out and restores the padding for the same reason as the
+                section above: this is a section-level divider, so it belongs on
+                the full measure rather than stopping at the text inset. */}
+            <div className="-mx-4 mt-16 grid gap-8 border-t border-solid border-[var(--b-border-default)] px-4 pt-10 sm:-mx-6 sm:px-6 lg:grid-cols-[minmax(220px,0.7fr)_minmax(0,1.3fr)] lg:gap-16">
               <div>
                 <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-4)] font-medium leading-[1.1] tracking-[-0.02em] text-[var(--b-text-primary)]">
                   {t("templatesPage.communitySubmissionTitle")}
