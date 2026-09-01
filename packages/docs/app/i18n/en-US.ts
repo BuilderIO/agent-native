@@ -1472,7 +1472,7 @@ const enUS = {
       s004: "Re-use it.",
       s005: "All Apps",
       s006Primary: "Decks from your AI agent.",
-      s006Secondary: "On brand, editable, yours.",
+      s006Secondary: "On-brand & editable",
       s007: "Generate branded slide decks from your AI agent, apply your own manual changes anytime, export anywhere.",
       s008: "Try It",
       s009: "How it works",

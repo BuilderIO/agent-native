@@ -15,16 +15,13 @@ import { Button, buttonClassName } from "./website-redesign/ds/button";
 const cardSecondaryActionClass = buttonClassName({
   variant: "secondary",
   compact: true,
-  className: "uppercase",
+  className: "flex-1 uppercase",
 });
 
-// The negative margin cancels the button's own horizontal padding, so the
-// label sits flush with the card's content edge while the padded hit area
-// survives.
 const cardTertiaryActionClass = buttonClassName({
   variant: "tertiary",
   compact: true,
-  className: "-mr-3 shrink-0 uppercase",
+  className: "flex-1 uppercase",
 });
 
 export { trackEvent };
@@ -180,8 +177,8 @@ function TemplateLaunchButton({ template }: { template: Template }) {
   const hasDemoUrl = "demoUrl" in template && template.demoUrl;
 
   return (
-    // Breaks out of the card's content padding the same way the title rule
-    // does, so both dividers meet the card edges.
+    // Breaks out of the card's content padding so the divider meets both card
+    // edges, then restores it so the buttons stay on the content measure.
     <div className="-mx-[var(--spacing-5)] mt-auto flex w-[calc(100%+2*var(--spacing-5))] flex-wrap gap-2 border-t border-solid border-[var(--b-border-subtle)] px-[var(--spacing-5)] pt-[var(--spacing-4)]">
       {hasDemoUrl ? (
         <Button
@@ -197,7 +194,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
               location: "card",
             });
           }}
-          className="uppercase"
+          className="flex-1 uppercase"
         >
           {t("common.tryIt")}
         </Button>
@@ -206,6 +203,14 @@ function TemplateLaunchButton({ template }: { template: Template }) {
         template={template}
         location="card"
         className={cardSecondaryActionClass}
+      />
+      {/* A direct flex item rather than a link inside a flex-1 wrapper: the
+          wrapper stretched to the row height but the link kept its own content
+          height, which is what left this one shorter than its siblings. */}
+      <TemplateDocsLink
+        template={template}
+        location="card"
+        className={cardTertiaryActionClass}
       />
     </div>
   );
@@ -304,16 +309,9 @@ export function TemplateCard({ template }: { template: Template }) {
         )}
       </Link>
       <div className="flex flex-auto flex-col items-start gap-[var(--spacing-3)] p-[var(--spacing-5)]">
-        <div className="flex w-full items-center justify-between gap-2">
-          <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
-            {template.name}
-          </h3>
-          <TemplateDocsLink
-            template={template}
-            location="card"
-            className={cardTertiaryActionClass}
-          />
-        </div>
+        <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
+          {template.name}
+        </h3>
         <p className="m-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] uppercase tracking-[0.04em] text-[var(--b-text-eyebrow)]">
           {replaces}
         </p>
