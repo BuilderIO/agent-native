@@ -693,22 +693,35 @@ export async function getGoogleAccountTimezone(
     accounts.find((a) => a.accountId.trim().toLowerCase() === key) ??
     accounts[0];
 
-  let timezone: string | null;
-  try {
-    const tokens = account.tokens as unknown as GoogleTokens;
-    const accessToken = await getValidAccessToken(
-      account.accountId,
-      tokens,
-      email,
-    );
-    const calendar = await calendarGetCalendar(accessToken, "primary");
-    timezone = isCalendarTimezone(calendar?.timeZone)
-      ? calendar.timeZone
-      : null;
-  } catch {
-    // coercion-ok: same reasoning as the lookup catch above — a token
-    // refresh or provider failure here is never cached, so it degrades
-    // this request to free/busy-only rather than caching a false negative.
+  let timezone: string | null = null;
+  let resolved = false;
+  // One immediate retry: a transient network blip here would otherwise be
+  // indistinguishable from a peer having no resolvable time zone at all,
+  // silently skipping their saved working-hours filter for this request
+  // (not just failing to cache a negative result, which the catch below
+  // already avoids).
+  for (let attempt = 0; attempt < 2 && !resolved; attempt++) {
+    try {
+      const tokens = account.tokens as unknown as GoogleTokens;
+      const accessToken = await getValidAccessToken(
+        account.accountId,
+        tokens,
+        email,
+      );
+      const calendar = await calendarGetCalendar(accessToken, "primary");
+      timezone = isCalendarTimezone(calendar?.timeZone)
+        ? calendar.timeZone
+        : null;
+      resolved = true;
+    } catch {
+      // Retried once above; if it still fails, fall through below.
+    }
+  }
+  if (!resolved) {
+    // coercion-ok: deliberately not the same as "confirmed no timezone" —
+    // this is never cached (see cacheAccountTimezone), so the caller
+    // (getEligibleHostAvailability) re-checks on the next request instead
+    // of a lookup failure being treated as a stable negative result.
     return null;
   }
 
