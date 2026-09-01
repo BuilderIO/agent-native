@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { sentryPollObservationSummary } from "./poll-sentry-errors.js";
+import { sentryPollObservationSummary } from "./sentry-poll-summary.js";
 
 describe("sentryPollObservationSummary", () => {
   it("reserves the empty message for polls that saw no issues", () => {

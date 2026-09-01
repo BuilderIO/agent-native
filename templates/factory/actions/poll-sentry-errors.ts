@@ -22,6 +22,7 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { sentryPollObservationSummary } from "../server/lib/sentry-poll-summary.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
 import { mergeTriageMetadata } from "../server/triage/metadata.js";
@@ -30,19 +31,6 @@ import {
   statusAfterTriageSourceUpdate,
 } from "../server/triage/review-state.js";
 import { createSentryClient } from "../server/triage/sentry-client.js";
-
-export function sentryPollObservationSummary(
-  observedCount: number,
-  added: number,
-): string {
-  if (observedCount === 0) {
-    return "No unresolved Sentry errors were observed.";
-  }
-  if (added === 0) {
-    return `Observed ${observedCount} unresolved Sentry error${observedCount === 1 ? "" : "s"}; none were new.`;
-  }
-  return `Added ${added} new Sentry error${added === 1 ? "" : "s"}.`;
-}
 
 export default defineAction({
   description:
