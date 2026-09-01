@@ -428,7 +428,7 @@ const messages = {
   homepage: {
     hero: {
       title: "面向 agentic 應用的框架",
-      bodyLine1: "為 agent 建置，不必為使用者另外打造第二個產品。",
+      bodyLine1: "建置配備直覺式 UI 的自主型 agent。",
       bodyLine2: "使用你自己的 LLM，隨處部署。",
       tryAnApp: "試用應用程式",
     },

@@ -5,19 +5,29 @@ description: "Agent-Native가 무엇인지, 공유 액션 아키텍처가 어떻
 
 # Agent-Native란?
 
-Agent-Native는 사람과 AI 에이전트 모두를 지원하는 앱을 만들기 위한 오픈 소스
-TypeScript 프레임워크입니다. 앱의 기능을 한 번만 [액션](/docs/actions-overview)으로
-정의합니다. 액션은 React UI가 코드에서 호출하고 에이전트가 도구로 사용하는 타입이 지정된 함수입니다.
+Agent-Native는 직관적인 UI를 갖춘 자율형 에이전트를 구축하기 위한 오픈 소스
+TypeScript 프레임워크입니다. 각 기능을 [액션](/docs/actions-overview)으로 한 번만 정의합니다. 액션은 에이전트가 도구로 사용하고 UI가 코드에서 호출하는 타입이 지정된 함수입니다.
 
-## 왜 이 방식으로 앱을 만들까요
+## UI를 갖춘 에이전트를 만드는 이유
 
-대부분의 애플리케이션은 사람이 UI를 통해 작업하도록 설계되었습니다. 에이전트를 추가하면 제품을 사용하는 또 하나의 방법이 생깁니다. 둘이 하나의 제품으로 작동하려면 세 가지가 필요합니다.
+<WireframeBlock id="doc-block-agent-ui-why">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:minmax(0,1fr) 54px minmax(0,1.15fr);gap:18px;align-items:center;padding:28px;min-height:420px;box-sizing:border-box'><section style='display:flex;flex-direction:column;gap:14px;align-items:center'><strong style='font-size:20px'>텍스트 상자만 있는 에이전트</strong><div class='wf-card' style='width:100%;min-height:250px;display:flex;flex-direction:column;gap:18px;padding:20px;box-sizing:border-box;border-radius:calc(var(--wf-radius) * 0.45)'><span class='wf-muted'>에이전트</span><div style='flex:1;display:flex;align-items:center;justify-content:center'><div class='wf-box' style='width:72%;height:42px;border-radius:calc(var(--wf-radius) * 0.45)'></div></div></div><span class='wf-muted'>무엇을 할 수 있나요?</span></section><div aria-hidden='true' style='font-size:32px;text-align:center'>&rarr;</div><section style='display:flex;flex-direction:column;gap:14px;align-items:center'><strong style='font-size:20px'>UI를 갖춘 에이전트</strong><div class='wf-card' style='width:100%;min-height:250px;display:flex;flex-direction:column;gap:10px;padding:16px;box-sizing:border-box;border-radius:calc(var(--wf-radius) * 0.45)'><strong>출시 자료</strong><div style='display:flex;gap:7px'><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>개요</span><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>슬라이드</span><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>검토</span></div><div style='display:grid;grid-template-columns:minmax(0,1fr) 104px;gap:10px;flex:1;min-height:0'><div style='display:grid;grid-template-columns:42px minmax(0,1fr);gap:8px;min-width:0'><div style='display:flex;flex-direction:column;gap:7px'><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;padding:12px;text-align:center;border-radius:calc(var(--wf-radius) * 0.45)'><strong>3분기 제품 출시</strong></div></div><aside class='wf-box' style='display:flex;flex-direction:column;gap:8px;padding:10px;min-width:0;border-radius:calc(var(--wf-radius) * 0.45)'><strong>에이전트</strong><div style='flex:1'></div><div style='display:flex;align-items:center;gap:6px'><div class='wf-box' style='height:26px;flex:1;border-radius:calc(var(--wf-radius) * 0.45)'></div><button aria-hidden='true' tabindex='-1' style='width:26px;height:26px;padding:0;border-radius:calc(var(--wf-radius) * 0.45)'>&uarr;</button></div></aside></div></div><span class='wf-muted'>하나의 작업 공간에 에이전트와 UI</span></section></div>"
+    }
+  />
+</WireframeBlock>
 
-- **에이전트가 제품에 접근할 수 있어야 합니다.** 더 작고 별도의 도구 모음만 받으면 에이전트는 제약된 상태에 머뭅니다. 또한 애플리케이션이 바뀌면서 서로 어긋나는 두 구현을 유지하게 됩니다.
-- **사람에게는 여전히 애플리케이션 UI가 필요합니다.** 채팅은 작업을 위임하기에는 좋지만, 정보를 탐색하거나, 옵션을 비교하거나, 변경 사항을 검토하거나, 팀과 결과를 공유하는 데 항상 적합한 것은 아닙니다.
-- **작업이 둘 사이에서 이동해야 합니다.** 사람은 에이전트의 작업을 검사하거나 변경할 수 있어야 하고, 에이전트는 처음부터 다시 시작하지 않고 거기서 계속할 수 있어야 합니다.
+코딩 에이전트를 보면 텍스트 상자만으로 충분해 보일 수 있습니다. 하지만 텍스트 상자는 작업 환경의 한 부분일 뿐입니다. 코드베이스가 컨텍스트를 제공하고, 도구가 명확한 실행 방법을 제공하며, 파일, 테스트, 미리보기가 결과를 보여 줍니다.
 
-Agent-Native 아키텍처는 이러한 요구 사항을 중심으로 만들어졌습니다. 사람은 UI에서 직접 작업하거나 결과를 에이전트에게 위임할 수 있고, 진행 상황을 잃지 않은 채 둘 사이를 오갈 수 있습니다.
+대부분의 지식 노동에는 이런 구조가 없습니다. 빈 텍스트 상자에서는 사람이 에이전트가 무엇을 할 수 있는지, 어떤 컨텍스트를 가지고 있는지, 무엇을 요청해야 하는지 추측해야 합니다.
+
+UI는 텍스트 상자에 없는 것을 제공합니다. 에이전트의 기능을 눈에 보이게 하고, 컨텍스트와 워크플로를 경험에 포함하며, 작업이 진행되는 동안 사람이 이를 보고 다듬을 수 있게 합니다.
+
+Agent-Native를 사용하면 이런 방식으로 에이전트를 만들 수 있습니다. UI는 에이전트를 고정된 워크플로로 제한하지 않으면서 명확한 시작점을 제공합니다. 에이전트와 UI가 같은 기능을 사용하므로, 사람은 에이전트에게 작업을 위임하고 UI에서 결과를 확인하거나 변경한 뒤 진행 상황을 잃지 않고 둘 사이를 오갈 수 있습니다.
+
+## Agent-Native 작동 방식
 
 <Video
   src="https://cdn.builder.io/o/assets%2Fc5b47d20f6a943e485717e5895739988%2Fc88d506c160142ae9b8618616ceedcea%2Fcompressed?apiKey=c5b47d20f6a943e485717e5895739988&token=c88d506c160142ae9b8618616ceedcea&alt=media&optimized=true"
@@ -26,29 +36,13 @@ Agent-Native 아키텍처는 이러한 요구 사항을 중심으로 만들어�
   caption="Agent-Native 아키텍처를 소개하는 4분짜리 영상을 시청하세요."
 />
 
-## Agent-Native 작동 방식
+Agent-Native는 세 가지 공유 기반을 통해 에이전트와 UI를 연결합니다.
 
-Agent-Native 애플리케이션은 사람과 에이전트에게 같은 제품에서 작업하는 두 가지 방식을 제공합니다.
+- **[공유 액션](/docs/actions-overview).** 각 기능을 한 번만 정의합니다. 에이전트는 도구로 호출하고 UI는 코드에서 호출합니다. 두 경로 모두 같은 검증, 권한, 구현을 사용합니다.
+- **[공유 데이터](/docs/server-database).** 액션은 같은 데이터를 읽고 업데이트합니다. 따라서 에이전트가 수행한 작업은 UI에 나타나고 UI에서 수행한 작업은 에이전트가 사용할 수 있습니다.
+- **[공유 애플리케이션 상태](/docs/context-awareness).** 애플리케이션 상태는 현재 페이지, 선택된 레코드 또는 활성 뷰처럼 UI에서 일어나는 일을 설명합니다. Agent-Native는 관련 상태를 컨텍스트로 에이전트에 제공하므로 사람이 무엇을 작업 중인지 이해할 수 있습니다.
 
-- **UI**는 사람이 작업을 탐색하고, 편집하고, 검토하고, 공유할 수 있는 익숙한 방법을 제공합니다.
-- **에이전트**는 사람이 위임한 작업을 처리합니다.
-
-세 가지 공유 기반이 이를 가능하게 합니다.
-
-- **공유 작업.** 사람은 UI를 통해 작업을 실행하고, 에이전트는 직접 호출합니다. Agent-Native는 각 작업을 한 번만 [액션](/docs/actions-overview)으로 정의합니다.
-- **[공유 데이터](/docs/server-database)**는 애플리케이션이 보존해야 하는 작업과 정보를 담습니다. 애플리케이션에 따라 고객 레코드, 프로젝트 계획, 대화 또는 보고서일 수 있습니다. UI와 에이전트 모두 이 공유 데이터를 읽고 업데이트합니다.
-- **[공유 애플리케이션 상태](/docs/context-awareness)**는 현재 페이지, 선택된 레코드 또는 활성 뷰처럼 지금 일어나는 일을 설명합니다. 프레임워크는 관련 상태를 컨텍스트로 에이전트에 제공하므로 사람이 무엇을 작업 중인지 알 수 있습니다.
-
-```mermaid
-graph TD
-  UI[UI] --> App[하나의 애플리케이션]
-  Agent[에이전트] --> App
-  App --- Operations[공유 작업]
-  App --- Data[공유 데이터]
-  App --- State[공유 애플리케이션 상태]
-```
-
-에이전트는 UI를 클릭해서 작업하지 않습니다. UI와 같은 액션을 같은 검증, 권한, 구현으로 호출합니다.
+에이전트는 UI를 클릭해서 작업하지 않습니다. UI와 같은 액션 레이어를 통해 작업합니다.
 
 예를 들어 사람은 UI에서 지원 티켓을 할당하거나 에이전트에게 그렇게 하도록 요청할 수 있습니다. 두 경로 모두 같은 액션을 실행하고 같은 티켓을 업데이트합니다. 사람은 UI에서 결과를 검사하거나 변경한 뒤 에이전트가 거기서 계속 작업하도록 할 수 있습니다.
 
@@ -56,11 +50,11 @@ graph TD
 
 다음과 같은 경우 Agent-Native가 적합합니다.
 
-- 에이전트가 질문에만 답하는 것이 아니라 앱에서 실제 작업을 해야 합니다.
-- 사람이 작업을 검사, 편집, 승인 또는 공유할 UI가 필요합니다.
-- UI와 에이전트 사이에서 진행 상황이나 컨텍스트를 잃지 않고 작업이 이동해야 합니다.
+- 에이전트가 질문에만 답하는 것이 아니라 실제 작업을 해야 합니다.
+- 에이전트가 무엇을 할 수 있는지 확인하고 그 작업을 검사, 편집, 승인 또는 공유할 UI가 필요합니다.
+- 진행 상황이나 컨텍스트를 잃지 않고 에이전트와 UI 사이를 이동할 수 있어야 합니다.
 
-생성된 응답 하나만 필요하다면 모델을 직접 호출하세요. 워크플로가 고정되고 예측 가능한 순서를 따른다면 일반 애플리케이션 로직이나 자동화가 더 단순합니다. UI와 에이전트 모두가 같은 작업에서 지속적인 역할을 해야 할 때 Agent-Native를 사용하세요.
+생성된 응답 하나만 필요하다면 모델을 직접 호출하세요. 작업이 고정되고 예측 가능한 순서를 따른다면 일반 애플리케이션 로직이나 자동화가 더 단순합니다. 에이전트와 UI 모두가 같은 작업에서 지속적인 역할을 해야 할 때 Agent-Native를 사용하세요.
 
 ## 다음 단계
 

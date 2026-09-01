@@ -436,8 +436,7 @@ const enUS = {
   homepage: {
     hero: {
       title: "The agentic application framework",
-      bodyLine1:
-        "Build for AI agents without building a second product for users.",
+      bodyLine1: "Build autonomous agents with intuitive UIs.",
       bodyLine2: "Bring your own LLM. Deploy anywhere.",
       tryAnApp: "Try an app",
     },
