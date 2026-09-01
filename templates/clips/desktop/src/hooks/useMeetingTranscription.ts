@@ -45,6 +45,7 @@ interface MeetingTranscriptionSession {
   stopping: boolean;
   paused: boolean;
   engine: TranscriptionEngine;
+  audioTransitionInFlight: Promise<void> | null;
   /** Offset local live-engine timestamps onto the scheduled meeting timeline. */
   liveTimelineOffsetMs: number;
   historyInFlight: Promise<void> | null;
@@ -205,6 +206,7 @@ export function useMeetingTranscription({
           window.clearTimeout(session.flushTimer);
           session.flushTimer = null;
         }
+        await session.audioTransitionInFlight?.catch(() => {});
         try {
           await stopTranscriptionEngine(session.engine);
         } catch (err) {
@@ -402,6 +404,7 @@ export function useMeetingTranscription({
           stopping: false,
           paused: false,
           engine: "whisper",
+          audioTransitionInFlight: null,
           liveTimelineOffsetMs: 0,
           historyInFlight: null,
           flushInFlight: null,
@@ -585,65 +588,75 @@ export function useMeetingTranscription({
           if (sessionRef.current !== session || session.stopping) return;
           if (desiredPaused === session.paused) return;
           applyingTransition = true;
-          try {
-            if (desiredPaused) {
-              if (session.flushTimer) {
-                window.clearTimeout(session.flushTimer);
-                session.flushTimer = null;
-              }
-              await invoke("silence_detector_stop").catch(() => {});
-              if (!sessionIsActive()) return;
-              try {
-                await stopTranscriptionEngine(session.engine);
-              } catch (err) {
+          const transition = (async () => {
+            try {
+              if (desiredPaused) {
+                if (session.flushTimer) {
+                  window.clearTimeout(session.flushTimer);
+                  session.flushTimer = null;
+                }
+                await invoke("silence_detector_stop").catch(() => {});
                 if (!sessionIsActive()) return;
-                console.warn(
-                  "[clips-popover] meeting audio pause failed; staying live:",
-                  err,
-                );
-                desiredPaused = false;
+                try {
+                  await stopTranscriptionEngine(session.engine);
+                } catch (err) {
+                  if (!sessionIsActive()) return;
+                  console.warn(
+                    "[clips-popover] meeting audio pause failed; staying live:",
+                    err,
+                  );
+                  desiredPaused = false;
+                  session.paused = false;
+                  await invoke("silence_detector_start", {
+                    config: silenceDetectorConfig,
+                  }).catch(() => {});
+                  if (!sessionIsActive()) await stopStaleAudioTransition();
+                  return;
+                }
+                if (!sessionIsActive()) return;
+                await flushTranscript().catch(() => {});
+                if (!sessionIsActive()) return;
+                session.paused = true;
+              } else {
+                try {
+                  await startAudio();
+                } catch (err) {
+                  console.warn(
+                    "[clips-popover] meeting audio resume failed; staying paused:",
+                    err,
+                  );
+                  if (!sessionIsActive()) return;
+                  desiredPaused = true;
+                  session.paused = true;
+                  return;
+                }
+                if (!sessionIsActive()) {
+                  await stopStaleAudioTransition();
+                  return;
+                }
                 session.paused = false;
                 await invoke("silence_detector_start", {
                   config: silenceDetectorConfig,
                 }).catch(() => {});
                 if (!sessionIsActive()) await stopStaleAudioTransition();
-                return;
               }
-              if (!sessionIsActive()) return;
-              await flushTranscript().catch(() => {});
-              if (!sessionIsActive()) return;
-              session.paused = true;
-            } else {
-              try {
-                await startAudio();
-              } catch (err) {
-                console.warn(
-                  "[clips-popover] meeting audio resume failed; staying paused:",
-                  err,
-                );
-                if (!sessionIsActive()) return;
-                desiredPaused = true;
-                session.paused = true;
-                return;
-              }
-              if (!sessionIsActive()) {
-                await stopStaleAudioTransition();
-                return;
-              }
-              session.paused = false;
-              await invoke("silence_detector_start", {
-                config: silenceDetectorConfig,
-              }).catch(() => {});
-              if (!sessionIsActive()) await stopStaleAudioTransition();
+            } finally {
+              applyingTransition = false;
             }
+          })();
+          session.audioTransitionInFlight = transition;
+          try {
+            await transition;
           } finally {
-            applyingTransition = false;
-            // Re-check for any desiredPaused change queued while this
-            // transition was in flight — including the two early-return
-            // error-recovery branches above, which otherwise skipped this
-            // reconvergence and could leave a queued pause/resume request
-            // unapplied until another external event happened to fire.
-            void applyAudioState();
+            if (session.audioTransitionInFlight === transition) {
+              session.audioTransitionInFlight = null;
+              // Re-check for any desiredPaused change queued while this
+              // transition was in flight — including the two early-return
+              // error-recovery branches above, which otherwise skipped this
+              // reconvergence and could leave a queued pause/resume request
+              // unapplied until another external event happened to fire.
+              void applyAudioState();
+            }
           }
         };
 
