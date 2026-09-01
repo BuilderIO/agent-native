@@ -1,4 +1,5 @@
 import { emit } from "@agent-native/core/event-bus";
+import { getOrgContext, orgMembers } from "@agent-native/core/org";
 import {
   getSession,
   recordChange,
@@ -8,7 +9,7 @@ import {
 } from "@agent-native/core/server";
 import { getSetting, getUserSetting } from "@agent-native/core/settings";
 import { accessFilter } from "@agent-native/core/sharing";
-import { eq, and, gt, gte, lt, lte, ne, inArray } from "drizzle-orm";
+import { and, eq, gt, gte, inArray, lt, lte, ne, or, sql } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
@@ -197,6 +198,41 @@ type ConflictResult = { items: ConflictItem[]; unavailableReason?: string };
 type BookingLinkRow = typeof schema.bookingLinks.$inferSelect;
 type ConflictDb = Pick<ReturnType<typeof getDb>, "select">;
 const BOOKING_SLOT_STEP_MINUTES = 30;
+
+type SameOrgBookingViewer = { email: string; orgId: string };
+
+function resolveSameOrgBookingViewer(
+  session: { email?: string; orgId?: string } | null,
+  bookingLink?: BookingLinkRow,
+): SameOrgBookingViewer | undefined {
+  const viewerEmail = session?.email?.trim().toLowerCase();
+  if (!viewerEmail || !session?.orgId || !bookingLink) return undefined;
+  if (viewerEmail === bookingLink.ownerEmail.trim().toLowerCase()) {
+    return undefined;
+  }
+  return bookingLink.orgId === session.orgId
+    ? { email: viewerEmail, orgId: session.orgId }
+    : undefined;
+}
+
+async function resolveBookingViewer(
+  event: H3Event,
+  bookingLink?: BookingLinkRow,
+): Promise<SameOrgBookingViewer | undefined> {
+  const session = await getSession(event);
+  if (!session?.email || !bookingLink) return undefined;
+  if (
+    session.email.trim().toLowerCase() ===
+    bookingLink.ownerEmail.trim().toLowerCase()
+  ) {
+    return undefined;
+  }
+  const orgContext = await getOrgContext(event);
+  return resolveSameOrgBookingViewer(
+    { ...session, orgId: orgContext.orgId ?? undefined },
+    bookingLink,
+  );
+}
 
 const bookingAvailabilityDraftSchema = z
   .object({
@@ -576,6 +612,8 @@ export async function getConflictItems({
   ownerEmail,
   hostEmails,
   conflictSlugs,
+  viewerEmail,
+  viewerOrgId,
   rangeStartIso,
   rangeEndIso,
   timezone,
@@ -584,6 +622,8 @@ export async function getConflictItems({
   ownerEmail?: string;
   hostEmails: string[];
   conflictSlugs: string[];
+  viewerEmail?: string;
+  viewerOrgId?: string;
   rangeStartIso: string;
   rangeEndIso: string;
   timezone: string;
@@ -694,6 +734,57 @@ export async function getConflictItems({
     };
   }
 
+  if (viewerEmail && !requiredHosts.includes(viewerEmail)) {
+    try {
+      const viewerAccounts =
+        await googleCalendar.getOwnedAccountEmails(viewerEmail);
+      if (viewerAccounts.length > 0) {
+        const viewerEvents = await googleCalendar.listEvents(
+          rangeStartIso,
+          rangeEndIso,
+          viewerEmail,
+          { accountEmails: viewerAccounts },
+        );
+        if (viewerEvents.errors.length > 0) {
+          return {
+            items: [],
+            unavailableReason: formatAvailabilityUnavailableReason(
+              viewerEvents.errors[0]?.email || viewerEmail,
+            ),
+          };
+        }
+        conflictItems.push(
+          ...viewerEvents.events
+            .filter(eventBlocksAvailability)
+            .map((event) => ({
+              start: event.start,
+              end: event.end,
+            })),
+        );
+      }
+    } catch {
+      return {
+        items: [],
+        unavailableReason: formatAvailabilityUnavailableReason(viewerEmail),
+      };
+    }
+  }
+
+  const viewerBookingScope =
+    viewerEmail && viewerOrgId
+      ? and(
+          eq(schema.bookings.email, viewerEmail),
+          eq(schema.bookings.orgId, viewerOrgId),
+        )
+      : undefined;
+  const bookingScope =
+    conflictSlugs.length > 0 && viewerBookingScope
+      ? or(inArray(schema.bookings.slug, conflictSlugs), viewerBookingScope)
+      : conflictSlugs.length > 0
+        ? inArray(schema.bookings.slug, conflictSlugs)
+        : viewerBookingScope
+          ? viewerBookingScope
+          : undefined;
   const bookings = await db
     .select()
     .from(schema.bookings)
@@ -702,9 +793,7 @@ export async function getConflictItems({
         ne(schema.bookings.status, "cancelled"),
         lte(schema.bookings.start, rangeEndIso),
         gte(schema.bookings.end, rangeStartIso),
-        conflictSlugs.length > 0
-          ? inArray(schema.bookings.slug, conflictSlugs)
-          : undefined,
+        bookingScope,
       ),
     );
 
@@ -932,12 +1021,16 @@ async function requestedSlotIsCurrentlyAvailable({
   start,
   end,
   duration,
+  viewerEmail,
+  viewerOrgId,
 }: {
   db?: ConflictDb;
   slug: string;
   start: Date;
   end: Date;
   duration: number;
+  viewerEmail?: string;
+  viewerOrgId?: string;
 }): Promise<boolean | { unavailableReason: string }> {
   const context = await resolveAvailabilityContext({ slug, db });
   if (!context.effectiveConfig) return false;
@@ -949,6 +1042,8 @@ async function requestedSlotIsCurrentlyAvailable({
     ownerEmail: context.ownerEmail,
     hostEmails: context.hostEmails,
     conflictSlugs: context.conflictSlugs,
+    viewerEmail,
+    viewerOrgId,
     rangeStartIso: dateStartIso(date, timezone),
     rangeEndIso: dateEndIso(date, timezone),
     timezone,
@@ -1040,6 +1135,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     // After the guard above, bookingLink is either undefined (no requestedSlug)
     // or the full DB row. Cast away the "" from the short-circuit type.
     const link = bookingLink || undefined;
+
+    const viewer = await resolveBookingViewer(event, link);
 
     const hostEmail = (link as any)?.ownerEmail || (link as any)?.owner_email;
     if (!hostEmail) {
@@ -1160,6 +1257,19 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     // Check for conflicts + insert atomically in a transaction
     const db = getDb();
     const insertResult = await db.transaction(async (tx) => {
+      if (viewer) {
+        // The viewer row is the stable lock shared by every booking link in
+        // the viewer's org, including links owned by different hosts.
+        await tx
+          .update(orgMembers)
+          .set({ email: sql`${orgMembers.email}` })
+          .where(
+            and(
+              eq(orgMembers.orgId, viewer.orgId),
+              sql`lower(${orgMembers.email}) = ${viewer.email}`,
+            ),
+          );
+      }
       // Serialize booking creation per required host. The no-op write takes row
       // locks on each host's booking links without changing user-visible data.
       for (const email of requiredHostEmails) {
@@ -1181,6 +1291,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         start: requestedRange.start,
         end: requestedRange.end,
         duration: requestedRange.duration,
+        viewerEmail: viewer?.email,
+        viewerOrgId: viewer?.orgId,
       });
       if (typeof slotAvailability !== "boolean") {
         return slotAvailability;
@@ -1475,6 +1587,7 @@ async function getAvailableSlotsForQuery(
     return { error: durationResult.error };
   }
   const duration = durationResult.duration;
+  const viewer = await resolveBookingViewer(event, context.bookingLink);
 
   if (hasRangeQuery) {
     const rangeStart = formatDateOnly(from!);
@@ -1484,6 +1597,8 @@ async function getAvailableSlotsForQuery(
       ownerEmail: context.ownerEmail,
       hostEmails: context.hostEmails,
       conflictSlugs: context.conflictSlugs,
+      viewerEmail: viewer?.email,
+      viewerOrgId: viewer?.orgId,
       rangeStartIso: dateStartIso(rangeStart, timezone),
       rangeEndIso: dateEndIso(rangeEnd, timezone),
       timezone,
@@ -1517,6 +1632,8 @@ async function getAvailableSlotsForQuery(
     ownerEmail: context.ownerEmail,
     hostEmails: context.hostEmails,
     conflictSlugs: context.conflictSlugs,
+    viewerEmail: viewer?.email,
+    viewerOrgId: viewer?.orgId,
     rangeStartIso: dateStartIso(date, timezone),
     rangeEndIso: dateEndIso(date, timezone),
     timezone,

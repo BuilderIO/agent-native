@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -71,7 +71,7 @@ export default defineAction({
       durations: body.durations,
     });
     if ("error" in durationInput) {
-      throw new Error(durationInput.error);
+      fail(durationInput.error);
     }
     const slug = String(body.slug).trim().toLowerCase();
     const [existingLink, existingRedirect] = await Promise.all([
@@ -86,14 +86,22 @@ export default defineAction({
     ]);
 
     if (existingLink.length > 0 || existingRedirect.length > 0) {
-      throw new Error("A booking link with this slug already exists");
+      fail("A booking link with this slug already exists", {
+        errorCode: "booking_link_slug_taken",
+        statusCode: 409,
+      });
     }
 
     const now = new Date().toISOString();
     const id = nanoid();
     const ownerEmail = (() => {
       const e = getRequestUserEmail();
-      if (!e) throw new Error("no authenticated user");
+      if (!e) {
+        fail("You must be signed in to create a booking link.", {
+          errorCode: "unauthenticated",
+          statusCode: 401,
+        });
+      }
       return e;
     })();
     await getDb()

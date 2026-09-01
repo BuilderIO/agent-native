@@ -63,6 +63,12 @@ describe("community apps", () => {
     expect(form).toContain('encType="multipart/form-data"');
     expect(form).toContain('data-netlify="true"');
     expect(form).toContain('name="form-name"');
+    expect(form).toContain("multiple");
+    expect(form).toContain("onDrop={handleDrop}");
+    expect(form).toContain("removeScreenshot");
+    expect(form).toContain("typeof DataTransfer");
+    expect(form).toContain("ClipboardEvent");
+    expect(form).toContain("new DataTransfer()");
     expect(form).toContain("name={field}");
     expect(form).toContain('"screenshot_5"');
     expect(form).not.toContain("Screenshot URLs");

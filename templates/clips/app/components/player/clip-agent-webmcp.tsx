@@ -209,7 +209,7 @@ function ensureTranscriptResultFits<T extends Record<string, unknown>>(
       truncated: true,
       fullTextIncluded: false,
       fullTextOmittedReason:
-        "WebMCP transcript result was bounded; use sourceUrl for the fallback transcript.",
+        "WebMCP transcript result was bounded; use sourceUrl for the HTTP transcript.",
     },
     segments: [],
   } as unknown as T;
@@ -386,6 +386,10 @@ export function createClipAgentWebMcpActions({
         throw new Error("Clip agent context is unavailable");
       const { startMs, endMs, startIndex, maxSegments } =
         parseTranscriptInput(input);
+      const transcriptSourceUrl = buildRelatedAgentUrl(
+        agentContextUrl,
+        AGENT_TRANSCRIPT_ENDPOINT,
+      );
       const transcriptUrl = buildRelatedAgentUrl(
         agentContextUrl,
         AGENT_TRANSCRIPT_ENDPOINT,
@@ -419,8 +423,8 @@ export function createClipAgentWebMcpActions({
       const baseResult = {
         type: stringValue(payload.type) ?? "agent-native.clip.transcript",
         recording: compactClip(payload.recording),
-        sourceUrl: transcriptUrl,
-        apis: compactApis(payload, agentContextUrl, transcriptUrl),
+        sourceUrl: transcriptSourceUrl,
+        apis: compactApis(payload, agentContextUrl, transcriptSourceUrl),
         transcript: {
           status: stringValue(transcript.status) ?? "missing",
           language: stringValue(transcript.language),
@@ -431,7 +435,7 @@ export function createClipAgentWebMcpActions({
             serverTruncated || candidates.length < matchingSegments.length,
           fullTextIncluded: false,
           fullTextOmittedReason:
-            "WebMCP returns bounded timestamped segments; use the fallback transcript URL for fullText.",
+            "WebMCP returns bounded timestamped segments; use the HTTP transcript URL for fullText.",
         },
         segments: [] as typeof candidates,
         instructions: compactInstructions(payload.instructions),
@@ -587,7 +591,7 @@ export function useClipAgentWebMcp(options: ClipAgentWebMcpOptions): void {
       }),
     });
     void registration.start().catch(() => {
-      // WebMCP is progressive enhancement; the URL APIs remain the fallback.
+      // WebMCP is progressive enhancement; HTTP APIs remain the browser-independent path.
     });
     return () => registration.stop();
   }, [agentContextUrl, frameAvailable, recordingId, recordingStatus]);

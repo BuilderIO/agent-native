@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 
 import { getDialect, type Dialect } from "@agent-native/core/db";
-import { and, asc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import type {
   ContentDatabase,
+  ContentDatabaseBodyHydration,
   ContentDatabaseBodyHydrationSummary,
   ContentDatabaseItem,
   ContentDatabaseSource,
@@ -64,7 +65,8 @@ import {
 } from "./_local-folder-source.js";
 export { bulkChunkSizeForColumnCount } from "./_batch-utils.js";
 import {
-  readBuilderCmsContentEntry,
+  BuilderCmsContentEntryReadError,
+  readBuilderCmsContentEntryResult,
   readBuilderCmsContentEntries,
   readBuilderCmsModelFields,
   type BuilderCmsReadProgress,
@@ -1000,6 +1002,38 @@ const BUILDER_BODY_HYDRATION_CODEC_VERSION =
 const BUILDER_CMS_REFRESH_INITIAL_PAGES = 1;
 const BUILDER_BODY_NOT_AVAILABLE_ERROR = "body not yet available from Builder";
 
+class BuilderBodyHydrationError extends Error {
+  constructor(
+    message: string,
+    readonly reason: "not_found" | "unsupported_content" | "conversion_failed",
+    readonly providerStatus: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+    this.name = "BuilderBodyHydrationError";
+  }
+}
+
+function builderBodyHydrationFailureEvidence(error: unknown) {
+  if (
+    error instanceof BuilderCmsContentEntryReadError ||
+    error instanceof BuilderBodyHydrationError
+  ) {
+    return {
+      reason: error.reason,
+      providerStatus: error.providerStatus,
+      retryable: error.retryable,
+      message: error.message,
+    } as const;
+  }
+  return {
+    reason: "conversion_failed" as const,
+    providerStatus: "local_conversion",
+    retryable: false,
+    message: error instanceof Error ? error.message : String(error),
+  };
+}
+
 function idChunkSize() {
   return bulkChunkSizeForColumnCount(1);
 }
@@ -1038,6 +1072,15 @@ export function sortBuilderBodyHydrationQueueForProcessing<
 
 export function builderBodyHydrationAttemptIsTerminal(attempts: number) {
   return attempts >= BUILDER_BODY_HYDRATION_MAX_ATTEMPTS;
+}
+
+export function builderBodyHydrationNextAttemptAt(
+  attempts: number,
+  attemptedAt: string,
+) {
+  const base = Date.parse(attemptedAt);
+  const delayMs = Math.min(30_000 * 2 ** Math.max(0, attempts - 1), 5 * 60_000);
+  return new Date(base + delayMs).toISOString();
 }
 
 async function builderBodySnapshotForEntry(entry: BuilderCmsSourceEntry) {
@@ -1364,6 +1407,23 @@ function builderEntryFromSourceRow(args: {
   };
 }
 
+type BuilderLiveBodyReadResult =
+  | {
+      state: "body";
+      entry: BuilderCmsSourceEntry;
+      providerStatus: "http_200";
+    }
+  | {
+      state: "empty_body";
+      entry: BuilderCmsSourceEntry;
+      providerStatus: "http_200";
+    }
+  | {
+      state: "not_found";
+      entry: null;
+      providerStatus: "http_404" | "http_200_unexpected_entry";
+    };
+
 async function readBuilderEntryWithLiveBodyFromSourceRow(args: {
   row: Pick<
     ContentDatabaseSourceRecordRowDb,
@@ -1371,16 +1431,18 @@ async function readBuilderEntryWithLiveBodyFromSourceRow(args: {
   >;
   sourceTable: string;
   fallbackTitle: string;
-}): Promise<BuilderCmsSourceEntry | null> {
+}): Promise<BuilderLiveBodyReadResult> {
   const sourceValues =
     parseObject<Record<string, DocumentPropertyValue>>(
       args.row.sourceValuesJson,
     ) ?? {};
-  const liveEntry = await readBuilderCmsContentEntry({
+  const liveRead = await readBuilderCmsContentEntryResult({
     model: args.sourceTable,
     entryId: args.row.sourceRowId,
+    strictEntryIdentity: true,
   });
-  if (!liveEntry || liveEntry.id !== args.row.sourceRowId) return null;
+  if (liveRead.state === "not_found") return liveRead;
+  const liveEntry = liveRead.entry;
   const entryWithStoredValues = {
     ...liveEntry,
     title: liveEntry.title || args.fallbackTitle,
@@ -1396,7 +1458,61 @@ async function readBuilderEntryWithLiveBodyFromSourceRow(args: {
   const refreshedEntry = await withBuilderBodySourceValues(
     entryWithStoredValues,
   );
-  return builderEntryHasBodyContent(refreshedEntry) ? refreshedEntry : null;
+  if (builderEntryHasBodyContent(refreshedEntry)) {
+    return { state: "body", entry: refreshedEntry, providerStatus: "http_200" };
+  }
+  const rawData = liveEntry.rawEntry?.data;
+  const rawBlocks = rawData?.blocks;
+  const rawBlocksString = rawData?.blocksString;
+  if (rawBlocks !== undefined && !Array.isArray(rawBlocks)) {
+    throw new BuilderCmsContentEntryReadError(
+      "Builder CMS entry read returned a malformed blocks field.",
+      "malformed_body",
+      "http_200_invalid_blocks",
+      false,
+    );
+  }
+  if (rawBlocksString !== undefined && typeof rawBlocksString !== "string") {
+    throw new BuilderCmsContentEntryReadError(
+      "Builder CMS entry read returned a malformed blocksString field.",
+      "malformed_body",
+      "http_200_invalid_blocks_string",
+      false,
+    );
+  }
+  if (typeof rawBlocksString === "string" && rawBlocksString.trim()) {
+    try {
+      if (!Array.isArray(JSON.parse(rawBlocksString))) throw new Error();
+    } catch {
+      throw new BuilderCmsContentEntryReadError(
+        "Builder CMS entry read returned a malformed blocksString field.",
+        "malformed_body",
+        "http_200_invalid_blocks_string",
+        false,
+      );
+    }
+  }
+  if (rawBlocks === undefined && rawBlocksString === undefined) {
+    throw new BuilderCmsContentEntryReadError(
+      "Builder CMS entry read did not include an authoritative body field.",
+      "malformed_body",
+      "http_200_missing_body",
+      false,
+    );
+  }
+  if (liveEntry.rawEntry && builderEntryBlocks(liveEntry.rawEntry).length > 0) {
+    throw new BuilderBodyHydrationError(
+      "Builder returned body blocks that the Content converter could not hydrate.",
+      "unsupported_content",
+      "http_200_unsupported_blocks",
+      false,
+    );
+  }
+  return {
+    state: "empty_body",
+    entry: refreshedEntry,
+    providerStatus: "http_200",
+  };
 }
 
 export async function enqueueBuilderBodyHydration(args: {
@@ -1423,6 +1539,8 @@ type BuilderBodyHydrationEnqueueRequest = {
   entry: BuilderCmsSourceEntry;
   now: string;
   priority?: number;
+  preserveItemEvidence?: boolean;
+  resetAttempts?: boolean;
 };
 
 async function enqueueBuilderBodyHydrations(
@@ -1482,6 +1600,11 @@ async function enqueueBuilderBodyHydrations(
       const shouldPreserveExistingEntry =
         builderEntryHasBodyContent(existingEntry) &&
         !builderEntryHasBodyContent(request.entry);
+      const requestEntryJson = JSON.stringify(request.entry);
+      const sourceEntryChanged =
+        !!existing &&
+        !shouldPreserveExistingEntry &&
+        existing.sourceEntryJson !== requestEntryJson;
       const priority =
         request.priority ??
         builderBodyHydrationPriorityForRequest({ documentId: null });
@@ -1496,17 +1619,27 @@ async function enqueueBuilderBodyHydrations(
         sourceTable: request.sourceTable,
         sourceEntryJson: shouldPreserveExistingEntry
           ? existing!.sourceEntryJson
-          : JSON.stringify(request.entry),
+          : requestEntryJson,
         priority: Math.min(existing?.priority ?? priority, priority),
-        attempts: existing?.attempts ?? 0,
-        lastAttemptedAt: existing?.lastAttemptedAt ?? null,
+        attempts:
+          request.resetAttempts || sourceEntryChanged
+            ? 0
+            : (existing?.attempts ?? 0),
+        lastAttemptedAt:
+          request.resetAttempts || sourceEntryChanged
+            ? null
+            : (existing?.lastAttemptedAt ?? null),
         lastError: null,
+        nextAttemptAt:
+          request.resetAttempts || sourceEntryChanged
+            ? null
+            : (existing?.nextAttemptAt ?? null),
         createdAt: existing?.createdAt ?? request.now,
         updatedAt: request.now,
       });
     }
     const upsertedRows: ContentDatabaseBodyHydrationQueueRowDb[] = [];
-    for (const chunk of chunks(queueRows, bulkChunkSizeForColumnCount(15))) {
+    for (const chunk of chunks(queueRows, bulkChunkSizeForColumnCount(16))) {
       upsertedRows.push(
         ...(await tx
           .insert(schema.contentDatabaseBodyHydrationQueue)
@@ -1522,14 +1655,20 @@ async function enqueueBuilderBodyHydrations(
               sourceTable: sql`excluded.source_table`,
               sourceEntryJson: sql`excluded.source_entry_json`,
               priority: sql`excluded.priority`,
+              attempts: sql`excluded.attempts`,
+              lastAttemptedAt: sql`excluded.last_attempted_at`,
               lastError: null,
+              nextAttemptAt: sql`excluded.next_attempt_at`,
               updatedAt: sql`excluded.updated_at`,
             },
           })
           .returning()),
       );
     }
-    for (const idChunk of chunks(databaseItemIds, idChunkSize())) {
+    const pendingItemIds = uniqueRequests
+      .filter((request) => !request.preserveItemEvidence)
+      .map((request) => request.databaseItemId);
+    for (const idChunk of chunks(pendingItemIds, idChunkSize())) {
       await tx
         .update(schema.contentDatabaseItems)
         .set({
@@ -1541,6 +1680,85 @@ async function enqueueBuilderBodyHydrations(
     }
     return upsertedRows;
   });
+}
+
+async function reenqueueRetryableBuilderBodyHydration(args: {
+  sourceId: string;
+  documentId?: string | null;
+  now: string;
+}) {
+  const rows = await getDb()
+    .select({
+      source: schema.contentDatabaseSources,
+      item: schema.contentDatabaseItems,
+      sourceRow: schema.contentDatabaseSourceRows,
+      document: schema.documents,
+    })
+    .from(schema.contentDatabaseSourceRows)
+    .innerJoin(
+      schema.contentDatabaseSources,
+      eq(
+        schema.contentDatabaseSources.id,
+        schema.contentDatabaseSourceRows.sourceId,
+      ),
+    )
+    .innerJoin(
+      schema.contentDatabaseItems,
+      eq(
+        schema.contentDatabaseItems.id,
+        schema.contentDatabaseSourceRows.databaseItemId,
+      ),
+    )
+    .innerJoin(
+      schema.documents,
+      eq(schema.documents.id, schema.contentDatabaseSourceRows.documentId),
+    )
+    .leftJoin(
+      schema.contentDatabaseBodyHydrationQueue,
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
+        eq(schema.contentDatabaseSources.sourceType, "builder-cms"),
+        args.documentId
+          ? eq(schema.contentDatabaseSourceRows.documentId, args.documentId)
+          : undefined,
+        eq(schema.contentDatabaseItems.bodyHydrationStatus, "error"),
+        eq(schema.contentDatabaseItems.bodyHydrationRetryable, 1),
+        isNull(schema.contentDatabaseBodyHydrationQueue.id),
+      ),
+    );
+  await enqueueBuilderBodyHydrations(
+    rows.flatMap((row) => {
+      const entry = builderEntryFromSourceRow({
+        row: row.sourceRow,
+        sourceTable: row.source.sourceTable,
+        fallbackTitle: row.document.title,
+      });
+      if (!entry) return [];
+      return [
+        {
+          sourceId: args.sourceId,
+          ownerEmail: row.item.ownerEmail,
+          orgId: row.item.orgId,
+          databaseItemId: row.item.id,
+          documentId: row.item.documentId,
+          sourceTable: row.source.sourceTable,
+          entry,
+          now: args.now,
+          priority: args.documentId
+            ? BUILDER_BODY_HYDRATION_OPEN_PRIORITY
+            : BUILDER_BODY_HYDRATION_BACKGROUND_PRIORITY,
+          preserveItemEvidence: true,
+          resetAttempts: true,
+        },
+      ];
+    }),
+  );
 }
 
 export async function enqueueBuilderBodyHydrationForItems(args: {
@@ -1560,6 +1778,8 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
       entry: BuilderCmsSourceEntry;
       bodyHydrationStatus: string | null;
       bodyHydrationVersion: string | null;
+      bodyHydrationReason: string | null;
+      bodyHydrationRetryable: number | null;
       documentContent: string | null;
     }
   >();
@@ -1574,6 +1794,9 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
           schema.contentDatabaseSourceRows.lastSourceUpdatedAt,
         bodyHydrationStatus: schema.contentDatabaseItems.bodyHydrationStatus,
         bodyHydrationVersion: schema.contentDatabaseItems.bodyHydrationVersion,
+        bodyHydrationReason: schema.contentDatabaseItems.bodyHydrationReason,
+        bodyHydrationRetryable:
+          schema.contentDatabaseItems.bodyHydrationRetryable,
         documentContent: schema.documents.content,
       })
       .from(schema.contentDatabaseSourceRows)
@@ -1605,6 +1828,8 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
           entry,
           bodyHydrationStatus: row.bodyHydrationStatus,
           bodyHydrationVersion: row.bodyHydrationVersion,
+          bodyHydrationReason: row.bodyHydrationReason,
+          bodyHydrationRetryable: row.bodyHydrationRetryable,
           documentContent: row.documentContent,
         });
       }
@@ -1620,17 +1845,25 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
       persistedState?.bodyHydrationStatus ?? item.bodyHydration?.status;
     const bodyHydrationVersion =
       persistedState?.bodyHydrationVersion ?? item.bodyHydration?.version;
+    const bodyHydrationRetryable =
+      persistedState?.bodyHydrationRetryable ??
+      (item.bodyHydration?.retryable === false ? 0 : null);
+    const bodyHydrationReason =
+      persistedState?.bodyHydrationReason ?? item.bodyHydration?.reason;
     const documentContent =
       persistedState?.documentContent ?? item.document.content;
     const expectedVersion =
-      bodyHydrationStatus === "unavailable"
+      bodyHydrationStatus === "unavailable" ||
+      (bodyHydrationStatus === "error" && bodyHydrationRetryable === 0)
         ? builderBodyUnavailableVersion(persistedEntry)
         : builderBodyHydrationVersion(persistedEntry);
     if (
       (bodyHydrationStatus === "unavailable" ||
+        (bodyHydrationStatus === "error" && bodyHydrationRetryable === 0) ||
         (bodyHydrationStatus === "hydrated" &&
-          !isEffectivelyEmptyDocumentContent(documentContent) &&
-          !builderBodyIsRawPlaceholderOnly(documentContent))) &&
+          (bodyHydrationReason === "empty_body" ||
+            (!isEffectivelyEmptyDocumentContent(documentContent) &&
+              !builderBodyIsRawPlaceholderOnly(documentContent))))) &&
       bodyHydrationVersion === expectedVersion
     ) {
       continue;
@@ -1822,17 +2055,20 @@ async function processBuilderBodyHydrationJob(
         "Builder body baseline migration requires a linked source row.",
       );
     }
-    const liveEntry = await readBuilderEntryWithLiveBodyFromSourceRow({
+    const liveRead = await readBuilderEntryWithLiveBodyFromSourceRow({
       row: sourceRow,
       sourceTable: row.sourceTable,
       fallbackTitle: entry.title,
     });
-    if (!liveEntry) {
-      throw new Error(
-        "Builder body baseline migration could not read a fresh remote body; retry the refresh before reviewing or publishing.",
+    if (liveRead.state === "not_found") {
+      throw new BuilderBodyHydrationError(
+        "Builder no longer returns the source entry needed for body migration.",
+        "not_found",
+        liveRead.providerStatus,
+        true,
       );
     }
-    entryWithBody = liveEntry;
+    entryWithBody = liveRead.entry;
   }
   const incomingBlocksHash = stringSourceValue(
     entryWithBody.sourceValues,
@@ -1873,6 +2109,10 @@ async function processBuilderBodyHydrationJob(
   };
   let nextContent =
     stringSourceValue(nextValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
+  let emptyBodyRead: Extract<
+    BuilderLiveBodyReadResult,
+    { state: "empty_body" | "not_found" }
+  > | null = null;
   if (!nextContent.trim()) {
     const rebuiltBaseEntry = sourceRow
       ? builderEntryFromSourceRow({
@@ -1922,12 +2162,13 @@ async function processBuilderBodyHydrationJob(
       }
     }
     if (!nextContent.trim() && sourceRow) {
-      const liveEntry = await readBuilderEntryWithLiveBodyFromSourceRow({
+      const liveRead = await readBuilderEntryWithLiveBodyFromSourceRow({
         row: sourceRow,
         sourceTable: row.sourceTable,
         fallbackTitle: entry.title,
       });
-      if (liveEntry) {
+      if (liveRead.state === "body") {
+        const liveEntry = liveRead.entry;
         const liveValues = {
           ...sourceValues,
           ...liveEntry.sourceValues,
@@ -1963,6 +2204,8 @@ async function processBuilderBodyHydrationJob(
           nextValues = liveValues;
           nextContent = liveContent;
         }
+      } else {
+        emptyBodyRead = liveRead;
       }
     }
     if (!nextContent.trim()) {
@@ -1988,7 +2231,7 @@ async function processBuilderBodyHydrationJob(
             })
             .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
         };
-        if (builderBodyHydrationAttemptIsTerminal(attempts)) {
+        if (emptyBodyRead?.state === "empty_body") {
           const [deleted] = await tx
             .delete(schema.contentDatabaseBodyHydrationQueue)
             .where(queueRowCas)
@@ -1998,13 +2241,75 @@ async function processBuilderBodyHydrationJob(
             return;
           }
           await tx
+            .update(schema.contentDatabaseSourceRows)
+            .set({
+              sourceValuesJson: JSON.stringify({
+                ...sourceValues,
+                ...emptyBodyRead.entry.sourceValues,
+              }),
+              lastSyncedAt: now,
+              lastSourceUpdatedAt: emptyBodyRead.entry.updatedAt ?? now,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
+                eq(
+                  schema.contentDatabaseSourceRows.databaseItemId,
+                  row.databaseItemId,
+                ),
+              ),
+            );
+          await tx
             .update(schema.contentDatabaseItems)
             .set({
-              bodyHydrationStatus: "unavailable",
+              bodyHydrationStatus: "hydrated",
               bodyHydrationAttemptedAt: now,
               bodyHydrationError: null,
+              bodyHydrationVersion: builderBodyHydrationVersion(
+                emptyBodyRead.entry,
+              ),
+              bodyHydrationReason: "empty_body",
+              bodyHydrationProviderStatus: emptyBodyRead.providerStatus,
+              bodyHydrationAttemptCount: attempts,
+              bodyHydrationRetryable: 0,
+              updatedAt: now,
+            })
+            .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+          return;
+        }
+        if (builderBodyHydrationAttemptIsTerminal(attempts)) {
+          const [deleted] = await tx
+            .delete(schema.contentDatabaseBodyHydrationQueue)
+            .where(queueRowCas)
+            .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+          if (!deleted) {
+            await markPendingIfReplaced();
+            return;
+          }
+          const reason =
+            emptyBodyRead?.state === "not_found"
+              ? "not_found"
+              : "conversion_failed";
+          await tx
+            .update(schema.contentDatabaseItems)
+            .set({
+              bodyHydrationStatus: "error",
+              bodyHydrationAttemptedAt: now,
+              bodyHydrationError:
+                reason === "not_found"
+                  ? "Builder no longer returns this source entry. Refresh the source or retry after restoring access."
+                  : reason === "conversion_failed"
+                    ? "Content could not construct a Builder body from the retained source record. Refresh the source to recover the authoritative body."
+                    : null,
               bodyHydrationVersion:
                 builderBodyUnavailableVersion(entryWithBody),
+              bodyHydrationReason: reason,
+              bodyHydrationProviderStatus: emptyBodyRead
+                ? emptyBodyRead.providerStatus
+                : "local_source_record",
+              bodyHydrationAttemptCount: attempts,
+              bodyHydrationRetryable: reason === "not_found" ? 1 : 0,
               updatedAt: now,
             })
             .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
@@ -2015,6 +2320,7 @@ async function processBuilderBodyHydrationJob(
           .set({
             lastAttemptedAt: null,
             lastError: BUILDER_BODY_NOT_AVAILABLE_ERROR,
+            nextAttemptAt: builderBodyHydrationNextAttemptAt(attempts, now),
             updatedAt: now,
           })
           .where(queueRowCas)
@@ -2028,7 +2334,14 @@ async function processBuilderBodyHydrationJob(
           .set({
             bodyHydrationStatus: "pending",
             bodyHydrationAttemptedAt: now,
-            bodyHydrationError: null,
+            bodyHydrationError: BUILDER_BODY_NOT_AVAILABLE_ERROR,
+            bodyHydrationReason:
+              emptyBodyRead?.state === "not_found" ? "not_found" : null,
+            bodyHydrationProviderStatus: emptyBodyRead
+              ? emptyBodyRead.providerStatus
+              : null,
+            bodyHydrationAttemptCount: attempts,
+            bodyHydrationRetryable: 1,
             updatedAt: now,
           })
           .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
@@ -2211,6 +2524,10 @@ async function processBuilderBodyHydrationJob(
         bodyHydrationAttemptedAt: now,
         bodyHydrationError: null,
         bodyHydrationVersion: builderBodyHydrationVersion(entryWithBody),
+        bodyHydrationReason: null,
+        bodyHydrationProviderStatus: "http_200",
+        bodyHydrationAttemptCount: row.attempts,
+        bodyHydrationRetryable: 0,
         updatedAt: now,
       })
       .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
@@ -2451,6 +2768,17 @@ async function persistPristineBuilderBodyHydrationsInBulk(
                 value: row.bodyHydrationVersion,
               })),
             ),
+            bodyHydrationReason: null,
+            bodyHydrationProviderStatus: "http_200",
+            bodyHydrationAttemptCount: hydrationCaseSql(
+              schema.contentDatabaseItems.id,
+              schema.contentDatabaseItems.bodyHydrationAttemptCount,
+              batch.map((row) => ({
+                id: row.job.databaseItemId,
+                value: row.job.attempts,
+              })),
+            ),
+            bodyHydrationRetryable: 0,
             updatedAt: now,
           })
           .where(
@@ -2571,11 +2899,19 @@ export async function processBuilderBodyHydrationQueue(args: {
   limit?: number | null;
   preloadedJobs?: ContentDatabaseBodyHydrationQueueRowDb[];
   preloadBodies?: boolean;
+  retryFailed?: boolean;
 }) {
   const db = getDb();
   const limit = normalizeHydrationLimit(args.limit);
   const now = new Date().toISOString();
-  if (args.documentId) {
+  if (args.retryFailed) {
+    await reenqueueRetryableBuilderBodyHydration({
+      sourceId: args.sourceId,
+      documentId: args.documentId,
+      now,
+    });
+  }
+  if (args.documentId && !args.retryFailed) {
     await enqueueStaleBuilderBodyHydrationForOpenDocument({
       sourceId: args.sourceId,
       documentId: args.documentId,
@@ -2602,21 +2938,27 @@ export async function processBuilderBodyHydrationQueue(args: {
       .select()
       .from(schema.contentDatabaseBodyHydrationQueue)
       .where(
-        args.documentId
-          ? and(
-              eq(
+        and(
+          or(
+            isNull(schema.contentDatabaseBodyHydrationQueue.nextAttemptAt),
+            lte(schema.contentDatabaseBodyHydrationQueue.nextAttemptAt, now),
+          ),
+          args.documentId
+            ? and(
+                eq(
+                  schema.contentDatabaseBodyHydrationQueue.sourceId,
+                  args.sourceId,
+                ),
+                eq(
+                  schema.contentDatabaseBodyHydrationQueue.documentId,
+                  args.documentId,
+                ),
+              )
+            : eq(
                 schema.contentDatabaseBodyHydrationQueue.sourceId,
                 args.sourceId,
               ),
-              eq(
-                schema.contentDatabaseBodyHydrationQueue.documentId,
-                args.documentId,
-              ),
-            )
-          : eq(
-              schema.contentDatabaseBodyHydrationQueue.sourceId,
-              args.sourceId,
-            ),
+        ),
       )
       .orderBy(
         asc(schema.contentDatabaseBodyHydrationQueue.priority),
@@ -2626,7 +2968,11 @@ export async function processBuilderBodyHydrationQueue(args: {
   const jobs = await (args.preloadedJobs?.length && !args.documentId
     ? (() => {
         const preloadedJobs = sortBuilderBodyHydrationQueueForProcessing(
-          args.preloadedJobs!.filter((job) => job.sourceId === args.sourceId),
+          args.preloadedJobs!.filter(
+            (job) =>
+              job.sourceId === args.sourceId &&
+              (!job.nextAttemptAt || job.nextAttemptAt <= now),
+          ),
         ).slice(0, limit);
         return persistedJobs(limit + preloadedJobs.length).then((rows) => {
           const preloadedIds = new Set(preloadedJobs.map((job) => job.id));
@@ -2859,6 +3205,7 @@ export async function processBuilderBodyHydrationQueue(args: {
       } catch (error) {
         failed += 1;
         const message = error instanceof Error ? error.message : String(error);
+        const evidence = builderBodyHydrationFailureEvidence(error);
         const attempts = job.attempts;
         const queueRowCas = builderBodyHydrationQueueOwnershipFilter(job);
         const markPendingIfReplaced = async () => {
@@ -2877,7 +3224,10 @@ export async function processBuilderBodyHydrationQueue(args: {
             })
             .where(eq(schema.contentDatabaseItems.id, job.databaseItemId));
         };
-        if (builderBodyHydrationAttemptIsTerminal(attempts)) {
+        if (
+          builderBodyHydrationAttemptIsTerminal(attempts) ||
+          !evidence.retryable
+        ) {
           const [deleted] = await db
             .delete(schema.contentDatabaseBodyHydrationQueue)
             .where(queueRowCas)
@@ -2892,6 +3242,13 @@ export async function processBuilderBodyHydrationQueue(args: {
               bodyHydrationStatus: "error",
               bodyHydrationAttemptedAt: attemptNow,
               bodyHydrationError: message,
+              bodyHydrationVersion: parseHydrationEntry(job)
+                ? builderBodyUnavailableVersion(parseHydrationEntry(job)!)
+                : null,
+              bodyHydrationReason: evidence.reason,
+              bodyHydrationProviderStatus: evidence.providerStatus,
+              bodyHydrationAttemptCount: attempts,
+              bodyHydrationRetryable: evidence.retryable ? 1 : 0,
               updatedAt: attemptNow,
             })
             .where(eq(schema.contentDatabaseItems.id, job.databaseItemId));
@@ -2904,6 +3261,10 @@ export async function processBuilderBodyHydrationQueue(args: {
             lastAttemptedAt: null,
             lastError: message,
             priority: job.priority + 10,
+            nextAttemptAt: builderBodyHydrationNextAttemptAt(
+              attempts,
+              attemptNow,
+            ),
             updatedAt: attemptNow,
           })
           .where(queueRowCas)
@@ -2915,9 +3276,13 @@ export async function processBuilderBodyHydrationQueue(args: {
         await db
           .update(schema.contentDatabaseItems)
           .set({
-            bodyHydrationStatus: "error",
+            bodyHydrationStatus: "pending",
             bodyHydrationAttemptedAt: attemptNow,
             bodyHydrationError: message,
+            bodyHydrationReason: evidence.reason,
+            bodyHydrationProviderStatus: evidence.providerStatus,
+            bodyHydrationAttemptCount: attempts,
+            bodyHydrationRetryable: evidence.retryable ? 1 : 0,
             updatedAt: attemptNow,
           })
           .where(eq(schema.contentDatabaseItems.id, job.databaseItemId));
@@ -2925,7 +3290,13 @@ export async function processBuilderBodyHydrationQueue(args: {
     },
   );
   const [remaining] = await db
-    .select({ count: sql<number>`COUNT(*)` })
+    .select({
+      count: sql<number>`COUNT(*)`,
+      ready: sql<number>`SUM(CASE WHEN ${schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt} IS NULL AND (${schema.contentDatabaseBodyHydrationQueue.nextAttemptAt} IS NULL OR ${schema.contentDatabaseBodyHydrationQueue.nextAttemptAt} <= ${now}) THEN 1 ELSE 0 END)`,
+      nextAttemptAt: sql<
+        string | null
+      >`MIN(CASE WHEN ${schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt} IS NULL THEN ${schema.contentDatabaseBodyHydrationQueue.nextAttemptAt} END)`,
+    })
     .from(schema.contentDatabaseBodyHydrationQueue)
     .where(
       eq(schema.contentDatabaseBodyHydrationQueue.sourceId, args.sourceId),
@@ -2936,6 +3307,8 @@ export async function processBuilderBodyHydrationQueue(args: {
     succeeded,
     failed,
     remaining: Number(remaining?.count ?? 0),
+    ready: Number(remaining?.ready ?? 0),
+    nextAttemptAt: remaining?.nextAttemptAt ?? null,
   };
 }
 
@@ -4713,6 +5086,7 @@ async function sourceBodyHydrationSummary(args: {
   const rows = await getDb()
     .select({
       status: schema.contentDatabaseItems.bodyHydrationStatus,
+      retryable: schema.contentDatabaseItems.bodyHydrationRetryable,
       queueId: schema.contentDatabaseBodyHydrationQueue.id,
     })
     .from(schema.contentDatabaseItems)
@@ -4745,6 +5119,7 @@ async function sourceBodyHydrationSummary(args: {
     hydrated: 0,
     unavailable: 0,
     error: 0,
+    retryableErrors: 0,
     total: rows.length,
   };
   for (const row of rows) {
@@ -4752,8 +5127,10 @@ async function sourceBodyHydrationSummary(args: {
       summary.pending += 1;
     } else if (row.status === "hydrating") summary.hydrating += 1;
     else if (row.status === "unavailable") summary.unavailable! += 1;
-    else if (row.status === "error") summary.error += 1;
-    else summary.hydrated += 1;
+    else if (row.status === "error") {
+      summary.error += 1;
+      if (row.retryable !== 0) summary.retryableErrors! += 1;
+    } else summary.hydrated += 1;
   }
   return summary;
 }
@@ -6413,6 +6790,10 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
                   attemptedAt: null,
                   error: null,
                   version: null,
+                  reason: null,
+                  providerStatus: null,
+                  attemptCount: 0,
+                  retryable: null,
                 },
               };
             }),
@@ -6456,6 +6837,17 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
                       attemptedAt: row.item.bodyHydrationAttemptedAt,
                       error: row.item.bodyHydrationError,
                       version: row.item.bodyHydrationVersion,
+                      reason:
+                        (row.item
+                          .bodyHydrationReason as ContentDatabaseBodyHydration["reason"]) ??
+                        null,
+                      providerStatus:
+                        row.item.bodyHydrationProviderStatus ?? null,
+                      attemptCount: row.item.bodyHydrationAttemptCount ?? 0,
+                      retryable:
+                        row.item.bodyHydrationRetryable === null
+                          ? null
+                          : row.item.bodyHydrationRetryable === 1,
                     },
                   },
                 ];
@@ -6541,6 +6933,10 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
                   attemptedAt: null,
                   error: null,
                   version: null,
+                  reason: null,
+                  providerStatus: null,
+                  attemptCount: 0,
+                  retryable: null,
                 },
               };
             });

@@ -48,6 +48,8 @@ import {
 } from "../lib/google-auth.js";
 
 const OAUTH_STATE_APP_ID = process.env.APP_NAME || "mail";
+const UNVERIFIED_EMAIL_ACCOUNT_MESSAGE =
+  "This email has an unverified password account. Verify that account before signing in with Google, then try again.";
 
 async function syncGoogleSignInIdentity(email: string): Promise<void> {
   let client;
@@ -110,6 +112,14 @@ function googleOAuthErrorPayload(
   }
 
   const msg = error?.message || "Unknown error";
+  if (
+    /Cannot link Google to an unverified email\/password identity/i.test(msg)
+  ) {
+    return {
+      message: UNVERIFIED_EMAIL_ACCOUNT_MESSAGE,
+      code: "unverified_email_account",
+    };
+  }
   const statusCode = Number(error?.statusCode || error?.status || 0);
   const isPermission =
     error?.oauthErrorCode === "access_denied" ||
