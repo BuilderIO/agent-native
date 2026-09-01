@@ -585,9 +585,13 @@ const deDE = {
     communitySubmissionRepositoryPlaceholder:
       "https://github.com/owner/repository",
     communitySubmissionScreenshots: "Screenshots (optional)",
-    communitySubmissionScreenshotsPlaceholder:
-      "Bis zu 5 PNG-, JPG- oder WebP-Bilder. Jeweils maximal 1,5 MB.",
+    communitySubmissionScreenshotsPlaceholder: "Bis zu 5 Bilder hierher ziehen",
+    communitySubmissionScreenshotDropHint:
+      "PNG, JPG oder WebP. Jeweils maximal 1,5 MB.",
     communitySubmissionScreenshotSlot: "Screenshot {{index}}",
+    communitySubmissionScreenshotsAdd: "Screenshots hinzufügen",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 ausgewählt",
+    communitySubmissionScreenshotRemove: "Screenshot {{index}} entfernen",
     communitySubmissionSubmit: "App einreichen",
     communitySubmissionReady:
       "Danke. Wir prüfen deine App vor der Veröffentlichung.",
