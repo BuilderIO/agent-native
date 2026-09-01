@@ -5,6 +5,17 @@ const getRequestUserEmailMock = vi.hoisted(() => vi.fn());
 const getUserSettingMock = vi.hoisted(() => vi.fn());
 const putUserSettingMock = vi.hoisted(() => vi.fn());
 const putSettingMock = vi.hoisted(() => vi.fn());
+const mutateUserSettingMock = vi.hoisted(() =>
+  vi.fn(
+    async (
+      _email: string,
+      _key: string,
+      updater: (
+        current: Record<string, unknown> | null,
+      ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+    ) => updater(null),
+  ),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: <T>(action: T) => action,
@@ -17,6 +28,7 @@ vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: getUserSettingMock,
   putUserSetting: putUserSettingMock,
   putSetting: putSettingMock,
+  mutateUserSetting: mutateUserSettingMock,
 }));
 
 import action from "../../actions/get-settings";

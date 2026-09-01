@@ -2,6 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getOAuthAccountsMock = vi.hoisted(() => vi.fn());
 const listOAuthAccountsByOwnerMock = vi.hoisted(() => vi.fn());
+const listOAuthAccountsMock = vi.hoisted(() =>
+  vi.fn(
+    (): Promise<
+      Array<{ accountId: string; owner: string | null; tokens: unknown }>
+    > => Promise.resolve([]),
+  ),
+);
 const saveOAuthTokensMock = vi.hoisted(() => vi.fn());
 const deleteOAuthTokensMock = vi.hoisted(() => vi.fn());
 const createOAuth2ClientMock = vi.hoisted(() => vi.fn());
@@ -71,6 +78,7 @@ vi.mock("@agent-native/core/oauth-tokens", () => ({
   saveOAuthTokens: saveOAuthTokensMock,
   deleteOAuthTokens: deleteOAuthTokensMock,
   listOAuthAccountsByOwner: listOAuthAccountsByOwnerMock,
+  listOAuthAccounts: listOAuthAccountsMock,
   hasOAuthTokens: vi.fn(),
 }));
 
@@ -984,6 +992,93 @@ describe("Google account time zone lookup", () => {
     await expect(
       getGoogleAccountTimezone("racing-peer@example.com"),
     ).resolves.toBeNull();
+  });
+
+  it("invalidates the owner-keyed cache when connecting a secondary account on someone else's behalf", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+    await expect(
+      getGoogleAccountTimezone("owner-secondary@example.com"),
+    ).resolves.toBeNull();
+
+    createOAuth2ClientMock.mockReturnValue({
+      getToken: vi.fn().mockResolvedValue({
+        access_token: "fresh-access-token",
+        refresh_token: "refresh-token",
+        expires_in: 3600,
+        token_type: "Bearer",
+        scope: "scope",
+      }),
+    });
+    oauth2GetUserInfoMock.mockResolvedValue({
+      email: "personal-secondary@example.com",
+    });
+    process.env.GOOGLE_CLIENT_ID = "client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    resolveSecretMock.mockImplementation(async (key: string) => {
+      const value = process.env[key];
+      return typeof value === "string" && value.length > 0 ? value : null;
+    });
+    runWithRequestContextMock.mockImplementation(
+      (_context: unknown, callback: () => unknown) => callback(),
+    );
+    // Connecting a secondary Google account (a different email than the
+    // app-owner) on someone else's behalf - `owner` is who the timezone
+    // cache is actually keyed by.
+    await exchangeCode(
+      "oauth-code",
+      undefined,
+      "https://app.example.com/_agent-native/google/callback",
+      "owner-secondary@example.com",
+    );
+
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "personal-secondary@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarGetCalendarMock.mockResolvedValue({ timeZone: "America/Chicago" });
+
+    await expect(
+      getGoogleAccountTimezone("owner-secondary@example.com"),
+    ).resolves.toBe("America/Chicago");
+  });
+
+  it("invalidates the owner-keyed cache when disconnecting a secondary account", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "personal-disconnect@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarGetCalendarMock.mockResolvedValue({ timeZone: "America/Chicago" });
+    await expect(
+      getGoogleAccountTimezone("owner-disconnect@example.com"),
+    ).resolves.toBe("America/Chicago");
+
+    // disconnect() is called with the connected account's own email, not
+    // the app-owner the cache is keyed by - the fix must resolve the owner
+    // from the account row before it's deleted.
+    listOAuthAccountsMock.mockResolvedValueOnce([
+      {
+        accountId: "personal-disconnect@example.com",
+        owner: "owner-disconnect@example.com",
+        tokens: {},
+      },
+    ]);
+    await disconnect("personal-disconnect@example.com");
+
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+    await expect(
+      getGoogleAccountTimezone("owner-disconnect@example.com"),
+    ).resolves.toBeNull();
+    expect(listOAuthAccountsByOwnerMock).toHaveBeenCalledTimes(2);
   });
 });
 

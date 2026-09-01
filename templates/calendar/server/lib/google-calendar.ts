@@ -2,6 +2,7 @@ import { getDbExec } from "@agent-native/core/db";
 import {
   saveOAuthTokens,
   deleteOAuthTokens,
+  listOAuthAccounts,
   listOAuthAccountsByOwner,
 } from "@agent-native/core/oauth-tokens";
 import {
@@ -556,10 +557,15 @@ export async function exchangeCode(
     { ...tokens, ...(photoUrl ? { photoUrl } : {}) } as Record<string, unknown>,
     owner ?? email,
   );
-  // A cached "no timezone" result from before this account existed (or was
-  // disconnected) must not keep suppressing this peer's working-hours
+  // getGoogleAccountTimezone caches by the app-owner email (the argument to
+  // listOAuthAccountsByOwner), which is `owner` here when connecting a
+  // secondary account on someone else's behalf - not necessarily the
+  // connected account's own email. Invalidate both so a cached "no
+  // timezone" result from before this account existed (or was
+  // disconnected) can't keep suppressing either party's working-hours
   // filter now that they've just connected.
   invalidateAccountTimezoneCache(email);
+  if (owner) invalidateAccountTimezoneCache(owner);
 
   return email;
 }
@@ -1147,8 +1153,19 @@ export async function getAuthStatus(
 }
 
 export async function disconnect(email?: string): Promise<void> {
+  // The completed timezone cache is keyed by owner, which can differ from
+  // the accountId being disconnected (e.g. disconnecting a secondary
+  // account connected on someone else's behalf) - look the owner up before
+  // the row is deleted so we can invalidate the right cache key too.
+  let owner: string | null = null;
+  if (email) {
+    const accounts = await listOAuthAccounts("google");
+    owner = accounts.find((a) => a.accountId === email)?.owner ?? null;
+  }
+
   await deleteOAuthTokens("google", email);
   if (email) invalidateAccountTimezoneCache(email);
+  if (owner) invalidateAccountTimezoneCache(owner);
 }
 
 export async function listEvents(

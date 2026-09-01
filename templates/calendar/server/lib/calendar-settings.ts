@@ -2,6 +2,7 @@ import { getRequestTimezone } from "@agent-native/core/server";
 import {
   getSetting,
   getUserSetting,
+  mutateUserSetting,
   putSetting,
   putUserSetting,
 } from "@agent-native/core/settings";
@@ -43,8 +44,17 @@ export async function readCalendarSettings(
       // Only this user's own record — the shared/global key backs the
       // public booking page and must only change from an explicit save
       // (`saveCalendarSettings`), not as a side effect of any user's read.
+      //
+      // Atomic read-modify-write: `raw` above can be stale by the time this
+      // runs (a concurrent `saveCalendarSettings` may have written a real
+      // record in between). Re-check inside the same atomic update instead
+      // of unconditionally overwriting whatever is there now.
       const record = settings as unknown as Record<string, unknown>;
-      await putUserSetting(email, SETTINGS_KEY, record);
+      await mutateUserSetting(
+        email,
+        SETTINGS_KEY,
+        (current) => current ?? record,
+      );
     }
   }
   return settings;
