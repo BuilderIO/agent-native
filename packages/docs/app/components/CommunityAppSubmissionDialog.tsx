@@ -6,6 +6,7 @@ import {
   Dialog,
   DialogClose,
   DialogContent,
+  DialogDescription,
   DialogTitle,
   DialogTrigger,
 } from "./ui/dialog";
@@ -34,6 +35,9 @@ export function CommunityAppSubmissionDialog() {
             </button>
           </DialogClose>
         </div>
+        <DialogDescription className="mt-3 max-w-[520px] font-[family-name:var(--b-font-sans)] text-sm leading-[1.5] text-[var(--b-text-secondary)]">
+          {t("templatesPage.communitySubmissionDescription")}
+        </DialogDescription>
         <div className="mt-6">
           <CommunityAppSubmissionForm />
         </div>
