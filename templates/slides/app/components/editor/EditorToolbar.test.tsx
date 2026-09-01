@@ -18,7 +18,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
-    key === "editorToolbar.savedVersions" ? "History" : key,
+    key === "editorToolbar.savedVersions"
+      ? "History"
+      : key === "creativeContext.share.tabLabel"
+        ? "Context"
+        : key,
 }));
 
 vi.mock("@agent-native/core/client/progress", () => ({

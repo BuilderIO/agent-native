@@ -57,7 +57,6 @@ import { ShareButton } from "@agent-native/core/client/sharing";
 import type { ReviewComment } from "@agent-native/core/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
-  CreativeContextShareSheet,
   CreativeContextShareTab,
   parseCreativeContexts,
   useCreativeContexts,
@@ -161,7 +160,6 @@ import {
   IconTemplate,
   IconAdjustmentsHorizontal,
   IconMessageCircle,
-  IconLibraryPlus,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -614,7 +612,6 @@ import {
 import { isRadixOverlayOpen } from "./design-editor/dom-guards";
 import { useTweaks } from "./design-editor/domains/use-tweaks";
 import {
-  ADD_TO_CONTEXT_LABEL,
   AUTO_RETRY_DELAY_MS,
   BOARD_SURFACE_SIZE,
   DESIGN_EDITOR_DEBUG_LOGS,
@@ -3520,11 +3517,6 @@ function DesignEditor() {
   });
 
   const shouldOpenShare = postAuthIntent === "share" && canShareDesign;
-  // Standalone entry point into the same Creative Context submission flow
-  // the Share popover's "Context" tab already offers — kept as its own
-  // always-visible button because the Share popover buries it behind two
-  // other tabs, which is the opposite of "clearly visible."
-  const [addToContextOpen, setAddToContextOpen] = useState(false);
   // ── Share URL, prompt popovers, title editing ──────────────────────────────
   const editorShareUrl = useMemo(() => {
     if (!id || typeof window === "undefined") return undefined;
@@ -15132,7 +15124,7 @@ function DesignEditor() {
     "inline-flex items-center justify-center gap-1.5";
   const designSharePopoverClassName =
     "z-[100010] !w-[min(620px,calc(100vw-32px))] !p-3 " +
-    "[&_[role=tablist]]:!inline-flex [&_[role=tablist]]:!w-fit [&_[role=tablist]]:!self-start [&_[role=tablist]]:justify-start [&_[role=tablist]]:gap-1 [&_[role=tablist]]:rounded-lg [&_[role=tablist]]:border [&_[role=tablist]]:border-[var(--design-editor-panel-divider-color)] [&_[role=tablist]]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tablist]]:p-1 " +
+    "[&_[role=tablist]]:!inline-flex [&_[role=tablist]]:!w-fit [&_[role=tablist]]:!max-w-full [&_[role=tablist]]:!self-start [&_[role=tablist]]:!overflow-x-auto [&_[role=tablist]]:justify-start [&_[role=tablist]]:gap-1 [&_[role=tablist]]:rounded-lg [&_[role=tablist]]:border [&_[role=tablist]]:border-[var(--design-editor-panel-divider-color)] [&_[role=tablist]]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tablist]]:p-1 " +
     "[&_[role=tab]]:!h-8 [&_[role=tab]]:!flex-none [&_[role=tab]]:rounded-md [&_[role=tab]]:px-3 [&_[role=tab]]:!text-[12px] [&_[role=tab]]:font-semibold [&_[role=tab]]:shadow-none [&_[role=tab]]:ring-0 " +
     "[&_[role=tab]:hover]:bg-white/70 dark:[&_[role=tab]:hover]:bg-[var(--design-editor-control-bg)] [&_[role=tab]:hover]:text-foreground " +
     "[&_[role=tab][aria-selected=true]]:bg-white dark:[&_[role=tab][aria-selected=true]]:bg-[var(--design-editor-control-bg)] [&_[role=tab][aria-selected=true]]:text-foreground [&_[role=tab][aria-selected=true]]:shadow-sm [&_[role=tab][aria-selected=true]]:ring-1 [&_[role=tab][aria-selected=true]]:ring-[var(--design-editor-control-border)]";
@@ -15167,7 +15159,13 @@ function DesignEditor() {
       },
       {
         value: "context",
-        label: <span className={designShareTabLabelClassName}>Context</span>,
+        label: (
+          <span className={designShareTabLabelClassName}>
+            {t("creativeContext.share.tabLabel", {
+              defaultValue: "Context",
+            })}
+          </span>
+        ),
         content: (
           <CreativeContextShareTab
             resource={{
@@ -19103,32 +19101,6 @@ function DesignEditor() {
                 : t("review.applyFeedback", { count: reviewAgentQueueCount })}
             </Button>
           ) : null}
-          {!hostEmbeddedEditor && canRenderAuthenticatedShare ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setAddToContextOpen(true)}
-                  aria-label={ADD_TO_CONTEXT_LABEL}
-                  className={cn(
-                    "h-[var(--design-row-height)] min-w-0 rounded-md text-sm",
-                    rightToolbarCompact
-                      ? "w-[var(--design-row-height)] shrink-0 px-0"
-                      : "gap-[var(--design-baseline-half)] px-[var(--design-baseline-unit)]",
-                  )}
-                >
-                  <IconLibraryPlus className="size-4" />
-                  {rightToolbarCompact ? null : (
-                    <span className="truncate">{ADD_TO_CONTEXT_LABEL}</span>
-                  )}
-                </Button>
-              </TooltipTrigger>
-              {rightToolbarCompact ? (
-                <TooltipContent>{ADD_TO_CONTEXT_LABEL}</TooltipContent>
-              ) : null}
-            </Tooltip>
-          ) : null}
           <Popover
             open={hostEmbeddedEditor ? false : publishWaitlistPopoverOpen}
             onOpenChange={(open) => {
@@ -19276,20 +19248,6 @@ function DesignEditor() {
           ) : null}
         </div>
       </div>
-      {!hostEmbeddedEditor && canRenderAuthenticatedShare ? (
-        <CreativeContextShareSheet
-          resource={{
-            appId: "design",
-            resourceType: "design",
-            resourceId: id ?? "",
-            title: design.title ?? "Untitled design",
-            updatedAt: design?.updatedAt ?? undefined,
-            preview: { kind: "document", label: "Design project" }, // i18n-ignore share-tab preview descriptor, template pages are raw-English
-          }}
-          open={addToContextOpen}
-          onOpenChange={setAddToContextOpen}
-        />
-      ) : null}
       {activeScreenIsLocalSource &&
       viewMode === "single" &&
       activeScreenPreviewUrl ? (

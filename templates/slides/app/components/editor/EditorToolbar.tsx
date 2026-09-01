@@ -1000,7 +1000,7 @@ export default function EditorToolbar({
             tabs: [
               {
                 value: "context",
-                label: "Context",
+                label: t("creativeContext.share.tabLabel"),
                 content: (
                   <CreativeContextShareTab
                     resource={{
@@ -1009,7 +1009,7 @@ export default function EditorToolbar({
                       resourceId: deckId,
                       title: deckTitle,
                       updatedAt: deck.updatedAt,
-                      preview: { kind: "document", label: "Deck" },
+                      preview: { kind: "document", label: t("header.deck") },
                     }}
                   />
                 ),
