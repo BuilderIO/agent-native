@@ -350,6 +350,7 @@ function SharePanel(
   },
 ) {
   const t = useT();
+  const tabIds = useId();
   const { controller } = props;
   const {
     inviteEmail,
@@ -444,8 +445,7 @@ function SharePanel(
       Boolean(props.shareUrlPlaceholder) ||
       Boolean(props.secondaryShareUrl));
   const shareUrlPlacement = props.shareUrlPlacement ?? "top";
-  const extraTabs =
-    props.shareTabs?.tabs.filter((tab) => tab.value !== "context") ?? [];
+  const extraTabs = props.shareTabs?.tabs ?? [];
   const hasTabs = extraTabs.length > 0;
   const shareTabLabel =
     props.shareTabs?.shareLabel ??
@@ -762,7 +762,6 @@ function SharePanel(
   const activeTab = tabs.some((tab) => tab.value === activeShareTab)
     ? activeShareTab
     : "share";
-
   return (
     <div className="flex flex-col gap-4">
       <div
@@ -772,14 +771,18 @@ function SharePanel(
         })}
         className="flex gap-1 rounded-xl bg-muted/70 p-1"
       >
-        {tabs.map((tab) => {
+        {tabs.map((tab, index) => {
           const active = tab.value === activeTab;
+          const tabId = `${tabIds}-tab-${index}`;
+          const panelId = `${tabIds}-panel-${index}`;
           return (
             <button
               key={tab.value}
               type="button"
+              id={tabId}
               role="tab"
               aria-selected={active}
+              aria-controls={panelId}
               disabled={tab.disabled}
               onClick={() => handleShareTabChange(tab.value)}
               className={cn(
@@ -793,9 +796,21 @@ function SharePanel(
           );
         })}
       </div>
-      <div role="tabpanel">
-        {tabs.find((tab) => tab.value === activeTab)?.content}
-      </div>
+      {tabs.map((tab, index) => {
+        const active = tab.value === activeTab;
+        return (
+          <div
+            key={tab.value}
+            id={`${tabIds}-panel-${index}`}
+            role="tabpanel"
+            aria-labelledby={`${tabIds}-tab-${index}`}
+            tabIndex={active ? 0 : -1}
+            hidden={!active}
+          >
+            {active ? tab.content : null}
+          </div>
+        );
+      })}
     </div>
   );
 }
