@@ -950,6 +950,41 @@ describe("Google account time zone lookup", () => {
     ).resolves.toBeNull();
     expect(listOAuthAccountsByOwnerMock).toHaveBeenCalledTimes(2);
   });
+
+  it("does not let a lookup started before a disconnect cache its stale result afterward", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "racing-peer@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    let resolveCalendar: (value: { timeZone: string }) => void;
+    calendarGetCalendarMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCalendar = resolve;
+      }),
+    );
+
+    const inFlight = getGoogleAccountTimezone("racing-peer@example.com");
+
+    // Disconnect races ahead of the in-flight lookup finishing.
+    await disconnect("racing-peer@example.com");
+
+    resolveCalendar!({ timeZone: "America/Chicago" });
+    await expect(inFlight).resolves.toBe("America/Chicago");
+
+    // The in-flight lookup's result (reflecting pre-disconnect state) must
+    // not have been written to the cache after the disconnect invalidated
+    // it - the next lookup should re-resolve from scratch.
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+    calendarGetCalendarMock.mockResolvedValue({ timeZone: "America/Chicago" });
+    await expect(
+      getGoogleAccountTimezone("racing-peer@example.com"),
+    ).resolves.toBeNull();
+  });
 });
 
 describe("calendar event creation", () => {
