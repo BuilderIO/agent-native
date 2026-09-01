@@ -65,6 +65,18 @@ describe("pull-request governance", () => {
     });
   });
 
+  it("never approves partial CI evidence even for a verified internal author", () => {
+    expect(
+      decidePullRequestGovernance({
+        ...cleanInternalBug,
+        checksCoverage: "partial",
+      }),
+    ).toMatchObject({
+      autoApprove: false,
+      autoMerge: false,
+    });
+  });
+
   it("applies the verified Liam exception across ordinary UX gates", () => {
     expect(
       decidePullRequestGovernance({

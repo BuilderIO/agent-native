@@ -25,6 +25,19 @@ interface MailosaurMessageList {
   items?: MailosaurMessageSummary[];
 }
 
+export class MailosaurInconclusiveError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MailosaurInconclusiveError";
+  }
+}
+
+export function isMailosaurInconclusiveError(
+  error: unknown,
+): error is MailosaurInconclusiveError {
+  return error instanceof MailosaurInconclusiveError;
+}
+
 export interface MailosaurMessage extends MailosaurMessageSummary {
   html?: { body?: string; links?: MailosaurLink[] };
   text?: { body?: string; links?: MailosaurLink[] };
@@ -58,7 +71,11 @@ async function getJson<T>(url: string): Promise<T> {
     signal: AbortSignal.timeout(15_000),
   });
   if (!response.ok) {
-    throw new Error(`Mailosaur API returned HTTP ${response.status}.`);
+    const message = `Mailosaur API returned HTTP ${response.status}.`;
+    if (response.status === 429) {
+      throw new MailosaurInconclusiveError(message);
+    }
+    throw new Error(message);
   }
   try {
     return (await response.json()) as T;

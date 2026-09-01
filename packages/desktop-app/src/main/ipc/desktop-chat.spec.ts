@@ -47,7 +47,7 @@ describe("desktop chat relay target URLs", () => {
     ]);
     expect(
       desktopTerminalMcpArgs("builder", registration, "/tmp/unused.json"),
-    ).toEqual([]);
+    ).toEqual(["code"]);
   });
 
   it("returns an authenticated desktop-owned terminal endpoint", () => {

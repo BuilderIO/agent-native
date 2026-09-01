@@ -80,6 +80,18 @@ jobs:
         id: review
         run: pnpm exec playwright test --config e2e/signup/agent.playwright.config.ts
 
+      - name: Classify provider result
+        id: classify
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          if find e2e/signup/test-results/signup-agent -type f -name 'mailosaur-inconclusive.txt' -print -quit | grep -q .; then
+            echo "inconclusive=true" >> "$GITHUB_OUTPUT"
+            echo "INCONCLUSIVE: Mailosaur rate-limited the verification inbox; no model review was recorded." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "inconclusive=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish findings
         if: ${{ always() }}
         run: |
@@ -105,7 +117,7 @@ jobs:
         # Only when the review actually ran and reported something. A failed
         # lane is reported by the failing step, not by an issue that would read
         # as a product problem.
-        if: ${{ success() }}
+        if: ${{ success() && steps.classify.outputs.inconclusive != 'true' }}
         run: |
           set -euo pipefail
           findings="e2e/signup/test-results/signup-agent/findings.md"

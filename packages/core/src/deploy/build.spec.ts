@@ -59,9 +59,11 @@ import {
   generateCloudflarePagesStaticShellFromManifest,
   generateCloudflareModuleWorkerEntry,
   generateProvidedPluginsNitroPluginSource,
+  generateAwsLambdaStreamingRuntimeEntry,
   generateWorkerEntry,
   getNodeBuiltinNames,
   isAwsAmplifyPreset,
+  configureAwsLambdaRuntimeOutput,
   isCloudflareModulePreset,
   configureAwsAmplifyRuntimeOutput,
   isDurableBackgroundDeployEnabled,
@@ -125,6 +127,8 @@ describe("shouldBundleYjsRuntimeForPreset", () => {
       "netlify",
       "vercel",
       "aws-lambda",
+      "aws_lambda",
+      "awsLambda",
     ]) {
       expect(shouldBundleYjsRuntimeForPreset(preset)).toBe(true);
     }
@@ -139,6 +143,64 @@ describe("isAwsAmplifyPreset", () => {
     expect(isAwsAmplifyPreset("aws-amplify")).toBe(true);
     expect(isAwsAmplifyPreset("awsAmplify")).toBe(true);
     expect(isAwsAmplifyPreset("node")).toBe(false);
+  });
+});
+
+describe("AWS Lambda streaming runtime output", () => {
+  it("loads env before lazily importing Nitro's streaming handler", async () => {
+    const appDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-lambda-stream-test-"),
+    );
+    tempDirs.push(appDir);
+    const serverDir = path.join(appDir, "server");
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(serverDir, "index.mjs"),
+      "export const handler = () => {};\n",
+    );
+
+    configureAwsLambdaRuntimeOutput(serverDir, appDir, {
+      APP_URL: "https://calendar.example.test",
+      AGENT_NATIVE_AGENT_CHAT_STREAM_RUNTIME: "1",
+      BETTER_AUTH_SECRET: "lambda-example-secret",
+      UNDECLARED_SECRET: "must-not-ship",
+    });
+
+    expect(fs.readFileSync(path.join(serverDir, ".env"), "utf8")).toContain(
+      'AGENT_NATIVE_AGENT_CHAT_STREAM_RUNTIME="1"',
+    );
+    expect(fs.readFileSync(path.join(serverDir, ".env"), "utf8")).toContain(
+      'APP_URL="https://calendar.example.test"',
+    );
+    expect(fs.readFileSync(path.join(serverDir, ".env"), "utf8")).toContain(
+      'BETTER_AUTH_SECRET="lambda-example-secret"',
+    );
+    expect(fs.readFileSync(path.join(serverDir, ".env"), "utf8")).not.toContain(
+      "UNDECLARED_SECRET",
+    );
+    expect(fs.readFileSync(path.join(serverDir, "server.js"), "utf8")).toBe(
+      "// AWS Lambda loads env vars before evaluating Nitro's ESM handler.\n" +
+        'import { dirname, join } from "node:path";\n' +
+        'import { fileURLToPath } from "node:url";\n' +
+        'process.loadEnvFile(join(dirname(fileURLToPath(import.meta.url)), ".env"));\n' +
+        'const { handler } = await import("./index.mjs");\n' +
+        "export { handler };\n",
+    );
+    expect(
+      JSON.parse(fs.readFileSync(path.join(serverDir, "package.json"), "utf8")),
+    ).toMatchObject({ type: "module" });
+    const archiveHandler = await import(
+      pathToFileURL(path.join(serverDir, "server.js")).href
+    );
+    expect(typeof archiveHandler.handler).toBe("function");
+  });
+
+  it("writes response metadata through Nitro's Lambda stream wrapper", () => {
+    const runtime = generateAwsLambdaStreamingRuntimeEntry();
+
+    expect(runtime).toContain("awslambda.HttpResponseStream.from");
+    expect(runtime).toContain("streamToNodeStream(body.getReader(), writer)");
+    expect(runtime).not.toContain("streamToNodeStream(reader, responseStream)");
   });
 });
 
@@ -250,6 +312,21 @@ describe("AWS Amplify runtime output", () => {
 });
 
 describe("resolveNitroBuildReplacements", () => {
+  it("falls back to the source build id before Netlify assigns a deploy id", () => {
+    expect(
+      resolveNitroBuildReplacements({
+        DEPLOY_ID: "0",
+        AGENT_NATIVE_BUILD_ID: "source-sha",
+      })["process.env.AGENT_NATIVE_BUILD_ID"],
+    ).toBe(JSON.stringify("source-sha"));
+    expect(
+      resolveNitroBuildReplacements({
+        DEPLOY_ID: "deploy-id",
+        AGENT_NATIVE_BUILD_ID: "source-sha",
+      })["process.env.AGENT_NATIVE_BUILD_ID"],
+    ).toBe(JSON.stringify("deploy-id"));
+  });
+
   it("embeds release migration ownership into the Nitro server bundle", () => {
     const replacements = resolveNitroBuildReplacements({
       AGENT_NATIVE_RELEASE_MIGRATIONS: " 1 ",
@@ -1303,9 +1380,16 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     );
     expect(html).toContain('import("/assets/entry.client-abc.js")');
     expect(html).toContain('href="/assets/root.css"');
-    expect(html).toContain("Churning");
+    expect(html).toContain("var(--agent-native-viewport-height, 100vh)");
     expect(html).toContain("__agentNativeLoadingLabelIndex");
     expect(html).toContain("Math.random()");
+    expect(html).toContain("setInterval");
+    expect(html).toContain("__agentNativeLoadingLabelHydrated");
+    expect(html).toContain("__agentNativeLoadingLabelInterval");
+    expect(html).toContain("__agentNativeLoadingLabelCleanup");
+    expect(html).toContain("clearInterval");
+    expect(html).toContain("MutationObserver");
+    expect(html).toContain("loader.isConnected");
     expect(html).toContain("an-cube-pulse");
     expect(html).toContain(renderToStaticMarkup(createElement(DefaultSpinner)));
     expect(html).not.toContain("an-spin");

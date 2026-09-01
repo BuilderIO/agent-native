@@ -30,6 +30,10 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import {
+  metadataString,
+  parseTriageMetadata,
+} from "../server/triage/metadata.js";
 import { readStoredUserLabels } from "../server/triage/slack-user-labels.js";
 
 /** Max runs `listAutomationRuns` will return; enough for merge-paging. */
@@ -37,7 +41,7 @@ const AUTOMATION_RUN_FETCH_LIMIT = 100;
 
 export default defineAction({
   description:
-    "List recent Factory automation runs with the bounded source observations, decisions, and external actions recorded for each run.",
+    "List recent Factory automation runs with inbox additions, the items this run worked on, and the actions it took.",
   agentTool: false,
   schema: z.object({
     factoryId: factoryIdSchema,
@@ -180,6 +184,9 @@ export default defineAction({
             summary: triageItems.summary,
             source: triageItems.source,
             sourceUrl: triageItems.sourceUrl,
+            status: triageItems.status,
+            createdAt: triageItems.createdAt,
+            lastSeenAt: triageItems.lastSeenAt,
             metadataJson: triageItems.metadataJson,
           })
           .from(triageItems)
@@ -190,14 +197,23 @@ export default defineAction({
             ),
           )
       : [];
-    const itemSnapshots = itemRows.map((item) => ({
-      id: item.id,
-      title: item.title,
-      summary: item.summary,
-      source: item.source,
-      sourceUrl: item.sourceUrl,
-      userLabels: readStoredUserLabels(item.metadataJson),
-    }));
+    const itemSnapshots = itemRows.map((item) => {
+      const metadata = parseTriageMetadata(item.metadataJson);
+      return {
+        id: item.id,
+        title: item.title,
+        summary: item.summary,
+        source: item.source,
+        sourceUrl: item.sourceUrl,
+        status: item.status,
+        createdAt: item.createdAt,
+        lastSeenAt: item.lastSeenAt,
+        slackBuilderReplyAt:
+          metadataString(metadata, "slackBuilderReplyAt") ?? null,
+        slackDisposition: metadataString(metadata, "slackDisposition") ?? null,
+        userLabels: readStoredUserLabels(item.metadataJson),
+      };
+    });
     const runRows = itemIds.length
       ? await db
           .select({
@@ -252,6 +268,9 @@ export default defineAction({
           finishedAt: run.finishedAt,
           error: run.error,
           counts: report.counts,
+          inbox: report.inbox,
+          work: report.work,
+          actions: report.actions,
           items: report.items,
           trace: report.trace,
         };

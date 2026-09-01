@@ -120,8 +120,95 @@ export const AWS_AMPLIFY_PRESETS = [
   "awsAmplify",
 ] as const;
 
+export const AWS_LAMBDA_PRESETS = [
+  "aws-lambda",
+  "aws_lambda",
+  "awsLambda",
+] as const;
+
 export function isAwsAmplifyPreset(targetPreset: string): boolean {
   return (AWS_AMPLIFY_PRESETS as readonly string[]).includes(targetPreset);
+}
+
+export function isAwsLambdaPreset(targetPreset: string): boolean {
+  return (AWS_LAMBDA_PRESETS as readonly string[]).includes(targetPreset);
+}
+
+export function isAwsLambdaStreamingBuild(
+  targetPreset: string,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    isAwsLambdaPreset(targetPreset) &&
+    isTruthyRuntimeValue(env.AGENT_NATIVE_AGENT_CHAT_STREAM_RUNTIME)
+  );
+}
+
+const AWS_LAMBDA_STREAMING_ENTRY = "virtual:agent-native-aws-lambda-streaming";
+const AWS_LAMBDA_UTILS_ENTRY = "virtual:agent-native-aws-lambda-utils";
+const AWS_LAMBDA_APP_ENTRY = "virtual:agent-native-aws-lambda-app";
+
+function resolveNitroRuntimePath(relativePath: string): string {
+  const requireFromCore = createRequire(import.meta.url);
+  const nitroPackageJson = requireFromCore.resolve("nitro/package.json");
+  const runtimePath = path.join(path.dirname(nitroPackageJson), relativePath);
+  if (!fs.existsSync(runtimePath)) {
+    throw new Error(
+      `[deploy] Nitro runtime module is missing at ${runtimePath}`,
+    );
+  }
+  return runtimePath;
+}
+
+export function generateAwsLambdaStreamingRuntimeEntry(
+  utilsModule = AWS_LAMBDA_UTILS_ENTRY,
+  appModule = AWS_LAMBDA_APP_ENTRY,
+): string {
+  return `import "#nitro/virtual/polyfills";
+import { useNitroApp } from ${JSON.stringify(appModule)};
+import { awsRequest, awsResponseHeaders } from ${JSON.stringify(utilsModule)};
+
+const nitroApp = useNitroApp();
+
+export const handler = awslambda.streamifyResponse(
+  async (event, responseStream, context) => {
+    const request = awsRequest(event, context);
+    const response = await nitroApp.fetch(request);
+    const httpResponseMetadata = {
+      statusCode: response.status,
+      ...awsResponseHeaders(response),
+    };
+    if (!httpResponseMetadata.headers["transfer-encoding"]) {
+      httpResponseMetadata.headers["transfer-encoding"] = "chunked";
+    }
+    const body =
+      response.body ??
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue("");
+          controller.close();
+        },
+      });
+    const writer = awslambda.HttpResponseStream.from(
+      responseStream,
+      httpResponseMetadata,
+    );
+    try {
+      await streamToNodeStream(body.getReader(), writer);
+    } finally {
+      writer.end();
+    }
+  },
+);
+
+async function streamToNodeStream(reader, writer) {
+  let readResult = await reader.read();
+  while (!readResult.done) {
+    writer.write(readResult.value);
+    readResult = await reader.read();
+  }
+}
+`;
 }
 
 export function isCloudflareModulePreset(targetPreset: string): boolean {
@@ -216,14 +303,10 @@ function readEnvExampleKeys(filePath: string): string[] {
   return [...keys];
 }
 
-/**
- * Amplify makes build variables available to the build container but does not
- * forward them to SSR compute. Keep Nitro's self-contained entrypoint and
- * write only app-declared runtime keys beside it for Node's native env loader.
- */
-export function configureAwsAmplifyRuntimeOutput(
+function configureAwsRuntimeOutput(
   serverDir: string,
   appDir: string,
+  platform: "aws_amplify" | "aws_lambda",
   env: NodeJS.ProcessEnv = process.env,
 ): void {
   const declaredKeys = new Set<string>([
@@ -242,7 +325,7 @@ export function configureAwsAmplifyRuntimeOutput(
   const serverEntryPath = path.join(serverDir, "server.js");
   if (!fs.existsSync(path.join(serverDir, "index.mjs"))) {
     throw new Error(
-      `[deploy] Nitro did not generate ${path.join(serverDir, "index.mjs")} for aws_amplify`,
+      `[deploy] Nitro did not generate ${path.join(serverDir, "index.mjs")} for ${platform}`,
     );
   }
   fs.writeFileSync(
@@ -253,13 +336,61 @@ export function configureAwsAmplifyRuntimeOutput(
   fs.chmodSync(envPath, 0o600);
   fs.writeFileSync(
     serverEntryPath,
-    "// Amplify Hosting exposes env vars during build, not to SSR compute.\n" +
-      'process.loadEnvFile(require("node:path").join(__dirname, ".env"));\n' +
-      'import("./index.mjs");\n',
+    platform === "aws_amplify"
+      ? "// Amplify Hosting exposes env vars during build, not to SSR compute.\n" +
+          'process.loadEnvFile(require("node:path").join(__dirname, ".env"));\n' +
+          'import("./index.mjs");\n'
+      : "// AWS Lambda loads env vars before evaluating Nitro's ESM handler.\n" +
+          'import { dirname, join } from "node:path";\n' +
+          'import { fileURLToPath } from "node:url";\n' +
+          'process.loadEnvFile(join(dirname(fileURLToPath(import.meta.url)), ".env"));\n' +
+          'const { handler } = await import("./index.mjs");\n' +
+          "export { handler };\n",
   );
+  if (platform === "aws_lambda") {
+    const packageJsonPath = path.join(serverDir, "package.json");
+    const packageJson = fs.existsSync(packageJsonPath)
+      ? JSON.parse(fs.readFileSync(packageJsonPath, "utf8"))
+      : {};
+    if (
+      !packageJson ||
+      typeof packageJson !== "object" ||
+      Array.isArray(packageJson)
+    ) {
+      throw new Error(
+        `[deploy] Invalid Lambda package manifest at ${packageJsonPath}`,
+      );
+    }
+    (packageJson as Record<string, unknown>).type = "module";
+    fs.writeFileSync(
+      packageJsonPath,
+      `${JSON.stringify(packageJson, null, 2)}\n`,
+    );
+  }
   console.log(
-    `[deploy] Prepared Amplify runtime env with ${runtimeEnv.length} declared key(s).`,
+    `[deploy] Prepared ${platform} runtime env with ${runtimeEnv.length} declared key(s).`,
   );
+}
+
+/**
+ * Amplify makes build variables available to the build container but does not
+ * forward them to SSR compute. Keep Nitro's self-contained entrypoint and
+ * write only app-declared runtime keys beside it for Node's native env loader.
+ */
+export function configureAwsAmplifyRuntimeOutput(
+  serverDir: string,
+  appDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  configureAwsRuntimeOutput(serverDir, appDir, "aws_amplify", env);
+}
+
+export function configureAwsLambdaRuntimeOutput(
+  serverDir: string,
+  appDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  configureAwsRuntimeOutput(serverDir, appDir, "aws_lambda", env);
 }
 
 export function generateCloudflareModuleWorkerEntry(): string {
@@ -2115,7 +2246,7 @@ const DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM =
 
 const STATIC_SHELL_CUBE_DELAYS = [90, 180, 270, 0, 90, 180, 90, 180, 270];
 const STATIC_SHELL_LOADING_MARKUP = [
-  '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;width:100%">',
+  '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:var(--agent-native-viewport-height, 100vh);width:100%">',
   '<div style="display:flex;align-items:center;gap:12px">',
   '<svg aria-label="Loading" role="status" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" class="size-6" data-agent-native-cube-loader="true">',
   `<style>
@@ -2136,7 +2267,7 @@ const STATIC_SHELL_LOADING_MARKUP = [
     (delay, index) =>
       `<rect class="an-cube-cell" x="${2.5 + (index % 3) * 7}" y="${2.5 + Math.floor(index / 3) * 7}" width="5" height="5" rx="1" style="animation-delay:calc(${delay}ms - var(--an-cube-loader-phase, 0ms))"></rect>`,
   ),
-  '</svg><span data-agent-native-loading-label="true" class="agent-running-shimmer agent-loading-label" style="font-family:ui-sans-serif, system-ui, sans-serif;font-size:16px;font-weight:500;opacity:0.65">Churning</span>',
+  `</svg><span data-agent-native-loading-label="true" class="agent-running-shimmer agent-loading-label" style="font-family:ui-sans-serif, system-ui, sans-serif;font-size:16px;font-weight:500;opacity:0.65">${LOADING_LABELS[0]}</span>`,
   `<\/div><style>
         html {
           background: hsl(var(--background, 0 0% 100%));
@@ -2150,7 +2281,7 @@ const STATIC_SHELL_LOADING_MARKUP = [
         }
       </style></div>`,
 ].join("");
-const STATIC_SHELL_LOADING_LABEL_SCRIPT = `<script>(function(){var now=window.performance.now();var loader=document.querySelector('[data-agent-native-cube-loader]');if(loader)loader.style.setProperty('--an-cube-loader-phase',(now%650)+'ms');var labels=${JSON.stringify(LOADING_LABELS)};var index=Math.floor(Math.random()*labels.length);window.__agentNativeLoadingLabelIndex=index;var label=document.querySelector('[data-agent-native-loading-label]');if(label){label.textContent=labels[index];label.style.animationDelay='-'+now%2600+'ms';}})();</script>`;
+const STATIC_SHELL_LOADING_LABEL_SCRIPT = `<script>(function(){var labels=${JSON.stringify(LOADING_LABELS)};var label=document.querySelector('[data-agent-native-loading-label]');var loader=document.querySelector('[data-agent-native-cube-loader]');var observer;var cleanup=function(){if(window.__agentNativeLoadingLabelInterval!==undefined){window.clearInterval(window.__agentNativeLoadingLabelInterval);delete window.__agentNativeLoadingLabelInterval;}if(observer)observer.disconnect();if(window.__agentNativeLoadingLabelCleanup===cleanup)delete window.__agentNativeLoadingLabelCleanup;};window.__agentNativeLoadingLabelCleanup=cleanup;var update=function(){var now=window.performance.now();if(loader)loader.style.setProperty('--an-cube-loader-phase',(now%650)+'ms');if(label){label.textContent=labels[window.__agentNativeLoadingLabelIndex];label.style.animationDelay='-'+now%2600+'ms';}};window.__agentNativeLoadingLabelIndex=Math.floor(Math.random()*labels.length);update();window.__agentNativeLoadingLabelInterval=window.setInterval(function(){if(window.__agentNativeLoadingLabelHydrated||!loader||!loader.isConnected){cleanup();return;}window.__agentNativeLoadingLabelIndex=(window.__agentNativeLoadingLabelIndex+1)%labels.length;update();},3000);if(window.MutationObserver){observer=new MutationObserver(function(){if(!loader.isConnected)cleanup();});observer.observe(document,{childList:true,subtree:true});}})();</script>`;
 
 export function generateCloudflarePagesStaticShellFromManifest(
   manifest: ReactRouterAssetManifest,
@@ -4183,7 +4314,7 @@ export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
   return (
     targetPreset === "netlify" ||
     targetPreset === "vercel" ||
-    targetPreset === "aws-lambda" ||
+    isAwsLambdaPreset(targetPreset) ||
     targetPreset === "node" ||
     targetPreset === "node-server"
   );
@@ -5452,7 +5583,7 @@ export function nitroNoExternalsForPreset(
     ? true
     : targetPreset === "netlify" ||
         targetPreset === "vercel" ||
-        targetPreset === "aws-lambda" ||
+        isAwsLambdaPreset(targetPreset) ||
         targetPreset === "node" ||
         targetPreset === "node-server"
       ? []
@@ -5513,13 +5644,16 @@ export function resolveNitroBuildReplacements(
   const configuredDeploymentEnvironment =
     deploymentEnvironment?.trim() ||
     env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT?.trim();
+  const deployId = env.DEPLOY_ID?.trim();
+  const buildId =
+    deployId && deployId !== "0"
+      ? deployId
+      : env.AGENT_NATIVE_BUILD_ID?.trim() || "";
   return {
     // Netlify exposes DEPLOY_ID only while building. Embed it into the Nitro
     // function so preview OAuth relays can target this immutable deployment
     // even though the value is unavailable in the function runtime.
-    "process.env.AGENT_NATIVE_BUILD_ID": JSON.stringify(
-      env.DEPLOY_ID?.trim() || env.AGENT_NATIVE_BUILD_ID?.trim() || "",
-    ),
+    "process.env.AGENT_NATIVE_BUILD_ID": JSON.stringify(buildId),
     "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
       env.GA_MEASUREMENT_ID?.trim() || "",
     ),
@@ -5664,6 +5798,28 @@ export default bundle;
   if (fs.existsSync(sharedDir)) pathAliases["@shared"] = sharedDir;
 
   const providedPluginsNitroPlugin = await writeProvidedPluginsNitroPlugin();
+  const awsLambdaStreaming = isAwsLambdaStreamingBuild(
+    preset,
+    nitroEnvironment,
+  );
+  const nitroVirtual: Record<string, string | (() => string)> = {
+    "virtual:agents-bundle": agentsBundleModuleSource,
+  };
+  if (awsLambdaStreaming) {
+    const nitroAwsLambdaUtilsPath = resolveNitroRuntimePath(
+      "dist/presets/aws-lambda/runtime/_utils.mjs",
+    );
+    const nitroAppPath = resolveNitroRuntimePath("dist/runtime/app.mjs");
+    nitroVirtual[AWS_LAMBDA_UTILS_ENTRY] = () =>
+      `export { awsRequest, awsResponseHeaders } from ${JSON.stringify(nitroAwsLambdaUtilsPath)};`;
+    nitroVirtual[AWS_LAMBDA_APP_ENTRY] = () =>
+      `export { useNitroApp } from ${JSON.stringify(nitroAppPath)};`;
+    nitroVirtual[AWS_LAMBDA_STREAMING_ENTRY] = () =>
+      generateAwsLambdaStreamingRuntimeEntry(
+        AWS_LAMBDA_UTILS_ENTRY,
+        AWS_LAMBDA_APP_ENTRY,
+      );
+  }
 
   const nitro = await createNitro({
     rootDir: cwd,
@@ -5672,6 +5828,7 @@ export default bundle;
     ...(isAwsAmplifyPreset(preset)
       ? { awsAmplify: { runtime: "nodejs24.x" } }
       : {}),
+    ...(isAwsLambdaPreset(preset) ? { awsLambda: { streaming: false } } : {}),
     baseURL: appBasePath || "/",
     minify: true,
     serverDir: "./server",
@@ -5682,9 +5839,7 @@ export default bundle;
         ? { "virtual:react-router/server-build": rrServerBuild }
         : {}),
     },
-    virtual: {
-      "virtual:agents-bundle": agentsBundleModuleSource,
-    },
+    virtual: nitroVirtual,
     replace: resolveNitroBuildReplacements(
       process.env,
       nitroAgentConfig.deployment?.environment,
@@ -5703,7 +5858,7 @@ export default bundle;
       // post-build pass below bundles and rewrites them to one module.
       ...(preset === "netlify" ||
       preset === "vercel" ||
-      preset === "aws-lambda" ||
+      isAwsLambdaPreset(preset) ||
       preset === "node" ||
       preset === "node-server"
         ? { external: ["yjs"] }
@@ -5736,6 +5891,10 @@ export default bundle;
     noExternals: nitroNoExternalsForPreset(preset),
   } as any);
 
+  if (awsLambdaStreaming) {
+    nitro.options.entry = AWS_LAMBDA_STREAMING_ENTRY;
+  }
+
   await runNitroBuildPipeline({
     nitro,
     hooks: { prepare, copyPublicAssets, nitroBuild },
@@ -5762,7 +5921,7 @@ export default bundle;
   if (
     preset === "netlify" ||
     preset === "vercel" ||
-    preset === "aws-lambda" ||
+    isAwsLambdaPreset(preset) ||
     isAwsAmplifyPreset(preset)
   ) {
     copyInstalledLibsqlNativePackages(nitro.options.output.serverDir);
@@ -5831,7 +5990,19 @@ export default bundle;
   }
 
   if (isAwsAmplifyPreset(preset)) {
-    configureAwsAmplifyRuntimeOutput(nitro.options.output.serverDir, cwd);
+    configureAwsAmplifyRuntimeOutput(
+      nitro.options.output.serverDir,
+      cwd,
+      nitroEnvironment,
+    );
+  }
+
+  if (isAwsLambdaPreset(preset)) {
+    configureAwsLambdaRuntimeOutput(
+      nitro.options.output.serverDir,
+      cwd,
+      nitroEnvironment,
+    );
   }
 
   // Resolve remaining bare npm imports by bundling them into _libs/.

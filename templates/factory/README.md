@@ -47,6 +47,27 @@ apps that read shared `app_secrets` rows must use the same
 encryption fallback). Never copy raw tokens between apps or add a second
 env-only read in a provider client.
 
+### GitHub token permissions
+
+For Factory pull-request polling and babysitting, scope a fine-grained token to
+the target repository and grant these repository permissions:
+
+- `Pull requests: Read` for pull requests, reviews, comments, and changed files.
+- `Issues: Read and write` for issue creation, reactions, and PR comments.
+- `Checks: Read` for complete check-run evidence.
+
+Factory governance also verifies organization membership, so it needs
+`Members: Read` under organization permissions. If governance may post an
+approval, it also needs `Pull requests: Read and write`.
+
+GitHub's REST documentation lists `Checks: Read` for fine-grained tokens, but
+the current token editor may not offer that permission. This is a known GitHub
+limitation ([support discussion](https://github.com/orgs/community/discussions/129512)).
+Factory can fall back to `Actions: Read` for GitHub Actions workflow runs when
+Checks access is unavailable, but that does not provide complete evidence for
+non-Actions checks. Use a GitHub App with `Checks: Read` when complete check
+coverage is required.
+
 Factory's observer keeps **per-factory** source metadata — Slack channel,
 repository, Sentry project, and related polling settings — for its normalized
 queue adapters. Each factory has its own inbox, rules, automations, and activity.
@@ -73,8 +94,8 @@ bot replies with an inspectable Factory link when a human decision is required.
 Production expects a direct PostgreSQL `DATABASE_URL`,
 `WORKSPACE_OWNER_EMAIL`, and `FACTORY_PUBLIC_URL`. `AGENT_VAULT_ORG_ID` is
 optional and is only needed when the deployment owner cannot reach the existing
-Dispatch vault organization through membership. Factory automations use only
-the workspace Slack and GitHub connections. They do not read Builder AI
+Dispatch vault organization through membership. Factory automations use
+workspace Slack and GitHub connections, or the org vault. They do not read Builder AI
 services credentials, so this template is not locked to that vendor API.
 Clear Sentry bugs become a GitHub issue in the factory repository, then tag
 `@builderio-bot` the same way GitHub-issue dispatch does.

@@ -24,6 +24,10 @@ export interface AuthMarketingProps {
   tagline?: string;
   description?: string;
   features?: string[];
+  screenshotSrc?: string;
+  screenshotWidth?: number;
+  screenshotHeight?: number;
+  learnMoreUrl?: string;
 }
 
 export interface AuthLocaleOption {
@@ -2644,64 +2648,105 @@ export function AuthPage(props: AuthPageProps) {
     <MarketingHome
       appName={marketingCopy.appName}
       variant="auth"
-      background={<Starfield id="starfield" />}
+      background={
+        marketingCopy.screenshotSrc ? null : <Starfield id="starfield" />
+      }
+      topRight={
+        marketingCopy.learnMoreUrl ? (
+          <a
+            className="auth-marketing-learn-more"
+            href={marketingCopy.learnMoreUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <span>
+              {t("newToApp").replace(
+                "{appName}",
+                marketingCopy.appName.replace(/^Agent-Native\s+/i, ""),
+              )}
+            </span>
+            <span aria-hidden="true"> - </span>
+            <span className="auth-marketing-learn-more-link">
+              {t("learnMore")}
+            </span>
+          </a>
+        ) : null
+      }
       auth={
         <>
           {authCard}
           {localNote}
         </>
       }
-      className="auth-marketing-home"
+      className={
+        marketingCopy.screenshotSrc
+          ? "auth-marketing-home has-product-screenshot"
+          : "auth-marketing-home"
+      }
     >
-      <div className="marketing-content">
-        <h2 className="app-name">
+      {marketingCopy.screenshotSrc ? (
+        <div className="auth-marketing-screenshot-wrap">
           <img
-            className="brand-mark"
-            src={brandMarkSrc}
-            alt=""
-            aria-hidden="true"
+            className="auth-marketing-screenshot"
+            src={marketingCopy.screenshotSrc}
+            alt={`${marketingCopy.appName} preview`}
+            width={marketingCopy.screenshotWidth}
+            height={marketingCopy.screenshotHeight}
+            fetchPriority="high"
+            decoding="async"
           />
-          <span>{marketingCopy.appName}</span>
-        </h2>
-        <p className="app-tagline" data-marketing-field="tagline">
-          {marketingCopy.tagline}
-        </p>
-        {marketingCopy.description ? (
-          <p className="app-desc" data-marketing-field="description">
-            {marketingCopy.description}
-          </p>
-        ) : null}
-        {marketingCopy.features?.length ? (
-          <ul className="feature-list">
-            {marketingCopy.features.map((feature, index) => (
-              <li key={index} data-marketing-feature-index={index}>
-                {feature}
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        <div className="marketing-actions">
-          <a
-            className="oss-link"
-            href={githubUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 00-1.3-3.2 4.2 4.2 0 00-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 00-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 00-.1 3.2A4.6 4.6 0 004 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21" />
-            </svg>
-            <span data-i18n="openSource">{t("openSource")}</span>
-          </a>
         </div>
-      </div>
+      ) : (
+        <div className="marketing-content">
+          <h2 className="app-name">
+            <img
+              className="brand-mark"
+              src={brandMarkSrc}
+              alt=""
+              aria-hidden="true"
+            />
+            <span>{marketingCopy.appName}</span>
+          </h2>
+          <p className="app-tagline" data-marketing-field="tagline">
+            {marketingCopy.tagline}
+          </p>
+          {marketingCopy.description ? (
+            <p className="app-desc" data-marketing-field="description">
+              {marketingCopy.description}
+            </p>
+          ) : null}
+          {marketingCopy.features?.length ? (
+            <ul className="feature-list">
+              {marketingCopy.features.map((feature, index) => (
+                <li key={index} data-marketing-feature-index={index}>
+                  {feature}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="marketing-actions">
+            <a
+              className="oss-link"
+              href={githubUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 00-1.3-3.2 4.2 4.2 0 00-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 00-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 00-.1 3.2A4.6 4.6 0 004 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21" />
+              </svg>
+              <span data-i18n="openSource">{t("openSource")}</span>
+            </a>
+          </div>
+        </div>
+      )}
     </MarketingHome>
   ) : (
     <>

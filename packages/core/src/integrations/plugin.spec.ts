@@ -53,6 +53,7 @@ const getNextPendingTaskForThreadMock = vi.hoisted(() =>
   vi.fn(async () => null),
 );
 const dispatchPendingIntegrationTaskMock = vi.hoisted(() => vi.fn());
+const dispatchAutomationWebhookTaskMock = vi.hoisted(() => vi.fn());
 const recoverDueIntegrationCampaignsMock = vi.hoisted(() =>
   vi.fn(async () => ({ selected: 0, dispatched: 0, skipped: 0, failed: 0 })),
 );
@@ -188,6 +189,10 @@ vi.mock("./google-docs-poller.js", () => ({
   stopGoogleDocsPoller: stopGoogleDocsPollerMock,
   handlePushNotification: handlePushNotificationMock,
   verifyGoogleDocsPushNotification: verifyGoogleDocsPushNotificationMock,
+}));
+
+vi.mock("../triggers/dispatcher.js", () => ({
+  dispatchAutomationWebhookTask: dispatchAutomationWebhookTaskMock,
 }));
 
 vi.mock("../resources/store.js", () => ({
@@ -397,6 +402,7 @@ describe("integrations plugin routes", () => {
     resolveSecretMock.mockReset();
     resolveSecretMock.mockReturnValue(null);
     handleWebhookMock.mockResolvedValue({ status: 200, body: "ok" });
+    dispatchAutomationWebhookTaskMock.mockResolvedValue("completed");
     handlePushNotificationMock.mockReset();
     handlePushNotificationMock.mockResolvedValue(undefined);
     verifyGoogleDocsPushNotificationMock.mockReset();
@@ -1018,6 +1024,55 @@ describe("integrations plugin routes", () => {
     expect(claimPendingTaskMock).toHaveBeenCalledWith("background-task", {
       dispatchOutcome: "background-acknowledged",
     });
+  });
+
+  it("keeps webhook deliveries retryable while their automation is active", async () => {
+    process.env.NODE_ENV = "development";
+    const task = {
+      id: "automation-webhook-task",
+      platform: "automation-webhook",
+      externalThreadId: "owner+qa@example.com:jobs/webhook.md",
+      payload: JSON.stringify({
+        kind: "automation-webhook",
+        automationId: "automation-1",
+        owner: "owner+qa@example.com",
+        path: "jobs/webhook.md",
+        eventId: "event-1",
+        payload: { ok: true },
+      }),
+      ownerEmail: "owner+qa@example.com",
+      orgId: null,
+      status: "processing",
+      attempts: 3,
+      errorMessage: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      completedAt: null,
+    };
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    dispatchAutomationWebhookTaskMock.mockResolvedValueOnce("retry");
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(202);
+    expect(result.body).toEqual({
+      ok: true,
+      taskId: task.id,
+      retrying: "automation-active",
+    });
+    expect(markTaskRetryableMock).toHaveBeenCalledWith(
+      task.id,
+      "Automation is already running.",
+      { resetAttempts: true },
+    );
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
   });
 
   it("finishes a checkpointed campaign delivery without rerunning the agent", async () => {

@@ -149,6 +149,7 @@ export default function AnalyticsTemplate() {
             </span>
           </>
         }
+        customizeTemplate={template}
         description={
           <p className="m-0">{t("templateLanding.analytics.s008")}</p>
         }

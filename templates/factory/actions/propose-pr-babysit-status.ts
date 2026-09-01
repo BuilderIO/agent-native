@@ -7,6 +7,7 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { triageCoverageSchema } from "../server/triage/contracts.js";
 import { createGitHubClient } from "../server/triage/github-client.js";
 import { reconcileBabysitState } from "../server/triage/pr-babysit.js";
 import type {
@@ -60,6 +61,7 @@ export function createBabysitPullRequestAction(
       repo: z.string().trim().min(1).max(256),
       pullRequestNumber: z.number().int().positive(),
       checks: z.array(checkSchema).max(500).default([]),
+      checksCoverage: triageCoverageSchema.default("unknown"),
       failingJobLog: z.string().max(50_000).optional(),
       botAuthors: z.array(z.string().trim().min(1)).max(50).optional(),
     }),
@@ -83,6 +85,7 @@ export function createBabysitPullRequestAction(
       return reconcileBabysitState({
         comments,
         checks: input.checks,
+        checksCoverage: input.checksCoverage,
         failingJobLog: input.failingJobLog,
         botAuthors: input.botAuthors,
         commentsTruncated: truncated,

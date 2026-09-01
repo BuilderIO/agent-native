@@ -8,6 +8,7 @@ export interface JourneyStep {
   visibleText: string;
   screenshot: Buffer;
   consoleErrors: string[];
+  networkEvents: string[];
 }
 
 export type FindingSeverity = "high" | "medium" | "low";
@@ -35,6 +36,16 @@ review, so you know the shape of what matters:
 - an indefinite loading or skeleton state that never resolves
 - signed-in state that does not render (no account control, empty shell) even though a session exists
 - an error, stack trace, raw JSON, or untranslated/placeholder copy shown to the user
+
+The first-run onboarding welcome screen is expected for a brand-new account. Do NOT report it
+just because it has no app shell, account control, or navigation yet; only report onboarding
+when a visible action was attempted and the screen demonstrably fails to advance.
+The harness clicks through that expected onboarding after the initial post-link capture, so
+use the later "after completing first-run onboarding" capture to judge whether the app opened.
+
+The post-link and post-reload captures wait up to 15 seconds for readable content. Treat a
+loader that is still present in both captures as a real stall; do not call a single brief
+bootstrap loader indefinite when the later capture shows the app or onboarding.
 
 Do NOT report: aesthetic preferences, minor copy wording, anything you cannot see evidence
 for in the screenshot or text, or the presence of the test email address itself.
@@ -126,6 +137,9 @@ export async function reviewSignupJourney(
         step.consoleErrors.length > 0
           ? `console errors: ${step.consoleErrors.slice(0, 5).join(" | ")}`
           : "console errors: none",
+        step.networkEvents.length > 0
+          ? `network events: ${step.networkEvents.slice(-30).join(" | ")}`
+          : "network events: none",
         `visible text:\n${step.visibleText.slice(0, MAX_TEXT_PER_STEP)}`,
       ].join("\n"),
     });
@@ -139,41 +153,64 @@ export async function reviewSignupJourney(
     });
   }
 
-  const response = await fetch(ANTHROPIC_API, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 2_000,
-      messages: [{ role: "user", content }],
-    }),
-    signal: AbortSignal.timeout(120_000),
-  });
+  let formatError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const requestContent =
+      attempt === 0
+        ? content
+        : [
+            {
+              type: "text",
+              text: "The previous response did not match the requested JSON schema. Return the exact schema again, using only high, medium, or low for finding severity.",
+            },
+            ...content,
+          ];
+    const response = await fetch(ANTHROPIC_API, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 2_000,
+        messages: [{ role: "user", content: requestContent }],
+      }),
+      signal: AbortSignal.timeout(120_000),
+    });
 
-  if (!response.ok) {
-    // An unreadable body and an empty body are different facts, and the one
-    // job this error has is to say why the review did not happen.
-    const body = await response.text().then(
-      (text) => text.slice(0, 300),
-      (error) => `<body unreadable: ${String(error)}>`,
-    );
-    throw new Error(
-      `Agent review request failed: HTTP ${response.status} ${body}`,
-    );
+    if (!response.ok) {
+      // An unreadable body and an empty body are different facts, and the one
+      // job this error has is to say why the review did not happen.
+      const body = await response.text().then(
+        (text) => text.slice(0, 300),
+        (error) => `<body unreadable: ${String(error)}>`,
+      );
+      throw new Error(
+        `Agent review request failed: HTTP ${response.status} ${body}`,
+      );
+    }
+
+    try {
+      const payload = (await response.json()) as {
+        content?: Array<{ type: string; text?: string }>;
+      };
+      const text = payload.content?.find(
+        (block) => block.type === "text",
+      )?.text;
+      if (!text) {
+        throw new Error("Agent review response contained no text block.");
+      }
+      return coerceReview(extractJson(text));
+    } catch (error) {
+      formatError = error;
+    }
   }
 
-  const payload = (await response.json()) as {
-    content?: Array<{ type: string; text?: string }>;
-  };
-  const text = payload.content?.find((block) => block.type === "text")?.text;
-  if (!text) {
-    throw new Error("Agent review response contained no text block.");
-  }
-  return coerceReview(extractJson(text));
+  throw formatError instanceof Error
+    ? formatError
+    : new Error(String(formatError));
 }
 
 export function renderReviewMarkdown(
