@@ -1,5 +1,6 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { IconBrandGithub } from "@tabler/icons-react";
 
 import { BuildOnlinePopover } from "../components/BuilderWaitlistPopover";
 import {
@@ -10,14 +11,14 @@ import {
 import { sitePathForLocale } from "../components/docs-locale";
 import { featuredTemplates, TemplateCard } from "../components/TemplateCard";
 import { Button } from "../components/website-redesign/ds/button";
-import { NavLink } from "../components/website-redesign/ds/nav-link";
+import { IconBox } from "../components/website-redesign/ds/icon-box";
 import {
   GridInner,
   PageSection,
 } from "../components/website-redesign/page-grid";
 
-const HEADING_2_CLASS =
-  "m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]";
+const HEADING_3_CLASS =
+  "m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-3)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]";
 
 const HEADING_5_CLASS =
   "m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]";
@@ -34,6 +35,25 @@ const CARD_GRID_CLASS =
 export default function TemplatesPage() {
   const t = useT();
   const { locale } = useLocale();
+
+  // One definition for two placements: inside the empty-state band, and below
+  // the card grid once listings exist. The parent owns the alignment, so the
+  // same markup reads centred in the band and left-aligned under the grid.
+  const publishingFooter = (
+    <>
+      <Button
+        variant="secondary"
+        href={`${sitePathForLocale("/docs/creating-templates", locale)}#publishing`}
+        data-an-prefetch="viewport"
+        className="uppercase"
+      >
+        {t("templatesPage.publishGuide")}
+      </Button>
+      <p className="m-0 max-w-[520px] font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-paragraph-3)] leading-[1.6] text-[var(--b-text-muted)]">
+        {t("templatesPage.communityTrust")}
+      </p>
+    </>
+  );
 
   return (
     <main className="builder-brand-tokens">
@@ -130,63 +150,70 @@ export default function TemplatesPage() {
       </PageSection>
 
       <PageSection>
-        <GridInner className="flex items-end justify-between gap-[var(--spacing-5)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-8)] mobile:flex-col mobile:items-start">
-          <div className="flex max-w-[633px] flex-col gap-[var(--spacing-3)]">
-            <h2 className={HEADING_2_CLASS}>
-              {t("templatesPage.communityTitle")}
-            </h2>
-            <p className={PARAGRAPH_2_CLASS}>
+        {/* Snapped to the decorative gridlines behind it: the heading takes the
+            first column and the copy and actions the other two, so the section
+            sits on the same structure as the card grid above rather than
+            floating as a centred block. */}
+        <GridInner className="grid grid-cols-3 items-start gap-[var(--spacing-8)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-12)] mobile:grid-cols-1">
+          <h2 className={HEADING_3_CLASS}>
+            {t("templatesPage.communityTitle")}
+          </h2>
+          <div className="col-span-2 flex flex-col items-start gap-[var(--spacing-6)] mobile:col-span-1">
+            <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-pretty text-[var(--b-text-secondary)]">
               {t("templatesPage.communityDescription")}
             </p>
+            <Button
+              variant="white"
+              href={COMMUNITY_TEMPLATE_SUBMISSION_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="uppercase"
+            >
+              {t("templatesPage.submitCommunityTemplate")}
+            </Button>
           </div>
-          <Button
-            variant="white"
-            href={COMMUNITY_TEMPLATE_SUBMISSION_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="shrink-0 uppercase"
-          >
-            {t("templatesPage.submitCommunityTemplate")}
-          </Button>
         </GridInner>
 
-        <GridInner className="flex flex-col gap-[var(--spacing-5)] px-[var(--spacing-8)] pb-[var(--spacing-24)]">
+        <GridInner className="flex flex-col gap-[var(--spacing-6)] pb-[var(--spacing-40)]">
           {communityTemplates.length > 0 ? (
-            <div className="grid min-w-0 grid-cols-3 gap-[var(--spacing-5)] mobile:grid-cols-2 narrow:grid-cols-1">
-              {communityTemplates.map((template) => (
-                <CommunityTemplateCard
-                  key={`${template.repository}:${template.app ?? ""}`}
-                  template={template}
-                  labels={{
-                    copyInstallCommand: t(
-                      "templatesPage.copyCommunityInstallCommand",
-                    ),
-                    copied: t("common.copied"),
-                    repository: t("templatesPage.viewRepository"),
-                    tryDemo: t("templatesPage.tryCommunityDemo"),
-                  }}
-                />
-              ))}
-            </div>
+            <>
+              <div className={CARD_GRID_CLASS}>
+                {communityTemplates.map((template) => (
+                  <CommunityTemplateCard
+                    key={`${template.repository}:${template.app ?? ""}`}
+                    template={template}
+                    labels={{
+                      copyInstallCommand: t(
+                        "templatesPage.copyCommunityInstallCommand",
+                      ),
+                      copied: t("common.copied"),
+                      repository: t("templatesPage.viewRepository"),
+                      tryDemo: t("templatesPage.tryCommunityDemo"),
+                    }}
+                  />
+                ))}
+              </div>
+              {/* Outside the grid once there are listings, so the guide and the
+                  third-party warning are never conditional on the empty state
+                  being the thing on screen. */}
+              <div className="flex flex-col items-start gap-[var(--spacing-5)] px-[var(--spacing-8)]">
+                {publishingFooter}
+              </div>
+            </>
           ) : (
-            <div className="flex items-center justify-between gap-[var(--spacing-4)] rounded-[var(--b-radius)] border border-dashed border-[var(--b-border-default)] p-[var(--spacing-5)] mobile:flex-col mobile:items-start">
-              <p className={`${PARAGRAPH_2_CLASS} max-w-[633px]`}>
+            // A hairline-bounded band on the same edges as the card grid, not a
+            // dashed box floating inside the column: with no listings yet this
+            // is the section's main surface, so it reads as page structure.
+            <div className="flex flex-col items-center gap-[var(--spacing-5)] border border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-raised)] px-[var(--spacing-8)] py-[var(--spacing-20)] text-center">
+              <IconBox>
+                <IconBrandGithub size={20} stroke={1.5} />
+              </IconBox>
+              <p className="m-0 max-w-[520px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-pretty text-[var(--b-text-secondary)]">
                 {t("templatesPage.communityEmpty")}
               </p>
-              <div className="shrink-0">
-                <NavLink
-                  href={`${sitePathForLocale("/docs/creating-templates", locale)}#publishing`}
-                  showArrow
-                >
-                  {t("templatesPage.publishGuide")}
-                </NavLink>
-              </div>
+              {publishingFooter}
             </div>
           )}
-
-          <p className="m-0 max-w-[633px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.5] text-[var(--b-text-muted)]">
-            {t("templatesPage.communityTrust")}
-          </p>
         </GridInner>
       </PageSection>
     </main>
