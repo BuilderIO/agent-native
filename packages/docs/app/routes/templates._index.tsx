@@ -50,15 +50,22 @@ export default function TemplatesPage() {
               rule spans the full content measure, then restores that padding so
               the heading still lines up with the page header above it. */}
           <section
-            className="-mx-4 mt-16 border-t border-solid border-[var(--b-border-default)] px-4 pt-16 sm:-mx-6 sm:px-6"
+            className="-mx-4 mt-16 border-t border-solid border-[var(--b-border-default)] px-4 sm:-mx-6 sm:px-6"
             aria-labelledby="first-party-apps-heading"
           >
-            <h2
-              id="first-party-apps-heading"
-              className={`mb-6 ${SECTION_HEADING_CLASS}`}
-            >
-              {t("templatesPage.firstPartyTitle")}
-            </h2>
+            {/* Carries the section's top padding so its fill covers the
+                decorative column rules for the whole heading band, leaving no
+                stub of rule between the top rule and the card band. The
+                negative margin and the padding cancel out, so the heading text
+                stays on the same measure as the page header. */}
+            <div className="-mx-[15px] bg-[var(--b-bg-page)] px-[15px] pt-16 pb-6 sm:-mx-[23px] sm:px-[23px]">
+              <h2
+                id="first-party-apps-heading"
+                className={`m-0 ${SECTION_HEADING_CLASS}`}
+              >
+                {t("templatesPage.firstPartyTitle")}
+              </h2>
+            </div>
             {/* Breaks back out of the section's padding, but stops 1px short of
                 the full measure at each breakpoint: the page's decorative
                 column rules are drawn as a border inside that measure, and this
