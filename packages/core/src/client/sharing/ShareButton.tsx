@@ -762,8 +762,6 @@ function SharePanel(
   const activeTab = tabs.some((tab) => tab.value === activeShareTab)
     ? activeShareTab
     : "share";
-  const activeTabIndex = tabs.findIndex((tab) => tab.value === activeTab);
-
   return (
     <div className="flex flex-col gap-4">
       <div
@@ -798,14 +796,21 @@ function SharePanel(
           );
         })}
       </div>
-      <div
-        id={`${tabIds}-panel-${activeTabIndex}`}
-        role="tabpanel"
-        aria-labelledby={`${tabIds}-tab-${activeTabIndex}`}
-        tabIndex={0}
-      >
-        {tabs.find((tab) => tab.value === activeTab)?.content}
-      </div>
+      {tabs.map((tab, index) => {
+        const active = tab.value === activeTab;
+        return (
+          <div
+            key={tab.value}
+            id={`${tabIds}-panel-${index}`}
+            role="tabpanel"
+            aria-labelledby={`${tabIds}-tab-${index}`}
+            tabIndex={active ? 0 : -1}
+            hidden={!active}
+          >
+            {active ? tab.content : null}
+          </div>
+        );
+      })}
     </div>
   );
 }

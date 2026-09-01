@@ -15159,7 +15159,13 @@ function DesignEditor() {
       },
       {
         value: "context",
-        label: <span className={designShareTabLabelClassName}>Context</span>,
+        label: (
+          <span className={designShareTabLabelClassName}>
+            {t("creativeContext.share.tabLabel", {
+              defaultValue: "Context",
+            })}
+          </span>
+        ),
         content: (
           <CreativeContextShareTab
             resource={{

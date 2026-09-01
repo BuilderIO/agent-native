@@ -377,7 +377,9 @@ export function CreativeContextShareTab({
     useState(false);
   const busy = manageContext.isPending || manageMembership.isPending;
   const selectedContext = contexts.find((context) => context.id === contextId);
-  const canCreateContext = contexts.some((context) => context.access.canAdmin);
+  const canCreateContext =
+    contextsQuery.data?.canCreateContext === true &&
+    contexts.some((context) => context.access.canAdmin);
   const needsBroaderPublicationConfirmation = selectedResources.some((item) =>
     requiresBroaderPublication(item, selectedContext),
   );
@@ -436,12 +438,7 @@ export function CreativeContextShareTab({
       );
       await refresh();
     } catch {
-      setError(
-        t("creativeContext.share.submitFailed", {
-          defaultValue:
-            "Could not submit this resource to the selected context.",
-        }),
-      );
+      setError(t("creativeContext.submitUpdateFailed"));
     }
   }
 
@@ -459,11 +456,7 @@ export function CreativeContextShareTab({
       await contextsQuery.refetch();
       if (result.context?.id) setContextId(result.context.id);
     } catch {
-      setError(
-        t("creativeContext.share.createFailed", {
-          defaultValue: "Could not create a context.",
-        }),
-      );
+      setError(t("creativeContext.saveFailed"));
     }
   }
 
@@ -481,11 +474,7 @@ export function CreativeContextShareTab({
       });
       await refresh();
     } catch {
-      setError(
-        t("creativeContext.share.updateFailed", {
-          defaultValue: "Could not update this context membership.",
-        }),
-      );
+      setError(t("creativeContext.saveFailed"));
     }
   }
 
@@ -556,12 +545,7 @@ export function CreativeContextShareTab({
               label={
                 memberships.some((membership) => membership.publishedItem)
                   ? t("creativeContext.submitUpdate")
-                  : selectedResources.length === 1
-                    ? t("creativeContext.addToContext")
-                    : t("creativeContext.share.addResources", {
-                        count: selectedResources.length,
-                        defaultValue: "Add {{count}} resources",
-                      })
+                  : t("creativeContext.addToContext")
               }
               className="min-w-0 flex-1"
               contentClassName="space-y-2"

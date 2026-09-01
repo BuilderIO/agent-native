@@ -812,6 +812,13 @@ describe("ShareButton", () => {
     expect(container.textContent).toContain("Context");
     expect(container.textContent).not.toContain("Context body");
     expect(container.textContent).not.toContain("Export body");
+    for (const tab of container.querySelectorAll<HTMLButtonElement>(
+      '[role="tab"]',
+    )) {
+      expect(
+        document.getElementById(tab.getAttribute("aria-controls") ?? ""),
+      ).not.toBeNull();
+    }
 
     const exportTab = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Export",
