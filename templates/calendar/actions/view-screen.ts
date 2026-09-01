@@ -40,7 +40,7 @@ async function fetchEventsForRange(
   range: { from: string; to: string; timezone: string; defaulted: boolean };
 }> {
   try {
-    return await listCalendarEvents({ from, to, timezone });
+    return await listCalendarEvents({ from, to }, { timezone });
   } catch (error: any) {
     return {
       events: [],

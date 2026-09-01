@@ -89,11 +89,15 @@ describe("view-screen calendar context", () => {
   it("matches the visible week and preserves recurring occurrence identity", async () => {
     const result = JSON.parse(await viewScreen.run({}));
 
-    expect(listCalendarEventsMock).toHaveBeenCalledWith({
-      from: "2026-08-10T07:00:00.000Z",
-      to: "2026-08-17T07:00:00.000Z",
-      timezone: "America/Los_Angeles",
-    });
+    expect(listCalendarEventsMock).toHaveBeenCalledWith(
+      {
+        from: "2026-08-10T07:00:00.000Z",
+        to: "2026-08-17T07:00:00.000Z",
+      },
+      {
+        timezone: "America/Los_Angeles",
+      },
+    );
     expect(result.events.items).toMatchObject([
       {
         id: "google-instance",
@@ -116,10 +120,14 @@ describe("view-screen calendar context", () => {
 
     await viewScreen.run({});
 
-    expect(listCalendarEventsMock).toHaveBeenCalledWith({
-      from: "2026-08-13T07:00:00.000Z",
-      to: "2026-08-14T07:00:00.000Z",
-      timezone: "America/Los_Angeles",
-    });
+    expect(listCalendarEventsMock).toHaveBeenCalledWith(
+      {
+        from: "2026-08-13T07:00:00.000Z",
+        to: "2026-08-14T07:00:00.000Z",
+      },
+      {
+        timezone: "America/Los_Angeles",
+      },
+    );
   });
 });
