@@ -7,12 +7,16 @@ function emailsHandlerSource(): string {
 }
 
 describe("emails handler Gmail draft listing", () => {
-  it("hydrates full draft payloads while keeping other thread lists on metadata", () => {
+  it("hydrates drafts and saved-filter inboxes while keeping other lists on metadata", () => {
     const source = emailsHandlerSource();
 
+    expect(source).toContain("threadFormat:");
+    expect(source).toContain('view === "drafts"');
     expect(source).toContain(
-      'threadFormat: view === "drafts" ? "full" : "metadata"',
+      '(needsSavedFilterParts && (settings?.savedFilters?.length ?? 0) > 0)',
     );
+    expect(source).toContain('"full"');
+    expect(source).toContain('"metadata"');
   });
 
   it("uses attachment account metadata when resolving Gmail-backed draft attachments", () => {
