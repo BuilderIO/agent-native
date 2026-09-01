@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { callAppBundleIdsForJoinUrl } from "../lib/meeting-call-app";
 import { stopMeetingBeforeTranscriptFlush } from "../lib/meeting-stop";
+import { subscribeAutoStop } from "../lib/silence-events";
 import {
   appendFinalTranscript,
   onFinalTranscript,
@@ -468,21 +469,17 @@ export function useMeetingTranscription({
               });
           }),
         );
-        addUnlisten(
-          listen("meetings:silence-stop", () => {
-            stopTranscription("silence").catch(() => {});
-          }),
-        );
-        addUnlisten(
-          listen("meetings:sleep-stop", () => {
-            stopTranscription("sleep").catch(() => {});
-          }),
-        );
-        addUnlisten(
-          listen("meetings:call-ended", () => {
-            stopTranscription("call-ended").catch(() => {});
-          }),
-        );
+        // Register every native auto-stop listener before starting audio. The
+        // Tauri listen calls are async; firing the detector first leaves a
+        // small but real window where a native end event can be missed.
+        const autoStopUnlisten = await subscribeAutoStop((reason) => {
+          stopTranscription(reason).catch(() => {});
+        });
+        if (sessionRef.current !== session || session.stopping) {
+          autoStopUnlisten();
+        } else {
+          session.unlisten.push(autoStopUnlisten);
+        }
 
         // Creating the row and starting the audio engine need nothing from each
         // other — only the flush needs a recording id. Kicking the engine here
@@ -533,7 +530,7 @@ export function useMeetingTranscription({
         const silenceDetectorConfig = {
           silenceThreshold: 0.05,
           silenceMs: 15 * 60 * 1000,
-          callEndedMs: 2 * 60 * 1000,
+          callEndedMs: 30 * 1000,
           callAppBundleIds: callAppBundleIdsForJoinUrl(payload.joinUrl),
           scheduledEndMs,
           watchSleep: true,

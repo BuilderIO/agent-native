@@ -17,6 +17,14 @@ pub(crate) fn default_call_app_bundle_ids() -> Vec<String> {
     .collect()
 }
 
+fn bundle_id_matches(bundle_id: &str, candidate: &str) -> bool {
+    bundle_id == candidate
+        || bundle_id
+            .strip_prefix(candidate)
+            .map(|suffix| suffix.starts_with('.'))
+            .unwrap_or(false)
+}
+
 /// Returns whether one of the target conferencing apps currently has a live
 /// CoreAudio input stream. `None` means the OS could not provide a reliable
 /// answer, so callers must keep the existing conservative fallbacks.
@@ -109,7 +117,10 @@ pub(crate) fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
         }
         .to_string()
         .to_lowercase();
-        if !bundle_ids.iter().any(|candidate| candidate == &bundle_id) {
+        if !bundle_ids
+            .iter()
+            .any(|candidate| bundle_id_matches(&bundle_id, candidate))
+        {
             continue;
         }
 
@@ -143,4 +154,26 @@ pub(crate) fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
         return None;
     }
     Some(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bundle_id_matches;
+
+    #[test]
+    fn matches_audio_helper_processes_without_matching_other_apps() {
+        assert!(bundle_id_matches(
+            "com.google.chrome.helper.renderer",
+            "com.google.chrome"
+        ));
+        assert!(bundle_id_matches("us.zoom.xos", "us.zoom.xos"));
+        assert!(!bundle_id_matches(
+            "com.google.chromium",
+            "com.google.chrome"
+        ));
+        assert!(!bundle_id_matches(
+            "com.microsoft.teams2",
+            "com.microsoft.teams"
+        ));
+    }
 }

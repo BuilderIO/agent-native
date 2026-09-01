@@ -6,8 +6,8 @@
  *  - `meetings:silence-stop` — both mic + system audio have been silent for N
  *    minutes (default 15).
  *  - `meetings:sleep-stop`   — the machine slept (clock-jump heuristic).
- *  - `meetings:call-ended`   — the foreground video-conferencing app
- *    backgrounded for >2 minutes.
+ *  - `meetings:call-ended`   — the conferencing app released its microphone
+ *    with quiet system audio, or the scheduled meeting end was reached.
  *
  * Renderer wires `startSilenceDetector` when a meeting becomes live and
  * `stopSilenceDetector` when it ends. `subscribeAutoStop` returns an
