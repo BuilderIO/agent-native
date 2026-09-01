@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetSession = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
+const mockGetGoogleDocsAccessToken = vi.hoisted(() => vi.fn());
+const mockReadMultipartFormData = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
@@ -17,7 +19,8 @@ vi.mock("@agent-native/core/org", () => ({
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),
-  readMultipartFormData: vi.fn(async () => []),
+  readMultipartFormData: (...args: unknown[]) =>
+    mockReadMultipartFormData(...args),
   getRouterParam: vi.fn(() => "deck.pptx"),
 }));
 
@@ -30,7 +33,7 @@ vi.mock("../../../../actions/export-pptx.js", () => ({
 }));
 
 vi.mock("../../../lib/google-docs-oauth.js", () => ({
-  getGoogleDocsAccessToken: vi.fn(),
+  getGoogleDocsAccessToken: mockGetGoogleDocsAccessToken,
 }));
 
 vi.mock("../../../lib/tenant-files.js", () => ({
@@ -63,6 +66,8 @@ describe.each([
   beforeEach(() => {
     mockGetSession.mockReset();
     mockSetResponseStatus.mockReset();
+    mockGetGoogleDocsAccessToken.mockReset();
+    mockReadMultipartFormData.mockResolvedValue([]);
   });
 
   it("reports a 503 service error, not 401 Unauthorized, when the session lookup fails", async () => {
@@ -89,5 +94,33 @@ describe.each([
 
     expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 401);
     expect(result?.error).toBe("Unauthorized");
+  });
+});
+
+describe("google-slides connection failures", () => {
+  beforeEach(() => {
+    mockGetSession.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "org-1",
+    });
+    mockReadMultipartFormData.mockResolvedValue([
+      { name: "file", data: new Uint8Array([1, 2, 3]) },
+    ]);
+  });
+
+  it("turns an expired Google connection into a reconnect response", async () => {
+    mockGetGoogleDocsAccessToken.mockRejectedValue(new Error("Unauthorized"));
+
+    const result = (await exportGoogleSlides({ node: { res: {} } } as any)) as {
+      code?: string;
+      error?: string;
+    };
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 409);
+    expect(result).toEqual({
+      error:
+        "Google Drive connection expired. Connect Google again, then retry.",
+      code: "google-not-connected",
+    });
   });
 });
