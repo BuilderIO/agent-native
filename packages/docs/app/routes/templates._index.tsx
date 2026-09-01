@@ -1,6 +1,7 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
 
-import { BuildFromScratchCta } from "../components/BuildFromScratchCta";
+import { BuildOnlinePopover } from "../components/BuilderWaitlistPopover";
 import {
   COMMUNITY_APP_SUBMISSION_URL,
   communityApps,
@@ -9,6 +10,7 @@ import { CommunityAppCard } from "../components/CommunityAppCard";
 import { CommunityAppSubmissionForm } from "../components/CommunityAppSubmissionForm";
 import { sitePathForLocale } from "../components/docs-locale";
 import { featuredTemplates, TemplateCard } from "../components/TemplateCard";
+import { Button } from "../components/website-redesign/ds/button";
 import {
   GridInner,
   PageSection,
@@ -75,11 +77,56 @@ export default function TemplatesPage() {
               {featuredTemplates.map((template) => (
                 <TemplateCard key={template.name} template={template} />
               ))}
-              <div className="flex min-h-full items-center border border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] p-1 transition-[background-color] duration-150 hover:bg-[var(--b-bg-raised)]">
-                <BuildFromScratchCta
+            </div>
+          </section>
+
+          {/* Its own band under the card grid rather than a cell inside it,
+              where it read as one more app. Opaque for the same reason as the
+              heading bands: the decorative column rules would otherwise run
+              straight through the centred copy. */}
+          <section aria-labelledby="build-from-scratch-heading">
+            <div className="-mx-[15px] flex flex-col items-center gap-[var(--spacing-4)] bg-[var(--b-bg-page)] px-[15px] pt-16 pb-4 text-center sm:-mx-[23px] sm:px-[23px]">
+              <h2
+                id="build-from-scratch-heading"
+                className={`m-0 ${SECTION_HEADING_CLASS}`}
+              >
+                {t("buildFromScratch.title")}
+              </h2>
+              <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+                {t("buildFromScratch.description")}
+              </p>
+              <div className="mt-[var(--spacing-2)] flex flex-wrap justify-center gap-[var(--spacing-2)]">
+                <BuildOnlinePopover
                   location="templates_index"
-                  variant="grid"
+                  trigger={
+                    // Caps come from CSS, not the label: an all-caps string
+                    // becomes the accessible name and screen readers spell it
+                    // out letter by letter.
+                    <Button
+                      variant="white"
+                      icon={null}
+                      compact
+                      className="uppercase"
+                    >
+                      {t("buildFromScratch.buildOnline")}
+                    </Button>
+                  }
                 />
+                <Button
+                  variant="secondary"
+                  icon={null}
+                  compact
+                  href={sitePathForLocale("/docs/getting-started", locale)}
+                  onClick={() =>
+                    trackEvent("start from scratch", {
+                      location: "templates_index",
+                      action: "read_docs",
+                    })
+                  }
+                  className="uppercase"
+                >
+                  {t("buildFromScratch.readDocs")}
+                </Button>
               </div>
             </div>
           </section>
