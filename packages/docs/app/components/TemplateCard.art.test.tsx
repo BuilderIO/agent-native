@@ -50,14 +50,13 @@ describe("TemplateCard artwork", () => {
     expect(classes.join(" ")).not.toContain("group-hover:opacity-100");
   });
 
-  it("leaves apps without wireframe art on their plain screenshot", () => {
-    expect(APP_ART.forms).toBeUndefined();
+  it("has art for every app in the catalog", () => {
+    for (const template of templates) {
+      expect(APP_ART[template.slug]).toBeDefined();
+    }
 
     const { container } = renderCard("forms");
-
-    const classes = imageClasses(container);
-    expect(classes).toHaveLength(1);
-    expect(classes[0]).not.toContain("group-hover:opacity-100");
+    expect(imageClasses(container)).toHaveLength(2);
   });
 });
 
