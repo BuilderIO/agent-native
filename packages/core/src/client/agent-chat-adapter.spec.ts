@@ -217,6 +217,54 @@ describe("createAgentChatAdapter", () => {
     expect(getPendingTurn("thread-pending")).toBeNull();
   });
 
+  it("falls back to the same-origin route when direct streaming cannot start", async () => {
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat/stream-token") {
+        return jsonResponse({ token: "stream-token" });
+      }
+      if (
+        url === "https://stream.example.test/_agent-native/agent-chat-stream" &&
+        init?.method === "POST"
+      ) {
+        throw new TypeError("Failed to fetch");
+      }
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        return sseResponse([
+          { type: "text", text: "primary route" },
+          { type: "done" },
+        ]);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      streamingUrl:
+        "https://stream.example.test/_agent-native/agent-chat-stream",
+      tabId: "chat-stream-fallback",
+    });
+
+    const results = await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Use the primary route" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(fetchSpy.mock.calls.map(([url]) => url)).toEqual([
+      "/_agent-native/agent-chat/stream-token",
+      "https://stream.example.test/_agent-native/agent-chat-stream",
+      "/_agent-native/agent-chat",
+    ]);
+    expect((results.at(-1) as any).content.at(-1).text).toBe("primary route");
+  });
+
   it("consumes a 200 JSON response while checking auth errors", async () => {
     const response = jsonResponse({ error: "Authentication required" });
     const fetchSpy = vi

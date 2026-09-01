@@ -1161,6 +1161,16 @@ switch (command) {
     break;
   }
 
+  case "amplify-stream": {
+    import("./amplify-stream.js")
+      .then((m) => m.runAmplifyStream(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "setup-agents": {
     import("./setup-agents.js")
       .then((m) => m.runSetupAgents())
@@ -1347,6 +1357,8 @@ Usage:
   agent-native workspace-dev    Start the multi-app workspace gateway
   agent-native deploy           Build & deploy every app in the workspace to
                                 a single origin (your-agents.com/<app>/*)
+  agent-native amplify-stream   Build a Nitro streaming Lambda and connect it
+                                to an AWS Amplify branch
   agent-native setup-agents     Create symlinks for all agent tools
   agent-native info <pkg>       Print info about an installed package:
                                 exports, source paths, and docs links.
