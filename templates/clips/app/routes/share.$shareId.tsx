@@ -464,7 +464,12 @@ export default function ShareRoute() {
   const [commentAtMs, setCommentAtMs] = useState(0);
   const [commentDraft, setCommentDraft] = useState("");
   const [isPlayerFullscreen, setIsPlayerFullscreen] = useState(false);
-  const { session, status: sessionStatus, retry: retrySession } = useSession();
+  const {
+    session,
+    isLoading: sessionLoading,
+    status: sessionStatus,
+    retry: retrySession,
+  } = useSession();
   const retriedUnavailableSessionRef = useRef(false);
   const requestAccess = useActionMutation<
     {
