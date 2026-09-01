@@ -437,8 +437,7 @@ const koKR = {
   homepage: {
     hero: {
       title: "에이전틱 애플리케이션 프레임워크",
-      bodyLine1:
-        "사용자를 위한 두 번째 제품을 따로 만들지 않고도 AI 에이전트를 위해 개발하세요.",
+      bodyLine1: "직관적인 UI를 갖춘 자율형 에이전트를 구축하세요.",
       bodyLine2: "원하는 LLM을 사용하고 어디에나 배포하세요.",
       tryAnApp: "앱 사용해 보기",
     },
@@ -576,13 +575,12 @@ const koKR = {
     communitySubmissionName: "앱 이름",
     communitySubmissionNamePlaceholder: "고객 지원 허브",
     communitySubmissionUrl: "앱 URL",
-    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com 또는 https://example.com",
     communitySubmissionDescriptionLabel: "설명",
     communitySubmissionDescriptionPlaceholder:
       "앱은 무엇을 하며 누구를 위한 것인가요?",
     communitySubmissionRepository: "GitHub 저장소 (선택 사항)",
-    communitySubmissionRepositoryPlaceholder:
-      "https://github.com/owner/repository",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
     communitySubmissionScreenshots: "스크린샷 (선택 사항)",
     communitySubmissionScreenshotsPlaceholder: "여기에 최대 5개의 이미지 드롭",
     communitySubmissionScreenshotDropHint: "PNG, JPG 또는 WebP. 각 1.5MB 이하.",
@@ -593,7 +591,7 @@ const koKR = {
     communitySubmissionSubmit: "앱 제출",
     communitySubmissionReady: "감사합니다. 게시하기 전에 앱을 검토하겠습니다.",
     communitySubmissionValidation:
-      "이름, 설명, 유효한 앱 URL을 입력하세요. PNG, JPG 또는 WebP 이미지는 각각 1.5MB 이하로 업로드하세요.",
+      "이름과 설명을 입력한 다음 example.com과 같은 앱 링크를 입력하세요. https://는 자동으로 추가됩니다. 저장소를 추가하려면 github.com 링크를 사용하세요. PNG, JPG 또는 WebP 이미지는 각각 1.5MB 이하로 업로드하세요.",
   },
   buildFromScratch: {
     title: "처음부터 만들기",

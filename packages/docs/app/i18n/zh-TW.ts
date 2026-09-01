@@ -428,7 +428,7 @@ const messages = {
   homepage: {
     hero: {
       title: "面向 agentic 應用的框架",
-      bodyLine1: "為 agent 建置，不必為使用者另外打造第二個產品。",
+      bodyLine1: "建置配備直覺式 UI 的自主型 agent。",
       bodyLine2: "使用你自己的 LLM，隨處部署。",
       tryAnApp: "試用應用程式",
     },
@@ -563,12 +563,11 @@ const messages = {
     communitySubmissionName: "應用程式名稱",
     communitySubmissionNamePlaceholder: "客戶支援中心",
     communitySubmissionUrl: "應用程式 URL",
-    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com 或 https://example.com",
     communitySubmissionDescriptionLabel: "描述",
     communitySubmissionDescriptionPlaceholder: "應用程式做什麼，適合哪些人？",
     communitySubmissionRepository: "GitHub 儲存庫（選填）",
-    communitySubmissionRepositoryPlaceholder:
-      "https://github.com/owner/repository",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
     communitySubmissionScreenshots: "螢幕截圖（選填）",
     communitySubmissionScreenshotsPlaceholder: "將最多 5 張圖片拖曳到這裡",
     communitySubmissionScreenshotDropHint:
@@ -580,7 +579,7 @@ const messages = {
     communitySubmissionSubmit: "提交應用程式",
     communitySubmissionReady: "謝謝。我們會在刊登前審核你的應用程式。",
     communitySubmissionValidation:
-      "請填寫名稱、描述和有效的應用程式 URL。請上傳 PNG、JPG 或 WebP 圖片，每張不超過 1.5 MB。",
+      "請填寫名稱和描述，然後輸入類似 example.com 的應用程式連結。我們會自動為你加上 https://。如果新增儲存庫，請使用 github.com 連結。請上傳 PNG、JPG 或 WebP 圖片，每張不超過 1.5 MB。",
   },
   buildFromScratch: {
     title: "從零開始建置",

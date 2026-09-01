@@ -436,8 +436,7 @@ const ptBR = {
   homepage: {
     hero: {
       title: "O framework para aplicativos agentic",
-      bodyLine1:
-        "Construa para agentes de IA sem construir um segundo produto para os usuários.",
+      bodyLine1: "Crie agentes autônomos com interfaces intuitivas.",
       bodyLine2: "Traga seu próprio LLM. Implante em qualquer lugar.",
       tryAnApp: "Experimentar um app",
     },
@@ -575,13 +574,12 @@ const ptBR = {
     communitySubmissionName: "Nome do aplicativo",
     communitySubmissionNamePlaceholder: "Central de suporte ao cliente",
     communitySubmissionUrl: "URL do aplicativo",
-    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com ou https://example.com",
     communitySubmissionDescriptionLabel: "Descrição",
     communitySubmissionDescriptionPlaceholder:
       "O que o aplicativo faz e para quem ele é?",
     communitySubmissionRepository: "Repositório do GitHub (opcional)",
-    communitySubmissionRepositoryPlaceholder:
-      "https://github.com/owner/repository",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
     communitySubmissionScreenshots: "Capturas de tela (opcional)",
     communitySubmissionScreenshotsPlaceholder: "Solte até 5 imagens aqui",
     communitySubmissionScreenshotDropHint:
@@ -594,7 +592,7 @@ const ptBR = {
     communitySubmissionReady:
       "Obrigado. Vamos revisar seu aplicativo antes de publicá-lo.",
     communitySubmissionValidation:
-      "Adicione um nome, uma descrição e uma URL de aplicativo válida. Envie imagens PNG, JPG ou WebP de até 1,5 MB cada.",
+      "Adicione um nome e uma descrição e insira um link do app, como example.com. Nós adicionaremos https:// para você. Se adicionar um repositório, use um link do github.com. Envie imagens PNG, JPG ou WebP de até 1,5 MB cada.",
   },
   buildFromScratch: {
     title: "Criar do zero",

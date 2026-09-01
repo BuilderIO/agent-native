@@ -150,6 +150,11 @@ export function buildAgentDiscoveryPayload({
   agentContextUrl: string;
 }) {
   const readiness = getAgentClipReadiness(status);
+  const transcriptUrl = buildRelatedAgentUrl(
+    agentContextUrl,
+    AGENT_TRANSCRIPT_ENDPOINT,
+  );
+  const frameUrl = buildRelatedAgentUrl(agentContextUrl, AGENT_FRAME_ENDPOINT);
   return {
     type: "agent-native.clip.discovery",
     version: CLIP_AGENT_CONTEXT_VERSION,
@@ -159,6 +164,12 @@ export function buildAgentDiscoveryPayload({
     agentReadiness: readiness,
     agentContextUrl,
     webmcp: CLIPS_WEBMCP_DISCOVERY,
+    http: buildAgentHttpToolManifest({
+      contextUrl: agentContextUrl,
+      transcriptUrl,
+      frameUrlTemplate: `${frameUrl}&atMs={timestampMs}`,
+      frameAvailable: readiness.state === "ready",
+    }),
     instructions:
       readiness.instruction ??
       "Fetch agentContextUrl for the transcript and JPEG frame URLs; this works without a browser. Use apis.transcript for the complete transcript. If the page is already open in a WebMCP-capable browser, its page tools provide bounded read-only access; clips-get-transcript may omit fullText or return a truncated result, so follow its sourceUrl for the complete transcript. Use nextStartIndex when paging transcript segments so overlapping segments are not lost. Fetch the frame URLs to SEE the screen, not just read the transcript.",
@@ -254,6 +265,69 @@ export function buildAgentApiUrls(
     frameUrlTemplate: `${frameBase}&atMs={timestampMs}`,
     frameUrl: (atMs: number) =>
       `${frameBase}&atMs=${encodeURIComponent(String(safeMs(atMs)))}`,
+  };
+}
+
+function buildRelatedAgentUrl(contextUrl: string, endpoint: string): string {
+  const url = new URL(contextUrl);
+  if (!url.pathname.endsWith(AGENT_CONTEXT_ENDPOINT)) {
+    throw new Error("Clip agent context URL has an unexpected path");
+  }
+  url.pathname = `${url.pathname.slice(0, -AGENT_CONTEXT_ENDPOINT.length)}${endpoint}`;
+  return url.href;
+}
+
+export function buildAgentHttpToolManifest({
+  contextUrl,
+  transcriptUrl,
+  frameUrlTemplate,
+  frameAvailable = true,
+}: {
+  contextUrl: string;
+  transcriptUrl: string;
+  frameUrlTemplate: string;
+  frameAvailable?: boolean;
+}) {
+  const definitionFor = (name: string) => {
+    const definition = CLIPS_WEBMCP_TOOL_DEFINITIONS.find(
+      (candidate) => candidate.name === name,
+    );
+    if (!definition)
+      throw new Error(`Missing Clips WebMCP definition: ${name}`);
+    return definition;
+  };
+  const context = definitionFor(CLIPS_WEBMCP_TOOL_NAMES.context);
+  const transcript = definitionFor(CLIPS_WEBMCP_TOOL_NAMES.transcript);
+  const frame = definitionFor(CLIPS_WEBMCP_TOOL_NAMES.frame);
+  const tool = (
+    definition: (typeof CLIPS_WEBMCP_TOOL_DEFINITIONS)[number],
+    endpoint: string,
+    responseType: string,
+  ) => ({
+    ...definition,
+    parameters: definition.inputSchema,
+    endpoint,
+    method: "GET" as const,
+    responseType,
+  });
+
+  // Keep the legacy apis.frame.urlTemplate placeholder stable while the
+  // schema-driven HTTP manifest uses the declared `atMs` input name.
+  const httpFrameUrlTemplate = frameUrlTemplate.replace(
+    /\{timestampMs\}/g,
+    "{atMs}",
+  );
+
+  return {
+    schema_version: "v1" as const,
+    browserRequired: false,
+    tools: [
+      tool(context, contextUrl, "application/json"),
+      tool(transcript, transcriptUrl, "application/json"),
+      ...(frameAvailable
+        ? [tool(frame, httpFrameUrlTemplate, "image/jpeg")]
+        : []),
+    ],
   };
 }
 

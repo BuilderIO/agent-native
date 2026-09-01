@@ -439,7 +439,7 @@ const deDE = {
     hero: {
       title: "Das Framework für agentische Anwendungen",
       bodyLine1:
-        "Baue für KI-Agenten, ohne ein zweites Produkt für Nutzer zu bauen.",
+        "Entwickle autonome Agenten mit intuitiven Benutzeroberflächen.",
       bodyLine2: "Bring dein eigenes LLM mit. Deploye überall.",
       tryAnApp: "App ausprobieren",
     },
@@ -578,13 +578,12 @@ const deDE = {
     communitySubmissionName: "App-Name",
     communitySubmissionNamePlaceholder: "Kundensupport-Zentrale",
     communitySubmissionUrl: "App-URL",
-    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com oder https://example.com",
     communitySubmissionDescriptionLabel: "Beschreibung",
     communitySubmissionDescriptionPlaceholder:
       "Was macht die App und für wen ist sie gedacht?",
     communitySubmissionRepository: "GitHub-Repository (optional)",
-    communitySubmissionRepositoryPlaceholder:
-      "https://github.com/owner/repository",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
     communitySubmissionScreenshots: "Screenshots (optional)",
     communitySubmissionScreenshotsPlaceholder: "Bis zu 5 Bilder hierher ziehen",
     communitySubmissionScreenshotDropHint:
@@ -597,7 +596,7 @@ const deDE = {
     communitySubmissionReady:
       "Danke. Wir prüfen deine App vor der Veröffentlichung.",
     communitySubmissionValidation:
-      "Füge einen Namen, eine Beschreibung und eine gültige App-URL hinzu. Lade PNG-, JPG- oder WebP-Bilder mit jeweils maximal 1,5 MB hoch.",
+      "Füge einen Namen und eine Beschreibung hinzu und gib dann einen App-Link wie example.com ein. Wir ergänzen https:// automatisch. Wenn du ein Repository hinzufügst, muss der Link auf github.com verweisen. Lade PNG-, JPG- oder WebP-Bilder mit jeweils maximal 1,5 MB hoch.",
   },
   buildFromScratch: {
     title: "Von Grund auf bauen",

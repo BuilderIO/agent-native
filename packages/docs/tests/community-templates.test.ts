@@ -8,6 +8,10 @@ import {
   communityApps,
   findCommunityApp,
 } from "../app/components/community-apps";
+import {
+  isGitHubRepositoryUrl,
+  normalizeHttpUrl,
+} from "../app/components/CommunityAppSubmissionForm";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../..");
@@ -72,5 +76,32 @@ describe("community apps", () => {
     expect(form).toContain("name={field}");
     expect(form).toContain('"screenshot_5"');
     expect(form).not.toContain("Screenshot URLs");
+  });
+
+  it("accepts friendly app links and validates GitHub repositories", () => {
+    expect(normalizeHttpUrl("example.com")).toBe("https://example.com");
+    expect(normalizeHttpUrl(" https://example.com ")).toBe(
+      "https://example.com",
+    );
+    expect(isGitHubRepositoryUrl("github.com/owner/repository")).toBe(true);
+    expect(isGitHubRepositoryUrl("https://gitlab.com/owner/repository")).toBe(
+      false,
+    );
+    expect(isGitHubRepositoryUrl("github.com/owner")).toBe(false);
+  });
+
+  it("keeps a static Netlify form declaration in the server-rendered route", () => {
+    const route = fs.readFileSync(
+      path.join(
+        repoRoot,
+        "packages",
+        "docs",
+        "app",
+        "routes",
+        "templates._index.tsx",
+      ),
+      "utf-8",
+    );
+    expect(route).toContain("CommunityAppSubmissionNetlifyDetectionForm");
   });
 });

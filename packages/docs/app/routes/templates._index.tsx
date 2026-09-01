@@ -6,6 +6,7 @@ import { BuildOnlinePopover } from "../components/BuilderWaitlistPopover";
 import { communityApps } from "../components/community-apps";
 import { CommunityAppCard } from "../components/CommunityAppCard";
 import { CommunityAppSubmissionDialog } from "../components/CommunityAppSubmissionDialog";
+import { CommunityAppSubmissionNetlifyDetectionForm } from "../components/CommunityAppSubmissionForm";
 import { sitePathForLocale } from "../components/docs-locale";
 import { featuredTemplates, TemplateCard } from "../components/TemplateCard";
 import { Button } from "../components/website-redesign/ds/button";
@@ -30,6 +31,7 @@ export default function TemplatesPage() {
 
   return (
     <div className="builder-brand-tokens min-h-screen">
+      <CommunityAppSubmissionNetlifyDetectionForm />
       {/* One section for the whole page rather than one per band: the
           decoration is absolutely positioned across its section's full height,
           so a single wrapper draws the column rules unbroken from the header to
