@@ -312,6 +312,21 @@ describe("AWS Amplify runtime output", () => {
 });
 
 describe("resolveNitroBuildReplacements", () => {
+  it("falls back to the source build id before Netlify assigns a deploy id", () => {
+    expect(
+      resolveNitroBuildReplacements({
+        DEPLOY_ID: "0",
+        AGENT_NATIVE_BUILD_ID: "source-sha",
+      })["process.env.AGENT_NATIVE_BUILD_ID"],
+    ).toBe(JSON.stringify("source-sha"));
+    expect(
+      resolveNitroBuildReplacements({
+        DEPLOY_ID: "deploy-id",
+        AGENT_NATIVE_BUILD_ID: "source-sha",
+      })["process.env.AGENT_NATIVE_BUILD_ID"],
+    ).toBe(JSON.stringify("deploy-id"));
+  });
+
   it("embeds release migration ownership into the Nitro server bundle", () => {
     const replacements = resolveNitroBuildReplacements({
       AGENT_NATIVE_RELEASE_MIGRATIONS: " 1 ",

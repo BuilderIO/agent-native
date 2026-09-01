@@ -20,4 +20,20 @@ describe("login document session probe", () => {
     expect(html).toContain('id="agent-native-auth-root"');
     expect(html).toContain('src="/assets/auth-client.js"');
   });
+
+  it("cache-busts the auth client for a deployed build", () => {
+    const previousBuildId = process.env.AGENT_NATIVE_BUILD_ID;
+    process.env.AGENT_NATIVE_BUILD_ID = "deploy-123";
+    try {
+      expect(getOnboardingHtml()).toContain(
+        'src="/assets/auth-client.js?v=deploy-123"',
+      );
+    } finally {
+      if (previousBuildId === undefined) {
+        delete process.env.AGENT_NATIVE_BUILD_ID;
+      } else {
+        process.env.AGENT_NATIVE_BUILD_ID = previousBuildId;
+      }
+    }
+  });
 });
