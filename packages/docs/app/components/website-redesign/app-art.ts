@@ -55,9 +55,9 @@ export const APP_ART: Record<string, AppArt> = {
   },
   dispatch: {
     imageDark:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F10235c633f69429ba26b8a8c0538b4d7",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F1e0b53e7a9ed425d9454c766ff367e9a",
     imageLight:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F1fc2e0552bd44215815a9432b048bd93",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb213b1b827c3406db2c9cc061e0c2069",
   },
   forms: {
     imageDark:
