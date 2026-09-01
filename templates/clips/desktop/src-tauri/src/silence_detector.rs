@@ -472,7 +472,7 @@ fn calendar_end_stop_ready(scheduled_end_ms: Option<u64>, now_ms: u64, audio_qui
 
 fn source_quiet_for(source: Option<&SourceState>, now: Instant, window: Duration) -> bool {
     source
-        .map(|state| now.duration_since(state.last_loud_at) >= window)
+        .map(|state| state.seen_audio && now.duration_since(state.last_loud_at) >= window)
         .unwrap_or(false)
 }
 
@@ -574,6 +574,11 @@ mod tests {
         ));
         assert!(!source_quiet_for(
             Some(&mic_loud),
+            now,
+            Duration::from_secs(5)
+        ));
+        assert!(!source_quiet_for(
+            Some(&SourceState::fresh()),
             now,
             Duration::from_secs(5)
         ));
