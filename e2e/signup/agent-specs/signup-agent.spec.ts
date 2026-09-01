@@ -101,12 +101,9 @@ async function fillMagicLinkEmail(page: Page, email: string): Promise<void> {
   await expect
     .poll(
       async () => {
-        // The auth document is server-rendered before React hydrates it. If
-        // hydration replaces an early input event, reapply it before judging
-        // the form as broken.
-        if ((await emailInput.inputValue()) !== email) {
-          await emailInput.fill(email);
-        }
+        // The auth document is server-rendered before React hydrates it. Reapply
+        // the value until the controlled form accepts the input event.
+        await emailInput.fill(email);
         return submit.isEnabled();
       },
       {
