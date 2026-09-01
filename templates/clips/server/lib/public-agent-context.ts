@@ -601,7 +601,7 @@ export function buildPublicAgentContext({
       : []),
     ...(clipIsReady
       ? [
-          "If this clip page is open in a WebMCP-capable browser, list webmcp.tools and use its read-only page tools; otherwise use the URLs in apis.",
+          "Use the HTTP URLs in apis for browser-independent access. If this clip page is already open in a WebMCP-capable browser, its read-only page tools provide an equivalent path; list them when available.",
         ]
       : []),
     ...transcriptStatusInstructions(transcript),

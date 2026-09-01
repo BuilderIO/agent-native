@@ -91,6 +91,13 @@ describe("/api/agent-transcript route", () => {
       segmentCount: 3,
     });
     expect(result.transcript).not.toHaveProperty("truncated");
+    expect(result).toMatchObject({
+      instructions: expect.arrayContaining([
+        expect.stringContaining(
+          "Use this HTTP transcript endpoint directly; it works without a browser.",
+        ),
+      ]),
+    });
   });
 
   it("pages adjacent segments with an exclusive continuation cursor", async () => {

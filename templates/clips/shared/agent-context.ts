@@ -73,7 +73,7 @@ export const CLIPS_WEBMCP_TOOL_DEFINITIONS = [
     name: CLIPS_WEBMCP_TOOL_NAMES.context,
     title: "Get clip context",
     description:
-      "Read clip metadata, readiness, transcript status, and the existing fallback API URLs.",
+      "Read clip metadata, readiness, transcript status, and the HTTP API URLs. This works without a browser.",
     inputSchema: CLIPS_WEBMCP_INPUT_SCHEMAS.context,
     annotations: { readOnlyHint: true, untrustedContentHint: true },
   },
@@ -101,7 +101,7 @@ export const CLIPS_WEBMCP_DISCOVERY = {
   scope: "page-local",
   tools: CLIPS_WEBMCP_TOOL_DEFINITIONS,
   instructions:
-    "If this clip page is open in a WebMCP-capable browser, list its page tools before using clips-get-context, clips-get-transcript, or clips-get-frame. Use nextStartIndex for transcript pagination so overlapping segments are not lost. If WebMCP is unavailable, use agentContextUrl and the existing apis.context, apis.transcript, and apis.frame URLs instead.",
+    "For browser-independent access from any HTTP client, fetch agentContextUrl and use its apis.context, apis.transcript, and apis.frame URLs. If this clip page is already open in a WebMCP-capable browser, its page tools provide the same capabilities; list them when available. Use nextStartIndex for transcript pagination so overlapping segments are not lost.",
 };
 
 export type AgentClipReadiness = {
@@ -161,7 +161,7 @@ export function buildAgentDiscoveryPayload({
     webmcp: CLIPS_WEBMCP_DISCOVERY,
     instructions:
       readiness.instruction ??
-      "Fetch agentContextUrl for the transcript and JPEG frame URLs. If the page is open in a WebMCP-capable browser, list its page tools first and use them when available. Use nextStartIndex when paging transcript segments so overlapping segments are not lost. Fetch the frame URLs to SEE the screen, not just read the transcript.",
+      "Fetch agentContextUrl for the transcript and JPEG frame URLs; this works without a browser. If the page is already open in a WebMCP-capable browser, its page tools provide equivalent access; list them when available. Use nextStartIndex when paging transcript segments so overlapping segments are not lost. Fetch the frame URLs to SEE the screen, not just read the transcript.",
   };
 }
 

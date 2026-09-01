@@ -41,6 +41,24 @@ describe("agent clip context helpers", () => {
     );
   });
 
+  it("keeps browser-independent HTTP access first-class", () => {
+    const payload = buildAgentDiscoveryPayload({
+      recordingId: "rec-1",
+      title: "Clip",
+      status: "ready",
+      agentContextUrl:
+        "https://clips.example.com/api/agent-context.json?id=rec-1",
+    });
+
+    expect(payload.instructions).toContain("this works without a browser");
+    expect(payload.webmcp.instructions).toContain(
+      "For browser-independent access from any HTTP client",
+    );
+    expect(payload.webmcp.instructions).toContain(
+      "its page tools provide the same capabilities",
+    );
+  });
+
   it("builds shareable agent API URLs with base path and token", () => {
     const urls = buildAgentApiUrls("rec 1", {
       origin: "https://clips.example.com/",
