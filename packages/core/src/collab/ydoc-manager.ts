@@ -260,6 +260,15 @@ async function persistMergedState(
     }
   }
 
+  // Exhausting the CAS means a peer kept winning the row. For a pinned
+  // whole-document write that IS the conflict: the unconditional save below
+  // would overwrite the edit that beat us and report success, which is the
+  // exact loss the pin exists to prevent.
+  if (validatedBaseVersion !== undefined) {
+    throw new CollabBaseVersionConflictError(
+      `Document ${docId} kept changing while the edit was being applied; the write was not saved.`,
+    );
+  }
   // All CAS attempts failed — fall back to unconditional save.
   const textSnapshot = getTextSnapshot();
   validateTextSnapshot?.(textSnapshot);
@@ -272,6 +281,21 @@ async function persistMergedState(
  * write's resulting version is unknown, so the next read must reload rather
  * than assume this process is current.
  */
+/**
+ * The row version the cached doc currently reflects, or `undefined` when this
+ * process cannot prove one — an evicted entry, or a write whose resulting
+ * version was never learned. Callers that pin a base must refuse rather than
+ * guess.
+ */
+function cachedVersionFor(
+  docId: string,
+  doc: Y.Doc,
+): number | null | undefined {
+  const entry = _cache.get(docId);
+  if (entry?.doc !== doc) return undefined;
+  return entry.syncedVersion ?? undefined;
+}
+
 function noteCachedVersion(
   docId: string,
   doc: Y.Doc,
@@ -436,12 +460,20 @@ export async function applyText(
 ): Promise<string> {
   return withDocWriteLock(docId, async () => {
     const doc = await getDoc(docId);
-    const oldText = doc.getText(fieldName).toString();
-    // Pin the version the base was validated against, so the CAS below can
-    // reject a peer commit instead of merging with it.
+    // getDoc has just merged any peer state and recorded the row version that
+    // merge corresponds to. Both are read here with no await between them, so
+    // the validated text and the pinned version describe the same state — a
+    // separate version query could straddle a peer commit and pair stale text
+    // with the peer's newer version.
     const validatedBaseVersion = options.validateBase
-      ? await loadYDocVersion(docId)
+      ? cachedVersionFor(docId, doc)
       : undefined;
+    const oldText = doc.getText(fieldName).toString();
+    if (options.validateBase && validatedBaseVersion === undefined) {
+      throw new CollabBaseVersionConflictError(
+        `Document ${docId} has no known base version to validate against; re-read the file and retry.`,
+      );
+    }
     options.validateBase?.(oldText);
     const update = applyTextToYDoc(doc, fieldName, newText, "server");
 
