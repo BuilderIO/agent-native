@@ -1003,12 +1003,11 @@ export function useMeetingTranscription({
   const startInFlightRef = useRef<Promise<void> | null>(null);
   const startTranscription = useCallback(
     async (payload: MeetingTranscriptionPayload) => {
-      const previous = startInFlightRef.current;
-      const run = (async () => {
-        // A failed start must not stop the next one from running.
-        if (previous) await previous.catch(() => {});
-        await runStartTranscription(payload);
-      })();
+      // Chain from the latest queued run, not a snapshot taken before another
+      // caller publishes its own run. This keeps B and C serialized behind A.
+      const run = (startInFlightRef.current ?? Promise.resolve())
+        .catch(() => {})
+        .then(() => runStartTranscription(payload));
       startInFlightRef.current = run;
       try {
         await run;
