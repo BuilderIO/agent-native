@@ -439,15 +439,6 @@ pub(crate) mod macos {
     /// system has an answer. The handler itself only sends a value on a
     /// channel; no ObjC interop, no UI work.
     fn ensure_authorized() -> Result<(), String> {
-        // `tauri dev` runs the executable outside an `.app` bundle. macOS
-        // still enforces Speech.framework's TCC contract there, but cannot
-        // read the bundle usage description, so touching the framework aborts
-        // the whole tray process instead of returning an authorization error.
-        // Packaged builds use the real Info.plist and retain native Speech.
-        if cfg!(debug_assertions) {
-            return Err(SPEECH_USAGE_DESCRIPTION_ERROR.into());
-        }
-
         // macOS aborts the process, rather than returning an error, when
         // Speech.framework is touched without this usage description. This
         // guard keeps `tauri dev` and malformed bundles recoverable.
