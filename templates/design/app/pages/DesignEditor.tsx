@@ -20386,7 +20386,6 @@ function DesignEditor() {
                         }
                         boardFileId={boardFileId}
                         canvasBackground={canvasBackground}
-                        canvasBackgroundCommitted={persistedCanvasBackground}
                         boardIsActive={activeFileId === boardFileId}
                         boardFileContent={boardFileContent}
                         boardFrameGeometry={boardFrameGeometry}

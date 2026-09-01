@@ -531,7 +531,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   onCrossScreenElementDrop,
   boardFileId,
   canvasBackground,
-  canvasBackgroundCommitted,
   boardFileContent,
   boardFrameGeometry,
   onBoardDrawPrimitive,
@@ -697,26 +696,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             .trim();
     return resolveBoardSurfaceBackground(canvasBackground, themed);
   }, [canvasBackground, resolvedTheme]);
-  /**
-   * The colour picker emits a preview tick per drag frame, and anything baked
-   * into a document string is part of that iframe's identity — so using the
-   * live value there reloaded the board on every frame and threw away
-   * in-iframe selection. The board document forces html/body transparent, so
-   * the committed value paints exactly the same and holds the identity still.
-   */
-  const boardSurfaceDocumentBackground = useMemo(() => {
-    const themed =
-      typeof window === "undefined"
-        ? ""
-        : window
-            .getComputedStyle(document.documentElement)
-            .getPropertyValue("--design-editor-canvas-bg")
-            .trim();
-    return resolveBoardSurfaceBackground(
-      canvasBackgroundCommitted ?? canvasBackground,
-      themed,
-    );
-  }, [canvasBackground, canvasBackgroundCommitted, resolvedTheme]);
 
   const boardSurfaceRenderGeometry = useMemo(() => {
     if (!boardFrameGeometry) return undefined;
@@ -8603,10 +8582,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 // this layer's pointer events imperatively during a wheel
                 // gesture, exactly like the [data-screen-content] wrappers.
                 data-board-surface-layer
-                style={getBoardSurfaceLayerStyle({
-                  geometry: boardGeo,
-                  interactive: boardSurfaceInteractive,
-                })}
+                style={{
+                  ...getBoardSurfaceLayerStyle({
+                    geometry: boardGeo,
+                    interactive: boardSurfaceInteractive,
+                  }),
+                  // The live colour is painted here, behind a transparent
+                  // board document. Inside the document it would be part of
+                  // the srcdoc, so every colour-picker tick would rebuild the
+                  // iframe; out here it is a CSS change and updates instantly.
+                  background: boardSurfaceBackground,
+                }}
               >
                 <DesignCanvas
                   content={boardRenderContent}
@@ -8617,7 +8603,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   zoom={100}
                   deviceFrame="none"
                   boardSurface
-                  embeddedFrameBackground={boardSurfaceDocumentBackground}
+                  // Transparent on purpose: the wrapper above paints the
+                  // board. A colour here lands after BOARD_SURFACE_RENDER_STYLE
+                  // in the head and, being !important too, would win and cover
+                  // the live colour with a stale one.
+                  transparentBackground
                   embeddedFrame={{
                     viewportWidth: Math.max(1, Math.round(boardW)),
                     viewportHeight: Math.max(1, Math.round(boardH)),
