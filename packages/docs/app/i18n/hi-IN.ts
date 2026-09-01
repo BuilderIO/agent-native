@@ -540,7 +540,7 @@ const hiIN = {
     communityTitle: "कम्युनिटी ऐप्स",
     communityDescription:
       "लेखकों द्वारा बनाए गए ऐप्स खोजें। होस्ट किया गया संस्करण उपलब्ध हो तो आज़माएँ या सोर्स कोड देखकर खुद customize करें।",
-    submitCommunityTemplate: "GitHub फ़ॉर्म खोलें",
+    submitCommunityTemplate: "ऐप सबमिट करें",
     communityEmpty:
       "कम्युनिटी लिस्टिंग खुली हैं। किसी स्पष्ट काम पर केंद्रित Agent-Native ऐप प्रकाशित करके कैटलॉग के लिए सबमिट करें।",
     publishGuide: "पब्लिशिंग गाइड पढ़ें",
@@ -579,14 +579,18 @@ const hiIN = {
     communitySubmissionRepository: "GitHub रिपॉज़िटरी (वैकल्पिक)",
     communitySubmissionRepositoryPlaceholder:
       "https://github.com/owner/repository",
-    communitySubmissionScreenshots: "स्क्रीनशॉट URL (वैकल्पिक)",
-    communitySubmissionScreenshotsPlaceholder: "हर पंक्ति में एक सार्वजनिक इमेज URL",
-    communitySubmissionSubmit: "GitHub पर जारी रखें",
+    communitySubmissionScreenshots: "स्क्रीनशॉट (वैकल्पिक)",
+    communitySubmissionScreenshotsPlaceholder: "यहाँ अधिकतम 5 इमेज ड्रॉप करें",
+    communitySubmissionScreenshotDropHint: "PNG, JPG या WebP। प्रत्येक 1.5 MB तक।",
+    communitySubmissionScreenshotSlot: "स्क्रीनशॉट {{index}}",
+    communitySubmissionScreenshotsAdd: "स्क्रीनशॉट जोड़ें",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 चुने गए",
+    communitySubmissionScreenshotRemove: "स्क्रीनशॉट {{index}} हटाएँ",
+    communitySubmissionSubmit: "ऐप सबमिट करें",
     communitySubmissionReady:
-      "आपका GitHub issue ड्राफ्ट तैयार है। वहीं सबमिशन पूरा करें।",
-    communitySubmissionOpenDraft: "ड्राफ्ट खोलें",
+      "धन्यवाद। प्रकाशित करने से पहले हम आपके ऐप की समीक्षा करेंगे।",
     communitySubmissionValidation:
-      "नाम, विवरण और मान्य ऐप URL जोड़ें। वैकल्पिक URL भी मान्य होने चाहिए।",
+      "नाम, विवरण और मान्य ऐप URL जोड़ें। PNG, JPG या WebP इमेज अपलोड करें, प्रत्येक 1.5 MB तक।",
   },
   buildFromScratch: {
     title: "शुरू से बनाएँ",

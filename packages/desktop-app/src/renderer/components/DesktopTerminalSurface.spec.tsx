@@ -7,8 +7,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import DesktopTerminalSurface from "./DesktopTerminalSurface.js";
 
 vi.mock("./DesktopTerminalTabs.js", () => ({
-  default: ({ agent }: { agent: string }) => (
-    <div data-terminal-test data-terminal-agent={agent} />
+  default: ({
+    agent,
+    active,
+    activeApp,
+  }: {
+    agent: string;
+    active?: boolean;
+    activeApp?: { id: string };
+  }) => (
+    <div
+      data-terminal-test
+      data-terminal-agent={agent}
+      data-terminal-active={active === false ? "false" : "true"}
+      data-terminal-app={activeApp?.id ?? ""}
+    />
   ),
 }));
 
@@ -129,7 +142,8 @@ describe("DesktopTerminalSurface", () => {
     expect(providerItem).not.toBeUndefined();
     expect(
       providerItem?.querySelector(".desktop-dropdown-item__main"),
-    ).not.toBeNull();
+    ).not.toBe(null);
+    expect(providerItem?.querySelector("svg.ms-auto")).not.toBeNull();
     expect(
       Array.from(
         document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
@@ -198,5 +212,44 @@ describe("DesktopTerminalSurface", () => {
         container.querySelectorAll<HTMLElement>("[data-terminal-agent]"),
       ).map((terminal) => terminal.dataset.terminalAgent),
     ).toEqual(["codex", "claude-code"]);
+  });
+
+  it("scopes the active app context to the selected terminal", async () => {
+    act(() => {
+      root.render(
+        <DesktopTerminalSurface
+          agent="codex"
+          theme="dark"
+          activeApp={{ id: "mail", name: "Mail", path: "/inbox" }}
+        />,
+      );
+    });
+
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLElement>("[data-terminal-test]"),
+      ).map((terminal) => [
+        terminal.dataset.terminalActive,
+        terminal.dataset.terminalApp,
+      ]),
+    ).toEqual([["true", "mail"]]);
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="New terminal"]')
+        ?.click();
+    });
+
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLElement>("[data-terminal-test]"),
+      ).map((terminal) => [
+        terminal.dataset.terminalActive,
+        terminal.dataset.terminalApp,
+      ]),
+    ).toEqual([
+      ["false", ""],
+      ["true", "mail"],
+    ]);
   });
 });

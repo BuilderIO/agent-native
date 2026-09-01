@@ -28,6 +28,7 @@ export interface AuthMarketingProps {
   screenshotWidth?: number;
   screenshotHeight?: number;
   learnMoreUrl?: string;
+  learnMorePlacement?: "top-right" | "bottom-right";
 }
 
 export interface AuthLocaleOption {
@@ -2678,11 +2679,15 @@ export function AuthPage(props: AuthPageProps) {
           {localNote}
         </>
       }
-      className={
-        marketingCopy.screenshotSrc
-          ? "auth-marketing-home has-product-screenshot"
-          : "auth-marketing-home"
-      }
+      className={[
+        "auth-marketing-home",
+        marketingCopy.screenshotSrc ? "has-product-screenshot" : "",
+        marketingCopy.learnMorePlacement === "bottom-right"
+          ? "has-bottom-right-learn-more"
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
     >
       {marketingCopy.screenshotSrc ? (
         <div className="auth-marketing-screenshot-wrap">

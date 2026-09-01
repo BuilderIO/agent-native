@@ -5,6 +5,7 @@ import {
 import { IconLoader2, IconTerminal2 } from "@tabler/icons-react";
 import { useEffect, useState, type CSSProperties } from "react";
 
+import type { DesktopTerminalContext } from "../../../shared/ipc-channels.js";
 import {
   DESKTOP_TERMINAL_AGENT_OPTIONS,
   type DesktopTerminalAgentId,
@@ -15,6 +16,13 @@ interface DesktopTerminalTabsProps {
   agent: DesktopTerminalAgentId;
   theme: RendererTheme;
   className?: string;
+  active?: boolean;
+  activeApp?: {
+    id: string;
+    name: string;
+    path?: string;
+    view?: string;
+  };
   submitRequest?: AgentTerminalSubmitRequest;
   onPromptSubmitted?: (request: AgentTerminalSubmitRequest) => void;
 }
@@ -105,6 +113,8 @@ export default function DesktopTerminalTabs({
   agent,
   theme,
   className,
+  active = true,
+  activeApp,
   submitRequest,
   onPromptSubmitted,
 }: DesktopTerminalTabsProps) {
@@ -117,9 +127,16 @@ export default function DesktopTerminalTabs({
   const [terminalForeground, setTerminalForeground] = useState(
     readSidebarForeground,
   );
+  const [sessionApp, setSessionApp] = useState(() =>
+    active ? activeApp : undefined,
+  );
   const selectedAgent =
     DESKTOP_TERMINAL_AGENT_OPTIONS.find((option) => option.id === agent) ??
     DESKTOP_TERMINAL_AGENT_OPTIONS[0];
+
+  useEffect(() => {
+    if (active) setSessionApp(activeApp);
+  }, [active, activeApp?.id, activeApp?.path, activeApp?.view]);
 
   useEffect(() => {
     const syncBackground = () =>
@@ -137,8 +154,17 @@ export default function DesktopTerminalTabs({
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
+    const context: DesktopTerminalContext | null = sessionApp
+      ? {
+          appId: sessionApp.id,
+          ...(sessionApp.path ? { path: sessionApp.path } : {}),
+          ...(sessionApp.view ? { view: sessionApp.view } : {}),
+        }
+      : null;
     const getTerminalInfoUrl = window.electronAPI?.desktopChat
-      ? () => window.electronAPI!.desktopChat!.getTerminalInfoUrl()
+      ? (value: DesktopTerminalContext | null) =>
+          window.electronAPI!.desktopChat!.getTerminalInfoUrl(value)
       : undefined;
     if (!getTerminalInfoUrl) {
       setConnection({
@@ -151,13 +177,13 @@ export default function DesktopTerminalTabs({
     }
 
     setConnection({ state: "loading" });
-    void getTerminalInfoUrl()
+    void getTerminalInfoUrl(context)
       .then(async (infoUrl) => {
         if (cancelled) return;
         if (!infoUrl) {
           throw new Error("The desktop terminal has no connection.");
         }
-        const response = await fetch(infoUrl);
+        const response = await fetch(infoUrl, { signal: controller.signal });
         const body = await response.text();
         let payload: unknown;
         try {
@@ -170,6 +196,7 @@ export default function DesktopTerminalTabs({
           );
         }
         const info = terminalInfoFrom(payload);
+        if (cancelled) return;
         const wsUrl =
           info.wsUrl ??
           (info.wsPort ? `ws://127.0.0.1:${info.wsPort}/ws` : undefined);
@@ -194,8 +221,9 @@ export default function DesktopTerminalTabs({
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, []);
+  }, [sessionApp?.id, sessionApp?.path, sessionApp?.view]);
 
   const workbenchStyle = {
     "--desktop-terminal-background": terminalBackground,
@@ -228,6 +256,7 @@ export default function DesktopTerminalTabs({
             command={selectedAgent.command}
             wsUrl={connection.wsUrl}
             hideInFrame={false}
+            autoFocus={active}
             className="desktop-terminal-tabs__terminal"
             submitRequest={submitRequest}
             onPromptSubmitted={onPromptSubmitted}

@@ -543,7 +543,7 @@ const ptBR = {
     communityTitle: "Aplicativos da comunidade",
     communityDescription:
       "Descubra aplicativos mantidos por seus autores. Experimente uma versão hospedada quando disponível ou veja o código-fonte e personalize por conta própria.",
-    submitCommunityTemplate: "Abrir formulário do GitHub",
+    submitCommunityTemplate: "Enviar um aplicativo",
     communityEmpty:
       "As inscrições da comunidade estão abertas. Publique um aplicativo Agent-Native focado e envie-o para o catálogo.",
     publishGuide: "Ler o guia de publicação",
@@ -582,15 +582,19 @@ const ptBR = {
     communitySubmissionRepository: "Repositório do GitHub (opcional)",
     communitySubmissionRepositoryPlaceholder:
       "https://github.com/owner/repository",
-    communitySubmissionScreenshots: "URLs das capturas (opcional)",
-    communitySubmissionScreenshotsPlaceholder:
-      "Uma URL de imagem pública por linha",
-    communitySubmissionSubmit: "Continuar para o GitHub",
+    communitySubmissionScreenshots: "Capturas de tela (opcional)",
+    communitySubmissionScreenshotsPlaceholder: "Solte até 5 imagens aqui",
+    communitySubmissionScreenshotDropHint:
+      "PNG, JPG ou WebP. Máximo de 1,5 MB cada.",
+    communitySubmissionScreenshotSlot: "Captura {{index}}",
+    communitySubmissionScreenshotsAdd: "Adicionar capturas",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 selecionadas",
+    communitySubmissionScreenshotRemove: "Remover captura {{index}}",
+    communitySubmissionSubmit: "Enviar aplicativo",
     communitySubmissionReady:
-      "O rascunho da sua issue no GitHub está pronto. Conclua o envio lá.",
-    communitySubmissionOpenDraft: "Abrir rascunho",
+      "Obrigado. Vamos revisar seu aplicativo antes de publicá-lo.",
     communitySubmissionValidation:
-      "Adicione um nome, uma descrição e uma URL de aplicativo válida. As URLs opcionais também precisam ser válidas.",
+      "Adicione um nome, uma descrição e uma URL de aplicativo válida. Envie imagens PNG, JPG ou WebP de até 1,5 MB cada.",
   },
   buildFromScratch: {
     title: "Criar do zero",

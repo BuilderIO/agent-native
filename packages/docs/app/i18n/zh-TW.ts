@@ -532,7 +532,7 @@ const messages = {
     communityTitle: "社群應用程式",
     communityDescription:
       "探索由作者維護的社群應用程式。有託管版本時可以先體驗，也可以查看原始碼並自行自訂。",
-    submitCommunityTemplate: "開啟 GitHub 表單",
+    submitCommunityTemplate: "提交應用程式",
     communityEmpty:
       "社群目錄現已開放。請發佈專注於明確情境的 Agent-Native 應用程式並提交收錄。",
     publishGuide: "閱讀發佈指南",
@@ -569,13 +569,18 @@ const messages = {
     communitySubmissionRepository: "GitHub 儲存庫（選填）",
     communitySubmissionRepositoryPlaceholder:
       "https://github.com/owner/repository",
-    communitySubmissionScreenshots: "螢幕截圖 URL（選填）",
-    communitySubmissionScreenshotsPlaceholder: "每行填寫一個公開圖片 URL",
-    communitySubmissionSubmit: "繼續前往 GitHub",
-    communitySubmissionReady: "GitHub issue 草稿已準備好，請在那裡完成提交。",
-    communitySubmissionOpenDraft: "開啟草稿",
+    communitySubmissionScreenshots: "螢幕截圖（選填）",
+    communitySubmissionScreenshotsPlaceholder: "將最多 5 張圖片拖曳到這裡",
+    communitySubmissionScreenshotDropHint:
+      "PNG、JPG 或 WebP。每張不超過 1.5 MB。",
+    communitySubmissionScreenshotSlot: "螢幕截圖 {{index}}",
+    communitySubmissionScreenshotsAdd: "新增螢幕截圖",
+    communitySubmissionScreenshotsCount: "已選取 {{count}} / 5",
+    communitySubmissionScreenshotRemove: "移除螢幕截圖 {{index}}",
+    communitySubmissionSubmit: "提交應用程式",
+    communitySubmissionReady: "謝謝。我們會在刊登前審核你的應用程式。",
     communitySubmissionValidation:
-      "請填寫名稱、描述和有效的應用程式 URL。選填 URL 也必須有效。",
+      "請填寫名稱、描述和有效的應用程式 URL。請上傳 PNG、JPG 或 WebP 圖片，每張不超過 1.5 MB。",
   },
   buildFromScratch: {
     title: "從零開始建置",

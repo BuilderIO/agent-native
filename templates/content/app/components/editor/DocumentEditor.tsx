@@ -769,6 +769,7 @@ function DocumentEditorBody({
   useDbSync({ onEvent: handleFlushRequestEvent });
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const promotedBuilderBodyRef = useRef<string | null>(null);
+  const builderBodyRetryWakeRef = useRef<number | null>(null);
   const pendingDocumentSaveRef = useRef<PendingDocumentSave | null>(null);
   const documentSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   // Separate freshness watermarks for title and content so that a content save
@@ -821,20 +822,50 @@ function DocumentEditorBody({
     ) {
       return;
     }
+    if (hydration.status === "error" && hydration.retryable === false) return;
     const promotionKey = `${hydrationContext.sourceId}:${documentId}:${hydration.status}:${hydration.version ?? ""}`;
     if (promotedBuilderBodyRef.current === promotionKey) return;
     promotedBuilderBodyRef.current = promotionKey;
-    processBuilderBodies.mutate({
+    const request = {
       sourceId: hydrationContext.sourceId,
       documentId,
       limit: 1,
-    });
+      retryFailed: hydration.status === "error",
+    };
+    const pump = () => {
+      processBuilderBodies.mutate(request, {
+        onSuccess: (result) => {
+          if (!result.nextAttemptAt || result.remaining === 0) return;
+          const delayMs = Math.max(
+            0,
+            Date.parse(result.nextAttemptAt) - Date.now(),
+          );
+          if (!Number.isFinite(delayMs)) return;
+          if (builderBodyRetryWakeRef.current !== null) {
+            window.clearTimeout(builderBodyRetryWakeRef.current);
+          }
+          builderBodyRetryWakeRef.current = window.setTimeout(() => {
+            builderBodyRetryWakeRef.current = null;
+            pump();
+          }, delayMs);
+        },
+      });
+    };
+    pump();
   }, [
     canEdit,
     document.bodyHydration,
     documentId,
     processBuilderBodies.mutate,
   ]);
+  useEffect(
+    () => () => {
+      if (builderBodyRetryWakeRef.current !== null) {
+        window.clearTimeout(builderBodyRetryWakeRef.current);
+      }
+    },
+    [],
+  );
   const titleFocusedRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
@@ -905,6 +936,10 @@ function DocumentEditorBody({
     user: currentUser,
   });
   const bodyHydrationPending = documentBodyHydrationIsPending(document);
+  const bodyHydrationError =
+    document.bodyHydration?.hydration?.status === "error"
+      ? document.bodyHydration.hydration
+      : null;
   const collabInitializationFailed =
     collabEnabled && collabInitialization.status === "error";
   const editorCanEdit =
@@ -2405,6 +2440,18 @@ function DocumentEditorBody({
                                 ? "editor.builderBodySyncingDescription"
                                 : "editor.pageBodySyncingDescription",
                             )}
+                          />
+                        );
+                      }
+
+                      if (bodyHydrationError) {
+                        return (
+                          <BuilderBodySyncingNotice
+                            title={t("database.builderBodySyncFailedNotice")}
+                            description={
+                              bodyHydrationError.error ??
+                              t("database.builderBodySyncFailedDescription")
+                            }
                           />
                         );
                       }

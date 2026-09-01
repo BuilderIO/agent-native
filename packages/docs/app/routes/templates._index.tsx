@@ -1,13 +1,11 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { useSearchParams } from "react-router";
 
 import { BuildOnlinePopover } from "../components/BuilderWaitlistPopover";
-import {
-  COMMUNITY_APP_SUBMISSION_URL,
-  communityApps,
-} from "../components/community-apps";
+import { communityApps } from "../components/community-apps";
 import { CommunityAppCard } from "../components/CommunityAppCard";
-import { CommunityAppSubmissionForm } from "../components/CommunityAppSubmissionForm";
+import { CommunityAppSubmissionDialog } from "../components/CommunityAppSubmissionDialog";
 import { sitePathForLocale } from "../components/docs-locale";
 import { featuredTemplates, TemplateCard } from "../components/TemplateCard";
 import { Button } from "../components/website-redesign/ds/button";
@@ -26,6 +24,9 @@ const SECTION_HEADING_CLASS =
 export default function TemplatesPage() {
   const t = useT();
   const { locale } = useLocale();
+  const [searchParams] = useSearchParams();
+  const submissionReceived =
+    searchParams.get("community-submission") === "received";
 
   return (
     <div className="builder-brand-tokens min-h-screen">
@@ -162,30 +163,27 @@ export default function TemplatesPage() {
               </div>
             ) : null}
 
-            {/* Breaks out for the divider, but unlike the sections above it
-                does not restore the padding here: the grid's own content box
-                has to span the full measure for its thirds to land on the
-                page's column rules, so each cell carries the page padding and
-                the gutter is cell padding rather than a grid gap. */}
-            <div className="-mx-4 grid gap-8 border-t border-solid border-[var(--b-border-default)] pt-10 sm:-mx-6 lg:grid-cols-3 lg:gap-0">
-              <div className="px-4 sm:px-6 lg:pr-[var(--spacing-8)]">
+            {/* Breaks out of the section padding so the divider spans the full
+                measure, then restores it so the copy stays on the page grid. */}
+            <div className="-mx-4 border-t border-solid border-[var(--b-border-default)] px-4 pt-10 sm:-mx-6 sm:px-6">
+              <div className="max-w-[720px]">
                 <h3 className={`m-0 ${SECTION_HEADING_CLASS}`}>
                   {t("templatesPage.communitySubmissionTitle")}
                 </h3>
                 <p className="mt-3 mb-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
                   {t("templatesPage.communitySubmissionDescription")}
                 </p>
-                <a
-                  href={COMMUNITY_APP_SUBMISSION_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-4 inline-flex font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-paragraph-2)] uppercase tracking-[0.04em] text-[var(--b-text-link)] underline underline-offset-2"
-                >
-                  {t("templatesPage.submitCommunityTemplate")}
-                </a>
-              </div>
-              <div className="px-4 sm:px-6 lg:col-span-2 lg:pl-[var(--spacing-8)]">
-                <CommunityAppSubmissionForm />
+                <div className="mt-5 flex flex-wrap items-center gap-4">
+                  <CommunityAppSubmissionDialog />
+                  {submissionReceived ? (
+                    <p
+                      role="status"
+                      className="m-0 font-[family-name:var(--b-font-sans)] text-sm leading-[1.4] text-[var(--b-text-secondary)]"
+                    >
+                      {t("templatesPage.communitySubmissionReady")}
+                    </p>
+                  ) : null}
+                </div>
               </div>
             </div>
 
