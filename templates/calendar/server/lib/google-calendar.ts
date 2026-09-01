@@ -1329,8 +1329,23 @@ export async function listOverlayEvents(
   errors: Array<{ email: string; error: string }>;
   accountErrors: Array<{ email: string; error: string }>;
 }> {
-  const { clients, errors: refreshErrors } =
-    await getClientsForAccountsWithErrors(forEmail, options.accountEmails);
+  let clients: Array<{ email: string; accessToken: string }>;
+  let refreshErrors: Array<{ email: string; error: string }>;
+  try {
+    const resolved = await getClientsForAccountsWithErrors(
+      forEmail,
+      options.accountEmails,
+    );
+    clients = resolved.clients;
+    refreshErrors = resolved.errors;
+  } catch (error: any) {
+    const message = error?.message || "Unable to load overlay calendars";
+    return {
+      events: [],
+      errors: overlayEmails.map((email) => ({ email, error: message })),
+      accountErrors: [{ email: forEmail ?? "google", error: message }],
+    };
+  }
   const errors: Array<{ email: string; error: string }> = [];
   if (clients.length === 0) {
     const message =

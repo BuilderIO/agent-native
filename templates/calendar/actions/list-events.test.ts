@@ -598,6 +598,47 @@ describe("list-events inventory contract", () => {
     expect(result.complete).toBe(false);
   });
 
+  it("does not fail the whole request when only an overlay account errors and the primary read is empty", async () => {
+    listGoogleEventsMock.mockResolvedValue({ events: [], errors: [] });
+    listOverlayEventsMock.mockResolvedValue({
+      events: [],
+      errors: [
+        { email: "person@example.com", error: "Refresh token revoked" },
+      ],
+      accountErrors: [
+        { email: "steve@example.com", error: "Refresh token revoked" },
+      ],
+    });
+
+    const result = await (listEventsAction as any).run(
+      {
+        from: "2026-06-17",
+        to: "2026-06-18",
+        overlayEmails: ["person@example.com"],
+      },
+      {},
+    );
+
+    expect(result).toEqual([]);
+  });
+
+  it("still fails the whole request when the primary account read itself errors with no events", async () => {
+    listGoogleEventsMock.mockResolvedValue({
+      events: [],
+      errors: [{ email: "steve@example.com", error: "Refresh token revoked" }],
+    });
+
+    await expect(
+      (listEventsAction as any).run(
+        {
+          from: "2026-06-17",
+          to: "2026-06-18",
+        },
+        {},
+      ),
+    ).rejects.toThrow("Refresh token revoked");
+  });
+
   it("binds inventory cursors to the owner and exact query", async () => {
     listGoogleEventsMock.mockResolvedValue({
       events: [

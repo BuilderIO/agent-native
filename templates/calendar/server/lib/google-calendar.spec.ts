@@ -788,6 +788,23 @@ describe("calendar event listing", () => {
       expect.objectContaining({ pageToken: "overlay-page-2" }),
     );
   });
+
+  it("degrades to an error result instead of throwing when account resolution itself fails", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+
+    const result = await listOverlayEvents(
+      "2026-02-05T00:00:00Z",
+      "2026-02-06T00:00:00Z",
+      ["person@example.com"],
+      "owner@example.com",
+      { accountEmails: ["owner@example.com"] },
+    );
+
+    expect(result.events).toEqual([]);
+    expect(result.errors).toEqual([
+      expect.objectContaining({ email: "person@example.com" }),
+    ]);
+  });
 });
 
 describe("calendar event creation", () => {

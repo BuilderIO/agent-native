@@ -89,6 +89,10 @@ type CalendarInventorySource = "google" | "bookings" | "ics" | "overlays";
 interface CalendarEventsResult {
   events: CalendarEvent[];
   errors: Array<{ email: string; error: string }>;
+  // Primary-account read failures only, excluding overlay-account
+  // failures - an optional overlay person's calendar failing shouldn't
+  // make an otherwise-successful primary read look failed.
+  primaryErrors: Array<{ email: string; error: string }>;
   googleConnected: boolean;
   range: CalendarEventRange;
   icalErrors: Array<{ id: string; name: string; error: string }>;
@@ -749,6 +753,7 @@ export async function listCalendarEvents(
   return {
     events,
     errors,
+    primaryErrors: googleResult.errors,
     googleConnected: connected,
     range,
     icalErrors,
@@ -1016,9 +1021,14 @@ export default defineAction({
       };
     }
 
-    if (result.events.length === 0 && result.errors.length > 0) {
+    // Overlay people are a supplementary view on top of the caller's own
+    // calendar - an overlay-only failure (disconnected/erroring peer
+    // account) must not fail the whole request when the caller's own
+    // primary read succeeded fine, even if it happened to return zero
+    // events for this range.
+    if (result.events.length === 0 && result.primaryErrors.length > 0) {
       throw new Error(
-        result.errors.map((e) => `${e.email}: ${e.error}`).join("; "),
+        result.primaryErrors.map((e) => `${e.email}: ${e.error}`).join("; "),
       );
     }
 
