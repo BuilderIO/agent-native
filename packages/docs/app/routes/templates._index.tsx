@@ -39,14 +39,22 @@ export default function TemplatesPage() {
             </p>
           </header>
 
-          <section className="mt-16" aria-labelledby="first-party-apps-heading">
+          {/* The section breaks out of the page's horizontal padding so its top
+              rule spans the full content measure, then restores that padding so
+              the heading still lines up with the page header above it. */}
+          <section
+            className="-mx-4 mt-16 border-t border-solid border-[var(--b-border-default)] px-4 pt-16 sm:-mx-6 sm:px-6"
+            aria-labelledby="first-party-apps-heading"
+          >
             <h2
               id="first-party-apps-heading"
               className="mb-6 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-3)] font-medium leading-[1.1] tracking-[-0.02em] text-[var(--b-text-primary)]"
             >
               {t("templatesPage.firstPartyTitle")}
             </h2>
-            <div className="grid min-w-0 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {/* Breaks back out of the section's padding, so the grid's own rules
+                sit on the same full measure as the section rule above. */}
+            <div className="-mx-4 grid min-w-0 gap-5 border-y border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] p-5 sm:-mx-6 sm:grid-cols-2 lg:grid-cols-3">
               {featuredTemplates.map((template) => (
                 <TemplateCard key={template.name} template={template} />
               ))}
