@@ -1,5 +1,6 @@
 import type { A2AAgentActivitySnapshot } from "../a2a/activity.js";
 import type { ActionChatUIConfig } from "../action-ui.js";
+import type { ArtifactReceipt } from "../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 
@@ -367,6 +368,7 @@ export type AgentChatEvent =
       result: string;
       isError?: boolean;
       completedSideEffect?: boolean;
+      artifacts?: ArtifactReceipt[];
       mcpApp?: AgentMcpAppPayload;
       chatUI?: ActionChatUIConfig;
     }

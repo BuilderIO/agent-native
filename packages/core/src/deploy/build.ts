@@ -2251,7 +2251,7 @@ const DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM =
 
 const STATIC_SHELL_CUBE_DELAYS = [90, 180, 270, 0, 90, 180, 90, 180, 270];
 const STATIC_SHELL_LOADING_MARKUP = [
-  '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;width:100%">',
+  '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:var(--agent-native-viewport-height, 100vh);width:100%">',
   '<div style="display:flex;align-items:center;gap:12px">',
   '<svg aria-label="Loading" role="status" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" class="size-6" data-agent-native-cube-loader="true">',
   `<style>
@@ -2272,7 +2272,7 @@ const STATIC_SHELL_LOADING_MARKUP = [
     (delay, index) =>
       `<rect class="an-cube-cell" x="${2.5 + (index % 3) * 7}" y="${2.5 + Math.floor(index / 3) * 7}" width="5" height="5" rx="1" style="animation-delay:calc(${delay}ms - var(--an-cube-loader-phase, 0ms))"></rect>`,
   ),
-  '</svg><span data-agent-native-loading-label="true" class="agent-running-shimmer agent-loading-label" style="font-family:ui-sans-serif, system-ui, sans-serif;font-size:16px;font-weight:500;opacity:0.65">Churning</span>',
+  `</svg><span data-agent-native-loading-label="true" class="agent-running-shimmer agent-loading-label" style="font-family:ui-sans-serif, system-ui, sans-serif;font-size:16px;font-weight:500;opacity:0.65">${LOADING_LABELS[0]}</span>`,
   `<\/div><style>
         html {
           background: hsl(var(--background, 0 0% 100%));
@@ -2286,7 +2286,7 @@ const STATIC_SHELL_LOADING_MARKUP = [
         }
       </style></div>`,
 ].join("");
-const STATIC_SHELL_LOADING_LABEL_SCRIPT = `<script>(function(){var now=window.performance.now();var loader=document.querySelector('[data-agent-native-cube-loader]');if(loader)loader.style.setProperty('--an-cube-loader-phase',(now%650)+'ms');var labels=${JSON.stringify(LOADING_LABELS)};var index=Math.floor(Math.random()*labels.length);window.__agentNativeLoadingLabelIndex=index;var label=document.querySelector('[data-agent-native-loading-label]');if(label){label.textContent=labels[index];label.style.animationDelay='-'+now%2600+'ms';}})();</script>`;
+const STATIC_SHELL_LOADING_LABEL_SCRIPT = `<script>(function(){var labels=${JSON.stringify(LOADING_LABELS)};var label=document.querySelector('[data-agent-native-loading-label]');var loader=document.querySelector('[data-agent-native-cube-loader]');var observer;var cleanup=function(){if(window.__agentNativeLoadingLabelInterval!==undefined){window.clearInterval(window.__agentNativeLoadingLabelInterval);delete window.__agentNativeLoadingLabelInterval;}if(observer)observer.disconnect();if(window.__agentNativeLoadingLabelCleanup===cleanup)delete window.__agentNativeLoadingLabelCleanup;};window.__agentNativeLoadingLabelCleanup=cleanup;var update=function(){var now=window.performance.now();if(loader)loader.style.setProperty('--an-cube-loader-phase',(now%650)+'ms');if(label){label.textContent=labels[window.__agentNativeLoadingLabelIndex];label.style.animationDelay='-'+now%2600+'ms';}};window.__agentNativeLoadingLabelIndex=Math.floor(Math.random()*labels.length);update();window.__agentNativeLoadingLabelInterval=window.setInterval(function(){if(window.__agentNativeLoadingLabelHydrated||!loader||!loader.isConnected){cleanup();return;}window.__agentNativeLoadingLabelIndex=(window.__agentNativeLoadingLabelIndex+1)%labels.length;update();},3000);if(window.MutationObserver){observer=new MutationObserver(function(){if(!loader.isConnected)cleanup();});observer.observe(document,{childList:true,subtree:true});}})();</script>`;
 
 export function generateCloudflarePagesStaticShellFromManifest(
   manifest: ReactRouterAssetManifest,
