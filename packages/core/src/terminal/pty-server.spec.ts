@@ -220,7 +220,33 @@ describe("createPtyWebSocketServer", () => {
 
     server.close();
 
-    expect(ptys[0]?.kill).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(ptys[0]?.kill).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not spawn a PTY after shutdown interrupts command setup", async () => {
+    let setupStarted!: () => void;
+    let releaseSetup!: () => void;
+    const setupStartedPromise = new Promise<void>((resolve) => {
+      setupStarted = resolve;
+    });
+    const setupPromise = new Promise<string[]>((resolve) => {
+      releaseSetup = () => resolve([]);
+    });
+    const server = await createServer({
+      command: "builder",
+      getCommandArgs: async () => {
+        setupStarted();
+        return setupPromise;
+      },
+    });
+    const ws = await openSocket(`ws://127.0.0.1:${server.port}/ws`);
+
+    await setupStartedPromise;
+    server.close();
+    releaseSetup();
+
+    await vi.waitFor(() => expect(ws.readyState).toBe(WebSocket.CLOSED));
+    expect(spawn).not.toHaveBeenCalled();
   });
 
   it("rejects shell metacharacters in flags before spawning", async () => {
