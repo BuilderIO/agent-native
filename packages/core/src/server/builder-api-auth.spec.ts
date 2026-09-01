@@ -230,6 +230,31 @@ describe("resolveBuilderRequestAuthorization", () => {
     expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
   });
 
+  it("accepts the refresh scope returned with a read-only Publish grant", async () => {
+    getRequestOrgIdMock.mockReturnValue("org-1");
+    listRemoteServersMock.mockResolvedValue([
+      {
+        id: "builder-publish",
+        name: "Builder.io",
+        url: "https://mcp.builder.io/mcp/publish",
+        oauthSecretKey: "builder-publish-oauth",
+      },
+    ]);
+    const credentials = publishCredentials();
+    credentials.tokens.scope = "mcp:publish:read offline_access";
+    readMcpOAuthCredentialsMock.mockResolvedValue(credentials);
+    toHttpServerConfigAsyncMock.mockResolvedValue({
+      headers: { Authorization: "Bearer publish-oauth-token" },
+    });
+
+    await expect(
+      resolveBuilderRequestAuthorization({ oauthResource: "publish" }),
+    ).resolves.toMatchObject({
+      source: "oauth",
+      authorization: "Bearer publish-oauth-token",
+    });
+  });
+
   it("does not fall back when Publish OAuth custody needs reconnecting", async () => {
     getRequestOrgIdMock.mockReturnValue("org-1");
     listRemoteServersMock.mockResolvedValue([

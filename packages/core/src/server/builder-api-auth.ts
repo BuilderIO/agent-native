@@ -109,8 +109,10 @@ async function resolveBuilderPublishAuthorization(
       !credentials ||
       !issuerBound ||
       !resourceBound ||
-      scopes.size !== 1 ||
-      !scopes.has("mcp:publish:read")
+      !scopes.has("mcp:publish:read") ||
+      [...scopes].some(
+        (scope) => scope !== "mcp:publish:read" && scope !== "offline_access",
+      )
     ) {
       throw new Error(
         "Builder Publish access needs re-authorizing to grant mcp:publish:read. Open Settings and reconnect Builder.io Publish.",
