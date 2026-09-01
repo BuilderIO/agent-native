@@ -93,6 +93,30 @@ async function completeFirstRunOnboarding(page: Page): Promise<boolean> {
   return true;
 }
 
+async function fillMagicLinkEmail(page: Page, email: string): Promise<void> {
+  const emailInput = page.locator("#m-email");
+  const submit = page.locator("#magic-link-submit");
+  await emailInput.fill(email);
+  await expect(emailInput).toHaveValue(email);
+  await expect
+    .poll(
+      async () => {
+        // The auth document is server-rendered before React hydrates it. If
+        // hydration replaces an early input event, reapply it before judging
+        // the form as broken.
+        if ((await emailInput.inputValue()) !== email) {
+          await emailInput.fill(email);
+        }
+        return submit.isEnabled();
+      },
+      {
+        message:
+          "email signup form never became ready after accepting the test address",
+      },
+    )
+    .toBe(true);
+}
+
 /**
  * One app per run by default. The deterministic canary already covers every
  * app every day; this lane spends model tokens, so it walks the fleet on a
@@ -291,14 +315,8 @@ for (const target of targets) {
 
     await test.step("request a sign-in link", async () => {
       const emailPromise = waitForVerificationEmail(email, emailRequestedAt);
-      const emailInput = page.locator("#m-email");
       const submit = page.locator("#magic-link-submit");
-      await emailInput.fill(email);
-      await expect(emailInput).toHaveValue(email);
-      await expect(
-        submit,
-        "email signup form never became ready after accepting the test address",
-      ).toBeEnabled();
+      await fillMagicLinkEmail(page, email);
       await submit.click();
       // Give the app the moment a real user would give it before judging
       // whether the submit visibly did anything.
