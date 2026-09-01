@@ -51,6 +51,21 @@ function isValidScreenshot(file: File) {
   );
 }
 
+function createScreenshotDataTransfer(): DataTransfer | null {
+  if (typeof DataTransfer !== "undefined") return new DataTransfer();
+
+  if (typeof ClipboardEvent !== "undefined") {
+    try {
+      return new ClipboardEvent("").clipboardData;
+    } catch {
+      // coercion-ok: null explicitly distinguishes an unavailable fallback from a transfer.
+      return null;
+    }
+  }
+
+  return null;
+}
+
 const fieldClassName =
   "w-full rounded-[var(--b-radius)] border border-solid border-[var(--b-border-default)] bg-[var(--b-bg-inset)] px-3 py-2.5 font-[family-name:var(--b-font-sans)] text-sm leading-[1.4] text-[var(--b-text-primary)] outline-none transition-[border-color,box-shadow] placeholder:text-[var(--b-text-muted)] focus:border-[var(--b-action-primary-bg)] focus:ring-2 focus:ring-[var(--b-action-primary-effect)]";
 
@@ -95,7 +110,8 @@ export function CommunityAppSubmissionForm() {
       const input = hiddenInputRefs.current[index];
       if (!input) continue;
 
-      const dataTransfer = new DataTransfer();
+      const dataTransfer = createScreenshotDataTransfer();
+      if (!dataTransfer) return;
       const screenshot = screenshots[index];
       if (screenshot) dataTransfer.items.add(screenshot.file);
       input.files = dataTransfer.files;
