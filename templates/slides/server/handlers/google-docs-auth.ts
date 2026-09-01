@@ -240,22 +240,27 @@ export const getGoogleDocsPickerToken = defineEventHandler(
           };
         }
 
-        const token = await getAvailableGoogleDocsAccessToken(owner);
-        if (!token) {
-          setResponseStatus(event, 401);
+        try {
+          const token = await getAvailableGoogleDocsAccessToken(owner);
+          if (!token) {
+            setResponseStatus(event, 401);
+            return {
+              error: "not_connected",
+              message: "Connect Google Docs before choosing a document.",
+            };
+          }
           return {
-            error: "not_connected",
-            message: "Connect Google Docs before choosing a document.",
+            ...token,
+            apiKey: picker.apiKey,
+            appId: picker.appId,
           };
+        } catch (error) {
+          setResponseStatus(event, 401);
+          return { error: formatGoogleOAuthError(error) };
         }
-        return {
-          ...token,
-          apiKey: picker.apiKey,
-          appId: picker.appId,
-        };
       });
     } catch (error) {
-      setResponseStatus(event, 401);
+      setResponseStatus(event, 500);
       return { error: formatGoogleOAuthError(error) };
     }
   },

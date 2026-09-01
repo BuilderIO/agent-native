@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   encodeOAuthState: vi.fn(),
+  getAvailableGoogleDocsAccessToken: vi.fn(),
   getGoogleDocsAuthUrl: vi.fn(),
   getQuery: vi.fn(),
   getSession: vi.fn(),
@@ -36,7 +37,7 @@ vi.mock("h3", () => ({
 }));
 
 vi.mock("../lib/google-docs-access.js", () => ({
-  getAvailableGoogleDocsAccessToken: vi.fn(),
+  getAvailableGoogleDocsAccessToken: mocks.getAvailableGoogleDocsAccessToken,
   resolveManagedGoogleDriveAccount: mocks.resolveManagedGoogleDriveAccount,
 }));
 
@@ -62,6 +63,7 @@ vi.mock("./request-auth-context.js", () => ({
 
 import {
   getGoogleDocsAuthUrlHandler,
+  getGoogleDocsPickerToken,
   getGoogleDocsStatus,
 } from "./google-docs-auth";
 
@@ -122,5 +124,19 @@ describe("getGoogleDocsStatus", () => {
       googleSlidesUrlImportReady: false,
       googleSlidesUrlImportError: "formatted: invalid_grant",
     });
+  });
+
+  it("keeps Picker setup failures distinct from disconnected accounts", async () => {
+    mocks.isGoogleDocsOAuthConfigured.mockRejectedValue(
+      new Error("vault unavailable"),
+    );
+
+    await expect(getGoogleDocsPickerToken({} as any)).resolves.toEqual({
+      error: "formatted: vault unavailable",
+    });
+    expect(mocks.setResponseStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      500,
+    );
   });
 });
