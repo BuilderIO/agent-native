@@ -32,12 +32,16 @@ out-of-scope UX or feature request into scope - that reaction is the product
 decision, so build the smallest version rather than asking which variant is
 wanted. It does not transfer ownership: Design and Content remain with Sid or
 Alice, and work in those areas requires the mapped owner's authorization or an
-explicit assignment. `review-latest-feedback` owns the discovery query and the
-**Shipped** disposition; everything in this file about voice, evidence, and
+explicit assignment. Both workflows may record the **Shipped** disposition for
+an authorized upvoted improvement; this standalone workflow must accept and
+complete that path itself. Everything in this file about voice, evidence, and
 verification applies to an upvoted item unchanged. The ledger treats
 **Shipped** as the terminal disposition for that authorized upvoted path.
 An authorized upvoted item may therefore end with a **Shipped** reply; the
 companion ledger records it as terminal just like **Fixed**.
+Even when invoked alone, this workflow asks at most three new clarification
+questions per run across all threads, ranked by which answer would unblock a
+safe fix.
 
 If an earlier run already added `👀` to an out-of-scope item, remove that
 reaction with the connected Slack removal action when available. Do not add

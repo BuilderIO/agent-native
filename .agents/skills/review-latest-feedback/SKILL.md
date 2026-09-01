@@ -93,22 +93,22 @@ questions in the worklist until they are answered or explicitly resolved. The
 Slack thread is the durable record of its id and status; do not drop an open
 question because it is old or because a new run has started.
 
-The companion workflow does not require the disclosure marker. Independently
-search its clarification wording across the channel, without an author filter
-or date cutoff, and classify each full thread before adding it to the pending
-set. For example:
+New replies from the companion workflow must carry the disclosure marker, so
+the unbounded marker search above is the primary cross-identity cursor. For
+legacy companion replies that predate the marker, independently search every
+valid workflow identity without an author filter or date cutoff and classify
+each full thread before adding it to the pending set:
 
 ```
-slack_search: "if you can share" in:<#CHANNEL>
+slack_search: from:<WORKFLOW_IDENTITY> in:<#CHANNEL>
   sort=timestamp sort_dir=asc
 ```
 
-Repeat for the companion's other clarification wording, such as
-`"would help us investigate"`, and inspect author and thread metadata rather
-than treating every matching message as a question. This search is mandatory
-even when the message has no bot disclosure or eye reaction; the companion
-workflow's clarification wording is its independent discovery path.
-Do not use the disclosure search as the companion workflow's only cursor.
+Use clarification wording such as `if you can share` or `would help us
+investigate` only to classify messages returned by that broad search, not as a
+finite discovery cursor. This legacy search is mandatory even when a message
+has no bot disclosure or eye reaction; the unbounded identity search is the
+companion workflow's independent discovery path.
 
 These searches cover **every** run's questions, not just yours. Inspect the
 author and full thread so a later run under another valid workflow identity
@@ -186,16 +186,18 @@ investigation marker with no reply obligation - that coupling is what produced
 23 questions in a single hour. If an earlier run eyed something out of scope,
 remove the reaction; do not post a compensating message.
 
-Run an unbounded reaction search for the invoking identity's eyes as well:
+Run an unbounded reaction search across identities as well:
 
 ```
-slack_search: hasmy:eyes in:<#CHANNEL>
+slack_search: has:reaction in:<#CHANNEL>
 ```
 
-Read each matching parent and reaction. An eye-only clear bug or authorized
-upvoted improvement remains in the worklist and is rediscovered through this
-durable marker until it has a terminal disposition; it must not disappear when
-the message falls outside the five-day scan.
+Read each matching parent and reaction metadata, retaining `👀` from any valid
+workflow identity. `hasmy:eyes` may optimize the current identity's scan, but
+it is never the only cursor. An eye-only clear bug or authorized upvoted
+improvement remains in the worklist and is rediscovered through this durable
+marker until it has a terminal disposition; it must not disappear when the
+message falls outside the five-day scan.
 
 Group repeat symptoms into one cluster with one owning investigation. Each
 report keeps its own eye and its own recap row; the cluster gets one fix.
