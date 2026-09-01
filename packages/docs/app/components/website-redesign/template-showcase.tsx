@@ -18,6 +18,7 @@ import { BuildOnlinePopover } from "../BuilderWaitlistPopover";
 import { sitePathForLocale } from "../docs-locale";
 import { APP_ART } from "./app-art";
 import { Button } from "./ds/button";
+import { CardArrow } from "./ds/card-arrow";
 import { ImgPlaceholder } from "./ds/img-placeholder";
 import { GridInner, PageSection } from "./page-grid";
 
@@ -31,12 +32,6 @@ const CARD_CLASS = [
   "app-carousel-card group flex w-[433px] shrink-0 snap-start flex-col gap-[var(--spacing-4)] overflow-hidden bg-[var(--b-bg-page)] no-underline mobile:w-[320px]",
   "transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)]",
   "not-last:border-r not-last:border-solid not-last:border-[var(--b-border-subtle)]",
-].join(" ");
-
-const CARD_ARROW_CLASS = [
-  "mt-auto flex h-8 w-8 items-center justify-center rounded-[var(--b-radius)] border border-solid border-[var(--b-action-secondary-border)] bg-transparent text-[var(--b-text-primary)]",
-  "transition-[background,border-color,color] duration-150 ease-[ease]",
-  "group-hover:border-[var(--b-text-primary)] group-hover:bg-[var(--b-text-primary)] group-hover:text-[var(--b-bg-page)]",
 ].join(" ");
 
 interface ShowcaseApp {
@@ -224,9 +219,7 @@ export function TemplateShowcase() {
                     <p className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]">
                       {t(`templates.${app.slug}.description`)}
                     </p>
-                    <span aria-hidden="true" className={CARD_ARROW_CLASS}>
-                      <IconArrowUpRight size={16} stroke={1.75} />
-                    </span>
+                    <CardArrow />
                   </div>
                 </Link>
               );

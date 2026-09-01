@@ -1,28 +1,11 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { IconArrowUpRight } from "@tabler/icons-react";
 import { Link } from "react-router";
 
 import { BuilderImage } from "./builder-image";
-import { CustomizeTemplatePopover } from "./CustomizeTemplatePopover";
 import { sitePathForLocale } from "./docs-locale";
-import { applyFirstTouchAttributionToLink } from "./marketing-attribution";
-import { TemplateDocsLink } from "./template-docs";
 import { APP_ART } from "./website-redesign/app-art";
-import { Button, buttonClassName } from "./website-redesign/ds/button";
-
-// Compact padding because three of these share one card row.
-const cardSecondaryActionClass = buttonClassName({
-  variant: "secondary",
-  compact: true,
-  className: "flex-1 uppercase",
-});
-
-const cardTertiaryActionClass = buttonClassName({
-  variant: "tertiary",
-  compact: true,
-  className: "flex-1 uppercase",
-});
+import { CardArrow } from "./website-redesign/ds/card-arrow";
 
 export { trackEvent };
 
@@ -172,50 +155,6 @@ export const featuredTemplates = [
   "plan",
 ].map((slug) => templates.find((template) => template.slug === slug)!);
 
-function TemplateLaunchButton({ template }: { template: Template }) {
-  const t = useT();
-  const hasDemoUrl = "demoUrl" in template && template.demoUrl;
-
-  return (
-    // Breaks out of the card's content padding so the divider meets both card
-    // edges, then restores it so the buttons stay on the content measure.
-    <div className="-mx-[var(--spacing-5)] mt-auto flex w-[calc(100%+2*var(--spacing-5))] flex-wrap gap-2 border-t border-solid border-[var(--b-border-subtle)] px-[var(--spacing-5)] pt-[var(--spacing-4)]">
-      {hasDemoUrl ? (
-        <Button
-          variant="white"
-          icon={IconArrowUpRight}
-          href={template.demoUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(event) => {
-            applyFirstTouchAttributionToLink(event.currentTarget);
-            trackEvent("click try demo", {
-              template: template.slug,
-              location: "card",
-            });
-          }}
-          className="flex-1 uppercase"
-        >
-          {t("common.tryIt")}
-        </Button>
-      ) : null}
-      <CustomizeTemplatePopover
-        template={template}
-        location="card"
-        className={cardSecondaryActionClass}
-      />
-      {/* A direct flex item rather than a link inside a flex-1 wrapper: the
-          wrapper stretched to the row height but the link kept its own content
-          height, which is what left this one shorter than its siblings. */}
-      <TemplateDocsLink
-        template={template}
-        location="card"
-        className={cardTertiaryActionClass}
-      />
-    </div>
-  );
-}
-
 export function TemplateCard({ template }: { template: Template }) {
   const { locale } = useLocale();
   const t = useT();
@@ -246,7 +185,7 @@ export function TemplateCard({ template }: { template: Template }) {
       <Link
         data-an-prefetch="viewport"
         to={templatePath}
-        className="relative flex aspect-[320/256] items-center justify-center overflow-hidden border-b border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)]"
+        className="flex flex-auto flex-col no-underline"
         onClick={() =>
           trackEvent("click template", {
             template: template.slug,
@@ -254,72 +193,74 @@ export function TemplateCard({ template }: { template: Template }) {
           })
         }
       >
-        {art ? (
-          <>
-            <BuilderImage
-              src={art.imageDark}
-              crossOrigin="anonymous"
-              alt={t("templateCard.screenshotAlt", { name: template.name })}
-              loading="lazy"
-              decoding="async"
-              className="theme-img-dark relative h-full w-full object-cover"
-            />
-            <BuilderImage
-              src={art.imageLight}
-              crossOrigin="anonymous"
-              alt={t("templateCard.screenshotAlt", { name: template.name })}
-              loading="lazy"
-              decoding="async"
-              className="theme-img-light absolute inset-0 h-full w-full object-cover"
-            />
-            {/* Decorative on purpose: the illustration beneath already carries
-                the alt text, and both layers stay mounted so the reveal is a
-                CSS fade rather than a swapped src. */}
-            {art.hoverImage ? (
+        <div className="relative flex aspect-[320/256] items-center justify-center overflow-hidden border-b border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)]">
+          {art ? (
+            <>
               <BuilderImage
-                src={art.hoverImage}
+                src={art.imageDark}
                 crossOrigin="anonymous"
-                alt=""
+                alt={t("templateCard.screenshotAlt", { name: template.name })}
                 loading="lazy"
                 decoding="async"
-                className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+                className="theme-img-dark relative h-full w-full object-cover"
               />
-            ) : null}
-          </>
-        ) : template.screenshot ? (
-          <BuilderImage
-            src={template.screenshot}
-            crossOrigin="anonymous"
-            alt={t("templateCard.screenshotAlt", { name: template.name })}
-            loading="lazy"
-            decoding="async"
-            className="h-full w-full object-cover object-top transition-opacity hover:opacity-90"
-          />
-        ) : (
-          <div
-            className="flex h-full w-full items-center justify-center"
-            style={{
-              background: `linear-gradient(135deg, ${template.color}, ${template.color}22)`,
-            }}
-          >
-            <span className="rounded-lg bg-[var(--b-bg-page)]/80 px-4 py-2 font-[family-name:var(--b-font-sans)] text-sm font-semibold text-[var(--b-text-primary)] shadow-sm">
-              {template.name}
-            </span>
-          </div>
-        )}
+              <BuilderImage
+                src={art.imageLight}
+                crossOrigin="anonymous"
+                alt={t("templateCard.screenshotAlt", { name: template.name })}
+                loading="lazy"
+                decoding="async"
+                className="theme-img-light absolute inset-0 h-full w-full object-cover"
+              />
+              {/* Decorative on purpose: the illustration beneath already carries
+                the alt text, and both layers stay mounted so the reveal is a
+                CSS fade rather than a swapped src. */}
+              {art.hoverImage ? (
+                <BuilderImage
+                  src={art.hoverImage}
+                  crossOrigin="anonymous"
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+                />
+              ) : null}
+            </>
+          ) : template.screenshot ? (
+            <BuilderImage
+              src={template.screenshot}
+              crossOrigin="anonymous"
+              alt={t("templateCard.screenshotAlt", { name: template.name })}
+              loading="lazy"
+              decoding="async"
+              className="h-full w-full object-cover object-top transition-opacity hover:opacity-90"
+            />
+          ) : (
+            <div
+              className="flex h-full w-full items-center justify-center"
+              style={{
+                background: `linear-gradient(135deg, ${template.color}, ${template.color}22)`,
+              }}
+            >
+              <span className="rounded-lg bg-[var(--b-bg-page)]/80 px-4 py-2 font-[family-name:var(--b-font-sans)] text-sm font-semibold text-[var(--b-text-primary)] shadow-sm">
+                {template.name}
+              </span>
+            </div>
+          )}
+        </div>
+        <div className="flex flex-auto flex-col items-start gap-[var(--spacing-3)] p-[var(--spacing-5)]">
+          <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {template.name}
+          </h3>
+          <p className="m-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] uppercase tracking-[0.04em] text-[var(--b-text-muted)]">
+            {replaces}
+          </p>
+          <p className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]">
+            {description}
+          </p>
+          <CardArrow />
+        </div>
       </Link>
-      <div className="flex flex-auto flex-col items-start gap-[var(--spacing-3)] p-[var(--spacing-5)]">
-        <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
-          {template.name}
-        </h3>
-        <p className="m-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] uppercase tracking-[0.04em] text-[var(--b-text-eyebrow)]">
-          {replaces}
-        </p>
-        <p className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] leading-[1.4] text-[var(--b-text-secondary)]">
-          {description}
-        </p>
-        <TemplateLaunchButton template={template} />
-      </div>
     </article>
   );
 }
