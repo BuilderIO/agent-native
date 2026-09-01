@@ -366,6 +366,13 @@ function getTimezoneOffsetMs(date: Date, timezone: string): number {
   return utcForLocalParts - date.getTime();
 }
 
+// Thrown by zonedTimeToUtc for a local date that a time zone skipped
+// entirely. Callers that generate availability for a specific date should
+// catch only this - it's an expected "no such date" outcome, not a bug -
+// and treat it as no availability rather than letting it surface as a
+// generic 500 or, worse, silently masking a real error the same way.
+class SkippedLocalDateError extends Error {}
+
 function zonedTimeToUtc(
   localDate: string,
   localTime: string,
@@ -412,7 +419,7 @@ function zonedTimeToUtc(
     roundTrip.month !== month ||
     roundTrip.day !== day
   ) {
-    throw new Error(
+    throw new SkippedLocalDateError(
       `${localDate} does not exist in time zone ${timezone} (skipped calendar date)`,
     );
   }
@@ -1611,16 +1618,25 @@ async function getAvailableSlotsForQuery(
     const rangeStart = formatDateOnly(from!);
     const rangeEnd = formatDateOnly(to!);
     const timezone = context.effectiveConfig.timezone || "UTC";
-    const conflictResult = await getConflictItems({
-      ownerEmail: context.ownerEmail,
-      hostEmails: context.hostEmails,
-      conflictSlugs: context.conflictSlugs,
-      viewerEmail: viewer?.email,
-      viewerOrgId: viewer?.orgId,
-      rangeStartIso: dateStartIso(rangeStart, timezone),
-      rangeEndIso: dateEndIso(rangeEnd, timezone),
-      timezone,
-    });
+    let conflictResult;
+    try {
+      conflictResult = await getConflictItems({
+        ownerEmail: context.ownerEmail,
+        hostEmails: context.hostEmails,
+        conflictSlugs: context.conflictSlugs,
+        viewerEmail: viewer?.email,
+        viewerOrgId: viewer?.orgId,
+        rangeStartIso: dateStartIso(rangeStart, timezone),
+        rangeEndIso: dateEndIso(rangeEnd, timezone),
+        timezone,
+      });
+    } catch (error) {
+      if (!(error instanceof SkippedLocalDateError)) throw error;
+      // The requested range's own start/end date is one a time zone
+      // skipped entirely - there is no valid conflict window to compute,
+      // so report no available dates instead of failing the whole request.
+      return { dates: [] };
+    }
     if (conflictResult.unavailableReason) {
       return unavailableAvailabilityResponse(event);
     }
@@ -1640,10 +1656,11 @@ async function getAvailableSlotsForQuery(
           conflictItems: conflictResult.items,
           hostSchedules: context.eligibleHosts,
         });
-      } catch {
-        // A calendar date that a time zone skipped entirely (e.g. Samoa's
-        // 2011 date-line move) has no valid availability by definition —
-        // treat it as unavailable rather than failing the whole range.
+      } catch (error) {
+        if (!(error instanceof SkippedLocalDateError)) throw error;
+        // A calendar date that a time zone skipped entirely has no valid
+        // availability by definition - treat it as unavailable rather
+        // than failing the whole range.
         continue;
       }
       if (slots.length > 0) {
@@ -1654,26 +1671,32 @@ async function getAvailableSlotsForQuery(
   }
 
   const timezone = context.effectiveConfig.timezone || "UTC";
-  const conflictResult = await getConflictItems({
-    ownerEmail: context.ownerEmail,
-    hostEmails: context.hostEmails,
-    conflictSlugs: context.conflictSlugs,
-    viewerEmail: viewer?.email,
-    viewerOrgId: viewer?.orgId,
-    rangeStartIso: dateStartIso(date, timezone),
-    rangeEndIso: dateEndIso(date, timezone),
-    timezone,
-  });
-  if (conflictResult.unavailableReason) {
-    return unavailableAvailabilityResponse(event);
+  let availableSlots: TimeSlot[];
+  try {
+    const conflictResult = await getConflictItems({
+      ownerEmail: context.ownerEmail,
+      hostEmails: context.hostEmails,
+      conflictSlugs: context.conflictSlugs,
+      viewerEmail: viewer?.email,
+      viewerOrgId: viewer?.orgId,
+      rangeStartIso: dateStartIso(date, timezone),
+      rangeEndIso: dateEndIso(date, timezone),
+      timezone,
+    });
+    if (conflictResult.unavailableReason) {
+      return unavailableAvailabilityResponse(event);
+    }
+    availableSlots = generateAvailableSlotsForDate({
+      date,
+      duration,
+      config: context.effectiveConfig,
+      conflictItems: conflictResult.items,
+      hostSchedules: context.eligibleHosts,
+    });
+  } catch (error) {
+    if (!(error instanceof SkippedLocalDateError)) throw error;
+    return { slots: [] };
   }
-  const availableSlots = generateAvailableSlotsForDate({
-    date,
-    duration,
-    config: context.effectiveConfig,
-    conflictItems: conflictResult.items,
-    hostSchedules: context.eligibleHosts,
-  });
 
   return { slots: availableSlots };
 }
