@@ -261,6 +261,9 @@ for (const target of targets) {
         return (
           parsed.origin === target.origin &&
           (parsed.pathname.startsWith("/_agent-native/onboarding/") ||
+            parsed.pathname.startsWith("/_agent-native/actions/") ||
+            parsed.pathname === "/_agent-native/auth/session" ||
+            parsed.pathname === "/_agent-native/org/me" ||
             parsed.pathname === "/ask" ||
             parsed.pathname === "/home")
         );
