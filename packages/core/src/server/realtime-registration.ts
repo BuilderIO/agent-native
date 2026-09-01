@@ -428,12 +428,20 @@ async function postRegistration(
       };
     }
     const body = (await res.json()) as Partial<RealtimeChannel>;
-    if (!body?.channelId || !body?.hmacSecret) {
+    // Types, not truthiness. `{ channelId: {} }` is truthy, and it would then
+    // reach `createHash().update()` in the health probe and the token signer,
+    // where a non-string throws — turning a bad gateway response into a 500 on
+    // routes whose entire contract is to fail soft to local sync.
+    const channelId = typeof body?.channelId === "string" ? body.channelId : "";
+    const hmacSecret =
+      typeof body?.hmacSecret === "string" ? body.hmacSecret : "";
+    if (!channelId || !hmacSecret) {
+      console.warn(
+        "[realtime] gateway returned an unusable channel; staying on local sync",
+      );
       return { channel: null, failure: "declined" };
     }
-    return {
-      channel: { channelId: body.channelId, hmacSecret: body.hmacSecret },
-    };
+    return { channel: { channelId, hmacSecret } };
   } catch (err) {
     console.warn(
       `[realtime] gateway registration failed (${(err as Error)?.message ?? err}); staying on local sync`,

@@ -380,8 +380,16 @@ describe("resolveRegisteredRealtimeChannel", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("ignores a malformed gateway response rather than minting against it", async () => {
-    fetchMock.mockResolvedValue(ok({ channelId: "rt_abc" }));
+  it.each([
+    ["a missing field", { channelId: "rt_abc" }],
+    // Truthy but not a string. These reach `createHash().update()` in the
+    // health probe and the token signer, where a non-string throws — a 500 on
+    // routes whose whole contract is to fail soft to local sync.
+    ["a non-string channel id", { channelId: {}, hmacSecret: "s".repeat(64) }],
+    ["a non-string secret", { channelId: "rt_abc", hmacSecret: 12345 }],
+    ["an empty string", { channelId: "", hmacSecret: "s".repeat(64) }],
+  ])("ignores %s rather than minting against it", async (_name, body) => {
+    fetchMock.mockResolvedValue(ok(body));
     await expect(resolveRegisteredRealtimeChannel()).resolves.toBeNull();
     expect(mockPutSetting).not.toHaveBeenCalled();
   });
