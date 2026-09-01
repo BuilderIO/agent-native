@@ -11,6 +11,8 @@ import { parse } from "yaml";
 import {
   PRODUCTION_PURGE_CONDITION,
   PRODUCTION_SITE_GROUP,
+  validateGoogleCallbackVerificationWorkflow,
+  validateNetlifyApiRateLimitHandling,
   validateProductionPurgeCondition,
   validateReusableWorkflowConcurrency,
   validateProductionSiteConcurrency,
@@ -43,8 +45,48 @@ const reusableSource = readFileSync(
   "utf8",
 );
 const nodeHeredocs = [
-  ...reusableSource.matchAll(/node <<'NODE'\n([\s\S]*?)\n\s*NODE/g),
+  ...reusableSource.matchAll(
+    /node(?: --experimental-strip-types)? <<'NODE'\n([\s\S]*?)\n\s*NODE/g,
+  ),
 ].map((match) => match[1]);
+
+describe("Google callback deploy verification guard", () => {
+  it("requires direct probe execution and rolls back only definitive mismatches", () => {
+    assert.deepEqual(
+      validateGoogleCallbackVerificationWorkflow(reusableSource),
+      [],
+    );
+    assert.match(
+      validateGoogleCallbackVerificationWorkflow(
+        reusableSource
+          .replace(
+            "node --experimental-strip-types scripts/check-google-redirect-uris.ts",
+            "pnpm check:google-redirect-uris --",
+          )
+          .replace(
+            "steps.google_redirect.outputs.exit_code == '1'",
+            "steps.google_redirect.outputs.exit_code == '2'",
+          ),
+      ).join("\n"),
+      /directly with the supported Node loader|only definitive/,
+    );
+  });
+});
+
+describe("Netlify API rate-limit guard", () => {
+  it("routes all reusable-workflow API calls through the bounded helper", () => {
+    assert.deepEqual(validateNetlifyApiRateLimitHandling(reusableSource), []);
+    assert.match(
+      validateNetlifyApiRateLimitHandling(
+        reusableSource.replace(
+          "requestNetlifyApi(`https://api.netlify.com/api/v1/sites/${siteId}`",
+          "fetch(`https://api.netlify.com/api/v1/sites/${siteId}`",
+        ),
+      ).join("\n"),
+      /raw Netlify fetch calls/,
+    );
+  });
+});
 
 describe("production Netlify site concurrency guard", () => {
   it("supports previous, N-back, and exact Netlify deploy rollbacks", () => {
@@ -174,7 +216,12 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("executes every reusable workflow heredoc under the pinned Node loader", () => {
-    assert.equal(nodeHeredocs.length, 7);
+    assert.equal(nodeHeredocs.length, 9);
+    assert.equal(
+      (reusableSource.match(/node --experimental-strip-types <<'NODE'/g) ?? [])
+        .length,
+      9,
+    );
     const directory = mkdtempSync(
       join(tmpdir(), "agent-native-netlify-heredocs-"),
     );
@@ -223,7 +270,7 @@ describe("production Netlify site concurrency guard", () => {
       String(purge.run),
       /const api = "https:\/\/api\.netlify\.com\/api\/v1"/,
     );
-    assert.match(String(purge.run), /fetch\(`\$\{api\}\/purge`/);
+    assert.match(String(purge.run), /requestNetlifyApi\(`\$\{api\}\/purge`/);
     assert.match(String(purge.run), /method: "POST"/);
     assert.match(
       String(purge.run),
@@ -290,6 +337,51 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(
       planNetlify,
       /agentNativePrebuiltBuild:-\}.*migrate:production/,
+    );
+  });
+
+  it("runs Clips migrations against the production database", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const migrationStart = workflow.indexOf(
+      "name: Run Clips release migrations",
+    );
+    const verifyStart = workflow.indexOf("name: Verify deploy directories");
+    assert.ok(migrationStart >= 0 && migrationStart < verifyStart);
+    const migration = workflow.slice(migrationStart, verifyStart);
+    assert.match(migration, /inputs\.target == 'production'/);
+    assert.match(migration, /inputs\.deploy_mode == 'production'/);
+    assert.match(migration, /source_template == 'clips'/);
+    assert.match(migration, /CLIPS_DATABASE_URL/);
+    assert.match(migration, /pnpm --filter clips migrate:production/);
+  });
+
+  it("keeps production Chat assembly independent of masked runtime secrets", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const chatNetlify = readFileSync("templates/chat/netlify.toml", "utf8");
+    const buildStart = workflow.indexOf(
+      "name: Build with the Netlify project configuration",
+    );
+    const buildEnd = workflow.indexOf(
+      "name: Verify deploy directories",
+      buildStart,
+    );
+    const build = workflow.slice(buildStart, buildEnd);
+
+    assert.match(
+      build,
+      /if \[\[ \"\$TARGET\" == \"production\" && \"\$SOURCE_TEMPLATE\" == \"chat\" \]\];/,
+    );
+    assert.match(chatNetlify, /agentNativePrebuiltDatabaseUrl/);
+    assert.match(chatNetlify, /agentNativePrebuiltAuthSecret/);
+    assert.match(
+      chatNetlify,
+      /agentNativePrebuiltBuild:-\}.*!= \\\"true\\\".*migrate:production/,
     );
   });
 

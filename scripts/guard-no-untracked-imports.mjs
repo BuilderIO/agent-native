@@ -15,9 +15,10 @@
  * inspects the whole repository rather than the branch diff — a stale ignore
  * pattern can strand a file that an older commit added.
  */
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+
+import { execGuardCommand } from "./lib/changed-lines.mjs";
 
 const SOURCE_RE = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 const SKIP_RE = /(^|\/)(?:node_modules|dist|build|\.output|\.nitro|corpus)\//;
@@ -45,7 +46,10 @@ const CANDIDATE_SUFFIXES = [
 ];
 
 function git(args) {
-  return execFileSync("git", args, { encoding: "utf8", maxBuffer: 1 << 28 });
+  return execGuardCommand("git", args, {
+    encoding: "utf8",
+    maxBuffer: 1 << 28,
+  });
 }
 
 const repoRoot = git(["rev-parse", "--show-toplevel"]).trim();

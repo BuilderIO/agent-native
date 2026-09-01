@@ -26,6 +26,7 @@ import {
   resolveMcpOAuthScope,
   resolveTrustedMcpOAuthAuthorizationScope,
   resolveManagedMcpOAuthClient,
+  resolveMcpOAuthReturnPath,
   setMcpOAuthFlowCookie,
   stripMcpOAuthAppBasePath,
   type McpOAuthFlow,
@@ -84,6 +85,18 @@ const baseFlow: McpOAuthFlow = {
 };
 
 describe("MCP OAuth callback flow validation", () => {
+  it("returns to integrations when OAuth saved credentials do not connect", () => {
+    expect(resolveMcpOAuthReturnPath(false, { ...baseFlow })).toBe(
+      "/settings/integrations",
+    );
+    expect(
+      resolveMcpOAuthReturnPath(true, {
+        ...baseFlow,
+        returnUrl: "/chat?thread=meeting-actions",
+      }),
+    ).toBe("/chat?thread=meeting-actions");
+  });
+
   it("carries staged cookies on native redirects", () => {
     const event = {
       res: { headers: new Headers() },

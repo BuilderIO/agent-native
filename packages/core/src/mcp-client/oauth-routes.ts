@@ -48,6 +48,7 @@ import {
   normalizeServerName,
   replaceOAuthRemoteServer,
   validateRemoteUrl,
+  type StoredRemoteMcpServer,
   type RemoteMcpScope,
 } from "./remote-store.js";
 
@@ -117,7 +118,22 @@ export interface McpOAuthFlow {
 }
 
 export interface McpOAuthRoutesOptions {
-  reconfigure: () => Promise<void>;
+  reconfigure: (target: {
+    scope: RemoteMcpScope;
+    scopeId: string;
+    server: StoredRemoteMcpServer;
+  }) => Promise<boolean>;
+}
+
+export function resolveMcpOAuthReturnPath(
+  connected: boolean,
+  flow: Pick<McpOAuthFlow, "name" | "returnUrl">,
+): string {
+  if (!connected) return "/settings/integrations";
+  return (
+    flow.returnUrl ??
+    `/settings/integrations?connected=mcp-${encodeURIComponent(flow.name)}`
+  );
 }
 
 export function bindMcpOAuthAuthorizationScope(
@@ -534,10 +550,12 @@ async function handleMcpOAuthCallback(
       setResponseStatus(event, 400);
       return { error: result.error };
     }
-    await options.reconfigure();
-    const returnPath =
-      flow.returnUrl ??
-      `/settings/integrations?connected=mcp-${encodeURIComponent(flow.name)}`;
+    const connected = await options.reconfigure({
+      scope: flow.scope,
+      scopeId: flow.scopeId,
+      server: result.server,
+    });
+    const returnPath = resolveMcpOAuthReturnPath(connected, flow);
     return redirectWithStagedCookies(
       event,
       getAppUrl(event, stripMcpOAuthAppBasePath(returnPath, getAppBasePath())),

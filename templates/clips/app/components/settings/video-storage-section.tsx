@@ -1,6 +1,10 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
-import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
+import {
+  BuilderConnectPopover,
+  SettingsGroup,
+  SettingsRow,
+} from "@agent-native/core/client/settings";
 import { IconCheck, IconLoader2, IconTrash } from "@tabler/icons-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -242,23 +246,28 @@ export function VideoStorageSection({
                   {t("common.connected")}
                 </span>
               ) : (
-                <Button
-                  type="button"
-                  variant="default"
-                  size="sm"
-                  onClick={() =>
+                <BuilderConnectPopover
+                  flow={builder.connectFlow}
+                  onConnect={(provisionAccount) =>
                     builder.start({
+                      provisionAccount,
                       trackingSource: "clips_settings_video_storage",
                       trackingFlow: "video_storage",
                     })
                   }
-                  disabled={builder.connecting || builder.loading}
                 >
-                  {builder.connecting ? (
-                    <IconLoader2 className="h-4 w-4 animate-spin" />
-                  ) : null}
-                  {t("settings.connectBuilder")}
-                </Button>
+                  <Button
+                    type="button"
+                    variant="default"
+                    size="sm"
+                    disabled={builder.connecting || builder.loading}
+                  >
+                    {builder.connecting ? (
+                      <IconLoader2 className="h-4 w-4 animate-spin" />
+                    ) : null}
+                    {t("settings.connectBuilder")}
+                  </Button>
+                </BuilderConnectPopover>
               )}
               <CollapsibleTrigger asChild>
                 <Button type="button" variant="outline" size="sm">

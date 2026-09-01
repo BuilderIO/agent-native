@@ -24,6 +24,10 @@
 import { chromium } from "@playwright/test";
 
 import { authenticatableSites, originFor, siteById } from "./lib/fleet";
+import {
+  BETA_E2E_TEST_TRAFFIC_HEADERS,
+  installBetaE2ETrafficMarker,
+} from "./lib/test-traffic";
 
 const SESSION_COOKIE = /^an_session/;
 
@@ -81,7 +85,10 @@ async function capture(): Promise<void> {
       // A fresh context per app: these are host-scoped sessions, and reusing
       // one jar would make it impossible to tell which host actually issued
       // a cookie.
-      const context = await browser.newContext();
+      const context = await browser.newContext({
+        extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS,
+      });
+      await installBetaE2ETrafficMarker(context);
       const page = await context.newPage();
       await page.goto(`${origin}/sign-in`, { waitUntil: "domcontentloaded" });
 

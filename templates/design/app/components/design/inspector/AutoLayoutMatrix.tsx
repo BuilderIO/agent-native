@@ -401,6 +401,9 @@ export function AutoLayoutMatrix({
 
   const activeFlow = getFlowOption(value);
   const isBlock = activeFlow === "normal";
+  const canResizeToFit =
+    (availableChildSizing?.horizontal ?? SIZING_OPTIONS).includes("hug") &&
+    (availableChildSizing?.vertical ?? SIZING_OPTIONS).includes("hug");
 
   /** Apply a flow choice, coordinating display + direction + wrap. */
   const selectFlow = (flow: AutoLayoutFlow) => {
@@ -585,30 +588,32 @@ export function AutoLayoutMatrix({
           </InspectorGridCell>
           <InspectorGridCell span={1} ariaHidden />
           <InspectorGridCell span={4} className="flex justify-center">
-            {/* Resize-to-fit icon button */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  disabled={disabled}
-                  aria-label={
-                    "Resize to fit" /* i18n-ignore inspector tooltip */
-                  }
-                  onClick={() => {
-                    onChildSizingChange("horizontal", "hug");
-                    onChildSizingChange("vertical", "hug");
-                  }}
-                  className="size-6 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
-                >
-                  <IconArrowsDiagonalMinimize2 className="size-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {"Resize to fit" /* i18n-ignore inspector tooltip */}
-              </TooltipContent>
-            </Tooltip>
+            {canResizeToFit ? (
+              /* Resize-to-fit only applies when both axes have measurable content. */
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    disabled={disabled}
+                    aria-label={
+                      "Resize to fit" /* i18n-ignore inspector tooltip */
+                    }
+                    onClick={() => {
+                      onChildSizingChange("horizontal", "hug");
+                      onChildSizingChange("vertical", "hug");
+                    }}
+                    className="size-6 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
+                  >
+                    <IconArrowsDiagonalMinimize2 className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {"Resize to fit" /* i18n-ignore inspector tooltip */}
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
           </InspectorGridCell>
         </InspectorGrid>
 

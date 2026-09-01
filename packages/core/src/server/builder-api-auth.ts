@@ -162,7 +162,7 @@ export async function resolveBuilderRequestAuthorization(
   } = {},
 ): Promise<BuilderRequestAuthorization | null> {
   const ownerEmail = getRequestUserEmail();
-  const orgId = getRequestOrgId();
+  const orgId = getRequestOrgId() ?? null;
 
   if (input.oauthResource === "publish") {
     const publishAuthorization = await readCredentialStore(() =>
@@ -176,9 +176,24 @@ export async function resolveBuilderRequestAuthorization(
     ownerEmail &&
     (await readOAuthCustody(ownerEmail, orgId))
   ) {
-    const session = await readCredentialStore(() =>
-      getBuilderOAuthSession(ownerEmail, orgId),
-    );
+    let session: Awaited<ReturnType<typeof getBuilderOAuthSession>>;
+    try {
+      session = await readCredentialStore(() =>
+        getBuilderOAuthSession(ownerEmail, orgId, input.requiredScope),
+      );
+    } catch (err) {
+      if (
+        input.requiredScope &&
+        err instanceof Error &&
+        err.message ===
+          `Builder OAuth connection does not grant ${input.requiredScope}`
+      ) {
+        throw new Error(
+          `Builder.io access needs re-authorizing to grant ${input.requiredScope}. Open Settings and authorize Builder.io again.`,
+        );
+      }
+      throw err;
+    }
     if (!session) {
       throw new Error(
         "Builder.io access expired. Re-authorize Builder.io in Settings to continue.",
@@ -243,7 +258,8 @@ export async function resolveBuilderApiAuthorization(
  */
 export async function hasBuilderApiCredentialCustody(): Promise<boolean> {
   const ownerEmail = getRequestUserEmail();
-  if (ownerEmail && (await readOAuthCustody(ownerEmail, getRequestOrgId()))) {
+  const orgId = getRequestOrgId() ?? null;
+  if (ownerEmail && (await readOAuthCustody(ownerEmail, orgId))) {
     return true;
   }
   return !!(await resolveBuilderCredential("BUILDER_PRIVATE_KEY"));
@@ -257,13 +273,29 @@ export async function canAuthorizeBuilderApiRequest(
   requiredScope?: string,
 ): Promise<boolean> {
   const ownerEmail = getRequestUserEmail();
-  const orgId = getRequestOrgId();
+  const orgId = getRequestOrgId() ?? null;
 
   if (ownerEmail && (await hasBuilderOAuthSession(ownerEmail, orgId))) {
-    const session = await getBuilderOAuthSession(ownerEmail, orgId);
-    return (
-      !!session && (!requiredScope || session.scopes.includes(requiredScope))
-    );
+    try {
+      const session = await getBuilderOAuthSession(
+        ownerEmail,
+        orgId,
+        requiredScope,
+      );
+      return (
+        !!session && (!requiredScope || session.scopes.includes(requiredScope))
+      );
+    } catch (err) {
+      if (
+        requiredScope &&
+        err instanceof Error &&
+        err.message ===
+          `Builder OAuth connection does not grant ${requiredScope}`
+      ) {
+        return false;
+      }
+      throw err;
+    }
   }
 
   return !!(await resolveBuilderCredential("BUILDER_PRIVATE_KEY"));

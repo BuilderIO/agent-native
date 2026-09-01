@@ -54,7 +54,7 @@ function eventDraftDeepLink(draft: CalendarEventDraft): string {
   return buildDeepLink({
     app: "calendar",
     view: "calendar",
-    to: "/",
+    to: "/home",
     params: {
       eventDraftId: draft.id,
       date: draft.start?.slice(0, 10),

@@ -218,6 +218,7 @@ export const factoryGraphVersions = table(
     changeSummary: text("change_summary").notNull().default(""),
     createdAt: text("created_at").notNull().default(now()),
     createdBy: text("created_by").notNull(),
+    chatContext: text("chat_context"),
     ownerEmail: text("owner_email").notNull(),
     orgId: text("org_id"),
   },
@@ -232,6 +233,28 @@ export const factoryGraphVersions = table(
       version.factoryId,
       version.createdAt,
     ),
+  }),
+);
+
+export const factoryPollCursors = table(
+  "factory_poll_cursors",
+  {
+    id: text("id").primaryKey(),
+    factoryId: text("factory_id").notNull(),
+    source: text("source").notNull(),
+    destinationKey: text("destination_key").notNull(),
+    lastSlackTs: text("last_slack_ts"),
+    slackHistoryCursor: text("slack_history_cursor"),
+    lastSentrySeenAt: text("last_sentry_seen_at"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+  },
+  (cursor) => ({
+    orgFactorySourceDestIdx: uniqueIndex(
+      "factory_poll_cursors_org_factory_source_dest_idx",
+    ).on(cursor.orgId, cursor.factoryId, cursor.source, cursor.destinationKey),
   }),
 );
 

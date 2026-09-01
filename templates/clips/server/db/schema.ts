@@ -7,6 +7,7 @@ import {
   ownableColumns,
   createSharesTable,
   uniqueIndex,
+  index,
 } from "@agent-native/core/db/schema";
 
 // -----------------------------------------------------------------------------
@@ -341,6 +342,7 @@ export const recordingComments = table("recording_comments", {
   authorEmail: text("author_email").notNull(),
   authorName: text("author_name"),
   content: text("content").notNull(),
+  mentionsJson: text("mentions_json"),
   videoTimestampMs: integer("video_timestamp_ms").notNull().default(0),
   // JSON map of emoji -> [emails]
   emojiReactionsJson: text("emoji_reactions_json").notNull().default("{}"),
@@ -734,3 +736,64 @@ export const recordingEvents = table("recording_events", {
   payload: text("payload").notNull().default("{}"),
   createdAt: text("created_at").notNull().default(now()),
 });
+
+export const transactionalEmailJobs = table(
+  "clips_transactional_email_jobs",
+  {
+    logicalKey: text("logical_key").primaryKey(),
+    type: text("type", {
+      enum: [
+        "first-view",
+        "unviewed-reminder",
+        "first-agent-view",
+        "first-import",
+        "monthly-recap",
+        "two-clips",
+      ],
+    }).notNull(),
+    state: text("state", {
+      enum: [
+        "pending",
+        "awaiting_ai",
+        "ai_dispatched",
+        "ready",
+        "sending",
+        "sent",
+        "cancelled",
+        "failed",
+      ],
+    }).notNull(),
+    recipient: text("recipient").notNull(),
+    recordingIdsJson: text("recording_ids_json").notNull(),
+    shareId: text("share_id"),
+    requestedBy: text("requested_by"),
+    month: text("month"),
+    generatedSummary: text("generated_summary"),
+    attempts: integer("attempts").notNull().default(0),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    aiDispatchedAt: text("ai_dispatched_at"),
+    aiClaimedBy: text("ai_claimed_by"),
+    readyAt: text("ready_at"),
+    sendingAt: text("sending_at"),
+    sentAt: text("sent_at"),
+    cancelledAt: text("cancelled_at"),
+    failedAt: text("failed_at"),
+    lastError: text("last_error"),
+    leaseUntil: text("lease_until"),
+    leaseToken: text("lease_token"),
+  },
+  (job) => ({
+    transactionalEmailJobsStateCreatedIndex: index(
+      "clips_transactional_email_jobs_state_created_idx",
+    ).on(job.state, job.createdAt),
+  }),
+);
+
+export const transactionalEmailConfigs = table(
+  "clips_transactional_email_configs",
+  {
+    id: text("id").primaryKey(),
+    configJson: text("config_json").notNull(),
+  },
+);

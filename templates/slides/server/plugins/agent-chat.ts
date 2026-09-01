@@ -2,10 +2,12 @@ import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
+import { assertAccess } from "@agent-native/core/sharing";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { resolveSlidesRequestAuthContext } from "../handlers/request-auth-context.js";
 import { prepareSlidesChatAttachments } from "../lib/chat-attachments.js";
+import { deckVersionChatContextFromRun } from "../lib/deck-versions.js";
 import "../register-secrets.js";
 
 const SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -34,8 +36,98 @@ const INITIAL_TOOL_NAMES = [
   "provider-api-request",
 ];
 
+const DECK_EDIT_TOOLS = new Set([
+  "add-slide",
+  "patch-deck",
+  "restore-deck-version",
+  "save-deck",
+  "update-deck-aspect-ratio",
+  "update-slide",
+]);
+
+function eventRecord(entry: unknown): Record<string, unknown> | undefined {
+  if (!entry || typeof entry !== "object") return undefined;
+  const event = (entry as { event?: unknown }).event;
+  return event && typeof event === "object"
+    ? (event as Record<string, unknown>)
+    : undefined;
+}
+
+function inputForCompletedTool(
+  events: readonly unknown[],
+  index: number,
+  completed: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (completed.input && typeof completed.input === "object") {
+    return completed.input as Record<string, unknown>;
+  }
+  const id = typeof completed.id === "string" ? completed.id : undefined;
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const candidate = eventRecord(events[cursor]);
+    if (
+      candidate?.type !== "tool_start" ||
+      candidate.tool !== completed.tool ||
+      (id && candidate.id !== id)
+    ) {
+      continue;
+    }
+    return candidate.input && typeof candidate.input === "object"
+      ? (candidate.input as Record<string, unknown>)
+      : undefined;
+  }
+  return undefined;
+}
+
+function hasDeckEdit(
+  run: { events: readonly unknown[] },
+  deckId: string,
+): boolean {
+  return run.events.some((entry, index) => {
+    const record = eventRecord(entry);
+    const input = record
+      ? inputForCompletedTool(run.events, index, record)
+      : undefined;
+    if (!entry || typeof entry !== "object") return false;
+    return (
+      record?.type === "tool_done" &&
+      record.completedSideEffect === true &&
+      record.isError !== true &&
+      typeof record.tool === "string" &&
+      DECK_EDIT_TOOLS.has(record.tool) &&
+      input?.deckId === deckId
+    );
+  });
+}
+
+async function autosaveDeckAfterAgentTurn(
+  scope: { type: string; id: string },
+  run: {
+    events: readonly unknown[];
+    threadId?: string;
+    runId?: string;
+    turnId?: string;
+  },
+): Promise<void> {
+  if (scope.type !== "deck" || !hasDeckEdit(run, scope.id)) return;
+
+  const access = await assertAccess("deck", scope.id, "editor");
+  const deck = access.resource as {
+    id: string;
+    title: string;
+    data: string;
+    ownerEmail: string;
+  };
+  const { createDeckVersionSnapshot } = await import("../lib/deck-versions.js");
+  await createDeckVersionSnapshot(deck, {
+    force: true,
+    label: "Chat autosave",
+    chatContext: deckVersionChatContextFromRun(run),
+  });
+}
+
 export default createAgentChatPlugin({
   appId: "slides",
+  onAgentTurnComplete: autosaveDeckAfterAgentTurn,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: {
@@ -69,6 +161,8 @@ export default createAgentChatPlugin({
   ],
   prepareRequest: prepareSlidesChatAttachments,
   systemPrompt: `You are an AI deck assistant. You create, edit, import, export, style, share, and navigate decks through actions and shared application state. For a newly created presentation, use create-deck with slides: [] only when you are creating the deck yourself, then add-slide sequentially with full rendered HTML. The legacy generate-slides-ai action returns Markdown drafts and is not part of the persisted presentation workflow. When speaker notes are requested, keep presenter-only text in each slide's notes field rather than the slide HTML, and preserve notes during source-preserving edits.
+
+Explicit source import rule: an attachment is reference context by default and must not write slides just because it was provided. When the user explicitly asks to import or convert an attached PDF or PPTX into the current or visible deck, call view-screen when the deckId is not already known, then call import-file with the persisted filePath, matching format, deckId, and importIntoDeck: true. This is the deterministic Slides conversion path and returns imported: true with a slide count; do not use extraction-only import-file and recreate the pages with add-slide. Use import-pptx with deckId only when the user explicitly asks to replace the current deck, because that action replaces all slides. For a Google Slides URL, call import-google-slides-reference with presentationUrl; it deterministically exports and parses the presentation into a new editable Slides deck. The Import from controls and these explicit requests are the only import triggers.
 
 Attached-source rule: an attached PDF, PPTX, DOCX, or image is user-provided source material, not an implicit request for the Assets app or media generation. For PDF or DOCX references, use import-file with the persisted file path to extract the source before authoring. For a private raster image without an embeddable URL, use import-file with format=image to attach the persisted source to vision before editing. For source-preserving PDF or PPTX work, import the source into the current deck with the appropriate Slides import action, then keep working through Slides. “Use our branding” means get-design-system or get-workspace-defaults. Do not call Assets through call-agent or use generate-image-api unless the user explicitly asks to generate or replace media.
 

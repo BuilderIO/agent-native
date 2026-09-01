@@ -571,6 +571,7 @@ export default function Root() {
   // Public document paths (/p/*) SSR real content without the ClientOnly gate
   // so crawlers and unauthenticated visitors receive full markup on first visit.
   const isPublicPath = location.pathname.startsWith("/p/");
+  const isMarketingHome = location.pathname === "/";
 
   // Content's 3-way theme cycle (system/light/dark) animates the transition;
   // pass disableThemeTransitions={false} to restore that behaviour.
@@ -579,12 +580,12 @@ export default function Root() {
   // a different toasting system.
   const contentToaster = <Sonner closeButton position="bottom-left" />;
 
-  if (isPublicPath) {
+  if (isPublicPath || isMarketingHome) {
     return (
       <AppToolkitProvider>
         <AppProviders
           queryClient={queryClient}
-          isPublicPath
+          isPublicPath={isPublicPath || isMarketingHome}
           disableThemeTransitions={false}
           toaster={contentToaster}
           i18n={{
@@ -596,9 +597,13 @@ export default function Root() {
           }}
         >
           <Toaster />
-          <PublicAgentShell>
+          {isPublicPath ? (
+            <PublicAgentShell>
+              <Outlet />
+            </PublicAgentShell>
+          ) : (
             <Outlet />
-          </PublicAgentShell>
+          )}
         </AppProviders>
       </AppToolkitProvider>
     );

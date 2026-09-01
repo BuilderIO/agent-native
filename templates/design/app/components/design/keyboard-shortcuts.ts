@@ -163,6 +163,15 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
     labelKey: "designEditor.keyboardShortcuts.commands.toggleComments",
     handler: "onToggleComments",
   }),
+  shortcut({
+    id: "toggle-layout-grids",
+    category: "view",
+    // Literal ctrl, not $mod: Figma uses Control G on Mac and Ctrl Shift 4 on
+    // Windows for this one, so Cmd must not trigger it.
+    bindings: ["ctrl+g", "ctrl+shift+4"],
+    labelKey: "designEditor.keyboardShortcuts.commands.toggleLayoutGrids",
+    handler: "onToggleLayoutGrids",
+  }),
 
   shortcut({
     id: "zoom-in",

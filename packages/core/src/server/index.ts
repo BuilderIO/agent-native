@@ -240,6 +240,16 @@ export {
   refreshGlobalMcpManager,
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
+export {
+  AGENT_CHAT_STREAM_PATH,
+  AGENT_CHAT_STREAM_TOKEN_SUFFIX,
+  AGENT_CHAT_STREAM_TOKEN_TTL_SECONDS,
+  createAgentChatStreamToken,
+  isAgentChatStreamingRuntime,
+  readAgentChatStreamBearerToken,
+  verifyAgentChatStreamToken,
+  type AgentChatStreamPrincipal,
+} from "./agent-chat-stream.js";
 export type {
   AgentChatMcpIcon,
   AgentChatMcpOptions,
@@ -595,6 +605,7 @@ export {
   createBuilderDesignSystemProxyFields,
   fetchBuilderDesignSystemDecodeJobStatus,
   fetchBuilderDesignSystemDocs,
+  fetchBuilderDesignSystemRecord,
   getBuilderDesignSystemsBaseUrl,
   hydrateBuilderDesignSystemReference,
   indexBuilderDesignSystem,
@@ -613,6 +624,7 @@ export {
   type BuilderDesignSystemIndexFromSourcesOptions,
   type BuilderDesignSystemIndexOptions,
   type BuilderDesignSystemIndexResult,
+  type BuilderDesignSystemRecord,
   type BuilderDesignSystemStatus,
   type BuilderDesignSystemGitHubFile,
   type BuilderDesignSystemGitHubFileCollection,

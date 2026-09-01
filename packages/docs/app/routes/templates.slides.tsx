@@ -150,6 +150,7 @@ export default function SlidesTemplate() {
             </span>
           </>
         }
+        customizeTemplate={template}
         description={<p className="m-0">{t("templateLanding.slides.s007")}</p>}
         headingAction={
           <a

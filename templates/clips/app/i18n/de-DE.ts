@@ -1094,6 +1094,10 @@ const messages = {
       "Dies kann nicht rückgängig gemacht werden. Deine bisherige Aufnahme wird endgültig gelöscht.",
     resume: "Fortsetzen",
     discardRecording: "Aufnahme verwerfen",
+    restart: "Aufnahme neu starten",
+    restartShortcut: "Neu starten (⌥⇧R)",
+    restartQuestion: "Eine neue Aufnahme starten?",
+    restartConfirm: "Neu starten",
   },
   countdownOverlay: {
     startsIn: "Aufnahme startet in {{count}}",
@@ -1577,6 +1581,15 @@ const messages = {
       "Öffne Clips über die Menüleiste, um diesen gespeicherten Upload erneut zu versuchen; keine neue Aufnahme nötig.",
     removeFailedClip: "Diesen fehlgeschlagenen Clip entfernen.",
     remove: "Entfernen",
+    statusStalled: "stockt",
+    uploadAtRisk: "Dauert länger als gewöhnlich",
+    uploadAtRiskDetail:
+      "Wir versuchen weiterhin, diesen Clip zu speichern. Das kann einige Minuten dauern.",
+    retry: "Wiederholen",
+    retrying: "Wird wiederholt…",
+    retryFailed: "Dieser Upload konnte nicht wiederholt werden.",
+    retryUnavailableHere:
+      "Ein erneuter Versuch ist nur auf dem Gerät oder Browser möglich, auf dem diese Aufnahme erstellt wurde.",
     viewsCount: "{{count}} Aufrufe",
     recordingMenu: "Aufnahmemenü",
     moveToFolder: "In Ordner verschieben",

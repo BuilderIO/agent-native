@@ -91,7 +91,7 @@ Read the relevant skill before deeper work in that area.
 - `navigate` — moves the UI in the tab that asked; auto-deleted after the
   client consumes it.
 - `design-selection` — active screen, selected element, overview mode,
-  inspector tab, zoom, and screen list for the current tab.
+  inspector tab, zoom, screen list, and `layoutGrid`.
 - `design-generation-session:<designId>`, `show-questions`, `guided-questions` —
   generation planning, pre-generation questions, and the variant chat choice;
   see `design-generation`.

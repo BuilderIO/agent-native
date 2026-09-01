@@ -105,6 +105,8 @@ interface PendingSend {
   requestMode?: "act" | "plan";
   /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
   submitMessageId?: string;
+  /** See `AgentChatMessage.usageLabel`. */
+  usageLabel?: string;
 }
 
 /**
@@ -130,7 +132,8 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
     send.trackInRunsTray ||
     send.requestMode ||
     send.submitMessageId ||
-    send.attachments
+    send.attachments ||
+    send.usageLabel
   ) {
     ref.sendMessage(send.message, send.images, {
       ...(send.trackInRunsTray ? { trackInRunsTray: true } : {}),
@@ -139,6 +142,7 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
       ...(send.submitMessageId
         ? { submitMessageId: send.submitMessageId }
         : {}),
+      ...(send.usageLabel ? { usageLabel: send.usageLabel } : {}),
     });
   } else {
     ref.sendMessage(send.message, send.images);
@@ -213,19 +217,36 @@ function resolveModelSelection(
   const suppliedEngine = selection.engine?.trim()
     ? selection.engine
     : undefined;
-  const engine =
-    (groups.some((group) => group.engine === suppliedEngine)
-      ? suppliedEngine
-      : undefined) ??
-    groups.find((group) => group.models.includes(selection.model))?.engine ??
-    suppliedEngine;
-  if (!engine && groups.length > 0) return undefined;
-
-  const effort = resolveReasoningEffortSelection(
-    selection.model,
-    selection.effort,
+  const suppliedEngineGroup = suppliedEngine
+    ? groups.find((group) => group.engine === suppliedEngine)
+    : undefined;
+  const matchingConfiguredGroup = groups.find(
+    (group) => group.configured && group.models.includes(selection.model),
   );
-  const resolved: ModelSelection = { model: selection.model, effort };
+  const fallbackConfiguredGroup = groups.find((group) => group.configured);
+  const fallbackGroup = matchingConfiguredGroup ?? fallbackConfiguredGroup;
+  const engine = suppliedEngineGroup?.engine ?? fallbackGroup?.engine;
+  const model = suppliedEngineGroup
+    ? selection.model
+    : matchingConfiguredGroup?.models.includes(selection.model)
+      ? selection.model
+      : fallbackGroup?.models[0];
+  // A non-empty catalog is an availability boundary: do not keep routing a
+  // stale selection through a provider group hidden for missing credentials.
+  if (!engine || !model) {
+    if (groups.length > 0) return undefined;
+    return {
+      model: selection.model,
+      ...(suppliedEngine ? { engine: suppliedEngine } : {}),
+      effort: resolveReasoningEffortSelection(
+        selection.model,
+        selection.effort,
+      ),
+    };
+  }
+
+  const effort = resolveReasoningEffortSelection(model, selection.effort);
+  const resolved: ModelSelection = { model, effort };
   if (engine) resolved.engine = engine;
   return resolved;
 }
@@ -1868,6 +1889,7 @@ export function MultiTabAssistantChat({
         images,
         attachments,
         submitMessageId,
+        usageLabel,
       } = parsed;
       const requestedTabId = parsed.tabId;
       const requestMode =
@@ -1901,6 +1923,7 @@ export function MultiTabAssistantChat({
         ...(background ? { trackInRunsTray: true } : {}),
         ...(requestMode ? { requestMode } : {}),
         ...(submitMessageId ? { submitMessageId } : {}),
+        ...(usageLabel ? { usageLabel } : {}),
       };
 
       // Resolved once, up front, and carried with the send until a thread

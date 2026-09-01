@@ -1,5 +1,13 @@
 import type { ReactNode } from "react";
 
+import { CustomizeTemplatePopover } from "../CustomizeTemplatePopover";
+
+type TemplateHeroTemplate = {
+  cliCommand: string;
+  name: string;
+  slug: string;
+};
+
 type TemplateHeroProps = {
   action?: ReactNode;
   className?: string;
@@ -10,6 +18,7 @@ type TemplateHeroProps = {
   media: ReactNode;
   title: ReactNode;
   titleClassName?: string;
+  customizeTemplate?: TemplateHeroTemplate;
 };
 
 export function TemplateHero({
@@ -22,6 +31,7 @@ export function TemplateHero({
   media,
   title,
   titleClassName = "",
+  customizeTemplate,
 }: TemplateHeroProps) {
   return (
     <section className={className}>
@@ -48,9 +58,17 @@ export function TemplateHero({
             {title}
           </h1>
 
-          {headingAction ? (
+          {headingAction || customizeTemplate ? (
             <div className="mt-3 lg:col-span-2 lg:col-start-1 lg:row-start-3">
-              {headingAction}
+              <div className="flex flex-wrap items-center gap-3">
+                {headingAction}
+                {customizeTemplate ? (
+                  <CustomizeTemplatePopover
+                    template={customizeTemplate}
+                    location="template_detail"
+                  />
+                ) : null}
+              </div>
             </div>
           ) : null}
 

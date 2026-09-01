@@ -214,6 +214,7 @@ export interface UseDesignHotkeysProps {
    */
   canClaimBoundChords?: boolean;
   onToggleUi?: DesignHotkeyHandler;
+  onToggleLayoutGrids?: DesignHotkeyHandler;
   /** Figma's Shift+C — toggle Show/Hide comments (comment pins). */
   onToggleComments?: DesignHotkeyHandler;
   /** Figma's Ctrl+Shift+? — open the keyboard-shortcuts reference panel. */
@@ -283,6 +284,20 @@ export function isDesignHotkeyEditableTarget(target: EventTarget | null) {
   }
   const tagName = editable.tagName.toLowerCase();
   return tagName === "input" || tagName === "textarea" || tagName === "select";
+}
+
+export function isDesignHistoryHotkeyTarget(target: EventTarget | null) {
+  if (!target || typeof Element === "undefined") return false;
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest("[data-design-history-hotkeys]"));
+}
+
+function isDesignHistoryHotkey(event: KeyboardEvent) {
+  return (
+    (event.metaKey || event.ctrlKey) &&
+    !event.altKey &&
+    (event.key.toLowerCase() === "z" || event.key.toLowerCase() === "y")
+  );
 }
 
 /** Chat bodies and panel labels are selectable but not editable targets, so the
@@ -362,7 +377,11 @@ export function useDesignHotkeys(props: UseDesignHotkeysProps) {
       if (
         current.ignoreEditableTargets !== false &&
         isDesignHotkeyEditableTarget(event.target) &&
-        !isShowKeyboardShortcutsHotkey(event)
+        !isShowKeyboardShortcutsHotkey(event) &&
+        !(
+          isDesignHistoryHotkey(event) &&
+          isDesignHistoryHotkeyTarget(event.target)
+        )
       ) {
         return;
       }
@@ -781,6 +800,18 @@ export function handleDesignHotkey(
   // comment-pin TOOL_SHORTCUTS entry, so shift+c can't shadow it.
   if (!primary && !event.altKey && event.shiftKey && key === "c") {
     return run(props.onToggleComments);
+  }
+
+  // Figma's Mac and Windows forms differ outright here: Control G vs Ctrl
+  // Shift 4. Literal Control on both, never the remapped `primary` flag, and
+  // Digit4 by physical code because Shift+4 is "$" on US layouts.
+  if (event.ctrlKey && !event.metaKey && !event.altKey) {
+    if (!event.shiftKey && key === "g") {
+      return run(props.onToggleLayoutGrids);
+    }
+    if (event.shiftKey && event.code === "Digit4") {
+      return run(props.onToggleLayoutGrids);
+    }
   }
 
   return false;

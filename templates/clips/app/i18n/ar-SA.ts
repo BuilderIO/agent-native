@@ -1071,6 +1071,10 @@ const messages = {
       "لا يمكن التراجع عن هذا الإجراء. سيتم حذف تسجيلك حتى الآن نهائيًا.",
     resume: "استئناف",
     discardRecording: "حذف التسجيل",
+    restart: "إعادة بدء التسجيل",
+    restartShortcut: "إعادة البدء (⌥⇧R)",
+    restartQuestion: "هل تريد بدء تسجيل جديد؟",
+    restartConfirm: "إعادة البدء",
   },
   countdownOverlay: {
     startsIn: "يبدأ التسجيل خلال {{count}}",
@@ -1549,6 +1553,15 @@ const messages = {
       "افتح Clips من شريط القائمة لإعادة محاولة هذا الرفع المحفوظ؛ لا حاجة لإعادة التسجيل.",
     removeFailedClip: "إزالة هذا المقطع الفاشل.",
     remove: "إزالة",
+    statusStalled: "متعثر",
+    uploadAtRisk: "يستغرق وقتًا أطول من المعتاد",
+    uploadAtRiskDetail:
+      "لا تزال المحاولة جارية لحفظ هذا المقطع. قد يستغرق ذلك بضع دقائق.",
+    retry: "إعادة المحاولة",
+    retrying: "جارٍ إعادة المحاولة…",
+    retryFailed: "تعذّرت إعادة محاولة هذا الرفع.",
+    retryUnavailableHere:
+      "لا تتوفر إعادة المحاولة إلا على الجهاز أو المتصفح الذي تم التسجيل عليه.",
     viewsCount: "{{count}} مشاهدة",
     recordingMenu: "قائمة التسجيل",
     moveToFolder: "نقل إلى مجلد",

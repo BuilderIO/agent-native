@@ -86,6 +86,10 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
     () => import("../jobs/run-history.js").then((m) => m.ensureTable()),
   ],
   [
+    "AutomationWebhookTokens",
+    () => import("../triggers/webhook-store.js").then((m) => m.ensureTable()),
+  ],
+  [
     "AwaitingInputs",
     () =>
       import("../integrations/awaiting-input-store.js").then((m) =>

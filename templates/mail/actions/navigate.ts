@@ -12,12 +12,19 @@ export default defineAction({
       .describe(
         "View to navigate to (inbox, starred, sent, drafts, scheduled, archive, trash, draft-queue, settings)",
       ),
+    filter: z
+      .string()
+      .trim()
+      .min(1)
+      .max(80)
+      .optional()
+      .describe("Saved Mail filter ID to open"),
     threadId: z.string().optional().describe("Thread ID to open"),
     settingsSection: z
       .string()
       .optional()
       .describe(
-        "Settings section to open, such as drafting, automations, gmail-filters, aliases, tracking, slack, or team",
+        "Settings section to open, such as drafting, automations, ai-filter, gmail-filters, aliases, tracking, slack, or team",
       ),
     queuedDraftId: z
       .string()
@@ -34,17 +41,22 @@ export default defineAction({
   run: async (args) => {
     if (
       !args.view &&
+      !args.filter &&
       !args.threadId &&
       !args.queuedDraftId &&
       !args.settingsSection &&
       !args.composeDraftId
     ) {
       throw new Error(
-        "At least --view, --threadId, --queuedDraftId, --composeDraftId, or --settingsSection is required.",
+        "At least --view, --filter, --threadId, --queuedDraftId, --composeDraftId, or --settingsSection is required.",
       );
     }
     const nav: Record<string, string> = {};
     if (args.view) nav.view = args.view;
+    if (args.filter) {
+      nav.view = args.view || "inbox";
+      nav.filter = args.filter;
+    }
     if (args.threadId) nav.threadId = args.threadId;
     if (args.settingsSection) {
       nav.view = args.view || "settings";
@@ -59,6 +71,6 @@ export default defineAction({
       nav.composeDraftId = args.composeDraftId;
     }
     await writeAppState("navigate", nav);
-    return `Navigating to ${nav.view || ""}${args.threadId ? ` thread:${args.threadId}` : ""}${args.queuedDraftId ? ` queued draft:${args.queuedDraftId}` : ""}${args.composeDraftId ? ` compose draft:${args.composeDraftId}` : ""}${args.settingsSection ? ` settings:${args.settingsSection}` : ""}`;
+    return `Navigating to ${nav.view || ""}${args.filter ? ` filter:${args.filter}` : ""}${args.threadId ? ` thread:${args.threadId}` : ""}${args.queuedDraftId ? ` queued draft:${args.queuedDraftId}` : ""}${args.composeDraftId ? ` compose draft:${args.composeDraftId}` : ""}${args.settingsSection ? ` settings:${args.settingsSection}` : ""}`;
   },
 });

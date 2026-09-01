@@ -1,4 +1,4 @@
-import { getAppConfig } from "../app-config/index.js";
+import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 
 /**
  * Project this app's origins into the client shell.
@@ -18,6 +18,7 @@ import { getAppConfig } from "../app-config/index.js";
  * Never add a per-user or per-request value to this object.
  */
 export function resolvePublicAppOriginConfig(): {
+  appHomePath: string;
   appUrl?: string;
   workspaceGatewayUrl?: string;
   workspaceOAuthOrigin?: string;
@@ -28,6 +29,7 @@ export function resolvePublicAppOriginConfig(): {
     config.workspace.isWorkspace === true ||
     typeof config.workspace.appsJson === "string";
   const resolved = {
+    appHomePath: resolveAppHomePath(config.app),
     ...(config.app.url ? { appUrl: config.app.url } : {}),
     ...(config.workspace.gatewayUrl
       ? { workspaceGatewayUrl: config.workspace.gatewayUrl }

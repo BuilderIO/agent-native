@@ -516,6 +516,34 @@ describe("integration pending task store", () => {
     ]);
   });
 
+  it("does not consume retry budget when requeueing expected automation contention", async () => {
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    const { markTaskRetryable } = await loadStore();
+
+    await markTaskRetryable(
+      "automation-task",
+      "Automation is already running.",
+      {
+        resetAttempts: true,
+      },
+    );
+
+    const retryUpdate = executeMock.mock.calls
+      .map(([query]) => query)
+      .find(
+        (query): query is { sql: string; args: unknown[] } =>
+          typeof query !== "string" &&
+          query.sql.includes("UPDATE integration_pending_tasks"),
+      );
+    expect(retryUpdate?.sql).toContain("attempts = 0");
+    expect(retryUpdate?.args).toEqual([
+      "pending",
+      expect.any(Number),
+      "Automation is already running.",
+      "automation-task",
+    ]);
+  });
+
   it("atomically replaces a claimed task with a delivery-only payload", async () => {
     executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
     const { stageTaskDeliveryPayload } = await loadStore();

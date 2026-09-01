@@ -11,6 +11,7 @@ import { getRequestURL, setResponseHeader, type H3Event } from "h3";
 import {
   buildAgentApiUrls,
   buildRecommendedFrames,
+  CLIPS_WEBMCP_DISCOVERY,
   getAgentClipReadiness,
   CLIP_AGENT_ACCESS_TOKEN_PREFIX,
   CLIPS_AGENT_ACCESS_PARAM,
@@ -598,6 +599,11 @@ export function buildPublicAgentContext({
     ...(clipIsReady
       ? ["Use transcript.segments for timestamped spoken context."]
       : []),
+    ...(clipIsReady
+      ? [
+          "If this clip page is open in a WebMCP-capable browser, list webmcp.tools and use its read-only page tools; otherwise use the URLs in apis.",
+        ]
+      : []),
     ...transcriptStatusInstructions(transcript),
     ...(bugReport
       ? [
@@ -625,6 +631,7 @@ export function buildPublicAgentContext({
   return {
     type: "agent-native.clip.context",
     version: CLIP_AGENT_CONTEXT_VERSION,
+    webmcp: CLIPS_WEBMCP_DISCOVERY,
     instructions,
     clip: {
       id: recording.id,

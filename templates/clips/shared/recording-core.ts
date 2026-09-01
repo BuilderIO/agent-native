@@ -51,6 +51,9 @@ export function pickMimeType(): string {
  *  - `"buffered"`  — full blob assembled after stop() and uploaded in slices */
 export type UploadMode = "streaming" | "buffered";
 
+/** Keeps function payloads below the server's 4 MiB chunk cap. */
+export const UPLOAD_SLICE_BYTES = 3 * 1024 * 1024;
+
 /**
  * Resumable providers advance a single byte offset, so their chunks must be
  * sent in strict index order. Buffered uploads can retain bounded parallelism.
@@ -76,6 +79,7 @@ export type ChunkUploadParams = {
   height?: number | null;
   hasAudio?: boolean;
   hasCamera?: boolean;
+  attemptId?: string;
   uploadGenerationId?: string;
 };
 
@@ -116,6 +120,7 @@ export function chunkUploadQuery(params: ChunkUploadParams): string {
   if (params.hasCamera !== undefined) {
     q.set("hasCamera", params.hasCamera ? "1" : "0");
   }
+  if (params.attemptId) q.set("attemptId", params.attemptId);
   if (params.uploadGenerationId) {
     q.set("uploadGenerationId", params.uploadGenerationId);
   }

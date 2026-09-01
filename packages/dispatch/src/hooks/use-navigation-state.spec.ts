@@ -97,6 +97,19 @@ describe("buildDispatchNavigationState", () => {
     });
   });
 
+  it("keeps the selected automation in application state", () => {
+    expect(
+      buildDispatchNavigationState(
+        "/automations",
+        "?automationId=personal%3Amorning-digest",
+      ),
+    ).toEqual({
+      view: "automations",
+      path: "/automations",
+      automationId: "personal:morning-digest",
+    });
+  });
+
   it("recognizes Admin routes without losing the underlying view", () => {
     expect(buildDispatchNavigationState("/admin/metrics")).toEqual({
       view: "metrics",
@@ -105,6 +118,20 @@ describe("buildDispatchNavigationState", () => {
     expect(buildDispatchNavigationState("/admin")).toEqual({
       view: "admin",
       path: "/admin",
+    });
+  });
+
+  it("preserves the selected app on the metrics navigation state", () => {
+    expect(
+      buildDispatchNavigationState(
+        "/admin/metrics",
+        "?app=orders&scope=workspace",
+      ),
+    ).toEqual({
+      view: "metrics",
+      path: "/admin/metrics",
+      usageScope: "app",
+      usageAppId: "orders",
     });
   });
 

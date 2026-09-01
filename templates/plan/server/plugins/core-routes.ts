@@ -3,6 +3,7 @@ import { createCoreRoutesPlugin } from "@agent-native/core/server";
 import { resolvePlanAnonymousOwner } from "../lib/public-plans.js";
 
 export default createCoreRoutesPlugin({
+  googleOAuthManagedConnection: "not_applicable",
   anonymousOwner: resolvePlanAnonymousOwner,
   // Plan's published MCP server id is the bare `plan`, not the derived
   // `agent-native-plan`: `.agents/plugins/agent-native-visual-plans/.mcp.json`

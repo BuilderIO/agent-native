@@ -63,6 +63,7 @@ const esES = {
     dialogLabel: "Buscar documentación",
     placeholder: "Buscar documentación...",
     empty: "Escribe para buscar en toda la documentación",
+    toggleChatSidebar: "Alternar barra lateral del chat",
     loadError: "No se pudo cargar la búsqueda. Inténtalo de nuevo.",
     retry: "Intentar de nuevo",
     noResults: 'No se encontraron resultados para "{{query}}"',
@@ -539,21 +540,61 @@ const esES = {
     eyebrow:
       "Empieza con una app funcional y deja que el agente la evolucione.",
     body: "Puedes personalizarlo todo.",
+    firstPartyTitle: "Creado por Agent-Native",
     community:
       "¿Prefieres una app en blanco? Empieza desde cero con la guía del framework.",
     createYourOwn: "Empezar desde cero",
-    communityTitle: "Plantillas de la comunidad",
+    communityTitle: "Aplicaciones de la comunidad",
     communityDescription:
-      "Aplicaciones independientes mantenidas por sus autores. Instálalas desde un repositorio público de GitHub o prueba una versión alojada cuando esté disponible.",
-    submitCommunityTemplate: "Enviar tu plantilla",
+      "Descubre aplicaciones mantenidas por sus autores. Prueba una versión alojada cuando esté disponible o revisa el código fuente y personalízala.",
+    submitCommunityTemplate: "Enviar una aplicación",
     communityEmpty:
-      "El catálogo de la comunidad está abierto. Publica una aplicación Agent-Native enfocada en un repositorio público y envíala al catálogo.",
+      "El catálogo de la comunidad está abierto. Publica una aplicación Agent-Native enfocada y envíala al catálogo.",
     publishGuide: "Leer la guía de publicación",
     communityTrust:
-      "Las plantillas de la comunidad son código de terceros. Revisa el repositorio, la licencia, las dependencias y los scripts de instalación antes de ejecutarlo.",
+      "Las aplicaciones de la comunidad son código de terceros. Revisa el código fuente, la licencia, las dependencias y los scripts de instalación antes de ejecutarlas.",
     copyCommunityInstallCommand: "Copiar comando de instalación",
     viewRepository: "Ver repositorio",
     tryCommunityDemo: "Probar demo",
+    customizeDescription: "Puedes personalizar completamente este código.",
+    customizeOnline: "Personalizar en línea",
+    customizeLocally: "Personalizar localmente",
+    communityNew: "Nueva",
+    communityComingSoon: "Próximamente",
+    communityGithubStars: "{{count}} estrellas en GitHub",
+    tryCommunityApp: "Probar aplicación",
+    viewCommunitySource: "Ver código fuente",
+    communityEyebrow: "Aplicación de la comunidad",
+    communityScreenshots: "Capturas de pantalla",
+    previousScreenshot: "Captura anterior",
+    nextScreenshot: "Siguiente captura",
+    communityNoScreenshots:
+      "Las capturas aparecerán aquí después de la revisión.",
+    communityScreenshotAlt: "Captura de {{name}} {{index}}",
+    communityNoHostedVersion:
+      "La versión alojada estará disponible pronto. Sigue el desarrollo desde el código fuente.",
+    communitySubmissionTitle: "Comparte una aplicación de la comunidad",
+    communitySubmissionDescription:
+      "Cuéntanos dónde encontrar tu aplicación y qué hace. Revisaremos los datos antes de publicar la ficha.",
+    communitySubmissionName: "Nombre de la aplicación",
+    communitySubmissionNamePlaceholder: "Centro de atención al cliente",
+    communitySubmissionUrl: "URL de la aplicación",
+    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionDescriptionLabel: "Descripción",
+    communitySubmissionDescriptionPlaceholder:
+      "¿Qué hace la aplicación y para quién es?",
+    communitySubmissionRepository: "Repositorio de GitHub (opcional)",
+    communitySubmissionRepositoryPlaceholder:
+      "https://github.com/owner/repository",
+    communitySubmissionScreenshots: "Capturas (opcional)",
+    communitySubmissionScreenshotsPlaceholder:
+      "Hasta 5 imágenes PNG, JPG o WebP. 1,5 MB cada una.",
+    communitySubmissionScreenshotSlot: "Captura {{index}}",
+    communitySubmissionSubmit: "Enviar aplicación",
+    communitySubmissionReady:
+      "Gracias. Revisaremos tu aplicación antes de publicarla.",
+    communitySubmissionValidation:
+      "Añade un nombre, una descripción y una URL de aplicación válida. Sube imágenes PNG, JPG o WebP de hasta 1,5 MB cada una.",
   },
   buildFromScratch: {
     title: "Crear desde cero",
@@ -1630,7 +1671,7 @@ const esES = {
   },
   downloadPage: {
     title: "Descargar Agent-Native",
-    body: "Todas tus apps agent-native en una sola shell de escritorio. Apps de producción integradas, con un modo de desarrollo para trabajo local.",
+    body: "Prueba apps agénticas para reuniones, diseño, presentaciones, datos, programación, correo y más, todo en una sola app de escritorio.",
     openDesktop: "Abrir Agent-Native",
     downloadInstaller: "Descargar instalador",
     downloadStarted: "Descarga iniciada",
@@ -1639,27 +1680,33 @@ const esES = {
     checkingRelease: "Buscando la versión de escritorio más reciente...",
     retry: "Reintentar",
     unavailable: "Instalador no disponible para esta plataforma",
+    allPlatforms: "Todas las plataformas",
     stable: "Estable",
     nightly: "Nightly",
-    switchToNightly: "Cambiar a las compilaciones Nightly",
-    switchToStable: "Cambiar a las compilaciones estables",
-    runFromSource: "O ejecutar desde el código fuente",
+    runFromSource: "Crea el tuyo",
     runFromSourceBody:
-      "¿Aún no hay instalador para tu plataforma o prefieres la CLI? Crea una app nueva con npm y ejecútala localmente; funciona en macOS, Windows y Linux.",
+      "Crea una app de Agent-Native desde la línea de comandos y ejecútala localmente en macOS, Windows o Linux.",
     platforms: {
       mac: {
         primary: "Descargar para Apple Silicon",
         alternative: "Mac Intel",
+        gridPrimary: "Apple Silicon",
+        gridAlternative: "Intel",
       },
       windows: {
         primary: "Descargar para Windows",
         alternative: "ARM64",
+        gridPrimary: "Instalador x64",
+        gridAlternative: "Instalador Arm64",
         note: "Windows 10 o posterior.",
       },
       linux: {
         primary: "Descargar archivo de Linux",
         appImage: "Descargar AppImage",
         deb: "Descargar .deb",
+        gridPrimary: "x86_64",
+        gridAppImage: "Universal",
+        gridDeb: "Debian / Ubuntu",
         note: "El archivo comprimido funciona sin FUSE. AppImage puede requerir FUSE 2 en algunas distribuciones.",
       },
     },

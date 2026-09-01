@@ -1494,6 +1494,10 @@ async function armRecording(args: {
   //    suspendable worker) and reports "recording" back when it actually starts.
   const authToken = (await readAuthSession(settings))?.token;
   console.log("[clips-bg] arm: created row", created.id, "auth?", !!authToken);
+  // Diagnostics follow the launch tab regardless of which display surface is
+  // being recorded. Attach before the recorder starts so the first captured
+  // console or network event is not lost during the countdown.
+  await attachSession(session);
   // The on-page countdown drives the actual start (it sends COUNTDOWN_DONE at
   // "Go"). This offscreen timer is only a FALLBACK. When a camera is involved the
   // countdown waits for the camera feed before it even shows "3" (the content
@@ -1530,11 +1534,6 @@ async function armRecording(args: {
     throw err;
   }
   await saveActiveNativeRecording();
-
-  // Browser-tab diagnostics still attach to the launch tab only.
-  if (settings.captureSurface === "browser") {
-    await attachSession(session);
-  }
 
   broadcastOverlayState();
   await chrome.action.setBadgeBackgroundColor({ color: "#e11d48" });

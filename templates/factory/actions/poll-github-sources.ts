@@ -4,12 +4,14 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageItems } from "../server/db/schema.js";
+import { readCallingFactoryAutomation } from "../server/lib/factory-automation-caller.js";
 import { repairFactoryAutomationsFromConfig } from "../server/lib/factory-automation-repair.js";
 import {
   factoryIdSchema,
   readTriageConfigRow,
   requireExistingFactory,
 } from "../server/lib/factory-scope.js";
+import { parseGitHubRepositoryRef } from "../server/lib/github-repository.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
@@ -18,18 +20,40 @@ import {
 import { recordFactoryAudit } from "../server/triage/audit.js";
 import { createGitHubClient } from "../server/triage/github-client.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
-import { mergeTriageMetadata } from "../server/triage/metadata.js";
+import {
+  mergeTriageMetadata,
+  metadataString,
+  parseTriageMetadata,
+} from "../server/triage/metadata.js";
 import {
   hasTriageSourceChanged,
+  statusAfterPullRequestPoll,
   statusAfterTriageSourceUpdate,
 } from "../server/triage/review-state.js";
 
-function parseRepository(value: string): { owner: string; repo: string } {
-  const match = /^([^/\s]+)\/([^/\s]+)$/.exec(value.trim());
-  if (!match) {
-    throw new Error("Factory repository must use the owner/repository format.");
+type NewlyObservedSource = {
+  itemId: string;
+  source: "github" | "github_issue";
+  sourceUrl: string;
+  summary: string;
+  number: number;
+  added: boolean;
+};
+
+function githubPollRollupSummary(
+  issueCount: number,
+  pullRequestCount: number,
+): string {
+  const parts: string[] = [];
+  if (issueCount > 0) {
+    parts.push(`${issueCount} open issue${issueCount === 1 ? "" : "s"}`);
   }
-  return { owner: match[1], repo: match[2] };
+  if (pullRequestCount > 0) {
+    parts.push(
+      `${pullRequestCount} open pull request${pullRequestCount === 1 ? "" : "s"}`,
+    );
+  }
+  return `Polled ${parts.join(" and ")}.`;
 }
 
 export default defineAction({
@@ -48,21 +72,24 @@ export default defineAction({
     await requireFactoryAutomation(
       context,
       { userEmail, orgId },
-      "sourcePolling",
+      "githubPolling",
       factoryId,
     );
     const db = getDb();
     const config = await readTriageConfigRow(db, orgId, factoryId);
     await repairFactoryAutomationsFromConfig(userEmail, orgId, factoryId);
-    if (config?.githubPollingEnabled !== 1) {
-      throw new Error("Enable GitHub polling before polling GitHub sources.");
-    }
-    if (!config.repository) {
+    const job = await readCallingFactoryAutomation(context, {
+      userEmail,
+      orgId,
+    });
+    const repositoryRef = job?.config.repository || config?.repository;
+    if (!repositoryRef) {
       throw new Error("Configure a GitHub repository before polling GitHub.");
     }
+    const inboxLimit = job?.config.inboxLimit ?? 25;
 
-    const repositoryName = config.repository;
-    const repository = parseRepository(repositoryName);
+    const repository = parseGitHubRepositoryRef(repositoryRef);
+    const repositoryName = `${repository.owner}/${repository.repo}`;
     const client = createGitHubClient({ ownerEmail: userEmail, orgId });
     const [issues, pullRequests] = await Promise.all([
       includeIssues
@@ -75,6 +102,9 @@ export default defineAction({
     const now = new Date().toISOString();
     let issueCount = 0;
     let pullRequestCount = 0;
+    let added = 0;
+    let updated = 0;
+    const newlyObserved: NewlyObservedSource[] = [];
 
     await db.transaction(async (tx) => {
       for (const issue of issues) {
@@ -93,9 +123,11 @@ export default defineAction({
             .where(and(eq(triageItems.id, id), eq(triageItems.orgId, orgId)))
             .limit(1)
         )[0];
+        if (!existing && added >= inboxLimit) continue;
         const metadata = mergeTriageMetadata(existing?.metadataJson ?? "{}", {
           kind: "github_issue",
           author: issue.userLogin,
+          authorId: issue.userId,
           labels: [...issue.labels],
           errorReport: [issue.title, issue.body ?? ""]
             .filter(Boolean)
@@ -118,6 +150,18 @@ export default defineAction({
         const lastSeenAt = sourceChanged
           ? issue.updatedAt
           : (existing?.lastSeenAt ?? issue.updatedAt);
+        if (!existing) added += 1;
+        else updated += 1;
+        if (!existing || sourceChanged) {
+          newlyObserved.push({
+            itemId: id,
+            source: "github_issue",
+            sourceUrl: issue.htmlUrl,
+            summary: issue.title,
+            number: issue.number,
+            added: !existing,
+          });
+        }
         await tx
           .insert(triageItems)
           .values({
@@ -173,31 +217,52 @@ export default defineAction({
             .where(and(eq(triageItems.id, id), eq(triageItems.orgId, orgId)))
             .limit(1)
         )[0];
+        if (!existing && added >= inboxLimit) continue;
         const metadata = mergeTriageMetadata(existing?.metadataJson ?? "{}", {
           kind: "pull_request",
           author: pullRequest.userLogin,
+          authorId: String(pullRequest.userId),
           headRef: pullRequest.headRef,
           baseRef: pullRequest.baseRef,
           draft: pullRequest.draft,
           updatedAt: pullRequest.updatedAt,
         });
         const summary = pullRequest.body?.slice(0, 4_000) ?? null;
+        // GitHub updatedAt moves on CI and comments; head SHA is the review signal.
         const sourceChanged = hasTriageSourceChanged(existing, {
           sourceUrl: pullRequest.htmlUrl,
           title: pullRequest.title,
           summary,
-          lastSeenAt: pullRequest.updatedAt,
           headSha: pullRequest.headSha,
         });
-        const status = statusAfterTriageSourceUpdate(
-          existing?.status,
+        const existingMetadata = existing
+          ? parseTriageMetadata(existing.metadataJson)
+          : {};
+        const status = statusAfterPullRequestPoll({
+          existingStatus: existing?.status,
+          existingAuthor: metadataString(existingMetadata, "author"),
+          nextAuthor: pullRequest.userLogin,
+          existingBabysitState: metadataString(
+            existingMetadata,
+            "prBabysitState",
+          ),
+          nextDraft: pullRequest.draft,
           sourceChanged,
-          "pr_observed",
-        );
+        });
         const updatedAt = sourceChanged ? now : (existing?.updatedAt ?? now);
-        const lastSeenAt = sourceChanged
-          ? pullRequest.updatedAt
-          : (existing?.lastSeenAt ?? pullRequest.updatedAt);
+        const lastSeenAt = pullRequest.updatedAt;
+        if (!existing) added += 1;
+        else updated += 1;
+        if (!existing || (sourceChanged && status === "pr_observed")) {
+          newlyObserved.push({
+            itemId: id,
+            source: "github",
+            sourceUrl: pullRequest.htmlUrl,
+            summary: pullRequest.title,
+            number: pullRequest.number,
+            added: !existing,
+          });
+        }
         await tx
           .insert(triageItems)
           .values({
@@ -256,55 +321,60 @@ export default defineAction({
           kind: "observed",
           source: "github",
           summary: "No open GitHub issues or pull requests were observed.",
-          details: { repository: repositoryName },
+          details: {
+            repository: repositoryName,
+            inboxLimit,
+            added: 0,
+            updated: 0,
+            authorFiltered: 0,
+            newlyObserved: 0,
+            truncated: false,
+          },
         },
         factoryId,
       );
     } else {
-      for (const issue of issues) {
-        await recordFactoryAudit(
-          context,
-          { userEmail, orgId },
-          {
-            action: "poll-github-sources",
-            kind: "observed",
-            itemId: itemDedupeKey(
-              {
-                source: "github_issue",
-                externalId: `${repositoryName}#${issue.number}`,
-              },
-              orgId,
-              factoryId,
-            ),
-            source: "github_issue",
-            sourceUrl: issue.htmlUrl,
-            summary: issue.title,
-            details: { repository: repositoryName, number: issue.number },
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "poll-github-sources",
+          kind: "observed",
+          source: "github",
+          summary: githubPollRollupSummary(issueCount, pullRequestCount),
+          details: {
+            repository: repositoryName,
+            issues: issueCount,
+            pullRequests: pullRequestCount,
+            inboxLimit,
+            added,
+            updated,
+            authorFiltered: 0,
+            newlyObserved: newlyObserved.filter((item) => item.added).length,
+            truncated: added + updated < issues.length + pullRequests.length,
+            itemIds: newlyObserved
+              .filter((item) => item.added)
+              .map((item) => item.itemId),
           },
-          factoryId,
-        );
-      }
-      for (const pullRequest of pullRequests) {
+        },
+        factoryId,
+      );
+      for (const item of newlyObserved) {
         await recordFactoryAudit(
           context,
           { userEmail, orgId },
           {
             action: "poll-github-sources",
             kind: "observed",
-            itemId: itemDedupeKey(
-              {
-                source: "github",
-                externalId: `${repositoryName}#${pullRequest.number}`,
-                repository: repositoryName,
-                pullRequestNumber: pullRequest.number,
-              },
-              orgId,
-              factoryId,
-            ),
-            source: "github",
-            sourceUrl: pullRequest.htmlUrl,
-            summary: pullRequest.title,
-            details: { repository: repositoryName, number: pullRequest.number },
+            itemId: item.itemId,
+            source: item.source,
+            sourceUrl: item.sourceUrl,
+            summary: item.summary,
+            details: {
+              repository: repositoryName,
+              number: item.number,
+              added: item.added,
+            },
           },
           factoryId,
         );

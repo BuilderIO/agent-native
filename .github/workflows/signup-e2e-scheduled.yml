@@ -1,0 +1,109 @@
+name: Signup E2E (scheduled)
+
+on:
+  schedule:
+    - cron: "15 16 * * *"
+  workflow_dispatch:
+    inputs:
+      apps:
+        description: "Comma-separated apps or all"
+        required: false
+        default: "all"
+      environments:
+        description: "Comma-separated environments: beta,production"
+        required: false
+        default: "beta"
+
+concurrency:
+  group: signup-e2e-scheduled
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  signup-e2e:
+    name: Full signup flow
+    uses: ./.github/workflows/beta-e2e.yml
+    with:
+      apps: ${{ inputs.apps || 'all' }}
+      lane: signup
+      grep: ""
+      key_source: dedicated
+      signup_apps: ${{ inputs.apps || 'all' }}
+      signup_environments: ${{ inputs.environments || 'beta' }}
+    secrets:
+      MAILOSAUR_API_KEY: ${{ secrets.MAILOSAUR_API_KEY }}
+      MAILOSAUR_SERVER_ID: ${{ secrets.MAILOSAUR_SERVER_ID }}
+      PAGERDUTY_ROUTING_KEY: ${{ secrets.PAGERDUTY_ROUTING_KEY }}
+    permissions:
+      contents: read
+
+  report:
+    name: Report signup E2E status
+    if: ${{ always() }}
+    needs: signup-e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      PAGERDUTY_ROUTING_KEY: ${{ secrets.PAGERDUTY_ROUTING_KEY }}
+      SIGNUP_E2E_APPS: ${{ inputs.apps || 'all' }}
+      SIGNUP_E2E_ENVIRONMENTS: ${{ inputs.environments || 'beta' }}
+    steps:
+      - name: Update one open issue for a failed run
+        if: ${{ needs.signup-e2e.result == 'failure' || needs.signup-e2e.result == 'cancelled' }}
+        run: |
+          set -euo pipefail
+
+          issue_title="[signup-e2e] Scheduled signup health check failing"
+          issue_number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 100 --json number,title | jq -r --arg title "$issue_title" '[.[] | select(.title == $title) | .number] | first // empty')"
+          failed_jobs="$(gh run view "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --json jobs --jq '[.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled") | .name] | join(", ")')"
+          body="$(cat <<EOF
+          The scheduled full signup E2E check failed.
+
+          Run: $RUN_URL
+          Failed jobs: $failed_jobs
+          Targets: $SIGNUP_E2E_APPS on $SIGNUP_E2E_ENVIRONMENTS
+
+          The Playwright artifact contains failure screenshots without auth traces or videos.
+          This issue is reused while open; a successful run comments with the recovery run and closes it.
+          EOF
+          )"
+
+          if [ -n "$issue_number" ]; then
+            gh issue comment "$issue_number" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$issue_title" --body "$body"
+          fi
+
+      - name: Close the open issue after recovery
+        if: ${{ needs.signup-e2e.result == 'success' }}
+        run: |
+          set -euo pipefail
+
+          issue_title="[signup-e2e] Scheduled signup health check failing"
+          issue_number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 100 --json number,title | jq -r --arg title "$issue_title" '[.[] | select(.title == $title) | .number] | first // empty')"
+          if [ -n "$issue_number" ]; then
+            gh issue comment "$issue_number" --repo "$GITHUB_REPOSITORY" --body "The scheduled signup E2E check recovered: $RUN_URL"
+            gh issue close "$issue_number" --repo "$GITHUB_REPOSITORY"
+          fi
+
+      - name: Resolve PagerDuty after recovery
+        if: ${{ needs.signup-e2e.result == 'success' && env.PAGERDUTY_ROUTING_KEY != '' }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg routing_key "$PAGERDUTY_ROUTING_KEY" \
+            --arg dedup_key "agent-native-signup-e2e" \
+            --arg source "${{ github.repository }}" \
+            '{routing_key: $routing_key, event_action: "resolve", dedup_key: $dedup_key, payload: {summary: "Agent-Native signup E2E recovered", source: $source, severity: "critical"}}' \
+            | curl --fail-with-body --connect-timeout 10 --max-time 20 --silent --show-error \
+                --header 'Content-Type: application/json' \
+                --data-binary @- \
+                https://events.pagerduty.com/v2/enqueue

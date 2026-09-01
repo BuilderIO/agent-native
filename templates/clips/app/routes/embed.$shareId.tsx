@@ -1,15 +1,16 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
+import { ClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import {
   VideoPlayer,
   type VideoPlayerHandle,
 } from "@/components/player/video-player";
-import { Spinner } from "@/components/ui/spinner";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
@@ -188,8 +189,9 @@ export default function EmbedRoute() {
 
   if (dataQ.isLoading) {
     return (
-      <div className="fixed inset-0 flex h-dvh w-dvw items-center justify-center overflow-hidden bg-black">
-        <Spinner className="h-8 w-8 text-white/70" />
+      // guard:allow-raw-color — standalone embeds must match the black player backdrop
+      <div className="fixed inset-0 flex h-dvh w-dvw items-center justify-center overflow-hidden bg-black text-background/70 dark:text-foreground/70">
+        <DefaultSpinner height="100%" />
       </div>
     );
   }
@@ -214,6 +216,16 @@ export default function EmbedRoute() {
 
   return (
     <div className="fixed inset-0 h-dvh w-dvw overflow-hidden bg-black">
+      <ClipAgentWebMcp
+        recordingId={recording.id}
+        agentContextUrl={
+          typeof dataQ.data?.data?.agentContextUrl === "string"
+            ? dataQ.data.data.agentContextUrl
+            : null
+        }
+        recordingStatus={recording.status}
+        frameAvailable={!isLoomEmbedBacked}
+      />
       <VideoPlayer
         ref={playerRef}
         onVideoElementChange={setTrackedVideoEl}

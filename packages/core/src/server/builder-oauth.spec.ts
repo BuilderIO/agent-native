@@ -40,6 +40,8 @@ import {
   deleteBuilderOAuthSession,
   exchangeBuilderOAuthAuthorization,
   finishBuilderOAuthAuthorization,
+  getBuilderOAuthConnectionScope,
+  getBuilderOAuthStoredScope,
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
   markBuilderOAuthReconnectRequired,
@@ -55,6 +57,13 @@ const BASE_KEY = "builder-general-resource-v1";
 function perOrgKey(orgId: string): string {
   const digest = createHash("sha256").update(orgId).digest("hex");
   return `${BASE_KEY}:o:${digest}`;
+}
+
+function perUserKey(email: string): string {
+  const digest = createHash("sha256")
+    .update(email.trim().toLowerCase())
+    .digest("hex");
+  return `${BASE_KEY}:u:${digest}`;
 }
 
 function credentials(overrides: Record<string, unknown> = {}) {
@@ -93,6 +102,7 @@ beforeEach(() => {
   markReconnectMock.mockResolvedValue(true);
   validateIssuerMock.mockReset();
   getRawTokensMock.mockReset();
+  getRawTokensMock.mockResolvedValue(null);
   resolveOrgMock.mockReset();
   // Every user belongs to an org; individual tests override the org id.
   resolveOrgMock.mockResolvedValue(DEFAULT_ORG);
@@ -171,6 +181,7 @@ describe("Builder hosted user OAuth", () => {
     await saveBuilderOAuthCredentials({
       ownerEmail,
       orgId: DEFAULT_ORG,
+      role: "owner",
       credentials: exchanged,
     });
     expect(saveMock).toHaveBeenCalledWith({
@@ -199,9 +210,9 @@ describe("Builder hosted user OAuth", () => {
     });
 
     expect(saveMock).toHaveBeenCalledWith({
-      key: perOrgKey(DEFAULT_ORG),
-      scope: "org",
-      scopeId: DEFAULT_ORG,
+      key: perUserKey(ownerEmail),
+      scope: "user",
+      scopeId: ownerEmail,
       serverUrl: BUILDER_OAUTH_RESOURCE,
       credentials: finished,
     });
@@ -328,8 +339,24 @@ describe("Builder hosted user OAuth", () => {
     );
   });
 
+  it("does not fall back to the active org when the caller has no org", async () => {
+    resolveOrgMock.mockResolvedValue("org-acme");
+
+    await expect(hasBuilderOAuthSession(ownerEmail, null)).resolves.toBe(false);
+    expect(getRawTokensMock).toHaveBeenCalledTimes(1);
+    expect(getRawTokensMock).toHaveBeenCalledWith(
+      "mcp",
+      perUserKey(ownerEmail),
+      "user:alice@example.com",
+    );
+  });
+
   it("shares one org-scoped credential across members of the same org", async () => {
     resolveOrgMock.mockResolvedValue("org-acme");
+    getRawTokensMock.mockImplementation(
+      async (_provider: string, _key: string, owner: string) =>
+        owner === "org:org-acme" ? {} : null,
+    );
     getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
     readMock.mockResolvedValue(credentials());
 
@@ -350,6 +377,7 @@ describe("Builder hosted user OAuth", () => {
 
     await finishBuilderOAuthAuthorization({
       ownerEmail,
+      role: "owner",
       code: "<AUTHORIZATION_CODE_EXAMPLE>",
       iss: BUILDER_OAUTH_ISSUER,
       pending: {
@@ -369,6 +397,33 @@ describe("Builder hosted user OAuth", () => {
     });
   });
 
+  it("keeps member OAuth credentials in personal custody", async () => {
+    const finished = credentials();
+    finishMock.mockResolvedValue({ credentials: finished });
+
+    await finishBuilderOAuthAuthorization({
+      ownerEmail,
+      orgId: "org-acme",
+      role: "member",
+      code: "<AUTHORIZATION_CODE_EXAMPLE>",
+      iss: BUILDER_OAUTH_ISSUER,
+      pending: {
+        codeVerifier: "<PKCE_VERIFIER_EXAMPLE>",
+        clientInformation: { client_id: "<CLIENT_ID_EXAMPLE>" },
+        discoveryState: finished.discoveryState,
+        redirectUri: "https://app.example.com/_agent-native/builder/callback",
+      },
+    });
+
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: perUserKey(ownerEmail),
+        scope: "user",
+        scopeId: ownerEmail,
+      }),
+    );
+  });
+
   it("stores under the org captured at start, not the active org at callback", async () => {
     // A switched active org must not win over the org authorized at start.
     resolveOrgMock.mockResolvedValue("org-switched");
@@ -378,6 +433,7 @@ describe("Builder hosted user OAuth", () => {
     await finishBuilderOAuthAuthorization({
       ownerEmail,
       orgId: "org-started",
+      role: "owner",
       code: "<AUTHORIZATION_CODE_EXAMPLE>",
       iss: BUILDER_OAUTH_ISSUER,
       pending: {
@@ -400,6 +456,10 @@ describe("Builder hosted user OAuth", () => {
 
   it("reports the requesting user's email even when the token is org-scoped", async () => {
     resolveOrgMock.mockResolvedValue("org-acme");
+    getRawTokensMock.mockImplementation(
+      async (_provider: string, _key: string, owner: string) =>
+        owner === "org:org-acme" ? {} : null,
+    );
     getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
     readMock.mockResolvedValue(credentials());
 
@@ -421,6 +481,10 @@ describe("Builder hosted user OAuth", () => {
   });
 
   it("marks reconnect required for a revoked OAuth grant", async () => {
+    getRawTokensMock.mockImplementation(
+      async (_provider: string, _key: string, owner: string) =>
+        owner === "org:org-default" ? {} : null,
+    );
     await markBuilderOAuthReconnectRequired(ownerEmail);
     expect(markReconnectMock).toHaveBeenCalledWith({
       key: perOrgKey(DEFAULT_ORG),
@@ -438,6 +502,7 @@ describe("Builder hosted user OAuth", () => {
   });
 
   it("accepts custody whose serverUrl was canonicalized with a trailing slash", async () => {
+    getRawTokensMock.mockResolvedValue({});
     getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
     readMock.mockResolvedValue(
       credentials({
@@ -451,6 +516,7 @@ describe("Builder hosted user OAuth", () => {
   });
 
   it("parses scopes for status and rejects an insufficient requested scope", async () => {
+    getRawTokensMock.mockResolvedValue({});
     getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
     readMock.mockResolvedValue(
       credentials({
@@ -472,11 +538,61 @@ describe("Builder hosted user OAuth", () => {
     ).rejects.toThrow("does not grant builder:assets:write");
   });
 
+  it("falls back to an org grant when a personal grant lacks the requested scope", async () => {
+    resolveOrgMock.mockResolvedValue("org-acme");
+    getRawTokensMock.mockResolvedValue({});
+    getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
+    readMock.mockImplementation(async (options: { scope: "user" | "org" }) =>
+      options.scope === "user"
+        ? credentials()
+        : credentials({
+            tokens: {
+              access_token: "<ACCESS_TOKEN_EXAMPLE>",
+              scope: BUILDER_OAUTH_SCOPES.join(" "),
+              issuer: BUILDER_OAUTH_ISSUER,
+            },
+          }),
+    );
+
+    await expect(
+      resolveBuilderOAuthRequestAccess({
+        ownerEmail,
+        requiredScope: "builder:assets:write",
+      }),
+    ).resolves.toMatchObject({ scope: "org", scopes: BUILDER_OAUTH_SCOPES });
+  });
+
+  it("reports the usable org grant when personal custody needs reconnect", async () => {
+    resolveOrgMock.mockResolvedValue("org-acme");
+    getRawTokensMock.mockResolvedValue({});
+    getAccessTokenMock.mockImplementation(
+      async (options: { scope: "user" | "org" }) =>
+        options.scope === "user" ? null : "<ACCESS_TOKEN_EXAMPLE>",
+    );
+    readMock.mockResolvedValue(credentials());
+
+    await expect(getBuilderOAuthConnectionScope(ownerEmail)).resolves.toBe(
+      "org",
+    );
+  });
+
+  it("reports stored custody for disconnect even when its token is unusable", async () => {
+    getRawTokensMock.mockImplementation(
+      async (_provider: string, _key: string, owner: string) =>
+        owner === "org:org-default" ? {} : null,
+    );
+    getAccessTokenMock.mockResolvedValue(null);
+
+    await expect(getBuilderOAuthStoredScope(ownerEmail)).resolves.toBe("org");
+    expect(getAccessTokenMock).not.toHaveBeenCalled();
+  });
+
   // A stored credential with no `scope` claim predates both Builder always
   // setting one and this flow recording it, so it can only be an AI-only grant.
   // Crediting it with the upload scope would trade a clear local error for an
   // opaque 403 from Builder.
   it("keeps a scope-less legacy credential AI-only", async () => {
+    getRawTokensMock.mockResolvedValue({});
     getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
     readMock.mockResolvedValue(
       credentials({
@@ -499,6 +615,7 @@ describe("Builder hosted user OAuth", () => {
   });
 
   it("fails closed for a credential whose issuer or resource binding changed", async () => {
+    getRawTokensMock.mockResolvedValue({});
     getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
     readMock.mockResolvedValue(
       credentials({
@@ -522,6 +639,10 @@ describe("Builder hosted user OAuth", () => {
   });
 
   it("delegates expiring bundles to the guarded generic OAuth refresher", async () => {
+    getRawTokensMock.mockImplementation(
+      async (_provider: string, _key: string, owner: string) =>
+        owner === "org:org-default" ? {} : null,
+    );
     let stored = credentials({ tokenExpiresAt: Date.now() + 1_000 });
     readMock.mockImplementation(async () => stored);
     getAccessTokenMock.mockImplementation(async () => {
@@ -560,6 +681,10 @@ describe("Builder hosted user OAuth", () => {
   });
 
   it("revokes remotely on disconnect and always deletes local custody", async () => {
+    getRawTokensMock.mockImplementation(
+      async (_provider: string, _key: string, owner: string) =>
+        owner === "org:org-default" ? {} : null,
+    );
     revokeMock.mockResolvedValue({
       local: "deleted",
       remote: "succeeded",
@@ -578,6 +703,10 @@ describe("Builder hosted user OAuth", () => {
   });
 
   it("deletes local custody even when Builder revocation fails", async () => {
+    getRawTokensMock.mockImplementation(
+      async (_provider: string, _key: string, owner: string) =>
+        owner === "org:org-default" ? {} : null,
+    );
     revokeMock.mockResolvedValue({
       local: "deleted",
       remote: "failed",
