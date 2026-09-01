@@ -10,6 +10,8 @@ export const bookings = table("bookings", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull(),
+  /** JSON array of additional invitee email addresses */
+  additionalGuestEmails: text("additional_guest_emails"),
   start: text("start").notNull(),
   end: text("end").notNull(),
   slug: text("slug").notNull(),

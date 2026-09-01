@@ -1,13 +1,13 @@
 ---
 title: "开始使用"
-description: "创建一个 Agent-Native 应用，并从智能体和 UI 调用同一个动作。"
+description: "创建一个带聊天 UI 的智能体，并从智能体和 UI 调用同一个动作。"
 ---
 
 # 开始使用
 
-Agent-Native 是一个开源 TypeScript 框架，用于构建同时服务于人和 AI 智能体的应用。你只需将应用功能定义一次，作为[动作](/docs/actions-overview)——React UI 从代码中调用的类型化函数，智能体则将其用作工具。
+Agent-Native 是一个开源 TypeScript 框架，用于构建配备直观 UI 的自主型智能体。你只需将每项能力定义一次，作为一个[动作](/docs/actions-overview)——一种由智能体用作工具、由 UI 从代码中调用的类型化函数。
 
-本指南中，你将创建一个 Chat 应用，并从智能体和 UI 调用其中自带的 `hello` 动作。
+本指南中，你将创建一个带聊天 UI 的智能体，并从智能体和 UI 调用其中自带的 `hello` 动作。
 
 <GettingStartedPaths />
 
@@ -17,9 +17,9 @@ Agent-Native 是一个开源 TypeScript 框架，用于构建同时服务于人�
 - [pnpm](https://pnpm.io)
 - 供智能体使用的 LLM 连接：Builder.io、Anthropic 或 OpenAI API 密钥，或本地 Ollama 模型
 
-## 创建应用
+## 创建智能体
 
-在一个新目录中，创建 Chat 应用：
+在一个新目录中，从 Chat 模板开始：
 
 ```bash
 npx @agent-native/core@latest create my-app --standalone --template chat
@@ -27,17 +27,17 @@ cd my-app
 pnpm install
 ```
 
-该模板包含浏览器应用、身份验证、持久化对话、实时同步、应用上下文和 `actions/` 目录。它还包含一个小型 `hello` 动作，你将在本指南中一直使用它。
+该模板为智能体提供浏览器 UI、身份验证、持久化对话、实时同步、应用上下文和 `actions/` 目录。它还包含一个小型 `hello` 动作，你将在本指南中一直使用它。
 
 ## 启动开发服务器
 
-启动应用：
+启动开发服务器：
 
 ```bash
 pnpm dev
 ```
 
-应用将在 `http://localhost:8080` 打开。如果没有自动打开，请在浏览器中访问该 URL。
+浏览器 UI 将在 `http://localhost:8080` 打开。如果没有自动打开，请在浏览器中访问该 URL。
 
 <Callout tone="info">
 
@@ -51,7 +51,7 @@ pnpm dev
 
 动作是 React UI 可以从代码中调用、智能体可以作为工具使用的类型化函数。Chat 模板包含一个简单的 `hello` 动作，让你可以在自己编写动作前先体验这一模式。
 
-在应用中，输入：
+在智能体面板中，输入：
 
 > Call the hello action for Alex.
 
@@ -149,13 +149,13 @@ return { message: `Welcome, ${name}.` };
 | [HTTP API](/docs/http-api)              | 从脚本、后端或集成调用动作。                   |
 | [CLI](/docs/actions-other-surfaces#cli) | 在终端中运行或测试动作。                       |
 | [MCP](/docs/actions-other-surfaces#mcp) | 让外部 AI 客户端发现并以工具形式调用动作。     |
-| [A2A](/docs/actions-other-surfaces#a2a) | 让另一个 Agent-Native 应用请求此应用完成工作。 |
+| [A2A](/docs/actions-other-surfaces#a2a) | 让另一个智能体将工作委派给你的智能体。       |
 
-每个调用方都使用相同的动作定义。你不需要为每一种调用方分别实现。这个共享动作模型是 Agent-Native 的核心：随着应用变化，UI、智能体和集成之间的行为、验证和权限始终保持一致。
+每个调用方都使用相同的动作定义。你不需要为每一种调用方分别实现。这个共享动作模型是 Agent-Native 的核心：随着你添加能力，UI、智能体和集成之间的行为、验证和权限始终保持一致。
 
 ## 你构建了什么
 
-你创建了一个 Agent-Native 应用，从智能体和 React UI 调用了它的 `hello` 动作，然后只修改一次问候语，并看到两端都更新。之后编写的每个动作都遵循相同模式。
+你创建了一个带聊天 UI 的智能体，从智能体和 React UI 调用了同一个 `hello` 动作，然后只修改一次问候语，并看到两端都更新。之后编写的每个动作都遵循相同模式。
 
 ## 后续步骤
 

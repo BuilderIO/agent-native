@@ -24,6 +24,10 @@ delegation, but A2A replies cannot render MCP App pickers.
 3. Treat image batches as complete when the action returns. Use returned
    successful `images` entries directly; only regenerate slots that returned
    `ok: false`.
+   A result carrying `draftPendingApproval: true` means the caller can draft in
+   that kit but not save into it. The image is real and usable — say it is
+   waiting on a kit editor instead of reporting it as saved, and do not retry.
+   Call `get-library-access` first when you need to know before generating.
 4. For social/blog/diagram slots, call `list-generation-presets` and pass the
    matching `presetId` so output rules travel with the run.
 5. When a human designer needs to continue the work, create or update a

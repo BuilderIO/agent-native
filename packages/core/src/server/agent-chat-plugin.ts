@@ -2836,9 +2836,9 @@ export function createAgentChatPlugin(
       } catch {
         // Ignore — templates without sharing still work.
       }
+      const { mountActionRoutes, mountWebMcpActionRoutes } =
+        await import("./action-routes.js");
       if (Object.keys(httpActions).length > 0) {
-        const { mountActionRoutes, mountWebMcpActionRoutes } =
-          await import("./action-routes.js");
         if (options?.actionRoutePublicPaths?.length) {
           registerAuthPublicPaths(
             options.actionRoutePublicPaths,
@@ -2852,14 +2852,25 @@ export function createAgentChatPlugin(
           resolveOrgId: options?.resolveOrgId,
           actionRouteAuth: options?.actionRouteAuth,
         });
-        mountWebMcpActionRoutes(nitroApp, httpActions, {
-          getOwnerFromEvent,
-          getUserNameFromEvent,
-          appId: options?.appId,
-          resolveOrgId: options?.resolveOrgId,
-          actionRouteAuth: options?.actionRouteAuth,
-        });
       }
+      mountWebMcpActionRoutes(nitroApp, httpActions, {
+        getOwnerFromEvent,
+        getUserNameFromEvent,
+        appId: options?.appId,
+        resolveOrgId: options?.resolveOrgId,
+        actionRouteAuth: options?.actionRouteAuth,
+        manifest: {
+          name: options?.appId
+            ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
+            : "Agent",
+          title: mcpOptions.title,
+          description:
+            mcpOptions.description ??
+            `Agent-Native ${options?.appId ?? "app"} agent`,
+          websiteUrl: mcpOptions.websiteUrl,
+          icons: mcpOptions.icons,
+        },
+      });
 
       const preRunGitStatusByThread = new Map<string, string | null>();
 
