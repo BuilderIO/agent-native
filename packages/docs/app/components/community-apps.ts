@@ -13,9 +13,6 @@ export interface CommunityApp {
   status?: CommunityAppStatus;
 }
 
-export const COMMUNITY_APP_SUBMISSION_URL =
-  "https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml";
-
 export const communityApps: CommunityApp[] = [
   {
     slug: "nomad",
