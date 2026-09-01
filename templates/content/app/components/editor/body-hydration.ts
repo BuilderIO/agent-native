@@ -136,15 +136,26 @@ export function previewBodyHydrationIsTerminalError(args: {
     | null
     | undefined;
 }) {
-  return (
-    builderBodyHydrationIsTerminalError(
-      args.document?.bodyHydration?.hydration,
-    ) ||
-    builderBodyHydrationIsTerminalError(
-      args.item.bodyHydration ??
-        args.item.document.databaseMembership?.bodyHydration,
-    )
-  );
+  return Boolean(previewBodyHydrationTerminalError(args));
+}
+
+export function previewBodyHydrationTerminalError(args: {
+  item: Pick<ContentDatabaseItem, "bodyHydration" | "document">;
+  document:
+    | Pick<Document, "databaseMembership" | "bodyHydration">
+    | null
+    | undefined;
+}) {
+  const documentHydration = args.document?.bodyHydration?.hydration;
+  if (builderBodyHydrationIsTerminalError(documentHydration)) {
+    return documentHydration;
+  }
+  const itemHydration =
+    args.item.bodyHydration ??
+    args.item.document.databaseMembership?.bodyHydration;
+  return builderBodyHydrationIsTerminalError(itemHydration)
+    ? itemHydration
+    : null;
 }
 
 export function isEffectivelyEmptyDocumentContent(
