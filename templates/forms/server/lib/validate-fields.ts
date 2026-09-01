@@ -3,6 +3,12 @@
 // by the public form SSR renderer and into CSS/JS selectors by the inline
 // runtime — an unrestricted id like `x" onfocus="alert(1)` would otherwise
 // stored-XSS every anonymous submitter of a published form.
+import {
+  DEFAULT_FORM_FILE_MAX_BYTES,
+  isValidFileAccept,
+  MAX_FORM_FILE_COUNT,
+} from "./file-upload-policy.js";
+
 export const FIELD_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 const FIELD_TYPES = new Set([
   "text",
@@ -16,6 +22,7 @@ const FIELD_TYPES = new Set([
   "date",
   "rating",
   "scale",
+  "file",
 ]);
 const CONDITIONAL_OPERATORS = new Set(["equals", "not_equals", "contains"]);
 
@@ -116,6 +123,51 @@ export function assertValidFields(fields: unknown): void {
     }
     if (typeof f.required !== "boolean") {
       throw new Error(`field #${idx + 1} required must be a boolean`);
+    }
+
+    const hasFileMetadata = [
+      "multiple",
+      "accept",
+      "maxSizeBytes",
+      "maxFiles",
+    ].some((key) => key in f);
+    if (f.type !== "file" && hasFileMetadata) {
+      throw new Error(
+        `field #${idx + 1} file metadata is only valid for file fields`,
+      );
+    }
+    if (f.type === "file") {
+      if (f.multiple !== undefined && typeof f.multiple !== "boolean") {
+        throw new Error(`field #${idx + 1} multiple must be a boolean`);
+      }
+      if (!isValidFileAccept(f.accept)) {
+        throw new Error(`field #${idx + 1} accept must be a valid file filter`);
+      }
+      const maxSizeBytes = f.maxSizeBytes;
+      if (
+        maxSizeBytes !== undefined &&
+        (typeof maxSizeBytes !== "number" ||
+          !Number.isSafeInteger(maxSizeBytes) ||
+          maxSizeBytes <= 0 ||
+          maxSizeBytes > DEFAULT_FORM_FILE_MAX_BYTES)
+      ) {
+        throw new Error(
+          `field #${idx + 1} maxSizeBytes must be an integer between 1 and ${DEFAULT_FORM_FILE_MAX_BYTES}`,
+        );
+      }
+      const maxFiles = f.maxFiles;
+      if (
+        maxFiles !== undefined &&
+        (typeof maxFiles !== "number" ||
+          !Number.isSafeInteger(maxFiles) ||
+          maxFiles <= 0 ||
+          maxFiles > MAX_FORM_FILE_COUNT ||
+          f.multiple !== true)
+      ) {
+        throw new Error(
+          `field #${idx + 1} maxFiles requires multiple and must be between 1 and ${MAX_FORM_FILE_COUNT}`,
+        );
+      }
     }
 
     const cond = f.conditional;

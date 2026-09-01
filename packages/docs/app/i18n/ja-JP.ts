@@ -574,7 +574,7 @@ const jaJP = {
     communitySubmissionName: "アプリ名",
     communitySubmissionNamePlaceholder: "カスタマーサポートハブ",
     communitySubmissionUrl: "アプリ URL",
-    communitySubmissionUrlPlaceholder: "example.com または https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "説明",
     communitySubmissionDescriptionPlaceholder:
       "アプリの機能と対象ユーザーを教えてください。",
@@ -590,8 +590,17 @@ const jaJP = {
     communitySubmissionSubmit: "アプリを送信",
     communitySubmissionReady:
       "ありがとうございます。公開前にアプリを確認します。",
-    communitySubmissionValidation:
-      "名前と説明を入力し、example.com のようなアプリリンクを入力してください。https:// は自動で追加します。リポジトリを追加する場合は github.com のリンクを使用してください。PNG、JPG、WebP 画像は各 1.5 MB までアップロードできます。",
+    communitySubmissionNameError: "アプリ名を入力してください。",
+    communitySubmissionDescriptionError: "短い説明を追加してください。",
+    communitySubmissionUrlError:
+      "example.com のような有効なアプリリンクを入力してください。",
+    communitySubmissionRepositoryError:
+      "GitHub リポジトリのリンクを入力してください。",
+    communitySubmissionScreenshotsError:
+      "PNG、JPG、WebP 画像を使用してください。各 1.5 MB まで、最大 5 枚です。",
+    communitySubmissionSubmitError:
+      "現在送信できません。強調表示された項目を確認して、もう一度お試しください。",
+    communitySubmissionSubmitting: "送信中…",
   },
   buildFromScratch: {
     title: "ゼロから構築",
