@@ -1121,8 +1121,13 @@ async function requestedSlotIsCurrentlyAvailable({
     conflictSlugs: context.conflictSlugs,
     viewerEmail,
     viewerOrgId,
+    // `date` is derived from a real instant, so it can never itself be a
+    // skipped local date - but the exclusive day-after boundary used for
+    // `rangeEndIso` is plain calendar arithmetic and can still land on
+    // one (e.g. immediately before a whole-date DST skip). Widen it the
+    // same way the availability queries above do, instead of throwing.
     rangeStartIso: dateStartIso(date, timezone),
-    rangeEndIso: dateEndIso(date, timezone),
+    rangeEndIso: safeRangeEndIso(date, timezone),
     timezone,
   });
   if (conflictResult.unavailableReason) {
