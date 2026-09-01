@@ -34,7 +34,10 @@ wanted. It does not transfer ownership: Design and Content remain with Sid or
 Alice, and work in those areas requires the mapped owner's authorization or an
 explicit assignment. `review-latest-feedback` owns the discovery query and the
 **Shipped** disposition; everything in this file about voice, evidence, and
-verification applies to an upvoted item unchanged.
+verification applies to an upvoted item unchanged. The ledger treats
+**Shipped** as the terminal disposition for that authorized upvoted path.
+An authorized upvoted item may therefore end with a **Shipped** reply; the
+companion ledger records it as terminal just like **Fixed**.
 
 If an earlier run already added `👀` to an out-of-scope item, remove that
 reaction with the connected Slack removal action when available. Do not add
@@ -202,6 +205,8 @@ non-repeating question only if one specific required detail still blocks it.
    concrete Slack permission/API blocker before continuing the investigation.
    Do not react to subjective/product, policy, informational, bot-forward,
    status-only, Design, or non-repo-owned items.
+   For an authorized upvoted improvement, perform and read back that same eye
+   reaction before investigation or delegation, then include it in the ledger.
 3. Parallelize independent investigations and narrow fixes with disjoint write
    sets. For every actionable repo-owned bug, keep working toward a verified
    fix. If reporter or product input is missing, ask one concrete question for
@@ -216,6 +221,8 @@ non-repeating question only if one specific required detail still blocks it.
    - **Fixed** - say that the verified code change is complete and when it
      should be live. For today's beta-bound fixes, say explicitly that it will
      be on beta later today; never send a bare “Fixed”.
+   - **Shipped** - use for an authorized upvoted improvement after its requested
+     behavior and verification check are complete.
    - **In progress** - only when the thread already contains a substantive
      ownership or active-fix signal; thank the reporter, acknowledge that the
      team is already working on it, and do not ask a duplicate question. This
@@ -264,6 +271,9 @@ identity:
 - Every feedback reply starts by thanking the reporter. Use the natural short
   form `ty for the feedback -` (or `thanks for the feedback -`) before the
   status. Do not open with `agreed`, `valid request`, `ah`, or a diagnosis.
+- Every reply from this workflow also ends with `this was sent from a bot.` so
+  future sweeps can rediscover it; historical replies may not contain the
+  marker and must still be found by the companion clarification search.
 - An **In progress** reply must still start with that thank-you and then say
   that the team is already looking into or fixing the issue. Do not use that
   state to ask for clarification that the thread already answered.

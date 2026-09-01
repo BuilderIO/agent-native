@@ -39,10 +39,29 @@ slack_search: "this was sent from a bot." in:<#CHANNEL> after:<TODAY-5>
   sort=timestamp sort_dir=asc
 ```
 
+Also search for the invoking identity's eye-marked parents before applying the
+disclosure filter:
+
+```
+slack_search: hasmy:eyes in:<#CHANNEL>
+```
+
+Read each matching parent and reaction. An eye-only clear bug or authorized
+upvoted improvement is durable work even when it has no reply; keep it in the
+worklist until it has a terminal disposition.
+
 For each hit, read its full thread and identify the latest disposition from
 this workflow or its companion. Keep only an unanswered **Clarification
 needed** question in the pending-question set. **Fixed**, **Shipped**, **In
 progress**, and **Open - no reply** are not pending questions. Then:
+
+Do not apply either age branch below to a terminal disposition. The age branches
+apply only when the latest status is an unanswered **Clarification needed**
+question.
+
+Only an unanswered **Clarification needed** thread may enter either age branch.
+Never add a thread whose latest reply is **Fixed**, **Shipped**, **In progress**,
+or **Open - no reply** to the pending-question set.
 
 - **Someone answered** → that is now the highest-priority item in the run.
   Rebuild the evidence and attempt the fix. Use a **Fixed** reply only after
@@ -82,7 +101,10 @@ slack_search: "if you can share" in:<#CHANNEL>
 
 Repeat for the companion's other clarification wording, such as
 `"would help us investigate"`, and inspect author and thread metadata rather
-than treating every matching message as a question.
+than treating every matching message as a question. This search is mandatory
+even when the message has no bot disclosure or eye reaction; the companion
+workflow's clarification wording is its independent discovery path.
+Do not use the disclosure search as the companion workflow's only cursor.
 
 These searches cover **every** run's questions, not just yours. Inspect the
 author and full thread so a later run under another valid workflow identity
@@ -145,6 +167,12 @@ owner and do not change code. Name the owner in the recap row.
 Because the upvote already is the product decision, do not ask which variant
 people would prefer. Ship the smallest version that delivers the endorsed
 improvement, and let the reporter react to something real.
+
+For every authorized upvoted improvement, add `👀` before investigation or
+delegation and read the reaction back. Audit it in the same ledger as a clear
+bug, using **Shipped** or **Open - no reply** as its terminal disposition.
+This is the required eye-reaction procedure for upvoted improvements, not an
+optional reminder.
 
 Add `👀` from the invoking identity to each clear bug or authorized upvoted
 improvement as it enters scope, and read the reaction back. Do not add it to an
