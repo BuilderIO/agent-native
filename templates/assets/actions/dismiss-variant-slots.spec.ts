@@ -8,6 +8,12 @@ const getDbMock = vi.hoisted(() => vi.fn());
 const libraryAccessMock = vi.hoisted(() =>
   vi.fn(async () => ({ role: "owner", canApprove: true })),
 );
+const forbiddenErrorClass = vi.hoisted(
+  () =>
+    class ForbiddenError extends Error {
+      statusCode = 403;
+    },
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
@@ -21,6 +27,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
+  ForbiddenError: forbiddenErrorClass,
 }));
 vi.mock("../server/lib/library-access.js", () => ({
   assertCanDraft: libraryAccessMock,
@@ -39,16 +46,54 @@ vi.mock("../server/db/index.js", () => ({
   schema: {
     assets: {
       id: "image_assets.id",
+      libraryId: "image_assets.library_id",
+      role: "image_assets.role",
+      status: "image_assets.status",
+      generationRunId: "image_assets.generation_run_id",
     },
   },
 }));
 
 import action from "./dismiss-variant-slots.js";
 
-function createDb() {
+type AssetRow = {
+  id: string;
+  libraryId: string;
+  role: string;
+  status: string;
+  generationRunId: string | null;
+};
+
+/** An unsaved draft candidate in `lib-1`, the shape dismiss is allowed to delete. */
+function draftAsset(id: string, overrides: Partial<AssetRow> = {}): AssetRow {
+  return {
+    id,
+    libraryId: "lib-1",
+    role: "generated",
+    status: "candidate",
+    generationRunId: "run-1",
+    ...overrides,
+  };
+}
+
+function createDb(
+  assets: AssetRow[] = [draftAsset("asset-1"), draftAsset("asset-2")],
+) {
+  const byId = new Map(assets.map((asset) => [asset.id, asset]));
   const deleteWhere = vi.fn(async () => undefined);
   const deleteMock = vi.fn(() => ({ where: deleteWhere }));
+  const selectMock = vi.fn(() => ({
+    from: vi.fn(() => ({
+      where: vi.fn((condition: any) => ({
+        limit: async () => {
+          const asset = byId.get(condition?.value);
+          return asset ? [asset] : [];
+        },
+      })),
+    })),
+  }));
   return {
+    select: selectMock,
     delete: deleteMock,
     deleteWhere,
   };
@@ -95,8 +140,97 @@ describe("dismiss-variant-slots", () => {
     expect(result).toEqual({
       dismissed: 2,
       assetsDeleted: 2,
+      assetsRetained: 0,
       cleared: true,
     });
+  });
+
+  it("retains assets the caller may not discard instead of deleting them", async () => {
+    // Variant state is client-writable, so a slot can point at anything.
+    const db = createDb([
+      draftAsset("asset-saved", { status: "saved" }),
+      draftAsset("asset-other-kit", { libraryId: "lib-2" }),
+      draftAsset("asset-mine"),
+    ]);
+    getDbMock.mockReturnValue(db);
+    readAppStateMock.mockResolvedValueOnce({
+      runId: "run-1",
+      libraryId: "lib-1",
+      prompt: "Dogs in a park",
+      slots: [
+        { slotId: "slot-1", status: "ready", assetId: "asset-saved" },
+        { slotId: "slot-2", status: "ready", assetId: "asset-other-kit" },
+        { slotId: "slot-3", status: "ready", assetId: "asset-mine" },
+      ],
+      updatedAt: "2026-05-28T00:00:00.000Z",
+    });
+
+    const result = await action.run({ scope: "all" });
+
+    expect(db.delete).toHaveBeenCalledTimes(1);
+    expect(db.deleteWhere).toHaveBeenCalledWith({
+      column: "image_assets.id",
+      value: "asset-mine",
+    });
+    expect(result).toEqual({
+      dismissed: 3,
+      assetsDeleted: 1,
+      assetsRetained: 2,
+      cleared: true,
+    });
+  });
+
+  it("retains a draft the delete rules refuse", async () => {
+    const db = createDb([draftAsset("asset-theirs")]);
+    getDbMock.mockReturnValue(db);
+    libraryAccessMock.mockImplementation((async (...args: unknown[]) => {
+      // One argument is `assertCanDraft`; the asset-shaped call is the delete
+      // rule, and it refuses another drafter's candidate.
+      if (typeof args[0] === "object") {
+        throw new forbiddenErrorClass("Requires editor role");
+      }
+      return { role: "viewer", canApprove: false };
+    }) as never);
+    readAppStateMock.mockResolvedValueOnce({
+      runId: "run-1",
+      libraryId: "lib-1",
+      prompt: "Dogs in a park",
+      slots: [{ slotId: "slot-1", status: "ready", assetId: "asset-theirs" }],
+      updatedAt: "2026-05-28T00:00:00.000Z",
+    });
+
+    const result = await action.run({ scope: "all" });
+
+    expect(db.delete).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      dismissed: 1,
+      assetsDeleted: 0,
+      assetsRetained: 1,
+      cleared: true,
+    });
+  });
+
+  it("surfaces a failure while checking a draft instead of retaining it", async () => {
+    const db = createDb([draftAsset("asset-1")]);
+    getDbMock.mockReturnValue(db);
+    libraryAccessMock.mockImplementation((async (...args: unknown[]) => {
+      if (typeof args[0] === "object") throw new Error("db unavailable");
+      return { role: "viewer", canApprove: false };
+    }) as never);
+    readAppStateMock.mockResolvedValueOnce({
+      runId: "run-1",
+      libraryId: "lib-1",
+      prompt: "Dogs in a park",
+      slots: [{ slotId: "slot-1", status: "ready", assetId: "asset-1" }],
+      updatedAt: "2026-05-28T00:00:00.000Z",
+    });
+
+    // An unreadable check is not a permission answer, so it must not come back
+    // as a quietly retained asset.
+    await expect(action.run({ scope: "all" })).rejects.toThrow(
+      "db unavailable",
+    );
+    expect(db.delete).not.toHaveBeenCalled();
   });
 
   it("dismisses failed slots while keeping ready candidates", async () => {
@@ -135,6 +269,7 @@ describe("dismiss-variant-slots", () => {
     expect(result).toEqual({
       dismissed: 1,
       assetsDeleted: 1,
+      assetsRetained: 0,
       cleared: false,
     });
   });
@@ -174,6 +309,7 @@ describe("dismiss-variant-slots", () => {
     expect(result).toEqual({
       dismissed: 1,
       assetsDeleted: 1,
+      assetsRetained: 0,
       cleared: true,
     });
     expect(deleteAppStateMock).toHaveBeenCalledWith("asset-variants:thread-1");
@@ -207,6 +343,7 @@ describe("dismiss-variant-slots", () => {
     expect(result).toEqual({
       dismissed: 1,
       assetsDeleted: 1,
+      assetsRetained: 0,
       cleared: true,
     });
     expect(deleteAppStateMock).toHaveBeenCalledWith(

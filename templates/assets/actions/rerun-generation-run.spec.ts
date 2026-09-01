@@ -58,6 +58,7 @@ describe("rerun-generation-run template access", () => {
               {
                 id: "run-1",
                 libraryId: "kit-1",
+                ownerEmail: "author@example.test",
                 presetId: "private-global-template",
                 sessionId: null,
                 prompt: "Generate",
@@ -89,5 +90,22 @@ describe("rerun-generation-run template access", () => {
       "viewer",
     );
     expect(generateImageRunMock).not.toHaveBeenCalled();
+  });
+
+  it("scopes a rerun to the source run's author", async () => {
+    resolveTemplateAccessMock.mockRejectedValue(
+      new Error("Template not found or not accessible."),
+    );
+
+    await expect(action.run({ runId: "run-1", source: "ui" })).rejects.toThrow(
+      "not accessible",
+    );
+
+    // A rerun reuses another caller's prompt, settings, and session.
+    expect(libraryAccessMock).toHaveBeenCalledWith(
+      "kit-1",
+      "author@example.test",
+      "A generation run",
+    );
   });
 });

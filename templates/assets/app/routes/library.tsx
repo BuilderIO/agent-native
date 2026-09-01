@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
+  callAction,
   getBrowserTabId,
   readClientAppState,
   useActionMutation,
@@ -43,7 +44,7 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
@@ -114,11 +115,7 @@ import type {
   ImageQualityTier,
   StyleStrength,
 } from "../../shared/api";
-import {
-  canApproveWithRole,
-  MODEL_ASPECT_RATIOS,
-  type AssetAccessRole,
-} from "../../shared/api";
+import { MODEL_ASPECT_RATIOS, type AssetAccessRole } from "../../shared/api";
 import {
   DEFAULT_LIBRARY_PRESETS,
   LibraryPreset,
@@ -1961,11 +1958,6 @@ function LibraryCandidateStage({
   ) as { data?: { assets?: Asset[] }; isLoading: boolean; isError: boolean };
   const saveGenerated = useActionMutation("save-generated-image");
   const updateAsset = useActionMutation("update-asset");
-  // Drafting needs only read access, approving needs editor. The cross-kit
-  // stage mixes kits with different roles, so only the single-kit stage can
-  // decide here; the server still refuses the ones it must.
-  const canApprove =
-    isAllAssetsStage || canApproveWithRole(libraryData?.library?.accessRole);
   const libraryAssets = isAllAssetsStage
     ? (allCandidateData?.assets ?? [])
     : (libraryData?.assets ?? []);
@@ -2006,6 +1998,40 @@ function LibraryCandidateStage({
         .slice()
         .sort((left, right) => String(right.id).localeCompare(String(left.id))),
     [libraryAssets, liveAssetIds],
+  );
+  // Approving is per kit: this stage can show candidates from several kits at
+  // once, and the caller may be an editor in one and a viewer in the next. Ask
+  // once per kit on screen rather than assuming, or showing a Save that 403s.
+  const stageLibraryIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (activeLibraryId) ids.add(activeLibraryId);
+    if (liveLibraryId) ids.add(liveLibraryId);
+    for (const asset of draftAssets) {
+      if (asset.libraryId) ids.add(asset.libraryId);
+    }
+    return Array.from(ids);
+  }, [activeLibraryId, liveLibraryId, draftAssets]);
+  const libraryAccessResults = useQueries({
+    queries: stageLibraryIds.map((id) => ({
+      queryKey: ["action", "get-library-access", { libraryId: id }],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        callAction<{ libraryId: string; canApprove: boolean }>(
+          "get-library-access",
+          { libraryId: id } as never,
+          { method: "GET", signal },
+        ),
+    })),
+  });
+  const approvableLibraryIds = useMemo(() => {
+    const approvable = new Set<string>();
+    for (const result of libraryAccessResults) {
+      if (result.data?.canApprove) approvable.add(result.data.libraryId);
+    }
+    return approvable;
+  }, [libraryAccessResults]);
+  const canApproveLibrary = useCallback(
+    (id?: string | null) => Boolean(id && approvableLibraryIds.has(id)),
+    [approvableLibraryIds],
   );
   const totalCount = slots.length + draftAssets.length;
   // Don't flash the empty state before the candidate sources have resolved, and
@@ -2205,30 +2231,17 @@ function LibraryCandidateStage({
         foldersByLibraryId={foldersByLibraryId}
         savingSlotId={savingCandidateSlotId}
         promotingReferenceKeys={promotingReferenceKeys}
-        onSave={
-          canApprove
-            ? (slot, folderId) => {
-                void handleSaveLiveCandidate(slot, folderId);
-              }
-            : undefined
-        }
-        onSaveDraft={
-          canApprove
-            ? (asset, folderId) => {
-                void handleSaveDraftCandidate(asset, folderId);
-              }
-            : undefined
-        }
-        onMoveToReferences={
-          canApprove ? handleMoveLiveCandidateToReferences : undefined
-        }
-        onMoveDraftToReferences={
-          canApprove
-            ? (asset) => {
-                void handleMoveToReferences(asset);
-              }
-            : undefined
-        }
+        canApproveLibrary={canApproveLibrary}
+        onSave={(slot, folderId) => {
+          void handleSaveLiveCandidate(slot, folderId);
+        }}
+        onSaveDraft={(asset, folderId) => {
+          void handleSaveDraftCandidate(asset, folderId);
+        }}
+        onMoveToReferences={handleMoveLiveCandidateToReferences}
+        onMoveDraftToReferences={(asset) => {
+          void handleMoveToReferences(asset);
+        }}
         onUse={onUseAsset ? handleUseLiveCandidate : undefined}
         onUseDraft={onUseAsset}
       />

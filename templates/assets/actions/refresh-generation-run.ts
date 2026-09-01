@@ -5,7 +5,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyGenerationRunFinished } from "../server/lib/generation-run-notifications.js";
 import { nowIso, parseJson } from "../server/lib/json.js";
-import { assertCanDraft } from "../server/lib/library-access.js";
+import { assertCanDraftAuthoredBy } from "../server/lib/library-access.js";
 import { completeVideoGenerationRun } from "../server/lib/video-runs.js";
 import { serializeAsset, serializeGenerationRun } from "./_helpers.js";
 import { upsertVariantSlot } from "./variant-slots.js";
@@ -142,7 +142,13 @@ export default defineAction({
       .where(eq(schema.assetGenerationRuns.id, runId))
       .limit(1);
     if (!run) throw new Error("Generation run not found.");
-    await assertCanDraft(run.libraryId);
+    // Reconciling mutates the run row (status, error, outputs), so a
+    // below-editor caller may only refresh a run they started.
+    await assertCanDraftAuthoredBy(
+      run.libraryId,
+      run.ownerEmail,
+      "A generation run",
+    );
     if ((run.mediaType ?? "image") !== "video") {
       const refreshed = await refreshImageRun(run);
       return {

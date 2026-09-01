@@ -8,6 +8,7 @@ import {
   readClientAppState,
   useActionMutation,
   useActionQuery,
+  useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
@@ -348,6 +349,7 @@ export function BrandKitDetailRoute({
   const [searchParams] = useSearchParams();
   const urlTab = libraryTabFromValue(searchParams.get("tab"));
   const libraryId = explicitLibraryId ?? id!;
+  const { session } = useSession();
   const { data } = useActionQuery("get-library", { id: libraryId }) as any;
 
   const archiveLibrary = useActionMutation("archive-library");
@@ -438,6 +440,13 @@ export function BrandKitDetailRoute({
   // Generating a candidate only needs read access; saving one into the kit
   // needs editor. Drop the save affordances rather than letting them 403.
   const canApprove = canApproveWithRole(library?.accessRole);
+  // Rerunning reuses a run's prompt and settings and refreshing mutates its
+  // row, so both stay with the run's author unless the caller can approve.
+  const canRerunRun = (run: { ownerEmail?: string | null }) => {
+    if (canApprove) return true;
+    const mine = session?.email?.trim().toLowerCase();
+    return Boolean(mine) && run.ownerEmail?.trim().toLowerCase() === mine;
+  };
   const folders = (data?.folders ?? []) as any[];
   const generationPresets = ((presetData as any)?.templates ?? []) as any[];
   const generationSessions = ((sessionData as any)?.sessions ?? []) as any[];
@@ -1486,13 +1495,16 @@ export function BrandKitDetailRoute({
                       rerunGeneration.isPending || refreshGeneration.isPending
                     }
                     onCreateHandoff={() => createHandoffFromRun(run)}
-                    onRerun={() =>
-                      run.mediaType === "video"
-                        ? refreshGeneration.mutate({ runId: run.id })
-                        : rerunGeneration.mutate({
-                            runId: run.id,
-                            source: "ui",
-                          })
+                    onRerun={
+                      canRerunRun(run)
+                        ? () =>
+                            run.mediaType === "video"
+                              ? refreshGeneration.mutate({ runId: run.id })
+                              : rerunGeneration.mutate({
+                                  runId: run.id,
+                                  source: "ui",
+                                })
+                        : undefined
                     }
                   />
                 ))}
@@ -1558,7 +1570,8 @@ function RunCard({
 }: {
   run: any;
   assetById?: Map<string, any>;
-  onRerun: () => void;
+  /** Omitted when this caller may not rerun or refresh someone else's run. */
+  onRerun?: () => void;
   onCreateHandoff: () => void;
   rerunning?: boolean;
 }) {
@@ -1633,18 +1646,20 @@ function RunCard({
               {t("brandKitDetail.handoff")}
             </Button>
           ) : null}
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            disabled={rerunning}
-            onClick={onRerun}
-          >
-            <IconRefresh className="h-4 w-4" />
-            {mediaType === "video" && run.status !== "completed"
-              ? t("brandKitDetail.refresh")
-              : t("brandKitDetail.rerunThis")}
-          </Button>
+          {onRerun ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              disabled={rerunning}
+              onClick={onRerun}
+            >
+              <IconRefresh className="h-4 w-4" />
+              {mediaType === "video" && run.status !== "completed"
+                ? t("brandKitDetail.refresh")
+                : t("brandKitDetail.rerunThis")}
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -3512,6 +3527,7 @@ export function LiveCandidatesStage({
   allowCreateFolder = true,
   savingSlotId,
   promotingReferenceKeys,
+  canApproveLibrary,
   onSave,
   onSaveDraft,
   onMoveToReferences,
@@ -3527,6 +3543,12 @@ export function LiveCandidatesStage({
   allowCreateFolder?: boolean;
   savingSlotId: string | null;
   promotingReferenceKeys: Set<string>;
+  /**
+   * Approving is per kit: this stage can list candidates from several kits, and
+   * the caller may be an editor in one and a viewer in the next. Omit it when
+   * every candidate on screen belongs to one kit the handlers already cover.
+   */
+  canApproveLibrary?: (libraryId?: string | null) => boolean;
   onSave?: (slot: VariantSlot, folderId: string | null) => void;
   onSaveDraft?: (asset: any, folderId: string | null) => void;
   onMoveToReferences?: (slot: VariantSlot) => void;
@@ -3535,6 +3557,12 @@ export function LiveCandidatesStage({
   onUseDraft?: (asset: any) => void;
 }) {
   const t = useT();
+  // No predicate means every candidate on screen belongs to a kit the passed
+  // handlers already cover; live slots always belong to the stage's own kit.
+  const mayApproveIn = (candidateLibraryId?: string | null) =>
+    canApproveLibrary
+      ? canApproveLibrary(candidateLibraryId ?? libraryId)
+      : true;
   const dismissSlot = useActionMutation("dismiss-variant-slots");
   const deleteAsset = useActionMutation("delete-asset");
   const queryClient = useQueryClient();
@@ -3800,12 +3828,14 @@ export function LiveCandidatesStage({
         saving,
         promoting,
         candidateLibraryId: libraryId,
-        onSaveCandidate: onSave
-          ? (folderId) => onSave(slot, folderId)
-          : undefined,
-        onAddToReferences: onMoveToReferences
-          ? () => onMoveToReferences(slot)
-          : undefined,
+        onSaveCandidate:
+          onSave && mayApproveIn(libraryId)
+            ? (folderId) => onSave(slot, folderId)
+            : undefined,
+        onAddToReferences:
+          onMoveToReferences && mayApproveIn(libraryId)
+            ? () => onMoveToReferences(slot)
+            : undefined,
         onUseCandidate: onUse ? () => onUse(slot) : undefined,
         onDismiss: () =>
           setDismissTarget({
@@ -3819,12 +3849,14 @@ export function LiveCandidatesStage({
         saving,
         promoting,
         candidateLibraryId: libraryId,
-        onSaveCandidate: onSave
-          ? (folderId) => onSave(slot, folderId)
-          : undefined,
-        onAddToReferences: onMoveToReferences
-          ? () => onMoveToReferences(slot)
-          : undefined,
+        onSaveCandidate:
+          onSave && mayApproveIn(libraryId)
+            ? (folderId) => onSave(slot, folderId)
+            : undefined,
+        onAddToReferences:
+          onMoveToReferences && mayApproveIn(libraryId)
+            ? () => onMoveToReferences(slot)
+            : undefined,
         onUseCandidate: onUse ? () => onUse(slot) : undefined,
         onDismiss: () =>
           setDismissTarget({
@@ -3867,12 +3899,14 @@ export function LiveCandidatesStage({
         saving,
         promoting,
         candidateLibraryId: asset.libraryId,
-        onSaveCandidate: onSaveDraft
-          ? (folderId) => onSaveDraft(asset, folderId)
-          : undefined,
-        onAddToReferences: onMoveDraftToReferences
-          ? () => onMoveDraftToReferences(asset)
-          : undefined,
+        onSaveCandidate:
+          onSaveDraft && mayApproveIn(asset.libraryId)
+            ? (folderId) => onSaveDraft(asset, folderId)
+            : undefined,
+        onAddToReferences:
+          onMoveDraftToReferences && mayApproveIn(asset.libraryId)
+            ? () => onMoveDraftToReferences(asset)
+            : undefined,
         onUseCandidate: onUseDraft ? () => onUseDraft(asset) : undefined,
         onDismiss: () =>
           setDismissTarget({
@@ -3886,12 +3920,14 @@ export function LiveCandidatesStage({
         saving,
         promoting,
         candidateLibraryId: asset.libraryId,
-        onSaveCandidate: onSaveDraft
-          ? (folderId) => onSaveDraft(asset, folderId)
-          : undefined,
-        onAddToReferences: onMoveDraftToReferences
-          ? () => onMoveDraftToReferences(asset)
-          : undefined,
+        onSaveCandidate:
+          onSaveDraft && mayApproveIn(asset.libraryId)
+            ? (folderId) => onSaveDraft(asset, folderId)
+            : undefined,
+        onAddToReferences:
+          onMoveDraftToReferences && mayApproveIn(asset.libraryId)
+            ? () => onMoveDraftToReferences(asset)
+            : undefined,
         onUseCandidate: onUseDraft ? () => onUseDraft(asset) : undefined,
         onDismiss: () =>
           setDismissTarget({

@@ -183,9 +183,13 @@ export default defineAction({
       ...inputBase,
       libraryId,
     };
-    await assertCanDraft(base.libraryId);
+    const draftAccess = await assertCanDraft(base.libraryId);
     if (base.sessionId) {
-      await requireGenerationSessionInLibrary(base.sessionId, base.libraryId);
+      await requireGenerationSessionInLibrary(
+        base.sessionId,
+        base.libraryId,
+        draftAccess,
+      );
     }
     const creativeContextRequestId =
       base.creativeContextRequestId ?? (base.sessionId ? undefined : nanoid());

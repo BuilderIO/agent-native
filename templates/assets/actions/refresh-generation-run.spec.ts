@@ -126,6 +126,7 @@ describe("refresh-generation-run", () => {
         run: {
           id: "run-1",
           libraryId: "library-1",
+          ownerEmail: "author@example.test",
           collectionId: null,
           presetId: null,
           sessionId: null,
@@ -148,6 +149,13 @@ describe("refresh-generation-run", () => {
     vi.setSystemTime(new Date("2026-05-28T12:00:00.000Z"));
 
     const result = await action.run({ runId: "run-1" });
+
+    // Refreshing mutates the run row, so it is scoped to the run's author.
+    expect(libraryAccessMock).toHaveBeenCalledWith(
+      "library-1",
+      "author@example.test",
+      "A generation run",
+    );
 
     expect(result.run.status).toBe("failed");
     expect(updateSetCalls[0]).toEqual(

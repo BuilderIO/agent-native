@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { parseJson } from "../server/lib/json.js";
-import { assertCanDraft } from "../server/lib/library-access.js";
+import { assertCanDraftAuthoredBy } from "../server/lib/library-access.js";
 import { normalizePresetReferences } from "../server/lib/preset-references.js";
 import { requireGenerationSessionInLibrary } from "./_helpers.js";
 import { resolveTemplateAccess } from "./_template-access.js";
@@ -44,10 +44,20 @@ export default defineAction({
       .where(eq(schema.assetGenerationRuns.id, runId))
       .limit(1);
     if (!run) throw new Error("Generation run not found.");
-    await assertCanDraft(run.libraryId);
+    // A rerun reuses the source run's prompt, settings, and session, so a
+    // below-editor caller may only rerun their own.
+    const draftAccess = await assertCanDraftAuthoredBy(
+      run.libraryId,
+      run.ownerEmail,
+      "A generation run",
+    );
     const resolvedSessionId = sessionId ?? run.sessionId ?? undefined;
     if (resolvedSessionId) {
-      await requireGenerationSessionInLibrary(resolvedSessionId, run.libraryId);
+      await requireGenerationSessionInLibrary(
+        resolvedSessionId,
+        run.libraryId,
+        draftAccess,
+      );
     }
 
     const metadata = parseJson<{

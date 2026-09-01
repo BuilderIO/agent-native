@@ -52,6 +52,22 @@ A kit `viewer` may **draft**: generation runs, generation sessions, and `image_a
 | `assertCanDraftAuthoredBy(libraryId, author, what)` | viewer for own | a session or run someone else may have created |
 | `assertCanDeleteAsset(asset)` | viewer for own draft | discarding a candidate vs deleting kit content |
 
+Drafting in a kit is not a licence to touch another drafter's work, so the
+author-scoped rule guards every write that lands on an existing row someone else
+made:
+
+- `requireGenerationSessionInLibrary` scopes the session a generation attaches
+  to. Belonging to the kit is not enough — appending a candidate also moves the
+  session's `activeAssetId`. Pass the access you already resolved to skip the
+  second lookup.
+- `refresh-generation-run` reconciles a run row (status, error, outputs) and
+  `rerun-generation-run` reuses its prompt, settings, and session, so both stay
+  with the run's `ownerEmail`.
+- `dismiss-variant-slots` re-reads every asset behind the slots it clears.
+  Variant state is client-writable, so a slot id is never permission to delete:
+  anything outside the state's kit, already saved, or authored by someone else
+  clears from the tray and comes back in `assetsRetained`.
+
 `assertCanDraft` returns `{ role, canApprove }`. Generation actions report `draftPendingApproval: true` when `canApprove` is false so the caller can say the images are waiting on an editor instead of claiming they were saved. `get-library-access` exposes the same answer to the UI and to other agents.
 
 The refusal message keeps the framework's `Requires editor role on asset-library <id> (have viewer)` prefix on purpose: core's permanent-precondition classifier matches that shape and ends the agent turn instead of retrying a grant it cannot obtain. Keep it if you reword the remedy.

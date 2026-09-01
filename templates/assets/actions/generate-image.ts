@@ -266,7 +266,11 @@ export default defineAction({
       .limit(1);
     if (!library) throw new Error("Asset library not found.");
     const session = args.sessionId
-      ? await requireGenerationSessionInLibrary(args.sessionId, args.libraryId)
+      ? await requireGenerationSessionInLibrary(
+          args.sessionId,
+          args.libraryId,
+          draftAccess,
+        )
       : null;
     const contextOff = args.contextModeOverride === "off";
     const lineageAssetId = args.sourceAssetId ?? args.subjectAssetId;
