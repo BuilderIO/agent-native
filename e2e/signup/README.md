@@ -10,8 +10,9 @@ The scheduled target is `all` email-capable sites on beta. That currently covers
 without the Better Auth email magic-link flow (`factory` and `macros`) are
 intentionally excluded. Every target uses a fresh reserved address per run to
 exercise new-user creation. Production is opt-in through `workflow_dispatch`
-and also uses a fresh reserved address. The runner uses four workers against
-different hosts, so a fleet-wide outage reaches the alert path promptly while
+and also uses a fresh reserved address. The runner uses one worker so browser
+and CDN contention cannot turn healthy forms into false failures. Real HTTP or
+session failures are not retried, so they reach the alert path immediately;
 one run still creates a bounded number of canary accounts instead of
 multiplying them across a matrix.
 
@@ -27,6 +28,8 @@ Add these repository secrets before enabling the scheduled workflow:
 Create one Mailosaur server for the lane. Mailosaur accepts arbitrary local
 parts on the server domain, so each run uses an address like
 `signup+qa-test-bot-123-beta-clips-abc123@SERVER_ID.mailosaur.net`.
+Mailosaur rate limits are reported as `INCONCLUSIVE` and do not page; HTTP and
+session failures from the app remain failing assertions.
 
 The workflow runs daily at 16:15 UTC on beta and can also be started manually
 with comma-separated `apps` and `environments` inputs for beta or production. A
