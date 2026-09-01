@@ -466,7 +466,6 @@ export default function ShareRoute() {
   const [isPlayerFullscreen, setIsPlayerFullscreen] = useState(false);
   const {
     session,
-    isLoading: sessionLoading,
     status: sessionStatus,
     retry: retrySession,
   } = useSession();
@@ -1563,9 +1562,9 @@ export default function ShareRoute() {
           </TabsList>
           <TabsContent
             value="agent"
-            className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
+            className="mt-0 flex min-h-0 flex-1 flex-col overflow-y-auto data-[state=inactive]:hidden xl:overflow-y-visible"
           >
-            {sessionLoading ? null : session ? (
+            {sessionStatus === "loading" || sessionStatus === "signing-out" ? null : session ? (
               <AgentPanel
                 emptyStateText={t("recordingPage.askAboutClip")}
                 dynamicSuggestions={false}
@@ -1589,7 +1588,7 @@ export default function ShareRoute() {
           </TabsContent>
           <TabsContent
             value="transcript"
-            className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
+            className="mt-3 min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden xl:overflow-y-visible"
           >
             <TranscriptPanel
               segments={transcriptSegments}
@@ -1604,7 +1603,7 @@ export default function ShareRoute() {
           </TabsContent>
           <TabsContent
             value="comments"
-            className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
+            className="mt-3 min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden xl:overflow-y-visible"
           >
             <CommentsPanel
               recordingId={recording.id}
@@ -1633,7 +1632,7 @@ export default function ShareRoute() {
           {viewerCanEdit ? (
             <TabsContent
               value="insights"
-              className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
+              className="mt-3 min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden xl:overflow-y-visible"
             >
               <InsightsPanel
                 recordingId={recording.id}

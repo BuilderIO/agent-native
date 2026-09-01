@@ -1309,6 +1309,7 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     expect(html).toContain("setInterval");
     expect(html).toContain("__agentNativeLoadingLabelHydrated");
     expect(html).toContain("__agentNativeLoadingLabelInterval");
+    expect(html).toContain("__agentNativeLoadingLabelCleanup");
     expect(html).toContain("clearInterval");
     expect(html).toContain("MutationObserver");
     expect(html).toContain("loader.isConnected");

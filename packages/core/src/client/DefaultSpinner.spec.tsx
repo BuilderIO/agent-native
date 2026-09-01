@@ -23,6 +23,7 @@ describe("DefaultSpinner", () => {
     delete window.__agentNativeLoadingLabelIndex;
     delete window.__agentNativeLoadingLabelHydrated;
     delete window.__agentNativeLoadingLabelInterval;
+    delete window.__agentNativeLoadingLabelCleanup;
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
   });
@@ -118,5 +119,17 @@ describe("DefaultSpinner", () => {
     });
 
     expect(window.__agentNativeLoadingLabelHydrated).toBe(true);
+  });
+
+  it("cleans up the static shell handoff when hydrating", () => {
+    const cleanup = vi.fn();
+    window.__agentNativeLoadingLabelCleanup = cleanup;
+
+    act(() => {
+      root.render(<DefaultSpinner />);
+    });
+
+    expect(cleanup).toHaveBeenCalledOnce();
+    expect(window.__agentNativeLoadingLabelCleanup).toBeUndefined();
   });
 });

@@ -33,6 +33,10 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("dataQ.data.status === 404");
     expect(route).toContain("!needsPassword &&");
     expect(route).toContain(
+      'sessionStatus === "loading" || sessionStatus === "signing-out"',
+    );
+    expect(route).toContain("overflow-y-auto data-[state=inactive]:hidden");
+    expect(route).toContain(
       "h-[var(--agent-native-viewport-height,100vh)] min-h-0",
     );
     expect(route).toContain("overflow-y-auto xl:flex-1 xl:overflow-y-hidden");

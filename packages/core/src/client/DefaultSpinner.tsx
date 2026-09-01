@@ -20,6 +20,7 @@ declare global {
     __agentNativeLoadingLabelIndex?: number;
     __agentNativeLoadingLabelHydrated?: boolean;
     __agentNativeLoadingLabelInterval?: number;
+    __agentNativeLoadingLabelCleanup?: () => void;
   }
 }
 
@@ -73,6 +74,8 @@ export function DefaultSpinner({
       delete window.__agentNativeLoadingLabelInterval;
     }
     window.__agentNativeLoadingLabelHydrated = true;
+    window.__agentNativeLoadingLabelCleanup?.();
+    delete window.__agentNativeLoadingLabelCleanup;
     if (
       typeof window !== "undefined" &&
       window.__agentNativeLoadingLabelIndex === undefined
