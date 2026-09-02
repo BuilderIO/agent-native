@@ -20,14 +20,16 @@ Runtime work — settings, inbox, rules, automations, and activity — is scoped
 `factoryId`. Reusable agents stay workspace-wide; graph nodes may reference any
 workspace agent as blueprint only. Pass `factoryId` on triage, config, automation,
 and audit actions for the factory the user is viewing. New factories start with
-no jobs; create one with `create-factory-automation`. Author filters store Slack
+no jobs; create one with `create-factory-automation`. `delete-factory` removes that factory's jobs, automation run history, and poll cursors. Author filters store Slack
 member ids or GitHub numeric user ids, never names. `inboxLimit` and `workLimit`
 are action-enforced fields, not prompt text. Source reactions are an
 optional `reaction` argument on `dispatch-factory-item`, not a job field. Inbox filters
 (`status`, `source`, `risk`, `updatedAfter`) belong on `list-triage-items`, not
 on a client-side page of results. The PR babysitter lists the next GitHub PRs
 like Slack lists the next messages, then records inScope false so other authors
-leave the review window. Selected automation is `automationId` on the factory
+leave the review window. The babysit action posts one hardcoded ask and parks
+waiting or quiet PRs out of needsReview until new human feedback or a real
+merge conflict. Selected automation is `automationId` on the factory
 view. Creating one is `createAutomation=1` on the Automations tab.
 
 ## Workflow

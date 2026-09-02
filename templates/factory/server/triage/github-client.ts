@@ -102,6 +102,7 @@ export interface GitHubPullRequestSummary extends GitHubPullRequest {
   changedFiles: number;
   mergeable: boolean | null;
   mergeableState: string | null;
+  reviewComments: number;
 }
 
 export interface GitHubMemberCheck {
@@ -157,9 +158,12 @@ export interface GitHubPullRequestEvidence {
   comments: readonly ReviewCommentObservation[];
   commentsTruncated: boolean;
   reviews: readonly PullRequestReviewObservation[];
+  reviewsTruncated: boolean;
   checks: readonly PullRequestCheckObservation[];
   checksCoverage: TriageCoverage;
 }
+
+const MAX_REVIEW_PAGES = 5;
 
 interface JsonResponse {
   ok: boolean;
@@ -560,6 +564,35 @@ export function createGitHubClient(options: GitHubClientOptions) {
       });
     },
 
+    async listPullRequestReviews(
+      repository: GitHubRepositoryRef,
+      pullRequestNumber: number,
+    ) {
+      requirePositivePullRequestNumber(pullRequestNumber);
+      const observedAt = new Date().toISOString();
+      const reviews: PullRequestReviewObservation[] = [];
+      let reviewsTruncated = false;
+      for (let page = 1; page <= MAX_REVIEW_PAGES; page += 1) {
+        const payload = requireArray(
+          await request<unknown>(
+            `${repositoryPath(repository)}/pulls/${pullRequestNumber}/reviews?per_page=${pageSize()}&page=${page}`,
+          ),
+          "review",
+        );
+        reviews.push(
+          ...payload.map((review) => parseReview(review, observedAt)),
+        );
+        if (payload.length < MAX_PAGE_SIZE) {
+          reviewsTruncated = false;
+          break;
+        }
+        if (page === MAX_REVIEW_PAGES) {
+          reviewsTruncated = true;
+        }
+      }
+      return { reviews, reviewsTruncated };
+    },
+
     async listPullRequestReviewComments(
       repository: GitHubRepositoryRef,
       pullRequestNumber: number,
@@ -587,21 +620,17 @@ export function createGitHubClient(options: GitHubClientOptions) {
       if (!sha) throw new Error("GitHub pull request head SHA is required");
       const root = repositoryPath(repository);
       const page = pageSize();
-      const [reviewPayload, commentPayload] = await Promise.all([
-        request<unknown>(
-          `${root}/pulls/${pullRequestNumber}/reviews?per_page=${page}`,
-        ),
+      const [reviewPage, commentPayload] = await Promise.all([
+        this.listPullRequestReviews(repository, pullRequestNumber),
         request<unknown>(
           `${root}/pulls/${pullRequestNumber}/comments?per_page=${page}`,
         ),
       ]);
-      const observedAt = new Date().toISOString();
       const comments = requireArray(commentPayload, "review comment").map(
         parseReviewComment,
       );
-      const reviews = requireArray(reviewPayload, "review").map((review) =>
-        parseReview(review, observedAt),
-      );
+      const reviews = reviewPage.reviews;
+      const reviewsTruncated = reviewPage.reviewsTruncated;
       let checks: PullRequestCheckObservation[];
       let checksCoverage: TriageCoverage = "complete";
       try {
@@ -653,6 +682,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
         comments,
         commentsTruncated: comments.length >= MAX_PAGE_SIZE,
         reviews,
+        reviewsTruncated,
         checks,
         checksCoverage,
       };
@@ -709,6 +739,10 @@ export function createGitHubClient(options: GitHubClientOptions) {
                 item.mergeable_state,
                 "pull request mergeable state",
               ),
+        reviewComments: requiredNumber(
+          item.review_comments,
+          "pull request review comments",
+        ),
       } satisfies GitHubPullRequestSummary;
     },
 

@@ -4,7 +4,9 @@ import {
   assertUniqueSlackChannelForFactory,
   assignCreatedByIfMissing,
   builderSlackUserIdSchema,
+  factoryAutomationJobPrefix,
   factoryAutomationLeafName,
+  factoryAutomationRunHistoryKey,
   factoryConfigRowId,
   readAutomationFactoryId,
   requireExistingFactory,
@@ -92,6 +94,24 @@ describe("readAutomationFactoryId", () => {
         "jobs/factory-slack-feedback.md",
       ),
     ).toBe("support-triage");
+  });
+});
+
+describe("factoryAutomationJobPrefix", () => {
+  it("scopes cleanup to the nested Factory job folder", () => {
+    expect(factoryAutomationJobPrefix("enzo-test-factory-3")).toBe(
+      "jobs/factories/enzo-test-factory-3/",
+    );
+  });
+});
+
+describe("factoryAutomationRunHistoryKey", () => {
+  it("matches the nested automation name used by run history", () => {
+    expect(
+      factoryAutomationRunHistoryKey(
+        "jobs/factories/enzo-test-factory-3/factory-slack-feedback.md",
+      ),
+    ).toBe("factories/enzo-test-factory-3/factory-slack-feedback");
   });
 });
 
