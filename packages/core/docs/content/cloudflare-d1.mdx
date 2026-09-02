@@ -30,7 +30,8 @@ Merge the D1 binding into the generated `.output/server/wrangler.json`:
     {
       "binding": "DB",
       "database_name": "agent-native-app",
-      "database_id": "YOUR_DATABASE_ID"
+      "database_id": "YOUR_DATABASE_ID",
+      "migrations_dir": "migrations"
     }
   ]
 }
@@ -60,7 +61,8 @@ Cloudflare dashboard:
     {
       "binding": "DB",
       "database_name": "agent-native-app",
-      "database_id": "YOUR_DATABASE_ID"
+      "database_id": "YOUR_DATABASE_ID",
+      "migrations_dir": "server/db/migrations"
     }
   ]
 }
@@ -79,14 +81,11 @@ redeploy the Pages project after adding the `DB` binding.
 
 ## Migrations
 
-D1 deployments cannot load migration files from the server filesystem. Keep app
-migrations as SQL entries embedded with `runMigrations()` as shown in the
-[database migration guide](/docs/server-database#migrations). Publishing with
-Wrangler does not execute those entries. Do not use a static root request as a
-migration check: Pages can serve that response from its asset layer, and a
-request-path migration is not an authorized release runtime. For a fail-closed
-release step, manage app-owned D1 migrations as Wrangler SQL files and apply
-them explicitly before deployment:
+D1 production migrations use Wrangler's SQL migration system as the sole release
+owner. Keep reviewed app migration files in `server/db/migrations/`. The Worker
+build copies those files to `.output/server/migrations/`, while the Pages preset
+reads them from the source tree. Configure `migrations_dir` as shown above and
+apply pending migrations explicitly before deployment:
 
 ```bash
 # Worker preset
@@ -96,10 +95,9 @@ npx wrangler d1 migrations apply agent-native-app --remote --config .output/serv
 npx wrangler d1 migrations apply agent-native-app --remote --config wrangler.jsonc
 ```
 
-These commands fail the release when D1 rejects a migration. If an app must
-keep migration logic embedded in `runMigrations()` instead, execute it from a
-dedicated Worker release job or protected dynamic endpoint that explicitly
-claims migration duty; the generic Pages deploy does not run those entries.
+These commands fail the release when D1 rejects a migration. Do not apply the
+same app-owned SQL through embedded `runMigrations()` entries: Cloudflare can
+execute that request/bootstrap path before an authorized release boundary.
 
 Use one migration owner for each app-owned schema change; do not apply the same
 SQL through both Wrangler migrations and embedded `runMigrations()` entries.
