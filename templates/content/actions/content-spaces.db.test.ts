@@ -119,19 +119,21 @@ describe("Content space provisioning", () => {
     await runWithRequestContext({ userEmail: email }, () =>
       ensureContentSpacesAction.run({}),
     );
-    await expect(
-      runWithRequestContext({ userEmail: email }, () =>
-        listContentSpacesAction.run({}),
-      ),
-    ).resolves.toMatchObject({ needsReconciliation: false });
+    const personalOnly = await runWithRequestContext({ userEmail: email }, () =>
+      listContentSpacesAction.run({}),
+    );
+    expect(personalOnly).toMatchObject({ needsReconciliation: false });
 
     await addOrganization(orgId, "Late Membership", email);
     await addMember("member-late-membership", orgId, email, "owner");
-    await expect(
-      runWithRequestContext({ userEmail: email }, () =>
-        listContentSpacesAction.run({}),
-      ),
-    ).resolves.toMatchObject({ needsReconciliation: true });
+    const membershipPending = await runWithRequestContext(
+      { userEmail: email },
+      () => listContentSpacesAction.run({}),
+    );
+    expect(membershipPending).toMatchObject({ needsReconciliation: true });
+    expect(membershipPending.reconciliationKey).not.toBe(
+      personalOnly.reconciliationKey,
+    );
 
     await runWithRequestContext({ userEmail: email }, () =>
       ensureContentSpacesAction.run({}),

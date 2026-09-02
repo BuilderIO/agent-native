@@ -117,6 +117,53 @@ const DEFAULT_MIN_COLUMN_WIDTH = 96;
 const DEFAULT_MAX_COLUMN_WIDTH = 640;
 const SELECTION_COLUMN_WIDTH = 40;
 
+export type DataGridRtlScrollType = "default" | "negative" | "reverse";
+
+let rtlScrollType: DataGridRtlScrollType | undefined;
+
+function detectRtlScrollType(): DataGridRtlScrollType {
+  if (rtlScrollType) return rtlScrollType;
+  if (typeof document === "undefined" || !document.body) return "negative";
+  const viewport = document.createElement("div");
+  const content = document.createElement("div");
+  viewport.dir = "rtl";
+  viewport.style.cssText =
+    "position:absolute;top:-1000px;width:4px;height:1px;overflow:scroll";
+  content.style.width = "8px";
+  viewport.appendChild(content);
+  document.body.appendChild(viewport);
+  if (viewport.scrollLeft > 0) {
+    rtlScrollType = "default";
+  } else {
+    viewport.scrollLeft = 1;
+    rtlScrollType = viewport.scrollLeft === 0 ? "negative" : "reverse";
+  }
+  viewport.remove();
+  return rtlScrollType;
+}
+
+export function dataGridDistanceFromStart({
+  direction,
+  scrollLeft,
+  maxScroll,
+  rtlScrollType,
+}: {
+  direction: string;
+  scrollLeft: number;
+  maxScroll: number;
+  rtlScrollType: DataGridRtlScrollType;
+}) {
+  if (direction !== "rtl") return scrollLeft;
+  switch (rtlScrollType) {
+    case "negative":
+      return -scrollLeft;
+    case "reverse":
+      return scrollLeft;
+    case "default":
+      return maxScroll - scrollLeft;
+  }
+}
+
 function columnWidth<Row>(
   column: DataGridColumn<Row>,
   requestedWidth: number | undefined,
@@ -485,19 +532,20 @@ export function DataGrid<Row>({
   });
 
   const updateOverflowEdges = React.useCallback(() => {
+    if (horizontalOverflowAffordance !== "edges") return;
     const container = scrollContainerRef.current;
-    if (!container || horizontalOverflowAffordance !== "edges") {
-      setOverflowEdges({ start: false, end: false });
-      return;
-    }
+    if (!container) return;
     const maxScroll = Math.max(
       0,
       container.scrollWidth - container.clientWidth,
     );
-    const distanceFromStart =
-      getComputedStyle(container).direction === "rtl"
-        ? Math.abs(container.scrollLeft)
-        : container.scrollLeft;
+    const distanceFromStart = dataGridDistanceFromStart({
+      direction: getComputedStyle(container).direction,
+      scrollLeft: container.scrollLeft,
+      maxScroll,
+      rtlScrollType:
+        container.scrollLeft < 0 ? "negative" : detectRtlScrollType(),
+    });
     const nextEdges = {
       start: maxScroll > 1 && distanceFromStart > 1,
       end: maxScroll > 1 && distanceFromStart < maxScroll - 1,
@@ -511,6 +559,14 @@ export function DataGrid<Row>({
   }, [horizontalOverflowAffordance]);
 
   React.useEffect(() => {
+    if (horizontalOverflowAffordance !== "edges") {
+      setOverflowEdges((currentEdges) =>
+        currentEdges.start || currentEdges.end
+          ? { start: false, end: false }
+          : currentEdges,
+      );
+      return;
+    }
     updateOverflowEdges();
     const container = scrollContainerRef.current;
     if (!container) return;
@@ -526,7 +582,7 @@ export function DataGrid<Row>({
       resizeObserver?.disconnect();
       window.removeEventListener("resize", updateOverflowEdges);
     };
-  }, [columns, rows, updateOverflowEdges]);
+  }, [columns, horizontalOverflowAffordance, rows, updateOverflowEdges]);
 
   const resolvedColumnWidths = columnWidths ?? internalColumnWidths;
   const resolvedSelectedRowIds = selectedRowIds ?? internalSelectedRowIds;
@@ -749,7 +805,9 @@ export function DataGrid<Row>({
             scrollClassName,
           )}
           onScroll={(event) => {
-            updateOverflowEdges();
+            if (horizontalOverflowAffordance === "edges") {
+              updateOverflowEdges();
+            }
             onScroll?.(event);
           }}
         >

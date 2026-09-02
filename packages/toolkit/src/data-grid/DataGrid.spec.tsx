@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DataGrid,
   dataGridColumnTemplate,
+  dataGridDistanceFromStart,
   type DataGridColumn,
 } from "./index.js";
 
@@ -48,6 +49,33 @@ const rows: readonly Row[] = [
 ];
 
 describe("data-grid", () => {
+  it("normalizes distance from the RTL start across browser scroll models", () => {
+    expect(
+      dataGridDistanceFromStart({
+        direction: "rtl",
+        scrollLeft: -75,
+        maxScroll: 200,
+        rtlScrollType: "negative",
+      }),
+    ).toBe(75);
+    expect(
+      dataGridDistanceFromStart({
+        direction: "rtl",
+        scrollLeft: 75,
+        maxScroll: 200,
+        rtlScrollType: "reverse",
+      }),
+    ).toBe(75);
+    expect(
+      dataGridDistanceFromStart({
+        direction: "rtl",
+        scrollLeft: 125,
+        maxScroll: 200,
+        rtlScrollType: "default",
+      }),
+    ).toBe(75);
+  });
+
   it("builds a bounded template and includes the selection column only when requested", () => {
     expect(dataGridColumnTemplate(columns, { name: 40 }, "none")).toBe(
       "96px 120px",

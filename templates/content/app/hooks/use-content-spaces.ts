@@ -23,24 +23,27 @@ export type ListContentSpacesResponse = {
   favoritesDatabaseId: string | null;
   favoritesDocumentId: string | null;
   needsReconciliation: boolean;
+  reconciliationKey: string;
   spaces: ContentSpaceSummary[];
 };
 
 export function shouldAutoEnsureContentSpaces({
   querySucceeded,
   reconciliationNeeded,
-  provisioningAttempted,
+  reconciliationKey,
+  attemptedReconciliationKey,
   provisioningPending,
 }: {
   querySucceeded: boolean;
   reconciliationNeeded: boolean;
-  provisioningAttempted: boolean;
+  reconciliationKey: string;
+  attemptedReconciliationKey: string | null;
   provisioningPending: boolean;
 }) {
   return (
     querySucceeded &&
     reconciliationNeeded &&
-    !provisioningAttempted &&
+    reconciliationKey !== attemptedReconciliationKey &&
     !provisioningPending
   );
 }

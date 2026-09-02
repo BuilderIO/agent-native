@@ -6,7 +6,8 @@ describe("shouldAutoEnsureContentSpaces", () => {
   const bootstrapState = {
     querySucceeded: true,
     reconciliationNeeded: true,
-    provisioningAttempted: false,
+    reconciliationKey: "membership-a",
+    attemptedReconciliationKey: null,
     provisioningPending: false,
   };
 
@@ -45,7 +46,7 @@ describe("shouldAutoEnsureContentSpaces", () => {
     expect(
       shouldAutoEnsureContentSpaces({
         ...bootstrapState,
-        provisioningAttempted: true,
+        attemptedReconciliationKey: "membership-a",
       }),
     ).toBe(false);
     expect(
@@ -54,5 +55,24 @@ describe("shouldAutoEnsureContentSpaces", () => {
         provisioningPending: true,
       }),
     ).toBe(false);
+  });
+
+  it("reconciles again when the membership snapshot changes", () => {
+    expect(
+      shouldAutoEnsureContentSpaces({
+        ...bootstrapState,
+        reconciliationKey: "membership-a-and-b",
+        attemptedReconciliationKey: "membership-a",
+      }),
+    ).toBe(true);
+  });
+
+  it("retries the same membership snapshot after a failed attempt is cleared", () => {
+    expect(
+      shouldAutoEnsureContentSpaces({
+        ...bootstrapState,
+        attemptedReconciliationKey: null,
+      }),
+    ).toBe(true);
   });
 });

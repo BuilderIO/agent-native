@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
@@ -131,6 +133,16 @@ export default defineAction({
         (membership) => !provisionedOrgIds.has(membership.orgId),
       ) ||
       !filesDocumentIdByDatabaseId.has(favoritesIds.databaseId);
+    const reconciliationKey = createHash("sha256")
+      .update(
+        [
+          personalSpaceId,
+          ...memberships
+            .map((membership) => `${membership.orgId}:${membership.role}`)
+            .sort(),
+        ].join("|"),
+      )
+      .digest("hex");
     return {
       catalogDatabaseId: catalogIds.databaseId,
       catalogDocumentId: catalogIds.documentId,
@@ -142,6 +154,7 @@ export default defineAction({
       favoritesDocumentId:
         filesDocumentIdByDatabaseId.get(favoritesIds.databaseId) ?? null,
       needsReconciliation,
+      reconciliationKey,
       spaces,
     };
   },
