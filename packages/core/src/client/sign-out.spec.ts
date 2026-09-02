@@ -230,10 +230,10 @@ describe("signOut", () => {
       window,
       "localStorage",
     );
-    const setItem = vi.fn();
+    const removeItem = vi.fn();
     Object.defineProperty(window, "localStorage", {
       configurable: true,
-      value: { setItem },
+      value: { removeItem },
     });
     vi.stubGlobal(
       "fetch",
@@ -246,7 +246,7 @@ describe("signOut", () => {
 
     expect(window.location.reload).toHaveBeenCalledTimes(1);
     expect(replace).not.toHaveBeenCalled();
-    expect(setItem).not.toHaveBeenCalled();
+    expect(removeItem).toHaveBeenCalledWith(BETA_REDIRECT_STORAGE_KEY);
     expect(warn).toHaveBeenCalled();
     if (originalLocalStorage) {
       Object.defineProperty(window, "localStorage", originalLocalStorage);
@@ -263,10 +263,10 @@ describe("signOut", () => {
       window,
       "localStorage",
     );
-    const setItem = vi.fn();
+    const removeItem = vi.fn();
     Object.defineProperty(window, "localStorage", {
       configurable: true,
-      value: { setItem },
+      value: { removeItem },
     });
     let signal: AbortSignal | undefined;
     vi.stubGlobal(
@@ -288,7 +288,7 @@ describe("signOut", () => {
     expect(signal?.aborted).toBe(true);
     expect(window.location.reload).toHaveBeenCalledTimes(1);
     expect(replace).not.toHaveBeenCalled();
-    expect(setItem).not.toHaveBeenCalled();
+    expect(removeItem).toHaveBeenCalledWith(BETA_REDIRECT_STORAGE_KEY);
     expect(warn).toHaveBeenCalledWith(
       "Unable to complete the sign-out request",
       expect.anything(),

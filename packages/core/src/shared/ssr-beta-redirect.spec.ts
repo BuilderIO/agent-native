@@ -37,6 +37,7 @@ function runScript({
   sessionResponseOk = true,
   sessionPath = "/_agent-native/auth/session",
   workspaceRuntime = false,
+  workspaceAppMountPaths,
   sessionProbe,
 }: {
   href: string | { current: string };
@@ -48,6 +49,7 @@ function runScript({
   sessionResponseOk?: boolean;
   sessionPath?: string;
   workspaceRuntime?: boolean;
+  workspaceAppMountPaths?: string[];
   sessionProbe?: Promise<Record<string, unknown> | null>;
 }) {
   const result = {
@@ -79,7 +81,10 @@ function runScript({
     parent: null as unknown,
     sessionStorage,
     __AGENT_NATIVE_CONFIG__: workspaceRuntime
-      ? { workspaceRuntime: true }
+      ? {
+          workspaceRuntime: true,
+          ...(workspaceAppMountPaths ? { workspaceAppMountPaths } : {}),
+        }
       : undefined,
   } as Record<string, unknown>;
   window.parent = embedded ? {} : window;
@@ -147,6 +152,40 @@ describe("getSsrBetaRedirectScript", () => {
     expect(result.fetched).toEqual(["/plan/_agent-native/auth/session"]);
     expect(result.redirectedTo).toBe(
       "https://beta.agent-workspace.builder.io/plan/inbox",
+    );
+  });
+
+  it("replaces a stale configured workspace mount with the live mount", async () => {
+    const result = await runScript({
+      href: "https://agent-workspace.builder.io/diagrams/inbox",
+      localStorage: createStorage({
+        [BETA_REDIRECT_STORAGE_KEY]: String(Date.now() + 60_000),
+      }),
+      sessionPath: "/dispatch/_agent-native/auth/session",
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/dispatch", "/diagrams"],
+    });
+
+    expect(result.fetched).toEqual(["/diagrams/_agent-native/auth/session"]);
+    expect(result.redirectedTo).toBe(
+      "https://beta.agent-workspace.builder.io/diagrams/inbox",
+    );
+  });
+
+  it("keeps a configured path when the live segment is not a workspace mount", async () => {
+    const result = await runScript({
+      href: "https://agent-workspace.builder.io/settings/inbox",
+      localStorage: createStorage({
+        [BETA_REDIRECT_STORAGE_KEY]: String(Date.now() + 60_000),
+      }),
+      sessionPath: "/dispatch/_agent-native/auth/session",
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/dispatch", "/diagrams"],
+    });
+
+    expect(result.fetched).toEqual(["/dispatch/_agent-native/auth/session"]);
+    expect(result.redirectedTo).toBe(
+      "https://beta.agent-workspace.builder.io/settings/inbox",
     );
   });
 

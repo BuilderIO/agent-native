@@ -118,6 +118,19 @@ describe("injectBetaOptOutPersistence", () => {
     expect(html).toContain("/plan/_agent-native/auth/session");
   });
 
+  it("prefers the request mount over a stale build-time base", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+
+    const html = injectBetaOptOutPersistence(
+      "<html><head></head><body>Sign in</body></html>",
+      "/diagrams/login",
+    );
+
+    expect(html).toContain("/diagrams/_agent-native/auth/session");
+    expect(html).not.toContain("/dispatch/_agent-native/auth/session");
+  });
+
   it("escapes a request-derived session probe path in the inline script", () => {
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;

@@ -246,7 +246,7 @@ export function injectBetaOptOutPersistence(
   let html = loginHtml;
   if (!html.includes(SSR_BETA_REDIRECT_MARKER)) {
     const appBasePath =
-      getAppBasePathFromViteEnv() || workspaceBasePathFromRequest(requestPath);
+      workspaceBasePathFromRequest(requestPath) || getAppBasePathFromViteEnv();
     html = insertBeforeClosingTag(
       html,
       getSsrBetaRedirectScript(`${appBasePath}/_agent-native/auth/session`),

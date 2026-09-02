@@ -57,6 +57,14 @@ function clearBetaRedirectSignOutSignal(): void {
   }
 }
 
+function clearBetaRedirectMarker(): void {
+  try {
+    window.localStorage.removeItem(BETA_REDIRECT_STORAGE_KEY);
+  } catch {
+    // coercion-ok: local storage is optional; sign-out must still complete.
+  }
+}
+
 export interface SignOutOptions {
   /**
    * Where to send the browser once the session is revoked. Defaults to the
@@ -109,6 +117,7 @@ async function signOutFlow(options: SignOutOptions): Promise<void> {
     // Do not send an unrevoked session through sign-in's continuation, which
     // can immediately authenticate it again.
     clearBetaRedirectSignOutSignal();
+    clearBetaRedirectMarker();
     window.location.reload();
     return;
   }
@@ -119,10 +128,6 @@ async function signOutFlow(options: SignOutOptions): Promise<void> {
   // `replace`, not `assign`: the dead authenticated URL must not stay in
   // history, or Back lands on a shell with no session.
   clearBetaRedirectSignOutSignal();
-  try {
-    window.localStorage.removeItem(BETA_REDIRECT_STORAGE_KEY);
-  } catch {
-    // coercion-ok: local storage is optional; sign-out must still complete.
-  }
+  clearBetaRedirectMarker();
   window.location.replace(options.redirectTo ?? buildSignInReturnHref());
 }

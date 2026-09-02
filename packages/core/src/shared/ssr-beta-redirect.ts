@@ -131,16 +131,37 @@ export function getSsrBetaRedirectScriptBody(
 
   var sessionProbePath = ${safeJsonForHtml(sessionPath)};
   var appConfig = window.__AGENT_NATIVE_CONFIG__;
-  if (
-    sessionProbePath === '/_agent-native/auth/session' &&
-    appConfig &&
-    appConfig.workspaceRuntime === true
-  ) {
+  if (appConfig && appConfig.workspaceRuntime === true) {
+    var frameworkSessionPath = '/_agent-native/auth/session';
     var mountSegment = currentUrl.pathname.split('/').find(function (segment) {
       return segment;
     });
-    if (mountSegment && mountSegment !== '_agent-native' && mountSegment !== 'api') {
-      sessionProbePath = '/' + mountSegment + sessionProbePath;
+    var workspaceMount = mountSegment &&
+      mountSegment !== '_agent-native' &&
+      mountSegment !== 'api' &&
+      mountSegment !== 'sign-in' &&
+      mountSegment !== 'login' &&
+      mountSegment !== 'signup'
+      ? '/' + mountSegment
+      : '';
+    var knownWorkspaceMounts = Array.isArray(appConfig.workspaceAppMountPaths)
+      ? appConfig.workspaceAppMountPaths
+      : null;
+    var knownWorkspaceMount = !knownWorkspaceMounts ||
+      knownWorkspaceMounts.indexOf(workspaceMount) !== -1;
+    if (
+      workspaceMount &&
+      knownWorkspaceMount &&
+      typeof sessionProbePath === 'string' &&
+      sessionProbePath.endsWith(frameworkSessionPath)
+    ) {
+      var configuredWorkspaceMount = sessionProbePath.slice(
+        0,
+        -frameworkSessionPath.length,
+      );
+      if (configuredWorkspaceMount !== workspaceMount) {
+        sessionProbePath = workspaceMount + frameworkSessionPath;
+      }
     }
   }
 
