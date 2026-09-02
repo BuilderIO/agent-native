@@ -67,7 +67,6 @@ export interface AuthPageProps {
   showGoogle: boolean;
   signupLegalNotice?: AuthLegalNotice;
   signupLocalModeNote?: { text: string; command: string };
-  connectionLabel: string;
   docsAuthUrl: string;
   identitySsoEnabled: boolean;
   publicOAuthOrigin: string;
@@ -630,7 +629,6 @@ export function AuthPage(props: AuthPageProps) {
     showGoogle,
     signupLegalNotice,
     signupLocalModeNote,
-    connectionLabel,
     docsAuthUrl,
     identitySsoEnabled,
     publicOAuthOrigin,
@@ -648,7 +646,6 @@ export function AuthPage(props: AuthPageProps) {
   const [localDevBusy, setLocalDevBusy] = React.useState(false);
   const [fullAuthOptionsVisible, setFullAuthOptionsVisible] =
     React.useState(true);
-  const [localNoteVisible, setLocalNoteVisible] = React.useState(false);
   const [upgradeVisible, setUpgradeVisible] = React.useState(false);
   const [magicLinkEmail, setMagicLinkEmail] = React.useState("");
   const [signupEmail, setSignupEmail] = React.useState("");
@@ -940,16 +937,6 @@ export function AuthPage(props: AuthPageProps) {
       auth_view: view,
     });
   }, [authMode, homePath, runtimeAppBasePath, trackingApp]);
-
-  React.useEffect(() => {
-    const hostname = window.location.hostname.toLowerCase();
-    setLocalNoteVisible(
-      hostname === "localhost" ||
-        hostname === "127.0.0.1" ||
-        hostname === "::1" ||
-        hostname.endsWith(".local"),
-    );
-  }, []);
 
   const localDevAllowed = React.useMemo(
     () =>
@@ -2519,16 +2506,6 @@ export function AuthPage(props: AuthPageProps) {
       </div>
     </div>
   );
-  const localNote = (
-    <p
-      className={`local-note ${localNoteVisible ? "show" : ""}`}
-      id="local-note"
-    >
-      <span data-i18n="localNotePrefix">{t("localNotePrefix")}</span> (
-      <strong>{connectionLabel}</strong>)
-      <span data-i18n="localNoteSuffix">{t("localNoteSuffix")}</span>
-    </p>
-  );
   const localePicker = (
     <div className="locale-picker">
       <button
@@ -2673,12 +2650,7 @@ export function AuthPage(props: AuthPageProps) {
           </a>
         ) : null
       }
-      auth={
-        <>
-          {authCard}
-          {localNote}
-        </>
-      }
+      auth={authCard}
       className={[
         "auth-marketing-home",
         marketingCopy.screenshotSrc ? "has-product-screenshot" : "",
@@ -2759,10 +2731,7 @@ export function AuthPage(props: AuthPageProps) {
       )}
     </MarketingHome>
   ) : (
-    <>
-      <div className="auth-centered">{authCard}</div>
-      {localNote}
-    </>
+    <div className="auth-centered">{authCard}</div>
   );
 
   return (
