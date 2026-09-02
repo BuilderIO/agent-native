@@ -2253,7 +2253,7 @@ function PlainTextBody({
             data-search={matchCount}
             className={
               isActive
-                ? "bg-amber-400 text-black rounded-[2px]"
+                ? "bg-amber-400 text-foreground rounded-[2px]"
                 : "bg-yellow-200/25 text-inherit rounded-[2px]"
             }
           >
