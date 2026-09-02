@@ -82,17 +82,11 @@ redeploy the Pages project after adding the `DB` binding.
 D1 deployments cannot load migration files from the server filesystem. Keep app
 migrations as SQL entries embedded with `runMigrations()` as shown in the
 [database migration guide](/docs/server-database#migrations). Publishing with
-Wrangler does not execute those entries, so initialize the new deployment as an
-explicit release step before routing traffic to it:
-
-```bash
-curl --fail --silent --show-error --output /dev/null \
-  https://YOUR_DEPLOYMENT_HOSTNAME/
-```
-
-The request initializes the Worker and fails the release if migration startup
-returns an error. If app-owned migrations are managed as Wrangler SQL files
-instead, apply them explicitly before deployment:
+Wrangler does not execute those entries. Do not use a static root request as a
+migration check: Pages can serve that response from its asset layer, and a
+request-path migration is not an authorized release runtime. For a fail-closed
+release step, manage app-owned D1 migrations as Wrangler SQL files and apply
+them explicitly before deployment:
 
 ```bash
 # Worker preset
@@ -101,6 +95,11 @@ npx wrangler d1 migrations apply agent-native-app --remote --config .output/serv
 # Pages preset
 npx wrangler d1 migrations apply agent-native-app --remote --config wrangler.jsonc
 ```
+
+These commands fail the release when D1 rejects a migration. If an app must
+keep migration logic embedded in `runMigrations()` instead, execute it from a
+dedicated Worker release job or protected dynamic endpoint that explicitly
+claims migration duty; the generic Pages deploy does not run those entries.
 
 Use one migration owner for each app-owned schema change; do not apply the same
 SQL through both Wrangler migrations and embedded `runMigrations()` entries.
