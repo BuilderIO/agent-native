@@ -25,6 +25,7 @@ import { EventEmitter } from "node:events";
 
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 
+import { setActionChangeFastPath } from "../action-change-fast-path.js";
 import {
   ACTION_CHANGE_MARKER_KEY,
   parseActionChangeMarker,
@@ -2135,6 +2136,17 @@ export function recordChange(event: {
 }): void {
   getDefaultAppSyncState().recordChange(event);
 }
+
+setActionChangeFastPath((target) => {
+  recordChange({
+    source: "action",
+    type: "change",
+    key: target.actionName,
+    ...(target.owner ? { owner: target.owner } : {}),
+    ...(target.orgId ? { orgId: target.orgId } : {}),
+    ...(target.requestSource ? { requestSource: target.requestSource } : {}),
+  });
+});
 
 /** Get all changes after a given version. */
 export function getChangesSince(since: number): {

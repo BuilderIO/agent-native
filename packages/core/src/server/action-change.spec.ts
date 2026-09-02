@@ -9,9 +9,21 @@ vi.mock("../application-state/store.js", () => ({
   appStatePut: (...args: unknown[]) => mockAppStatePut(...args),
 }));
 
-vi.mock("./poll.js", () => ({
-  recordChange: (...args: unknown[]) => mockRecordChange(...args),
-}));
+vi.mock("./poll.js", async () => {
+  const { setActionChangeFastPath } =
+    await import("../action-change-fast-path.js");
+  setActionChangeFastPath((target) => {
+    mockRecordChange({
+      source: "action",
+      type: "change",
+      key: target.actionName,
+      ...(target.owner ? { owner: target.owner } : {}),
+      ...(target.orgId ? { orgId: target.orgId } : {}),
+      ...(target.requestSource ? { requestSource: target.requestSource } : {}),
+    });
+  });
+  return { recordChange: (...args: unknown[]) => mockRecordChange(...args) };
+});
 
 vi.mock("./request-context.js", () => ({
   getRequestOrgId: () => mockGetRequestOrgId(),

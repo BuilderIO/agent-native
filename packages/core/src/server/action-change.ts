@@ -1,9 +1,8 @@
 import {
-  actionChangeTarget,
   type NotifyActionChangeOptions,
   writeActionChangeMarker,
 } from "./action-change-marker-write.js";
-import { recordChange } from "./poll.js";
+import "./poll.js";
 
 export { actionCallIsReadOnly } from "../action-call-classification.js";
 export type { NotifyActionChangeOptions } from "./action-change-marker-write.js";
@@ -23,30 +22,10 @@ export type { NotifyActionChangeOptions } from "./action-change-marker-write.js"
  * tools would also open them to read-only A2A peers and to the agent's
  * read-result cache, where it would be false.
  */
-function recordActionChange(
-  options: NotifyActionChangeOptions,
-): NotifyActionChangeOptions {
-  const target = actionChangeTarget(options);
-  recordChange({
-    source: "action",
-    type: "change",
-    key: target.actionName,
-    ...(target.owner ? { owner: target.owner } : {}),
-    ...(target.orgId ? { orgId: target.orgId } : {}),
-    ...(target.requestSource ? { requestSource: target.requestSource } : {}),
-  });
-  return {
-    actionName: options.actionName,
-    ...(target.owner ? { owner: target.owner } : {}),
-    ...(target.orgId ? { orgId: target.orgId } : {}),
-    ...(target.requestSource ? { requestSource: target.requestSource } : {}),
-  };
-}
-
 export async function notifyActionChange(
   options: NotifyActionChangeOptions,
 ): Promise<void> {
-  await writeActionChangeMarker(recordActionChange(options));
+  await writeActionChangeMarker(options);
 }
 
 /**
@@ -57,8 +36,7 @@ export async function notifyActionChange(
 export function notifyActionChangeInBackground(
   options: NotifyActionChangeOptions,
 ): void {
-  const normalizedOptions = recordActionChange(options);
-  void writeActionChangeMarker(normalizedOptions).catch((error: unknown) => {
+  void writeActionChangeMarker(options).catch((error: unknown) => {
     console.warn(
       "[action-change] durable marker write failed:",
       error instanceof Error ? error.message : String(error),

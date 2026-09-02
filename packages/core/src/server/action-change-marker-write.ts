@@ -1,3 +1,4 @@
+import { publishActionChangeFastPath } from "../action-change-fast-path.js";
 import {
   ACTION_CHANGE_MARKER_KEY,
   actionChangeMarkerSession,
@@ -30,6 +31,7 @@ export async function writeActionChangeMarker(
   options: NotifyActionChangeOptions,
 ): Promise<void> {
   const target = actionChangeTarget(options);
+  publishActionChangeFastPath(target);
   const sessionId = actionChangeMarkerSession(target);
   if (!sessionId) return;
   await appStatePut(
