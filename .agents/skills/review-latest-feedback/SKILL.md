@@ -39,16 +39,14 @@ tell a clear bug from a preference, and it is cheap. Do not open full threads,
 read code, or investigate yet.
 
 **`slack_search` is not a scan.** It ranks and truncates, so a channel-plus-date
-query silently returns a subset and never promises every message. A run that
-used search as its only cursor left a data-loss report — "undo made all my
-slides blank", with a clip, deck id, and run id attached — unclaimed and
-unanswered, alongside five other clear bugs. Search is for finding known
-things: your prior replies, your eyes, repeat symptoms. Enumeration is the
-channel read. State the message count you covered in the recap.
+query returns a subset and never promises every message. A run that used search
+as its only cursor missed six clear bugs, including a data-loss report — "undo
+made all my slides blank", with clip, deck id, and run id attached. Search
+finds known things: prior replies, your eyes, repeat symptoms. Enumeration is
+the channel read. Put the count you covered in the recap.
 
-A channel read returns parents, so use its timestamps directly. The
-full-thread-read rule below exists because *search* hits are usually replies —
-resolve those through the permalink `thread_ts` before claiming.
+A channel read returns parents, so use its timestamps directly; *search* hits
+are usually replies, so resolve those through the permalink `thread_ts` first.
 
 Then add `👀` from the invoking identity to every item you intend to tackle,
 and read the reactions back, in one pass before any deep read. A run that
@@ -74,15 +72,12 @@ proceed on an unverified claim.
 reply obligation — that coupling is what produced 23 questions in one hour.
 Every item gets a recap row; only some get a Slack reply.
 
-Do not claim what you will not work: no preferences, product ideas, copy or
-layout suggestions, praise, status updates, merge or review requests, bot
-forwards, or duplicates. The classification rules are below.
-
-"Duplicate" means the same message twice — a re-post or cross-post. **A fresh
-report of a symptom we already answered is not a duplicate; it is the repeat
-signal.** Claim and cluster it so Phase 2's repeat gate can run. Skipping it
-is how a failed fix stays believed: someone says the bug is still there and we
-file it as noise.
+Claim only what the classification rules below put in scope. One clarification
+those rules need: "duplicate" means the same message twice — a re-post or
+cross-post. **A fresh report of a symptom we already answered is not a
+duplicate; it is the repeat signal.** Claim and cluster it so Phase 2's repeat
+gate can run. Skipping it is how a failed fix stays believed: someone says the
+bug is still there and we file it as noise.
 
 ## Phase 1: answer the people who answered you
 
@@ -225,7 +220,7 @@ no longer holds.
 
 Use the workspace's product feedback channel; here that is
 `#product-agent-native-feedback` (`C0ATH3CCZT4`) unless the invocation names
-another. Read newest to oldest through the declared window.
+another.
 
 **Clear bugs only.** A clear bug has observable broken behavior: a click or
 submit does nothing, an action errors, data is lost or reverted, the result is
