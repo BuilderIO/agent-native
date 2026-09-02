@@ -72,7 +72,7 @@ describe("requestOverlayReciprocation", () => {
     mutateUserSettingMock.mockImplementation(defaultMutateUserSettingImpl);
   });
 
-  it("throws when the peer is not in the owner's overlay list", async () => {
+  it("returns not-overlaid without throwing when the peer is not in the owner's overlay list", async () => {
     getUserSettingMock.mockImplementation(async (_email: string, key: string) =>
       key === "calendar-overlay-people" ? { people: [] } : null,
     );
@@ -82,7 +82,7 @@ describe("requestOverlayReciprocation", () => {
         ownerEmail: "owner@example.com",
         peerEmail: "peer@example.com",
       }),
-    ).rejects.toThrow("This person is not in your calendar overlay list");
+    ).resolves.toEqual({ sent: false, reason: "not-overlaid" });
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
@@ -173,6 +173,22 @@ describe("requestOverlayReciprocation", () => {
   });
 
   it("does not send and releases the claim when email is not configured", async () => {
+    // A persistent log (unlike defaultMutateUserSettingImpl, which reads
+    // but never writes back) so the release can be verified by inspecting
+    // what actually ended up stored, not just how many times the mock ran.
+    let persistedLog: Record<string, string> | null = null;
+    mutateUserSettingMock.mockImplementation(
+      async (
+        _email: string,
+        _key: string,
+        updater: (
+          current: Record<string, unknown> | null,
+        ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+      ) => {
+        persistedLog = (await updater(persistedLog)) as Record<string, string>;
+        return persistedLog;
+      },
+    );
     vi.mocked(isEmailConfigured).mockResolvedValue(false);
     getUserSettingMock.mockImplementation(settingsStore());
 
@@ -184,7 +200,9 @@ describe("requestOverlayReciprocation", () => {
     expect(result).toEqual({ sent: false, reason: "email-not-configured" });
     expect(sendEmail).not.toHaveBeenCalled();
     // Claimed once, then released once — the cooldown must not be consumed
-    // by a request that never actually sent anything.
+    // by a request that never actually sent anything. Verified against the
+    // actual persisted state, not just the call count.
     expect(mutateUserSettingMock).toHaveBeenCalledTimes(2);
+    expect(persistedLog).toEqual({});
   });
 });

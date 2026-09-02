@@ -284,6 +284,23 @@ describe("getHostSchedulingStatus", () => {
     ]);
   });
 
+  it("reports missing-timezone when a schedule is saved but no time zone can be resolved", async () => {
+    getUserSettingMock.mockImplementation(
+      withReciprocalOverlay("peer@example.com", (email, key) => {
+        if (email === "peer@example.com" && key === "calendar-availability") {
+          return { weeklySchedule: WEEKLY_SCHEDULE };
+        }
+        return null;
+      }),
+    );
+
+    await expect(
+      getHostSchedulingStatus("owner@example.com", ["peer@example.com"]),
+    ).resolves.toEqual([
+      { email: "peer@example.com", status: "missing-timezone" },
+    ]);
+  });
+
   it("reports active when the overlay is reciprocal and a schedule and time zone are saved", async () => {
     getUserSettingMock.mockImplementation(
       withReciprocalOverlay("peer@example.com", (email, key) => {

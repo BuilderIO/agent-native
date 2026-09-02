@@ -632,10 +632,14 @@ const enUS = {
       "{{name}} hasn't added you back to their calendar yet, so only their free/busy is checked, not their working hours.",
     hostStatusMissingSchedule:
       "{{name}} hasn't saved working hours yet, so only their free/busy is checked.",
+    hostStatusMissingTimezone:
+      "{{name}} saved working hours, but no time zone could be found for them, so only their free/busy is checked.",
     requestOverlayAccess: "Send request",
     overlayAccessRequestSent: "Request sent to {{name}}",
     overlayAccessRequestCooldown:
       "Already asked {{name}} recently — try again tomorrow",
+    overlayAccessRequestAlreadyReciprocal:
+      "{{name}} already added you back — their working hours are now used",
     overlayAccessRequestFailed: "Couldn't send the request to {{name}}",
     showTimeZones: "Show time zones",
     hideTimeZones: "Hide time zones",
@@ -10191,6 +10195,8 @@ const translatedHostSchedulingStatus = {
         "{{name}} aún no te ha añadido de vuelta a su calendario, así que solo se comprueba su disponibilidad, no su horario laboral.",
       hostStatusMissingSchedule:
         "{{name}} aún no ha guardado un horario laboral, así que solo se comprueba su disponibilidad.",
+      hostStatusMissingTimezone:
+        "{{name}} guardó un horario laboral, pero no se encontró su zona horaria, así que solo se comprueba su disponibilidad.",
     },
   },
   "fr-FR": {
@@ -10203,6 +10209,8 @@ const translatedHostSchedulingStatus = {
         "{{name}} ne vous a pas encore ajouté à son calendrier, donc seule sa disponibilité est vérifiée, pas ses horaires de travail.",
       hostStatusMissingSchedule:
         "{{name}} n'a pas encore enregistré d'horaires de travail, donc seule sa disponibilité est vérifiée.",
+      hostStatusMissingTimezone:
+        "{{name}} a enregistré des horaires de travail, mais aucun fuseau horaire n'a pu être trouvé, donc seule sa disponibilité est vérifiée.",
     },
   },
   "de-DE": {
@@ -10215,6 +10223,8 @@ const translatedHostSchedulingStatus = {
         "{{name}} hat dich noch nicht zu seinem/ihrem Kalender hinzugefügt, daher wird nur die Verfügbarkeit geprüft, nicht die Arbeitszeiten.",
       hostStatusMissingSchedule:
         "{{name}} hat noch keine Arbeitszeiten gespeichert, daher wird nur die Verfügbarkeit geprüft.",
+      hostStatusMissingTimezone:
+        "{{name}} hat Arbeitszeiten gespeichert, aber es konnte keine Zeitzone gefunden werden, daher wird nur die Verfügbarkeit geprüft.",
     },
   },
   "pt-BR": {
@@ -10227,6 +10237,8 @@ const translatedHostSchedulingStatus = {
         "{{name}} ainda não adicionou você de volta ao calendário dele(a), então apenas a disponibilidade é verificada, não o horário de trabalho.",
       hostStatusMissingSchedule:
         "{{name}} ainda não salvou um horário de trabalho, então apenas a disponibilidade é verificada.",
+      hostStatusMissingTimezone:
+        "{{name}} salvou um horário de trabalho, mas não foi possível encontrar o fuso horário, então apenas a disponibilidade é verificada.",
     },
   },
   "zh-CN": {
@@ -10238,6 +10250,8 @@ const translatedHostSchedulingStatus = {
         "{{name}} 尚未将你添加回他们的日历，因此仅会检查空闲/忙碌状态，而非工作时间。",
       hostStatusMissingSchedule:
         "{{name}} 尚未保存工作时间，因此仅会检查空闲/忙碌状态。",
+      hostStatusMissingTimezone:
+        "{{name}} 已保存工作时间，但找不到其时区，因此仅会检查空闲/忙碌状态。",
     },
   },
   "ja-JP": {
@@ -10249,6 +10263,8 @@ const translatedHostSchedulingStatus = {
         "{{name}} はまだあなたを自分のカレンダーに追加し返していないため、空き状況のみが確認され、勤務時間は確認されません。",
       hostStatusMissingSchedule:
         "{{name}} はまだ勤務時間を保存していないため、空き状況のみが確認されます。",
+      hostStatusMissingTimezone:
+        "{{name}} は勤務時間を保存していますが、タイムゾーンが見つからないため、空き状況のみが確認されます。",
     },
   },
   "ko-KR": {
@@ -10260,6 +10276,8 @@ const translatedHostSchedulingStatus = {
         "{{name}}님이 아직 자신의 캘린더에 회원님을 다시 추가하지 않아 근무 시간이 아닌 여유/사용 중 상태만 확인됩니다.",
       hostStatusMissingSchedule:
         "{{name}}님이 아직 근무 시간을 저장하지 않아 여유/사용 중 상태만 확인됩니다.",
+      hostStatusMissingTimezone:
+        "{{name}}님이 근무 시간을 저장했지만 시간대를 찾을 수 없어 여유/사용 중 상태만 확인됩니다.",
     },
   },
   "hi-IN": {
@@ -10271,6 +10289,8 @@ const translatedHostSchedulingStatus = {
         "{{name}} ने अभी तक आपको अपने कैलेंडर में वापस नहीं जोड़ा है, इसलिए केवल उनकी उपलब्धता जाँची जाती है, काम के घंटे नहीं।",
       hostStatusMissingSchedule:
         "{{name}} ने अभी तक काम के घंटे सहेजे नहीं हैं, इसलिए केवल उनकी उपलब्धता जाँची जाती है।",
+      hostStatusMissingTimezone:
+        "{{name}} ने काम के घंटे सहेजे हैं, लेकिन उनका समय क्षेत्र नहीं मिल सका, इसलिए केवल उनकी उपलब्धता जाँची जाती है।",
     },
   },
   "ar-SA": {
@@ -10282,6 +10302,8 @@ const translatedHostSchedulingStatus = {
         "لم يقم {{name}} بإضافتك إلى تقويمه بعد، لذا يتم التحقق فقط من التوفر وليس ساعات العمل.",
       hostStatusMissingSchedule:
         "لم يحفظ {{name}} ساعات العمل بعد، لذا يتم التحقق فقط من التوفر.",
+      hostStatusMissingTimezone:
+        "لقد حفظ {{name}} ساعات العمل، ولكن تعذر تحديد المنطقة الزمنية، لذا يتم التحقق فقط من التوفر.",
     },
   },
 } satisfies Partial<Record<LocaleCode, PartialMessages>>;
@@ -10295,6 +10317,8 @@ const translatedOverlayNudge = {
       overlayAccessRequestSent: "Solicitud enviada a {{name}}",
       overlayAccessRequestCooldown:
         "Ya le has preguntado a {{name}} hace poco — inténtalo de nuevo mañana",
+      overlayAccessRequestAlreadyReciprocal:
+        "{{name}} ya te ha añadido de vuelta — ahora se usa su horario laboral",
       overlayAccessRequestFailed: "No se pudo enviar la solicitud a {{name}}",
     },
   },
@@ -10304,6 +10328,8 @@ const translatedOverlayNudge = {
       overlayAccessRequestSent: "Demande envoyée à {{name}}",
       overlayAccessRequestCooldown:
         "Vous avez déjà demandé à {{name}} récemment — réessayez demain",
+      overlayAccessRequestAlreadyReciprocal:
+        "{{name}} vous a déjà ajouté en retour — ses horaires de travail sont maintenant utilisés",
       overlayAccessRequestFailed: "Impossible d'envoyer la demande à {{name}}",
     },
   },
@@ -10313,6 +10339,8 @@ const translatedOverlayNudge = {
       overlayAccessRequestSent: "Anfrage an {{name}} gesendet",
       overlayAccessRequestCooldown:
         "{{name}} wurde bereits vor Kurzem gefragt — versuche es morgen erneut",
+      overlayAccessRequestAlreadyReciprocal:
+        "{{name}} hat dich bereits zurück hinzugefügt — die Arbeitszeiten werden jetzt verwendet",
       overlayAccessRequestFailed:
         "Anfrage an {{name}} konnte nicht gesendet werden",
     },
@@ -10323,6 +10351,8 @@ const translatedOverlayNudge = {
       overlayAccessRequestSent: "Solicitação enviada para {{name}}",
       overlayAccessRequestCooldown:
         "Você já pediu a {{name}} recentemente — tente novamente amanhã",
+      overlayAccessRequestAlreadyReciprocal:
+        "{{name}} já adicionou você de volta — o horário de trabalho dele(a) agora é usado",
       overlayAccessRequestFailed:
         "Não foi possível enviar a solicitação para {{name}}",
     },
@@ -10332,6 +10362,8 @@ const translatedOverlayNudge = {
       requestOverlayAccess: "发送请求",
       overlayAccessRequestSent: "已向 {{name}} 发送请求",
       overlayAccessRequestCooldown: "最近已经请求过 {{name}}，请明天再试",
+      overlayAccessRequestAlreadyReciprocal:
+        "{{name}} 已经把你加回，现在会使用他们的工作时间",
       overlayAccessRequestFailed: "无法向 {{name}} 发送请求",
     },
   },
@@ -10341,6 +10373,8 @@ const translatedOverlayNudge = {
       overlayAccessRequestSent: "{{name}} にリクエストを送信しました",
       overlayAccessRequestCooldown:
         "最近すでに {{name}} にリクエストを送信しました。明日もう一度お試しください",
+      overlayAccessRequestAlreadyReciprocal:
+        "{{name}} はすでにあなたを追加し返しています。これで勤務時間が使用されます",
       overlayAccessRequestFailed:
         "{{name}} へのリクエストを送信できませんでした",
     },
@@ -10351,6 +10385,8 @@ const translatedOverlayNudge = {
       overlayAccessRequestSent: "{{name}}님에게 요청을 보냈습니다",
       overlayAccessRequestCooldown:
         "최근에 이미 {{name}}님에게 요청했습니다. 내일 다시 시도해 주세요",
+      overlayAccessRequestAlreadyReciprocal:
+        "{{name}}님이 이미 회원님을 다시 추가했습니다. 이제 근무 시간이 사용됩니다",
       overlayAccessRequestFailed: "{{name}}님에게 요청을 보낼 수 없습니다",
     },
   },
@@ -10360,6 +10396,8 @@ const translatedOverlayNudge = {
       overlayAccessRequestSent: "{{name}} को अनुरोध भेजा गया",
       overlayAccessRequestCooldown:
         "हाल ही में {{name}} से पहले ही पूछा जा चुका है — कल फिर से प्रयास करें",
+      overlayAccessRequestAlreadyReciprocal:
+        "{{name}} ने आपको पहले ही वापस जोड़ लिया है — अब उनके काम के घंटे उपयोग किए जाएंगे",
       overlayAccessRequestFailed: "{{name}} को अनुरोध नहीं भेजा जा सका",
     },
   },
@@ -10369,6 +10407,8 @@ const translatedOverlayNudge = {
       overlayAccessRequestSent: "تم إرسال الطلب إلى {{name}}",
       overlayAccessRequestCooldown:
         "لقد طلبت من {{name}} بالفعل مؤخرًا — حاول مرة أخرى غدًا",
+      overlayAccessRequestAlreadyReciprocal:
+        "لقد أضافك {{name}} بالفعل — يتم الآن استخدام ساعات عمله",
       overlayAccessRequestFailed: "تعذر إرسال الطلب إلى {{name}}",
     },
   },

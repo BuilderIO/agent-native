@@ -602,6 +602,12 @@ function BookingHostsEditor({
             toast.info(
               t("bookingLinks.overlayAccessRequestCooldown", { name }),
             );
+          } else if (result.reason === "already-reciprocal") {
+            toast.success(
+              t("bookingLinks.overlayAccessRequestAlreadyReciprocal", {
+                name,
+              }),
+            );
           } else {
             toast.error(t("bookingLinks.overlayAccessRequestFailed", { name }));
           }
@@ -722,6 +728,14 @@ function BookingHostsEditor({
         status,
       };
     }
+    if (status === "missing-timezone") {
+      return {
+        icon: IconAlertTriangle,
+        className: "text-amber-500",
+        label: t("bookingLinks.hostStatusMissingTimezone", { name }),
+        status,
+      };
+    }
     return null;
   }
 
@@ -741,28 +755,51 @@ function BookingHostsEditor({
           />
         )}
         {host.displayName || host.email}
-        {statusHint && StatusIcon && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <StatusIcon
-                className={cn("h-3.5 w-3.5 shrink-0", statusHint.className)}
+        {statusHint &&
+        StatusIcon &&
+        statusHint.status === "awaiting-reciprocal-overlay" ? (
+          // A Popover, not a Tooltip: this hint has a clickable action inside
+          // it, and Tooltip's hover/focus-only trigger can't be reached by
+          // touch and never lets focus move into its content.
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="rounded-sm"
                 aria-label={statusHint.label}
-              />
-            </TooltipTrigger>
-            <TooltipContent className="max-w-64">
+              >
+                <StatusIcon
+                  className={cn("h-3.5 w-3.5 shrink-0", statusHint.className)}
+                />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-64 text-sm" align="start">
               <p>{statusHint.label}</p>
-              {statusHint.status === "awaiting-reciprocal-overlay" && (
-                <button
-                  type="button"
-                  onClick={() => sendOverlayRequest(host)}
-                  disabled={requestReciprocation.isPending}
-                  className="mt-1.5 font-medium text-primary underline-offset-2 hover:underline disabled:opacity-60"
-                >
-                  {t("bookingLinks.requestOverlayAccess")}
-                </button>
-              )}
-            </TooltipContent>
-          </Tooltip>
+              <button
+                type="button"
+                onClick={() => sendOverlayRequest(host)}
+                disabled={requestReciprocation.isPending}
+                className="mt-1.5 font-medium text-primary underline-offset-2 hover:underline disabled:opacity-60"
+              >
+                {t("bookingLinks.requestOverlayAccess")}
+              </button>
+            </PopoverContent>
+          </Popover>
+        ) : (
+          statusHint &&
+          StatusIcon && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <StatusIcon
+                  className={cn("h-3.5 w-3.5 shrink-0", statusHint.className)}
+                  aria-label={statusHint.label}
+                />
+              </TooltipTrigger>
+              <TooltipContent className="max-w-64">
+                <p>{statusHint.label}</p>
+              </TooltipContent>
+            </Tooltip>
+          )
         )}
         <button
           type="button"

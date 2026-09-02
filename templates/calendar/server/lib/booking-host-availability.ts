@@ -117,6 +117,7 @@ export type HostSchedulingStatus =
   | "not-overlaid"
   | "awaiting-reciprocal-overlay"
   | "missing-schedule"
+  | "missing-timezone"
   | "active";
 
 export interface HostSchedulingStatusResult {
@@ -133,7 +134,10 @@ export interface HostSchedulingStatusResult {
  * managing the link instead of collapsed into a single filtered list.
  * "not-overlaid" and "awaiting-reciprocal-overlay" are the two halves of the
  * two-way overlay requirement; "missing-schedule" means the relationship is
- * fine but the peer never saved a `calendar-availability` schedule.
+ * fine but the peer never saved a `calendar-availability` schedule, and
+ * "missing-timezone" means a schedule exists but no time zone could be
+ * resolved to interpret it in (mirrors the same distinction
+ * `getEligibleHostAvailability` draws).
  */
 export async function getHostSchedulingStatus(
   ownerEmail: string | undefined,
@@ -180,8 +184,11 @@ export async function getHostSchedulingStatus(
         safeBookingTimeZone(calendarSettings?.timezone) ||
         (await getGoogleAccountTimezone(email)) ||
         undefined;
-      if (!config?.weeklySchedule || !timezone) {
+      if (!config?.weeklySchedule) {
         return { email, status: "missing-schedule" };
+      }
+      if (!timezone) {
+        return { email, status: "missing-timezone" };
       }
       return { email, status: "active", timezone };
     }),

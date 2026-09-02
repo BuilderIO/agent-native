@@ -104,7 +104,11 @@ export async function requestOverlayReciprocation({
 }): Promise<{
   sent: boolean;
   nextAvailableAt?: string;
-  reason?: "cooldown" | "already-reciprocal" | "email-not-configured";
+  reason?:
+    | "cooldown"
+    | "already-reciprocal"
+    | "email-not-configured"
+    | "not-overlaid";
 }> {
   const peer = peerEmail.toLowerCase();
   const owner = ownerEmail.toLowerCase();
@@ -117,7 +121,11 @@ export async function requestOverlayReciprocation({
     (person) => person.email.toLowerCase() === peer,
   );
   if (!isOverlaid) {
-    throw new Error("This person is not in your calendar overlay list");
+    // A caller acting on stale status data (the peer was removed from the
+    // overlay after the status was fetched) is a correctable state, not a
+    // server fault. Report it the same way as the other cases where there
+    // is nothing to send, instead of throwing an opaque 500.
+    return { sent: false, reason: "not-overlaid" };
   }
 
   if (await overlaysBack(peer, owner)) {
