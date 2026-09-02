@@ -14,7 +14,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { docsI18nCatalog } from "../i18n";
 import { BuildOnlinePopover } from "./BuilderWaitlistPopover";
-import { TemplateCard, templates } from "./TemplateCard";
+import { TemplateLandingActions } from "./template-landing/TemplateLandingActions";
+import { templates } from "./TemplateCard";
 
 afterEach(() => {
   cleanup();
@@ -57,12 +58,12 @@ describe("docs popover controls", () => {
   });
 
   it("keeps Customize It modes inside the shared animated popover", () => {
-    renderWithProviders(<TemplateCard template={templates[0]} />);
+    renderWithProviders(<TemplateLandingActions template={templates[0]} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Customize It" }));
 
     const customizeOnline = screen.getByRole("button", {
-      name: "Customize online",
+      name: /^Online/,
     });
     const content = customizeOnline.closest("[role=dialog]");
     expect(content).not.toBeNull();
@@ -80,9 +81,9 @@ describe("docs popover controls", () => {
         utm_campaign: "launch",
       }),
     );
-    renderWithProviders(<TemplateCard template={templates[0]} />);
+    renderWithProviders(<TemplateLandingActions template={templates[0]} />);
 
-    const demoLink = screen.getByRole("link", { name: "Try It" });
+    const demoLink = screen.getByRole("link", { name: "Try Clips free" });
     fireEvent.click(demoLink);
 
     const url = new URL(demoLink.getAttribute("href") ?? "");
@@ -96,10 +97,10 @@ describe("docs popover controls", () => {
       json: async () => ({}),
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderWithProviders(<TemplateCard template={templates[0]} />);
+    renderWithProviders(<TemplateLandingActions template={templates[0]} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Customize It" }));
-    fireEvent.click(screen.getByRole("button", { name: "Customize online" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Online/ }));
     fireEvent.change(screen.getByRole("textbox", { name: "Email" }), {
       target: { value: "reader@example.com" },
     });

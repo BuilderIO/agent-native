@@ -128,7 +128,12 @@ export function FormFillPage() {
     for (const field of visibleFields) {
       if (field.required) {
         const val = values[field.id];
-        if (val === undefined || val === null || val === "") {
+        if (
+          val === undefined ||
+          val === null ||
+          val === "" ||
+          (Array.isArray(val) && val.length === 0)
+        ) {
           return `${field.label} is required`;
         }
       }

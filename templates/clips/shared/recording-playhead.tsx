@@ -9,8 +9,8 @@ import type {
   FocusEvent,
   MouseEventHandler,
   PointerEvent,
+  PointerEventHandler,
   ReactNode,
-  TransitionEvent,
 } from "react";
 import {
   useCallback,
@@ -20,10 +20,13 @@ import {
   useState,
 } from "react";
 
+import type { RecordingPlayheadOrientation } from "./recording-playhead-position";
+
 import "./recording-playhead.css";
 
-const SEGMENT_MS = 180;
+const SEGMENT_MS = 120;
 const HOVER_INTENT_MS = 150;
+const CONFIRM_CONTENT_DELAY_MS = 24;
 
 export type RecordingPlayheadIntent = "delete" | "restart";
 
@@ -66,6 +69,7 @@ export interface RecordingPlayheadLabels {
 export interface RecordingPlayheadProps {
   elapsedMs: number;
   paused: boolean;
+  orientation?: RecordingPlayheadOrientation;
   enabled?: boolean;
   pendingAction?: RecordingPlayheadIntent | "cancel" | null;
   /** Capture-specific level transport; the visual slot remains shared. */
@@ -83,13 +87,17 @@ export interface RecordingPlayheadProps {
   onLayoutChange?: (layout: RecordingPlayheadLayout) => void;
   onExpandedChange?: (expanded: boolean) => void;
   onMouseDown?: MouseEventHandler<HTMLDivElement>;
+  onPointerDown?: PointerEventHandler<HTMLDivElement>;
+  onPointerMove?: PointerEventHandler<HTMLDivElement>;
+  onPointerUp?: PointerEventHandler<HTMLDivElement>;
+  onPointerCancel?: PointerEventHandler<HTMLDivElement>;
   className?: string;
   style?: CSSProperties;
 }
 
-type Segment = "mid" | "q" | "del" | "res" | "extras";
+type Segment = "mid" | "confirm" | "extras";
 
-const SEGMENTS: Segment[] = ["mid", "q", "del", "res", "extras"];
+const SEGMENTS: Segment[] = ["mid", "confirm", "extras"];
 
 function formatTimer(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -105,6 +113,7 @@ function formatTimer(ms: number): string {
 export function RecordingPlayhead({
   elapsedMs,
   paused,
+  orientation = "horizontal",
   enabled = true,
   pendingAction = null,
   meter,
@@ -118,6 +127,10 @@ export function RecordingPlayhead({
   onLayoutChange,
   onExpandedChange,
   onMouseDown,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
   className,
   style,
 }: RecordingPlayheadProps) {
@@ -126,11 +139,10 @@ export function RecordingPlayhead({
   const [expanded, setExpanded] = useState(false);
   const playheadRef = useRef<HTMLDivElement | null>(null);
   const confirmActionRef = useRef<HTMLButtonElement | null>(null);
+  const displayedConfirmIntentRef = useRef<RecordingPlayheadIntent>("delete");
   const segmentRefs = useRef<Record<Segment, HTMLSpanElement | null>>({
     mid: null,
-    q: null,
-    del: null,
-    res: null,
+    confirm: null,
     extras: null,
   });
   const pausedRef = useRef(paused);
@@ -142,23 +154,35 @@ export function RecordingPlayhead({
   const onExpandedChangeRef = useRef(onExpandedChange);
   const settleBatchRef = useRef(0);
   const layoutTransitionPendingRef = useRef(false);
-  const pendingSegmentsRef = useRef<Set<Segment>>(new Set());
-  const finishSettleRef = useRef<(() => void) | null>(null);
   const transitionSegmentsRef = useRef<
     (changes: Array<[Segment, boolean, number]>) => void
   >(() => {});
   const lastConfirmRequestRef = useRef(0);
+  const previousOrientationRef = useRef(orientation);
   const openSegmentsRef = useRef<Record<Segment, boolean>>({
     mid: true,
-    q: false,
-    del: false,
-    res: false,
+    confirm: false,
     extras: false,
   });
 
   pausedRef.current = paused;
   onLayoutChangeRef.current = onLayoutChange;
   onExpandedChangeRef.current = onExpandedChange;
+  if (confirmIntent) displayedConfirmIntentRef.current = confirmIntent;
+
+  // Segment animations leave inline dimensions behind. Clear the old axis
+  // before the next layout pass so a docked playhead cannot inherit a hidden
+  // width when it switches to the vertical axis.
+  useLayoutEffect(() => {
+    const previous = previousOrientationRef.current;
+    if (previous === orientation) return;
+    const oldDimension = previous === "vertical" ? "height" : "width";
+    for (const segment of SEGMENTS) {
+      const el = segmentRefs.current[segment];
+      if (el) el.style[oldDimension] = "";
+    }
+    previousOrientationRef.current = orientation;
+  }, [orientation]);
 
   useEffect(() => {
     reducedMotionRef.current = window.matchMedia(
@@ -185,32 +209,54 @@ export function RecordingPlayhead({
     return () => observer.disconnect();
   }, [reportLayout]);
 
-  function segmentInnerWidth(segment: Segment): number {
+  useLayoutEffect(() => {
+    // Native overlays need a synchronous size report when the axis changes;
+    // a ResizeObserver notification can be deferred while a Tauri drag is
+    // handing control back from the platform window manager.
+    reportLayout();
+  }, [orientation, reportLayout]);
+
+  function segmentInnerSize(segment: Segment): number {
     const el = segmentRefs.current[segment];
     const inner = el?.firstElementChild as HTMLElement | null;
-    return inner ? Math.ceil(inner.getBoundingClientRect().width) : 0;
+    if (!inner) return 0;
+    const rect = inner.getBoundingClientRect();
+    return Math.ceil(orientation === "vertical" ? rect.height : rect.width);
   }
 
-  function segmentCurrentWidth(segment: Segment): number {
-    return segmentRefs.current[segment]?.getBoundingClientRect().width ?? 0;
+  function segmentCurrentSize(segment: Segment): number {
+    const rect = segmentRefs.current[segment]?.getBoundingClientRect();
+    return rect ? (orientation === "vertical" ? rect.height : rect.width) : 0;
   }
 
   function setSegment(segment: Segment, open: boolean, delayMs = 0) {
     const el = segmentRefs.current[segment];
     if (!el) return;
+    const inner = el.firstElementChild as HTMLElement | null;
+    el.dataset.state = open ? "open" : "closed";
+    const dimension = orientation === "vertical" ? "height" : "width";
     // A segment that starts at `auto` cannot animate from a number. Snap it to
-    // its measured width first, just as the desktop overlay does.
-    if (!open && (!el.style.width || el.style.width === "auto")) {
+    // its measured main-axis size first, just as the desktop overlay does.
+    if (!open && (!el.style[dimension] || el.style[dimension] === "auto")) {
       el.style.transition = "none";
-      el.style.width = `${segmentCurrentWidth(segment)}px`;
+      el.style[dimension] = `${segmentCurrentSize(segment)}px`;
       void el.offsetWidth;
     }
     const reduced = reducedMotionRef.current;
     el.style.transition = reduced
       ? "none"
-      : `width ${SEGMENT_MS}ms var(--playhead-ease), opacity ${SEGMENT_MS}ms ease`;
-    el.style.transitionDelay = reduced ? "0ms" : `${delayMs}ms`;
-    el.style.width = open ? `${segmentInnerWidth(segment)}px` : "0px";
+      : `${dimension} ${SEGMENT_MS}ms var(--playhead-ease), opacity ${SEGMENT_MS}ms ease`;
+    // Geometry always moves as one surface. Delaying individual segments
+    // makes the pill resize in steps, which reads as bounce rather than a
+    // deliberate state transition.
+    el.style.transitionDelay = "0ms";
+    if (inner) {
+      // Let the surface begin opening before its contents crossfade. The same
+      // delay applies to every confirmation control, so they read as one state
+      // change rather than a sequence of animated widgets.
+      inner.style.transitionDelay = reduced || !open ? "0ms" : `${delayMs}ms`;
+    }
+    el.style[dimension] = open ? `${segmentInnerSize(segment)}px` : "0px";
     el.style.opacity = open ? "1" : "0";
   }
 
@@ -221,92 +267,60 @@ export function RecordingPlayhead({
       openSegmentsRef.current[segment] = open;
     }
 
-    const playheadWidth = playhead.getBoundingClientRect().width;
-    const currentSegmentsWidth = SEGMENTS.reduce(
-      (sum, segment) => sum + segmentCurrentWidth(segment),
+    const playheadRect = playhead.getBoundingClientRect();
+    const playheadMainSize =
+      orientation === "vertical" ? playheadRect.height : playheadRect.width;
+    const currentSegmentsSize = SEGMENTS.reduce(
+      (sum, segment) => sum + segmentCurrentSize(segment),
       0,
     );
-    const staticWidth = playheadWidth - currentSegmentsWidth;
-    const targetWidth = SEGMENTS.reduce(
+    const staticSize = playheadMainSize - currentSegmentsSize;
+    const targetSize = SEGMENTS.reduce(
       (sum, segment) =>
         sum +
-        (openSegmentsRef.current[segment] ? segmentInnerWidth(segment) : 0),
-      staticWidth,
+        (openSegmentsRef.current[segment] ? segmentInnerSize(segment) : 0),
+      staticSize,
     );
     const maxDelay = changes.reduce(
       (max, [, , delay]) => Math.max(max, delay),
       0,
     );
-    const settleMs = reducedMotionRef.current ? 16 : SEGMENT_MS + maxDelay + 40;
+    const settleMs = reducedMotionRef.current ? 16 : SEGMENT_MS + maxDelay + 16;
     const batch = ++settleBatchRef.current;
     layoutTransitionPendingRef.current = true;
 
     onLayoutChangeRef.current?.({
       // Give native desktop windows room before the animation starts. The
       // browser ignores this callback and lets the document reflow normally.
-      width: Math.ceil(Math.max(playheadWidth, targetWidth)) + 12,
-      height: Math.ceil(playhead.getBoundingClientRect().height),
+      width:
+        orientation === "vertical"
+          ? Math.ceil(playheadRect.width)
+          : Math.ceil(Math.max(playheadRect.width, targetSize)),
+      height:
+        orientation === "vertical"
+          ? Math.ceil(Math.max(playheadRect.height, targetSize))
+          : Math.ceil(playheadRect.height),
     });
 
-    if (shrinkTimerRef.current) clearTimeout(shrinkTimerRef.current);
-    pendingSegmentsRef.current.clear();
-
     for (const [segment, open, delay] of changes) {
-      const before = segmentCurrentWidth(segment);
       setSegment(segment, open, delay);
-      const el = segmentRefs.current[segment];
-      const after = el ? Number.parseFloat(el.style.width) : before;
-      if (!reducedMotionRef.current && Math.abs(after - before) > 0.5) {
-        pendingSegmentsRef.current.add(segment);
-      }
     }
 
     const finishSettle = () => {
       if (settleBatchRef.current !== batch) return;
-      pendingSegmentsRef.current.clear();
       layoutTransitionPendingRef.current = false;
       reportLayout();
     };
-    finishSettleRef.current = finishSettle;
-    if (pendingSegmentsRef.current.size === 0) {
-      finishSettle();
-      return;
-    }
-
-    // Transitionend is the normal path. This fallback handles throttled or
-    // background browser clocks so the native window cannot remain oversized.
+    if (shrinkTimerRef.current) clearTimeout(shrinkTimerRef.current);
+    // One timer owns the whole batch. Individual transitionend events can
+    // belong to an animation that was interrupted by a newer hover state.
     shrinkTimerRef.current = setTimeout(
-      () => {
-        if (settleBatchRef.current !== batch) return;
-        for (const segment of SEGMENTS) {
-          const el = segmentRefs.current[segment];
-          if (!el) continue;
-          el.style.transition = "none";
-          el.style.width = openSegmentsRef.current[segment]
-            ? `${segmentInnerWidth(segment)}px`
-            : "0px";
-          el.style.opacity = openSegmentsRef.current[segment] ? "1" : "0";
-        }
-        finishSettle();
-      },
-      Math.max(1_000, settleMs * 3),
+      finishSettle,
+      reducedMotionRef.current ? 0 : settleMs + 16,
     );
   }
 
   transitionSegmentsRef.current = transitionSegments;
-
-  function handleSegmentTransitionEnd(event: TransitionEvent<HTMLDivElement>) {
-    if (event.propertyName !== "width") return;
-    const segment = (Object.keys(segmentRefs.current) as Segment[]).find(
-      (key) => segmentRefs.current[key] === event.target,
-    );
-    if (!segment) return;
-    pendingSegmentsRef.current.delete(segment);
-    if (pendingSegmentsRef.current.size === 0) {
-      if (shrinkTimerRef.current) clearTimeout(shrinkTimerRef.current);
-      finishSettleRef.current?.();
-    }
-  }
 
   const updateExpanded = useCallback(
     (next: boolean) => {
@@ -358,20 +372,16 @@ export function RecordingPlayhead({
       transitionSegmentsRef.current([
         ["extras", false, 0],
         ["mid", false, 0],
-        ["q", true, 0],
-        ["del", true, 20],
-        ["res", true, 40],
+        ["confirm", true, CONFIRM_CONTENT_DELAY_MS],
       ]);
       return;
     }
     transitionSegmentsRef.current([
-      ["res", false, 0],
-      ["del", false, 20],
-      ["q", false, 40],
-      ["mid", true, 40],
+      ["confirm", false, 0],
+      ["mid", true, CONFIRM_CONTENT_DELAY_MS],
       ["extras", expanded, 0],
     ]);
-  }, [confirmIntent, expanded]);
+  }, [confirmIntent, expanded, orientation]);
 
   useLayoutEffect(() => {
     if (confirmIntent) confirmActionRef.current?.focus();
@@ -439,6 +449,7 @@ export function RecordingPlayhead({
   }
 
   function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
+    onPointerDown?.(event);
     const target = event.target as Element | null;
     if (event.pointerType !== "touch" && event.pointerType !== "pen") return;
     if (target?.closest("[data-recording-playhead-button]")) return;
@@ -452,6 +463,8 @@ export function RecordingPlayhead({
 
   const timer = formatTimer(elapsedMs);
   const isConfirming = confirmIntent !== null;
+  const displayedConfirmIntent =
+    confirmIntent ?? displayedConfirmIntentRef.current;
   const controlsDisabled = !enabled || isConfirming || pendingAction !== null;
   const classNames = ["recording-playhead", className]
     .filter(Boolean)
@@ -462,13 +475,18 @@ export function RecordingPlayhead({
       ref={playheadRef}
       role="toolbar"
       aria-label={labels.controls}
+      aria-orientation={orientation}
+      data-orientation={orientation}
+      data-confirming={isConfirming ? "true" : undefined}
       onMouseDown={onMouseDown}
-      onTransitionEnd={handleSegmentTransitionEnd}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onFocusCapture={handleFocusCapture}
       onBlurCapture={handleBlurCapture}
       onPointerDown={handlePointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
       className={classNames}
       style={style}
     >
@@ -522,25 +540,16 @@ export function RecordingPlayhead({
       </span>
       <span
         ref={(el) => {
-          segmentRefs.current.q = el;
+          segmentRefs.current.confirm = el;
         }}
-        className="recording-playhead__segment"
+        className="recording-playhead__segment recording-playhead__segment--confirm"
       >
         <span className="recording-playhead__inline">
           <span className="recording-playhead__confirm-question">
-            {confirmIntent === "restart"
+            {displayedConfirmIntent === "restart"
               ? labels.restartQuestion
               : labels.deleteQuestion(elapsedMs)}
           </span>
-        </span>
-      </span>
-      <span
-        ref={(el) => {
-          segmentRefs.current.del = el;
-        }}
-        className="recording-playhead__segment"
-      >
-        <span className="recording-playhead__inline">
           <button
             type="button"
             data-recording-playhead-button
@@ -548,22 +557,13 @@ export function RecordingPlayhead({
             onClick={confirmAction}
             disabled={pendingAction !== null}
             tabIndex={isConfirming ? 0 : -1}
-            data-intent={confirmIntent ?? "delete"}
+            data-intent={displayedConfirmIntent}
             className="recording-playhead__confirm-action"
           >
-            {confirmIntent === "restart"
+            {displayedConfirmIntent === "restart"
               ? labels.restartConfirm
               : labels.deleteConfirm}
           </button>
-        </span>
-      </span>
-      <span
-        ref={(el) => {
-          segmentRefs.current.res = el;
-        }}
-        className="recording-playhead__segment"
-      >
-        <span className="recording-playhead__inline">
           <button
             type="button"
             data-recording-playhead-button

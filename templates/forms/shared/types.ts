@@ -21,7 +21,8 @@ export type FormFieldType =
   | "radio"
   | "date"
   | "rating"
-  | "scale";
+  | "scale"
+  | "file";
 
 export interface ConditionalRule {
   fieldId: string;
@@ -47,6 +48,22 @@ export interface FormField {
   validation?: FieldValidation;
   conditional?: ConditionalRule;
   width?: "full" | "half";
+  /** File input metadata. Only used when `type` is `file`. */
+  multiple?: boolean;
+  accept?: string;
+  maxSizeBytes?: number;
+  maxFiles?: number;
+}
+
+/** Storage reference persisted for a submitted file field. */
+export interface FormFileValue {
+  url: string;
+  name: string;
+  type: string;
+  size: number;
+  id?: string;
+  provider?: string;
+  handle?: string;
 }
 
 // ---------------------------------------------------------------------------

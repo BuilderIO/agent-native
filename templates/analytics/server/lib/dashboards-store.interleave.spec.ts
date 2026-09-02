@@ -194,7 +194,11 @@ vi.mock("../db/index.js", () => {
     dashboardRevisions: {
       id: { name: "id" },
       dashboardId: { name: "dashboardId" },
+      kind: { name: "kind" },
+      title: { name: "title" },
       createdAt: { name: "createdAt" },
+      createdBy: { name: "createdBy" },
+      chatContext: { name: "chatContext" },
     },
     // Not exercised by these tests, but `dashboards-store.ts` builds a
     // module-scope column-projection constant (`analysisListColumns`) from
@@ -317,6 +321,8 @@ const {
   unarchiveDashboard,
   DashboardConflictError,
   DASHBOARD_SAVE_MAX_ATTEMPTS,
+  listDashboardRevisionMetadata,
+  parseRevisionChatContextMetadata,
 } = await import("./dashboards-store.js");
 
 const ctx = { email: "alice@example.com", orgId: null };
@@ -546,5 +552,52 @@ describe("dashboards-store concurrency", () => {
     expect(state.updateAttempts).toBe(DASHBOARD_SAVE_MAX_ATTEMPTS);
     // Nothing from the doomed mutation ever landed.
     expect(readPanelIds()).toEqual(["a"]);
+  });
+});
+
+describe("revision chat metadata", () => {
+  it("keeps dashboard history readable when optional legacy context is corrupt", async () => {
+    state.revisions = [
+      {
+        id: "broken",
+        dashboardId: "traffic",
+        kind: "sql",
+        title: "Broken context",
+        createdAt: "2026-07-09T00:02:00.000Z",
+        createdBy: null,
+        chatContext: "not-json",
+      },
+      {
+        id: "without-context",
+        dashboardId: "traffic",
+        kind: "sql",
+        title: "No context",
+        createdAt: "2026-07-09T00:01:00.000Z",
+        createdBy: null,
+        chatContext: null,
+      },
+    ];
+
+    await expect(
+      listDashboardRevisionMetadata("traffic", ctx),
+    ).resolves.toMatchObject([
+      { id: "broken", chatContext: null, chatContextStatus: "unreadable" },
+      { id: "without-context", chatContext: null, chatContextStatus: "absent" },
+    ]);
+  });
+
+  it("distinguishes absent, valid, and unreadable legacy context", () => {
+    expect(parseRevisionChatContextMetadata(null)).toEqual({
+      chatContext: null,
+      chatContextStatus: "absent",
+    });
+    expect(parseRevisionChatContextMetadata('{"runId":"run-1"}')).toEqual({
+      chatContext: { runId: "run-1" },
+      chatContextStatus: "valid",
+    });
+    expect(parseRevisionChatContextMetadata("not-json")).toEqual({
+      chatContext: null,
+      chatContextStatus: "unreadable",
+    });
   });
 });

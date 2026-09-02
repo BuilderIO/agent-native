@@ -443,9 +443,11 @@ describe("getRuntimeDatabaseUrl", () => {
     vi.stubEnv("DATABASE_URL", "postgres://pooled.example/db");
     vi.stubEnv("DATABASE_URL_UNPOOLED", "postgres://direct.example/db");
 
-    const { getRuntimeDatabaseUrl } = await import("./client.js");
+    const { getRuntimeDatabaseSource, getRuntimeDatabaseUrl } =
+      await import("./client.js");
 
     expect(getRuntimeDatabaseUrl()).toBe("postgres://direct.example/db");
+    expect(getRuntimeDatabaseSource()).toBe("DATABASE_URL_UNPOOLED");
   });
 
   it("keeps pooled URLs unchanged outside serverless runtimes", async () => {

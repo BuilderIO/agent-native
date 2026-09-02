@@ -6,6 +6,7 @@ import {
   IconHistory,
   IconHierarchy2,
   IconNotes,
+  IconApps,
   IconPlugConnected,
   IconTopologyRing2,
   IconSearch,
@@ -667,7 +668,7 @@ export function AgentTabsPage({
       {
         id: "access",
         label: "MCP",
-        icon: IconPlugConnected,
+        icon: IconApps,
         group: "agent",
         keywords:
           "mcp model context protocol server url external clients oauth a2a exposure",

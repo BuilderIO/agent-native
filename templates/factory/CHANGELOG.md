@@ -3,6 +3,20 @@
 All notable user-facing changes to Chat are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-08-31
+
+### Improved
+
+- Audit runs now show what was added to the inbox, what the job worked on, and which actions it took.
+
+### Fixed
+
+- The connect banner now opens the workspace Dispatch host, and a vault outage no longer looks like a missing Slack connection.
+- Creating or editing a Slack, GitHub, or Sentry job now shows a Dispatch connect banner above Run when that source is missing, and Create stays off until the channel, repo, or Sentry slugs are filled.
+- Creating a Slack, GitHub, or Sentry job now works when the token is already in the vault, not only when Dispatch Integrations is connected.
+- You can disable a Slack, GitHub, or Sentry job even when that connector is missing or the vault is down.
+- Inbox and Audit stay usable when a connector lookup fails, and disabled job drafts can still set a destination.
+
 ## 2026-08-29
 
 ### Added
