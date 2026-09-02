@@ -27,8 +27,7 @@ export const LEGAL_POLICY_METADATA = [
     key: "aiTerms",
     slug: "ai-terms",
     title: "AI Terms",
-    description:
-      "Terms for AI features in Agent-Native hosted services.",
+    description: "Terms for AI features in Agent-Native hosted services.",
     filename: "ai-terms.md",
   },
   {
