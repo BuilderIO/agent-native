@@ -400,13 +400,16 @@ function useElementMinWidth(
     const update = () =>
       setMatches(element.getBoundingClientRect().width >= minWidth);
     update();
-    if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", update);
-      return () => window.removeEventListener("resize", update);
-    }
-    const observer = new ResizeObserver(update);
-    observer.observe(element);
-    return () => observer.disconnect();
+    window.addEventListener("resize", update);
+    window.visualViewport?.addEventListener("resize", update);
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    observer?.observe(element);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", update);
+      window.visualViewport?.removeEventListener("resize", update);
+    };
   }, [minWidth, ref]);
 
   return matches;

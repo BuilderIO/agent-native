@@ -211,6 +211,11 @@ describe("comments sidebar layout", () => {
     expect(source).toContain("data-comments-flow-lane");
     expect(source).toContain("data-comments-anchored-popover");
     expect(source).toContain("useElementMinWidth(documentLayoutRef, 960)");
+    expect(source).toContain('window.addEventListener("resize", update)');
+    expect(source).toContain(
+      'window.visualViewport?.addEventListener("resize", update)',
+    );
+    expect(source).toContain("observer?.observe(element)");
     expect(source).not.toContain("CONTENT_COMMENTS_UI_CLEANUP_FLAG");
   });
 
