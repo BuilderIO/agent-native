@@ -33,3 +33,10 @@ export const communityApps: CommunityApp[] = [
 export function findCommunityApp(slug: string | undefined) {
   return communityApps.find((app) => app.slug === slug);
 }
+
+export function findCommunityAppInCatalog(
+  apps: CommunityApp[],
+  slug: string | undefined,
+) {
+  return apps.find((app) => app.slug === slug);
+}

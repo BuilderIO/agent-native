@@ -55,6 +55,8 @@ import { toast } from "sonner";
 import { FieldPropertiesPanel } from "@/components/builder/FieldPropertiesPanel";
 import { FieldRenderer } from "@/components/builder/FieldRenderer";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
+import { CommunityPromotionCell } from "@/components/CommunityPromotionCell";
+import { ResponseValue } from "@/components/ResponseValue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -1301,11 +1303,16 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
 
   const allResponses = data?.responses || [];
   const fields: FormField[] = data?.fields || form?.fields || [];
+  const isCommunitySubmissionForm = form?.slug === "community-app-submission";
   const hasSubmitterEmail = allResponses.some((r: any) =>
     responseValueAsString(r.submitterEmail).trim(),
   );
   const responseTableMinWidth =
-    64 + 160 + (hasSubmitterEmail ? 224 : 0) + Math.max(fields.length, 1) * 320;
+    64 +
+    160 +
+    (hasSubmitterEmail ? 224 : 0) +
+    (isCommunitySubmissionForm ? 168 : 0) +
+    Math.max(fields.length, 1) * 320;
 
   const filtered = search.trim()
     ? allResponses.filter((r: any) => {
@@ -1465,6 +1472,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
               <col className="w-16" />
               <col className="w-40" />
               {hasSubmitterEmail ? <col className="w-56" /> : null}
+              {isCommunitySubmissionForm ? <col className="w-40" /> : null}
               {fields.map((f, index) => (
                 <col
                   key={f.id}
@@ -1504,6 +1512,14 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                     />
                   </th>
                 )}
+                {isCommunitySubmissionForm && (
+                  <th
+                    scope="col"
+                    className="px-4 py-2.5 text-start text-xs font-medium text-muted-foreground whitespace-nowrap"
+                  >
+                    {t("responses.communityReview")}
+                  </th>
+                )}
                 {fields.map((f) => (
                   <th
                     key={f.id}
@@ -1524,7 +1540,12 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
               {responses.length === 0 && (
                 <tr>
                   <td
-                    colSpan={2 + (hasSubmitterEmail ? 1 : 0) + fields.length}
+                    colSpan={
+                      2 +
+                      (hasSubmitterEmail ? 1 : 0) +
+                      (isCommunitySubmissionForm ? 1 : 0) +
+                      fields.length
+                    }
                     className="px-4 py-8 text-center text-xs text-muted-foreground"
                   >
                     {t("builder.results.noSearchMatches")}
@@ -1547,6 +1568,11 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                       {responseValueAsString(response.submitterEmail) || "-"}
                     </td>
                   )}
+                  {isCommunitySubmissionForm && (
+                    <td className="px-4 py-3 align-top">
+                      <CommunityPromotionCell response={response} />
+                    </td>
+                  )}
                   {fields.map((f) => {
                     const val = response.data[f.id];
                     const display = responseValueAsString(val) || "-";
@@ -1556,7 +1582,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                         className="min-w-48 px-4 py-3 align-top text-xs leading-5 whitespace-pre-wrap break-words"
                         title={display}
                       >
-                        {display}
+                        <ResponseValue value={val} />
                       </td>
                     );
                   })}

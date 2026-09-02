@@ -37,6 +37,13 @@ describe("isRedirectedDocsPath", () => {
 describe("buildPrerenderPaths", () => {
   const paths = buildPrerenderPaths();
 
+  it("leaves the Builder-backed community catalog on the SSR path", () => {
+    expect(paths).not.toContain("/apps/");
+    expect(paths.some((path) => path.startsWith("/apps/community/"))).toBe(
+      false,
+    );
+  });
+
   it("prerenders published docs and marketing pages", () => {
     expect(paths).toContain("/");
     expect(paths).toContain("/docs/");
