@@ -109,6 +109,7 @@ export interface DataGridProps<Row> extends Omit<
   contentClassName?: string;
   rowClassName?: string | ((row: Row, rowIndex: number) => string);
   scrollContainerProps?: DataGridScrollContainerProps;
+  horizontalOverflowAffordance?: "edges";
 }
 
 const DEFAULT_COLUMN_WIDTH = 160;
@@ -455,10 +456,12 @@ export function DataGrid<Row>({
   contentClassName,
   rowClassName,
   scrollContainerProps,
+  horizontalOverflowAffordance,
   className,
   ...gridProps
 }: DataGridProps<Row>) {
   const gridRef = React.useRef<HTMLDivElement>(null);
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   const hasMountedActiveCellRef = React.useRef(false);
   const [internalColumnWidths, setInternalColumnWidths] = React.useState<
     Record<string, number>
@@ -476,6 +479,54 @@ export function DataGrid<Row>({
           }
         : null,
     );
+  const [overflowEdges, setOverflowEdges] = React.useState({
+    start: false,
+    end: false,
+  });
+
+  const updateOverflowEdges = React.useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container || horizontalOverflowAffordance !== "edges") {
+      setOverflowEdges({ start: false, end: false });
+      return;
+    }
+    const maxScroll = Math.max(
+      0,
+      container.scrollWidth - container.clientWidth,
+    );
+    const distanceFromStart =
+      getComputedStyle(container).direction === "rtl"
+        ? Math.abs(container.scrollLeft)
+        : container.scrollLeft;
+    const nextEdges = {
+      start: maxScroll > 1 && distanceFromStart > 1,
+      end: maxScroll > 1 && distanceFromStart < maxScroll - 1,
+    };
+    setOverflowEdges((currentEdges) =>
+      currentEdges.start === nextEdges.start &&
+      currentEdges.end === nextEdges.end
+        ? currentEdges
+        : nextEdges,
+    );
+  }, [horizontalOverflowAffordance]);
+
+  React.useEffect(() => {
+    updateOverflowEdges();
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const content = container.firstElementChild;
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(updateOverflowEdges);
+    resizeObserver?.observe(container);
+    if (content instanceof HTMLElement) resizeObserver?.observe(content);
+    window.addEventListener("resize", updateOverflowEdges);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", updateOverflowEdges);
+    };
+  }, [columns, rows, updateOverflowEdges]);
 
   const resolvedColumnWidths = columnWidths ?? internalColumnWidths;
   const resolvedSelectedRowIds = selectedRowIds ?? internalSelectedRowIds;
@@ -671,8 +722,11 @@ export function DataGrid<Row>({
     resizeColumn: setColumnWidth,
   };
 
-  const { className: scrollClassName, ...restScrollContainerProps } =
-    scrollContainerProps ?? {};
+  const {
+    className: scrollClassName,
+    onScroll,
+    ...restScrollContainerProps
+  } = scrollContainerProps ?? {};
   const loadingCount = Number.isFinite(loadingRowCount)
     ? Math.max(1, Math.floor(loadingRowCount))
     : 1;
@@ -685,75 +739,96 @@ export function DataGrid<Row>({
       className={cn("w-full min-w-0", className)}
       aria-busy={loading || undefined}
     >
-      <div
-        {...restScrollContainerProps}
-        data-data-grid-scroll-container="true"
-        className={cn(
-          "w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain",
-          scrollClassName,
-        )}
-      >
-        <div className={cn("w-max min-w-full", contentClassName)}>
-          {renderHeader ? (
-            renderHeader(slotContext)
-          ) : (
-            <DataGridHeader
-              columns={columns}
-              gridTemplateColumns={gridTemplateColumns}
-              selection={selection}
-              rows={rows}
-              getRowId={getRowId}
-              selectedRowIds={resolvedSelectedRowIds}
-              onToggleAll={toggleAllRows}
-              onStartResize={startResize}
-            />
+      <div className="relative min-w-0 max-w-full">
+        <div
+          {...restScrollContainerProps}
+          ref={scrollContainerRef}
+          data-data-grid-scroll-container="true"
+          className={cn(
+            "w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain",
+            scrollClassName,
           )}
-          {renderBody
-            ? renderBody(slotContext)
-            : loading
-              ? loadingRows({
-                  count: loadingCount,
-                  columns,
-                  gridTemplateColumns,
-                  selection,
-                })
-              : rows.length > 0
-                ? rows.map((row, rowIndex) => {
-                    const rowId = getRowId(row, rowIndex);
-                    const rowContext: DataGridRowContext<Row> = {
-                      ...slotContext,
-                      row,
-                      rowIndex,
-                      rowId,
-                      selected: resolvedSelectedRowIds.has(rowId),
-                    };
-                    if (renderRow) return renderRow(rowContext);
-                    return (
-                      <DataGridDefaultRow
-                        key={rowId}
-                        row={row}
-                        rowIndex={rowIndex}
-                        rowId={rowId}
-                        columns={columns}
-                        gridTemplateColumns={gridTemplateColumns}
-                        selection={selection}
-                        selected={rowContext.selected}
-                        rowClassName={
-                          typeof rowClassName === "function"
-                            ? rowClassName(row, rowIndex)
-                            : rowClassName
-                        }
-                        activeCell={resolvedActiveCell}
-                        setActiveCell={setActive}
-                        toggleRowSelection={toggleRowSelection}
-                        moveActiveCell={moveActiveCell}
-                        commitCell={commitCell}
-                      />
-                    );
+          onScroll={(event) => {
+            updateOverflowEdges();
+            onScroll?.(event);
+          }}
+        >
+          <div className={cn("w-max min-w-full", contentClassName)}>
+            {renderHeader ? (
+              renderHeader(slotContext)
+            ) : (
+              <DataGridHeader
+                columns={columns}
+                gridTemplateColumns={gridTemplateColumns}
+                selection={selection}
+                rows={rows}
+                getRowId={getRowId}
+                selectedRowIds={resolvedSelectedRowIds}
+                onToggleAll={toggleAllRows}
+                onStartResize={startResize}
+              />
+            )}
+            {renderBody
+              ? renderBody(slotContext)
+              : loading
+                ? loadingRows({
+                    count: loadingCount,
+                    columns,
+                    gridTemplateColumns,
+                    selection,
                   })
-                : emptyState}
-          {renderFooter ? renderFooter(slotContext) : null}
+                : rows.length > 0
+                  ? rows.map((row, rowIndex) => {
+                      const rowId = getRowId(row, rowIndex);
+                      const rowContext: DataGridRowContext<Row> = {
+                        ...slotContext,
+                        row,
+                        rowIndex,
+                        rowId,
+                        selected: resolvedSelectedRowIds.has(rowId),
+                      };
+                      if (renderRow) return renderRow(rowContext);
+                      return (
+                        <DataGridDefaultRow
+                          key={rowId}
+                          row={row}
+                          rowIndex={rowIndex}
+                          rowId={rowId}
+                          columns={columns}
+                          gridTemplateColumns={gridTemplateColumns}
+                          selection={selection}
+                          selected={rowContext.selected}
+                          rowClassName={
+                            typeof rowClassName === "function"
+                              ? rowClassName(row, rowIndex)
+                              : rowClassName
+                          }
+                          activeCell={resolvedActiveCell}
+                          setActiveCell={setActive}
+                          toggleRowSelection={toggleRowSelection}
+                          moveActiveCell={moveActiveCell}
+                          commitCell={commitCell}
+                        />
+                      );
+                    })
+                  : emptyState}
+            {renderFooter ? renderFooter(slotContext) : null}
+          </div>
         </div>
+        {overflowEdges.start ? (
+          <div
+            aria-hidden="true"
+            data-data-grid-overflow-edge="start"
+            className="pointer-events-none absolute inset-y-0 start-0 w-8 bg-gradient-to-r from-background to-transparent rtl:bg-gradient-to-l"
+          />
+        ) : null}
+        {overflowEdges.end ? (
+          <div
+            aria-hidden="true"
+            data-data-grid-overflow-edge="end"
+            className="pointer-events-none absolute inset-y-0 end-0 w-8 bg-gradient-to-l from-background to-transparent rtl:bg-gradient-to-r"
+          />
+        ) : null}
       </div>
     </div>
   );

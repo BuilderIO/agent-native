@@ -14,7 +14,8 @@ import {
 
 export default defineAction({
   description:
-    "Get a content database table, including its property schema and item pages.",
+    "Get a content database table, including its property schema, mutation contract, and item pages. Refresh this read immediately before a row write, then copy its mutation target and schema revision; for updates, copy the selected item's membership id as itemId, its document.id as documentId, and its rowRevision as expectedRowRevision.",
+  mcpTool: true,
   schema: z.object({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),
