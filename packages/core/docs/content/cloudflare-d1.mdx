@@ -56,6 +56,7 @@ Cloudflare dashboard:
 
 ```jsonc filename="wrangler.jsonc"
 {
+  "name": "agent-native-app",
   "pages_build_output_dir": "./dist",
   "d1_databases": [
     {
@@ -72,7 +73,7 @@ Build and deploy the Pages output with the [Cloudflare Pages preset](/docs/cloud
 
 ```bash
 npx @agent-native/core@latest build
-npx wrangler pages deploy dist
+npx wrangler pages deploy
 ```
 
 The Pages config and `wrangler pages deploy` flow are separate from the
