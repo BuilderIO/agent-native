@@ -13,6 +13,7 @@ const { createRenderer, renderer, importSpy } = vi.hoisted(() => {
     dispose: vi.fn(),
     setColors: vi.fn(),
     setPaused: vi.fn(),
+    setPointer: vi.fn(),
   };
   const importSpy = vi.fn();
   return { createRenderer: vi.fn(() => renderer), renderer, importSpy };
@@ -70,6 +71,7 @@ afterEach(() => {
   renderer.dispose.mockClear();
   renderer.setColors.mockClear();
   renderer.setPaused.mockClear();
+  renderer.setPointer.mockClear();
 });
 
 describe("hexToLinearRgb", () => {
@@ -153,6 +155,38 @@ describe("HeroOceanBackground", () => {
 
     for (const cb of intersectionCallbacks) cb([{ isIntersecting: true }]);
     expect(renderer.setPaused).toHaveBeenCalledWith(false);
+  });
+
+  it("tracks body mouse movement relative to the hero bounds", async () => {
+    const { container } = render(<HeroOceanBackground onError={vi.fn()} />);
+    const box = container.firstElementChild as HTMLElement;
+    vi.spyOn(box, "getBoundingClientRect").mockReturnValue({
+      left: 10,
+      top: 20,
+      width: 200,
+      height: 100,
+    } as DOMRect);
+
+    await waitFor(() => expect(createRenderer).toHaveBeenCalled());
+    renderer.setPointer.mockClear();
+
+    document.body.dispatchEvent(
+      new MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 110,
+        clientY: 70,
+      }),
+    );
+    expect(renderer.setPointer).toHaveBeenLastCalledWith([0, 0, 1]);
+
+    document.body.dispatchEvent(
+      new MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 310,
+        clientY: 70,
+      }),
+    );
+    expect(renderer.setPointer).toHaveBeenLastCalledWith([2, 0, 0]);
   });
 
   it("disposes the GPU and both observers on unmount", async () => {

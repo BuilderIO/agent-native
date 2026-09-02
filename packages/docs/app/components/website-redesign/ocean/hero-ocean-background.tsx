@@ -17,6 +17,8 @@ export interface HeroOceanBackgroundProps {
   frameRate?: number;
 }
 
+type PointerTarget = readonly [number, number, number];
+
 // Same box as HeroShaderBackground so the two are swappable without a layout
 // shift: absolutely filling the hero's `position: relative` PageSection, behind
 // the page-grid column dividers.
@@ -38,6 +40,39 @@ export function HeroOceanBackground({
     let renderer: OceanRenderer | undefined;
     let cancelled = false;
     const cleanups: (() => void)[] = [];
+    let pointerTarget: PointerTarget = [0, 0, 0];
+
+    const handleMouseMove = (event: MouseEvent) => {
+      const rect = container.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      const inside = x >= 0 && x <= rect.width && y >= 0 && y <= rect.height;
+
+      pointerTarget = [
+        (x / rect.width) * 2 - 1,
+        1 - (y / rect.height) * 2,
+        inside ? 1 : 0,
+      ];
+      renderer?.setPointer(pointerTarget);
+    };
+
+    const fadePointer = () => {
+      pointerTarget = [pointerTarget[0], pointerTarget[1], 0];
+      renderer?.setPointer(pointerTarget);
+    };
+
+    document.body.addEventListener("mousemove", handleMouseMove, {
+      passive: true,
+    });
+    document.body.addEventListener("mouseleave", fadePointer, {
+      passive: true,
+    });
+    cleanups.push(() => {
+      document.body.removeEventListener("mousemove", handleMouseMove);
+      document.body.removeEventListener("mouseleave", fadePointer);
+    });
 
     // Imported here rather than at module scope: the homepage is prerendered,
     // and the vgpu runtime is ~100x the size of this component. Nothing
@@ -51,6 +86,7 @@ export function HeroOceanBackground({
           fps: frameRate,
           onError: (error) => onErrorRef.current(error),
         });
+        renderer.setPointer(pointerTarget);
 
         // firstFrame, not ready: `ready` only means initialize() returned, so
         // the loop is registered but has not drawn yet, and it also fulfils
