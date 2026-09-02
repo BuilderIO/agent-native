@@ -14,6 +14,7 @@ describe("getGithubStarCount", () => {
 
   afterEach(() => {
     global.fetch = originalFetch;
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -55,6 +56,29 @@ describe("getGithubStarCount", () => {
     expect(await getGithubStarCount()).toBe(7);
     expect(await getGithubStarCount()).toBe(7);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("serves the stale value when a background refresh fails", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ stargazers_count: 7 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 429 }));
+    global.fetch = fetchMock;
+
+    expect(await getGithubStarCount()).toBe(7);
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + 5 * 60_000);
+
+    expect(await getGithubStarCount()).toBe(7);
+    await Promise.resolve();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(await getGithubStarCount()).toBe(7);
   });
 
   it("dedupes concurrent requests into a single upstream fetch", async () => {
