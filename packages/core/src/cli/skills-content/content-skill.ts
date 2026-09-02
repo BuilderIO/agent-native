@@ -17,6 +17,28 @@ marketing pages, internal notes, and local MDX components. Content gives the
 agent a document tree, a rich editor, normal document actions, and optional
 local-folder synchronization.
 
+## Connect Content
+
+If Content actions are already visible, use them. Otherwise connect the host to
+the Content app descriptor's hosted MCP URL (the hosted service uses
+\`https://content.agent-native.com/mcp\`). OAuth-capable hosts should add that
+remote MCP URL and let the user complete the host-owned sign-in and consent
+step. Claude and Claude Cowork use Claude's custom Connectors flow; Claude Code
+adds the same remote HTTP URL and authenticates from \`/mcp\`; ChatGPT/OpenAI,
+Codex, Grok/xAI, and other MCP hosts use their custom connector or MCP settings.
+
+Use the browser for OAuth or consent, an MCP App or focused artifact handoff,
+or interaction that genuinely exists only in the UI. When Content actions are
+available, do not replace Content reads, analysis, or ordinary changes with
+browser automation. After authorization, inspect the tools the host actually
+provides and use only those tools; do not infer unavailable capabilities from
+this skill.
+
+Clients without remote OAuth can open the app's \`/mcp/connect\` page or run
+\`npx @agent-native/core@latest connect https://content.agent-native.com\` for
+the existing browser-authorized fallback. Never ask the user to paste a token
+into chat.
+
 ## Choose The Path
 
 - Use Content actions when the Content MCP/action tools are available:
@@ -31,8 +53,9 @@ local-folder synchronization.
 - Local folders declared in \`agent-native.json\` are sources for ordinary
   SQL-backed Content pages. Use the trusted bridge's pull/check/push workflows to
   synchronize them; normal document actions always operate on the database.
-- If Content tools are not visible and no local Content app or Desktop bridge is
-  running, treat this skill as repo-editing guidance. Edit configured
+- If Content tools remain unavailable after the applicable hosted connection
+  path, and no local Content app or Desktop bridge is running, treat this skill
+  as repo-editing guidance. Edit configured
   \`.md\`/\`.mdx\` files directly, preserve frontmatter and MDX imports, and tell
   the user the Content action surface was not available.
 

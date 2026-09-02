@@ -14,6 +14,7 @@ describe("McpAccessSettings localization", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
+    window.history.replaceState({}, "", "/settings/mcp");
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -44,14 +45,13 @@ describe("McpAccessSettings localization", () => {
     expect(container.textContent).toContain("URL del servidor MCP");
     expect(container.textContent).toContain("Conectar un host de IA");
     expect(container.textContent).not.toContain("MCP server URL");
-    expect(container.textContent).not.toContain("Abre Customize → Connectors");
+    expect(container.textContent).toContain("Abre Customize → Connectors");
 
     const claudeTab = container.querySelector<HTMLButtonElement>(
       "#mcp-guide-tab-claude",
     );
     expect(claudeTab).not.toBeNull();
-    await act(async () => claudeTab?.click());
-    expect(container.textContent).toContain("Abre Customize → Connectors");
+    expect(claudeTab?.getAttribute("aria-selected")).toBe("true");
 
     const connectLink = Array.from(container.querySelectorAll("a")).find(
       (link) => link.textContent?.includes("Abrir página completa de conexión"),
@@ -87,5 +87,28 @@ describe("McpAccessSettings localization", () => {
     } finally {
       meta.remove();
     }
+  });
+
+  it("selects the guide requested by the integrations handoff", async () => {
+    window.history.replaceState({}, "", "/settings/mcp?guide=grok");
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <McpAccessSettings appName="Content" />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(
+      container
+        .querySelector("#mcp-guide-tab-grok")
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(container.textContent).toContain("grok.com/connectors");
   });
 });

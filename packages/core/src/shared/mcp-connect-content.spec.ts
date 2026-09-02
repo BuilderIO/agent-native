@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import { SUPPORTED_LOCALES } from "../localization/shared.js";
 import {
   MCP_CONNECT_GUIDES,
+  matchesMcpConnectHost,
   MCP_STATIC_TOKEN_FALLBACK,
   getMcpConnectGuides,
   getMcpStaticTokenFallback,
+  resolveMcpConnectGuideId,
 } from "./mcp-connect-content.js";
 
 function placeholders(value: string): string[] {
@@ -13,6 +15,35 @@ function placeholders(value: string): string[] {
 }
 
 describe("MCP connection copy", () => {
+  it.each([
+    ["Claude", "claude"],
+    ["Claude Cowork", "claude"],
+    ["Anthropic", "claude"],
+    ["Claude Code", "claude-code"],
+    ["ChatGPT", "chatgpt"],
+    ["OpenAI", "chatgpt"],
+    ["Codex", "codex"],
+    ["Grok", "grok"],
+    ["xAI", "grok"],
+    ["unknown host", "other"],
+  ])("routes the %s alias to %s", (query, guideId) => {
+    expect(resolveMcpConnectGuideId(query)).toBe(guideId);
+  });
+
+  it.each([
+    "Claude",
+    "Cowork",
+    "Anthropic",
+    "ChatGPT",
+    "OpenAI",
+    "Codex",
+    "Grok",
+    "xAI",
+    "MCP",
+  ])("matches the %s external-host search", (query) => {
+    expect(matchesMcpConnectHost(query)).toBe(true);
+  });
+
   it("localizes every shared guide and keeps template placeholders", () => {
     for (const locale of SUPPORTED_LOCALES.filter(
       (candidate) => candidate !== "en-US",

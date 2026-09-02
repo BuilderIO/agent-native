@@ -7,6 +7,7 @@ import {
   getMcpConnectGuides,
   getMcpStaticTokenFallback,
   interpolateMcpConnectTemplate,
+  resolveMcpConnectGuideId,
   type McpConnectTemplateValues,
 } from "../../shared/mcp-connect-content.js";
 import { AgentTabFrame } from "../agent-page/AgentTabFrame.js";
@@ -95,7 +96,11 @@ export function McpAccessSettings({
   );
   const [urls, setUrls] = useState<AccessUrls | null>(null);
   const [agentCardAvailable, setAgentCardAvailable] = useState(false);
-  const [activeGuide, setActiveGuide] = useState<string | null>(null);
+  const [activeGuide, setActiveGuide] = useState<string>(() =>
+    resolveMcpConnectGuideId(
+      new URLSearchParams(window.location.search).get("guide"),
+    ),
+  );
 
   useEffect(() => {
     const origin = window.location.origin;
@@ -124,6 +129,7 @@ export function McpAccessSettings({
     } satisfies McpConnectTemplateValues;
     const connectUrl = new URL(appPath("/mcp/connect"), origin);
     connectUrl.searchParams.set("locale", locale);
+    connectUrl.searchParams.set("guide", activeGuide);
     setUrls({
       appName,
       appUrl: baseUrl,
@@ -137,7 +143,7 @@ export function McpAccessSettings({
         origin,
       ).toString(),
     });
-  }, [appNameProp, locale]);
+  }, [activeGuide, appNameProp, locale]);
 
   useEffect(() => {
     if (!urls) return;

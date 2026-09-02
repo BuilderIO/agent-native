@@ -69,6 +69,7 @@ describe("IntegrationsPanel MCP connection errors", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    window.history.replaceState({}, "", "/settings/integrations");
 
     mcpMocks.useMcpServers.mockReturnValue({
       data: {
@@ -156,5 +157,47 @@ describe("IntegrationsPanel MCP connection errors", () => {
     expect(container.textContent).toContain("Available integrations");
     expect(container.textContent).toContain("Context7");
     expect(container.querySelector(".animate-pulse")).toBeNull();
+  });
+
+  it.each([
+    ["Claude Cowork", "claude"],
+    ["Claude Code", "claude-code"],
+    ["Anthropic", "claude"],
+    ["OpenAI", "chatgpt"],
+    ["Codex", "codex"],
+    ["xAI", "grok"],
+  ])("routes %s searches to the shared MCP guide", async (query, guide) => {
+    await act(async () => {
+      root.render(<IntegrationsPanel />);
+    });
+
+    const search = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Search integrations"]',
+    );
+    expect(search).not.toBeNull();
+    await act(async () => {
+      if (!search) return;
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(search, query);
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("settings.mcpClientSetup");
+    expect(container.textContent).not.toContain(
+      `No agent integrations match “${query.toLowerCase()}”`,
+    );
+
+    const connect = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "mcpIntegrations.connect",
+    );
+    expect(connect).toBeTruthy();
+    await act(async () => connect?.click());
+    expect(window.location.pathname).toBe("/settings/mcp");
+    expect(new URLSearchParams(window.location.search).get("guide")).toBe(
+      guide,
+    );
   });
 });
