@@ -1580,12 +1580,39 @@ const frFR = {
         q3VibeWarm: "Chaleureux et humain",
         q3VibeTechnical: "Technique et riche en données",
         answerAction: "Ajouter au prompt",
-        composerLabel: "Votre prompt",
+        composerLabel: "Prompt de génération de présentation",
+        uploadToSlides: "Ouvrir Slides pour importer des fichiers",
+        modelLabel: "Modèle",
+        modelDefault: "Modèle par défaut",
+        modelGemini: "Gemini 3.1 Pro",
+        modelGpt: "GPT-5.6 Luna",
+        modelClaude: "Claude Sonnet 5",
+        effortLabel: "Effort",
+        effortLow: "Faible",
+        effortMedium: "Moyen",
+        effortMediumShort: "Med",
+        effortHigh: "Élevé",
+        pickerSections: "Sections du sélecteur",
+        pickerBack: "Retour aux sections du sélecteur",
         composerPlaceholder:
           "Décrivez la présentation que vous voulez, ou répondez aux questions ci-dessus.",
         promptTip: "Astuce pour le prompt",
+        animatedPrompt1:
+          "Deck de lancement pour une nouvelle chaussure de running, dans le style de nike.com.",
+        animatedPrompt2:
+          "Deck de collecte de fonds pour une association de nettoyage du littoral, dans le style de Patagonia.",
+        animatedPrompt3:
+          "Les quatre derniers trimestres de Nvidia, d'après ses publications investisseurs, dans le style de nvidia.com.",
+        animatedPrompt4:
+          "Deck commercial pour une plateforme de support par IA, dans le style de stripe.co.",
+        animatedPrompt5:
+          "Aperçu du marché immobilier américain, avec des données de recherche de Census et Zillow.",
+        animatedPrompt6:
+          "Introduction aux LLM pour des étudiants en MBA, dans le style de apple.com.",
         promptPlaceholder:
-          "Soyez précis. Dites à qui cela s'adresse, collez vos notes, ou référencez le design d'un site web...",
+          "Remplacez ce prompt : créez une présentation fidèle à la marque pour [public] afin de [objectif] à partir des données ou notes collées ci-dessous : [collez les données ou notes ici].",
+        sectionHeading:
+          "Créez instantanément une présentation fidèle à votre marque à partir de vos données :",
         submit: "Générer ma présentation",
         readyHint: "Votre prompt est prêt — envoyez-le à l'agent.",
         promptDeck: "Crée {{deck}}.",

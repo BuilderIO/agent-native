@@ -1582,12 +1582,39 @@ const deDE = {
         q3VibeWarm: "Warm und menschlich",
         q3VibeTechnical: "Technisch und datenreich",
         answerAction: "Zum Prompt hinzufügen",
-        composerLabel: "Ihr Prompt",
+        composerLabel: "Prompt zur Präsentationserstellung",
+        uploadToSlides: "Slides öffnen, um Dateien hochzuladen",
+        modelLabel: "Modell",
+        modelDefault: "Standardmodell",
+        modelGemini: "Gemini 3.1 Pro",
+        modelGpt: "GPT-5.6 Luna",
+        modelClaude: "Claude Sonnet 5",
+        effortLabel: "Aufwand",
+        effortLow: "Niedrig",
+        effortMedium: "Mittel",
+        effortMediumShort: "Med",
+        effortHigh: "Hoch",
+        pickerSections: "Auswahlbereiche",
+        pickerBack: "Zurück zu den Auswahlbereichen",
         composerPlaceholder:
           "Beschreiben Sie die gewünschte Präsentation oder beantworten Sie die Fragen oben.",
         promptTip: "Prompt-Tipp",
+        animatedPrompt1:
+          "Launch-Deck für einen neuen Laufschuh im Stil von nike.com.",
+        animatedPrompt2:
+          "Fundraising-Deck für eine gemeinnützige Küstenreinigung im Stil von Patagonia.",
+        animatedPrompt3:
+          "Die letzten vier Quartale von Nvidia aus den Investorenberichten im Stil von nvidia.com.",
+        animatedPrompt4:
+          "Vertriebs-Deck für eine KI-Supportplattform im Stil von stripe.co.",
+        animatedPrompt5:
+          "Momentaufnahme des US-Immobilienmarkts mit Forschungsdaten von Census und Zillow.",
+        animatedPrompt6:
+          "Einführung in LLMs für MBA-Studierende im Stil von apple.com.",
         promptPlaceholder:
-          "Seien Sie konkret. Sagen Sie, für wen es ist, fügen Sie Ihre Notizen ein oder verweisen Sie auf ein Website-Design...",
+          "Ersetzen Sie diesen Prompt: Erstellen Sie für [Zielgruppe] eine markengerechte Präsentation mit dem Ziel [Zweck] aus den unten eingefügten Daten oder Notizen: [Daten oder Notizen hier einfügen].",
+        sectionHeading:
+          "Erstellen Sie sofort eine markengerechte Präsentation aus Ihren Daten:",
         submit: "Meine Präsentation generieren",
         readyHint: "Ihr Prompt ist fertig — senden Sie ihn an den Agenten.",
         promptDeck: "Erstelle {{deck}}.",

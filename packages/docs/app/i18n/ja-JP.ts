@@ -1559,12 +1559,37 @@ const jaJP = {
         q3VibeWarm: "温かみのある人間味",
         q3VibeTechnical: "技術的でデータ重視",
         answerAction: "プロンプトに追加",
-        composerLabel: "あなたのプロンプト",
+        composerLabel: "プレゼンテーション生成プロンプト",
+        uploadToSlides: "ファイルをアップロードするため Slides を開く",
+        modelLabel: "モデル",
+        modelDefault: "デフォルトモデル",
+        modelGemini: "Gemini 3.1 Pro",
+        modelGpt: "GPT-5.6 Luna",
+        modelClaude: "Claude Sonnet 5",
+        effortLabel: "エフォート",
+        effortLow: "低",
+        effortMedium: "中",
+        effortMediumShort: "Med",
+        effortHigh: "高",
+        pickerSections: "ピッカーセクション",
+        pickerBack: "ピッカーセクションに戻る",
         composerPlaceholder:
           "作りたいデッキを説明するか、上の質問に答えてください。",
         promptTip: "プロンプトのヒント",
+        animatedPrompt1:
+          "ランニングシューズ発売用のデッキを nike.com のスタイルで。",
+        animatedPrompt2:
+          "海岸清掃の非営利団体向け資金調達デッキを Patagonia のスタイルで。",
+        animatedPrompt3:
+          "Nvidia の投資家向け資料から直近4四半期をまとめ、nvidia.com のスタイルで。",
+        animatedPrompt4:
+          "AI サポートプラットフォーム向け営業デッキを stripe.co のスタイルで。",
+        animatedPrompt5:
+          "Census と Zillow の調査データを使った米国住宅市場の概況。",
+        animatedPrompt6: "MBA 学生向けの LLM 入門を apple.com のスタイルで。",
         promptPlaceholder:
-          "具体的にしてください。誰のためか、メモを貼り付けるか、参考にしたいウェブサイトのデザインを挙げてください...",
+          "このプロンプトを置き換えてください：以下に貼り付けたデータやメモを使い、[対象者]向けに[目的]を達成するブランド準拠のデッキを作成してください：[データやメモをここに貼り付け]。",
+        sectionHeading: "データからブランドに合ったデッキをすぐに作成：",
         submit: "デッキを生成",
         readyHint:
           "プロンプトの準備ができました。エージェントに送信してください。",

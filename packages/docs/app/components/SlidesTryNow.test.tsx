@@ -1,78 +1,330 @@
 // @vitest-environment jsdom
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
+import { type ReactNode, useLayoutEffect } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { docsI18nCatalog } from "../i18n";
-import { SlidesTryNow } from "./SlidesTryNow";
+import {
+  PROMPT_DELETE_INTERVAL_MS,
+  PROMPT_HOLD_MS,
+  PROMPT_TYPE_INTERVAL_MS,
+  SlidesTryNow,
+} from "./SlidesTryNow";
+
+const ENGLISH_ANIMATED_PROMPTS = [
+  "Launch deck for a running-shoe drop, in the style of nike.com.",
+  "Fundraising deck for a coastal cleanup nonprofit, in the style of Patagonia.",
+  "Nvidia's last four quarters, from their investor filings, in the style of nvidia.com.",
+  "A sales deck for an AI support platform, in the style of stripe.co",
+  "US housing market snapshot, with Census and Zillow research data.",
+  "Intro to LLMs for MBA students, in the style of apple.com.",
+] as const;
+
+function slidesTryNowElement() {
+  return (
+    <AgentNativeI18nProvider
+      catalog={docsI18nCatalog}
+      initialLocale="en-US"
+      initialPreference="en-US"
+      persistPreference={false}
+    >
+      <SlidesTryNow />
+    </AgentNativeI18nProvider>
+  );
+}
+
+function renderSlidesTryNow() {
+  return render(slidesTryNowElement());
+}
+
+function PreEffectPromptEdit({ children }: { children: ReactNode }) {
+  useLayoutEffect(() => {
+    const prompt = document.querySelector<HTMLElement>(
+      "#slides-try-now-prompt",
+    );
+    if (!prompt) return;
+
+    prompt.innerHTML = "Typed before<br>hydration";
+    prompt.focus();
+  }, []);
+
+  return children;
+}
+
+function advanceTimersByTime(milliseconds: number) {
+  act(() => {
+    vi.advanceTimersByTime(milliseconds);
+  });
+}
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: vi.fn().mockReturnValue({ matches: false }),
+  });
+});
 
 afterEach(() => {
   cleanup();
+  vi.clearAllTimers();
+  vi.useRealTimers();
 });
 
 describe("SlidesTryNow", () => {
-  it("encodes typed prompt text into the initialPrompt URL parameter", () => {
-    render(
-      <AgentNativeI18nProvider
-        catalog={docsI18nCatalog}
-        initialLocale="en-US"
-        initialPreference="en-US"
-        persistPreference={false}
-      >
-        <SlidesTryNow />
-      </AgentNativeI18nProvider>,
-    );
+  it("keeps the six English prompt examples in the requested order", () => {
+    const messages = docsI18nCatalog.messages.templateLanding.slides.tryNow;
 
-    const promptBox = screen.getByRole("textbox", { name: "Your prompt" });
-    promptBox.textContent = "A quarterly review deck for board members";
-
-    const submitLink = screen.getByRole("link", { name: "Generate my deck" });
-    fireEvent.click(submitLink);
-
-    const href = submitLink.getAttribute("href") || "";
-    const url = new URL(href);
-    const initialPrompt = url.searchParams.get("initialPrompt") || "";
-
-    expect(initialPrompt).toBe("A quarterly review deck for board members");
+    expect([
+      messages.animatedPrompt1,
+      messages.animatedPrompt2,
+      messages.animatedPrompt3,
+      messages.animatedPrompt4,
+      messages.animatedPrompt5,
+      messages.animatedPrompt6,
+    ]).toEqual(ENGLISH_ANIMATED_PROMPTS);
   });
 
-  it("associates the visible prompt label with the editable textbox", () => {
-    render(
-      <AgentNativeI18nProvider
-        catalog={docsI18nCatalog}
-        initialLocale="en-US"
-        initialPreference="en-US"
-        persistPreference={false}
-      >
-        <SlidesTryNow />
-      </AgentNativeI18nProvider>,
+  it("types the first prompt and keeps the Generate href in sync", () => {
+    renderSlidesTryNow();
+
+    const promptBox = screen.getByRole("textbox", {
+      name: "Presentation generation prompt",
+    });
+    const submitLink = screen.getByRole("link", { name: "Generate my deck" });
+
+    expect(promptBox.textContent).toBe("");
+
+    advanceTimersByTime(PROMPT_TYPE_INTERVAL_MS * 5);
+
+    const visiblePrompt = ENGLISH_ANIMATED_PROMPTS[0].slice(0, 5);
+    expect(promptBox.textContent).toBe(visiblePrompt);
+    expect(submitLink.getAttribute("href")).toBe(
+      `https://slides.agent-native.com/?initialPrompt=${encodeURIComponent(visiblePrompt)}`,
+    );
+  });
+
+  it("holds for two seconds, deletes, and advances to the next prompt", () => {
+    renderSlidesTryNow();
+
+    const promptBox = screen.getByRole("textbox", {
+      name: "Presentation generation prompt",
+    });
+    const firstPrompt = ENGLISH_ANIMATED_PROMPTS[0];
+
+    advanceTimersByTime(PROMPT_TYPE_INTERVAL_MS * firstPrompt.length);
+    expect(promptBox.textContent).toBe(firstPrompt);
+
+    advanceTimersByTime(PROMPT_HOLD_MS - 1);
+    expect(promptBox.textContent).toBe(firstPrompt);
+
+    advanceTimersByTime(1);
+    expect(promptBox.textContent).toBe(firstPrompt.slice(0, -1));
+
+    advanceTimersByTime(PROMPT_DELETE_INTERVAL_MS * (firstPrompt.length - 1));
+    expect(promptBox.textContent).toBe("");
+
+    advanceTimersByTime(PROMPT_TYPE_INTERVAL_MS);
+    expect(promptBox.textContent).toBe(ENGLISH_ANIMATED_PROMPTS[1][0]);
+  });
+
+  it("stops permanently on interaction without overwriting user edits", () => {
+    renderSlidesTryNow();
+
+    const promptBox = screen.getByRole("textbox", {
+      name: "Presentation generation prompt",
+    });
+    const submitLink = screen.getByRole("link", { name: "Generate my deck" });
+
+    advanceTimersByTime(PROMPT_TYPE_INTERVAL_MS * 8);
+    const stoppedText = promptBox.textContent;
+    fireEvent.pointerDown(promptBox);
+    advanceTimersByTime(30_000);
+    expect(promptBox.textContent).toBe(stoppedText);
+
+    promptBox.innerHTML = "Customer roadmap<br>For enterprise teams";
+    fireEvent.input(promptBox);
+    advanceTimersByTime(30_000);
+
+    expect(promptBox.textContent).toBe("Customer roadmapFor enterprise teams");
+    expect(submitLink.getAttribute("href")).toBe(
+      "https://slides.agent-native.com/?initialPrompt=Customer%20roadmap%0AFor%20enterprise%20teams",
+    );
+  });
+
+  it("preserves and syncs prompt text present before its effect runs", () => {
+    render(<PreEffectPromptEdit>{slidesTryNowElement()}</PreEffectPromptEdit>);
+
+    const promptBox = screen.getByRole("textbox", {
+      name: "Presentation generation prompt",
+    });
+    const submitLink = screen.getByRole("link", { name: "Generate my deck" });
+
+    expect(promptBox.innerHTML).toBe("Typed before<br>hydration");
+    expect(submitLink.getAttribute("href")).toBe(
+      "https://slides.agent-native.com/?initialPrompt=Typed%20before%0Ahydration",
     );
 
-    const prompt = screen.getByRole("textbox", { name: "Your prompt" });
+    advanceTimersByTime(30_000);
+    expect(promptBox.innerHTML).toBe("Typed before<br>hydration");
+  });
+
+  it("shows a stable full prompt when reduced motion is preferred", () => {
+    vi.mocked(window.matchMedia).mockReturnValue({
+      matches: true,
+    } as MediaQueryList);
+
+    renderSlidesTryNow();
+
+    const promptBox = screen.getByRole("textbox", {
+      name: "Presentation generation prompt",
+    });
+    expect(promptBox.textContent).toBe(ENGLISH_ANIMATED_PROMPTS[0]);
+
+    advanceTimersByTime(30_000);
+    expect(promptBox.textContent).toBe(ENGLISH_ANIMATED_PROMPTS[0]);
+  });
+
+  it("associates the hidden prompt label with the editable textbox", () => {
+    renderSlidesTryNow();
+
+    const prompt = screen.getByRole("textbox", {
+      name: "Presentation generation prompt",
+    });
     const labelId = prompt.getAttribute("aria-labelledby");
 
     expect(labelId).toBe("slides-try-now-prompt-label");
-    expect(document.getElementById(labelId || "")?.textContent).toBe(
-      "Your prompt",
-    );
+    const label = document.getElementById(labelId || "");
+    expect(label?.textContent).toBe("Presentation generation prompt");
+    expect(label?.classList.contains("sr-only")).toBe(true);
+    expect(prompt.getAttribute("data-placeholder")).toBeNull();
     expect(prompt.getAttribute("contenteditable")).toBe("true");
   });
 
-  it("renders tooltip next to Your prompt", () => {
-    render(
-      <AgentNativeI18nProvider
-        catalog={docsI18nCatalog}
-        initialLocale="en-US"
-        initialPreference="en-US"
-        persistPreference={false}
-      >
-        <SlidesTryNow />
-      </AgentNativeI18nProvider>,
-    );
+  it("renders the compact composer toolbar without a fake file input", () => {
+    renderSlidesTryNow();
 
-    expect(screen.getByRole("tooltip").textContent).toContain(
-      "Be specific. Generic prompts = generic decks.",
+    const toolbar = screen.getByTestId("slides-composer-toolbar");
+    const prompt = screen.getByRole("textbox", {
+      name: "Presentation generation prompt",
+    });
+    const uploadLink = screen.getByRole("link", {
+      name: "Open Slides to upload files",
+    });
+    const generateLink = screen.getByRole("link", {
+      name: "Generate my deck",
+    });
+
+    expect(toolbar.classList.contains("flex-wrap")).toBe(true);
+    expect(prompt.classList.contains("min-h-28")).toBe(true);
+    expect(prompt.closest(".min-h-\\[13rem\\]")).not.toBeNull();
+    expect(prompt.closest(".min-h-\\[22rem\\]")).toBeNull();
+    expect(document.querySelector('input[type="file"]')).toBeNull();
+    expect(uploadLink.getAttribute("href")).toBe(
+      "https://slides.agent-native.com/?initialPrompt=",
     );
+    expect(uploadLink.getAttribute("title")).toBe(
+      "Open Slides to upload files",
+    );
+    expect(generateLink.textContent).toContain("Generate my deck");
+  });
+
+  it("opens detail only after an intentional summary-row click", () => {
+    renderSlidesTryNow();
+
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(document.querySelector("select")).toBeNull();
+
+    const trigger = screen.getByRole("button", {
+      name: "Model: Default model. Effort: Medium",
+    });
+    expect(trigger.textContent).toContain("Default model");
+    expect(trigger.textContent).toContain("· Med");
+
+    fireEvent.click(trigger);
+
+    const modelRow = screen.getByRole("tab", { name: /^Model/ });
+    const effortRow = screen.getByRole("tab", { name: /^Effort/ });
+    fireEvent.focus(modelRow);
+    fireEvent.mouseEnter(effortRow);
+
+    expect(
+      screen.getByRole("tablist", { name: "Picker sections" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("tabpanel")).toBeNull();
+
+    fireEvent.click(effortRow);
+    expect(screen.getByRole("tabpanel", { name: "Effort" })).toBeTruthy();
+  });
+
+  it("selects a model from the detail section and closes the popover", () => {
+    renderSlidesTryNow();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Model: Default model. Effort: Medium",
+      }),
+    );
+    fireEvent.click(screen.getByRole("tab", { name: /^Model/ }));
+
+    expect(
+      screen
+        .getByRole("button", { name: "Default model" })
+        .getAttribute("aria-current"),
+    ).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Claude Sonnet 5" }));
+
+    expect(screen.queryByRole("tabpanel", { name: "Model" })).toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: "Model: Claude Sonnet 5. Effort: Medium",
+      }).textContent,
+    ).toContain("Claude Sonnet 5· Med");
+  });
+
+  it("updates effort accessibility and lets Escape dismiss the picker", () => {
+    renderSlidesTryNow();
+
+    const trigger = screen.getByRole("button", {
+      name: "Model: Default model. Effort: Medium",
+    });
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("tab", { name: /^Effort/ }));
+
+    expect(
+      screen
+        .getByRole("button", { name: "Medium" })
+        .getAttribute("aria-current"),
+    ).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Low" }));
+
+    const lowEffortTrigger = screen.getByRole("button", {
+      name: "Model: Default model. Effort: Low",
+    });
+    expect(lowEffortTrigger.textContent).toContain("· Low");
+
+    fireEvent.click(lowEffortTrigger);
+    expect(
+      screen.getByRole("tablist", { name: "Picker sections" }),
+    ).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(
+      screen.queryByRole("tablist", { name: "Picker sections" }),
+    ).toBeNull();
+  });
+
+  it("does not render visible prompt header or tooltip chrome", () => {
+    renderSlidesTryNow();
+
+    expect(screen.queryByRole("button", { name: "Prompt tip" })).toBeNull();
+    expect(screen.queryByRole("tooltip")).toBeNull();
   });
 });

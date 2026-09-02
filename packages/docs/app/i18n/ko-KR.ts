@@ -1552,11 +1552,36 @@ const koKR = {
         q3VibeWarm: "따뜻하고 인간적인",
         q3VibeTechnical: "기술적이고 데이터 중심의",
         answerAction: "프롬프트에 추가",
-        composerLabel: "내 프롬프트",
+        composerLabel: "프레젠테이션 생성 프롬프트",
+        uploadToSlides: "파일을 업로드하려면 Slides 열기",
+        modelLabel: "모델",
+        modelDefault: "기본 모델",
+        modelGemini: "Gemini 3.1 Pro",
+        modelGpt: "GPT-5.6 Luna",
+        modelClaude: "Claude Sonnet 5",
+        effortLabel: "노력",
+        effortLow: "낮음",
+        effortMedium: "중간",
+        effortMediumShort: "Med",
+        effortHigh: "높음",
+        pickerSections: "선택기 섹션",
+        pickerBack: "선택기 섹션으로 돌아가기",
         composerPlaceholder: "원하는 덱을 설명하거나 위의 질문에 답해 주세요.",
         promptTip: "프롬프트 팁",
+        animatedPrompt1: "러닝화 출시 덱을 nike.com 스타일로 만들어 주세요.",
+        animatedPrompt2:
+          "해안 정화 비영리단체를 위한 모금 덱을 Patagonia 스타일로 만들어 주세요.",
+        animatedPrompt3:
+          "Nvidia의 투자자 공시에서 최근 4개 분기를 정리해 nvidia.com 스타일로 만들어 주세요.",
+        animatedPrompt4:
+          "AI 지원 플랫폼을 위한 영업 덱을 stripe.co 스타일로 만들어 주세요.",
+        animatedPrompt5:
+          "Census와 Zillow 조사 데이터를 활용한 미국 주택 시장 현황을 만들어 주세요.",
+        animatedPrompt6:
+          "MBA 학생을 위한 LLM 입문 자료를 apple.com 스타일로 만들어 주세요.",
         promptPlaceholder:
-          "구체적으로 작성하세요. 누구를 위한 것인지 말하고, 노트를 붙여넣거나, 참고할 웹사이트 디자인을 알려주세요...",
+          "이 프롬프트를 바꾸세요: 아래에 붙여 넣은 데이터나 메모를 사용해 [대상]을 위한 [목적]의 브랜드 맞춤형 덱을 만들어 주세요: [여기에 데이터 또는 메모 붙여 넣기].",
+        sectionHeading: "데이터로 브랜드에 맞는 덱을 즉시 만들어 보세요:",
         submit: "덱 생성하기",
         readyHint: "프롬프트가 준비되었습니다. 에이전트에게 보내세요.",
         promptDeck: "{{deck}}을(를) 만들어 주세요.",

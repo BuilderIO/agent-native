@@ -1,9 +1,24 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconArrowRight, IconInfoCircle } from "@tabler/icons-react";
-import { useRef } from "react";
+import {
+  IconArrowLeft,
+  IconArrowRight,
+  IconCheck,
+  IconChevronDown,
+  IconChevronRight,
+  IconPlus,
+} from "@tabler/icons-react";
+import { useEffect, useRef, useState } from "react";
 
 import { applyFirstTouchAttributionToLink } from "./marketing-attribution";
 import { trackEvent } from "./TemplateCard";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+
+export const PROMPT_TYPE_INTERVAL_MS = 24;
+export const PROMPT_DELETE_INTERVAL_MS = 12;
+export const PROMPT_HOLD_MS = 2_000;
+
+type PickerSection = "model" | "effort";
+type Effort = "low" | "medium" | "high";
 
 export function extractPromptText(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) {
@@ -26,60 +41,323 @@ export function extractPromptText(node: Node): string {
 export function SlidesTryNow() {
   const t = useT();
   const tn = (key: string) => t(`templateLanding.slides.tryNow.${key}`);
-  const editorRef = useRef<HTMLDivElement>(null);
+  const animatedPromptsRef = useRef<readonly string[] | null>(null);
+  if (animatedPromptsRef.current === null) {
+    animatedPromptsRef.current = [
+      tn("animatedPrompt1"),
+      tn("animatedPrompt2"),
+      tn("animatedPrompt3"),
+      tn("animatedPrompt4"),
+      tn("animatedPrompt5"),
+      tn("animatedPrompt6"),
+    ];
+  }
+  const animatedPrompts = animatedPromptsRef.current;
+  const [promptText, setPromptText] = useState("");
+  const [selectedModel, setSelectedModel] = useState("default");
+  const [selectedEffort, setSelectedEffort] = useState<Effort>("medium");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerSection, setPickerSection] = useState<PickerSection | null>(
+    null,
+  );
+  const promptRef = useRef<HTMLParagraphElement>(null);
+  const animationStoppedRef = useRef(false);
+  const animationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const promptHref = `https://slides.agent-native.com/?initialPrompt=${encodeURIComponent(promptText)}`;
+  const modelOptions = [
+    { value: "default", label: tn("modelDefault") },
+    { value: "gemini-3.1-pro", label: tn("modelGemini") },
+    { value: "gpt-5.6-luna", label: tn("modelGpt") },
+    { value: "claude-sonnet-5", label: tn("modelClaude") },
+  ];
+  const effortOptions: Array<{
+    value: Effort;
+    label: string;
+    shortLabel: string;
+  }> = [
+    { value: "low", label: tn("effortLow"), shortLabel: tn("effortLow") },
+    {
+      value: "medium",
+      label: tn("effortMedium"),
+      shortLabel: tn("effortMediumShort"),
+    },
+    { value: "high", label: tn("effortHigh"), shortLabel: tn("effortHigh") },
+  ];
+  const selectedModelLabel =
+    modelOptions.find((option) => option.value === selectedModel)?.label ??
+    modelOptions[0].label;
+  const selectedEffortOption =
+    effortOptions.find((option) => option.value === selectedEffort) ??
+    effortOptions[1];
+
+  const setPickerOpenState = (open: boolean) => {
+    setPickerOpen(open);
+    if (!open) setPickerSection(null);
+  };
+
+  const stopPromptAnimation = () => {
+    animationStoppedRef.current = true;
+    if (animationTimerRef.current !== null) {
+      clearTimeout(animationTimerRef.current);
+      animationTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    const prompt = promptRef.current;
+    if (!prompt) return;
+
+    const visiblePromptText = extractPromptText(prompt).trim();
+    if (document.activeElement === prompt || visiblePromptText) {
+      stopPromptAnimation();
+      setPromptText(visiblePromptText);
+      return;
+    }
+
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      prompt.textContent = animatedPrompts[0];
+      setPromptText(animatedPrompts[0]);
+      return;
+    }
+
+    let promptIndex = 0;
+    let characterIndex = 0;
+    let deleting = false;
+
+    const scheduleNextStep = (delay: number) => {
+      animationTimerRef.current = setTimeout(advanceAnimation, delay);
+    };
+
+    const advanceAnimation = () => {
+      if (animationStoppedRef.current) return;
+
+      const currentPrompt = animatedPrompts[promptIndex];
+      if (deleting) {
+        characterIndex -= 1;
+        const nextText = currentPrompt.slice(0, characterIndex);
+        prompt.textContent = nextText;
+        setPromptText(nextText);
+
+        if (characterIndex === 0) {
+          promptIndex = (promptIndex + 1) % animatedPrompts.length;
+          deleting = false;
+          scheduleNextStep(PROMPT_TYPE_INTERVAL_MS);
+        } else {
+          scheduleNextStep(PROMPT_DELETE_INTERVAL_MS);
+        }
+        return;
+      }
+
+      characterIndex += 1;
+      const nextText = currentPrompt.slice(0, characterIndex);
+      prompt.textContent = nextText;
+      setPromptText(nextText);
+
+      if (characterIndex === currentPrompt.length) {
+        deleting = true;
+        scheduleNextStep(PROMPT_HOLD_MS);
+      } else {
+        scheduleNextStep(PROMPT_TYPE_INTERVAL_MS);
+      }
+    };
+
+    scheduleNextStep(PROMPT_TYPE_INTERVAL_MS);
+
+    return () => {
+      if (animationTimerRef.current !== null) {
+        clearTimeout(animationTimerRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div className="w-full min-w-0 text-start">
-      <div className="flex min-h-[22rem] min-w-0 flex-col gap-3 rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-4 sm:p-6">
-        <div className="flex items-center gap-1.5">
-          <span
-            id="slides-try-now-prompt-label"
-            className="text-xs font-medium uppercase tracking-wide text-[var(--fg-secondary)]"
-          >
-            {tn("composerLabel")}
-          </span>
-          <div className="group relative inline-flex items-center">
-            <button
-              type="button"
-              aria-label={tn("promptTip")}
-              className="inline-flex size-4 items-center justify-center rounded-full text-[var(--fg-secondary)] hover:text-[var(--fg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--docs-accent)]"
-            >
-              <IconInfoCircle size={14} aria-hidden="true" />
-            </button>
-            <div
-              role="tooltip"
-              className="pointer-events-none absolute bottom-full left-0 z-10 mb-2 hidden w-64 rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] p-2.5 text-xs font-normal normal-case leading-relaxed text-[var(--fg)] shadow-lg group-hover:block group-focus-within:block"
-            >
-              {/* i18n-ignore: product guidance copy */}
-              Be specific. Generic prompts = generic decks. Say who it is for,
-              paste your notes, and even reference a website design you want to
-              copy.
-            </div>
-          </div>
-        </div>
-        <div
-          ref={editorRef}
+      <div className="flex min-h-[13rem] min-w-0 flex-col gap-3 rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-4 transition-colors focus-within:border-[var(--docs-accent)] focus-within:ring-2 focus-within:ring-[var(--docs-accent)] focus-within:ring-offset-2 focus-within:ring-offset-[var(--bg-secondary)]">
+        <span id="slides-try-now-prompt-label" className="sr-only">
+          {tn("composerLabel")}
+        </span>
+        <p
+          ref={promptRef}
           id="slides-try-now-prompt"
           role="textbox"
           aria-labelledby="slides-try-now-prompt-label"
           aria-multiline="true"
           contentEditable
           suppressContentEditableWarning
-          data-placeholder={tn("promptPlaceholder")}
-          className="min-h-48 w-full flex-1 rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] p-4 text-sm leading-8 text-[var(--fg)] outline-none transition-colors empty:before:inline-block empty:before:text-[var(--fg-secondary)] empty:before:content-[attr(data-placeholder)] focus-visible:border-[var(--docs-accent)] focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-secondary)]"
+          onPointerDown={stopPromptAnimation}
+          onTouchStart={stopPromptAnimation}
+          onFocus={stopPromptAnimation}
+          onBeforeInput={stopPromptAnimation}
+          onPaste={stopPromptAnimation}
+          onKeyDown={stopPromptAnimation}
+          onInput={(event) => {
+            stopPromptAnimation();
+            setPromptText(extractPromptText(event.currentTarget).trim());
+          }}
+          className="m-0 min-h-28 w-full flex-1 text-sm leading-7 text-[var(--fg)] outline-none"
         />
-        <div className="flex justify-end">
+        <div
+          data-testid="slides-composer-toolbar"
+          className="flex min-w-0 flex-wrap items-center gap-2"
+        >
           <a
-            href="https://slides.agent-native.com/?initialPrompt="
+            href={promptHref}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[var(--fg)] px-6 text-sm font-semibold text-[var(--bg)] outline-none transition-opacity hover:opacity-85 focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-secondary)]"
+            aria-label={tn("uploadToSlides")}
+            title={tn("uploadToSlides")}
+            className="flex size-7 shrink-0 items-center justify-center rounded-md text-[var(--fg-secondary)] outline-none transition-colors hover:bg-[var(--docs-border)] hover:text-[var(--fg)] focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)]"
             onClick={(event) => {
-              const promptText = editorRef.current
-                ? extractPromptText(editorRef.current).trim()
-                : "";
-              const targetUrl = `https://slides.agent-native.com/?initialPrompt=${encodeURIComponent(promptText)}`;
-              event.currentTarget.href = targetUrl;
+              applyFirstTouchAttributionToLink(event.currentTarget);
+            }}
+          >
+            <IconPlus aria-hidden="true" size={16} />
+          </a>
+          <div className="min-w-0 flex-1" />
+          <Popover open={pickerOpen} onOpenChange={setPickerOpenState}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label={`${tn("modelLabel")}: ${selectedModelLabel}. ${tn("effortLabel")}: ${selectedEffortOption.label}`}
+                className="flex h-7 min-w-0 max-w-[10.5rem] shrink items-center gap-1 rounded-md px-2 text-xs font-medium text-[var(--fg-secondary)] outline-none transition-colors hover:bg-[var(--docs-border)] hover:text-[var(--fg)] focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)]"
+              >
+                <span className="min-w-0 truncate">{selectedModelLabel}</span>
+                <span className="min-w-0 shrink truncate opacity-70">
+                  · {selectedEffortOption.shortLabel}
+                </span>
+                <IconChevronDown
+                  aria-hidden="true"
+                  className="size-3 shrink-0 opacity-60"
+                />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              side="top"
+              align="end"
+              sideOffset={6}
+              collisionPadding={8}
+              onOpenAutoFocus={(event) => event.preventDefault()}
+              aria-label={tn("pickerSections")}
+              className="w-[min(15rem,calc(100vw-1rem))] border-[var(--docs-border)] bg-[var(--bg-secondary)] p-1 text-[var(--fg)]"
+            >
+              {pickerSection === null ? (
+                <div
+                  className="flex flex-col"
+                  role="tablist"
+                  aria-label={tn("pickerSections")}
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    onClick={() => setPickerSection("model")}
+                    className="flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start text-[var(--fg-secondary)] outline-none transition-colors hover:bg-[var(--docs-border)] hover:text-[var(--fg)] focus-visible:bg-[var(--docs-border)] focus-visible:text-[var(--fg)]"
+                  >
+                    <span className="shrink-0 text-xs font-medium">
+                      {tn("modelLabel")}
+                    </span>
+                    <span className="ms-auto min-w-0 max-w-24 truncate text-end text-[11px] opacity-80">
+                      {selectedModelLabel}
+                    </span>
+                    <IconChevronRight
+                      aria-hidden="true"
+                      className="size-3 shrink-0 opacity-60 rtl:-scale-x-100"
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    onClick={() => setPickerSection("effort")}
+                    className="flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start text-[var(--fg-secondary)] outline-none transition-colors hover:bg-[var(--docs-border)] hover:text-[var(--fg)] focus-visible:bg-[var(--docs-border)] focus-visible:text-[var(--fg)]"
+                  >
+                    <span className="shrink-0 text-xs font-medium">
+                      {tn("effortLabel")}
+                    </span>
+                    <span className="ms-auto min-w-0 max-w-24 truncate text-end text-[11px] opacity-80">
+                      {selectedEffortOption.label}
+                    </span>
+                    <IconChevronRight
+                      aria-hidden="true"
+                      className="size-3 shrink-0 opacity-60 rtl:-scale-x-100"
+                    />
+                  </button>
+                </div>
+              ) : (
+                <div
+                  role="tabpanel"
+                  aria-label={
+                    pickerSection === "model"
+                      ? tn("modelLabel")
+                      : tn("effortLabel")
+                  }
+                >
+                  <div className="flex items-center gap-1 px-1 pb-1">
+                    <button
+                      type="button"
+                      aria-label={tn("pickerBack")}
+                      onClick={() => setPickerSection(null)}
+                      className="flex size-7 shrink-0 items-center justify-center rounded-md text-[var(--fg-secondary)] outline-none transition-colors hover:bg-[var(--docs-border)] hover:text-[var(--fg)] focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)]"
+                    >
+                      <IconArrowLeft
+                        aria-hidden="true"
+                        className="size-3.5 rtl:-scale-x-100"
+                      />
+                    </button>
+                    <span className="truncate text-xs font-medium">
+                      {pickerSection === "model"
+                        ? tn("modelLabel")
+                        : tn("effortLabel")}
+                    </span>
+                  </div>
+                  <div className="flex flex-col">
+                    {(pickerSection === "model"
+                      ? modelOptions
+                      : effortOptions
+                    ).map((option) => {
+                      const isSelected =
+                        pickerSection === "model"
+                          ? option.value === selectedModel
+                          : option.value === selectedEffort;
+
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          aria-current={isSelected ? "true" : undefined}
+                          onClick={() => {
+                            if (pickerSection === "model") {
+                              setSelectedModel(option.value);
+                            } else {
+                              setSelectedEffort(option.value as Effort);
+                            }
+                            setPickerOpenState(false);
+                          }}
+                          className="flex w-full min-w-0 items-center gap-3 rounded-md px-2 py-2 text-start text-[var(--fg-secondary)] outline-none transition-colors hover:bg-[var(--docs-border)] hover:text-[var(--fg)] focus-visible:bg-[var(--docs-border)] focus-visible:text-[var(--fg)]"
+                        >
+                          <span className="min-w-0 flex-1 truncate text-xs">
+                            {option.label}
+                          </span>
+                          {isSelected ? (
+                            <IconCheck
+                              aria-hidden="true"
+                              className="size-4 shrink-0 text-[var(--docs-accent)]"
+                            />
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
+          <a
+            href={promptHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-lg bg-[var(--fg)] px-4 text-sm font-semibold text-[var(--bg)] outline-none transition-opacity hover:opacity-85 focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-secondary)]"
+            onClick={(event) => {
               applyFirstTouchAttributionToLink(event.currentTarget);
               trackEvent("generate deck", {
                 template: "slides",

@@ -1546,12 +1546,38 @@ const arSA = {
         q3VibeWarm: "دافئ وإنساني",
         q3VibeTechnical: "تقني وغني بالبيانات",
         answerAction: "أضف إلى المطالبة",
-        composerLabel: "مطالبتك",
+        composerLabel: "مطالبة إنشاء العرض التقديمي",
+        uploadToSlides: "افتح Slides لتحميل الملفات",
+        modelLabel: "النموذج",
+        modelDefault: "النموذج الافتراضي",
+        modelGemini: "Gemini 3.1 Pro",
+        modelGpt: "GPT-5.6 Luna",
+        modelClaude: "Claude Sonnet 5",
+        effortLabel: "الجهد",
+        effortLow: "منخفض",
+        effortMedium: "متوسط",
+        effortMediumShort: "Med",
+        effortHigh: "مرتفع",
+        pickerSections: "أقسام أداة الاختيار",
+        pickerBack: "العودة إلى أقسام أداة الاختيار",
         composerPlaceholder:
           "صف العرض التقديمي الذي تريده، أو أجب عن الأسئلة أعلاه.",
         promptTip: "تلميح حول المطالبة",
+        animatedPrompt1: "عرض إطلاق لحذاء جري جديد، بأسلوب nike.com.",
+        animatedPrompt2:
+          "عرض لجمع التبرعات لمنظمة غير ربحية لتنظيف السواحل، بأسلوب Patagonia.",
+        animatedPrompt3:
+          "أداء Nvidia خلال الأرباع الأربعة الأخيرة، من ملفات المستثمرين الخاصة بها، بأسلوب nvidia.com.",
+        animatedPrompt4:
+          "عرض مبيعات لمنصة دعم بالذكاء الاصطناعي، بأسلوب stripe.co.",
+        animatedPrompt5:
+          "لمحة عن سوق الإسكان في الولايات المتحدة، مع بيانات بحثية من Census وZillow.",
+        animatedPrompt6:
+          "مقدمة عن نماذج اللغة الكبيرة لطلاب MBA، بأسلوب apple.com.",
         promptPlaceholder:
-          "كن محددًا. اذكر لمن هذا العرض، وألصق ملاحظاتك، أو أشر إلى تصميم موقع تريد اتباعه...",
+          "استبدل هذه المطالبة: أنشئ عرضًا تقديميًا متوافقًا مع العلامة التجارية لـ[الجمهور] بهدف [الغرض] باستخدام البيانات أو الملاحظات الملصقة أدناه: [ألصق البيانات أو الملاحظات هنا].",
+        sectionHeading:
+          "أنشئ فورًا عرضًا تقديميًا متوافقًا مع علامتك التجارية من بياناتك:",
         submit: "أنشئ عرضي التقديمي",
         readyHint: "مطالبتك جاهزة — أرسلها إلى الوكيل.",
         promptDeck: "أنشئ {{deck}}.",

@@ -1563,12 +1563,38 @@ const enUS = {
         q3VibeWarm: "Warm and human",
         q3VibeTechnical: "Technical and data-dense",
         answerAction: "Add to prompt",
-        composerLabel: "Your prompt",
+        composerLabel: "Presentation generation prompt",
+        uploadToSlides: "Open Slides to upload files",
+        modelLabel: "Model",
+        modelDefault: "Default model",
+        modelGemini: "Gemini 3.1 Pro",
+        modelGpt: "GPT-5.6 Luna",
+        modelClaude: "Claude Sonnet 5",
+        effortLabel: "Effort",
+        effortLow: "Low",
+        effortMedium: "Medium",
+        effortMediumShort: "Med",
+        effortHigh: "High",
+        pickerSections: "Picker sections",
+        pickerBack: "Back to picker sections",
         composerPlaceholder:
           "Describe the deck you want, or answer the questions above.",
         promptTip: "Prompt tip",
+        animatedPrompt1:
+          "Launch deck for a running-shoe drop, in the style of nike.com.",
+        animatedPrompt2:
+          "Fundraising deck for a coastal cleanup nonprofit, in the style of Patagonia.",
+        animatedPrompt3:
+          "Nvidia's last four quarters, from their investor filings, in the style of nvidia.com.",
+        animatedPrompt4:
+          "A sales deck for an AI support platform, in the style of stripe.co",
+        animatedPrompt5:
+          "US housing market snapshot, with Census and Zillow research data.",
+        animatedPrompt6:
+          "Intro to LLMs for MBA students, in the style of apple.com.",
         promptPlaceholder:
-          "Be specific. Say who it is for, paste your notes, or reference a website design...",
+          "Replace this prompt: Create an on-brand deck for [audience] to [purpose] using the pasted data or notes below: [paste data or notes].",
+        sectionHeading: "Build an on-brand deck from your data instantly:",
         submit: "Generate my deck",
         readyHint: "Your prompt is ready — send it to the agent.",
         promptDeck: "Create {{deck}}.",
