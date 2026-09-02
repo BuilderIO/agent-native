@@ -174,12 +174,14 @@ describe("comments sidebar layout", () => {
     const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
       encoding: "utf8",
     });
+    const globalStyles = readFileSync("app/global.css", { encoding: "utf8" });
 
     expect(source).not.toContain('container.addEventListener("scroll"');
     expect(source).not.toContain("scrollIntoView");
     expect(source).not.toContain("data-comment-connector");
     expect(source).toContain("data-unanchored-comments");
     expect(source).not.toContain("CommentConnector");
+    expect(globalStyles).not.toContain(".comment-highlight::after");
   });
 
   it("keeps comment actions named and available to keyboard focus", () => {

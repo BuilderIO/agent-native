@@ -2392,17 +2392,6 @@ audio.media-block__content {
   -webkit-box-decoration-break: clone;
   transition: background-color 0.12s ease;
 }
-.notion-editor .comment-highlight::after {
-  content: "";
-  display: inline-block;
-  width: 0.65rem;
-  height: 0.5rem;
-  margin-inline: 0.2rem 0.05rem;
-  border: 1.5px solid hsl(45 72% 34% / 0.75);
-  border-radius: 999px;
-  vertical-align: 0.05rem;
-  box-shadow: 0 0 0 2px hsl(var(--background));
-}
 .notion-editor .comment-highlight:hover,
 .notion-editor .comment-highlight--active {
   background-color: hsl(45 93% 47% / 0.28);
