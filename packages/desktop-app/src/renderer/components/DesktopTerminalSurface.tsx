@@ -41,6 +41,7 @@ interface DesktopTerminalSurfaceProps {
   submitRequest?: AgentTerminalSubmitRequest;
   onPromptSubmitted?: (request: AgentTerminalSubmitRequest) => void;
   onNewUiTab?: () => void;
+  onClose?: () => void;
   sidebarOpen?: boolean;
   onToggleSidebar?: () => void;
   onAgentChange?: (agent: DesktopTerminalAgentId) => void;
@@ -71,6 +72,7 @@ export default function DesktopTerminalSurface({
   submitRequest,
   onPromptSubmitted,
   onNewUiTab,
+  onClose,
   sidebarOpen,
   onToggleSidebar,
   onAgentChange,
@@ -208,10 +210,8 @@ export default function DesktopTerminalSurface({
                 <>
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger>
-                      <span className="desktop-dropdown-item__main">
-                        <IconTerminal2 size={14} strokeWidth={1.8} />
-                        <span>Provider</span>
-                      </span>
+                      <IconTerminal2 size={14} strokeWidth={1.8} />
+                      <span>Provider</span>
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent className="w-52">
                       {DESKTOP_TERMINAL_AGENT_OPTIONS.map((option) => (
@@ -236,11 +236,12 @@ export default function DesktopTerminalSurface({
                   <DropdownMenuSeparator />
                 </>
               ) : null}
-              {onToggleSidebar || onNewUiTab ? (
+              {onToggleSidebar || onNewUiTab || addTab ? (
                 <>
                   <DesktopChatFirstSurfaceMenuItems
                     sidebarOpen={sidebarOpen}
                     onToggleSidebar={onToggleSidebar}
+                    onNewCliTab={addTab}
                     onNewUiTab={onNewUiTab}
                   />
                   <DropdownMenuSeparator />
@@ -261,6 +262,17 @@ export default function DesktopTerminalSurface({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          {onClose ? (
+            <button
+              type="button"
+              className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              aria-label="Close terminal"
+              title="Close terminal"
+              onClick={onClose}
+            >
+              <IconX size={14} aria-hidden="true" />
+            </button>
+          ) : null}
         </div>
       </div>
       <div className="desktop-terminal-surface__body">

@@ -756,6 +756,10 @@ function resolveDesktopTerminalCwd(): string {
   return app.getPath("home");
 }
 
+export function desktopTerminalUserHomeEnvironment(): NodeJS.ProcessEnv {
+  return { HOME: app.getPath("home") };
+}
+
 function isSafeDesktopAppPath(value: string): boolean {
   if (!value.startsWith("/") || value.startsWith("//")) return false;
   const baseUrl = "http://desktop-app.invalid";
@@ -955,6 +959,7 @@ async function createDesktopTerminal() {
   const token = randomUUID().replaceAll("-", "");
   const terminal = await createPtyWebSocketServer({
     appDir: resolveDesktopTerminalCwd(),
+    getEnvironment: () => desktopTerminalUserHomeEnvironment(),
     authCheck: (request) => {
       try {
         const url = new URL(

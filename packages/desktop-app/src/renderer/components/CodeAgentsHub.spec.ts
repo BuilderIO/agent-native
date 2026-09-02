@@ -262,22 +262,26 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).not.toContain("chatFirstDefaultInitializedRef");
   });
 
-  it("moves the active app beside CLI tabs and restores it for UI tabs", () => {
+  it("keeps the active app in the main surface beside its chat sidebar", () => {
     const hubSource = readFileSync(
       "src/renderer/components/CodeAgentsHub.tsx",
       "utf8",
     );
 
-    expect(hubSource).toContain('placement: enabled ? "side" : "main"');
+    expect(hubSource).toContain(
+      'const surfaceTab = chatFirstAppSurfaceTab(app, path, view, "main");',
+    );
     expect(hubSource).toContain('state.tabs.find((tab) => tab.kind === "app")');
     expect(hubSource).toContain("setChatFirstSurfacePanelOpen(false)");
     expect(hubSource).toContain("onNewCliTab={handleNewCliTab}");
     expect(hubSource).toContain("onNewUiTab={handleNewUiTab}");
+    expect(hubSource).toContain("shouldUseDesktopAppChatShell(tab.path)");
     expect(hubSource).toContain(
-      'shouldUseDesktopAppChatShell(tab.path) &&\n                  tab.placement !== "side"',
+      'defaultMode={terminalPreferences.enabled ? "cli" : "chat"}',
     );
+    expect(hubSource).toContain("terminal={{");
     expect(hubSource).toContain(
-      'newTabMode={terminalPreferences.enabled ? "cli" : "ui"}',
+      "!chatFirstAppSelected &&\n    (terminalSessionStarted || hasChatFirstActiveChat)",
     );
   });
 
@@ -510,16 +514,19 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain("onTogglePinned={toggleChatFirstAppPinned}");
   });
 
-  it("keeps normal app opens embedded and makes browser opening explicit", () => {
+  it("keeps selected apps in the main surface and makes browser opening explicit", () => {
     const hubSource = readFileSync(
       "src/renderer/components/CodeAgentsHub.tsx",
       "utf8",
     );
 
     expect(hubSource).toContain(
+      'const surfaceTab = chatFirstAppSurfaceTab(app, path, view, "main");',
+    );
+    expect(hubSource).not.toContain(
       'terminalPreferences.enabled ? "side" : "main"',
     );
-    expect(hubSource).toContain('resolution.target.view,\n        "side",');
+    expect(hubSource).not.toContain('resolution.target.view,\n        "side",');
     expect(hubSource).toContain(
       "window.electronAPI?.desktopChat?.onOpenApp(resolveChatFirstOpenApp)",
     );
@@ -551,10 +558,13 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       "{chatFirstSurfacePanel.open && canRenderChatFirstSurfacePanel ? (",
     );
     expect(hubSource).toContain(
-      'const canRenderChatFirstSurfacePanel =\n    hasChatFirstActiveChat &&\n    !chatFirstAllAppsOpen &&\n    !scheduledTasksOpen &&\n    (!chatFirstAppSelected || activeChatFirstSurfaceTab?.placement === "side");',
+      "(hasChatFirstActiveChat || terminalSessionStarted) &&",
     );
     expect(hubSource).toContain(
-      "const canToggleChatFirstSurfacePanel =\n    canRenderChatFirstSurfacePanel && !chatFirstAppSelected;",
+      'const chatFirstAppTakesMain = activeChatFirstSurfaceTab?.kind === "app";',
+    );
+    expect(hubSource).toContain(
+      "const canToggleChatFirstSurfacePanel = canRenderChatFirstSurfacePanel;",
     );
     expect(hubSource).toContain(
       'if (!hasChatFirstActiveChat) {\n        setChatFirstNotice("Open a chat to view browser surfaces.");',

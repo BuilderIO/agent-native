@@ -125,6 +125,18 @@ export class ClaudeCodeSubscriptionRequiredError extends Error {
   }
 }
 
+export class ClaudeCodeAuthStatusError extends Error {
+  readonly rawMessage: string;
+
+  constructor(rawMessage: string) {
+    super(
+      "Claude authentication check failed. Run `claude auth login` and try again.",
+    );
+    this.name = "ClaudeCodeAuthStatusError";
+    this.rawMessage = rawMessage;
+  }
+}
+
 export interface ClaudeCodeSubscriptionStatusOptions {
   command?: string;
   env?: NodeJS.ProcessEnv;
@@ -135,26 +147,33 @@ export async function readClaudeCodeSubscriptionStatus(
   options: ClaudeCodeSubscriptionStatusOptions = {},
 ): Promise<ClaudeCodeSubscriptionStatus> {
   const execute = options.execute ?? execFile;
-  const { stdout } = await execute(
-    resolveCommand(options.command, "claude"),
-    ["auth", "status", "--json"],
-    {
-      encoding: "utf8",
-      maxBuffer: 128 * 1024,
-      env: safeEnvironment(options.env ?? process.env),
-    },
-  );
-  const parsed = JSON.parse(stdout) as unknown;
-  const status = asRecord(parsed);
-  if (!status || typeof status.loggedIn !== "boolean") {
-    throw new Error("Claude Code returned an invalid authentication status.");
+  try {
+    const { stdout } = await execute(
+      resolveCommand(options.command, "claude"),
+      ["auth", "status", "--json"],
+      {
+        encoding: "utf8",
+        maxBuffer: 128 * 1024,
+        env: safeEnvironment(options.env ?? process.env),
+      },
+    );
+    const parsed = JSON.parse(stdout) as unknown;
+    const status = asRecord(parsed);
+    if (!status || typeof status.loggedIn !== "boolean") {
+      throw new Error("Claude Code returned an invalid authentication status.");
+    }
+    return {
+      loggedIn: status.loggedIn,
+      authMethod: readString(status.authMethod),
+      apiProvider: readString(status.apiProvider),
+      subscriptionType: readString(status.subscriptionType),
+    };
+  } catch (error) {
+    if (error instanceof ClaudeCodeAuthStatusError) throw error;
+    throw new ClaudeCodeAuthStatusError(
+      error instanceof Error ? error.message : String(error),
+    );
   }
-  return {
-    loggedIn: status.loggedIn,
-    authMethod: readString(status.authMethod),
-    apiProvider: readString(status.apiProvider),
-    subscriptionType: readString(status.subscriptionType),
-  };
 }
 
 export async function runClaudeCodeParticipant(

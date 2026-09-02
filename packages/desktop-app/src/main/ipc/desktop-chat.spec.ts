@@ -20,6 +20,7 @@ vi.mock("../app-store", () => ({
 import {
   desktopTerminalMcpArgs,
   desktopTerminalInfo,
+  desktopTerminalUserHomeEnvironment,
   DesktopTerminalMcpRelay,
   desktopTerminalOpenCodeEnvironment,
   resolveTargetUrl,
@@ -29,6 +30,10 @@ import {
 } from "./desktop-chat.js";
 
 describe("desktop chat relay target URLs", () => {
+  it("gives every desktop PTY the real stable user home", () => {
+    expect(desktopTerminalUserHomeEnvironment()).toEqual({ HOME: "/tmp" });
+  });
+
   it("configures the desktop sidebar tool for supported CLI agents", () => {
     const registration = {
       url: "http://127.0.0.1:3456/mcp",

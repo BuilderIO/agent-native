@@ -866,9 +866,7 @@ export default function CodeAgentsHub({
   useEffect(() => {
     closeChatFirstSessionWatch();
   }, []);
-  const chatFirstAppTakesMain =
-    activeChatFirstSurfaceTab?.kind === "app" &&
-    activeChatFirstSurfaceTab.placement === "main";
+  const chatFirstAppTakesMain = activeChatFirstSurfaceTab?.kind === "app";
   const chatFirstAppSelected = activeChatFirstSurfaceTab?.kind === "app";
   const chatFirstAppChatEnabled =
     chatFirstAppSelected &&
@@ -945,12 +943,7 @@ export default function CodeAgentsHub({
     multiFrontierState?.collaborationId;
 
   const openChatFirstApp = useCallback(
-    (
-      appId: string,
-      path?: string,
-      view?: string,
-      placement: ChatFirstAppSurfacePlacement = "main",
-    ) => {
+    (appId: string, path?: string, view?: string) => {
       const app = surfaceApps.find(
         (candidate) => candidate.id === appId && candidate.enabled,
       );
@@ -973,13 +966,7 @@ export default function CodeAgentsHub({
       setChatFirstNotice(null);
       setChatFirstBrowserSelection(null);
       closeChatFirstSessionWatch();
-      const surfacePlacement = hasChatFirstActiveChat ? placement : "main";
-      const surfaceTab = chatFirstAppSurfaceTab(
-        app,
-        path,
-        view,
-        surfacePlacement,
-      );
+      const surfaceTab = chatFirstAppSurfaceTab(app, path, view, "main");
       chatFirstSurfaceTabsStore.open(
         dispatchControlPlane
           ? {
@@ -988,15 +975,8 @@ export default function CodeAgentsHub({
             }
           : surfaceTab,
       );
-      if (surfacePlacement === "side") setChatFirstSurfacePanelOpen(true);
     },
-    [
-      chatFirstSurfaceTabsStore,
-      hasChatFirstActiveChat,
-      setChatFirstSurfacePanelOpen,
-      setScheduledTasksOpen,
-      surfaceApps,
-    ],
+    [chatFirstSurfaceTabsStore, setScheduledTasksOpen, surfaceApps],
   );
 
   useEffect(() => {
@@ -1013,7 +993,7 @@ export default function CodeAgentsHub({
     );
     if (!app) return;
     handledChatFirstAppOpenNonceRef.current = chatFirstAppOpenRequest.nonce;
-    openChatFirstApp(app.id, chatFirstAppOpenRequest.path, undefined, "main");
+    openChatFirstApp(app.id, chatFirstAppOpenRequest.path);
   }, [chatFirstAppOpenRequest, isActive, openChatFirstApp, surfaceApps]);
 
   useEffect(() => {
@@ -1117,7 +1097,7 @@ export default function CodeAgentsHub({
       if (appTab?.kind === "app") {
         chatFirstSurfaceTabsStore.open({
           ...appTab,
-          placement: enabled ? "side" : "main",
+          placement: "main",
         });
       } else if (!enabled) {
         setChatFirstSurfacePanelOpen(false);
@@ -1213,14 +1193,8 @@ export default function CodeAgentsHub({
     ],
   );
   const openChatFirstAppFromRail = useCallback(
-    (app: ChatFirstAppItem) =>
-      openChatFirstApp(
-        app.id,
-        undefined,
-        undefined,
-        terminalPreferences.enabled ? "side" : "main",
-      ),
-    [openChatFirstApp, terminalPreferences.enabled],
+    (app: ChatFirstAppItem) => openChatFirstApp(app.id, undefined, undefined),
+    [openChatFirstApp],
   );
   const reloadChatFirstApp = useCallback(
     (app: ChatFirstAppItem) => {
@@ -1237,24 +1211,12 @@ export default function CodeAgentsHub({
     [chatFirstSurfaceTabs.tabs, openChatFirstAppFromRail],
   );
   const openChatFirstAppFromGrid = useCallback(
-    (app: AppConfig) =>
-      openChatFirstApp(
-        app.id,
-        undefined,
-        undefined,
-        terminalPreferences.enabled ? "side" : "main",
-      ),
-    [openChatFirstApp, terminalPreferences.enabled],
+    (app: AppConfig) => openChatFirstApp(app.id, undefined, undefined),
+    [openChatFirstApp],
   );
   const selectChatFirstAppFromKeyboard = useCallback(
-    (appId: string) =>
-      openChatFirstApp(
-        appId,
-        undefined,
-        undefined,
-        terminalPreferences.enabled ? "side" : "main",
-      ),
-    [openChatFirstApp, terminalPreferences.enabled],
+    (appId: string) => openChatFirstApp(appId, undefined, undefined),
+    [openChatFirstApp],
   );
   const chatFirstKeyboardNavigation = useMemo<ChatFirstKeyboardNavigation>(
     () => ({
@@ -1391,7 +1353,6 @@ export default function CodeAgentsHub({
         resolution.target.appId,
         resolution.target.path,
         resolution.target.view,
-        "side",
       );
     },
     [chatFirstAppRegistrations, openChatFirstApp],
@@ -2747,14 +2708,15 @@ export default function CodeAgentsHub({
                 desktopIdentityStatus={desktopIdentityStatus}
                 appAuthState={appAuthState}
                 isActive={isTabActive}
-                chatEnabled={
-                  shouldUseDesktopAppChatShell(tab.path) &&
-                  tab.placement !== "side"
-                }
+                chatEnabled={shouldUseDesktopAppChatShell(tab.path)}
                 toggleScopeId={tab.id}
-                onNewCliTab={handleNewCliTab}
-                onNewUiTab={handleNewUiTab}
-                newTabMode={terminalPreferences.enabled ? "cli" : "ui"}
+                defaultMode={terminalPreferences.enabled ? "cli" : "chat"}
+                terminal={{
+                  agent: terminalPreferences.agent,
+                  theme,
+                  ...(tab.path ? { path: tab.path } : {}),
+                  ...(tab.view ? { view: tab.view } : {}),
+                }}
                 onLocalCodeChangeStarted={onLocalCodeChangeStarted}
               >
                 <div
@@ -2884,14 +2846,14 @@ export default function CodeAgentsHub({
   );
   const showTerminalSurface =
     terminalPreferences.enabled &&
-    (terminalSessionStarted || hasChatFirstActiveChat || chatFirstAppSelected);
+    !chatFirstAppSelected &&
+    (terminalSessionStarted || hasChatFirstActiveChat);
   const canRenderChatFirstSurfacePanel =
-    hasChatFirstActiveChat &&
+    (hasChatFirstActiveChat || terminalSessionStarted) &&
     !chatFirstAllAppsOpen &&
     !scheduledTasksOpen &&
-    (!chatFirstAppSelected || activeChatFirstSurfaceTab?.placement === "side");
-  const canToggleChatFirstSurfacePanel =
-    canRenderChatFirstSurfacePanel && !chatFirstAppSelected;
+    !chatFirstAppSelected;
+  const canToggleChatFirstSurfacePanel = canRenderChatFirstSurfacePanel;
   const activeTerminalApp = useMemo(() => {
     if (activeChatFirstSurfaceTab?.kind !== "app") return undefined;
     const app = surfaceApps.find(
@@ -2936,12 +2898,15 @@ export default function CodeAgentsHub({
             !showTerminalSurface &&
             !chatFirstAllAppsOpen &&
             !scheduledTasksOpen &&
-            hasChatFirstActiveChat &&
             !chatFirstAppSelected ? (
               <DesktopChatFirstSurfaceMenu
                 sidebarOpen={chatFirstSurfacePanel.open}
                 onToggleSidebar={chatFirstSurfacePanel.toggle}
                 onNewCliTab={handleNewCliTab}
+                onNewUiTab={openChatFirstNewChat}
+                onClose={
+                  hasChatFirstActiveChat ? openChatFirstNewChat : undefined
+                }
               />
             ) : undefined
           }
@@ -2989,6 +2954,7 @@ export default function CodeAgentsHub({
                 submitRequest={terminalPromptRequest ?? undefined}
                 onPromptSubmitted={handleTerminalPromptSubmitted}
                 onNewUiTab={handleNewUiTab}
+                onClose={handleNewUiTab}
                 sidebarOpen={
                   canToggleChatFirstSurfacePanel
                     ? chatFirstSurfacePanel.open
@@ -3191,9 +3157,7 @@ export default function CodeAgentsHub({
                   terminalPreferences.enabled ? ["terminal"] : undefined
                 }
                 apps={chatFirstAppItems}
-                onOpenApp={(app) =>
-                  openChatFirstApp(app.id, undefined, undefined, "side")
-                }
+                onOpenApp={(app) => openChatFirstApp(app.id)}
                 renderAppIcon={renderChatFirstAppIcon}
                 copy={defaultChatFirstCopy}
               />

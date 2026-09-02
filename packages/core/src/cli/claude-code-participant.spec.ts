@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildClaudeCodeParticipantArgs,
   CLAUDE_CODE_PARTICIPANT_TESTED_VERSION,
+  ClaudeCodeAuthStatusError,
   ClaudeCodeSubscriptionRequiredError,
   readClaudeCodeSubscriptionStatus,
   runClaudeCodeParticipant,
@@ -298,6 +299,24 @@ describe("Claude Code participant", () => {
       ["auth", "status", "--json"],
       expect.objectContaining({ env: { PATH: "/usr/bin" } }),
     );
+  });
+
+  it("keeps raw auth preflight failures available behind friendly copy", async () => {
+    const rawMessage =
+      "Command failed: claude auth status --json\nNot logged in";
+    const execute = vi.fn(async () => {
+      throw new Error(rawMessage);
+    });
+
+    const error = await readClaudeCodeSubscriptionStatus({
+      execute: execute as never,
+    }).catch((value: unknown) => value);
+
+    expect(error).toBeInstanceOf(ClaudeCodeAuthStatusError);
+    expect((error as ClaudeCodeAuthStatusError).message).toBe(
+      "Claude authentication check failed. Run `claude auth login` and try again.",
+    );
+    expect((error as ClaudeCodeAuthStatusError).rawMessage).toBe(rawMessage);
   });
 
   it("stops a stream that exceeds its configured event bound", async () => {
