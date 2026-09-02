@@ -141,13 +141,7 @@ export const MCP_CONNECT_HOSTS: readonly McpConnectHost[] = [
   {
     id: "claude",
     label: "Claude",
-    aliases: [
-      "claude",
-      "claude desktop",
-      "claude cowork",
-      "cowork",
-      "anthropic",
-    ],
+    aliases: ["claude", "claude desktop", "anthropic"],
     guideId: "claude",
   },
   {
@@ -165,7 +159,13 @@ export const MCP_CONNECT_HOSTS: readonly McpConnectHost[] = [
   {
     id: "codex",
     label: "Codex",
-    aliases: ["codex"],
+    aliases: ["openai codex", "codex"],
+    guideId: "codex",
+  },
+  {
+    id: "cowork",
+    label: "Claude Cowork",
+    aliases: ["claude cowork", "cowork"],
     guideId: "codex",
   },
   {
@@ -215,6 +215,7 @@ function queryMatchesHostAlias(query: string, alias: string): boolean {
     queryContainsTerm(query, alias) ||
     (query.length >= 3 &&
       !query.includes(" ") &&
+      !normalizedAlias.includes(" ") &&
       normalizedAlias.startsWith(query))
   );
 }

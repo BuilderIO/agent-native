@@ -17,12 +17,13 @@ function placeholders(value: string): string[] {
 describe("MCP connection copy", () => {
   it.each([
     ["Claude", "claude"],
-    ["Claude Cowork", "claude"],
+    ["Claude Cowork", "codex"],
     ["Anthropic", "claude"],
     ["Claude Code", "claude-code"],
     ["ChatGPT", "chatgpt"],
     ["OpenAI", "chatgpt"],
     ["Codex", "codex"],
+    ["OpenAI Codex", "codex"],
     ["Cursor", "cursor"],
     ["Grok", "grok"],
     ["xAI", "grok"],

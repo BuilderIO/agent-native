@@ -161,11 +161,12 @@ describe("IntegrationsPanel MCP connection errors", () => {
   });
 
   it.each([
-    ["Claude Cowork", "claude"],
+    ["Claude Cowork", "codex"],
     ["Claude Code", "claude-code"],
     ["Anthropic", "claude"],
     ["OpenAI", "chatgpt"],
     ["Codex", "codex"],
+    ["OpenAI Codex", "codex"],
     ["Cursor", "cursor"],
     ["xAI", "grok"],
   ])("routes %s searches to the shared MCP guide", async (query, guide) => {
