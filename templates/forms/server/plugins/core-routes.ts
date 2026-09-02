@@ -3,10 +3,45 @@ import { createCoreRoutesPlugin } from "@agent-native/core/server";
 export default createCoreRoutesPlugin({
   googleOAuthManagedConnection: "not_applicable",
   envKeys: [
+    {
+      key: "FORMS_DATABASE_URL",
+      label: "Forms Database URL",
+      required: false,
+    },
+    {
+      key: "FORMS_DATABASE_URL_UNPOOLED",
+      label: "Forms Unpooled Database URL",
+      required: false,
+    },
+    {
+      key: "FORMS_DATABASE_AUTH_TOKEN",
+      label: "Forms Database Auth Token",
+      required: false,
+    },
     { key: "DATABASE_URL", label: "Database URL", required: false },
+    {
+      key: "DATABASE_URL_UNPOOLED",
+      label: "Unpooled Database URL",
+      required: false,
+    },
+    {
+      key: "NETLIFY_DATABASE_URL",
+      label: "Netlify Database URL",
+      required: false,
+    },
+    {
+      key: "NETLIFY_DATABASE_URL_UNPOOLED",
+      label: "Netlify Unpooled Database URL",
+      required: false,
+    },
     {
       key: "DATABASE_AUTH_TOKEN",
       label: "Database Auth Token",
+      required: false,
+    },
+    {
+      key: "NETLIFY_DATABASE_AUTH_TOKEN",
+      label: "Netlify Database Auth Token",
       required: false,
     },
     {

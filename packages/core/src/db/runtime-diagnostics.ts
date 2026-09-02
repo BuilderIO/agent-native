@@ -4,6 +4,8 @@ import {
   getDialect,
   getDbExec,
   getRuntimeDatabaseUrl,
+  getRuntimeDatabaseSource,
+  isLocalDatabase,
   type DbExec,
   type Dialect,
 } from "./client.js";
@@ -128,16 +130,6 @@ function appEnvPrefix(): string | undefined {
   return envValue("APP_NAME")?.toUpperCase().replace(/-/g, "_");
 }
 
-function databaseUrlSource(): string {
-  const appName = appEnvPrefix();
-  if (appName && envValue(`${appName}_DATABASE_URL`)) {
-    return `${appName}_DATABASE_URL`;
-  }
-  if (envValue("DATABASE_URL")) return "DATABASE_URL";
-  if (envValue("NETLIFY_DATABASE_URL")) return "NETLIFY_DATABASE_URL";
-  return "default";
-}
-
 function databaseAuthTokenConfigured(): boolean {
   const appName = appEnvPrefix();
   return Boolean(
@@ -193,14 +185,32 @@ export function getDatabaseRuntimeFingerprint(): DatabaseRuntimeFingerprint {
   const parsed = parseDatabaseUrl(url);
   return {
     configured: Boolean(url),
-    source: databaseUrlSource(),
+    source: getRuntimeDatabaseSource(),
     dialect: getDialect(),
     urlHash: shortHash(url),
     appName: envValue("APP_NAME"),
     authTokenConfigured: databaseAuthTokenConfigured(),
-    netlifyDatabaseUrlConfigured: Boolean(envValue("NETLIFY_DATABASE_URL")),
+    netlifyDatabaseUrlConfigured: Boolean(
+      envValue("NETLIFY_DATABASE_URL") ||
+      envValue("NETLIFY_DATABASE_URL_UNPOOLED"),
+    ),
     ...parsed,
   };
+}
+
+/**
+ * Report whether a declared database URL represents the effective shared
+ * database, without exposing its value to the caller.
+ */
+export function getEffectiveDatabaseEnvStatus(
+  key: string,
+): boolean | undefined {
+  if (!/(?:^|_)DATABASE_URL(?:_UNPOOLED)?$/.test(key)) return undefined;
+
+  const database = getDatabaseRuntimeFingerprint();
+  if (!database.configured || isLocalDatabase()) return false;
+
+  return database.source === key;
 }
 
 export function getRuntimeDebugFingerprint(): RuntimeDebugFingerprint {
