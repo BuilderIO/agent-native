@@ -5,6 +5,7 @@ import {
   organizationResourceOwner,
   resourceDeleteByPath,
   resourceGetByPath,
+  resourceList,
   resourcePut,
   resourcePutIfCurrent,
   WORKSPACE_OWNER,
@@ -13,7 +14,10 @@ import {
   defineNitroPlugin,
   runWithRequestContext,
 } from "@agent-native/core/server";
-import { listAutomationDefinitions } from "@agent-native/core/triggers";
+import {
+  deleteAutomationRuns,
+  listAutomationDefinitions,
+} from "@agent-native/core/triggers";
 import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
@@ -41,7 +45,9 @@ import {
   DEFAULT_FACTORY_ID,
   assignCreatedByIfMissing,
   factoryAutomationJobPath,
+  factoryAutomationJobPrefix,
   factoryAutomationLeafName,
+  factoryAutomationRunHistoryKey,
   factoryConfigRowId,
   readAutomationFactoryId,
   readFactoryIdFromAutomationPath,
@@ -367,17 +373,9 @@ or use the action's default page size. Each item includes author.
 
 ${BABYSIT_SCOPE_INSTRUCTION}
 
-When inScope is true, babysit-factory-pull-request fetches fresh GitHub
-review and CI evidence and is the only place allowed to decide whether to post
-the bounded feedback-fix request. It skips owner-managed Clips, Design, and
-Content work. It persists the latest feedback fingerprint and quiet window, so
-repeated scheduler ticks do not spam comments. A changed commit, new unresolved
-feedback, failing or pending CI, or merge conflict starts a new bounded
-request; twenty minutes without new work to address ends that babysitting
-window. The action never approves or merges.
-
-Preserve action errors and never claim that a follow-up fix landed unless fresh
-evidence confirms the resulting state.
+When inScope is true, call babysit-factory-pull-request. It owns GitHub
+evidence, the hardcoded comment, and the quiet window. Never approve or merge.
+Preserve action errors.
 `,
   },
 ];
@@ -643,17 +641,52 @@ export async function listFactoryAutomationResources(
     }));
 }
 
+export async function listFactoryAutomationCleanupPaths(
+  orgId: string,
+  factoryId: string,
+  ownerEmail?: string,
+): Promise<string[]> {
+  const owner = organizationResourceOwner(orgId);
+  const prefixResources = await resourceList(
+    owner,
+    factoryAutomationJobPrefix(factoryId),
+  );
+  const paths = new Set(
+    prefixResources
+      .map((resource) => resource.path)
+      .filter((path) => path.trim().length > 0),
+  );
+  if (ownerEmail) {
+    const discovered = await listFactoryAutomationResources(
+      ownerEmail,
+      orgId,
+      factoryId,
+    );
+    for (const resource of discovered) {
+      paths.add(resource.path);
+    }
+  }
+  return [...paths].sort();
+}
+
 export async function snapshotFactoryAutomations(
   ownerEmail: string,
   orgId: string,
   factoryId: string,
 ): Promise<FactoryAutomationSnapshot[]> {
-  const resources = await listFactoryAutomationResources(
-    ownerEmail,
+  const owner = organizationResourceOwner(orgId);
+  const paths = await listFactoryAutomationCleanupPaths(
     orgId,
     factoryId,
+    ownerEmail,
   );
-  return resources.map(({ path, content }) => ({ path, content }));
+  const snapshots: FactoryAutomationSnapshot[] = [];
+  for (const path of paths) {
+    const resource = await resourceGetByPath(owner, path);
+    if (!resource) continue;
+    snapshots.push({ path, content: resource.content });
+  }
+  return snapshots;
 }
 
 export async function restoreFactoryAutomationSnapshots(
@@ -773,27 +806,38 @@ export async function removeFactoryAutomationResources(
   orgId: string,
   factoryId: string,
   ownerEmail?: string,
+  extraPaths: readonly string[] = [],
 ): Promise<void> {
   const owner = organizationResourceOwner(orgId);
-  if (ownerEmail) {
-    const resources = await listFactoryAutomationResources(
-      ownerEmail,
-      orgId,
-      factoryId,
-    );
-    await Promise.all(
-      resources.map((resource) => resourceDeleteByPath(owner, resource.path)),
-    );
-    return;
-  }
-  await Promise.all(
-    AUTOMATION_SEEDS.map(async (seed) => {
-      await resourceDeleteByPath(
-        owner,
+  const listed = await listFactoryAutomationCleanupPaths(
+    orgId,
+    factoryId,
+    ownerEmail,
+  );
+  const seedFallback = ownerEmail
+    ? []
+    : AUTOMATION_SEEDS.map((seed) =>
         factoryAutomationJobPath(factoryId, seed.name),
       );
+  const paths = [...new Set([...listed, ...extraPaths, ...seedFallback])];
+  await Promise.all(
+    paths.map(async (path) => {
+      await resourceDeleteByPath(owner, path);
+      if (path.endsWith(".md")) {
+        await deleteAutomationRuns(owner, factoryAutomationRunHistoryKey(path));
+      }
     }),
   );
+  const remaining = await listFactoryAutomationCleanupPaths(
+    orgId,
+    factoryId,
+    ownerEmail,
+  );
+  if (remaining.length > 0) {
+    throw new Error(
+      `Factory automation cleanup could not delete: ${remaining.join(", ")}.`,
+    );
+  }
 }
 
 async function ensureDefaultTriageConfig(

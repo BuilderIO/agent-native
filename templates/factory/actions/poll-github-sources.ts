@@ -8,6 +8,7 @@ import { readCallingFactoryAutomation } from "../server/lib/factory-automation-c
 import { repairFactoryAutomationsFromConfig } from "../server/lib/factory-automation-repair.js";
 import {
   factoryIdSchema,
+  orgFactoryItemFilter,
   readTriageConfigRow,
   requireExistingFactory,
 } from "../server/lib/factory-scope.js";
@@ -22,9 +23,16 @@ import { createGitHubClient } from "../server/triage/github-client.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
 import {
   mergeTriageMetadata,
+  metadataBoolean,
+  metadataNumber,
   metadataString,
   parseTriageMetadata,
 } from "../server/triage/metadata.js";
+import {
+  babysitLeavesReviewWindow,
+  hasMergeConflict,
+  shouldReopenParkedBabysit,
+} from "../server/triage/pr-babysit.js";
 import {
   hasTriageSourceChanged,
   statusAfterPullRequestPoll,
@@ -99,6 +107,55 @@ export default defineAction({
         ? client.listOpenPullRequests(repository, 50)
         : Promise.resolve([]),
     ]);
+    const parkedRechecks = new Map<
+      number,
+      { reviewComments: number; mergeConflict: boolean }
+    >();
+    if (includePullRequests && pullRequests.length > 0) {
+      const existingPrs = await db
+        .select({
+          id: triageItems.id,
+          metadataJson: triageItems.metadataJson,
+          pullRequestNumber: triageItems.pullRequestNumber,
+        })
+        .from(triageItems)
+        .where(
+          and(
+            orgFactoryItemFilter(orgId, factoryId),
+            eq(triageItems.source, "github"),
+          ),
+        );
+      const parkedNumbers = new Set(
+        existingPrs
+          .filter((row) =>
+            babysitLeavesReviewWindow(
+              metadataString(
+                parseTriageMetadata(row.metadataJson),
+                "prBabysitState",
+              ),
+            ),
+          )
+          .map((row) => row.pullRequestNumber)
+          .filter((value): value is number => typeof value === "number"),
+      );
+      await Promise.all(
+        pullRequests
+          .filter((pullRequest) => parkedNumbers.has(pullRequest.number))
+          .map(async (pullRequest) => {
+            const summary = await client.getPullRequestSummary(
+              repository,
+              pullRequest.number,
+            );
+            parkedRechecks.set(pullRequest.number, {
+              reviewComments: summary.reviewComments,
+              mergeConflict: hasMergeConflict({
+                mergeable: summary.mergeable,
+                mergeableState: summary.mergeableState,
+              }),
+            });
+          }),
+      );
+    }
     const now = new Date().toISOString();
     let issueCount = 0;
     let pullRequestCount = 0;
@@ -238,22 +295,44 @@ export default defineAction({
         const existingMetadata = existing
           ? parseTriageMetadata(existing.metadataJson)
           : {};
+        const existingBabysitState = metadataString(
+          existingMetadata,
+          "prBabysitState",
+        );
+        const parkedRecheck = parkedRechecks.get(pullRequest.number);
+        const reopenParked = shouldReopenParkedBabysit({
+          parked: babysitLeavesReviewWindow(existingBabysitState),
+          storedReviewCommentCount: metadataNumber(
+            existingMetadata,
+            "prBabysitReviewCommentCount",
+          ),
+          nextReviewCommentCount: parkedRecheck?.reviewComments,
+          storedMergeConflict:
+            metadataBoolean(existingMetadata, "prBabysitMergeConflict") ===
+            true,
+          nextMergeConflict: parkedRecheck?.mergeConflict === true,
+        });
+        const metadataWithBabysit = reopenParked
+          ? mergeTriageMetadata(metadata, { prBabysitState: "queued" })
+          : metadata;
         const status = statusAfterPullRequestPoll({
           existingStatus: existing?.status,
           existingAuthor: metadataString(existingMetadata, "author"),
           nextAuthor: pullRequest.userLogin,
-          existingBabysitState: metadataString(
-            existingMetadata,
-            "prBabysitState",
-          ),
+          existingBabysitState: reopenParked ? "queued" : existingBabysitState,
           nextDraft: pullRequest.draft,
           sourceChanged,
         });
-        const updatedAt = sourceChanged ? now : (existing?.updatedAt ?? now);
+        const updatedAt =
+          sourceChanged || reopenParked ? now : (existing?.updatedAt ?? now);
         const lastSeenAt = pullRequest.updatedAt;
         if (!existing) added += 1;
         else updated += 1;
-        if (!existing || (sourceChanged && status === "pr_observed")) {
+        if (
+          !existing ||
+          reopenParked ||
+          (sourceChanged && status === "pr_observed")
+        ) {
           newlyObserved.push({
             itemId: id,
             source: "github",
@@ -279,7 +358,7 @@ export default defineAction({
             headSha: pullRequest.headSha,
             coverage: existing?.coverage ?? "partial",
             dedupeKey: id,
-            metadataJson: metadata,
+            metadataJson: metadataWithBabysit,
             lastSeenAt,
             createdAt: existing?.createdAt ?? now,
             updatedAt,
@@ -297,7 +376,7 @@ export default defineAction({
               repository: repositoryName,
               pullRequestNumber: pullRequest.number,
               headSha: pullRequest.headSha,
-              metadataJson: metadata,
+              metadataJson: metadataWithBabysit,
               lastSeenAt,
               updatedAt,
               factoryId,

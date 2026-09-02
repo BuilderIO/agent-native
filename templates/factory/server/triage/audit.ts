@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { ActionRunContext } from "@agent-native/core/action";
+import { and, desc, eq } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
 import { factoryAuditEvents } from "../db/schema.js";
@@ -80,4 +81,38 @@ export async function recordFactoryAudit(
       ownerEmail: identity.userEmail,
       orgId: identity.orgId,
     });
+}
+
+/** Skip an item-scoped decision that repeats the last recorded summary. */
+export async function recordFactoryAuditIfChanged(
+  context: ActionRunContext | undefined,
+  identity: { userEmail: string; orgId: string },
+  input: FactoryAuditInput,
+  factoryId?: string | null,
+): Promise<void> {
+  if (context?.caller !== "automation" || !context.runId || !input.itemId) {
+    await recordFactoryAudit(context, identity, input, factoryId);
+    return;
+  }
+  const last = (
+    await getDb()
+      .select({
+        summary: factoryAuditEvents.summary,
+        status: factoryAuditEvents.status,
+      })
+      .from(factoryAuditEvents)
+      .where(
+        and(
+          eq(factoryAuditEvents.itemId, input.itemId),
+          eq(factoryAuditEvents.action, boundedText(input.action, 120)),
+          eq(factoryAuditEvents.kind, input.kind),
+        ),
+      )
+      .orderBy(desc(factoryAuditEvents.createdAt))
+      .limit(1)
+  )[0];
+  const status = input.status ?? "success";
+  const summary = boundedText(input.summary, MAX_SUMMARY_LENGTH);
+  if (last && last.summary === summary && last.status === status) return;
+  await recordFactoryAudit(context, identity, input, factoryId);
 }

@@ -137,4 +137,54 @@ describe("list-triage-items automation limits", () => {
       ),
     ).toBe(true);
   });
+
+  it("drops parked babysit items from the GitHub review window", async () => {
+    const parked = {
+      ...item("parked", "99"),
+      metadataJson: JSON.stringify({
+        authorId: "99",
+        author: "octocat",
+        prBabysitState: "waiting",
+      }),
+    };
+    const rows = [parked, item("fresh", "99")];
+    let selectCalls = 0;
+    getDbMock.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => {
+            selectCalls += 1;
+            if (selectCalls === 1) {
+              return {
+                orderBy: vi.fn(() => ({
+                  limit: vi.fn().mockResolvedValue(rows),
+                })),
+              };
+            }
+            return { orderBy: vi.fn().mockResolvedValue([]) };
+          }),
+        })),
+      })),
+    });
+    const { default: action } = await import("./list-triage-items.js");
+    const result = await action.run(
+      {
+        factoryId: "support-triage",
+        source: "github",
+        needsReview: true,
+        limit: 5,
+      },
+      {
+        caller: "automation",
+        userEmail: "owner@example.com",
+        automation: {
+          triggerId: "job-1",
+          triggerName: "factory-pr-babysit",
+        },
+      },
+    );
+    expect(result.items.map((entry: { id: string }) => entry.id)).toEqual([
+      "fresh",
+    ]);
+  });
 });

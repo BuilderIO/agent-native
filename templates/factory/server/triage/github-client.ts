@@ -61,6 +61,7 @@ export interface GitHubPullRequestSummary extends GitHubPullRequest {
   changedFiles: number;
   mergeable: boolean | null;
   mergeableState: string | null;
+  reviewComments: number;
 }
 
 export interface GitHubMemberCheck {
@@ -599,6 +600,10 @@ export function createGitHubClient(options: GitHubClientOptions) {
                 item.mergeable_state,
                 "pull request mergeable state",
               ),
+        reviewComments: requiredNumber(
+          item.review_comments,
+          "pull request review comments",
+        ),
       } satisfies GitHubPullRequestSummary;
     },
 

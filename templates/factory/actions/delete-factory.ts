@@ -8,6 +8,7 @@ import {
   factoryComments,
   factoryDefinitions,
   factoryGraphVersions,
+  factoryPollCursors,
   triageConfig,
   triageDecisions,
   triageFeedback,
@@ -25,6 +26,7 @@ import {
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
 import {
+  listFactoryAutomationCleanupPaths,
   removeFactoryAutomationResources,
   restoreFactoryAutomationSnapshots,
   snapshotFactoryAutomations,
@@ -32,7 +34,7 @@ import {
 
 export default defineAction({
   description:
-    "Permanently delete a user-created Factory and all Factory-owned graph versions, comments, observations, rules, decisions, runs, feedback, audit events, settings, and scheduled automations. The default product-feedback Factory cannot be deleted. Requires the Factory's exact current name as confirmation; provider work already in progress is not cancelled. When the delete commits but the follow-up read cannot confirm the Factory is gone, the action returns ok with verified:false instead of reporting a failed deletion.",
+    "Permanently delete a user-created Factory and all Factory-owned graph versions, comments, observations, rules, decisions, runs, feedback, audit events, settings, poll cursors, scheduled automations, and those automations' run history. The default product-feedback Factory cannot be deleted. Requires the Factory's exact current name as confirmation; provider work already in progress is not cancelled. When the delete commits but the follow-up read cannot confirm the Factory or its jobs are gone, the action returns ok with verified:false instead of reporting a failed deletion.",
   schema: z.object({
     factoryId: factoryIdSchema,
     confirmName: z.string().trim().min(1).max(120),
@@ -63,7 +65,12 @@ export default defineAction({
     try {
       // Remove schedules before SQL so no new run can start; restore both if
       // either step fails so a partial cleanup cannot disable a surviving Factory.
-      await removeFactoryAutomationResources(orgId, factoryId, userEmail);
+      await removeFactoryAutomationResources(
+        orgId,
+        factoryId,
+        userEmail,
+        snapshots.map((snapshot) => snapshot.path),
+      );
       await db.transaction(async (tx) => {
         const deleted = await tx
           .delete(factoryDefinitions)
@@ -99,6 +106,7 @@ export default defineAction({
           factoryComments,
           factoryGraphVersions,
           factoryAuditEvents,
+          factoryPollCursors,
           triageFeedback,
           triageDecisions,
           triageRuns,
@@ -155,6 +163,33 @@ export default defineAction({
         );
       }
       throw new Error("Factory deletion could not be verified.");
+    }
+
+    let leftoverJobs: string[];
+    try {
+      leftoverJobs = await listFactoryAutomationCleanupPaths(
+        orgId,
+        factoryId,
+        userEmail,
+      );
+    } catch (error) {
+      return {
+        ok: true,
+        factoryId,
+        name: factory.name,
+        verified: false,
+        verificationError:
+          error instanceof Error ? error.message : String(error),
+      };
+    }
+    if (leftoverJobs.length > 0) {
+      return {
+        ok: true,
+        factoryId,
+        name: factory.name,
+        verified: false,
+        verificationError: `Automations still present: ${leftoverJobs.join(", ")}`,
+      };
     }
 
     return { ok: true, factoryId, name: factory.name, verified: true };

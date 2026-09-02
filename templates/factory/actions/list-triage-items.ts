@@ -27,9 +27,12 @@ import {
   triageSourceSchema,
 } from "../server/triage/contracts.js";
 import {
+  metadataString,
+  parseTriageMetadata,
   triageItemAuthor,
   triageItemAuthorId,
 } from "../server/triage/metadata.js";
+import { babysitLeavesReviewWindow } from "../server/triage/pr-babysit.js";
 import { readStoredUserLabels } from "../server/triage/slack-user-labels.js";
 
 export default defineAction({
@@ -76,8 +79,7 @@ export default defineAction({
     const fetchLimit =
       context?.caller === "automation" &&
       calling &&
-      calling.config.source === "github" &&
-      calling.config.authorIds.length > 0
+      calling.config.source === "github"
         ? Math.min(100, Math.max(effectiveLimit * 10, effectiveLimit))
         : effectiveLimit;
     const parsedCursor = cursor ? decodeInboxCursor(cursor) : null;
@@ -130,6 +132,17 @@ export default defineAction({
           calling.config.authorMode,
           calling.config.authorIds,
         ),
+      );
+    }
+    if (needsReview && source === "github") {
+      page = page.filter(
+        (item) =>
+          !babysitLeavesReviewWindow(
+            metadataString(
+              parseTriageMetadata(item.metadataJson),
+              "prBabysitState",
+            ),
+          ),
       );
     }
     const hasMore = rows.length > fetchLimit || page.length > effectiveLimit;

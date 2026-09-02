@@ -78,28 +78,91 @@ export function hasCompletePassingChecks(input: {
   );
 }
 
+export const DEFAULT_BABYSIT_PR_COMMENT =
+  "@builderio-bot look at the latest PR feedback and fix anything you agree with. Be skeptical. Reply on each comment thread whether you fixed it and why. Get CI green and keep the branch mergeable.";
+
+/** First unfinished episode, or new human feedback / real conflict. SHA and CI flicker are not a new episode. */
+export function shouldPostBabysitComment(input: {
+  previousFingerprint: string | null | undefined;
+  fingerprint: string;
+  previousState: string | null | undefined;
+  lastCommentAtMs: number | null;
+  nowMs: number;
+  minCommentIntervalMs: number;
+}): boolean {
+  const intervalOk =
+    input.lastCommentAtMs === null ||
+    input.nowMs - input.lastCommentAtMs >= input.minCommentIntervalMs;
+  if (!intervalOk) return false;
+  const firstPokeForThisWork =
+    input.lastCommentAtMs === null || input.previousState === "clean";
+  return (
+    firstPokeForThisWork || input.previousFingerprint !== input.fingerprint
+  );
+}
+
+export const PARKED_BABYSIT_STATES = ["waiting", "quiet", "clean"] as const;
+
+export function babysitLeavesReviewWindow(
+  state: string | null | undefined,
+): boolean {
+  return state === "waiting" || state === "quiet" || state === "clean";
+}
+
+export function hasChangesRequested(
+  reviewStates: readonly string[] | undefined,
+): boolean {
+  return (reviewStates ?? []).includes("changes_requested");
+}
+
+/** Record inbox/audit only when babysit state changes or a comment is posted. */
+export function shouldRecordBabysitAudit(input: {
+  previousState: string | null | undefined;
+  nextState: string;
+  posted: boolean;
+}): boolean {
+  return input.posted || input.previousState !== input.nextState;
+}
+
+export function shouldReopenParkedBabysit(input: {
+  parked: boolean;
+  storedReviewCommentCount: number | null | undefined;
+  nextReviewCommentCount: number | null | undefined;
+  storedMergeConflict: boolean;
+  nextMergeConflict: boolean;
+}): boolean {
+  if (!input.parked) return false;
+  if (input.nextMergeConflict && !input.storedMergeConflict) return true;
+  if (
+    typeof input.nextReviewCommentCount === "number" &&
+    typeof input.storedReviewCommentCount === "number" &&
+    input.nextReviewCommentCount > input.storedReviewCommentCount
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Work that may start another GitHub poke. SHA, CI flicker, and uncomputed mergeability do not. */
 export function babysitFingerprint(input: {
-  headSha: string;
+  headSha?: string;
   mergeable: boolean | null;
   mergeableState: string | null;
   snapshot: BabysitProposal;
   reviewStates?: readonly string[];
 }): string {
   return JSON.stringify({
-    headSha: input.headSha,
-    mergeable: input.mergeable,
-    mergeableState: input.mergeableState,
     unansweredComments: input.snapshot.unansweredComments.map((comment) => ({
       id: comment.id,
       body: comment.body,
       isResolved: comment.isResolved ?? null,
     })),
-    failingChecks: input.snapshot.failingChecks.map((check) => check.name),
-    pendingChecks: input.snapshot.pendingChecks.map((check) => check.name),
-    checksCoverage: input.snapshot.checksCoverage,
-    missingChangesetPackages: input.snapshot.missingChangesetPackages,
+    mergeConflict: hasMergeConflict({
+      mergeable: input.mergeable,
+      mergeableState: input.mergeableState,
+    }),
     commentsTruncated: input.snapshot.commentsTruncated,
-    reviewStates: input.reviewStates ?? [],
+    changesRequested: hasChangesRequested(input.reviewStates),
   });
 }
 

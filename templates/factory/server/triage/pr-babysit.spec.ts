@@ -2,11 +2,16 @@ import { describe, expect, it } from "vitest";
 
 import {
   babysitFingerprint,
+  babysitLeavesReviewWindow,
   babysitOutOfScopeClause,
+  DEFAULT_BABYSIT_PR_COMMENT,
   formatBabysitAuditSummary,
   hasCompletePassingChecks,
   hasMergeConflict,
   reconcileBabysitState,
+  shouldPostBabysitComment,
+  shouldRecordBabysitAudit,
+  shouldReopenParkedBabysit,
   shouldRequestBabysitWork,
   type BabysitInput,
   type ReviewCommentObservation,
@@ -344,16 +349,24 @@ describe("babysit work policy", () => {
     ).toBe(true);
   });
 
-  it("changes the durable fingerprint when review state changes", () => {
+  it("changes the durable fingerprint for changes_requested, not extra commented reviews", () => {
+    const commented = babysitFingerprint({
+      headSha: "sha-1",
+      mergeable: true,
+      mergeableState: "clean",
+      snapshot: clean,
+      reviewStates: ["commented"],
+    });
     expect(
       babysitFingerprint({
         headSha: "sha-1",
         mergeable: true,
         mergeableState: "clean",
         snapshot: clean,
-        reviewStates: ["commented"],
+        reviewStates: ["commented", "commented"],
       }),
-    ).not.toBe(
+    ).toBe(commented);
+    expect(
       babysitFingerprint({
         headSha: "sha-1",
         mergeable: true,
@@ -361,7 +374,163 @@ describe("babysit work policy", () => {
         snapshot: clean,
         reviewStates: ["changes_requested"],
       }),
-    );
+    ).not.toBe(commented);
+  });
+
+  it("parks waiting, quiet, and clean items out of the review window", () => {
+    expect(babysitLeavesReviewWindow("waiting")).toBe(true);
+    expect(babysitLeavesReviewWindow("quiet")).toBe(true);
+    expect(babysitLeavesReviewWindow("clean")).toBe(true);
+    expect(babysitLeavesReviewWindow("active")).toBe(false);
+    expect(
+      shouldRecordBabysitAudit({
+        previousState: "waiting",
+        nextState: "waiting",
+        posted: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRecordBabysitAudit({
+        previousState: "active",
+        nextState: "waiting",
+        posted: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldReopenParkedBabysit({
+        parked: true,
+        storedReviewCommentCount: 1,
+        nextReviewCommentCount: 1,
+        storedMergeConflict: false,
+        nextMergeConflict: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldReopenParkedBabysit({
+        parked: true,
+        storedReviewCommentCount: 1,
+        nextReviewCommentCount: 2,
+        storedMergeConflict: false,
+        nextMergeConflict: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldReopenParkedBabysit({
+        parked: true,
+        storedReviewCommentCount: 1,
+        nextReviewCommentCount: 1,
+        storedMergeConflict: false,
+        nextMergeConflict: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not treat a new SHA, CI flicker, or uncomputed mergeability as new work", () => {
+    const failing = reconcileBabysitState({
+      ...baseInput,
+      checks: [check("ci", "failed")],
+    });
+    const unknown = babysitFingerprint({
+      headSha: "sha-1",
+      mergeable: null,
+      mergeableState: "unknown",
+      snapshot: failing,
+    });
+    expect(
+      babysitFingerprint({
+        headSha: "sha-2",
+        mergeable: true,
+        mergeableState: "blocked",
+        snapshot: reconcileBabysitState({
+          ...baseInput,
+          checks: [check("ci", "failed"), check("lint", "in_progress")],
+        }),
+      }),
+    ).toBe(unknown);
+  });
+
+  it("treats new unanswered comments or a real merge conflict as new work", () => {
+    const failing = reconcileBabysitState({
+      ...baseInput,
+      checks: [check("ci", "failed")],
+    });
+    const baseline = babysitFingerprint({
+      headSha: "sha-1",
+      mergeable: true,
+      mergeableState: "blocked",
+      snapshot: failing,
+    });
+    expect(
+      babysitFingerprint({
+        headSha: "sha-1",
+        mergeable: true,
+        mergeableState: "blocked",
+        snapshot: reconcileBabysitState({
+          ...baseInput,
+          comments: [comment({ id: "c1" })],
+          checks: [check("ci", "failed")],
+        }),
+      }),
+    ).not.toBe(baseline);
+    expect(
+      babysitFingerprint({
+        headSha: "sha-1",
+        mergeable: false,
+        mergeableState: "dirty",
+        snapshot: failing,
+      }),
+    ).not.toBe(baseline);
+  });
+
+  it("posts once for a new unfinished episode, not for SHA or CI flicker", () => {
+    const now = 1_000_000;
+    expect(
+      shouldPostBabysitComment({
+        previousFingerprint: '{"mergeConflict":false}',
+        fingerprint: '{"mergeConflict":false}',
+        previousState: null,
+        lastCommentAtMs: null,
+        nowMs: now,
+        minCommentIntervalMs: 90_000,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPostBabysitComment({
+        previousFingerprint: '{"mergeConflict":false}',
+        fingerprint: '{"mergeConflict":false}',
+        previousState: "active",
+        lastCommentAtMs: now - 200_000,
+        nowMs: now,
+        minCommentIntervalMs: 90_000,
+      }),
+    ).toBe(false);
+    expect(
+      shouldPostBabysitComment({
+        previousFingerprint: '{"mergeConflict":false}',
+        fingerprint: '{"mergeConflict":false}',
+        previousState: "clean",
+        lastCommentAtMs: now - 200_000,
+        nowMs: now,
+        minCommentIntervalMs: 90_000,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPostBabysitComment({
+        previousFingerprint: '{"unanswered":[]}',
+        fingerprint: '{"unanswered":["c1"]}',
+        previousState: "active",
+        lastCommentAtMs: now - 200_000,
+        nowMs: now,
+        minCommentIntervalMs: 90_000,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps the posted comment one-shot and out of the Factory loop", () => {
+    expect(DEFAULT_BABYSIT_PR_COMMENT).toContain("@builderio-bot");
+    expect(DEFAULT_BABYSIT_PR_COMMENT).not.toMatch(/2 minutes/i);
+    expect(DEFAULT_BABYSIT_PR_COMMENT).not.toMatch(/20 minutes/i);
+    expect(DEFAULT_BABYSIT_PR_COMMENT).not.toMatch(/\bloop\b/i);
   });
 
   it("names the pull request and author in the audit sentence", () => {
