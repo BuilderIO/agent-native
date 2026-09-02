@@ -166,6 +166,7 @@
   .clips-meeting-detail-grid {
     grid-template-columns: minmax(0, 1fr) 380px;
     grid-template-rows: minmax(0, 1fr);
+    overflow: hidden;
   }
 
   .clips-meeting-notes-panel {
