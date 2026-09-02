@@ -43,14 +43,11 @@ function safeHttpUrl(value: string): string | null {
   const normalized = /^[a-z][a-z\d+.-]*:/i.test(trimmed)
     ? trimmed
     : `https://${trimmed}`;
-  try {
-    const url = new URL(normalized);
-    return url.protocol === "http:" || url.protocol === "https:"
-      ? url.href
-      : null;
-  } catch {
-    return null;
-  }
+  if (!URL.canParse(normalized)) return null;
+  const url = new URL(normalized);
+  return url.protocol === "http:" || url.protocol === "https:"
+    ? url.href
+    : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -93,7 +90,7 @@ function parseJson(value: string, label: string): unknown {
   try {
     return JSON.parse(value) as unknown;
   } catch {
-    // Convert malformed saved data into a reviewable action error below.
+    // coercion-ok: malformed persisted JSON is rejected by fail immediately below.
   }
   fail(`This submission has invalid saved ${label} data.`, {
     errorCode: "invalid_submission_data",
@@ -260,7 +257,7 @@ async function publishToBuilder(
     try {
       body = await response.json();
     } catch {
-      // A successful empty response still means Builder accepted the write.
+      // coercion-ok: a successful status is the write result; the body is optional metadata.
     }
     return { ok: true, entryId: builderEntryId(body) };
   } catch {

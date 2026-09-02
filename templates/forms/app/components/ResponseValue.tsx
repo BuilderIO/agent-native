@@ -15,14 +15,11 @@ export function isFormFileValue(value: unknown): value is FormFileValue {
 }
 
 function safeHttpUrl(value: string): string | null {
-  try {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:"
-      ? url.href
-      : null;
-  } catch {
-    return null;
-  }
+  if (!URL.canParse(value)) return null;
+  const url = new URL(value);
+  return url.protocol === "http:" || url.protocol === "https:"
+    ? url.href
+    : null;
 }
 
 function fileValues(value: unknown): FormFileValue[] {

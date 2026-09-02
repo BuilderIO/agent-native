@@ -31,14 +31,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function safeHttpUrl(value: unknown): string | undefined {
   if (typeof value !== "string" || !value.trim()) return undefined;
-  try {
-    const url = new URL(value.trim());
-    return url.protocol === "http:" || url.protocol === "https:"
-      ? url.href
-      : undefined;
-  } catch {
-    return undefined;
-  }
+  const normalized = value.trim();
+  if (!URL.canParse(normalized)) return undefined;
+  const url = new URL(normalized);
+  return url.protocol === "http:" || url.protocol === "https:"
+    ? url.href
+    : undefined;
 }
 
 function stringValue(record: Record<string, unknown>, key: string) {
