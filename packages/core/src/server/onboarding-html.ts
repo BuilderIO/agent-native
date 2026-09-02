@@ -1353,12 +1353,13 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     width: 100%;
     max-width: 100%;
     max-height: calc(100vh - 3rem);
+    aspect-ratio: 914 / 818;
+    overflow: hidden;
   }
   .auth-marketing-screenshot {
     display: block;
-    width: auto;
-    max-width: 100%;
-    height: auto;
+    width: 100%;
+    height: 100%;
     max-height: calc(100vh - 3rem);
     object-fit: contain;
   }
@@ -2219,7 +2220,16 @@ ${embeddedAuthCss}
     max-height: calc(100vh - 5rem);
   }
   .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot-wrap {
-    width: fit-content;
+    width: 100%;
+    max-width: 927px;
+  }
+  .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot {
+    filter: blur(5px);
+  }
+  .auth-marketing-home.has-product-screenshot .form-panel .card {
+    position: relative;
+    left: -140px;
+    z-index: 1;
   }
   .auth-marketing-home.has-product-screenshot .form-panel {
     flex: 1 1 0;
@@ -2253,6 +2263,9 @@ ${embeddedAuthCss}
     .auth-marketing-home.has-product-screenshot .form-panel {
       min-width: 0;
       padding: 3.75rem 0.8125rem 1.5rem;
+    }
+    .auth-marketing-home.has-product-screenshot .form-panel .card {
+      left: auto;
     }
   }
 `;

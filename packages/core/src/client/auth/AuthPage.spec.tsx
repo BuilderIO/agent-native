@@ -30,19 +30,19 @@ describe("AuthPage", () => {
   });
 
   it("composes the shared marketing home and product screenshot for branded auth", () => {
-    const html = renderToString(
-      <AuthPage
-        {...propsFromHtml(
-          getOnboardingHtml({ requestHost: "slides.agent-native.com" }),
-        )}
-      />,
-    );
+    const onboardingHtml = getOnboardingHtml({
+      requestHost: "slides.agent-native.com",
+    });
+    const props = propsFromHtml(onboardingHtml);
+    const html = renderToString(<AuthPage {...props} />);
 
+    expect(props.marketing?.learnMorePlacement).toBe("bottom-right");
     expect(html).toContain('data-agent-native-marketing-home="true"');
     expect(html).toContain('class="auth-marketing-screenshot"');
     expect(html).toContain("/auth-marketing/slides.webp");
     expect(html).toContain('href="https://agent-native.com/apps/slides"');
     expect(html).toContain("New to Slides?");
+    expect(html).toContain("has-bottom-right-learn-more");
     expect(html).not.toContain('data-agent-native-starfield="true"');
     expect(html).toContain('class="split');
     expect(html).toContain('class="marketing-panel"');
@@ -50,6 +50,10 @@ describe("AuthPage", () => {
     expect(html).toMatch(
       /class="auth-marketing-top-right">\s*<a[^>]+class="auth-marketing-learn-more"/,
     );
+    expect(onboardingHtml).toContain("aspect-ratio: 914 / 818");
+    expect(onboardingHtml).toContain("width: 100%");
+    expect(onboardingHtml).toContain("filter: blur(5px)");
+    expect(onboardingHtml).toContain("left: -140px");
   });
 
   it("places Calendar's learn-more link in the bottom-right corner", () => {

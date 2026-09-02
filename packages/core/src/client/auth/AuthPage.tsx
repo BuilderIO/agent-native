@@ -2690,7 +2690,12 @@ export function AuthPage(props: AuthPageProps) {
         .join(" ")}
     >
       {marketingCopy.screenshotSrc ? (
-        <div className="auth-marketing-screenshot-wrap">
+        <div
+          className="auth-marketing-screenshot-wrap"
+          style={{
+            aspectRatio: `${marketingCopy.screenshotWidth ?? 914} / ${marketingCopy.screenshotHeight ?? 818}`,
+          }}
+        >
           <img
             className="auth-marketing-screenshot"
             src={marketingCopy.screenshotSrc}
