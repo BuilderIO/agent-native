@@ -5,6 +5,7 @@ import {
   classifyJobResource,
   jobBelongsToApp,
   parseJobResource,
+  patchJobFrontmatterFields,
   type JobFrontmatter,
 } from "./frontmatter.js";
 
@@ -80,6 +81,38 @@ Run the automation.`;
     expect(rewritten).toContain("factoryId: enzo-test-factory-3");
     expect(rewritten).toContain("displayName: My Slack triage");
     expect(rewritten).toContain('lastRun: "2026-08-21T17:30:01.097Z"');
+  });
+
+  it("patches execution fields without dropping tags a partial rebuild would lose", () => {
+    const content = `---
+enabled: true
+schedule: "*/5 * * * *"
+triggerType: schedule
+domain: factory
+appId: factory
+factoryId: demo-factory
+displayName: Slack feedback
+maxIterations: 32
+lastError: previous failure
+---
+
+Observe Slack.`;
+    const patched = patchJobFrontmatterFields(content, {
+      lastRun: "2026-09-01T21:45:00.000Z",
+      lastStatus: "running",
+      lastError: undefined,
+    });
+
+    expect(patched).toContain("triggerType: schedule");
+    expect(patched).toContain("domain: factory");
+    expect(patched).toContain("appId: factory");
+    expect(patched).toContain("factoryId: demo-factory");
+    expect(patched).toContain("displayName: Slack feedback");
+    expect(patched).toContain("maxIterations: 32");
+    expect(patched).toContain('lastRun: "2026-09-01T21:45:00.000Z"');
+    expect(patched).toContain("lastStatus: running");
+    expect(patched).not.toContain("lastError:");
+    expect(patched).toContain("Observe Slack.");
   });
 
   it("does not serialize webhook automation credentials into resource content", () => {

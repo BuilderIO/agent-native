@@ -22,6 +22,7 @@ import {
   buildJobResourceContent,
   jobBelongsToApp,
   parseJobResource,
+  patchJobFrontmatterFields,
   type JobFrontmatter,
 } from "./frontmatter.js";
 import {
@@ -832,9 +833,20 @@ export async function runQueuedAutomation(
 async function updateResource(
   resource: Resource,
   meta: JobFrontmatter,
-  body: string,
+  _body: string,
 ): Promise<boolean> {
-  const content = buildJobContent(meta, body);
+  const content = patchJobFrontmatterFields(resource.content, {
+    lastRun: meta.lastRun,
+    lastCheck: meta.lastCheck,
+    lastStatus: meta.lastStatus,
+    lastError: meta.lastError,
+    nextRun: meta.nextRun,
+    remoteRequestId: meta.remoteRequestId,
+    remoteCommandId: meta.remoteCommandId,
+    remoteRunId: meta.remoteRunId,
+    remoteAutomationRunId: meta.remoteAutomationRunId,
+    remoteAdvanceSchedule: meta.remoteAdvanceSchedule,
+  });
   const written = await resourcePutIfCurrent({
     owner: resource.owner,
     path: resource.path,

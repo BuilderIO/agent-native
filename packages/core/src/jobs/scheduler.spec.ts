@@ -123,6 +123,11 @@ vi.mock("../integrations/adapters/index.js", () => ({
   }),
 }));
 
+vi.mock("../server/onboarding-html.js", () => ({
+  getOnboardingHtml: vi.fn(),
+  getResetPasswordHtml: vi.fn(),
+}));
+
 // Partial-mock db/client so the user/membership validation lookup is
 // stubbed (audit 12 #10) but other consumers (auth shim, onboarding HTML
 // loaded transitively via `getDbExec`) still see real exports.
@@ -1421,7 +1426,7 @@ Post the revised digest.`,
 
     const putContent: string = resourcePutMock.mock.calls.at(-1)![2];
     expect(putContent).toContain('schedule: "0 21 * * *"');
-    expect(putContent).toContain('timezone: "Asia/Tokyo"');
+    expect(putContent).toContain("timezone: Asia/Tokyo");
     expect(putContent).toContain("Post the revised digest.");
     expect(putContent).toContain("lastStatus: success");
     // nextRun follows the edited schedule: 21:00 Tokyo is 12:00 UTC.
@@ -1575,5 +1580,53 @@ Do some work.`,
 
     expect(runAgentLoopMock).not.toHaveBeenCalled();
     expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it("patches claim and completion status without dropping application-owned frontmatter", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-factory-job",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/factories/demo-factory/factory-slack-feedback.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+triggerType: schedule
+domain: factory
+appId: factory
+orgId: org-1
+factoryId: demo-factory
+displayName: Slack feedback
+maxIterations: 32
+createdBy: alice+jobs@agent-native.test
+---
+
+Observe Slack.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+      appId: "factory",
+    });
+
+    expect(resourcePutMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    for (const call of resourcePutMock.mock.calls) {
+      const putContent: string = call[2];
+      expect(putContent).toContain("triggerType: schedule");
+      expect(putContent).toContain("domain: factory");
+      expect(putContent).toContain("appId: factory");
+      expect(putContent).toContain("factoryId: demo-factory");
+      expect(putContent).toContain("displayName: Slack feedback");
+      expect(putContent).toContain("maxIterations: 32");
+      expect(putContent).toContain("Observe Slack.");
+    }
+    expect(resourcePutMock.mock.calls.at(-1)![2]).toContain(
+      "lastStatus: success",
+    );
   });
 });

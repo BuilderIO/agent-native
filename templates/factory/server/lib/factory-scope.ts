@@ -309,6 +309,14 @@ export function factoryAutomationJobPrefix(factoryId: string): string {
   return `jobs/factories/${factoryId}/`;
 }
 
+/** Path prefixes used to discover jobs by folder, not YAML `domain`. */
+export function factoryAutomationJobPrefixes(factoryId: string): string[] {
+  if (factoryId === DEFAULT_FACTORY_ID) {
+    return ["jobs/factory-", factoryAutomationJobPrefix(factoryId)];
+  }
+  return [factoryAutomationJobPrefix(factoryId)];
+}
+
 /** Same key `listAutomationRuns` / `deleteAutomationRuns` use for a job path. */
 export function factoryAutomationRunHistoryKey(path: string): string {
   return path.replace(/^jobs\//, "").replace(/\.md$/, "");

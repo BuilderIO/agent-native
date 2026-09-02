@@ -10,6 +10,8 @@ const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/event-bus", () => ({
   subscribe: vi.fn(),
+  registerEvent: vi.fn(),
+  emit: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/notifications", () => ({

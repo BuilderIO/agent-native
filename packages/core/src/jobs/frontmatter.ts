@@ -535,3 +535,96 @@ export function buildJobResourceContent(
   lines.push("---", "", body);
   return lines.join("\n");
 }
+
+/** Execution bookkeeping the scheduler may patch; everything else stays as stored. */
+export const JOB_EXECUTION_FRONTMATTER_FIELDS = [
+  "lastRun",
+  "lastCheck",
+  "lastStatus",
+  "lastError",
+  "nextRun",
+  "remoteRequestId",
+  "remoteCommandId",
+  "remoteRunId",
+  "remoteAutomationRunId",
+  "remoteAdvanceSchedule",
+] as const;
+
+export type JobExecutionFrontmatterPatch = {
+  lastRun?: string;
+  lastCheck?: string;
+  lastStatus?: JobLastStatus;
+  lastError?: string;
+  nextRun?: string;
+  remoteRequestId?: string;
+  remoteCommandId?: string;
+  remoteRunId?: string;
+  remoteAutomationRunId?: string;
+  remoteAdvanceSchedule?: boolean;
+};
+
+function serializeExecutionFrontmatterValue(
+  key: (typeof JOB_EXECUTION_FRONTMATTER_FIELDS)[number],
+  value: string | boolean,
+): string {
+  if (typeof value === "boolean") return String(value);
+  if (key === "lastStatus") return value;
+  return JSON.stringify(value);
+}
+
+function setOrRemoveFrontmatterField(
+  content: string,
+  key: string,
+  serialized: string | undefined,
+): string {
+  if (!content.startsWith("---\n")) {
+    throw new Error(
+      "Job resource is missing frontmatter; cannot patch execution fields.",
+    );
+  }
+  const end = content.indexOf("\n---", 4);
+  if (end === -1) {
+    throw new Error(
+      "Job resource is missing frontmatter; cannot patch execution fields.",
+    );
+  }
+  const frontmatter = content.slice(4, end);
+  const pattern = new RegExp(`^${key}:.*\\n?`, "m");
+  if (serialized === undefined) {
+    if (!pattern.test(frontmatter)) return content;
+    const nextFrontmatter = frontmatter.replace(pattern, "").trimEnd();
+    return nextFrontmatter
+      ? `---\n${nextFrontmatter}${content.slice(end)}`
+      : content;
+  }
+  if (pattern.test(frontmatter)) {
+    return `---\n${frontmatter.replace(pattern, `${key}: ${serialized}\n`)}${content.slice(end)}`;
+  }
+  return `${content.slice(0, end)}\n${key}: ${serialized}${content.slice(end)}`;
+}
+
+/**
+ * Update scheduler-owned YAML keys on the stored document.
+ *
+ * A parse-then-rebuild from a partial in-memory meta object drops tags the
+ * editor still has on disk (`triggerType`, `domain`, `appId`, extras). Status
+ * writes must only touch execution fields.
+ */
+export function patchJobFrontmatterFields(
+  content: string,
+  fields: JobExecutionFrontmatterPatch,
+): string {
+  let next = content;
+  for (const key of JOB_EXECUTION_FRONTMATTER_FIELDS) {
+    if (!Object.hasOwn(fields, key)) continue;
+    const value = fields[key];
+    next = setOrRemoveFrontmatterField(
+      next,
+      key,
+      value === undefined
+        ? undefined
+        : serializeExecutionFrontmatterValue(key, value),
+    );
+  }
+  return next;
+}
