@@ -284,6 +284,29 @@ Observe Slack.`);
     ).toBe(false);
   });
 
+  it("refuses a personal job on a Factory-looking path", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
+    const personal = resource(
+      `---
+enabled: true
+createdBy: alice@example.com
+orgId: "org-1"
+---
+
+Observe Slack.`,
+      "alice@example.com",
+    );
+    personal.path = "jobs/factories/demo-factory/factory-slack-feedback.md";
+
+    expect(
+      await canQueueAutomationRunNow(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "factory" },
+        personal,
+        "organization",
+      ),
+    ).toBe(false);
+  });
+
   it("refuses a recovered Factory-folder job owned by another app", async () => {
     executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
     const calendarJob = resource(`---

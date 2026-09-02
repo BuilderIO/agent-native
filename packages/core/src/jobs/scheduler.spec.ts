@@ -494,6 +494,37 @@ Process the feedback.`,
     );
   });
 
+  it("does not claim a personal job on a Factory-looking path", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-personal-factory-path",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/factories/demo-factory/factory-slack-feedback.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+orgId: org-1
+runAs: creator
+---
+
+Process the feedback.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+      appId: "factory",
+    });
+
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
   it("creates run history threads owned by the job user", async () => {
     await processRecurringJobs({
       getActions: () => ({}),

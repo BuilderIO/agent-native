@@ -237,19 +237,33 @@ Run the job.`),
 
   it("recovers Factory-folder org jobs that lost appId for Factory only", () => {
     const path = "jobs/factories/demo-factory/factory-slack-feedback.md";
-    expect(isRecoveredFactoryJob({}, path, "factory")).toBe(true);
-    expect(isRecoveredFactoryJob({ appId: "factory" }, path, "factory")).toBe(
-      true,
-    );
-    expect(isRecoveredFactoryJob({}, path, "mail")).toBe(false);
-    expect(isRecoveredFactoryJob({ appId: "calendar" }, path, "factory")).toBe(
-      false,
-    );
+    const orgOwner = "__organization__:org-1";
+    expect(isRecoveredFactoryJob({}, path, "factory", orgOwner)).toBe(true);
     expect(
-      isRecoveredFactoryJob({}, "jobs/calendar-digest.md", "factory"),
+      isRecoveredFactoryJob({ appId: "factory" }, path, "factory", orgOwner),
+    ).toBe(true);
+    expect(isRecoveredFactoryJob({}, path, "mail", orgOwner)).toBe(false);
+    expect(
+      isRecoveredFactoryJob({ appId: "calendar" }, path, "factory", orgOwner),
     ).toBe(false);
     expect(
-      isRecoveredFactoryJob({}, "jobs/factory-pr-babysit.md", "factory"),
+      isRecoveredFactoryJob({}, "jobs/calendar-digest.md", "factory", orgOwner),
+    ).toBe(false);
+    expect(
+      isRecoveredFactoryJob(
+        {},
+        "jobs/factory-pr-babysit.md",
+        "factory",
+        orgOwner,
+      ),
     ).toBe(true);
+    expect(
+      isRecoveredFactoryJob(
+        { orgId: "org-1" },
+        path,
+        "factory",
+        "alice@example.com",
+      ),
+    ).toBe(false);
   });
 });

@@ -266,7 +266,7 @@ async function processRecurringJobsWithLease(
       // worker can claim the same organization resource.
       if (
         !jobBelongsToApp(meta, deps.appId) &&
-        !isRecoveredFactoryJob(meta, resource.path, deps.appId)
+        !isRecoveredFactoryJob(meta, resource.path, deps.appId, resource.owner)
       ) {
         continue;
       }

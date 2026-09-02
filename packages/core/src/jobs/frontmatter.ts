@@ -107,15 +107,19 @@ function isFactoryAutomationPath(path: string): boolean {
 
 /**
  * Path-scoped recovery for Factory-folder org jobs that lost `appId`.
- * Do not use this to loosen `jobBelongsToApp` for other apps.
+ * Owner must be organization-scoped; a personal resource on a Factory-looking
+ * path is not Factory-owned. Do not loosen `jobBelongsToApp` for other apps.
  */
 export function isRecoveredFactoryJob(
   meta: Pick<JobFrontmatter, "appId">,
   path: string,
   actorAppId: string | null | undefined,
+  owner: string | null | undefined,
 ): boolean {
   if (actorAppId?.trim() !== "factory") return false;
   if (!isFactoryAutomationPath(path)) return false;
+  // Same prefix as `organizationResourceOwner`; keep this file free of store.
+  if (!owner?.startsWith("__organization__:")) return false;
   const ownerAppId = meta.appId?.trim();
   return !ownerAppId || ownerAppId === "factory";
 }

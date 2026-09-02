@@ -267,6 +267,7 @@ export async function canQueueAutomationRunNow(
     meta,
     resource.path,
     actor.appId,
+    resource.owner,
   );
   if (!jobBelongsToApp(meta, actor.appId) && !recoveredFactory) return false;
   const access = await mutationAccess(actor, resource, meta);
