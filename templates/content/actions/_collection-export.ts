@@ -356,6 +356,7 @@ export async function buildCollectionExportProjection(
   const savedQueries: ContentDatabaseTableQuery[] = [];
   let personalQuery: ContentDatabaseTableQuery | null = null;
   let transientQuery: ContentDatabaseTableQuery | null = null;
+  let effectiveSorts: ContentDatabaseTableQuery["sorts"] = [];
   if (request.scope.kind === "current_view") {
     const currentViewScope = request.scope;
     const savedView = parseDatabaseViewConfig(
@@ -375,6 +376,11 @@ export async function buildCollectionExportProjection(
       savedView.filterMode ?? "and",
     );
     assertValidQuery(savedQuery, knownPropertyIds);
+    assertValidQuery(
+      { search: "", filters: [], sorts: savedView.sorts, filterMode: "and" },
+      knownPropertyIds,
+    );
+    effectiveSorts = savedView.sorts;
     savedQueries.push(savedQuery);
     const personal = await readPersonalDatabaseViewOverrides(
       userEmail,
@@ -389,6 +395,16 @@ export async function buildCollectionExportProjection(
         personalView.filterMode,
       );
       assertValidQuery(personalQuery, knownPropertyIds);
+      assertValidQuery(
+        {
+          search: "",
+          filters: [],
+          sorts: personalView.sorts,
+          filterMode: "and",
+        },
+        knownPropertyIds,
+      );
+      effectiveSorts = personalView.sorts;
     }
   }
 
@@ -397,7 +413,10 @@ export async function buildCollectionExportProjection(
     ...request.blockPropertyIds,
     ...savedQueries.flatMap(queryPropertyIds),
     ...(personalQuery ? queryPropertyIds(personalQuery) : []),
-    ...(transientQuery ? queryPropertyIds(transientQuery) : []),
+    ...(transientQuery
+      ? queryPropertyIds({ ...transientQuery, sorts: [] })
+      : []),
+    ...effectiveSorts.map(({ key }) => key).filter((key) => key !== "name"),
   ]);
   if (transientQuery?.search.trim()) {
     for (const property of allProperties) {
@@ -668,20 +687,38 @@ export async function buildCollectionExportProjection(
   const queryStages = [
     ...savedQueries,
     ...(personalQuery ? [personalQuery] : []),
-    ...(transientQuery ? [transientQuery] : []),
+    ...(transientQuery ? [{ ...transientQuery, sorts: [] }] : []),
+    ...(request.scope.kind === "current_view"
+      ? [
+          {
+            search: "",
+            filters: [],
+            sorts: effectiveSorts,
+            filterMode: "and" as const,
+          },
+        ]
+      : []),
   ];
   let hydrationChecked = false;
   const assertBodiesReady = () => {
     const remainingIds = new Set(queryItems.map((item) => item.document.id));
-    const pending = candidates.find(
+    const unreadable = candidates.find(
       ({ item }) =>
         remainingIds.has(item.documentId) &&
-        item.bodyHydrationStatus !== "hydrated" &&
-        item.bodyHydrationStatus !== "unavailable",
+        item.bodyHydrationStatus !== "hydrated",
     );
-    if (pending) {
+    if (unreadable?.item.bodyHydrationStatus === "unavailable") {
       fail(
-        `Database item "${pending.item.documentId}" is not ready for export.`,
+        `Database item "${unreadable.item.documentId}" body is unavailable for export.`,
+        {
+          errorCode: "collection_export_body_unavailable",
+          statusCode: 422,
+        },
+      );
+    }
+    if (unreadable) {
+      fail(
+        `Database item "${unreadable.item.documentId}" is not ready for export.`,
         {
           errorCode: "collection_export_body_not_ready",
           statusCode: 409,

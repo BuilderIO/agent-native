@@ -179,6 +179,11 @@ async function setDatabaseViewFilters(
     operator: "equals";
     value: string;
   }>,
+  sorts: Array<{
+    key: string;
+    label: string;
+    direction: "asc" | "desc";
+  }> = [],
 ) {
   await getDb()
     .update(schema.contentDatabases)
@@ -191,7 +196,7 @@ async function setDatabaseViewFilters(
             name: "Table",
             type: "table",
             filters,
-            sorts: [],
+            sorts,
             filterMode: "and",
           },
         ],
@@ -459,7 +464,7 @@ describe("export-document database collections", () => {
     ).rejects.toThrow('Database item "pending-page" is not ready for export');
   });
 
-  it("exports a member whose provider body is terminally unavailable", async () => {
+  it("fails distinctly when a selected provider body is terminally unavailable", async () => {
     await createDatabase({
       id: "unavailable-database",
       documentId: "unavailable-database-document",
@@ -477,16 +482,18 @@ describe("export-document database collections", () => {
       bodyHydrationStatus: "unavailable",
     });
 
-    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
-      exportDocumentAction.run({
-        id: "unavailable-database-document",
-        format: "markdown",
-      }),
-    );
-
-    expect(result.archiveFiles?.[1]?.content).toContain(
-      "# Unavailable Page\n\n## Content\n",
-    );
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        exportDocumentAction.run({
+          id: "unavailable-database-document",
+          format: "markdown",
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "collection_export_body_unavailable",
+      message:
+        'Database item "unavailable-page" body is unavailable for export.',
+    });
   });
 
   it("intersects saved, personal, and transient filters so callers cannot remove, replace, or widen saved predicates", async () => {
@@ -620,6 +627,73 @@ describe("export-document database collections", () => {
     ).resolves.toMatchObject({
       content: "Title\r\nallowed-personal\r\n",
     });
+  });
+
+  it("uses the server-resolved effective View order instead of caller-supplied sorts", async () => {
+    const databaseId = "trusted-view-order-database";
+    const databaseDocumentId = "trusted-view-order-document";
+    await createDatabase({
+      id: databaseId,
+      documentId: databaseDocumentId,
+      title: "Trusted View Order",
+    });
+    await setDatabaseViewFilters(
+      databaseId,
+      [],
+      [{ key: "name", label: "Name", direction: "desc" }],
+    );
+    for (const [id, title, position] of [
+      ["order-z", "Zulu", 0],
+      ["order-a", "Alpha", 1],
+    ] as const) {
+      await createDocument({ id, title });
+      await addDatabaseItem({
+        id: `${id}-item`,
+        databaseId,
+        documentId: id,
+        position,
+      });
+    }
+    await putUserSetting(
+      OWNER,
+      `content-database-personal-view:${databaseId}`,
+      {
+        version: 2,
+        activeViewId: "primary",
+        views: [
+          {
+            id: "primary",
+            sorts: [{ key: "name", label: "Name", direction: "asc" }],
+            filters: [],
+            filterMode: "and",
+          },
+        ],
+      },
+    );
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      exportDocumentAction.run({
+        id: databaseDocumentId,
+        format: "csv",
+        collection: {
+          scope: {
+            kind: "current_view",
+            viewId: "primary",
+            query: {
+              search: "",
+              filters: [],
+              sorts: [{ key: "name", label: "Name", direction: "desc" }],
+              filterMode: "and",
+            },
+          },
+          propertyIds: [],
+          includePrimaryBody: false,
+          blockPropertyIds: [],
+        },
+      }),
+    );
+
+    expect(result.content).toBe("Title\r\nAlpha\r\nZulu\r\n");
   });
 
   it("checks body hydration after body-independent saved narrowing", async () => {
