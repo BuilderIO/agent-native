@@ -6,10 +6,6 @@ import {
   useActionMutation,
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
-import {
-  injectSessionReplayIframeBootstrap,
-  SESSION_REPLAY_IFRAME_ATTRIBUTE,
-} from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   CreativeContextShareSheet,
@@ -93,7 +89,6 @@ import {
   writePendingGeneration,
 } from "@/lib/pending-generation";
 
-import { withLocalRuntimes } from "../components/design/design-canvas/local-runtime";
 
 type ProjectType = "prototype" | "other";
 interface Design {

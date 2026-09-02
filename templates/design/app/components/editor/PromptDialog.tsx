@@ -13,14 +13,10 @@ import {
   IconApps,
   IconArtboard,
   IconBrain,
-  IconCheck,
-  IconComponents,
-  IconChevronDown,
   IconPalette,
   IconPhoto,
   IconPlus,
   IconSparkles,
-  IconTemplate,
   IconUpload,
   IconX,
 } from "@tabler/icons-react";
@@ -38,16 +34,7 @@ export type {
   PromptDesignSystemOption,
   PromptTemplateOption,
 } from "@/components/editor/design-start-pickers";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   Popover,
@@ -829,9 +816,6 @@ export default function PromptPopover({
       },
     },
   }));
-  const selectedDesignSystem =
-    designSystems.find((system) => system.id === selectedDesignSystemId) ??
-    null;
   const selectedCreativeContext =
     creativeContexts.find(
       (context) => context.id === selectedCreativeContextId,
