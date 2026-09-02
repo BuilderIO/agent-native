@@ -97,7 +97,10 @@ function setSsrCacheHeaders(event: H3Event) {
 // Core has already promoted query-preserving HTML redirects to a full
 // query cache key. Keep that stronger key when adding Docs' Accept variant;
 // replacing it here would collapse distinct redirect targets again.
-function responseWithVaryAccept(response: Response, pathname: string): Response {
+function responseWithVaryAccept(
+  response: Response,
+  pathname: string,
+): Response {
   const headers = new Headers(response.headers);
   appendVary(headers, ["Accept", "Accept-Encoding"]);
   applyDocsSsrCacheKeyHeaders(headers);

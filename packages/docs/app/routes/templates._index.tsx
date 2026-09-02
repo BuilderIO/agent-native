@@ -2,10 +2,10 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { useLoaderData, useSearchParams } from "react-router";
 
+import { loadCommunityAppCatalog } from "../../server/lib/community-apps.server";
 import { BuildOnlinePopover } from "../components/BuilderWaitlistPopover";
 import { CommunityAppCard } from "../components/CommunityAppCard";
 import { CommunityAppSubmissionDialog } from "../components/CommunityAppSubmissionDialog";
-import { loadCommunityAppCatalog } from "../../server/lib/community-apps.server";
 import { sitePathForLocale } from "../components/docs-locale";
 import { featuredTemplates, TemplateCard } from "../components/TemplateCard";
 import { Button } from "../components/website-redesign/ds/button";

@@ -11,7 +11,10 @@ import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 
 import { loadCommunityAppCatalog } from "../../server/lib/community-apps.server";
 import { BuilderImage } from "../components/builder-image";
-import { findCommunityAppInCatalog, type CommunityApp } from "../components/community-apps";
+import {
+  findCommunityAppInCatalog,
+  type CommunityApp,
+} from "../components/community-apps";
 import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import {
