@@ -162,10 +162,27 @@ export default defineAction({
     // stranding it and navigating to a second one. Guarded twice: the caller
     // must be able to edit it, and it must still be empty, so a template can
     // never land on top of existing screens.
+    let targetExistingData: Record<string, unknown> = {};
     if (targetDesignId) {
       await assertAccess("design", targetDesignId, "editor");
       // The editor creates the board row on mount, so a design with nothing
       // drawn in it already has one file. Screens are what count as content.
+      const [existingDesign] = await db
+        .select({ data: schema.designs.data })
+        .from(schema.designs)
+        .where(eq(schema.designs.id, targetDesignId))
+        .limit(1);
+      if (typeof existingDesign?.data === "string") {
+        try {
+          const parsed = JSON.parse(existingDesign.data);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            targetExistingData = parsed as Record<string, unknown>;
+          }
+        } catch {
+          // coercion-ok: unreadable prior data is replaced wholesale below,
+          // which is the same outcome as the create path.
+        }
+      }
       const [existing] = await db
         .select({ id: schema.designFiles.id })
         .from(schema.designFiles)
@@ -231,7 +248,10 @@ export default defineAction({
           .set({
             title: title ?? templateTitle,
             description: templateDescription,
-            data: JSON.stringify(data),
+            // Merge, never replace: the row already carries editor state the
+            // template knows nothing about — `boardFileId` above all, whose
+            // loss makes the editor mint a second board on next open.
+            data: JSON.stringify({ ...targetExistingData, ...data }),
             designSystemId: linkedDesignSystemId,
             updatedAt: now,
           })

@@ -8,6 +8,7 @@ const testState = vi.hoisted(() => ({
   insertedFiles: [] as Array<Record<string, unknown>>,
   updatedDesign: null as Record<string, unknown> | null,
   targetDesignFiles: [] as Array<Record<string, unknown>>,
+  targetDesignRows: [] as Array<Record<string, unknown>>,
   transactionCount: 0,
 }));
 
@@ -64,7 +65,9 @@ vi.mock("../server/db/index.js", () => {
             const rows =
               table.table === "designFiles"
                 ? testState.targetDesignFiles
-                : templateFiles;
+                : table.table === "designs"
+                  ? testState.targetDesignRows
+                  : templateFiles;
             // Awaited directly for the template read, `.limit()`-chained for
             // the target-is-empty check.
             const result = Promise.resolve(rows) as Promise<unknown[]> & {
@@ -123,6 +126,7 @@ describe("create-design-from-template", () => {
     testState.insertedFiles = [];
     testState.updatedDesign = null;
     testState.targetDesignFiles = [];
+    testState.targetDesignRows = [];
     testState.transactionCount = 0;
     testState.assertAccess.mockResolvedValue(undefined);
     testState.resolveAccess.mockImplementation(
@@ -259,6 +263,26 @@ describe("create-design-from-template", () => {
 
     expect(result.id).toBe("existing-design");
     expect(testState.insertedFiles.length).toBe(1);
+  });
+
+  it("keeps the target's own editor state instead of replacing its data blob", async () => {
+    // boardFileId lives in designs.data; losing it makes the editor mint a
+    // second board the next time the design is opened.
+    testState.targetDesignRows = [
+      { data: JSON.stringify({ boardFileId: "board-1", keepMe: true }) },
+    ];
+
+    await action.run({
+      templateId: "saved-template",
+      targetDesignId: "existing-design",
+    } as never);
+
+    const written = JSON.parse(
+      String(testState.updatedDesign?.data ?? "{}"),
+    ) as Record<string, unknown>;
+    expect(written.boardFileId).toBe("board-1");
+    expect(written.keepMe).toBe(true);
+    expect(written.templateSource).toBeTruthy();
   });
 
   it("refuses to overwrite a target that already has screens", async () => {
