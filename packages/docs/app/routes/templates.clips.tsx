@@ -308,7 +308,7 @@ export default function ClipsTemplate() {
           <div />
         </div>
 
-        <div className="flex flex-col border-y border-[var(--docs-border)] lg:flex-row lg:items-stretch lg:border-x">
+        <div className="flex flex-col border-t border-[var(--docs-border)] lg:flex-row lg:items-stretch lg:border-x">
           <div className="flex flex-1 items-center border-b border-[var(--docs-border)] px-6 py-8 sm:px-10 lg:w-2/3 lg:flex-none lg:border-b-0 lg:border-e lg:px-8 lg:py-8">
             <div className="flex w-full min-w-0 items-start gap-3 rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-4 sm:p-5">
               <p className="min-w-0 flex-1 font-mono text-sm leading-6 text-[var(--fg-secondary)]">
