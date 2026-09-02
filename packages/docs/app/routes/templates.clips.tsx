@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { IconArrowUpRight } from "@tabler/icons-react";
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 
 import { BuilderImage } from "../components/builder-image";
@@ -279,6 +280,7 @@ export default function ClipsTemplate() {
             }}
           >
             {t("common.recordForFree")}
+            <IconArrowUpRight size={16} />
           </a>
         }
         description={<p>{t("templateLanding.clips.s008")}</p>}
