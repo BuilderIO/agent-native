@@ -75,20 +75,24 @@ see the previous run, which is why the follow-up never happened. Run this
 first, every time:
 
 ```
-slack_search: "? this was sent from a bot." in:<#CHANNEL>
+slack_search: "this was sent from a bot." in:<#CHANNEL>
   sort=timestamp sort_dir=asc include_context=true max_context_length=300
 ```
 
-Three details are load-bearing; a run that changed them missed all eight of
-its answered threads.
+Two details are load-bearing; a run that changed them missed all eight of its
+answered threads.
 
-**The leading `?`.** Every reply ever posted carries the disclosure, so the
-bare string returns 80+ hits, mostly terminal, and no run opens 80 threads.
-The `?` matches only replies that asked something — the pending set.
+**`include_context=true` on every page, to the last.** Its `Context after`
+block names who spoke after each reply, which is how you find answers without
+opening ~80 threads. Dropping it on later pages to save tokens hides every
+answer past page one — that alone caused the miss. Read the context, then open
+only the threads where someone replied.
 
-**`include_context=true` on every page.** Its `Context after` block names who
-spoke after your question, so you find answers without opening each thread.
-Dropping it on later pages to save tokens hides every answer past page one.
+**Match the disclosure, nothing narrower.** Do not filter to replies ending in
+`?`: a clarification often reads "if you can share a deck URL, that would help
+us dig in" and carries no question mark at all, so narrowing drops real
+pending questions. The context block, not the query, is what separates
+answered from terminal.
 
 **The parent is the permalink's `thread_ts`.** `Message_ts` is your own
 reply's timestamp; acting on it targets the wrong message.
@@ -167,35 +171,23 @@ days will not be answered on day thirty, and an ever-growing open set becomes
 the first thing every run reads, twice a day, forever. Expiry is what keeps
 this phase cheap enough to run first.
 
-Discovery is a separate concern from retention. `after:<TODAY-5>` bounds the
-new-message scan, so it would miss an older question that is still inside its
-window under a different clock, or one posted before the disclosure marker
-existed. Run a second search without an `after` filter to find those:
+Discovery is a separate concern from retention, which is why the search above
+carries no `after` filter: a date-bounded cursor would miss an older question
+still inside its window under a different clock. Search unbounded to **find**
+them, then apply the age branches to what comes back. Finding an old question
+does not exempt it from expiry.
 
-```
-slack_search: "this was sent from a bot." in:<#CHANNEL>
-  sort=timestamp sort_dir=asc
-```
-
-Use it to **find** open questions, then apply the same age branches above to
-what it returns. Finding an old question does not exempt it from expiry.
-
-New replies from the companion workflow must carry the disclosure marker, so
-the unbounded marker search above is the primary cross-identity cursor. For
-legacy companion replies that predate the marker, independently search every
-valid workflow identity without an author filter or date cutoff and classify
-each full thread before adding it to the pending set:
+Every new reply carries the disclosure, so the search above is the primary
+cross-identity cursor. Legacy replies predating the marker need one more pass,
+since they carry neither disclosure nor eye:
 
 ```
 slack_search: from:<WORKFLOW_IDENTITY> in:<#CHANNEL>
   sort=timestamp sort_dir=asc
 ```
 
-Use clarification wording such as `if you can share` or `would help us
-investigate` only to classify messages returned by that broad search, not as a
-finite discovery cursor. This legacy search is mandatory even when a message
-has no bot disclosure or eye reaction; the unbounded identity search is the
-companion workflow's independent discovery path.
+Classify those hits by clarification wording such as `if you can share` — as a
+filter on results, never as the discovery cursor itself.
 
 These searches cover **every** run's questions, not just yours. Inspect the
 author and full thread so a later run under another valid workflow identity
@@ -343,13 +335,16 @@ that the code is correct. Treat it as a stop, not as a fresh report:
 3. **Reproduce end to end before editing, and verify end to end after.** For a
    repeat, a passing unit test is not sufficient evidence — exercise the real
    surface the reporter used. `verifying-changes` owns the per-area proof.
-4. **Cluster the reports.** One investigation, one fix, one recap row naming
-   every thread, and a reply in each. Three separate investigations of one
-   Analytics outage is three times the cost for one answer.
+4. **Cluster the reports.** One investigation and one fix, not one per report.
+   Three separate investigations of one Analytics outage is three times the
+   cost for one answer. Clustering changes the work, not the bookkeeping:
+   every source thread keeps its own recap row, and Phase 3's reply rules
+   apply unchanged — reply in the representative thread, and mark the rest
+   clustered rather than pasting the same sentence into each.
 
-Record `Repeat of: <link>` and the prior failed fix in the recap row so the
-next run inherits the history instead of rediscovering it. Never tell a
-reporter a repeat is fixed on the same evidence that supported the last claim.
+Record `Repeat of: <link>` and the prior failed fix in each row so the next
+run inherits the history instead of rediscovering it. Never tell a reporter a
+repeat is fixed on the same evidence that supported the last claim.
 
 Choose the narrowest seam the evidence supports:
 
