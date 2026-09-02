@@ -153,22 +153,23 @@ export default function DesktopTerminalSurface({
           {tabs.map((tab) => {
             const active = tab.id === activeTabId;
             return (
-              <div
-                key={tab.id}
-                role="tab"
-                tabIndex={0}
-                aria-selected={active}
-                data-desktop-terminal-tab={tab.id}
-                className={`agent-tab relative flex max-w-[150px] shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer ${active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
-                onClick={() => setActiveTabId(tab.id)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    setActiveTabId(tab.id);
-                  }
-                }}
-              >
-                <span className="truncate pe-1">{tab.label}</span>
+              <div key={tab.id} className="relative flex shrink-0 items-center">
+                <div
+                  role="tab"
+                  tabIndex={0}
+                  aria-selected={active}
+                  data-desktop-terminal-tab={tab.id}
+                  className={`agent-tab relative flex max-w-[150px] shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer ${active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
+                  onClick={() => setActiveTabId(tab.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setActiveTabId(tab.id);
+                    }
+                  }}
+                >
+                  <span className="truncate pe-1">{tab.label}</span>
+                </div>
                 <button
                   type="button"
                   aria-label={`Close ${tab.label}`}

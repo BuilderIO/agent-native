@@ -1141,10 +1141,11 @@ export default function CodeAgentsHub({
     },
     [],
   );
-  const handleNewUiTab = useCallback(
-    () => setDesktopTerminalMode(false),
-    [setDesktopTerminalMode],
-  );
+  const handleNewUiTab = useCallback(() => {
+    setTerminalPromptRequest(null);
+    setTerminalSessionStarted(false);
+    setDesktopTerminalMode(false);
+  }, [setDesktopTerminalMode]);
   const openChatFirstAllApps = useCallback(() => {
     setChatFirstAllAppsOpen(true);
     setScheduledTasksOpen(false);

@@ -2508,58 +2508,60 @@ function AgentPanelInner({
         </div>
 
         {/* CLI terminals — code-capable dev mode: real terminal, otherwise handoff. */}
-        {canUseCodeTools || renderCliTab
-          ? mode === "cli" &&
-            cliTabs.map((id) => (
-              <div
-                key={id}
-                className="min-h-0 relative flex-1"
-                style={{
-                  display: id === activeCliTab ? undefined : "none",
-                }}
+        {(canUseCodeTools || renderCliTab) &&
+          (mode === "cli" || Boolean(renderCliTab)) &&
+          cliTabs.map((id) => (
+            <div
+              key={id}
+              className="min-h-0 relative flex-1"
+              style={{
+                display:
+                  mode === "cli" && id === activeCliTab ? undefined : "none",
+              }}
+            >
+              <Suspense
+                fallback={
+                  <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                    {t("agentPanel.loadingTerminal")}
+                  </div>
+                }
               >
-                <Suspense
-                  fallback={
-                    <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                      {t("agentPanel.loadingTerminal")}
-                    </div>
-                  }
-                >
-                  {renderCliTab ? (
-                    renderCliTab({ id, active: id === activeCliTab })
-                  ) : (
-                    <AgentTerminal
-                      command={selectedCli}
-                      hideInFrame={false}
-                      className="h-full"
-                      style={{ background: "transparent" }}
-                    />
-                  )}
-                </Suspense>
-              </div>
-            ))
-          : mode === "cli" && (
-              <div className="flex flex-1 flex-col items-center justify-center min-h-0 px-6 gap-3">
-                <CodeAccessUnavailablePanel
-                  title={
-                    codeAccessEnabled
-                      ? t("agentPanel.cliRequiresDevMode")
-                      : codeUnavailableTitle
-                  }
-                  description={
-                    codeAccessEnabled
-                      ? t("agentPanel.cliRequiresDevModeDescription")
-                      : codeUnavailableDescription
-                  }
-                  ctaLabel={codeUnavailableCtaLabel}
-                  ctaHref={
-                    codeAccessEnabled ? undefined : codeUnavailableCtaHref
-                  }
-                  secondaryCtaLabel={codeUnavailableSecondaryCtaLabel}
-                  secondaryCtaHref={codeUnavailableSecondaryCtaHref}
-                />
-              </div>
-            )}
+                {renderCliTab ? (
+                  renderCliTab({
+                    id,
+                    active: mode === "cli" && id === activeCliTab,
+                  })
+                ) : (
+                  <AgentTerminal
+                    command={selectedCli}
+                    hideInFrame={false}
+                    className="h-full"
+                    style={{ background: "transparent" }}
+                  />
+                )}
+              </Suspense>
+            </div>
+          ))}
+        {!canUseCodeTools && !renderCliTab && mode === "cli" && (
+          <div className="flex flex-1 flex-col items-center justify-center min-h-0 px-6 gap-3">
+            <CodeAccessUnavailablePanel
+              title={
+                codeAccessEnabled
+                  ? t("agentPanel.cliRequiresDevMode")
+                  : codeUnavailableTitle
+              }
+              description={
+                codeAccessEnabled
+                  ? t("agentPanel.cliRequiresDevModeDescription")
+                  : codeUnavailableDescription
+              }
+              ctaLabel={codeUnavailableCtaLabel}
+              ctaHref={codeAccessEnabled ? undefined : codeUnavailableCtaHref}
+              secondaryCtaLabel={codeUnavailableSecondaryCtaLabel}
+              secondaryCtaHref={codeUnavailableSecondaryCtaHref}
+            />
+          </div>
+        )}
 
         {/* Resources view */}
         {mode === "resources" && (
