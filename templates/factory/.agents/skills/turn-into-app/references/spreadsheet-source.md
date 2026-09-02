@@ -40,22 +40,45 @@ Keep provider responses bounded. For large sheets, stage or save the response
 and reduce it with the available dataset/code tools. A failed page, truncated
 response, or unavailable connection is not an empty sheet.
 
+Decide snapshot or live before building, because it changes what the app owns. A
+snapshot carries bounded sample context and provenance and nothing more. A live
+source keeps the provider or file identity, the worksheet or range, and its
+refresh semantics — and needs a scoped action for the reads and refreshes, so
+access checks apply on every call rather than at import time only.
+
 ## 2. Infer cells and ranges, then show the evidence
 
 Classify source material into three separate buckets. Include representative
 cell addresses or ranges and the evidence behind each classification.
 
-| Bucket             | Default signal                                                                                                     | App treatment                                                          |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| Inputs             | Yellow cell background, editable assumptions, user-entered constants, or labels such as `assumption` / `driver`    | Editable controls or bounded source parameters                         |
-| Outputs            | Blue text, formula-derived result cells, summary blocks, or labels such as `forecast` / `recommendation`           | Read-only results, charts, recommendations, exports, or review actions |
-| Static historicals | Black text used intentionally for prior-period/source records, raw rows, or labels such as `actual` / `historical` | Read-only context; never turn into editable inputs by default          |
+| Bucket | Strongest signals, in order | App treatment |
+| --- | --- | --- |
+| Inputs | A hardcoded value where sibling cells hold formulas; lives on an assumptions/inputs tab; a label such as `assumption` / `driver` / `input`; the sheet's own instruction text points at it | Editable controls or bounded source parameters |
+| Outputs | Formula-derived; sits in a summary or results block; a label such as `forecast` / `total` / `recommendation` | Read-only results, charts, recommendations, exports, or review actions |
+| Static historicals | Prior-period rows, raw imports, dated actuals; a label such as `actual` / `historical` | Read-only context; never turn into editable inputs by default |
 
-These are conventions, not permission to guess. A default black font with no
-explicit style metadata is not enough to label a range as historical. Resolve
-conflicts using labels, formulas, neighboring headers, repeated patterns, and
-the user's stated goal. If the evidence still conflicts, lower confidence and
-ask the user to confirm the proposed mapping.
+**Structure decides; colour is a weak hint.** Whether a cell holds a formula or a
+typed value, which tab it lives on, and what its row and column headers say are
+reliable. Colour is an author-specific habit, and the finance palette people
+quote — yellow background = input, blue text = dynamic, black text = static
+historical — is one convention among several. Real sheets seen so far:
+
+| Sheet | What its colours meant |
+| --- | --- |
+| Savings rollover model | Blue font = the editable inputs. Black = the derived cell. The inverse of the quoted palette. |
+| Quarterly metrics tracker | Yellow fill = the quarter's targets, not scenario inputs. Green font = calculated. No blue at all. |
+
+So never invert an input/output mapping on colour alone, and never label a range
+historical because its font is a default black with no explicit style metadata.
+
+**Read the sheet's own words first.** Authors who colour-code usually say so
+somewhere — a note column, a header, an instruction block. One of the sheets
+above states "Change blue cells to test scenarios" directly, which settles its
+convention in a way the palette never could. Instruction text beats inference.
+
+Resolve remaining conflicts using labels, formulas, neighbouring headers,
+repeated patterns, and the user's stated goal. If the evidence still conflicts,
+lower confidence and ask the user to confirm the proposed mapping.
 
 Keep source cells and app behavior distinct:
 
@@ -68,6 +91,24 @@ Keep source cells and app behavior distinct:
 - `App outputs` are the new app's visible results, saved records, exports,
   alerts, or downstream handoffs. Do not invent these until the repeatable job
   or user confirmation makes them clear.
+
+### Not every number is an input
+
+Do not promote every numeric cell or model assumption into an editable control.
+Sort candidates into three tiers:
+
+| Tier | What belongs here | In the app |
+| --- | --- | --- |
+| Primary drivers | The few high-leverage values a user actually changes to ask a question of the model | The main edit surface, shown first |
+| Secondary levers | Real but lower-frequency adjustments | Behind progressive disclosure |
+| Fixed context | Opening balances, current-period anchors, historicals, policy and tax rates, targets set for the period | Visible for orientation, not presented as a control |
+
+Fixed context stays fixed unless the source or the user explicitly identifies it
+as editable. Rank the primary surface by controllability and modeled leverage —
+smallest useful set of high-impact drivers first. Name these tiers in the source
+brief and preserve the distinction in the generated app's actions and agent
+context, so the agent does not offer to edit something the model treats as an
+anchor.
 
 ## 3. Offer candidate apps, not a tab dump
 
