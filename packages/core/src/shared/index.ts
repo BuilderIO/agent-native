@@ -4,6 +4,11 @@ export {
   type AgentChatCallOptions,
   type AgentChatResponse,
 } from "./agent-chat.js";
+export {
+  appendAgentChatContextToMessage,
+  splitAgentChatContextFromMessage,
+  type AgentChatMessageParts,
+} from "./agent-chat-context.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
 export {
   extractOAuthStateAppId,
