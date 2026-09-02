@@ -378,7 +378,7 @@ export function FormBuilderPage() {
     return (
       <div className="flex flex-col h-full">
         {/* Top bar */}
-        <div className="flex items-center justify-between border-b border-border ps-12 pe-2 sm:px-4 md:ps-4 h-14 shrink-0 min-w-0">
+        <div className="flex items-center justify-between border-b border-border ps-14 pe-2 sm:px-4 md:ps-4 h-14 shrink-0 min-w-0">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
             <Tooltip>
               <TooltipTrigger asChild>
@@ -602,7 +602,7 @@ export function FormBuilderPage() {
     <div className="flex flex-col h-full">
       {codeRequiredDialog}
       {/* Top bar */}
-      <div className="flex items-center justify-between border-b border-border ps-12 pe-2 sm:px-4 md:ps-4 h-14 shrink-0 min-w-0">
+      <div className="flex items-center justify-between border-b border-border ps-14 pe-2 sm:px-4 md:ps-4 h-14 shrink-0 min-w-0">
         <div className="flex items-center gap-1 sm:gap-2 relative min-w-0 flex-1 me-2">
           <Tooltip>
             <TooltipTrigger asChild>

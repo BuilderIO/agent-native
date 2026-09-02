@@ -44,6 +44,66 @@ describe("desktop passive-access regressions", () => {
     expect(handler).not.toContain("startRemoteCodeAgentConnector");
   });
 
+  it("keeps first-launch Code Agent inventory metadata-only", () => {
+    const main = source("./index.ts");
+    const projects = between(
+      main,
+      "function readCodeAgentProjectsState()",
+      "function writeCodeAgentProjectsState",
+    );
+    const runProjection = between(
+      main,
+      "function backgroundRunToDesktopRun(",
+      "function readJsonObjectFile(",
+    );
+    const runInventory = between(
+      main,
+      "function listDesktopCodeAgentRuns(",
+      "function readDesktopCodeAgentRun(",
+    );
+    const hostMetadata = between(
+      main,
+      "function getCodeAgentHostMetadata()",
+      "function getDesktopComputerControlMetadata(",
+    );
+    const projectPacks = between(
+      main,
+      "function listCodeAgentProjectPacks(",
+      "function walkMarkdownFiles(",
+    );
+    const worktrees = between(
+      main,
+      "function listCodeAgentWorktrees(",
+      "function restoreCodeAgentWorktree(",
+    );
+    const startup = between(
+      main,
+      "void app.whenReady().then(async () => {",
+      "// Webviews now run in per-app persisted partitions",
+    );
+
+    expect(projects).not.toContain("resolveUsableDirectory");
+    expect(projects).toContain("normalizeRememberedCodeAgentPath");
+    expect(runProjection).not.toContain("fs.existsSync");
+    expect(runInventory).toContain("resumeQueuedCodeAgentWorktreeRuns");
+    expect(runInventory).toContain("ensureCodeAgentWorktreeSweepScheduled");
+    expect(hostMetadata).not.toContain("resolveCodeAgentsTerminalCwd");
+    expect(hostMetadata).not.toContain("resolveRepositoryRoot");
+    expect(projectPacks).toContain(
+      'if (!requestedPath) return { status: "ok" };',
+    );
+    expect(projectPacks).not.toContain("resolveCodeAgentsTerminalCwd(input)");
+    expect(worktrees).not.toContain("resolveCodeAgentsTerminalCwd");
+    expect(worktrees).toContain("ensureCodeAgentWorktreeSweepScheduled");
+    expect(startup).not.toContain("initializeDesktopComputerMcpBridge");
+    expect(startup).not.toContain("reclaimTerminalCodeAgentWorktree");
+    expect(startup).not.toContain("cleanupDueManagedCodeAgentWorktrees");
+    expect(startup).not.toContain("resumeQueuedCodeAgentWorktreeRuns");
+    expect(main).toContain("function ensureDesktopComputerMcpBridge()");
+    expect(main).toContain("remoteConnectorStartPromise");
+    expect(main).toContain("startRemoteCodeAgentConnectorInternal()");
+  });
+
   it("does not revalidate a verified desktop identity on tab status reads", () => {
     const identity = source("./desktop-identity.ts");
     const refreshStatus = between(
@@ -350,7 +410,7 @@ describe("desktop passive-access regressions", () => {
     );
     expect(main).toContain("void closeDesktopComputerMcpBridge().catch(");
     expect(main).toContain("restoreAfterUpdateFailure: async () => {");
-    expect(main).toContain("await initializeDesktopComputerMcpBridge();");
+    expect(main).toContain("await ensureDesktopComputerMcpBridge();");
     expect(main).toContain(
       "initializeMultiFrontierAppIntegrationForRuntime();",
     );

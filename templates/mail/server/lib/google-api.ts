@@ -327,6 +327,8 @@ export async function googleFetch(
   }
 
   const maxRetries = 3;
+  const method = opts?.method?.toUpperCase() ?? "GET";
+  const canRetry = method === "GET" || method === "HEAD";
 
   // Pre-pay the bucket once per call; retries don't re-charge (Google didn't
   // actually complete the work, and we'd rather retry promptly than stack
@@ -345,15 +347,27 @@ export async function googleFetch(
     // 204 No Content — return null
     if (res.status === 204) return null;
 
-    // Parse body early when we might need it for quota-error classification.
-    // 503 has no body worth inspecting; short-circuit to the retry path.
-    if (res.status === 503 && attempt < maxRetries) {
+    // Parse the body unless we're immediately retrying a transient response,
+    // so the final provider error still includes Google's useful diagnostics.
+    if (
+      canRetry &&
+      (res.status === 500 || res.status === 502 || res.status === 503) &&
+      attempt < maxRetries
+    ) {
       const delay = Math.min(1000 * 2 ** attempt, 8000);
       await new Promise((r) => setTimeout(r, delay));
       continue;
     }
 
-    const data = res.status !== 503 ? await res.json().catch(() => null) : null;
+    const rawBody = await res.text();
+    let data: any;
+    if (rawBody) {
+      try {
+        data = JSON.parse(rawBody);
+      } catch {
+        data = undefined;
+      }
+    }
 
     // 429 or 403-with-quota-reason — do NOT retry immediately. A retry inside
     // the same exhausted quota window just deepens the lockout. Trip the
