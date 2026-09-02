@@ -87,6 +87,7 @@ import {
   useTrashedContentDatabases,
 } from "@/hooks/use-content-database";
 import {
+  shouldAutoEnsureContentSpaces,
   useContentSpaces,
   useEnsureContentSpaces,
   type ContentSpaceSummary,
@@ -918,14 +919,18 @@ export function DocumentSidebar({
   const spaceProvisionAttemptedRef = useRef(false);
   useEffect(() => {
     if (
-      contentSpacesQuery.isSuccess &&
-      !spaceProvisionAttemptedRef.current &&
-      !ensureContentSpaces.isPending
+      shouldAutoEnsureContentSpaces({
+        querySucceeded: contentSpacesQuery.isSuccess,
+        spaceCount: contentSpaces.length,
+        provisioningAttempted: spaceProvisionAttemptedRef.current,
+        provisioningPending: ensureContentSpaces.isPending,
+      })
     ) {
       spaceProvisionAttemptedRef.current = true;
       ensureContentSpaces.mutate({});
     }
   }, [
+    contentSpaces.length,
     contentSpacesQuery.isSuccess,
     ensureContentSpaces,
     ensureContentSpaces.isPending,

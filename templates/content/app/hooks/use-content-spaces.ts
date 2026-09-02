@@ -25,6 +25,25 @@ export type ListContentSpacesResponse = {
   spaces: ContentSpaceSummary[];
 };
 
+export function shouldAutoEnsureContentSpaces({
+  querySucceeded,
+  spaceCount,
+  provisioningAttempted,
+  provisioningPending,
+}: {
+  querySucceeded: boolean;
+  spaceCount: number;
+  provisioningAttempted: boolean;
+  provisioningPending: boolean;
+}) {
+  return (
+    querySucceeded &&
+    spaceCount === 0 &&
+    !provisioningAttempted &&
+    !provisioningPending
+  );
+}
+
 export function useContentSpaces() {
   return useActionQuery<ListContentSpacesResponse>(
     "list-content-spaces",
