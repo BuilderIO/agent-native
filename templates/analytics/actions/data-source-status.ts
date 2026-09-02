@@ -19,6 +19,7 @@ import {
 } from "../server/lib/credential-keys";
 import { hasCredential } from "../server/lib/credentials";
 import { tryRequestCredentialContext } from "../server/lib/credentials-context";
+import { readDbtMcpStatus } from "../server/lib/dbt-mcp-status";
 import { getGitHubAccessToken } from "../server/lib/github-oauth";
 import { resolveAnalyticsProviderCredential } from "../server/lib/provider-credentials";
 
@@ -86,7 +87,7 @@ async function listWorkspaceConnectionsForStatus(): Promise<{
 
 export default defineAction({
   description:
-    "List which analytics data sources are available without revealing secret values. This always includes the built-in first-party Analytics event store, which is queried with `query-agent-native-analytics`; it also reports configured credentials and granted workspace connections. The result includes `hasConnectedExternalDataSources`, `connectedExternalDataSourceCount`, and `dataSourcesSetupLink`; each provider also includes a focused `setupLink`. When a requested provider is unavailable, use its focused link for contextual setup guidance. The `key` arg accepts exact credential names like JIRA_API_TOKEN and provider aliases like jira, pylon, bigquery, github, hubspot, gong, or slack.",
+    "List which analytics data sources are available without revealing secret values. This always includes the built-in first-party Analytics event store, which is queried with `query-agent-native-analytics`; it also reports configured credentials, granted workspace connections, and the authenticated dbt MCP capability status. The result includes `hasConnectedExternalDataSources`, `connectedExternalDataSourceCount`, and `dataSourcesSetupLink`; each credential provider also includes a focused `setupLink`. When a requested provider is unavailable, use its focused link for contextual setup guidance. The `key` arg accepts exact credential names like JIRA_API_TOKEN and provider aliases like dbt, jira, pylon, bigquery, github, hubspot, gong, or slack.",
   schema: z.object({
     key: z
       .string()
@@ -106,12 +107,18 @@ export default defineAction({
       });
     }
 
-    const { configs, known } = resolveCredentialConfigs(args.key);
+    const requestedDbt = args.key?.trim().toLowerCase() === "dbt";
+    const { configs, known } = requestedDbt
+      ? { configs: [], known: true }
+      : resolveCredentialConfigs(args.key);
     if (args.key && !known) {
       return { error: `Unknown credential key: ${args.key}` };
     }
 
-    const workspace = await listWorkspaceConnectionsForStatus();
+    const [workspace, dbt] = await Promise.all([
+      listWorkspaceConnectionsForStatus(),
+      readDbtMcpStatus(),
+    ]);
     const workspaceCatalog =
       listWorkspaceConnectionProvidersForTemplate(APP_ID);
     const workspaceProviderIds = [
@@ -228,6 +235,15 @@ export default defineAction({
         via: "built-in",
         queryAction: BUILT_IN_FIRST_PARTY_PROVIDER.queryAction,
       },
+      ...(dbt.configured
+        ? [
+            {
+              provider: "dbt",
+              label: "dbt",
+              via: "mcp",
+            },
+          ]
+        : []),
       ...providers
         .filter((provider) => provider.configured)
         .map((provider) => ({
@@ -262,6 +278,7 @@ export default defineAction({
             : false,
       connectedExternalDataSourceCount: connectedExternalDataSources.length,
       dataSourcesSetupLink: DATA_SOURCES_SETUP_LINK,
+      dbt,
       credentials: results,
       providers: [BUILT_IN_FIRST_PARTY_PROVIDER, ...providers],
       total: results.length,

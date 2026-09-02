@@ -27,6 +27,37 @@ export interface WorkspaceConnectionProviderSummary {
   hasActiveWorkspaceConnection: boolean;
 }
 
+export interface DbtMcpStatus {
+  available: boolean;
+  error?: string;
+  configured: boolean | null;
+  serverId?: string;
+  capabilities: {
+    discovery: boolean;
+    lineage: boolean;
+    healthAndFreshness: boolean;
+    semanticLayer: boolean;
+  };
+  sqlTools: {
+    available: boolean;
+    intentionallyUnused: true;
+  };
+  toolCount: number;
+  setupLink: "/data-sources?source=dbt";
+}
+
+export interface ConfiguredDataSourceSummary {
+  provider: string;
+  label: string;
+  via:
+    | "built-in"
+    | "credentials"
+    | "workspace"
+    | "credentials-and-workspace"
+    | "mcp";
+  queryAction?: string;
+}
+
 export interface DataSourceProviderStatus {
   provider: string;
   label: string;
@@ -40,6 +71,13 @@ export interface DataSourceProviderStatus {
 }
 
 export interface DataSourceStatusResponse {
+  hasConfiguredDataSources?: boolean;
+  configuredDataSourceCount?: number;
+  configuredDataSources?: ConfiguredDataSourceSummary[];
+  hasConnectedExternalDataSources?: boolean | null;
+  connectedExternalDataSourceCount?: number;
+  dataSourcesSetupLink?: string;
+  dbt?: DbtMcpStatus;
   credentials?: EnvKeyStatus[];
   providers?: DataSourceProviderStatus[];
   workspaceConnections?: {
@@ -203,6 +241,8 @@ export function isSourceConfigured(
   source: DataSource,
   envStatus: EnvKeyStatus[],
 ): boolean {
+  if (source.id === "dbt") return false;
+
   const statusMap = new Map(
     envStatus.map((s) => [normalizeCredentialKey(s.key), s.configured]),
   );
@@ -299,6 +339,7 @@ export function isSourceReady(
   envStatus: EnvKeyStatus[],
 ): boolean {
   return (
+    (source.id === "dbt" && data?.dbt?.configured === true) ||
     isSourceConfigured(source, envStatus) ||
     getProviderStatusForSource(source, data)?.configured === true ||
     getSharedConnectionStatus(source, data, envStatus)?.kind === "ready"
