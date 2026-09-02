@@ -57,6 +57,7 @@ import {
   frameworkSessionHintCookieName,
   resolveAuthCookieNamespace,
 } from "../server/cookie-namespace.js";
+import { resolveAgentNativeBuildId } from "../shared/build-id.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
   resolveSsrCacheHeaders,
@@ -1654,15 +1655,20 @@ function getAgentNativeAnalyticsClientConfigScript() {
 
 function getRealtimeClientConfigScript() {
   // MUST stay byte-for-byte consistent with resolveRealtimeClientConfig in
-  // server/sentry-config.ts (worker bundles a string copy; it can't import it).
-  // Fail closed: require BOTH hosted transport AND an explicit gateway URL — no
-  // production default, since this ships into the CDN-cached shell.
+  // server/sentry-config.ts and hostedRealtimeTransportEnabled in
+  // server/poll.ts (worker bundles a string copy; it can't import them).
+  // One gate — the transport var. The gateway URL is derived, so a
+  // self-registering app needs one env var instead of three; an app with no
+  // channel still fails closed one layer down, at the token mint.
   const env = globalThis.process?.env || {};
   if (firstNonEmpty(env.AGENT_NATIVE_REALTIME_TRANSPORT) !== "hosted") {
     return null;
   }
-  const gatewayBaseUrl = firstNonEmpty(env.AGENT_NATIVE_REALTIME_GATEWAY_URL);
-  if (!gatewayBaseUrl) return null;
+  const explicit = firstNonEmpty(env.AGENT_NATIVE_REALTIME_GATEWAY_URL);
+  const builderGateway = firstNonEmpty(env.BUILDER_GATEWAY_BASE_URL);
+  const gatewayBaseUrl =
+    explicit ||
+    \`\${(builderGateway || "https://api.builder.io/agent-native/gateway/v1").replace(/\\/+$/, "")}/realtime\`;
   const config = { realtime: { transport: "hosted", gatewayBaseUrl } };
   return (
     '<script data-agent-native-realtime-config>' +
@@ -1703,6 +1709,43 @@ function getAppOriginClientConfigScript() {
         env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON,
       ),
     );
+  const workspaceAppMountPaths = (() => {
+    const raw = firstNonEmpty(
+      env.AGENT_NATIVE_WORKSPACE_APPS_JSON,
+      env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON,
+    );
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw);
+      const entries = Array.isArray(parsed)
+        ? parsed
+        : parsed && typeof parsed === "object" && "apps" in parsed
+          ? parsed.apps
+          : null;
+      if (!Array.isArray(entries)) return;
+      const paths = Array.from(
+        new Set(
+          entries
+            .map((entry) => {
+              if (!entry || typeof entry !== "object") return null;
+              const rawPath =
+                typeof entry.path === "string"
+                  ? entry.path
+                  : typeof entry.id === "string"
+                    ? "/" + entry.id
+                    : null;
+              if (!rawPath) return null;
+              const normalized = normalizeAppBasePath(rawPath);
+              return normalized || null;
+            })
+            .filter(Boolean),
+        ),
+      );
+      return paths.length ? paths : undefined;
+    } catch {
+      return;
+    }
+  })();
   const appHomePath = resolveAgentNativeAppHomePath(getAgentNativeAppConfig().app);
   const config = {
     appHomePath,
@@ -1710,6 +1753,7 @@ function getAppOriginClientConfigScript() {
     ...(workspaceGatewayUrl ? { workspaceGatewayUrl } : {}),
     ...(workspaceOAuthOrigin ? { workspaceOAuthOrigin } : {}),
     ...(workspaceRuntime ? { workspaceRuntime: true } : {}),
+    ...(workspaceAppMountPaths ? { workspaceAppMountPaths } : {}),
   };
   if (Object.keys(config).length === 0) return null;
   return (
@@ -5644,11 +5688,7 @@ export function resolveNitroBuildReplacements(
   const configuredDeploymentEnvironment =
     deploymentEnvironment?.trim() ||
     env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT?.trim();
-  const deployId = env.DEPLOY_ID?.trim();
-  const buildId =
-    deployId && deployId !== "0"
-      ? deployId
-      : env.AGENT_NATIVE_BUILD_ID?.trim() || "";
+  const buildId = resolveAgentNativeBuildId(env, "development");
   return {
     // Netlify exposes DEPLOY_ID only while building. Embed it into the Nitro
     // function so preview OAuth relays can target this immutable deployment

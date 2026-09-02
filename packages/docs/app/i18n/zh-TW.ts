@@ -428,7 +428,7 @@ const messages = {
   homepage: {
     hero: {
       title: "面向 agentic 應用的框架",
-      bodyLine1: "為 agent 建置，不必為使用者另外打造第二個產品。",
+      bodyLine1: "建置配備直覺式 UI 的自主型 agent。",
       bodyLine2: "使用你自己的 LLM，隨處部署。",
       tryAnApp: "試用應用程式",
     },
@@ -541,9 +541,10 @@ const messages = {
     copyCommunityInstallCommand: "複製安裝指令",
     viewRepository: "查看儲存庫",
     tryCommunityDemo: "體驗示範",
-    customizeDescription: "你可以完全自訂這份程式碼。",
-    customizeOnline: "線上自訂",
-    customizeLocally: "本機自訂",
+    customizeDescription: "以這個應用程式為起點。",
+    customizeOnline: "線上",
+    customizeOnlineBadge: "加入候補名單",
+    customizeLocally: "本機",
     communityNew: "新應用程式",
     communityComingSoon: "即將推出",
     communityGithubStars: "{{count}} 個 GitHub 星星",
@@ -562,12 +563,11 @@ const messages = {
     communitySubmissionName: "應用程式名稱",
     communitySubmissionNamePlaceholder: "客戶支援中心",
     communitySubmissionUrl: "應用程式 URL",
-    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "描述",
     communitySubmissionDescriptionPlaceholder: "應用程式做什麼，適合哪些人？",
     communitySubmissionRepository: "GitHub 儲存庫（選填）",
-    communitySubmissionRepositoryPlaceholder:
-      "https://github.com/owner/repository",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
     communitySubmissionScreenshots: "螢幕截圖（選填）",
     communitySubmissionScreenshotsPlaceholder: "將最多 5 張圖片拖曳到這裡",
     communitySubmissionScreenshotDropHint:
@@ -578,8 +578,15 @@ const messages = {
     communitySubmissionScreenshotRemove: "移除螢幕截圖 {{index}}",
     communitySubmissionSubmit: "提交應用程式",
     communitySubmissionReady: "謝謝。我們會在刊登前審核你的應用程式。",
-    communitySubmissionValidation:
-      "請填寫名稱、描述和有效的應用程式 URL。請上傳 PNG、JPG 或 WebP 圖片，每張不超過 1.5 MB。",
+    communitySubmissionNameError: "請輸入應用程式名稱。",
+    communitySubmissionDescriptionError: "請新增簡短描述。",
+    communitySubmissionUrlError: "請輸入有效的應用程式連結，例如 example.com。",
+    communitySubmissionRepositoryError: "請輸入 GitHub 儲存庫連結。",
+    communitySubmissionScreenshotsError:
+      "請使用 PNG、JPG 或 WebP 圖片，每張不超過 1.5 MB，最多上傳 5 張。",
+    communitySubmissionSubmitError:
+      "目前無法提交。請檢查標記的欄位後再試一次。",
+    communitySubmissionSubmitting: "提交中…",
   },
   buildFromScratch: {
     title: "從零開始建置",
@@ -1424,8 +1431,8 @@ const messages = {
       s003: "生成",
       s004: "精煉",
       s005: "所有範本",
-      s006Primary: "為人與代理打造的",
-      s006Secondary: "幻燈片簡報",
+      s006Primary: "由你的 AI 代理生成的簡報。",
+      s006Secondary: "符合品牌，可自由編輯",
       s007: "使用 AI 代理產生符合品牌風格的投影片簡報，隨時手動修改，並可匯出到任何地方。",
       s008: "試用",
       s009: "它是如何運作的",

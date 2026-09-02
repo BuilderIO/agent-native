@@ -45,6 +45,8 @@ export {
   getDbExec,
   createDbExec,
   getDatabaseUrl,
+  getRuntimeDatabaseUrl,
+  getRuntimeDatabaseSource,
   getDialect,
   isLocalDatabase,
   isPostgres,

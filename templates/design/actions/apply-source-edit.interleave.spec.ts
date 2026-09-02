@@ -107,6 +107,9 @@ function applyTextDiff(doc: InstanceType<typeof Y.Doc>, newText: string): void {
 }
 
 vi.mock("@agent-native/core/collab", () => ({
+  // source-workspace narrows on this class, so the mock has to expose it or
+  // the `instanceof` check throws instead of classifying the error.
+  CollabBaseVersionConflictError: class CollabBaseVersionConflictError extends Error {},
   hasCollabState: async (docId: string) => collabDocs.docs.has(docId),
   getText: async (docId: string) =>
     getOrCreateDoc(docId).getText("content").toString(),

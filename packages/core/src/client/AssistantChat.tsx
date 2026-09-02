@@ -2026,6 +2026,9 @@ export interface AssistantChatProps {
   threadFooterSlot?: AssistantChatThreadFooterSlot;
   /** Optional content rendered in the empty state, above the suggestion buttons. */
   emptyStateAddon?: React.ReactNode;
+  /** Optional content rendered in the empty state, below the suggestion
+   *  buttons. Unlike `threadFooterSlot` this never survives the first message. */
+  emptyStateFooter?: React.ReactNode;
   /** Whether to show the header bar. Default: true */
   showHeader?: boolean;
   /** CSS class for the outer container */
@@ -2491,6 +2494,7 @@ const AssistantChatInner = forwardRef<
     suggestions,
     dynamicSuggestions,
     threadFooterSlot,
+    emptyStateFooter,
     emptyStateAddon,
     showHeader = true,
     onSwitchToCli,
@@ -5906,7 +5910,10 @@ const AssistantChatInner = forwardRef<
     () => new Set<string>(),
   );
   useEffect(() => {
-    if (!cpDevMode || !threadId) {
+    // An unsent thread has no row yet, so the endpoint answers 404 "Thread not
+    // found" — a guaranteed failed request on every fresh chat. It also cannot
+    // hold checkpoints, so there is nothing to ask for.
+    if (!cpDevMode || !threadId || messages.length === 0) {
       setCheckpointRunIds(new Set<string>());
       return;
     }
@@ -5935,7 +5942,7 @@ const AssistantChatInner = forwardRef<
     return () => {
       cancelled = true;
     };
-  }, [apiUrl, cpDevMode, threadId, isRunning]);
+  }, [apiUrl, cpDevMode, threadId, isRunning, messages.length]);
   const checkpointCtx = useMemo(
     () => ({ apiUrl, devMode: cpDevMode, threadId, checkpointRunIds }),
     [apiUrl, cpDevMode, threadId, checkpointRunIds],
@@ -6482,6 +6489,11 @@ const AssistantChatInner = forwardRef<
                                     {showInlineEmptyThreadFooterSlot ? (
                                       <div className="agent-thread-footer-slot agent-thread-footer-slot--empty">
                                         {resolvedThreadFooterSlot}
+                                      </div>
+                                    ) : null}
+                                    {emptyStateFooter ? (
+                                      <div className="agent-empty-state-footer">
+                                        {emptyStateFooter}
                                       </div>
                                     ) : null}
                                   </div>

@@ -19,8 +19,12 @@ export function useDbStatus() {
     staleTime: 30_000,
   });
 
-  const dbUrlEntry = data?.find((e) => e.key === "DATABASE_URL");
-  const configured = dbUrlEntry?.configured ?? false;
+  const configured =
+    data?.some(
+      (entry) =>
+        /(?:^|_)DATABASE_URL(?:_UNPOOLED)?$/.test(entry.key) &&
+        entry.configured,
+    ) ?? false;
 
   return {
     configured,

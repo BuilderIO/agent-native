@@ -14,6 +14,7 @@ export default createAuthPlugin({
     screenshotWidth: 914,
     screenshotHeight: 818,
     learnMoreUrl: "https://agent-native.com/apps/calendar",
+    learnMorePlacement: "bottom-right",
     tagline:
       "Your AI agent schedules, reschedules, and manages your calendar so you never have to.",
     features: [

@@ -300,6 +300,153 @@ export function setCodeLayerAttributeInHtml(
   return `${content.slice(0, insertAt)}${replacement}${content.slice(insertAt)}`;
 }
 
+/** Scan to the real end of a tag: `[^>]*` stops at a `>` inside a quoted
+ *  attribute (an Alpine `x-data="{ w: a > b }"` is enough), which splices the
+ *  rewrite into the middle of that attribute. */
+function findBodyOpenTag(
+  content: string,
+): { start: number; end: number; tag: string } | null {
+  const match = /<body\b/i.exec(content);
+  if (!match) return null;
+  let quote: '"' | "'" | null = null;
+  for (let i = match.index; i < content.length; i += 1) {
+    const char = content[i]!;
+    if (quote) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === ">") {
+      return {
+        start: match.index,
+        end: i + 1,
+        tag: content.slice(match.index, i + 1),
+      };
+    }
+  }
+  return null;
+}
+
+/** Quoted or unquoted: `style=background:red` is valid markup, and treating it
+ *  as absent appends a second style attribute that HTML then ignores, so the
+ *  edit silently does nothing. */
+const BODY_STYLE_ATTRIBUTE =
+  /(\sstyle\s*=\s*)("([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/i;
+
+function decodeHtmlAttributeValue(value: string): string {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+/** Split on top-level `;` only: a `data:` URL and a quoted font stack both
+ *  carry semicolons that a naive split truncates. */
+function splitStyleDeclarations(style: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let quote: '"' | "'" | null = null;
+  let current = "";
+  for (const char of style) {
+    if (quote) {
+      current += char;
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (char === "(") depth += 1;
+    if (char === ")") depth = Math.max(0, depth - 1);
+    if (char === ";" && depth === 0) {
+      parts.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  parts.push(current);
+  return parts;
+}
+
+/** Longhands the inspector resolves out of a shorthand. Clearing one has to
+ *  drop the shorthand too, or the value it was read from survives and the edit
+ *  looks like it did nothing. */
+const SHORTHAND_FOR_LONGHAND: Record<string, string> = {
+  "background-color": "background",
+  "background-image": "background",
+  "background-repeat": "background",
+  "background-position": "background",
+  "background-size": "background",
+};
+
+/**
+ * Patch the `<body>` open tag's inline styles in place. Surgical on purpose:
+ * re-serializing a parsed document rewrites attribute order, entities and
+ * self-closing tags across the user's whole file, so this only rewrites the
+ * one `style` attribute. Returns null when there is no `<body>` to patch — a
+ * URL-backed live screen has none, and silently returning the input would look
+ * like a saved edit.
+ */
+export function setBodyInlineStyles(
+  content: string,
+  patch: Record<string, string | null>,
+): string | null {
+  const body = findBodyOpenTag(content);
+  if (!body) return null;
+  const styleMatch = BODY_STYLE_ATTRIBUTE.exec(body.tag);
+  const rawStyle = styleMatch
+    ? (styleMatch[3] ?? styleMatch[4] ?? styleMatch[5] ?? "")
+    : "";
+  // Read through the same decode the browser applies, so an existing
+  // `&amp;` in a query string is one `&` here and is re-encoded once below
+  // rather than compounding on every save.
+  const declarations = new Map<string, string>();
+  for (const part of splitStyleDeclarations(
+    decodeHtmlAttributeValue(rawStyle),
+  )) {
+    const separator = part.indexOf(":");
+    if (separator < 0) continue;
+    const property = part.slice(0, separator).trim().toLowerCase();
+    if (!property) continue;
+    declarations.set(property, part.slice(separator + 1).trim());
+  }
+  for (const [property, value] of Object.entries(patch)) {
+    const cssProperty = property
+      .replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)
+      .toLowerCase();
+    if (value === null || value.trim() === "") {
+      declarations.delete(cssProperty);
+      const shorthand = SHORTHAND_FOR_LONGHAND[cssProperty];
+      if (shorthand) declarations.delete(shorthand);
+      continue;
+    }
+    declarations.set(cssProperty, value.trim());
+  }
+  const nextStyle = [...declarations]
+    .map(([property, value]) => `${property}: ${value}`)
+    .join("; ");
+  const replacement = nextStyle
+    ? ` style="${escapeHtmlAttributeValue(nextStyle)}"`
+    : "";
+  const nextTag = styleMatch
+    ? body.tag.replace(
+        BODY_STYLE_ATTRIBUTE,
+        replacement.trimStart() ? replacement : "",
+      )
+    : `${body.tag.slice(0, -1)}${replacement}>`;
+  if (nextTag === body.tag) return content;
+  return `${content.slice(0, body.start)}${nextTag}${content.slice(body.end)}`;
+}
+
 export function getBodyInlineStyles(content: string): Record<string, string> {
   if (typeof window === "undefined") return {};
   try {

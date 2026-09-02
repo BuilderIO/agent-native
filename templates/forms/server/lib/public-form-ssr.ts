@@ -231,6 +231,9 @@ function renderField(field: FormField): string {
     case "textarea":
       input = `<textarea name="${id}" class="fi fi-ta" rows="4"${ph || ' placeholder="Type your answer..."'}${req}></textarea>`;
       break;
+    case "file":
+      input = `<input type="file" name="${id}" class="fi fi-file"${field.accept ? ` accept="${escapeHtml(field.accept)}"` : ""}${field.multiple ? " multiple" : ""}${req}>`;
+      break;
     case "date":
       input = `<input type="date" name="${id}" class="fi"${req}>`;
       break;
@@ -363,6 +366,7 @@ function renderFormPage(
   const turnstileSiteKey = process.env.VITE_TURNSTILE_SITE_KEY || "";
   const appBasePath = getAppBasePath();
   const submitPath = `${appBasePath}/api/submit/`;
+  const uploadPath = `${appBasePath}/api/upload/`;
   const faviconPath = `${appBasePath}/favicon.svg`;
   const ogImagePath = `${appBasePath}/api/forms/og/${encodeURIComponent(
     form.slug || form.id,
@@ -451,11 +455,12 @@ function renderFormPage(
   var FORM_ID = ${JSON.stringify(form.id)};
   var FORM_VERSION = ${JSON.stringify(form.updatedAt || "")};
   var PUBLIC_FORM_API = ${JSON.stringify(`${appBasePath}/api/forms/public/${encodeURIComponent(form.slug || form.id)}`)};
+  var UPLOAD_PATH = ${JSON.stringify(uploadPath)};
   var COMPLETION_MODE = ${JSON.stringify(completionMode)};
   var COMPLETION_REFRESH_MS = ${completionRefreshMilliseconds};
   var REDIRECT = ${JSON.stringify(safeRedirectUrl(settings.redirectUrl))};
   var TURNSTILE_KEY = ${JSON.stringify(turnstileSiteKey)};
-  var FIELDS = ${JSON.stringify(fields.map((f) => ({ id: f.id, type: f.type, required: f.required, validation: f.validation, label: f.label, conditional: f.conditional })))};
+  var FIELDS = ${JSON.stringify(fields.map((f) => ({ id: f.id, type: f.type, required: f.required, validation: f.validation, label: f.label, conditional: f.conditional, multiple: f.multiple, accept: f.accept, maxSizeBytes: f.maxSizeBytes, maxFiles: f.maxFiles })))};
   var SENSITIVE_QUERY_PARAMS = ${JSON.stringify(SENSITIVE_QUERY_PARAMS)};
 
   function scrubPageUrl(value) {
@@ -613,6 +618,7 @@ function renderFormPage(
     FIELDS.forEach(function(f) {
       var el = document.querySelector('[data-field-id="' + f.id + '"]');
       if (!el || el.dataset.hidden === "1") return;
+      if (f.type === "file") return;
       if (f.type === "multiselect") {
         var checked = [];
         el.querySelectorAll('input[type="checkbox"]:checked').forEach(function(cb) { checked.push(cb.value); });
@@ -635,12 +641,50 @@ function renderFormPage(
     return data;
   }
 
+  function collectFiles() {
+    var files = {};
+    FIELDS.forEach(function(f) {
+      if (f.type !== "file") return;
+      var el = document.querySelector('[data-field-id="' + f.id + '"]');
+      if (!el || el.dataset.hidden === "1") return;
+      var input = el.querySelector('input[type="file"]');
+      if (input && input.files && input.files.length) {
+        files[f.id] = Array.prototype.slice.call(input.files);
+      }
+    });
+    return files;
+  }
+
+  function acceptsFile(f, file) {
+    if (!f.accept) return true;
+    var mime = (file.type || "").toLowerCase();
+    var name = (file.name || "").toLowerCase();
+    return f.accept.split(",").some(function(raw) {
+      var token = raw.trim().toLowerCase();
+      if (!token || token === "*/*" || token === mime) return true;
+      if (token.slice(-2) === "/*") return mime.indexOf(token.slice(0, -1)) === 0;
+      return token.charAt(0) === "." && name.slice(-token.length) === token;
+    });
+  }
+
   // Validation
-  function validate(data) {
+  function validate(data, filesByField) {
     for (var i = 0; i < FIELDS.length; i++) {
       var f = FIELDS[i];
       var el = document.querySelector('[data-field-id="' + f.id + '"]');
       if (!el || el.dataset.hidden === "1") continue;
+      if (f.type === "file") {
+        var files = filesByField[f.id] || [];
+        if (f.required && files.length === 0) return f.label + " is required";
+        var maxFiles = f.multiple ? (f.maxFiles || 5) : 1;
+        if (files.length > maxFiles) return f.label + " accepts up to " + maxFiles + " file" + (maxFiles === 1 ? "" : "s");
+        var maxBytes = f.maxSizeBytes || 10485760;
+        for (var fileIndex = 0; fileIndex < files.length; fileIndex++) {
+          if (files[fileIndex].size > maxBytes) return files[fileIndex].name + " is larger than the " + Math.round(maxBytes / 1048576) + " MB limit";
+          if (!acceptsFile(f, files[fileIndex])) return files[fileIndex].name + " is not an accepted file type";
+        }
+        continue;
+      }
       if (f.required) {
         var val = data[f.id];
         if (val === undefined || val === null || val === "" || (Array.isArray(val) && val.length === 0)) {
@@ -658,6 +702,42 @@ function renderFormPage(
       }
     }
     return null;
+  }
+
+  function uploadFiles(filesByField) {
+    var uploaded = {};
+    var requests = [];
+    FIELDS.forEach(function(f) {
+      if (f.type !== "file") return;
+      var files = filesByField[f.id] || [];
+      files.forEach(function(file) {
+        var body = new FormData();
+        body.append("fieldId", f.id);
+        body.append("file", file, file.name);
+        requests.push(fetch(UPLOAD_PATH + encodeURIComponent(FORM_ID), {
+          method: "POST",
+          body: body,
+        }).then(function(r) {
+          return r.json().then(function(d) {
+            if (!r.ok) throw new Error(d.error || "Failed to upload file");
+            return d;
+          }, function() {
+            throw new Error("File upload returned an invalid response");
+          });
+        }).then(function(fileValue) {
+          if (!uploaded[f.id]) uploaded[f.id] = [];
+          uploaded[f.id].push(fileValue);
+        }));
+      });
+    });
+    return Promise.all(requests).then(function() {
+      FIELDS.forEach(function(f) {
+        if (f.type === "file" && f.multiple !== true && uploaded[f.id]) {
+          uploaded[f.id] = uploaded[f.id][0];
+        }
+      });
+      return uploaded;
+    });
   }
 
   // Turnstile
@@ -684,19 +764,24 @@ function renderFormPage(
     e.preventDefault();
     if (submitting) return;
     var data = collectData();
-    var err = validate(data);
+    var filesByField = collectFiles();
+    var err = validate(data, filesByField);
     if (err) { showToast(err); return; }
     submitting = true;
     var btn = document.getElementById("submitBtn");
-    btn.textContent = "Submitting...";
+    btn.textContent = "Uploading...";
     btn.disabled = true;
     var hp = (document.getElementById("_hp") || {}).value || "";
     var pageUrl = scrubPageUrl(window.location.href);
 
-    fetch(${JSON.stringify(submitPath)} + FORM_ID, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data: data, captchaToken: captchaToken, _hp: hp, _t: PAGE_LOAD_T, _meta: { pageUrl: pageUrl } }),
+    uploadFiles(filesByField).then(function(uploaded) {
+      Object.keys(uploaded).forEach(function(fieldId) { data[fieldId] = uploaded[fieldId]; });
+      btn.textContent = "Submitting...";
+      return fetch(${JSON.stringify(submitPath)} + FORM_ID, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: data, captchaToken: captchaToken, _hp: hp, _t: PAGE_LOAD_T, _meta: { pageUrl: pageUrl } }),
+      });
     })
     .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
     .then(function(res) {

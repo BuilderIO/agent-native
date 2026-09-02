@@ -81,6 +81,10 @@ export function blankScreenHtml(title: string): string {
     body {
       margin: 0;
       min-height: 100vh;
+      /* A screen is a page: content past its edge is out of frame, not
+         spilling onto the board. Frames stay unclipped by default so drawing
+         over their edge keeps working. */
+      overflow: hidden;
       background: var(--color-bg, #ffffff);
       color: var(--color-text, #111827);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -443,11 +447,8 @@ export function appendCanvasPrimitiveToHtml(
         polygonPointsForHtmlShape(primitive.kind, width, height),
       );
       polygon.setAttribute("fill", primitive.fill ?? "rgba(37, 99, 235, 0.16)");
-      polygon.setAttribute("stroke", primitive.stroke ?? "rgb(37, 99, 235)");
-      polygon.setAttribute(
-        "stroke-width",
-        String(primitive.strokeWidth ?? 1.5),
-      );
+      polygon.setAttribute("stroke", primitive.stroke ?? "none");
+      polygon.setAttribute("stroke-width", String(primitive.strokeWidth ?? 0));
       polygon.setAttribute("stroke-linejoin", "round");
       svg.setAttribute("data-agent-native-node-id", nodeId);
       svg.setAttribute("data-agent-native-layer-name", layerName);

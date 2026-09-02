@@ -3,6 +3,24 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-01
+
+### Improved
+
+- Signed-in coworkers now see their own calendar conflicts and booking details are prefilled.
+
+## 2026-08-31
+
+### Improved
+
+- Lower-contrast scrollbars keep desktop surfaces calm
+- Per-app auth pages show a product preview and learn-more link
+
+### Fixed
+
+- Booking link availability aligns with its tabs
+- Calendar no longer shows duplicate agent controls on Home and can remove saved Google Meet links
+
 ## 2026-08-29
 
 ### Improved

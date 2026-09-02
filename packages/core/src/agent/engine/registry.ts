@@ -21,6 +21,7 @@ import {
   canUseDeployCredentialFallbackForRequest,
   getBuilderCredentialAuthFailure,
   getProviderCredentialAuthFailure,
+  prefetchSecrets,
   readDeployCredentialEnv,
   resolveBuilderCredentialsDetailed,
   resolveBuilderGatewayCredentialsDetailed,
@@ -705,12 +706,37 @@ export async function detectEngineFromUserSecrets(
     return null;
   }
 
+  // Deliberately lazy: a connected Builder account resolves from the first
+  // registry entry without reading a provider key at all, so warming eagerly
+  // would put four scope reads in front of the fast path on a continuously
+  // polled endpoint. Once any non-Builder engine is probed, though, every
+  // remaining candidate is about to be read, and `resolveSecret` walks
+  // user/org/workspace/solo per key. One batched read per scope covers the
+  // whole set, and `readAppSecrets` memoizes absent keys too, so the
+  // no-provider-configured case collapses rather than staying at full cost.
+  let secretsPrefetched = false;
+  const prefetchCandidateSecrets = async (): Promise<void> => {
+    if (secretsPrefetched) return;
+    secretsPrefetched = true;
+    await prefetchSecrets([
+      ...new Set(
+        [..._registry.values()]
+          .filter(
+            (entry) =>
+              entry.name !== "builder" && isAgentEnginePackageInstalled(entry),
+          )
+          .flatMap((entry) => entry.requiredEnvVars),
+      ),
+    ]);
+  };
+
   const hasAllKeys = async (entry: AgentEngineEntry): Promise<boolean> => {
     if (!isAgentEnginePackageInstalled(entry)) return false;
     if (entry.requiredEnvVars.length === 0) return false;
     if (entry.name === "builder") {
       return hasUsableBuilderConnection(identity);
     }
+    await prefetchCandidateSecrets();
     for (const key of entry.requiredEnvVars) {
       // A throw here means the credential store could not be read. Let it
       // propagate: swallowing it reports "no provider connected" to a user

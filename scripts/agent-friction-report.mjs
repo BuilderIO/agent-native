@@ -280,6 +280,22 @@ const PATTERNS = [
     fixedBy: ".agents/skills/address-feedback* (2026-08-19 clarification gate)",
     re: /\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\bclarif(?:ication|y)\b|\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b|\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b[^.!?]{0,80}\b(?:url|link|details?|information|issue)\b|\bclarif(?:ication|y)\b[^.!?]{0,120}\b(?:already|thread|reply|fixed|fixing|solved|found|agent-native|someone|details?|not|unfriendly|robotic|tone|warm|harsh)\b|\bthank(?:s|ed|ing)?\b[^.!?]{0,80}\b(?:first|before|them|reporter)\b|\b(?:didn'?t|doesn'?t|without|skipped|forgot(?:ten)?)\b[^.!?]{0,80}\bthank(?:s|ed|ing)?\b/i,
   },
+  // Added 2026-09-01. `feedback-reply-tone` counts duplicate and unfriendly
+  // questions but not their volume, so the 2026-09-01 sweep that posted 23
+  // questions in one hour (4% answered, against 88% for the runs that asked
+  // one or two) scored zero on every existing key. The cap in
+  // review-latest-feedback is what this key has to move; if it stays at zero
+  // while the user keeps saying the asks are odd, the key is wrong, not the
+  // behavior. Watch it alongside `unanswered-feedback-followup`, which has
+  // read zero since it landed because a per-run state file could not see the
+  // previous run's questions at all.
+  {
+    key: "feedback-question-volume",
+    label: "Told the feedback sweep asked too many or low-value questions",
+    fixedBy:
+      ".agents/skills/review-latest-feedback (2026-09-01 three-question budget)",
+    re: /\b(?:too many|so many|stop asking|spam(?:ming|med)?|carpet|blast(?:ed|ing)?|barrage|flood(?:ed|ing)?)\b[^.!?\n]{0,80}\b(?:questions?|asks?|replies|messages?|threads?)\b|\b(?:questions?|asks?|replies|messages?)\b[^.!?\n]{0,60}\b(?:odd|weird|strange|pointless|useless|low[- ]value|generic|templated|robotic|noisy|annoying)\b|\b(?:don['’]?t|do not|stop|quit)\b[^.!?\n]{0,60}\b(?:ask(?:ing)?|reply(?:ing)?|post(?:ing)?)\b[^.!?\n]{0,60}\b(?:every|each|all)\b[^.!?\n]{0,40}\b(?:thread|report|message|item)\b/i,
+  },
   {
     key: "cross-thread-interference",
     label: "Agent acted on other agents' threads or work uninvited",
