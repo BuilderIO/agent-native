@@ -620,7 +620,11 @@ const LIBRARY_BACKDROP_CSS = [
   ".library-search { display: flex; align-items: center; gap: 6px; width: 220px; height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid #3d3d3d; background: #212121; color: #808080; font-size: 12px; box-sizing: border-box; }",
   ".library-icon-btn { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 6px; border: none; background: transparent; color: #999999; }",
 
-  ".library-grid { flex: 1; overflow: hidden; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); grid-auto-rows: max-content; gap: 16px; padding: 20px; align-content: start; }",
+  ".library-grid { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); grid-auto-rows: max-content; gap: 16px; padding: 20px; align-content: start; scrollbar-width: thin; scrollbar-color: #4d4d4d transparent; }",
+  ".library-grid::-webkit-scrollbar { width: 10px; }",
+  ".library-grid::-webkit-scrollbar-track { background: transparent; }",
+  ".library-grid::-webkit-scrollbar-thumb { border-radius: 999px; background: #4d4d4d; border: 3px solid transparent; background-clip: content-box; }",
+  ".library-grid::-webkit-scrollbar-thumb:hover { background: #666666; background-clip: content-box; }",
   ".library-card { border-radius: 8px; overflow: hidden; background: #262626; border: 1px solid #383838; }",
   ".library-card-thumb { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: #292929; }",
   ".library-card-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }",
