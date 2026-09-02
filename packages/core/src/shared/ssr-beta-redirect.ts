@@ -4,6 +4,7 @@ import {
   BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
   BETA_REDIRECT_STORAGE_KEY,
+  BETA_REDIRECT_SIGN_OUT_STORAGE_KEY,
   ENVIRONMENT_BETA_HOSTS,
 } from "./environment-lanes.js";
 
@@ -108,10 +109,22 @@ export function getSsrBetaRedirectScriptBody(
     }
   }
 
+  function isSignOutStarted() {
+    if (window.__agentNativeBetaRedirectSignOutStarted === true) return true;
+    try {
+      return window.sessionStorage.getItem(${JSON.stringify(BETA_REDIRECT_SIGN_OUT_STORAGE_KEY)}) === '1';
+    } catch (error) {
+      void error;
+      return false;
+    }
+  }
+
   if (!Number.isFinite(redirectExpiry) || redirectExpiry <= Date.now()) {
     if (storedRedirect !== null) clearRedirectMarker();
     return;
   }
+
+  if (isSignOutStarted()) return;
 
   if (typeof window.fetch !== 'function') return;
 
@@ -138,12 +151,30 @@ export function getSsrBetaRedirectScriptBody(
       return;
     }
 
-    currentUrl.protocol = 'https:';
-    currentUrl.hostname = betaHost;
-    currentUrl.port = '';
-    currentUrl.searchParams.delete(${JSON.stringify(BETA_OPT_OUT_QUERY_PARAM)});
+    if (isSignOutStarted()) return;
+
+    var latestUrl;
     try {
-      window.location.replace(currentUrl.toString());
+      latestUrl = new URL(window.location.href);
+    } catch (error) {
+      void error;
+      return;
+    }
+    var latestHostname = (latestUrl.hostname || '').toLowerCase().replace(/\\.$/, '');
+    var latestProductionHost = latestHostname.indexOf('beta.') === 0
+      ? latestHostname.slice(5)
+      : latestHostname;
+    if (latestHostname !== hostname || betaHosts[latestProductionHost] !== betaHost) return;
+    if (latestUrl.searchParams.get(${JSON.stringify(BETA_FORCE_QUERY_PARAM)}) === 'true') return;
+    var latestOptOut = latestUrl.searchParams.get(${JSON.stringify(BETA_OPT_OUT_QUERY_PARAM)});
+    if (latestOptOut !== null && Number(latestOptOut) > Date.now()) return;
+
+    latestUrl.protocol = 'https:';
+    latestUrl.hostname = betaHost;
+    latestUrl.port = '';
+    latestUrl.searchParams.delete(${JSON.stringify(BETA_OPT_OUT_QUERY_PARAM)});
+    try {
+      window.location.replace(latestUrl.toString());
     } catch (error) {
       void error;
     }

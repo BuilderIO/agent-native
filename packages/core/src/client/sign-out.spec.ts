@@ -2,7 +2,10 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { BETA_REDIRECT_STORAGE_KEY } from "../shared/environment-lanes.js";
+import {
+  BETA_REDIRECT_SIGN_OUT_STORAGE_KEY,
+  BETA_REDIRECT_STORAGE_KEY,
+} from "../shared/environment-lanes.js";
 
 // `signingOut` is deliberately one-way for the life of a document, so every
 // case needs a fresh module rather than a reset hook.
@@ -92,6 +95,57 @@ describe("signOut", () => {
     await pending;
     expect(replace).toHaveBeenCalledTimes(1);
     expect(replace.mock.calls[0][0]).toContain("/sign-in?c=");
+  });
+
+  it("signals the early redirect before revocation and clears it before leaving", async () => {
+    const { signOut } = await loadSignOut();
+    const originalSessionStorage = Object.getOwnPropertyDescriptor(
+      window,
+      "sessionStorage",
+    );
+    const values = new Map<string, string>();
+    const setItem = vi.fn((key: string, value: string) => {
+      values.set(key, value);
+    });
+    const removeItem = vi.fn((key: string) => values.delete(key));
+    Object.defineProperty(window, "sessionStorage", {
+      configurable: true,
+      value: { setItem, removeItem },
+    });
+    try {
+      let resolveRevoke: ((response: Response) => void) | undefined;
+      const revoke = new Promise<Response>((resolve) => {
+        resolveRevoke = resolve;
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => revoke),
+      );
+
+      const pending = signOut();
+      await Promise.resolve();
+      expect(setItem).toHaveBeenCalledWith(
+        BETA_REDIRECT_SIGN_OUT_STORAGE_KEY,
+        "1",
+      );
+      expect(values.get(BETA_REDIRECT_SIGN_OUT_STORAGE_KEY)).toBe("1");
+
+      resolveRevoke!(
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      );
+      await pending;
+
+      expect(removeItem).toHaveBeenCalledWith(
+        BETA_REDIRECT_SIGN_OUT_STORAGE_KEY,
+      );
+      expect(values.has(BETA_REDIRECT_SIGN_OUT_STORAGE_KEY)).toBe(false);
+    } finally {
+      if (originalSessionStorage) {
+        Object.defineProperty(window, "sessionStorage", originalSessionStorage);
+      } else {
+        delete (window as Window & { sessionStorage?: Storage }).sessionStorage;
+      }
+    }
   });
 
   it("clears the beta redirect marker before leaving after revocation", async () => {

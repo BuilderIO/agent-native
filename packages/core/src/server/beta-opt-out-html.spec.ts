@@ -105,6 +105,19 @@ describe("injectBetaOptOutPersistence", () => {
     expect(html).toContain("/starter/_agent-native/auth/session");
   });
 
+  it("uses the mounted workspace path when no build-time base exists", () => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+
+    const html = injectBetaOptOutPersistence(
+      "<html><head></head><body>Sign in</body></html>",
+      "/plan/login",
+    );
+
+    expect(html).toContain("/plan/_agent-native/auth/session");
+  });
+
   it("keeps the existing onboarding switcher instead of injecting a second one", () => {
     const html = injectBetaOptOutPersistence(`
       <html><head></head><body>

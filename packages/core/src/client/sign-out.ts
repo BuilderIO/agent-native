@@ -1,4 +1,7 @@
-import { BETA_REDIRECT_STORAGE_KEY } from "../shared/environment-lanes.js";
+import {
+  BETA_REDIRECT_SIGN_OUT_STORAGE_KEY,
+  BETA_REDIRECT_STORAGE_KEY,
+} from "../shared/environment-lanes.js";
 /**
  * The one client-side sign-out.
  *
@@ -30,6 +33,30 @@ const LOGOUT_PATH = "/_agent-native/auth/logout";
 const SIGN_OUT_REQUEST_TIMEOUT_MS = 15_000;
 let signOutOperation: Promise<void> | null = null;
 
+function setBetaRedirectSignOutSignal(): void {
+  const signOutWindow = window as Window & {
+    __agentNativeBetaRedirectSignOutStarted?: boolean;
+  };
+  signOutWindow.__agentNativeBetaRedirectSignOutStarted = true;
+  try {
+    window.sessionStorage.setItem(BETA_REDIRECT_SIGN_OUT_STORAGE_KEY, "1");
+  } catch {
+    // coercion-ok: the in-memory signal still protects this document when storage is unavailable.
+  }
+}
+
+function clearBetaRedirectSignOutSignal(): void {
+  const signOutWindow = window as Window & {
+    __agentNativeBetaRedirectSignOutStarted?: boolean;
+  };
+  signOutWindow.__agentNativeBetaRedirectSignOutStarted = false;
+  try {
+    window.sessionStorage.removeItem(BETA_REDIRECT_SIGN_OUT_STORAGE_KEY);
+  } catch {
+    // coercion-ok: sign-out navigation must not depend on optional storage.
+  }
+}
+
 export interface SignOutOptions {
   /**
    * Where to send the browser once the session is revoked. Defaults to the
@@ -52,6 +79,7 @@ export function signOut(options: SignOutOptions = {}): Promise<void> {
 }
 
 async function signOutFlow(options: SignOutOptions): Promise<void> {
+  setBetaRedirectSignOutSignal();
   beginSignOut();
   const controller = new AbortController();
   const timeout = setTimeout(
@@ -80,6 +108,7 @@ async function signOutFlow(options: SignOutOptions): Promise<void> {
   if (!revoked) {
     // Do not send an unrevoked session through sign-in's continuation, which
     // can immediately authenticate it again.
+    clearBetaRedirectSignOutSignal();
     window.location.reload();
     return;
   }
@@ -89,6 +118,7 @@ async function signOutFlow(options: SignOutOptions): Promise<void> {
   completeSignOut();
   // `replace`, not `assign`: the dead authenticated URL must not stay in
   // history, or Back lands on a shell with no session.
+  clearBetaRedirectSignOutSignal();
   try {
     window.localStorage.removeItem(BETA_REDIRECT_STORAGE_KEY);
   } catch {

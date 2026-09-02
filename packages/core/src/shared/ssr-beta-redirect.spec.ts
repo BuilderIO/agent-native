@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   BETA_FORCE_SESSION_STORAGE_KEY,
   BETA_OPT_OUT_STORAGE_KEY,
+  BETA_REDIRECT_SIGN_OUT_STORAGE_KEY,
   BETA_REDIRECT_STORAGE_KEY,
 } from "./environment-lanes.js";
 import {
@@ -35,8 +36,9 @@ function runScript({
   session = { email: "employee@builder.io" },
   sessionResponseOk = true,
   sessionPath = "/_agent-native/auth/session",
+  sessionProbe,
 }: {
-  href: string;
+  href: string | { current: string };
   embedded?: boolean;
   localStorage?: ReturnType<typeof createStorage>;
   sessionStorage?: ReturnType<typeof createStorage>;
@@ -44,13 +46,15 @@ function runScript({
   session?: Record<string, unknown> | null;
   sessionResponseOk?: boolean;
   sessionPath?: string;
+  sessionProbe?: Promise<Record<string, unknown> | null>;
 }) {
   const result = {
     fetched: [] as string[],
     historyUrl: null as string | null,
     redirectedTo: null as string | null,
   };
-  const url = new URL(href);
+  const hrefRef = typeof href === "string" ? { current: href } : href;
+  const url = new URL(hrefRef.current);
   const window = {
     history: {
       replaceState(_state: unknown, _title: string, value: string) {
@@ -58,8 +62,12 @@ function runScript({
       },
     },
     location: {
-      hostname: url.hostname,
-      href: url.toString(),
+      get hostname() {
+        return new URL(hrefRef.current).hostname;
+      },
+      get href() {
+        return hrefRef.current;
+      },
       replace(value: string) {
         result.redirectedTo = value;
       },
@@ -73,10 +81,11 @@ function runScript({
 
   const fetch = async (input: string) => {
     result.fetched.push(input);
+    const responseSession = sessionProbe ? await sessionProbe : session;
     return {
       ok: sessionResponseOk,
       status: sessionResponseOk ? 200 : 503,
-      json: async () => session,
+      json: async () => responseSession,
     };
   };
   window.fetch = fetch;
@@ -322,6 +331,54 @@ describe("getSsrBetaRedirectScript", () => {
 
     expect(result.redirectedTo).toBeNull();
     expect(localStorage.getItem(BETA_REDIRECT_STORAGE_KEY)).not.toBeNull();
+  });
+
+  it("does not navigate after sign-out starts while the session probe is pending", async () => {
+    const localStorage = createStorage({
+      [BETA_REDIRECT_STORAGE_KEY]: String(Date.now() + 60_000),
+    });
+    const sessionStorage = createStorage();
+    let resolveProbe: ((session: Record<string, unknown>) => void) | undefined;
+    const sessionProbe = new Promise<Record<string, unknown>>((resolve) => {
+      resolveProbe = resolve;
+    });
+
+    const pending = runScript({
+      href: "https://plan.agent-native.com/inbox",
+      localStorage,
+      sessionStorage,
+      sessionProbe,
+    });
+    await Promise.resolve();
+    sessionStorage.setItem(BETA_REDIRECT_SIGN_OUT_STORAGE_KEY, "1");
+    resolveProbe!({ email: "employee@builder.io" });
+
+    const result = await pending;
+
+    expect(result.redirectedTo).toBeNull();
+  });
+
+  it("uses the current URL after a delayed session probe", async () => {
+    const localStorage = createStorage({
+      [BETA_REDIRECT_STORAGE_KEY]: String(Date.now() + 60_000),
+    });
+    const href = { current: "https://plan.agent-native.com/inbox?tab=all" };
+    let resolveProbe: ((session: Record<string, unknown>) => void) | undefined;
+    const sessionProbe = new Promise<Record<string, unknown>>((resolve) => {
+      resolveProbe = resolve;
+    });
+
+    const pending = runScript({ href, localStorage, sessionProbe });
+    await Promise.resolve();
+    href.current =
+      "https://plan.agent-native.com/settings?tab=profile#security";
+    resolveProbe!({ email: "employee@builder.io" });
+
+    const result = await pending;
+
+    expect(result.redirectedTo).toBe(
+      "https://beta.plan.agent-native.com/settings?tab=profile#security",
+    );
   });
 
   it("emits a marked inline script for head or shell injection", () => {

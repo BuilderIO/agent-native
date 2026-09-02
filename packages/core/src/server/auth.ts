@@ -791,7 +791,10 @@ export function getConfiguredLoginHtml(event: H3Event): string | null {
   const loginHtml =
     config.getLoginHtml?.(event, rawPath) ?? config.loginHtml ?? null;
   return loginHtml
-    ? injectLoginSocialImageMeta(injectBetaOptOutPersistence(loginHtml), event)
+    ? injectLoginSocialImageMeta(
+        injectBetaOptOutPersistence(loginHtml, rawPath),
+        event,
+      )
     : null;
 }
 
@@ -3196,7 +3199,10 @@ function loginHtmlResponse(
   } = {},
 ): Response {
   let html = injectLoginSocialImageMeta(
-    injectBetaOptOutPersistence(loginHtml),
+    injectBetaOptOutPersistence(
+      loginHtml,
+      getRequestPathAndSearch(event).rawPath,
+    ),
     options.requestIndependent ? undefined : event,
   );
   if (options.includeRootAuthRedirect) {
