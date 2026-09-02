@@ -648,12 +648,12 @@ acrescenta. Nada disso acontece em uma implantação que não a tenha definido.
 A implantação também precisa atender a quatro requisitos, todos já satisfeitos
 por um aplicativo de produção comum:
 
-| Requisito | Por quê | Como verificar |
-| --------- | ------- | -------------- |
-| **Postgres em um host publicamente acessível** | O gateway disca para o banco de dados a partir da própria rede. PGlite, SQLite, `localhost`, `*.internal` e endereços IP nus são recusados antes que a string de conexão sequer saia da sua máquina. | `DATABASE_URL` aponta para um Postgres gerenciado, como o Neon |
-| **`BUILDER_PRIVATE_KEY` definida como variável de ambiente da IMPLANTAÇÃO** | Autentica o registro e decide qual organização do Builder é dona do canal. | Veja a observação abaixo — esta é a etapa que mais passa despercebida |
-| **Uma implantação de produção** | As pré-visualizações de implantação mantêm a sincronização local, de modo que uma credencial de branch descartável nunca sai da máquina e um repositório movimentado não cria um canal por pull request. | `CONTEXT=production` / `BRANCH=production`, ou `VERCEL_ENV=production` |
-| **A plataforma identifica a implantação** | O registro é indexado pela origem pública do aplicativo, então um processo que não é de fato a implantação não deve reivindicá-la. | Netlify, Vercel, AWS Lambda, Cloud Run, Render e Cloudflare Pages se identificam sozinhos. Em um contêiner ou VM simples, defina `AGENT_NATIVE_REALTIME_APP_URL` com a origem da própria implantação |
+| Requisito                                                                   | Por quê                                                                                                                                                                                                  | Como verificar                                                                                                                                                                                       |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Postgres em um host publicamente acessível**                              | O gateway disca para o banco de dados a partir da própria rede. PGlite, SQLite, `localhost`, `*.internal` e endereços IP nus são recusados antes que a string de conexão sequer saia da sua máquina.     | `DATABASE_URL` aponta para um Postgres gerenciado, como o Neon                                                                                                                                       |
+| **`BUILDER_PRIVATE_KEY` definida como variável de ambiente da IMPLANTAÇÃO** | Autentica o registro e decide qual organização do Builder é dona do canal.                                                                                                                               | Veja a observação abaixo — esta é a etapa que mais passa despercebida                                                                                                                                |
+| **Uma implantação de produção**                                             | As pré-visualizações de implantação mantêm a sincronização local, de modo que uma credencial de branch descartável nunca sai da máquina e um repositório movimentado não cria um canal por pull request. | `CONTEXT=production` / `BRANCH=production`, ou `VERCEL_ENV=production`                                                                                                                               |
+| **A plataforma identifica a implantação**                                   | O registro é indexado pela origem pública do aplicativo, então um processo que não é de fato a implantação não deve reivindicá-la.                                                                       | Netlify, Vercel, AWS Lambda, Cloud Run, Render e Cloudflare Pages se identificam sozinhos. Em um contêiner ou VM simples, defina `AGENT_NATIVE_REALTIME_APP_URL` com a origem da própria implantação |
 
 <Callout tone="warning">
 
@@ -698,12 +698,12 @@ curl -s https://your-app.example.com/_agent-native/health | jq .realtime
 }
 ```
 
-| Campo | Significado |
-| ----- | ----------- |
-| `transport` | `"hosted"` assim que a variável de ambiente estiver definida, `"local"` caso contrário. Se aparecer `local`, a variável não chegou à implantação em execução. |
-| `registered` | Um canal foi resolvido. `false` significa que o aplicativo continua no próprio `/_agent-native/poll`. |
+| Campo         | Significado                                                                                                                                                                                                                           |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transport`   | `"hosted"` assim que a variável de ambiente estiver definida, `"local"` caso contrário. Se aparecer `local`, a variável não chegou à implantação em execução.                                                                         |
+| `registered`  | Um canal foi resolvido. `false` significa que o aplicativo continua no próprio `/_agent-native/poll`.                                                                                                                                 |
 | `channelHash` | Os 8 primeiros caracteres de um SHA-256 do identificador de canal — suficiente para distinguir duas implantações ou confirmar uma rotação, inútil para conectar. O endpoint é público, então o identificador em si nunca é publicado. |
-| `unavailable` | Presente apenas quando a resolução FALHOU, em contraste com resolver para "nenhum canal". Um gateway inacessível e um aplicativo não registrado são problemas diferentes. |
+| `unavailable` | Presente apenas quando a resolução FALHOU, em contraste com resolver para "nenhum canal". Um gateway inacessível e um aplicativo não registrado são problemas diferentes.                                                             |
 
 Quando `registered` é `false`, os logs da implantação trazem uma linha
 `[realtime]` com o motivo: uma credencial recusada, uma URL de banco de dados
@@ -723,7 +723,7 @@ não há outro caminho que compartilhe essa credencial.
 registrar também pode reregistrar uma origem existente, o que devolve o segredo
 de assinatura daquele canal e redireciona seu banco de dados. Possuir esse
 segredo permite emitir um token de inscrição para qualquer usuário do
-aplicativo, o que expõe o *fluxo de alterações* dele — quais registros mudaram e
+aplicativo, o que expõe o _fluxo de alterações_ dele — quais registros mudaram e
 quando — mas não os registros em si, já que os clientes releem o conteúdo do
 aplicativo com a própria sessão. Trate uma credencial de registro como válida
 para toda a organização.

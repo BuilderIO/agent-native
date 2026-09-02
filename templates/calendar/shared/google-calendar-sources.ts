@@ -40,6 +40,7 @@ export function parseGoogleCalendarSourceKey(
       calendarId: parsed[1],
     };
   } catch {
+    // coercion-ok: malformed opaque input is a typed invalid-key result.
     return null;
   }
 }

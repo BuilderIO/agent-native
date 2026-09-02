@@ -80,17 +80,15 @@ function isPubliclyCacheableFrame(access: PublicAgentAccess): boolean {
   );
 }
 
-function cacheControlForAccess(access: PublicAgentAccess): string {
-  return isPubliclyCacheableFrame(access)
-    ? "public, max-age=300"
-    : "private, max-age=0, no-store";
+function cacheControlForAccess(): string {
+  return "private, max-age=0, no-store";
 }
 
-function applyFrameHeaders(event: H3Event, access: PublicAgentAccess) {
+function applyFrameHeaders(event: H3Event) {
   setResponseHeader(event, "Content-Type", "image/jpeg");
   setResponseHeader(event, "X-Content-Type-Options", "nosniff");
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
-  setResponseHeader(event, "Cache-Control", cacheControlForAccess(access));
+  setResponseHeader(event, "Cache-Control", cacheControlForAccess());
 }
 
 function redirectToResolvedFrame(
@@ -108,7 +106,7 @@ function redirectToResolvedFrame(
   return new Response(null, {
     status: 302,
     headers: {
-      "Cache-Control": cacheControlForAccess(access),
+      "Cache-Control": cacheControlForAccess(),
       Location: location.href,
       "Referrer-Policy": "no-referrer",
       "X-Content-Type-Options": "nosniff",
@@ -209,7 +207,7 @@ export default defineEventHandler(async (event: H3Event) => {
   const cacheable = isPubliclyCacheableFrame(access);
   const cached = cacheable ? getCachedFrame(key) : null;
   if (cached) {
-    applyFrameHeaders(event, access);
+    applyFrameHeaders(event);
     return cached;
   }
 
@@ -225,7 +223,7 @@ export default defineEventHandler(async (event: H3Event) => {
       return redirectToResolvedFrame(event, access, resolved.atMs);
     }
 
-    applyFrameHeaders(event, access);
+    applyFrameHeaders(event);
     const buffer = Buffer.from(resolved.frame);
     if (cacheable) setCachedFrame(key, buffer);
     return buffer;

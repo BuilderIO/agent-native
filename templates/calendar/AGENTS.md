@@ -62,7 +62,8 @@ Detailed event, availability, booking, storage, and UI rules live in
 - Treat Google Calendar working locations and full-day out-of-office events as
   native status events; see `event-management` for their action contracts.
 - Use framework sharing actions for calendar, event, and booking resources;
-  see `availability-booking` for booking-link controls and co-hosts.
+  see `availability-booking` for booking-link controls, co-hosts, and the
+  overlay-based working-hours/time-zone hard filtering for subscribed peers.
 - Keep scheduling answers concrete: exact dates, time zones, conflicts, and
   assumptions.
 - Event detail extensions, attendee adornments, RSVP scope, and multi-account

@@ -12,6 +12,8 @@ navegador e limites de segurança.
 Páginas autenticadas registram automaticamente as ações de backend qualificadas
 a partir do registro de ações existente. Ações que exigem aprovação são excluídas,
 e a lista ativa de ferramentas é validada novamente antes da chamada.
+Superfícies autenticadas com `sessionBypass`, como rotas de incorporação MCP, também
+registram ferramentas de ações de backend. Páginas públicas e sem sessão não as registram.
 
 ## Descoberta HTTP e fallback com fetch
 

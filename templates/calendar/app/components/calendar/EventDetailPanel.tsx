@@ -435,7 +435,7 @@ export function EventDetailPanel({
               {/* Content */}
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
                 {/* Title — click to edit */}
-                {isEditingTitle && !isWorkingLocation ? (
+                {isEditingTitle && !isWorkingLocation && !isOverlay ? (
                   <input
                     ref={titleInputRef}
                     value={editingTitle}
@@ -471,10 +471,12 @@ export function EventDetailPanel({
                   <h2
                     className={cn(
                       "-mx-0.5 rounded px-0.5 text-lg font-semibold leading-tight text-foreground",
-                      !isWorkingLocation && "cursor-text hover:bg-muted/50",
+                      !isWorkingLocation &&
+                        !isOverlay &&
+                        "cursor-text hover:bg-muted/50",
                     )}
                     onClick={() => {
-                      if (isWorkingLocation) return;
+                      if (isWorkingLocation || isOverlay) return;
                       setEditingTitle(getEditableEventTitle(event));
                       setIsEditingTitle(true);
                     }}

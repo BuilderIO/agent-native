@@ -3,6 +3,7 @@ import type {
   GoogleAuthStatus,
   GoogleCalendarSource,
 } from "@shared/api";
+import { CALENDAR_COLORS } from "@shared/calendar-view-preferences";
 
 export function isSharedCalendarDemo(): boolean {
   return (
@@ -27,7 +28,7 @@ export const SHARED_CALENDAR_DEMO_SOURCES: GoogleCalendarSource[] = [
     accountEmail: "alice@builder.io",
     calendarId: "alice@builder.io",
     name: "Alice · Builder",
-    color: "#7C9C6B",
+    color: CALENDAR_COLORS[1],
     selected: true,
     primary: true,
     accessRole: "owner",
@@ -38,7 +39,7 @@ export const SHARED_CALENDAR_DEMO_SOURCES: GoogleCalendarSource[] = [
     accountEmail: "emdistal@gmail.com",
     calendarId: "emdistal@gmail.com",
     name: "Alice Alexandra",
-    color: "#B07CC6",
+    color: CALENDAR_COLORS[2],
     selected: true,
     primary: true,
     accessRole: "owner",
@@ -49,7 +50,7 @@ export const SHARED_CALENDAR_DEMO_SOURCES: GoogleCalendarSource[] = [
     accountEmail: "emdistal@gmail.com",
     calendarId: "friends@example.com",
     name: "Friends",
-    color: "#F6BF26",
+    color: CALENDAR_COLORS[3],
     selected: true,
     primary: false,
     accessRole: "reader",
@@ -60,7 +61,7 @@ export const SHARED_CALENDAR_DEMO_SOURCES: GoogleCalendarSource[] = [
     accountEmail: "tempoimmaterial@gmail.com",
     calendarId: "tempoimmaterial@gmail.com",
     name: "Tempo Immaterial",
-    color: "#4ECDC4",
+    color: CALENDAR_COLORS[5],
     selected: true,
     primary: true,
     accessRole: "owner",
@@ -71,7 +72,7 @@ export const SHARED_CALENDAR_DEMO_SOURCES: GoogleCalendarSource[] = [
     accountEmail: "tempoimmaterial@gmail.com",
     calendarId: "studio@example.com",
     name: "Studio schedule",
-    color: "#E67C73",
+    color: CALENDAR_COLORS[4],
     selected: false,
     primary: false,
     accessRole: "reader",
@@ -90,7 +91,7 @@ export const SHARED_CALENDAR_DEMO_EVENTS: CalendarEvent[] = [
     accountEmail: "alice@builder.io",
     calendarId: "alice@builder.io",
     calendarName: "Alice · Builder",
-    color: "#7C9C6B",
+    color: CALENDAR_COLORS[1],
   }),
   demoEvent({
     id: "google-personal-dermatology",
@@ -100,7 +101,7 @@ export const SHARED_CALENDAR_DEMO_EVENTS: CalendarEvent[] = [
     accountEmail: "emdistal@gmail.com",
     calendarId: "emdistal@gmail.com",
     calendarName: "Alice Alexandra",
-    color: "#B07CC6",
+    color: CALENDAR_COLORS[2],
   }),
   demoEvent({
     id: "google-friends-cottage",
@@ -112,7 +113,7 @@ export const SHARED_CALENDAR_DEMO_EVENTS: CalendarEvent[] = [
     calendarName: "Friends",
     calendarAccessRole: "reader",
     calendarReadOnly: true,
-    color: "#F6BF26",
+    color: CALENDAR_COLORS[3],
   }),
   demoEvent({
     id: "google-friends-birthday",
@@ -124,7 +125,7 @@ export const SHARED_CALENDAR_DEMO_EVENTS: CalendarEvent[] = [
     calendarName: "Friends",
     calendarAccessRole: "reader",
     calendarReadOnly: true,
-    color: "#F6BF26",
+    color: CALENDAR_COLORS[3],
   }),
   demoEvent({
     id: "google-personal-dinner",
@@ -134,7 +135,7 @@ export const SHARED_CALENDAR_DEMO_EVENTS: CalendarEvent[] = [
     accountEmail: "emdistal@gmail.com",
     calendarId: "emdistal@gmail.com",
     calendarName: "Alice Alexandra",
-    color: "#B07CC6",
+    color: CALENDAR_COLORS[2],
   }),
   demoEvent({
     id: "google-tempo-studio",
@@ -146,7 +147,7 @@ export const SHARED_CALENDAR_DEMO_EVENTS: CalendarEvent[] = [
     calendarName: "Studio schedule",
     calendarAccessRole: "reader",
     calendarReadOnly: true,
-    color: "#E67C73",
+    color: CALENDAR_COLORS[4],
   }),
 ];
 

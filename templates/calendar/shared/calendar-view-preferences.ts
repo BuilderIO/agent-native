@@ -29,7 +29,7 @@ export interface CalendarViewPreferences {
   accountColorModes: Record<CalendarColorSourceKey, CalendarColorMode>;
   /** Per-account fixed color, used when that account's mode is "single" */
   accountColors: Record<CalendarColorSourceKey, string>;
-  /** Agent Native visibility overrides for Google calendar sources. */
+  /** Agent-Native visibility overrides for Google calendar sources. */
   googleCalendarVisibility: Record<string, boolean>;
 }
 

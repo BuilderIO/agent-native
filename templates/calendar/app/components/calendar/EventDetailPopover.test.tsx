@@ -304,6 +304,13 @@ describe("EventDetailPopover characterization", () => {
     expect(
       document.querySelector('button[aria-label="eventForm.eventOptions"]'),
     ).toBeNull();
+    const title = document.querySelector("h2");
+    act(() => {
+      title?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(
+      document.querySelector('input[placeholder="eventForm.addTitle"]'),
+    ).toBeNull();
     expect(updateEventMutate).not.toHaveBeenCalled();
   });
 

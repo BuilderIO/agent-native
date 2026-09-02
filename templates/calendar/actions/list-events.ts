@@ -92,6 +92,15 @@ type CalendarInventorySource = "google" | "bookings" | "ics" | "overlays";
 interface CalendarEventsResult {
   events: CalendarEvent[];
   errors: Array<{ email: string; error: string }>;
+  // Primary-account read failures only, excluding overlay-account
+  // failures - an optional overlay person's calendar failing shouldn't
+  // make an otherwise-successful primary read look failed.
+  primaryErrors: Array<{ email: string; error: string }>;
+  // Count of events the primary read itself contributed, before merging
+  // in overlay/ical/booking events - lets callers tell "primary failed
+  // but a supplementary source had something" apart from "primary really
+  // returned events".
+  primaryEventCount: number;
   googleConnected: boolean;
   range: CalendarEventRange;
   icalErrors: Array<{ id: string; name: string; error: string }>;
@@ -739,11 +748,21 @@ export async function listCalendarEvents(
 
   const googleEventIds = new Set(
     googleEvents
+      .filter(
+        (event) =>
+          event.calendarPrimary !== false &&
+          !event.overlayEmail &&
+          event.googleEventId,
+      )
       .map((event) => event.googleEventId)
       .filter((id): id is string => Boolean(id)),
   );
   const googleReadAuthoritative =
-    includeGoogle && connected && errors.length === 0;
+    includeGoogle &&
+    connected &&
+    googleResult.errors.length === 0 &&
+    (!args.calendarSourceKeys?.length ||
+      googleEvents.some((event) => event.calendarPrimary === true));
   const bookingEvents = rawBookingEvents.filter((event) =>
     shouldShowLocalBookingEvent({
       event,
@@ -770,6 +789,8 @@ export async function listCalendarEvents(
   return {
     events,
     errors,
+    primaryErrors: googleResult.errors,
+    primaryEventCount: googleResult.events.length,
     googleConnected: connected,
     range,
     icalErrors,
@@ -1053,9 +1074,18 @@ export default defineAction({
       };
     }
 
-    if (result.events.length === 0 && result.errors.length > 0) {
+    // Overlay people are a supplementary view on top of the caller's own
+    // calendar - an overlay-only failure (disconnected/erroring peer
+    // account) must not fail the whole request when the caller's own
+    // primary read succeeded fine, even if it happened to return zero
+    // events for this range. Conversely, check primaryEventCount (not
+    // the combined `events.length`) so a real primary failure isn't
+    // silently masked by a supplementary source (overlay/ical/booking)
+    // happening to contribute something - that would otherwise return
+    // an incomplete result that looks like a normal empty success.
+    if (result.primaryEventCount === 0 && result.primaryErrors.length > 0) {
       throw new Error(
-        result.errors.map((e) => `${e.email}: ${e.error}`).join("; "),
+        result.primaryErrors.map((e) => `${e.email}: ${e.error}`).join("; "),
       );
     }
 

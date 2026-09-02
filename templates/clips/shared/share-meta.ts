@@ -9,6 +9,9 @@ import {
   type SocialMetaDescriptor,
 } from "@agent-native/core/shared";
 
+import { buildAgentApiUrls } from "./agent-context";
+import { isLoomEmbedBackedRecording } from "./loom";
+
 export const CLIPS_DEFAULT_TITLE = "Untitled recording";
 
 export type ClipsShareMetaRecording = {
@@ -22,7 +25,12 @@ export type ClipsShareMetaRecording = {
   hasPassword?: boolean;
   archivedAt?: string | null;
   trashedAt?: string | null;
+  sourceAppName?: string | null;
+  videoUrl?: string | null;
+  isLoomEmbedBacked?: boolean;
 };
+
+const SOCIAL_FRAME_AT_MS = 350;
 
 export type PreferredThumbnailVariant = "still" | "animated";
 
@@ -93,7 +101,7 @@ function appPath(path: string, basePath: string): string {
   return normalizedBasePath ? `${normalizedBasePath}${path}` : path;
 }
 
-function canUseDefaultSocialImage(
+function canUseSocialImage(
   recording: ClipsShareMetaRecording | null,
 ): recording is ClipsShareMetaRecording & {
   id: string;
@@ -130,9 +138,19 @@ export function resolveClipsSocialImageUrl(options: {
     return absoluteUrl(storedImage, origin);
   }
 
-  if (!canUseDefaultSocialImage(recording)) return undefined;
+  if (!canUseSocialImage(recording)) return undefined;
+  if (
+    !origin ||
+    recording.isLoomEmbedBacked === true ||
+    isLoomEmbedBackedRecording(recording)
+  ) {
+    return AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE;
+  }
 
-  return AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE;
+  return buildAgentApiUrls(recording.id, {
+    origin,
+    basePath,
+  }).frameUrl(SOCIAL_FRAME_AT_MS);
 }
 
 export function buildClipsShareMeta(options: {

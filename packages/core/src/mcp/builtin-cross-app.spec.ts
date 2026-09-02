@@ -369,10 +369,13 @@ describe("list_apps — reports the live request origin for the current app", ()
 });
 
 describe("ask_app — honest routing metadata", () => {
-  it("describes ask_app as the default path for agent work", () => {
+  it("describes direct tools as preferred and ask_app as the fallback", () => {
     const tools = getBuiltinCrossAppTools(baseConfig({ appId: "mail" }));
     expect(tools.ask_app.tool.description).toMatch(
-      /Use this first for natural-language investigation, diagnosis, multi-step work, and changes/i,
+      /Prefer host page WebMCP or cataloged direct action tools for known, bounded current-app work/i,
+    );
+    expect(tools.ask_app.tool.description).toMatch(
+      /when direct tools are unavailable or the task needs the app agent's interpretation/i,
     );
     expect(tools.ask_app.tool.description).toMatch(
       /full skills, instructions, tools, and context/i,

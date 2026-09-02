@@ -62,13 +62,13 @@ export default defineAction({
         .min(1)
         .optional()
         .describe(
-          "Opaque sourceKey returned by list-google-calendars whose Agent Native visibility should change",
+          "Opaque sourceKey returned by list-google-calendars whose Agent-Native visibility should change",
         ),
       googleCalendarVisible: z
         .boolean()
         .optional()
         .describe(
-          "Whether the Google calendar source should appear in Agent Native; does not change Google Calendar selection",
+          "Whether the Google calendar source should appear in Agent-Native; does not change Google Calendar selection",
         ),
       hideWeekends: z
         .boolean()
