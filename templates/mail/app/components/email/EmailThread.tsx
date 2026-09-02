@@ -2238,59 +2238,75 @@ function PlainTextBody({
       );
     }
     const q = searchTerm.toLowerCase();
-    const renderSearchText = (segment: string, offset: number) => {
-      const lower = segment.toLowerCase();
+    const lower = text.toLowerCase();
+    const searchMatches: Array<{ start: number; end: number; index: number }> =
+      [];
+    let matchStart = lower.indexOf(q);
+    while (matchStart !== -1) {
+      searchMatches.push({
+        start: matchStart,
+        end: matchStart + searchTerm.length,
+        index: globalMatchOffset + searchMatches.length,
+      });
+      matchStart = lower.indexOf(q, matchStart + searchTerm.length);
+    }
+    const renderedMatchIds = new Set<number>();
+    const renderSearchText = (segment: string, segmentStart: number) => {
+      const segmentEnd = segmentStart + segment.length;
+      const matches = searchMatches.filter(
+        (match) => match.start < segmentEnd && match.end > segmentStart,
+      );
+      if (matches.length === 0) return [segment];
+
       const nodes: React.ReactNode[] = [];
-      let matchCount = offset;
-      let idx = 0;
-      let pos = lower.indexOf(q);
-      while (pos !== -1) {
-        if (pos > idx) nodes.push(segment.slice(idx, pos));
-        const isActive = matchCount === activeLocalIdx;
-        nodes.push(
-          <mark
-            key={`${pos}-${matchCount}`}
-            data-search={matchCount}
-            className={
-              isActive
-                ? "bg-amber-400 text-foreground rounded-[2px]"
-                : "bg-yellow-200/25 text-inherit rounded-[2px]"
-            }
-          >
-            {segment.slice(pos, pos + searchTerm.length)}
-          </mark>,
-        );
-        matchCount++;
-        idx = pos + searchTerm.length;
-        pos = lower.indexOf(q, idx);
+      let cursor = 0;
+      for (const match of matches) {
+        const start = Math.max(0, match.start - segmentStart);
+        const end = Math.min(segment.length, match.end - segmentStart);
+        if (start > cursor) nodes.push(segment.slice(cursor, start));
+        if (end > start) {
+          const isFirstFragment = !renderedMatchIds.has(match.index);
+          renderedMatchIds.add(match.index);
+          nodes.push(
+            <mark
+              key={`${segmentStart}-${match.index}-${start}`}
+              data-search={isFirstFragment ? match.index : undefined}
+              className={
+                match.index === activeLocalIdx
+                  ? "bg-amber-400 text-foreground rounded-[2px]"
+                  : "bg-yellow-200/25 text-inherit rounded-[2px]"
+              }
+            >
+              {segment.slice(start, end)}
+            </mark>,
+          );
+        }
+        cursor = Math.max(cursor, end);
       }
-      if (idx < segment.length) nodes.push(segment.slice(idx));
-      return {
-        nodes: nodes.length > 0 ? nodes : [segment],
-        count: matchCount - offset,
-      };
+      if (cursor < segment.length) nodes.push(segment.slice(cursor));
+      return nodes;
     };
 
     const ranges = findPlainTextLinkRanges(text);
     if (ranges.length === 0) {
-      return renderSearchText(text || "\u00a0", globalMatchOffset).nodes;
+      return renderSearchText(text || "\u00a0", 0);
     }
 
     const nodes: React.ReactNode[] = [];
     let cursor = 0;
-    let matchOffset = globalMatchOffset;
     ranges.forEach((range, rangeIndex) => {
       if (range.start > cursor) {
-        const rendered = renderSearchText(
-          text.slice(cursor, range.start),
-          matchOffset,
+        nodes.push(
+          ...renderSearchText(text.slice(cursor, range.start), cursor),
         );
-        nodes.push(...rendered.nodes);
-        matchOffset += rendered.count;
       }
 
-      const renderedUrl = renderSearchText(range.url, matchOffset);
-      matchOffset += renderedUrl.count;
+      const isAngleBracketUrl = text[range.start] === "<";
+      const linkStart = isAngleBracketUrl ? range.start + 1 : range.start;
+      const linkEnd = linkStart + range.url.length;
+      const consumedEnd = isAngleBracketUrl
+        ? range.end
+        : linkEnd + range.trailing.length;
       nodes.push(
         <a
           key={`url-${range.start}-${rangeIndex}`}
@@ -2298,19 +2314,17 @@ function PlainTextBody({
           target="_blank"
           rel="noopener noreferrer"
         >
-          {renderedUrl.nodes}
+          {renderSearchText(range.url, linkStart)}
         </a>,
       );
       if (range.trailing) {
-        const renderedTrailing = renderSearchText(range.trailing, matchOffset);
-        nodes.push(...renderedTrailing.nodes);
-        matchOffset += renderedTrailing.count;
+        nodes.push(...renderSearchText(range.trailing, linkEnd));
       }
-      cursor = range.end;
+      cursor = consumedEnd;
     });
 
     if (cursor < text.length) {
-      nodes.push(...renderSearchText(text.slice(cursor), matchOffset).nodes);
+      nodes.push(...renderSearchText(text.slice(cursor), cursor));
     }
     return nodes;
   };

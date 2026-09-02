@@ -957,7 +957,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       if (
         !next ||
         view !== "inbox" ||
-        (!activeLabel && activeInboxTab !== OTHER_INBOX_TAB_PARAM)
+        (!isInboxScopedAppLabel(activeLabel) &&
+          activeInboxTab !== OTHER_INBOX_TAB_PARAM)
       ) {
         return;
       }
