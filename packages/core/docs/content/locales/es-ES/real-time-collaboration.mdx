@@ -649,12 +649,12 @@ funcionalidad. En un despliegue que no la haya definido no ocurre nada de esto.
 El despliegue también debe cumplir cuatro condiciones, todas ellas habituales en
 una aplicación de producción normal:
 
-| Requisito | Por qué | Cómo comprobarlo |
-| --------- | ------- | ---------------- |
-| **Postgres en un host accesible públicamente** | La puerta de enlace marca la base de datos desde su propia red. PGlite, SQLite, `localhost`, `*.internal` y las direcciones IP desnudas se rechazan antes de que la cadena de conexión salga siquiera de tu máquina. | `DATABASE_URL` apunta a un Postgres gestionado como Neon |
-| **`BUILDER_PRIVATE_KEY` definida como variable de entorno del DESPLIEGUE** | Autentica el registro y decide qué organización de Builder es propietaria del canal. | Consulta la nota siguiente: este es el paso que más se pasa por alto |
-| **Un despliegue de producción** | Las vistas previas de despliegue conservan la sincronización local, de modo que una credencial de rama desechable nunca sale de la máquina y un repositorio activo no genera un canal por cada pull request. | `CONTEXT=production` / `BRANCH=production`, o `VERCEL_ENV=production` |
-| **La plataforma identifica el despliegue** | El registro se indexa por el origen público de la aplicación, así que un proceso que no es realmente el despliegue no debe reclamarlo. | Netlify, Vercel, AWS Lambda, Cloud Run, Render y Cloudflare Pages se identifican solos. En un contenedor o máquina virtual simple, define `AGENT_NATIVE_REALTIME_APP_URL` con el origen propio del despliegue |
+| Requisito                                                                  | Por qué                                                                                                                                                                                                              | Cómo comprobarlo                                                                                                                                                                                              |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Postgres en un host accesible públicamente**                             | La puerta de enlace marca la base de datos desde su propia red. PGlite, SQLite, `localhost`, `*.internal` y las direcciones IP desnudas se rechazan antes de que la cadena de conexión salga siquiera de tu máquina. | `DATABASE_URL` apunta a un Postgres gestionado como Neon                                                                                                                                                      |
+| **`BUILDER_PRIVATE_KEY` definida como variable de entorno del DESPLIEGUE** | Autentica el registro y decide qué organización de Builder es propietaria del canal.                                                                                                                                 | Consulta la nota siguiente: este es el paso que más se pasa por alto                                                                                                                                          |
+| **Un despliegue de producción**                                            | Las vistas previas de despliegue conservan la sincronización local, de modo que una credencial de rama desechable nunca sale de la máquina y un repositorio activo no genera un canal por cada pull request.         | `CONTEXT=production` / `BRANCH=production`, o `VERCEL_ENV=production`                                                                                                                                         |
+| **La plataforma identifica el despliegue**                                 | El registro se indexa por el origen público de la aplicación, así que un proceso que no es realmente el despliegue no debe reclamarlo.                                                                               | Netlify, Vercel, AWS Lambda, Cloud Run, Render y Cloudflare Pages se identifican solos. En un contenedor o máquina virtual simple, define `AGENT_NATIVE_REALTIME_APP_URL` con el origen propio del despliegue |
 
 <Callout tone="warning">
 
@@ -699,12 +699,12 @@ curl -s https://your-app.example.com/_agent-native/health | jq .realtime
 }
 ```
 
-| Campo | Significado |
-| ----- | ----------- |
-| `transport` | `"hosted"` en cuanto la variable de entorno está definida, `"local"` en caso contrario. Si aquí pone `local`, la variable no llegó al despliegue en ejecución. |
-| `registered` | Se resolvió un canal. `false` significa que la aplicación sigue con su propio `/_agent-native/poll`. |
+| Campo         | Significado                                                                                                                                                                                                                         |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transport`   | `"hosted"` en cuanto la variable de entorno está definida, `"local"` en caso contrario. Si aquí pone `local`, la variable no llegó al despliegue en ejecución.                                                                      |
+| `registered`  | Se resolvió un canal. `false` significa que la aplicación sigue con su propio `/_agent-native/poll`.                                                                                                                                |
 | `channelHash` | Los primeros 8 caracteres de un SHA-256 del identificador de canal: suficiente para distinguir dos despliegues o confirmar una rotación, inútil para conectarse. El endpoint es público, así que el identificador nunca se publica. |
-| `unavailable` | Presente solo cuando la resolución FALLÓ, a diferencia de resolverse como «sin canal». Una puerta de enlace inaccesible y una aplicación sin registrar son problemas distintos. |
+| `unavailable` | Presente solo cuando la resolución FALLÓ, a diferencia de resolverse como «sin canal». Una puerta de enlace inaccesible y una aplicación sin registrar son problemas distintos.                                                     |
 
 Cuando `registered` es `false`, los registros del despliegue contienen una línea
 `[realtime]` con el motivo: una credencial rechazada, una URL de base de datos
@@ -724,7 +724,7 @@ hay ninguna otra vía que comparta esa credencial.
 registrarse puede también volver a registrar un origen existente, lo que
 devuelve el secreto de firma de ese canal y reorienta su base de datos. Poseer
 ese secreto permite emitir un token de suscripción para cualquier usuario de la
-aplicación, lo que expone su *flujo de cambios* —qué registros cambiaron y
+aplicación, lo que expone su _flujo de cambios_ —qué registros cambiaron y
 cuándo— pero no los registros en sí, ya que los clientes releen el contenido
 desde la aplicación con su propia sesión. Trata una credencial de registro como
 válida para toda la organización.

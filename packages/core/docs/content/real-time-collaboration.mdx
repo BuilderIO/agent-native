@@ -639,12 +639,12 @@ Nothing here happens on a deployment that has not set it.
 The deployment must also already satisfy four things, all of which a normal
 production app does:
 
-| Requirement | Why | How to check |
-| ----------- | --- | ------------ |
-| **Postgres on a publicly reachable host** | The gateway dials the database from its own network. PGlite, SQLite, `localhost`, `*.internal` and bare IP addresses are refused before the connection string ever leaves your machine. | `DATABASE_URL` points at a managed Postgres such as Neon |
-| **`BUILDER_PRIVATE_KEY` set as a DEPLOY environment variable** | This authenticates the registration and decides which Builder organization owns the channel. | See the note below — this is the step people miss |
-| **A production deploy** | Deploy previews keep local sync, so a throwaway branch credential never leaves the machine and a busy repo does not mint one channel per pull request. | `CONTEXT=production` / `BRANCH=production`, or `VERCEL_ENV=production` |
-| **The platform identifies the deployment** | Registration is keyed on the app's public origin, so a process that is not actually the deployment must not claim it. | Netlify, Vercel, AWS Lambda, Cloud Run, Render and Cloudflare Pages all mark themselves. On a bare container or VM, set `AGENT_NATIVE_REALTIME_APP_URL` to the deployment's own origin |
+| Requirement                                                    | Why                                                                                                                                                                                     | How to check                                                                                                                                                                           |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Postgres on a publicly reachable host**                      | The gateway dials the database from its own network. PGlite, SQLite, `localhost`, `*.internal` and bare IP addresses are refused before the connection string ever leaves your machine. | `DATABASE_URL` points at a managed Postgres such as Neon                                                                                                                               |
+| **`BUILDER_PRIVATE_KEY` set as a DEPLOY environment variable** | This authenticates the registration and decides which Builder organization owns the channel.                                                                                            | See the note below — this is the step people miss                                                                                                                                      |
+| **A production deploy**                                        | Deploy previews keep local sync, so a throwaway branch credential never leaves the machine and a busy repo does not mint one channel per pull request.                                  | `CONTEXT=production` / `BRANCH=production`, or `VERCEL_ENV=production`                                                                                                                 |
+| **The platform identifies the deployment**                     | Registration is keyed on the app's public origin, so a process that is not actually the deployment must not claim it.                                                                   | Netlify, Vercel, AWS Lambda, Cloud Run, Render and Cloudflare Pages all mark themselves. On a bare container or VM, set `AGENT_NATIVE_REALTIME_APP_URL` to the deployment's own origin |
 
 <Callout tone="warning">
 
@@ -687,12 +687,12 @@ curl -s https://your-app.example.com/_agent-native/health | jq .realtime
 }
 ```
 
-| Field | Meaning |
-| ----- | ------- |
-| `transport` | `"hosted"` once the environment variable is set, `"local"` otherwise. If this says `local`, the variable did not reach the running deployment. |
-| `registered` | A channel resolved. `false` means the app is still on its own `/_agent-native/poll`. |
+| Field         | Meaning                                                                                                                                                                                          |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `transport`   | `"hosted"` once the environment variable is set, `"local"` otherwise. If this says `local`, the variable did not reach the running deployment.                                                   |
+| `registered`  | A channel resolved. `false` means the app is still on its own `/_agent-native/poll`.                                                                                                             |
 | `channelHash` | First 8 characters of a SHA-256 of the channel id — enough to tell two deploys apart or confirm a rotation, useless for connecting. The endpoint is public, so the id itself is never published. |
-| `unavailable` | Present only when resolution FAILED, as opposed to resolving to "no channel". An unreachable gateway and an app that is not registered are different problems. |
+| `unavailable` | Present only when resolution FAILED, as opposed to resolving to "no channel". An unreachable gateway and an app that is not registered are different problems.                                   |
 
 When `registered` is `false`, the deployment's logs carry a `[realtime]` line
 naming the reason — a refused credential, an unparseable database URL, a
@@ -711,7 +711,7 @@ credential.
 **The organization is the trust boundary.** Any credential that can register
 can also re-register an existing origin, which returns that channel's signing
 secret and repoints its database. Holding that secret allows minting a
-subscribe token for any user in the app, which exposes their *change stream* —
+subscribe token for any user in the app, which exposes their _change stream_ —
 which records changed, and when — but not the records themselves, since
 clients re-read content from the app with their own session. Treat a
 registration credential as organization-wide.
