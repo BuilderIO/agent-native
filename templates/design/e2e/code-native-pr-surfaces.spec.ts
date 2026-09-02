@@ -70,7 +70,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 async function selectedElementBackgroundImage(page: Page): Promise<string> {
-  return designFrame(page)
+  return designFrame(page, fileId)
     .locator('[data-agent-native-node-id="e2e-alpha-button"]')
     .evaluate((el) => window.getComputedStyle(el).backgroundImage);
 }
@@ -96,13 +96,13 @@ async function waitForAction(
 }
 
 async function selectedComponentVariant(page: Page): Promise<string | null> {
-  return designFrame(page)
+  return designFrame(page, fileId)
     .locator('[data-agent-native-node-id="e2e-component-button"]')
     .getAttribute("data-agent-native-prop-variant");
 }
 
 async function tokenSampleBackground(page: Page): Promise<string> {
-  return designFrame(page)
+  return designFrame(page, fileId)
     .locator('[data-agent-native-node-id="e2e-token-sample"]')
     .evaluate((el) => window.getComputedStyle(el).backgroundColor);
 }
@@ -221,7 +221,7 @@ test("Review panel runs an audit and applies an inline a11y fix", async ({
 
   await expect
     .poll(() =>
-      designFrame(page)
+      designFrame(page, fileId)
         .locator('[data-agent-native-node-id="e2e-audit-focus-button"]')
         .getAttribute("class"),
     )
@@ -230,7 +230,7 @@ test("Review panel runs an audit and applies an inline a11y fix", async ({
   await gotoEditor(page, designId);
   await expect
     .poll(() =>
-      designFrame(page)
+      designFrame(page, fileId)
         .locator('[data-agent-native-node-id="e2e-audit-focus-button"]')
         .getAttribute("class"),
     )
@@ -337,12 +337,14 @@ test.fixme("Motion dock autosaves track edits to CSS and reopens them", async ({
   await gotoEditor(page, designId);
   await expect
     .poll(() =>
-      designFrame(page).locator("style[data-agent-native-motion]").count(),
+      designFrame(page, fileId)
+        .locator("style[data-agent-native-motion]")
+        .count(),
     )
     .toBe(1);
   await expect
     .poll(() =>
-      designFrame(page)
+      designFrame(page, fileId)
         .locator("style[data-agent-native-motion]")
         .first()
         .textContent(),
@@ -366,7 +368,7 @@ test.fixme("Motion dock autosaves track edits to CSS and reopens them", async ({
   await expect
     .poll(
       () =>
-        designFrame(page)
+        designFrame(page, fileId)
           .locator('[data-agent-native-node-id="e2e-alpha-button"]')
           .evaluate((el) =>
             Number.parseFloat(window.getComputedStyle(el).opacity),
@@ -398,7 +400,9 @@ test.fixme("Motion dock autosaves track edits to CSS and reopens them", async ({
   await gotoEditor(page, designId);
   await expect
     .poll(() =>
-      designFrame(page).locator("style[data-agent-native-motion]").count(),
+      designFrame(page, fileId)
+        .locator("style[data-agent-native-motion]")
+        .count(),
     )
     .toBe(1);
 });

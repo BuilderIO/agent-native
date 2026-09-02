@@ -138,6 +138,19 @@ function toolButton(page: Page, name: string): Locator {
   return page.locator(`button[aria-label="${name}"]`).first();
 }
 
+/** Frame is the primary tool and Screen lives in its dropdown; the trigger's
+ *  label follows the active mode, so match either. */
+async function pickFrameMode(page: Page, mode: "Frame" | "Screen") {
+  await page
+    .locator(
+      '[data-design-bottom-toolbar] button[aria-label="Frame options"],' +
+        ' [data-design-bottom-toolbar] button[aria-label="Screen options"]',
+    )
+    .first()
+    .click();
+  await page.getByRole("menuitem").filter({ hasText: mode }).first().click();
+}
+
 function selectedLayerRow(page: Page): Locator {
   return page.locator('[role="treeitem"][aria-selected="true"]').first();
 }
@@ -2648,8 +2661,7 @@ test("frame insertion inside a screen creates a nested frame", async ({
   await restoreHome(page);
 });
 
-// Draws in empty board canvas but no screen file appears (2 instead of 3).
-test.fixme("frame drawn left of the first screen creates a new screen", async ({
+test("frame drawn left of the first screen creates a new screen", async ({
   page,
 }) => {
   await postAction(page.request, "create-file", {
@@ -2664,8 +2676,8 @@ test.fixme("frame drawn left of the first screen creates a new screen", async ({
   const filesBeforeFrame = await designFiles(page);
   const screenCountBeforeFrame = htmlScreenFiles(filesBeforeFrame).length;
 
-  await toolButton(page, "Frame").click();
-  await expect(toolButton(page, "Frame")).toHaveAttribute(
+  await pickFrameMode(page, "Screen");
+  await expect(toolButton(page, "Screen")).toHaveAttribute(
     "aria-pressed",
     "true",
   );

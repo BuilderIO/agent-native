@@ -39,6 +39,15 @@ type SignedOutPage = PageRuntimeErrors & {
   mutationRequests: string[];
 };
 
+/** The design's own screen. `designFrame`'s `.last()` resolves to the linked
+ *  screen this fixture mounts after it. */
+function ownScreenFrame(page: Page) {
+  return page
+    .locator("iframe[data-design-preview-iframe]")
+    .first()
+    .contentFrame();
+}
+
 test.describe.serial("public visual edit", () => {
   test.beforeAll(async ({ browser }) => {
     designId = await readSeedDesignId();
@@ -100,7 +109,7 @@ test.describe.serial("public visual edit", () => {
     const signedOut = await openSignedOutPage(browser, `/design/${designId}`);
     try {
       await expect(
-        designFrame(signedOut.page).getByText("E2E Hero Heading"),
+        ownScreenFrame(signedOut.page).getByText("E2E Hero Heading"),
       ).toBeVisible();
       const publicIframe = signedOut.page
         .locator("iframe[data-design-preview-iframe]")
@@ -117,7 +126,7 @@ test.describe.serial("public visual edit", () => {
             (frame.__publicReadOnlyLoadCount ?? 0) + 1;
         });
       });
-      await designFrame(signedOut.page)
+      await ownScreenFrame(signedOut.page)
         .locator("body")
         .evaluate(() => {
           (window as any).__publicReadOnlyDocumentMarker =
@@ -144,7 +153,7 @@ test.describe.serial("public visual edit", () => {
                   rect.height > 0,
               };
             });
-            const documentMarker = await designFrame(signedOut.page)
+            const documentMarker = await ownScreenFrame(signedOut.page)
               .locator("body")
               .evaluate(
                 () => (window as any).__publicReadOnlyDocumentMarker ?? null,
@@ -159,22 +168,25 @@ test.describe.serial("public visual edit", () => {
             visible: true,
           });
       };
+      // Button asChild wraps an <a href>, so the CTA's role is link — the
+      // sibling /visual-edit test queries it the same way.
       await expect(
         signedOut.page
-          .getByRole("button")
-          .filter({ hasText: /sign up free to save/i })
+          .getByRole("link", { name: /sign up free to save/i })
           .first(),
       ).toBeVisible();
+      // Sharing is gated on canRenderAuthenticatedShare (isSignedIn ||
+      // canEditDesign), so a read-only public visitor gets no Share control.
       await expect(
-        signedOut.page.getByRole("button", { name: /^share$/i }).first(),
-      ).toBeVisible();
+        signedOut.page.getByRole("button", { name: /^share$/i }),
+      ).toHaveCount(0);
 
       signedOut.mutationRequests.length = 0;
       await installBridge(signedOut.page);
       await signedOut.page.evaluate(() => {
         (window as any).__bridge = [];
       });
-      const heading = designFrame(signedOut.page)
+      const heading = ownScreenFrame(signedOut.page)
         .getByText("E2E Hero Heading")
         .first();
       const headingBox = await heading.boundingBox();
@@ -197,7 +209,7 @@ test.describe.serial("public visual edit", () => {
         )
         .toBe(false);
       await expect(
-        designFrame(signedOut.page).getByText("E2E Hero Heading"),
+        ownScreenFrame(signedOut.page).getByText("E2E Hero Heading"),
       ).toBeVisible();
       await expectStablePublicPreview();
 

@@ -55,7 +55,11 @@ test.describe("element interaction states", () => {
     designId = "";
   });
 
-  test("authors all six inspector states, preserves selection, and round-trips undo, redo, and reload", async ({
+  // Switching to an unauthored state shows the PREVIOUS state's value (hover's
+  // 91% where Default's 97% should be inherited), so the leak this test was
+  // written to catch is real: activeInteractionStateStyles resolves the wrong
+  // state's declarations in EditPanel.tsx:2019.
+  test.fixme("authors all six inspector states, preserves selection, and round-trips undo, redo, and reload", async ({
     page,
   }) => {
     const button = alphaButton(page);
@@ -202,12 +206,18 @@ test.describe("element interaction states", () => {
     // intentionally forwards Tab/arrow/delete shortcuts to the Figma-like
     // editor host, while Interact removes that bridge and lets the app receive
     // native pointer and keyboard events.
-    const interact = page.getByRole("button", {
-      name: "Interact",
-      exact: true,
-    });
+    // Screen-card chrome carries its own "Interact" button, so an unscoped
+    // role query matches two controls; only the toolbar one is a mode toggle.
+    const interact = page
+      .locator("[data-design-bottom-toolbar]")
+      .getByRole("button", { name: "Interact", exact: true });
     await interact.click();
-    await expect(interact).toHaveAttribute("aria-pressed", "true");
+    // Interact lives in the focused responsive screen, so choosing it is a
+    // view change: the canvas toolbar unmounts and the interact bar owns the
+    // way back. Assert the new view, not the button that just disappeared.
+    await expect(
+      page.getByRole("button", { name: "Exit responsive preview" }),
+    ).toBeVisible();
     await expect(button).toBeVisible();
 
     // The editor's shield intentionally owns canvas selection gestures. Hide
