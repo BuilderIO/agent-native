@@ -233,10 +233,10 @@ export default function ClipsTemplate() {
         title={
           <>
             <span className="text-[var(--fg-secondary)] lg:whitespace-nowrap">
-              Screen recordings your AI{" "}
+              Screen recordings your{" "}
             </span>
             <span className="text-[var(--fg)] lg:block">
-              can actually watch
+              AI can actually watch
             </span>
           </>
         }
