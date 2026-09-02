@@ -220,4 +220,18 @@ describe("snapshotFactoryAutomations", () => {
       },
     ]);
   });
+
+  it("fails when a listed automation cannot be read", async () => {
+    const path = "jobs/factories/support-triage/github.md";
+    resourceListMock.mockResolvedValue([{ path }]);
+    resourceGetByPathMock.mockResolvedValue(null);
+
+    await expect(
+      snapshotFactoryAutomations(
+        "owner@example.com",
+        "org-1",
+        "support-triage",
+      ),
+    ).rejects.toThrow("unreadable and cannot be snapshotted");
+  });
 });

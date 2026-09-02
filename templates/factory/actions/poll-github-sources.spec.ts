@@ -107,6 +107,24 @@ describe("selectParkedRowsForRecheck", () => {
   });
 });
 
+describe("mapWithConcurrency", () => {
+  it("never runs more workers than the limit", async () => {
+    const { mapWithConcurrency } = await import("./poll-github-sources.js");
+    let active = 0;
+    let peak = 0;
+    const seen: number[] = [];
+    await mapWithConcurrency([1, 2, 3, 4, 5], 2, async (value) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      seen.push(value);
+      await Promise.resolve();
+      active -= 1;
+    });
+    expect(peak).toBeLessThanOrEqual(2);
+    expect(seen.sort((left, right) => left - right)).toEqual([1, 2, 3, 4, 5]);
+  });
+});
+
 describe("poll-github-sources action", () => {
   it("gates GitHub polling to githubPolling automations", async () => {
     const { default: action } = await import("./poll-github-sources.js");

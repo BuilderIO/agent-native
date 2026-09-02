@@ -155,6 +155,23 @@ export function hasHumanChangesRequested(
   );
 }
 
+export function countHumanReviewBodies(
+  reviews: readonly {
+    author: string;
+    state: string;
+    body?: string | null;
+  }[],
+  botAuthors: readonly string[] = DEFAULT_BABYSIT_BOT_AUTHORS,
+): number {
+  return reviews.filter(
+    (review) =>
+      review.state !== "pending" &&
+      review.state !== "dismissed" &&
+      Boolean(review.body?.trim()) &&
+      !isBabysitBotAuthor(review.author, botAuthors),
+  ).length;
+}
+
 /** New top-level human review work or a real conflict. Author replies, bot replies, and truncated totals do not reopen. */
 export function shouldReopenParkedBabysit(input: {
   parked: boolean;
@@ -165,10 +182,19 @@ export function shouldReopenParkedBabysit(input: {
   storedCommentsTruncated: boolean;
   storedHumanReviewCommentCount: number | null | undefined;
   nextHumanReviewCommentCount: number | null | undefined;
+  storedHumanReviewBodyCount?: number | null | undefined;
+  nextHumanReviewBodyCount?: number | null | undefined;
 }): boolean {
   if (!input.parked) return false;
   if (input.nextMergeConflict && !input.storedMergeConflict) return true;
   if (input.nextChangesRequested && !input.storedChangesRequested) return true;
+  if (
+    typeof input.nextHumanReviewBodyCount === "number" &&
+    typeof input.storedHumanReviewBodyCount === "number" &&
+    input.nextHumanReviewBodyCount > input.storedHumanReviewBodyCount
+  ) {
+    return true;
+  }
   if (input.storedCommentsTruncated) return false;
   if (
     typeof input.nextHumanReviewCommentCount === "number" &&

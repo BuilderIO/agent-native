@@ -683,7 +683,11 @@ export async function snapshotFactoryAutomations(
   const snapshots: FactoryAutomationSnapshot[] = [];
   for (const path of paths) {
     const resource = await resourceGetByPath(owner, path);
-    if (!resource) continue;
+    if (!resource) {
+      throw new Error(
+        `Factory automation ${path} is unreadable and cannot be snapshotted.`,
+      );
+    }
     snapshots.push({ path, content: resource.content });
   }
   return snapshots;

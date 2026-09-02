@@ -11,6 +11,7 @@ import {
   reconcileBabysitState,
   shouldPostBabysitComment,
   shouldRecordBabysitAudit,
+  countHumanReviewBodies,
   countHumanReviewComments,
   hasHumanChangesRequested,
   shouldReopenParkedBabysit,
@@ -459,10 +460,32 @@ describe("babysit work policy", () => {
       }),
     ).toBe(false);
     expect(
+      shouldReopenParkedBabysit({
+        parked: true,
+        storedMergeConflict: false,
+        nextMergeConflict: false,
+        storedChangesRequested: false,
+        nextChangesRequested: false,
+        storedCommentsTruncated: true,
+        storedHumanReviewCommentCount: 1,
+        nextHumanReviewCommentCount: 1,
+        storedHumanReviewBodyCount: 0,
+        nextHumanReviewBodyCount: 1,
+      }),
+    ).toBe(true);
+    expect(
       countHumanReviewComments([
         comment({ id: "1", author: "reviewer" }),
         comment({ id: "2", author: "builderio-bot" }),
         comment({ id: "3", author: "author", inReplyToId: "1" }),
+      ]),
+    ).toBe(1);
+    expect(
+      countHumanReviewBodies([
+        { author: "reviewer", state: "commented", body: "please fix the API" },
+        { author: "builderio-bot", state: "commented", body: "looking" },
+        { author: "reviewer", state: "pending", body: "draft" },
+        { author: "reviewer", state: "commented", body: "   " },
       ]),
     ).toBe(1);
     expect(

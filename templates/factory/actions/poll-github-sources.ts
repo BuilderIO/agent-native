@@ -33,9 +33,11 @@ import {
   metadataNumber,
   metadataString,
   parseTriageMetadata,
+  type TriageMetadata,
 } from "../server/triage/metadata.js";
 import {
   babysitLeavesReviewWindow,
+  countHumanReviewBodies,
   countHumanReviewComments,
   hasHumanChangesRequested,
   hasMergeConflict,
@@ -57,6 +59,71 @@ type NewlyObservedSource = {
 };
 
 export const PARKED_PR_RECHECK_EXTRA_LIMIT = 20;
+export const PARKED_PR_RECHECK_CONCURRENCY = 4;
+
+type ParkedRecheck = {
+  humanReviewCommentCount: number;
+  humanReviewBodyCount: number;
+  commentsTruncated: boolean;
+  changesRequested: boolean;
+  mergeConflict: boolean;
+};
+
+export async function mapWithConcurrency<T>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  const limit = Math.max(1, Math.min(concurrency, items.length || 1));
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (next < items.length) {
+        const current = next;
+        next += 1;
+        await worker(items[current] as T);
+      }
+    }),
+  );
+}
+
+function parkedRecheckEvidencePatch(recheck: ParkedRecheck) {
+  return {
+    prBabysitHumanReviewCommentCount: recheck.humanReviewCommentCount,
+    prBabysitHumanReviewBodyCount: recheck.humanReviewBodyCount,
+    prBabysitCommentsTruncated: recheck.commentsTruncated,
+    prBabysitChangesRequested: recheck.changesRequested,
+    prBabysitMergeConflict: recheck.mergeConflict,
+  };
+}
+
+function shouldReopenFromRecheck(
+  existingMetadata: TriageMetadata,
+  recheck: ParkedRecheck | undefined,
+  parked: boolean,
+): boolean {
+  return shouldReopenParkedBabysit({
+    parked,
+    storedMergeConflict:
+      metadataBoolean(existingMetadata, "prBabysitMergeConflict") === true,
+    nextMergeConflict: recheck?.mergeConflict === true,
+    storedChangesRequested:
+      metadataBoolean(existingMetadata, "prBabysitChangesRequested") === true,
+    nextChangesRequested: recheck?.changesRequested === true,
+    storedCommentsTruncated:
+      metadataBoolean(existingMetadata, "prBabysitCommentsTruncated") === true,
+    storedHumanReviewCommentCount: metadataNumber(
+      existingMetadata,
+      "prBabysitHumanReviewCommentCount",
+    ),
+    nextHumanReviewCommentCount: recheck?.humanReviewCommentCount,
+    storedHumanReviewBodyCount: metadataNumber(
+      existingMetadata,
+      "prBabysitHumanReviewBodyCount",
+    ),
+    nextHumanReviewBodyCount: recheck?.humanReviewBodyCount,
+  });
+}
 
 export function selectParkedRowsForRecheck<
   T extends {
@@ -155,15 +222,7 @@ export default defineAction({
         ? client.listOpenPullRequests(repository, 50)
         : Promise.resolve([]),
     ]);
-    const parkedRechecks = new Map<
-      number,
-      {
-        humanReviewCommentCount: number;
-        commentsTruncated: boolean;
-        changesRequested: boolean;
-        mergeConflict: boolean;
-      }
-    >();
+    const parkedRechecks = new Map<number, ParkedRecheck>();
     const listedOpenPrNumbers = new Set(
       pullRequests.map((pullRequest) => pullRequest.number),
     );
@@ -201,8 +260,10 @@ export default defineAction({
       configuredRepository: repositoryName,
       listedOpenPrNumbers,
     });
-    await Promise.all(
-      parkedRecheckRows.map(async (row) => {
+    await mapWithConcurrency(
+      parkedRecheckRows,
+      PARKED_PR_RECHECK_CONCURRENCY,
+      async (row) => {
         const number = row.pullRequestNumber;
         if (typeof number !== "number") return;
         try {
@@ -222,6 +283,7 @@ export default defineAction({
             humanReviewCommentCount: countHumanReviewComments(
               evidence.comments,
             ),
+            humanReviewBodyCount: countHumanReviewBodies(evidence.reviews),
             commentsTruncated: evidence.commentsTruncated,
             changesRequested: hasHumanChangesRequested(evidence.reviews),
             mergeConflict: hasMergeConflict({
@@ -233,7 +295,7 @@ export default defineAction({
           if (isAbsentParkedPullRequest(error)) return;
           throw error;
         }
-      }),
+      },
     );
     const now = new Date().toISOString();
     let issueCount = 0;
@@ -379,28 +441,19 @@ export default defineAction({
           "prBabysitState",
         );
         const parkedRecheck = parkedRechecks.get(pullRequest.number);
-        const reopenParked = shouldReopenParkedBabysit({
-          parked: babysitLeavesReviewWindow(existingBabysitState),
-          storedMergeConflict:
-            metadataBoolean(existingMetadata, "prBabysitMergeConflict") ===
-            true,
-          nextMergeConflict: parkedRecheck?.mergeConflict === true,
-          storedChangesRequested:
-            metadataBoolean(existingMetadata, "prBabysitChangesRequested") ===
-            true,
-          nextChangesRequested: parkedRecheck?.changesRequested === true,
-          storedCommentsTruncated:
-            metadataBoolean(existingMetadata, "prBabysitCommentsTruncated") ===
-            true,
-          storedHumanReviewCommentCount: metadataNumber(
-            existingMetadata,
-            "prBabysitHumanReviewCommentCount",
-          ),
-          nextHumanReviewCommentCount: parkedRecheck?.humanReviewCommentCount,
-        });
-        const metadataWithBabysit = reopenParked
-          ? mergeTriageMetadata(metadata, { prBabysitState: "queued" })
-          : metadata;
+        const reopenParked = shouldReopenFromRecheck(
+          existingMetadata,
+          parkedRecheck,
+          babysitLeavesReviewWindow(existingBabysitState),
+        );
+        const metadataWithBabysit = parkedRecheck
+          ? mergeTriageMetadata(metadata, {
+              ...parkedRecheckEvidencePatch(parkedRecheck),
+              ...(reopenParked ? { prBabysitState: "queued" } : {}),
+            })
+          : reopenParked
+            ? mergeTriageMetadata(metadata, { prBabysitState: "queued" })
+            : metadata;
         const status = statusAfterPullRequestPoll({
           existingStatus: existing?.status,
           existingAuthor: metadataString(existingMetadata, "author"),
@@ -476,37 +529,26 @@ export default defineAction({
           continue;
         const existingMetadata = parseTriageMetadata(row.metadataJson);
         const parkedRecheck = parkedRechecks.get(number);
-        const reopenParked = shouldReopenParkedBabysit({
-          parked: true,
-          storedMergeConflict:
-            metadataBoolean(existingMetadata, "prBabysitMergeConflict") ===
-            true,
-          nextMergeConflict: parkedRecheck?.mergeConflict === true,
-          storedChangesRequested:
-            metadataBoolean(existingMetadata, "prBabysitChangesRequested") ===
-            true,
-          nextChangesRequested: parkedRecheck?.changesRequested === true,
-          storedCommentsTruncated:
-            metadataBoolean(existingMetadata, "prBabysitCommentsTruncated") ===
-            true,
-          storedHumanReviewCommentCount: metadataNumber(
-            existingMetadata,
-            "prBabysitHumanReviewCommentCount",
-          ),
-          nextHumanReviewCommentCount: parkedRecheck?.humanReviewCommentCount,
-        });
-        if (!reopenParked) continue;
+        if (!parkedRecheck) continue;
+        const reopenParked = shouldReopenFromRecheck(
+          existingMetadata,
+          parkedRecheck,
+          true,
+        );
         const metadataWithBabysit = mergeTriageMetadata(row.metadataJson, {
-          prBabysitState: "queued",
+          ...parkedRecheckEvidencePatch(parkedRecheck),
+          ...(reopenParked ? { prBabysitState: "queued" } : {}),
         });
         await tx
           .update(triageItems)
           .set({
             metadataJson: metadataWithBabysit,
-            updatedAt: now,
-            status: "pr_observed",
+            ...(reopenParked
+              ? { updatedAt: now, status: "pr_observed" as const }
+              : {}),
           })
           .where(and(eq(triageItems.id, row.id), eq(triageItems.orgId, orgId)));
+        if (!reopenParked) continue;
         updated += 1;
         newlyObserved.push({
           itemId: row.id,

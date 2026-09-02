@@ -94,25 +94,46 @@ export async function recordFactoryAuditIfChanged(
     await recordFactoryAudit(context, identity, input, factoryId);
     return;
   }
-  const last = (
-    await getDb()
-      .select({
-        summary: factoryAuditEvents.summary,
-        status: factoryAuditEvents.status,
-      })
-      .from(factoryAuditEvents)
-      .where(
-        and(
-          eq(factoryAuditEvents.itemId, input.itemId),
-          eq(factoryAuditEvents.action, boundedText(input.action, 120)),
-          eq(factoryAuditEvents.kind, input.kind),
-        ),
-      )
-      .orderBy(desc(factoryAuditEvents.createdAt))
-      .limit(1)
-  )[0];
   const status = input.status ?? "success";
   const summary = boundedText(input.summary, MAX_SUMMARY_LENGTH);
-  if (last && last.summary === summary && last.status === status) return;
-  await recordFactoryAudit(context, identity, input, factoryId);
+  const action = boundedText(input.action, 120);
+  await getDb().transaction(async (tx) => {
+    const last = (
+      await tx
+        .select({
+          summary: factoryAuditEvents.summary,
+          status: factoryAuditEvents.status,
+        })
+        .from(factoryAuditEvents)
+        .where(
+          and(
+            eq(factoryAuditEvents.itemId, input.itemId),
+            eq(factoryAuditEvents.action, action),
+            eq(factoryAuditEvents.kind, input.kind),
+          ),
+        )
+        .orderBy(desc(factoryAuditEvents.createdAt))
+        .limit(1)
+    )[0];
+    if (last && last.summary === summary && last.status === status) return;
+    const resolvedFactoryId = factoryId ?? input.factoryId ?? null;
+    await tx.insert(factoryAuditEvents).values({
+      id: randomUUID(),
+      automationRunId: context.runId,
+      automationThreadId: context.threadId ?? null,
+      automationName: context.automation?.triggerName ?? null,
+      factoryId: resolvedFactoryId,
+      itemId: input.itemId ?? null,
+      source: input.source ?? null,
+      sourceUrl: input.sourceUrl ?? null,
+      action,
+      kind: input.kind,
+      status,
+      summary,
+      detailsJson: boundedDetails(input.details),
+      createdAt: new Date().toISOString(),
+      ownerEmail: identity.userEmail,
+      orgId: identity.orgId,
+    });
+  });
 }

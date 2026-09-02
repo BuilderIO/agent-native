@@ -31,6 +31,7 @@ import {
 import {
   babysitFingerprint,
   babysitOutOfScopeClause,
+  countHumanReviewBodies,
   countHumanReviewComments,
   DEFAULT_BABYSIT_BOT_AUTHORS,
   DEFAULT_BABYSIT_PR_COMMENT,
@@ -317,6 +318,7 @@ export default defineAction({
       prBabysitHumanReviewCommentCount: countHumanReviewComments(
         snapshot.comments,
       ),
+      prBabysitHumanReviewBodyCount: countHumanReviewBodies(snapshot.reviews),
       prBabysitCommentsTruncated: snapshot.commentsTruncated === true,
       prBabysitChangesRequested: hasHumanChangesRequested(snapshot.reviews),
       prBabysitMergeConflict: mergeConflict,
