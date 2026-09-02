@@ -151,6 +151,49 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     return { frame: frame!, label: label! };
   }
 
+  it("does not steal focus from review controls rendered over a screen", async () => {
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content:
+                "<!doctype html><html><body><button>Layer</button></body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="comment"
+          activeId="screen-a"
+          selectedScreenIds={["screen-a"]}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+          }}
+          renderScreenContent={() => (
+            <div className="design-canvas-iframe-wrapper">
+              <div data-review-popover>
+                <textarea aria-label="Edit prompt" />
+              </div>
+            </div>
+          )}
+          onPick={() => {}}
+        />,
+      );
+    });
+    const editPrompt = container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Edit prompt"]',
+    );
+    expect(editPrompt).not.toBeNull();
+    editPrompt!.focus();
+
+    await act(async () => {
+      dispatchMouse(editPrompt!, "mousedown", 160, 160);
+    });
+
+    expect(document.activeElement).toBe(editPrompt);
+  });
+
   it("reports an unchanged empty layer marquee selection once per drag", async () => {
     const onLayerMarqueeSelectionChange = vi.fn();
     await act(async () => {

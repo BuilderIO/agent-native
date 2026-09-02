@@ -6988,6 +6988,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      if (isCanvasOverlayInteractionTarget(e.target)) return;
       claimKeyboardFocus();
       // Clear any stale pick-suppression left over from a prior resize/rotate/move
       // gesture that never received its trailing frame click — otherwise it would
@@ -11950,6 +11951,13 @@ function isInteractiveScreenContentTarget(target: EventTarget | null) {
         ".design-canvas-iframe-wrapper,[data-design-preview-iframe]",
       ),
     )
+  );
+}
+
+function isCanvasOverlayInteractionTarget(target: EventTarget | null) {
+  return (
+    target instanceof Element &&
+    Boolean(target.closest("[data-review-popover]"))
   );
 }
 

@@ -273,8 +273,22 @@ test("Select layer on a non-active overview screen routes selection to that exac
     await expect(
       page.getByText("Ask or change selection", { exact: true }),
     ).toBeVisible();
+    const editPrompt = page.getByRole("textbox", { name: "Leave feedback…" });
+    await expect(editPrompt).toBeVisible();
+    await page.waitForTimeout(500);
+    const editPromptBox = await editPrompt.boundingBox();
+    expect(editPromptBox).not.toBeNull();
+    await page.mouse.move(
+      editPromptBox!.x + editPromptBox!.width / 2,
+      editPromptBox!.y + editPromptBox!.height / 2,
+      { steps: 12 },
+    );
+    await page.mouse.down();
+    await page.mouse.up();
+    await editPrompt.pressSequentially("Make this heading more concise");
+    await expect(editPrompt).toHaveValue("Make this heading more concise");
     await expect(
-      page.getByRole("textbox", { name: "Leave feedback…" }),
+      page.getByText("Ask or change selection", { exact: true }),
     ).toBeVisible();
 
     const after = await getAction(request, "get-design", { id: designId });
