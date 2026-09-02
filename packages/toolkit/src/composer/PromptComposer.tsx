@@ -597,13 +597,17 @@ function PromptComposerInner({
   const composerEffort = showModelSelector
     ? (selectedEffort ?? models.selectedEffort)
     : undefined;
+  const onModelSelectionChangeRef = useRef(onModelSelectionChange);
   useEffect(() => {
-    onModelSelectionChange?.({
+    onModelSelectionChangeRef.current = onModelSelectionChange;
+  }, [onModelSelectionChange]);
+  useEffect(() => {
+    onModelSelectionChangeRef.current?.({
       model: composerModel,
       engine: composerEngine,
       effort: composerEffort,
     });
-  }, [composerEffort, composerEngine, composerModel, onModelSelectionChange]);
+  }, [composerEffort, composerEngine, composerModel]);
   const composerModelGroups = showModelSelector
     ? (availableModels ?? models.availableModels)
     : undefined;

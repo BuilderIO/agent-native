@@ -221,7 +221,7 @@ describe("new deck generation flow", () => {
     );
     expect(referenceImportFlow).not.toContain("handleCreateDeckWithPrompt(");
     expect(referenceImportFlow).toContain(
-      "The PDF reference deck could not be imported.",
+      't("editorToolbar.importFailedDescription")',
     );
   });
 

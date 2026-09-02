@@ -1372,14 +1372,10 @@ export default function Index() {
         } else if (pdfReference || docxReference) {
           const documentReference = pdfReference ?? docxReference;
           const documentFormat = pdfReference ? "pdf" : "docx";
-          const documentSaveError =
-            documentFormat === "pdf"
-              ? "The PDF reference deck could not be saved."
-              : "The DOCX reference deck could not be saved.";
-          const documentImportError =
-            documentFormat === "pdf"
-              ? "The PDF reference deck could not be imported."
-              : "The DOCX reference deck could not be imported.";
+          const documentSaveError = t("editorToolbar.uploadFailed");
+          const documentImportError = t(
+            "editorToolbar.importFailedDescription",
+          );
           if (!documentReference) {
             throw new Error(documentImportError);
           }
