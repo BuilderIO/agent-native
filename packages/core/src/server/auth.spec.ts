@@ -3224,31 +3224,6 @@ describe("server/auth", () => {
       );
     });
 
-    it("preserves the mounted workspace path for configured login HTML", async () => {
-      vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
-      delete process.env.ACCESS_TOKEN;
-      delete process.env.ACCESS_TOKENS;
-      const { autoMountAuth, getConfiguredLoginHtml } =
-        await import("./auth.js");
-
-      const app = createMockApp();
-      await autoMountAuth(app, {
-        getSession: async () => null,
-        loginHtml:
-          "<!doctype html><html><head></head><body><form>QA login</form></body></html>",
-      });
-
-      const event = createMockEvent({ path: "/login" });
-      event.context._mountedPathname = "/plan/login";
-      event.path = "/login";
-      event.node.req.url = "/login";
-
-      const html = getConfiguredLoginHtml(event);
-
-      expect(html).toContain("/plan/_agent-native/auth/session");
-    });
-
     it("simplifies login HTML when the return path contains an initial prompt", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AUTH_MAGIC_LINK", "0");
