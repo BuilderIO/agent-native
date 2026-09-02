@@ -32,15 +32,23 @@ Other agents and people work this channel at the same time. An unclaimed
 report is one somebody else is about to start investigating, so the eye is a
 lock, not a bookmark — and a lock is worthless if you take it after the work.
 
-Scan the window newest to oldest and classify from **parent-level evidence
-only**: the message text, its attachments, and its existing reactions. That is
-enough to tell a clear bug from a preference, and it is cheap. Do not open
-full threads, read code, or investigate yet.
+Scan the window newest to oldest with a channel read, and classify from
+**parent-level evidence only**: the message text, its attachments, and its
+existing reactions. That is enough to tell a clear bug from a preference, and
+it is cheap. Do not open full threads, read code, or investigate yet.
+
+A channel read returns parents, so use its timestamps directly. The
+full-thread-read rule below exists because *search* hits are usually replies —
+resolve those through the permalink `thread_ts` before claiming.
 
 Then add `👀` from the invoking identity to every item you intend to tackle,
-and read the reactions back. Do this in one pass, before Phase 1 and before
-any deep read. A run that identifies seven actionable reports and claims one
-of them has left six for a peer to duplicate.
+and read the reactions back, in one pass before any deep read. A run that
+identifies seven actionable reports and claims one has left six for a peer to
+duplicate. Skip parents that already carry your eye.
+
+Claiming is not working: Phase 0 only marks what you will take, never
+investigates or replies, so it does not preempt the rule that older open
+questions come before newer reports.
 
 Claim generously and correct cheaply. If a deeper read later shows an item is
 out of scope or already owned, remove the eye — an eye you retract costs
@@ -71,23 +79,19 @@ slack_search: "? this was sent from a bot." in:<#CHANNEL>
   sort=timestamp sort_dir=asc include_context=true max_context_length=300
 ```
 
-Three details in that query are load-bearing; a run that changed them missed
-all eight of its answered threads.
+Three details are load-bearing; a run that changed them missed all eight of
+its answered threads.
 
-**Search `"? this was sent from a bot."`, not the bare disclosure.** Every
-reply this workflow ever posted carries the disclosure — fixes, status
-updates, questions alike — so the bare string returns 80+ hits, mostly
-terminal, and no run will open 80 threads. The leading `?` phrase-matches only
-replies that asked something, which is exactly the pending set.
+**The leading `?`.** Every reply ever posted carries the disclosure, so the
+bare string returns 80+ hits, mostly terminal, and no run opens 80 threads.
+The `?` matches only replies that asked something — the pending set.
 
-**Keep `include_context=true` on every page, including page 2 and beyond.**
-The `Context after` block names who spoke after your question, so you find
-answers without opening every thread. Dropping it on later pages to save
-tokens blinds you to every answer past page one.
+**`include_context=true` on every page.** Its `Context after` block names who
+spoke after your question, so you find answers without opening each thread.
+Dropping it on later pages to save tokens hides every answer past page one.
 
-**Take the parent from the permalink's `thread_ts`, never from `Message_ts`.**
-`Message_ts` is your own reply's timestamp; reading or replying to it targets
-the wrong message.
+**The parent is the permalink's `thread_ts`.** `Message_ts` is your own
+reply's timestamp; acting on it targets the wrong message.
 
 Also search for the invoking identity's eye-marked parents before applying the
 disclosure filter:
@@ -100,18 +104,22 @@ Read each matching parent and reaction. An eye-only clear bug or authorized
 upvoted improvement is durable work even when it has no reply; keep it in the
 worklist until it has a terminal disposition.
 
-For each hit, read its full thread. The test for "answered" is mechanical:
-**is the last message in the thread from someone other than you?** If yes,
-someone replied to your question and that thread is answered. Do not judge
-this from the search snippet, from the reaction, or from whether the reply
-looks complete — open the thread and look at who wrote last.
+The test for "answered" is mechanical: **did a person speak after your
+question?** Someone counts when their message carries no disclosure marker —
+a disclosure-marked message is this workflow under any identity, so a later
+run's own reply never counts as an answer to an earlier one.
 
-Enumerate the full answered set **before** starting any other work, and write
-the count into the recap's `Answered since last run` field. Running the search
-is not the same as working its results: a run that searches, finds eight
-answered threads, and then spends itself on newer reports has skipped the
-phase entirely while appearing to satisfy it. If the count is greater than
-zero and none of those threads appear in your dispositions, the run is not
+Apply that test to the `Context after` block, then open the thread to read
+what they actually said before acting. What the test decides is only whether
+the thread enters the answered set, not whether the answer is sufficient: a
+partial, unrelated, or "will check later" reply leaves the original question
+pending under the one-question rule, and does not earn a second question.
+
+Enumerate the answered set **before** any other work and write its count into
+the recap's `Answered since last run` field. Searching is not working the
+results — a run that finds eight answered threads and then spends itself on
+newer reports has skipped the phase while appearing to satisfy it. A non-zero
+count with none of those threads in your dispositions means the run is not
 finished.
 
 Then identify the latest disposition from
@@ -139,8 +147,11 @@ reply** despite an unanswered clarification, restore it to the pending set.
   follow-up before trying the fix.
   If the answer says the issue is already resolved, fixed elsewhere, or not
   ours — a linked PR, "this is fixed now", "not a Clips issue" — that is also
-  an answer. Close the thread with the matching terminal disposition instead
-  of leaving it open; it costs one recap row and no Slack message.
+  an answer. Close it with the matching terminal disposition instead of
+  leaving it open: **remove the `👀`**, record the row naming who resolved it
+  and where, and post no Slack message. Removing the eye is what makes the
+  closure durable — leave it on and the next run's `hasmy:eyes` search
+  resurfaces the thread as unfinished work forever.
 - **No answer, posted under 4 days ago** → leave it. Post nothing. A second
   message is a nag, not a follow-up.
 - **No answer, posted over 4 days ago** → the question failed. Drop it
@@ -151,11 +162,10 @@ reply** despite an unanswered clarification, restore it to the pending set.
   bug still matters, carry it forward as an internal investigation with no
   reporter dependency — dropping the question is not dropping the bug.
 
-Four days is the retention rule, and it is deliberate. A question nobody
-answered in four days will not be answered on day thirty, and an
-open-question set that only ever grows becomes the first thing every run
-reads, twice a day, forever. Letting them expire is what keeps this phase
-cheap enough to run first.
+Four days is the retention rule, deliberately. A question unanswered for four
+days will not be answered on day thirty, and an ever-growing open set becomes
+the first thing every run reads, twice a day, forever. Expiry is what keeps
+this phase cheap enough to run first.
 
 Discovery is a separate concern from retention. `after:<TODAY-5>` bounds the
 new-message scan, so it would miss an older question that is still inside its
