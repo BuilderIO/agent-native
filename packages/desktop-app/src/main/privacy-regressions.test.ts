@@ -56,6 +56,11 @@ describe("desktop passive-access regressions", () => {
       "function backgroundRunToDesktopRun(",
       "function readJsonObjectFile(",
     );
+    const runInventory = between(
+      main,
+      "function listDesktopCodeAgentRuns(",
+      "function readDesktopCodeAgentRun(",
+    );
     const hostMetadata = between(
       main,
       "function getCodeAgentHostMetadata()",
@@ -66,6 +71,11 @@ describe("desktop passive-access regressions", () => {
       "function listCodeAgentProjectPacks(",
       "function walkMarkdownFiles(",
     );
+    const worktrees = between(
+      main,
+      "function listCodeAgentWorktrees(",
+      "function restoreCodeAgentWorktree(",
+    );
     const startup = between(
       main,
       "void app.whenReady().then(async () => {",
@@ -75,12 +85,16 @@ describe("desktop passive-access regressions", () => {
     expect(projects).not.toContain("resolveUsableDirectory");
     expect(projects).toContain("normalizeRememberedCodeAgentPath");
     expect(runProjection).not.toContain("fs.existsSync");
+    expect(runInventory).toContain("resumeQueuedCodeAgentWorktreeRuns");
+    expect(runInventory).toContain("ensureCodeAgentWorktreeSweepScheduled");
     expect(hostMetadata).not.toContain("resolveCodeAgentsTerminalCwd");
     expect(hostMetadata).not.toContain("resolveRepositoryRoot");
     expect(projectPacks).toContain(
       'if (!requestedPath) return { status: "ok" };',
     );
     expect(projectPacks).not.toContain("resolveCodeAgentsTerminalCwd(input)");
+    expect(worktrees).not.toContain("resolveCodeAgentsTerminalCwd");
+    expect(worktrees).toContain("ensureCodeAgentWorktreeSweepScheduled");
     expect(startup).not.toContain("initializeDesktopComputerMcpBridge");
     expect(startup).not.toContain("reclaimTerminalCodeAgentWorktree");
     expect(startup).not.toContain("cleanupDueManagedCodeAgentWorktrees");

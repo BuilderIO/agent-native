@@ -3680,6 +3680,9 @@ async function startRemoteCodeAgentConnector(): Promise<CodeAgentRemoteConnector
   const args = [...invocation.args, "code", "serve", "--relay-url", relayUrl];
   try {
     await ensureDesktopComputerMcpBridge();
+    if (!remoteConnectorEnabled || appIsQuitting) {
+      return getRemoteConnectorStatus();
+    }
     const computerEnv = remoteConnectorComputerEnv();
     const child = spawn(invocation.command, args, {
       cwd: invocation.cwd,
@@ -3970,6 +3973,8 @@ function codeAgentEventFilePath(runId: string): string | null {
 
 function listDesktopCodeAgentRuns(goalId?: string): CodeAgentRun[] {
   reconcileInterruptedCodeAgentRuns("list", goalId);
+  resumeQueuedCodeAgentWorktreeRuns();
+  ensureCodeAgentWorktreeSweepScheduled();
   const runs = desktopCodeBackgroundAgentController.list({
     goalId,
   }) as BackgroundAgentRun[];
@@ -4132,6 +4137,18 @@ function isQueuedCodeAgentWorktreeRun(
     (getRecordString(record, "status") === "queued" ||
       getRecordString(record, "phase") === "queued"),
   );
+}
+
+function resumeQueuedCodeAgentWorktreeRuns(): void {
+  const worktreeIds = new Set<string>();
+  for (const { record } of listRawCodeAgentRunRecords()) {
+    if (!isQueuedCodeAgentWorktreeRun(record)) continue;
+    const worktreeId = codeAgentWorktreeIdFromRunRecord(record);
+    if (worktreeId) worktreeIds.add(worktreeId);
+  }
+  for (const worktreeId of worktreeIds) {
+    void startNextQueuedCodeAgentWorktreeRun(worktreeId);
+  }
 }
 
 function reconcileManagedCodeAgentWorktreeLeases(): void {
@@ -4355,6 +4372,10 @@ function scheduleCodeAgentWorktreeSweep(): void {
     }
   }, nextCodeAgentWorktreeSweepDelay());
   codeAgentWorktreeSweepTimer.unref?.();
+}
+
+function ensureCodeAgentWorktreeSweepScheduled(): void {
+  if (!codeAgentWorktreeSweepTimer) scheduleCodeAgentWorktreeSweep();
 }
 
 function scheduleCodeAgentWorktreeReclaimRetry(
@@ -5617,8 +5638,11 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
   if (process.platform !== "darwin" || desktopComputerMcpBridge) return;
   const helperPath = desktopComputerHelperPath();
   if (!fs.existsSync(helperPath)) {
-    console.warn("[computer-control] bundled macOS helper is unavailable.");
-    return;
+    const error = new Error(
+      "The bundled macOS computer-control helper is unavailable.",
+    );
+    console.warn("[computer-control]", error.message);
+    throw error;
   }
   const helper = new SwiftDesktopHelperClient(helperPath);
   const broker = new ComputerControlBroker({
@@ -5667,6 +5691,8 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
       "[browser-control] Chrome native host installation failed:",
       error instanceof Error ? error.message : "unknown error",
     );
+    broker.close();
+    throw error;
   }
   const bridge = new DesktopComputerMcpBridge({
     broker,
@@ -5722,6 +5748,7 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
       "[computer-control] authenticated loopback bridge could not start:",
       error instanceof Error ? error.message : "unknown error",
     );
+    throw error;
   }
 }
 
@@ -7285,8 +7312,19 @@ async function createCodeAgentRun(
 }
 
 function listCodeAgentWorktrees(input?: unknown): CodeAgentWorktreeListResult {
-  const cwd = typeof input === "string" ? input : undefined;
-  const sourcePath = resolveCodeAgentsTerminalCwd({ cwd });
+  const requestedPath = typeof input === "string" ? input : undefined;
+  const sourcePath = requestedPath
+    ? resolveUsableDirectory(requestedPath)
+    : defaultCodeAgentProjectPath(readCodeAgentProjectsState());
+  ensureCodeAgentWorktreeSweepScheduled();
+  if (!sourcePath) {
+    return {
+      status: "unavailable",
+      sourcePath: normalizeRememberedCodeAgentPath(requestedPath) ?? "",
+      worktrees: [],
+      error: "The selected project folder is unavailable.",
+    };
+  }
   cleanupDueManagedCodeAgentWorktrees();
   return listNamedCodeAgentWorktrees({
     registryPath: codeAgentWorktreeRegistryFile(),

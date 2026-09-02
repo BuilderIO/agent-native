@@ -77,6 +77,22 @@ describe("computer access setup", () => {
     expect(deps.openChromeExtensions).not.toHaveBeenCalled();
   });
 
+  it("fails closed when browser preparation fails", async () => {
+    const deps = dependencies({
+      prepareBrowserSetup: vi.fn(async () => {
+        throw new Error("Chrome native host installation failed.");
+      }),
+    });
+    const result = await runComputerSetupAction("open-chrome-setup", deps);
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: "Chrome native host installation failed.",
+    });
+    expect(deps.revealExtensionFolder).not.toHaveBeenCalled();
+    expect(deps.openChromeExtensions).not.toHaveBeenCalled();
+  });
+
   it("restarts only after the explicit restart action", async () => {
     const deps = dependencies();
     await runComputerSetupAction("restart", deps);
