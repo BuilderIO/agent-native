@@ -10,8 +10,8 @@ use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder,
+    AppHandle, Emitter, Listener, Manager, PhysicalPosition, PhysicalSize, WebviewUrl,
+    WebviewWindow, WebviewWindowBuilder,
 };
 
 use crate::dlog;
@@ -50,6 +50,7 @@ static COUNTDOWN_CONTROL_TRACKING: AtomicBool = AtomicBool::new(false);
 // closes it. Cleared when the card is dismissed or the next session starts.
 static TOOLBAR_FINISHING: AtomicBool = AtomicBool::new(false);
 const BUBBLE_LABEL: &str = "bubble";
+const BUBBLE_DESTROYED_EVENT: &str = "clips:bubble-destroyed";
 const PREPARING_LABEL: &str = "preparing";
 const FINALIZING_LABEL: &str = "finalizing";
 const FLOW_BAR_LABEL: &str = "flow-bar";
@@ -1191,6 +1192,10 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
     let app_for_bounds = app.clone();
     let win_for_bounds = win.clone();
     win.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Destroyed) {
+            let _ = app_for_bounds.emit(BUBBLE_DESTROYED_EVENT, ());
+            return;
+        }
         if matches!(
             event,
             tauri::WindowEvent::Moved(_)
@@ -1329,15 +1334,47 @@ pub async fn hide_recording_chrome(
 /// stable. At that point the bubble webview is freshly spawned, acquires
 /// the camera cleanly, and there's no cross-webview contention because
 /// MediaRecorder doesn't touch the camera after start.
-#[tauri::command]
-pub async fn close_bubble(app: AppHandle) -> Result<(), String> {
+fn close_bubble_window(app: &AppHandle) {
     let _ = app.emit("clips:release-camera", ());
     if let Some(w) = app.get_webview_window(BUBBLE_LABEL) {
-        dlog!("[clips-tray] close_bubble — destroying bubble webview");
+        // Hide first so a slow WebKit teardown cannot leave the last frame
+        // composited on-screen while the window is being destroyed.
+        let _ = w.hide();
+        dlog!("[clips-tray] close_bubble - destroying bubble webview");
         let _ = w.close();
     } else {
-        dlog!("[clips-tray] close_bubble — no bubble window to close");
+        dlog!("[clips-tray] close_bubble - no bubble window to close");
     }
+}
+
+async fn close_bubble_window_and_wait(app: &AppHandle) -> Result<(), String> {
+    let (closed_tx, closed_rx) = tokio::sync::oneshot::channel();
+    let listener = app.once(BUBBLE_DESTROYED_EVENT, move |_| {
+        let _ = closed_tx.send(());
+    });
+    if app.get_webview_window(BUBBLE_LABEL).is_none() {
+        app.unlisten(listener);
+        return Ok(());
+    }
+
+    close_bubble_window(app);
+    closed_rx
+        .await
+        .map_err(|_| "camera bubble destruction acknowledgement was dropped".to_string())
+}
+
+/// Close the camera bubble whenever the popover is no longer visible, except
+/// while recording owns it independently of the popover.
+pub fn close_bubble_if_idle(app: &AppHandle) {
+    if is_recording_active(app) {
+        return;
+    }
+    close_bubble_window(app);
+}
+
+#[tauri::command]
+pub async fn close_bubble(app: AppHandle) -> Result<(), String> {
+    close_bubble_window(&app);
     Ok(())
 }
 
@@ -2009,13 +2046,14 @@ fn remembered_voice_target_bundle(app: &AppHandle) -> Option<String> {
 mod tests {
     use super::{
         overlay_labels_to_hide, strip_trailing_period_for_messaging, text_insertion_strategy,
-        TextInsertionStrategy, FINALIZING_LABEL,
+        TextInsertionStrategy, BUBBLE_LABEL, FINALIZING_LABEL,
     };
 
     #[test]
     fn overlay_cleanup_can_preserve_finalizing_progress() {
         assert!(!overlay_labels_to_hide(true).any(|label| label == FINALIZING_LABEL));
         assert!(overlay_labels_to_hide(false).any(|label| label == FINALIZING_LABEL));
+        assert!(overlay_labels_to_hide(false).any(|label| label == BUBBLE_LABEL));
     }
 
     #[test]
@@ -2397,6 +2435,21 @@ pub async fn set_recording_state(app: AppHandle, active: bool) -> Result<(), Str
     }
     crate::tray::rebuild_tray_menu(&app);
     Ok(())
+}
+
+/// Release a recording start flow and clean up a bubble that no recording owns.
+/// Keep the state change and cleanup in one native command so a new start cannot
+/// interleave after the guard is cleared but before the bubble is destroyed.
+#[tauri::command]
+pub async fn release_recording_state(app: AppHandle) -> Result<(), String> {
+    dlog!("[clips-tray] release_recording_state");
+    if let Some(state) = app.try_state::<RecordingActive>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = false;
+        }
+    }
+    crate::tray::rebuild_tray_menu(&app);
+    close_bubble_window_and_wait(&app).await
 }
 
 /// Set from JS when a live meeting recording/transcription session starts or
@@ -2783,6 +2836,7 @@ pub fn toggle_popover(app: &AppHandle) {
         window.is_visible().unwrap_or(false) && !voice_woken && !is_pinhole_popover(&window);
     if user_visible {
         let _ = window.hide();
+        close_bubble_if_idle(app);
         let _ = app.emit("clips:popover-visible", false);
         return;
     }

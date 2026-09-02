@@ -5,6 +5,7 @@ import { BuildFromScratchCta } from "../components/BuildFromScratchCta";
 import { communityApps } from "../components/community-apps";
 import { CommunityAppCard } from "../components/CommunityAppCard";
 import { CommunityAppSubmissionDialog } from "../components/CommunityAppSubmissionDialog";
+import { CommunityAppSubmissionNetlifyDetectionForm } from "../components/CommunityAppSubmissionForm";
 import { sitePathForLocale } from "../components/docs-locale";
 import { featuredTemplates, TemplateCard } from "../components/TemplateCard";
 
@@ -17,6 +18,7 @@ export default function TemplatesPage() {
 
   return (
     <div className="builder-brand-tokens min-h-screen">
+      <CommunityAppSubmissionNetlifyDetectionForm />
       <main className="templates-index-page mx-auto w-full min-w-0 max-w-site overflow-x-clip px-4 pb-24 pt-20 sm:px-6 lg:pt-28">
         <header className="max-w-[720px]">
           <h1 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-1)] font-medium leading-[1.05] tracking-[-0.03em] text-[var(--b-text-primary)]">

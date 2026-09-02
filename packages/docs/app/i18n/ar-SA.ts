@@ -435,7 +435,7 @@ const arSA = {
   homepage: {
     hero: {
       title: "إطار العمل لتطبيقات الوكلاء",
-      bodyLine1: "ابنِ لوكلاء الذكاء الاصطناعي دون بناء منتج ثانٍ للمستخدمين.",
+      bodyLine1: "أنشئ وكلاء مستقلين بواجهات استخدام بديهية.",
       bodyLine2: "استخدم LLM الخاص بك. وانشر في أي مكان.",
       tryAnApp: "جرّب تطبيقًا",
     },
@@ -571,13 +571,12 @@ const arSA = {
     communitySubmissionName: "اسم التطبيق",
     communitySubmissionNamePlaceholder: "مركز دعم العملاء",
     communitySubmissionUrl: "رابط التطبيق",
-    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com أو https://example.com",
     communitySubmissionDescriptionLabel: "الوصف",
     communitySubmissionDescriptionPlaceholder:
       "ماذا يفعل التطبيق ولمن هو مخصص؟",
     communitySubmissionRepository: "مستودع GitHub (اختياري)",
-    communitySubmissionRepositoryPlaceholder:
-      "https://github.com/owner/repository",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
     communitySubmissionScreenshots: "لقطات الشاشة (اختياري)",
     communitySubmissionScreenshotsPlaceholder: "اسحب حتى 5 صور إلى هنا",
     communitySubmissionScreenshotDropHint:
@@ -589,7 +588,7 @@ const arSA = {
     communitySubmissionSubmit: "إرسال التطبيق",
     communitySubmissionReady: "شكرًا. سنراجع تطبيقك قبل نشره.",
     communitySubmissionValidation:
-      "أضف اسمًا ووصفًا ورابط تطبيق صالحًا. ارفع صور PNG أو JPG أو WebP بحد أقصى 1.5 ميجابايت لكل صورة.",
+      "أضف اسمًا ووصفًا، ثم أدخل رابط التطبيق مثل example.com. سنضيف https:// نيابةً عنك. إذا أضفت مستودعًا، فاستخدم رابطًا من github.com. ارفع صور PNG أو JPG أو WebP بحد أقصى 1.5 ميجابايت لكل صورة.",
   },
   buildFromScratch: {
     title: "ابنِ من الصفر",
