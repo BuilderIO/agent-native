@@ -183,6 +183,8 @@ export interface PtySessionContext {
 }
 
 export interface PtySessionSetup {
+  /** Working directory for this PTY session. Falls back to the server appDir. */
+  cwd?: string;
   /** Trusted arguments appended to the selected CLI command. */
   commandArgs?: string[];
   /** Trusted environment additions for the selected CLI command. */
@@ -473,13 +475,16 @@ export async function createPtyWebSocketServer(
     console.log(`${logPrefix} Spawning PTY for ${command}`);
 
     const preparedSpawn = preparePtySpawn(spawnCommand, spawnArgs);
+    const sessionAppDir = sessionSetup?.cwd
+      ? path.resolve(sessionSetup.cwd)
+      : resolvedAppDir;
     let ptyProcess: ReturnType<typeof pty.spawn>;
     try {
       ptyProcess = pty.spawn(preparedSpawn.command, preparedSpawn.args, {
         name: "xterm-256color",
         cols: 120,
         rows: 40,
-        cwd: resolvedAppDir,
+        cwd: sessionAppDir,
         env: env as Record<string, string>,
       });
     } catch (err) {
