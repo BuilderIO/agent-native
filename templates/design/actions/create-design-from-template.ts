@@ -4,8 +4,8 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
+import { and, eq, ne } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -16,6 +16,7 @@ import {
   remapTemplateFileIds,
   templateFileDimensions,
 } from "../server/lib/design-template-data.js";
+import { BOARD_FILENAME } from "../shared/board-file.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
 import { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
@@ -47,6 +48,13 @@ export default defineAction({
       .nullable()
       .optional()
       .describe("Override the template design system, or null to unlink"),
+    targetDesignId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Fill this existing design instead of creating a new one. It must have no files — a design with content is never overwritten.",
+      ),
   }),
   mcpApp: {
     compactCatalog: true,
@@ -58,7 +66,13 @@ export default defineAction({
       height: 680,
     }),
   },
-  run: async ({ templateId, title, prompt, designSystemId }) => {
+  run: async ({
+    templateId,
+    title,
+    prompt,
+    designSystemId,
+    targetDesignId,
+  }) => {
     const preset = getDesignTemplatePreset(templateId);
     const db = getDb();
 
@@ -144,7 +158,48 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("Not authenticated");
     const orgId = getRequestOrgId() ?? null;
-    const designId = nanoid();
+    // Filling the design the New Design button already created, rather than
+    // stranding it and navigating to a second one. Guarded twice: the caller
+    // must be able to edit it, and it must still be empty, so a template can
+    // never land on top of existing screens.
+    let targetExistingData: Record<string, unknown> = {};
+    if (targetDesignId) {
+      await assertAccess("design", targetDesignId, "editor");
+      // The editor creates the board row on mount, so a design with nothing
+      // drawn in it already has one file. Screens are what count as content.
+      const [existingDesign] = await db
+        .select({ data: schema.designs.data })
+        .from(schema.designs)
+        .where(eq(schema.designs.id, targetDesignId))
+        .limit(1);
+      if (typeof existingDesign?.data === "string") {
+        try {
+          const parsed = JSON.parse(existingDesign.data);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            targetExistingData = parsed as Record<string, unknown>;
+          }
+        } catch {
+          // coercion-ok: unreadable prior data is replaced wholesale below,
+          // which is the same outcome as the create path.
+        }
+      }
+      const [existing] = await db
+        .select({ id: schema.designFiles.id })
+        .from(schema.designFiles)
+        .where(
+          and(
+            eq(schema.designFiles.designId, targetDesignId),
+            ne(schema.designFiles.filename, BOARD_FILENAME),
+          ),
+        )
+        .limit(1);
+      if (existing) {
+        throw new Error(
+          "Target design already has files. Templates only fill an empty design.",
+        );
+      }
+    }
+    const designId = targetDesignId ?? nanoid();
     const now = new Date().toISOString();
     const fileIdMap = new Map(files.map((file) => [file.id, nanoid()]));
     const data = remapTemplateFileIds(
@@ -187,19 +242,35 @@ export default defineAction({
     }));
 
     await db.transaction(async (tx) => {
-      await tx.insert(schema.designs).values({
-        id: designId,
-        title: title ?? templateTitle,
-        description: templateDescription,
-        data: JSON.stringify(data),
-        projectType: "prototype",
-        designSystemId: linkedDesignSystemId,
-        ownerEmail,
-        orgId,
-        visibility: orgId ? "org" : "private",
-        createdAt: now,
-        updatedAt: now,
-      });
+      if (targetDesignId) {
+        await tx
+          .update(schema.designs)
+          .set({
+            title: title ?? templateTitle,
+            description: templateDescription,
+            // Merge, never replace: the row already carries editor state the
+            // template knows nothing about — `boardFileId` above all, whose
+            // loss makes the editor mint a second board on next open.
+            data: JSON.stringify({ ...targetExistingData, ...data }),
+            designSystemId: linkedDesignSystemId,
+            updatedAt: now,
+          })
+          .where(eq(schema.designs.id, targetDesignId));
+      } else {
+        await tx.insert(schema.designs).values({
+          id: designId,
+          title: title ?? templateTitle,
+          description: templateDescription,
+          data: JSON.stringify(data),
+          projectType: "prototype",
+          designSystemId: linkedDesignSystemId,
+          ownerEmail,
+          orgId,
+          visibility: orgId ? "org" : "private",
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
       await tx.insert(schema.designFiles).values(
         persistedFiles.map((file) => ({
           id: file.id,

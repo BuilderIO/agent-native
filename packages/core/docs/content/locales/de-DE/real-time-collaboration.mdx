@@ -602,6 +602,159 @@ Plugin:
 | Verdichtungsschwellenwert           | Gespeicherter Blob > 4× neue Codierung löst Tombstone Compact aus      |
 | DB-Lesevorgänge pro Schreibvorgang  | 1 (CAS-Version, die nur in `persistMergedState` gelesen wird)          |
 
+## Gehostetes Realtime-Sync-Gateway {#hosted-gateway}
+
+Standardmäßig verwenden Apps den oben beschriebenen Poll/SSE-Transport. Jede App
+kann sich stattdessen für das gehostete Realtime-Sync-Gateway entscheiden, das
+die `sync_events`-Tabelle der App zentral verfolgt und Änderungen an alle
+verbundenen Clients verteilt — die Zustellung von Änderungen hängt damit nicht
+mehr davon ab, dass jede Serverless-Instanz ihre eigenen langlebigen
+Verbindungen offen hält.
+
+Die Einrichtung hängt davon ab, wer die App bereitstellt.
+
+### Von Builder gehostete Apps: nichts zu tun {#hosted-gateway-builder}
+
+Eine über die Hosting-Pipeline von Builder bereitgestellte App wird automatisch
+provisioniert. Das Deployment injiziert den Transport, die Gateway-URL, die
+Kanal-ID und das Signaturgeheimnis (`AGENT_NATIVE_REALTIME_HMAC_SECRET`) als
+reservierte Umgebungsvariablen, denn die Pipeline hat die Datenbank, die das
+Gateway liest, bereits provisioniert.
+
+Um ein Projekt ABZUMELDEN, fügen Sie seiner `builder.config.json` einen
+`realtime`-Block hinzu:
+
+```json
+{
+  "realtime": { "transport": "local" }
+}
+```
+
+### Überall sonst bereitgestellt: Selbstregistrierung {#hosted-gateway-self}
+
+Eine App auf eigenem Netlify, Vercel, Container oder VM hat keine solche
+Provisionierung und stellt sich dem Gateway daher selbst vor. Setzen Sie eine
+einzige Umgebungsvariable im Deployment:
+
+```bash
+AGENT_NATIVE_REALTIME_TRANSPORT=hosted
+```
+
+Das Setzen ist die ausdrückliche Zustimmung, und es ist die einzige Variable,
+die dieses Feature hinzufügt. Auf einem Deployment, das sie nicht gesetzt hat,
+passiert hier nichts.
+
+Das Deployment muss außerdem vier Dinge erfüllen, die auf eine normale
+Produktions-App ohnehin zutreffen:
+
+| Voraussetzung | Warum | Wie prüfen |
+| ------------- | ----- | ---------- |
+| **Postgres auf einem öffentlich erreichbaren Host** | Das Gateway wählt die Datenbank aus seinem eigenen Netz an. PGlite, SQLite, `localhost`, `*.internal` und nackte IP-Adressen werden abgelehnt, bevor die Verbindungszeichenfolge Ihre Maschine überhaupt verlässt. | `DATABASE_URL` zeigt auf ein verwaltetes Postgres wie Neon |
+| **`BUILDER_PRIVATE_KEY` als DEPLOYMENT-Umgebungsvariable gesetzt** | Damit wird die Registrierung authentifiziert und entschieden, welcher Builder-Organisation der Kanal gehört. | Siehe den Hinweis unten — dieser Schritt wird am häufigsten übersehen |
+| **Ein Produktions-Deployment** | Deploy-Previews bleiben bei der lokalen Synchronisierung, damit ein kurzlebiges Branch-Credential die Maschine nie verlässt und ein aktives Repository nicht pro Pull Request einen Kanal erzeugt. | `CONTEXT=production` / `BRANCH=production` oder `VERCEL_ENV=production` |
+| **Die Plattform identifiziert das Deployment** | Die Registrierung ist an den öffentlichen Origin der App gebunden, daher darf ein Prozess, der nicht wirklich das Deployment ist, ihn nicht beanspruchen. | Netlify, Vercel, AWS Lambda, Cloud Run, Render und Cloudflare Pages kennzeichnen sich selbst. Auf einem einfachen Container oder einer VM setzen Sie `AGENT_NATIVE_REALTIME_APP_URL` auf den eigenen Origin des Deployments |
+
+<Callout tone="warning">
+
+**Builder aus der App heraus zu verbinden genügt nicht.** Die In-App-Verbindung
+zu Builder speichert ihr Credential pro Benutzer oder pro Organisation im
+Secret-Vault der App. Die Selbstregistrierung ignoriert dieses Credential
+bewusst — die Verbindung eines einzelnen Benutzers darf nicht die Datenbank des
+gesamten Deployments unter derjenigen Organisation registrieren, die zufällig
+die erste Anfrage gestellt hat — und liest ausschließlich eine
+`BUILDER_PRIVATE_KEY`-Umgebungsvariable auf Deployment-Ebene. Eine App, die
+„Builder verbunden“ anzeigt und keine solche Variable hat, bleibt bei der
+lokalen Synchronisierung.
+
+</Callout>
+
+Die Registrierung erfolgt dann bedarfsgesteuert, bei der ersten Anfrage, die
+einen Kanal benötigt. Die App sendet ihre Verbindungszeichenfolge und ihren
+öffentlichen Origin, erhält eine Kanal-ID und ein Signaturgeheimnis zurück und
+stellt Subscribe-Token genau so aus wie eine von Builder gehostete App. Sie
+läuft von selbst erneut, sobald sich die Datenbank-URL, der App-Origin oder das
+Builder-Credential ändert, sodass eine Credential-Rotation ohne erneutes
+Deployment von irgendetwas anderem übernommen wird.
+
+Workspace-Deployments (mehrere Apps unter einem Origin) registrieren sich nicht
+selbst: Geschwister-Apps teilen sich einen Origin, und die Registrierung ist
+daran gebunden, sodass sie auf einem Kanal kollidieren würden. Sie protokollieren
+eine entsprechende Zeile und bleiben bei der lokalen Synchronisierung.
+
+### Überprüfen, ob es funktioniert hat {#hosted-gateway-verify}
+
+`GET /_agent-native/health` meldet das Ergebnis, und die Auflösung führt die
+Registrierung durch — ein einziger curl-Aufruf aktiviert und bestätigt also
+zugleich:
+
+```bash
+curl -s https://your-app.example.com/_agent-native/health | jq .realtime
+```
+
+```json
+{
+  "transport": "hosted",
+  "registered": true,
+  "channelHash": "3f9a2c17"
+}
+```
+
+| Feld | Bedeutung |
+| ---- | --------- |
+| `transport` | `"hosted"`, sobald die Umgebungsvariable gesetzt ist, sonst `"local"`. Steht hier `local`, hat die Variable das laufende Deployment nicht erreicht. |
+| `registered` | Ein Kanal wurde aufgelöst. `false` bedeutet, dass die App weiterhin ihr eigenes `/_agent-native/poll` verwendet. |
+| `channelHash` | Die ersten 8 Zeichen eines SHA-256 der Kanal-ID — genug, um zwei Deployments zu unterscheiden oder eine Rotation zu bestätigen, nutzlos zum Verbinden. Der Endpunkt ist öffentlich, daher wird die ID selbst nie veröffentlicht. |
+| `unavailable` | Nur vorhanden, wenn die Auflösung FEHLGESCHLAGEN ist, im Unterschied zu „kein Kanal“. Ein nicht erreichbares Gateway und eine nicht registrierte App sind unterschiedliche Probleme. |
+
+Wenn `registered` `false` ist, enthalten die Logs des Deployments eine
+`[realtime]`-Zeile mit dem Grund — ein abgelehntes Credential, eine nicht
+parsebare Datenbank-URL, ein Prozess, der nicht wie das Deployment aussieht.
+Gehen Sie die Voraussetzungstabelle oben der Reihe nach durch.
+
+### Was Builder speichert und die Vertrauensgrenze {#hosted-gateway-trust}
+
+**Selbstregistrierung bedeutet, Builder Ihre Datenbank-Verbindungszeichenfolge
+zu senden.** Builder speichert sie und verbindet sich mit Ihrer Datenbank, um
+`sync_events` zu verfolgen. Die Verbindung ist nicht schreibgeschützt: sowohl
+die Versionszuteilung als auch die Erkennung von Änderungen außerhalb des
+regulären Wegs schreiben. Wenn Sie das nicht möchten, lassen Sie die
+Transport-Variable ungesetzt. Das ist die gesamte Entscheidung, und es gibt
+keinen anderen Weg, der dieses Credential teilt.
+
+**Die Organisation ist die Vertrauensgrenze.** Jedes Credential, das sich
+registrieren kann, kann auch einen bestehenden Origin erneut registrieren, was
+das Signaturgeheimnis dieses Kanals zurückgibt und seine Datenbank umlenkt. Wer
+dieses Geheimnis besitzt, kann ein Subscribe-Token für jeden Benutzer der App
+ausstellen, wodurch dessen *Änderungsstrom* offengelegt wird — welche Datensätze
+sich wann geändert haben — aber nicht die Datensätze selbst, da Clients Inhalte
+mit ihrer eigenen Sitzung erneut aus der App lesen. Behandeln Sie ein
+Registrierungs-Credential als organisationsweit.
+
+### Wie es funktioniert {#hosted-gateway-mechanics}
+
+- `GET /_agent-native/realtime-token` stellt ein kurzlebiges (10 Minuten),
+  sitzungsgebundenes Subscribe-Token aus, mit dem der Browser die
+  Gateway-Verbindung öffnet. Es akzeptiert nur dieselbe Origin und antwortet
+  ohne aktive Sitzung mit 401.
+- `GET /_agent-native/can-see` ist die Sichtbarkeitsprüfung des Gateways pro
+  Ereignis: Es verifiziert ein signiertes Gateway-Zugriffstoken und führt dann
+  das app-eigene `resolveAccess` erneut aus, damit das Gateway niemals ein
+  Ereignis an jemanden weiterleiten kann, der den Zugriff inzwischen verloren
+  hat. Unbekannte Ressourcentypen oder fehlgeschlagene Lookups schlagen
+  geschlossen fehl (`{ allowed: false }`).
+- Unter Postgres beziehen gehostete Apps Sync-Versionen aus der Datenbank
+  (`dbAssignedVersions`) statt aus einem In-Process-Zähler, weil
+  Gateway-Instanzen und die Serverless-Instanzen der App sich eine Datenbank
+  teilen und sich über die Schreibreihenfolge einig sein müssen.
+- `AGENT_NATIVE_REALTIME_GATEWAY_URL` überschreibt den Gateway-Endpunkt für
+  Staging. Ohne Wert wird er aus `BUILDER_GATEWAY_BASE_URL` abgeleitet.
+
+Jeder Fehlschlag hier ist bewusst weich: keine Transport-Variable, kein
+Builder-Schlüssel auf Deployment-Ebene, eine Nicht-Postgres-Datenbank oder ein
+nicht erreichbares Gateway lassen die App beim lokalen Polling, statt einen
+Fehler zu erzeugen. Ein 404 auf `GET /_agent-native/realtime-token` bedeutet,
+dass kein Kanal aufgelöst wurde.
+
 ## Sicherheit {#security}
 
 ### Zugriffsmodell ausdrücklich wählen

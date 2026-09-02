@@ -52,10 +52,11 @@ worklist until it has a terminal disposition.
 
 For each hit, read its full thread and identify the latest disposition from
 this workflow or its companion. Keep every unanswered **Clarification needed**
-question in the pending-question set, regardless of age. **Fixed**, **Shipped**,
-and **In progress** are not pending questions. Treat **Open - no reply** as
-terminal only for an eye-only item with no outstanding clarification; it never
-replaces an unanswered clarification question.
+question in the pending-question set until it is answered, explicitly
+resolved, or aged out at four days. **Fixed**, **Shipped**, and **In progress**
+are not pending questions. Treat **Open - no reply** as terminal only for an
+eye-only item with no outstanding clarification; it never replaces an
+unanswered clarification question that is still inside its four-day window.
 
 Do not apply either age branch below to a terminal disposition. The age branches
 apply only when the latest status is an unanswered **Clarification needed**
@@ -73,25 +74,32 @@ reply** despite an unanswered clarification, restore it to the pending set.
   the fix.
 - **No answer, posted under 4 days ago** → leave it. Post nothing. A second
   message is a nag, not a follow-up.
-- **No answer, posted over 4 days ago** → keep it in the open-question set.
-  Do not remind, re-ask, or add a reaction. Recheck it through the unbounded
-  clarification search below and leave it as **Clarification needed** until it
-  is answered or explicitly resolved. `Open - no reply` is reserved for work
-  that has no outstanding clarification question.
+- **No answer, posted over 4 days ago** → the question failed. Drop it
+  silently: no reminder, no re-ask, no new reaction. Remove the `👀` and record
+  **Abandoned - no answer in 4 days**, which is a terminal ledger disposition
+  ranking with **Fixed** and **Open - no reply** — an expired thread keeps no
+  eye and owes no reply, in this workflow or a standalone companion run. If the
+  bug still matters, carry it forward as an internal investigation with no
+  reporter dependency — dropping the question is not dropping the bug.
 
-`after:<TODAY-5>` bounds the new-message scan only. It is not a retention
-policy for open questions. Before scanning newer messages, run a second search
-without an `after` filter:
+Four days is the retention rule, and it is deliberate. A question nobody
+answered in four days will not be answered on day thirty, and an
+open-question set that only ever grows becomes the first thing every run
+reads, twice a day, forever. Letting them expire is what keeps this phase
+cheap enough to run first.
+
+Discovery is a separate concern from retention. `after:<TODAY-5>` bounds the
+new-message scan, so it would miss an older question that is still inside its
+window under a different clock, or one posted before the disclosure marker
+existed. Run a second search without an `after` filter to find those:
 
 ```
 slack_search: "this was sent from a bot." in:<#CHANNEL>
   sort=timestamp sort_dir=asc
 ```
 
-Read each matching workflow clarification thread and keep unanswered
-questions in the worklist until they are answered or explicitly resolved. The
-Slack thread is the durable record of its id and status; do not drop an open
-question because it is old or because a new run has started.
+Use it to **find** open questions, then apply the same age branches above to
+what it returns. Finding an old question does not exempt it from expiry.
 
 New replies from the companion workflow must carry the disclosure marker, so
 the unbounded marker search above is the primary cross-identity cursor. For
@@ -141,10 +149,13 @@ turn a subjective concern into a poll about which option people prefer.
 ### `:upvote:` overrides the clear-bug gate
 
 An `:upvote:` from **the invoking identity** - not from anyone else - promotes
-an otherwise out-of-scope item into scope for its mapped owner. It is the
-endorsement that settles the product question, not a transfer of ownership.
-Build it only when the mapped owner or an explicit assignment authorizes work
-in that area.
+an otherwise out-of-scope item into scope and authorizes the work. It is the
+endorsement that settles the product question: the person who would otherwise
+route this away has read it and decided it should happen. Build it.
+
+Do not wait for a second sign-off. The invoking identity is the authorization,
+and treating their own endorsement as a request for someone else's permission
+is how this rule becomes a no-op.
 
 Find them alongside the newest-message scan:
 
@@ -164,9 +175,9 @@ else still applies: it gets the same `👀`, the same fix-altitude gate, the
 same verification, and it counts against the question budget.
 
 The upvote overrides the bug gate, not the ownership map. An upvoted Design or
-Content item stays with its mapped owner, Sid or Alice. Build it only with that
-owner's authorization or an explicit assignment; otherwise route it to the
-owner and do not change code. Name the owner in the recap row.
+Content item still gets built — name Sid or Alice in the recap row so the
+mapped owner is not surprised by a change in their area. Naming them is a
+courtesy, not a gate: do not stall the work waiting for their reply.
 
 Because the upvote already is the product decision, do not ask which variant
 people would prefer. Ship the smallest version that delivers the endorsed
@@ -178,10 +189,9 @@ bug, using **Shipped** or **Open - no reply** as its terminal disposition.
 This is the required eye-reaction procedure for upvoted improvements, not an
 optional reminder.
 
-Add `👀` from the invoking identity to each clear bug or authorized upvoted
-improvement as it enters scope, and read the reaction back. Do not add it to an
-upvoted item that lacks the mapped owner's authorization; route that item
-instead. **The eye means "I have this," not "I owe you a message."** It is an
+Add `👀` from the invoking identity to each clear bug or upvoted improvement as
+it enters scope, and read the reaction back. **The eye means "I have this," not
+"I owe you a message."** It is an
 investigation marker with no reply obligation - that coupling is what produced
 23 questions in a single hour. If an earlier run eyed something out of scope,
 remove the reaction; do not post a compensating message.
@@ -401,7 +411,7 @@ Upvoted items in scope: N (built: N)
 
 | Source / item | Disposition | Replied? | Why and evidence |
 | --- | --- | --- | --- |
-| [Slack thread](...) | Fixed / Shipped / In progress / Asked / Open - no reply / Clustered / Skipped / Abandoned | yes / no | ... |
+| [Slack thread](...) | Fixed / Shipped / In progress / Asked / Open - no reply / Clustered / Skipped / Abandoned - no answer in 4 days | yes / no | ... |
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Unavailable or unverified: ...

@@ -17,6 +17,7 @@ import {
 } from "../../agent/engine/index.js";
 import type { ActionTool } from "../../agent/types.js";
 import { getAppConfig } from "../../app-config/index.js";
+import { prefetchSecrets } from "../../server/credential-provider.js";
 import { getSetting } from "../../settings/index.js";
 
 export const tool: ActionTool = {
@@ -33,6 +34,16 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
   registerBuiltinEngines();
 
   const engines = listAgentEngines();
+  await prefetchSecrets([
+    ...new Set(
+      engines
+        .filter(
+          (entry) =>
+            entry.name !== "builder" && isAgentEnginePackageInstalled(entry),
+        )
+        .flatMap((entry) => entry.requiredEnvVars),
+    ),
+  ]);
   const currentSetting = await getSetting("agent-engine");
   const current = currentSetting
     ? (currentSetting as { engine?: string; model?: string })

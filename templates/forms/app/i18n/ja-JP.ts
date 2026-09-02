@@ -98,6 +98,9 @@ const messages = {
     conditionContains: "含む",
     conditionValue: "回答",
     conditionValuePlaceholder: "回答を入力...",
+    allowMultiple: "複数ファイルを許可",
+    accept: "許可するファイル形式",
+    acceptPlaceholder: "例: image/*, .pdf",
     fieldTypes: {
       text: "短いテキスト",
       email: "電子メール",
@@ -110,6 +113,7 @@ const messages = {
       date: "日付",
       rating: "評価",
       scale: "規模",
+      file: "ファイルアップロード",
     },
   },
   builder: {
@@ -180,6 +184,7 @@ const messages = {
       dateLabel: "日付",
       ratingLabel: "評価",
       scaleLabel: "スケール",
+      fileLabel: "ファイルアップロード",
       option1: "選択肢 1",
       option2: "選択肢 2",
       option3: "選択肢 3",

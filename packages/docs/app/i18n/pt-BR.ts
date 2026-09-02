@@ -436,8 +436,7 @@ const ptBR = {
   homepage: {
     hero: {
       title: "O framework para aplicativos agentic",
-      bodyLine1:
-        "Construa para agentes de IA sem construir um segundo produto para os usuários.",
+      bodyLine1: "Crie agentes autônomos com interfaces intuitivas.",
       bodyLine2: "Traga seu próprio LLM. Implante em qualquer lugar.",
       tryAnApp: "Experimentar um app",
     },
@@ -552,9 +551,10 @@ const ptBR = {
     copyCommunityInstallCommand: "Copiar comando de instalação",
     viewRepository: "Ver repositório",
     tryCommunityDemo: "Experimentar demo",
-    customizeDescription: "Você pode personalizar completamente este código.",
-    customizeOnline: "Personalizar online",
-    customizeLocally: "Personalizar localmente",
+    customizeDescription: "Use este app como ponto de partida.",
+    customizeOnline: "Online",
+    customizeOnlineBadge: "Entrar na lista de espera",
+    customizeLocally: "Local",
     communityNew: "Novo",
     communityComingSoon: "Em breve",
     communityGithubStars: "{{count}} estrelas no GitHub",
@@ -574,13 +574,12 @@ const ptBR = {
     communitySubmissionName: "Nome do aplicativo",
     communitySubmissionNamePlaceholder: "Central de suporte ao cliente",
     communitySubmissionUrl: "URL do aplicativo",
-    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "Descrição",
     communitySubmissionDescriptionPlaceholder:
       "O que o aplicativo faz e para quem ele é?",
     communitySubmissionRepository: "Repositório do GitHub (opcional)",
-    communitySubmissionRepositoryPlaceholder:
-      "https://github.com/owner/repository",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
     communitySubmissionScreenshots: "Capturas de tela (opcional)",
     communitySubmissionScreenshotsPlaceholder: "Solte até 5 imagens aqui",
     communitySubmissionScreenshotDropHint:
@@ -592,8 +591,16 @@ const ptBR = {
     communitySubmissionSubmit: "Enviar aplicativo",
     communitySubmissionReady:
       "Obrigado. Vamos revisar seu aplicativo antes de publicá-lo.",
-    communitySubmissionValidation:
-      "Adicione um nome, uma descrição e uma URL de aplicativo válida. Envie imagens PNG, JPG ou WebP de até 1,5 MB cada.",
+    communitySubmissionNameError: "Insira um nome para o aplicativo.",
+    communitySubmissionDescriptionError: "Adicione uma descrição curta.",
+    communitySubmissionUrlError: "Insira um link válido, como example.com.",
+    communitySubmissionRepositoryError:
+      "Insira um link de repositório do GitHub.",
+    communitySubmissionScreenshotsError:
+      "Use imagens PNG, JPG ou WebP de até 1,5 MB cada, com no máximo 5 imagens.",
+    communitySubmissionSubmitError:
+      "Não foi possível enviar agora. Verifique os campos destacados e tente novamente.",
+    communitySubmissionSubmitting: "Enviando…",
   },
   buildFromScratch: {
     title: "Criar do zero",
@@ -1486,7 +1493,7 @@ const ptBR = {
       s004: "Refinar",
       s005: "Todos os modelos",
       s006Primary: "Apresentações de slides",
-      s006Secondary: "para pessoas e agentes",
+      s006Secondary: "Com sua marca e editáveis",
       s007: "Gere apresentações com a identidade da sua marca usando seu agente de IA, faça suas próprias alterações manuais a qualquer momento e exporte para qualquer lugar.",
       s008: "Experimentar",
       s009: "Como funciona",

@@ -93,6 +93,9 @@ const messages = {
     conditionContains: "包含",
     conditionValue: "答案",
     conditionValuePlaceholder: "輸入答案...",
+    allowMultiple: "允許多個檔案",
+    accept: "接受的檔案類型",
+    acceptPlaceholder: "image/*、.pdf",
     fieldTypes: {
       text: "短文字",
       email: "電子郵件",
@@ -105,6 +108,7 @@ const messages = {
       date: "日期",
       rating: "等級",
       scale: "規模",
+      file: "檔案上傳",
     },
   },
   builder: {
@@ -167,6 +171,7 @@ const messages = {
       dateLabel: "日期",
       ratingLabel: "評分",
       scaleLabel: "量表",
+      fileLabel: "檔案上傳",
       option1: "選項 1",
       option2: "選項 2",
       option3: "選項 3",

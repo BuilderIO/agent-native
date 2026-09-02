@@ -94,7 +94,9 @@ function isWorkspaceRuntime(): boolean {
   );
 }
 
-function workspaceBasePathFromRequest(requestPath: string | undefined): string {
+export function workspaceBasePathFromRequest(
+  requestPath: string | undefined,
+): string {
   if (!isWorkspaceRuntime() || !requestPath) return "";
   const pathname = requestPath.split(/[?#]/, 1)[0] || "/";
   const firstSegment = pathname.split("/").find(Boolean);

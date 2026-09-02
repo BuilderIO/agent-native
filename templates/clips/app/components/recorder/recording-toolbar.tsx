@@ -6,9 +6,16 @@ import type {
   RecordingPlayheadLayout,
 } from "@shared/recording-playhead";
 import { RecordingPlayhead } from "@shared/recording-playhead";
+import {
+  clampRecordingPlayheadPosition,
+  dockRecordingPlayhead,
+  resizeRecordingPlayheadPosition,
+} from "@shared/recording-playhead-position";
+import type {
+  RecordingPlayheadPosition,
+  RecordingPlayheadSize,
+} from "@shared/recording-playhead-position";
 import { useEffect, useRef, useState } from "react";
-
-import { clampRectToViewport, type BubblePosition } from "./camera-positioner";
 
 export interface RecordingToolbarProps {
   /** Whether the elapsed-time ticker should run — true only while actively
@@ -28,8 +35,14 @@ export interface RecordingToolbarProps {
 
 // The shared playhead's resting width is the initial drag bound. The measured
 // layout below expands that bound before the playhead reveals controls.
-const TOOLBAR_WIDTH = 150;
-const TOOLBAR_HEIGHT = 56;
+const TOOLBAR_HORIZONTAL_SIZE: RecordingPlayheadSize = {
+  width: 150,
+  height: 56,
+};
+const TOOLBAR_VERTICAL_SIZE: RecordingPlayheadSize = {
+  width: 42,
+  height: 118,
+};
 // Drop the toolbar just below the centered "Recording your screen…" status
 // text (which sits at the viewport's vertical center) so the controls don't
 // overlap it.
@@ -60,20 +73,38 @@ export function RecordingToolbar({
     return () => window.clearInterval(id);
   }, [active]);
 
-  const [pos, setPos] = useState<BubblePosition>(() =>
+  const [pos, setPos] = useState<RecordingPlayheadPosition>(() =>
     typeof window === "undefined"
-      ? { left: 16, top: 16, corner: "tl" }
+      ? {
+          left: 16,
+          top: 16,
+          orientation: "horizontal",
+          dock: "free",
+          slot: null,
+        }
       : {
-          left: Math.max(16, (window.innerWidth - TOOLBAR_WIDTH) / 2),
+          left: Math.max(
+            16,
+            (window.innerWidth - TOOLBAR_HORIZONTAL_SIZE.width) / 2,
+          ),
           top: Math.max(16, window.innerHeight / 2 + TOOLBAR_TOP_OFFSET),
-          corner: "tl",
+          orientation: "horizontal",
+          dock: "free",
+          slot: null,
         },
   );
+  const posRef = useRef(pos);
+  posRef.current = pos;
+  const dragPositionRef = useRef(pos);
+  const activePointerIdRef = useRef<number | null>(null);
   const [dragging, setDragging] = useState(false);
   const dragOffsetRef = useRef({ dx: 0, dy: 0 });
-  const [toolbarLayout, setToolbarLayout] = useState<RecordingPlayheadLayout>({
-    width: TOOLBAR_WIDTH,
-    height: TOOLBAR_HEIGHT,
+  const [toolbarLayout, setToolbarLayout] = useState<RecordingPlayheadLayout>(
+    TOOLBAR_HORIZONTAL_SIZE,
+  );
+  const playheadSizesRef = useRef({
+    horizontal: TOOLBAR_HORIZONTAL_SIZE,
+    vertical: TOOLBAR_VERTICAL_SIZE,
   });
   const [pendingAction, setPendingAction] =
     useState<RecordingPlayheadIntent | null>(null);
@@ -85,10 +116,16 @@ export function RecordingToolbar({
   }, [active]);
 
   function handlePlayheadLayoutChange(layout: RecordingPlayheadLayout) {
+    const orientation = posRef.current.orientation;
+    const minimum =
+      orientation === "vertical"
+        ? TOOLBAR_VERTICAL_SIZE
+        : TOOLBAR_HORIZONTAL_SIZE;
     const nextLayout = {
-      width: Math.max(TOOLBAR_WIDTH, Math.ceil(layout.width)),
-      height: Math.max(TOOLBAR_HEIGHT, Math.ceil(layout.height)),
-    };
+      width: Math.max(minimum.width, Math.ceil(layout.width)),
+      height: Math.max(minimum.height, Math.ceil(layout.height)),
+    } satisfies RecordingPlayheadLayout;
+    playheadSizesRef.current[orientation] = nextLayout;
     toolbarLayoutRef.current = nextLayout;
     setToolbarLayout((previous) =>
       previous.width === nextLayout.width &&
@@ -97,19 +134,24 @@ export function RecordingToolbar({
         : nextLayout,
     );
     setPos((previous) => {
-      const clamped = clampRectToViewport(
-        previous.left,
-        previous.top,
-        nextLayout,
+      const next = resizeRecordingPlayheadPosition(
+        previous,
+        playheadSizesRef.current,
         {
+          left: 0,
+          top: 0,
           width: window.innerWidth,
           height: window.innerHeight,
         },
       );
-      if (clamped.left === previous.left && clamped.top === previous.top) {
+      if (
+        next.left === previous.left &&
+        next.top === previous.top &&
+        next.orientation === previous.orientation
+      ) {
         return previous;
       }
-      return { ...previous, left: clamped.left, top: clamped.top };
+      return next;
     });
   }
 
@@ -120,17 +162,13 @@ export function RecordingToolbar({
 
   useEffect(() => {
     function onResize() {
-      const layout = toolbarLayoutRef.current;
       setPos((p) => {
-        const clamped = clampRectToViewport(p.left, p.top, layout, {
+        return resizeRecordingPlayheadPosition(p, playheadSizesRef.current, {
+          left: 0,
+          top: 0,
           width: window.innerWidth,
           height: window.innerHeight,
         });
-        return {
-          ...p,
-          left: clamped.left,
-          top: clamped.top,
-        };
       });
     }
     window.addEventListener("resize", onResize);
@@ -143,33 +181,63 @@ export function RecordingToolbar({
     if (target.closest("[data-recording-playhead-button]")) return;
     if (!rootRef.current) return;
     const rect = rootRef.current.getBoundingClientRect();
+    dragPositionRef.current = posRef.current;
     dragOffsetRef.current = {
       dx: e.clientX - rect.left,
       dy: e.clientY - rect.top,
     };
-    setDragging(true);
     rootRef.current.setPointerCapture(e.pointerId);
+    activePointerIdRef.current = e.pointerId;
+    setDragging(true);
   }
 
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
-    if (!dragging) return;
+    if (activePointerIdRef.current !== e.pointerId) return;
     const { dx, dy } = dragOffsetRef.current;
-    const layout = toolbarLayoutRef.current;
-    const clamped = clampRectToViewport(
+    const orientation = posRef.current.orientation;
+    const layout = playheadSizesRef.current[orientation];
+    const clamped = clampRecordingPlayheadPosition(
       e.clientX - dx,
       e.clientY - dy,
       layout,
-      { width: window.innerWidth, height: window.innerHeight },
+      { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight },
     );
-    setPos((prev) => ({ ...prev, left: clamped.left, top: clamped.top }));
+    setPos((prev) => ({
+      ...prev,
+      left: clamped.left,
+      top: clamped.top,
+      dock: "free",
+      slot: null,
+    }));
+    dragPositionRef.current = {
+      ...posRef.current,
+      left: clamped.left,
+      top: clamped.top,
+      dock: "free",
+      slot: null,
+    };
   }
 
   function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
-    if (!rootRef.current) return;
-    if (rootRef.current.hasPointerCapture(e.pointerId)) {
-      rootRef.current.releasePointerCapture(e.pointerId);
-    }
+    if (activePointerIdRef.current !== e.pointerId) return;
+    activePointerIdRef.current = null;
     setDragging(false);
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    const current = dockRecordingPlayhead(
+      dragPositionRef.current.left,
+      dragPositionRef.current.top,
+      playheadSizesRef.current,
+      {
+        left: 0,
+        top: 0,
+        width: window.innerWidth,
+        height: window.innerHeight,
+      },
+    );
+    dragPositionRef.current = current;
+    setPos(current);
   }
 
   return (
@@ -186,7 +254,10 @@ export function RecordingToolbar({
         left: pos.left,
         top: pos.top,
         width: "max-content",
-        minWidth: TOOLBAR_WIDTH,
+        minWidth:
+          pos.orientation === "horizontal"
+            ? TOOLBAR_HORIZONTAL_SIZE.width
+            : undefined,
         minHeight: toolbarLayout.height,
         touchAction: "none",
       }}
@@ -194,6 +265,7 @@ export function RecordingToolbar({
       <RecordingPlayhead
         elapsedMs={elapsedMs}
         paused={isPaused}
+        orientation={pos.orientation}
         enabled={active}
         pendingAction={pendingAction}
         meter={<LiveWaveform level={null} dimmed={!active || isPaused} />}

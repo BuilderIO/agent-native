@@ -7,18 +7,19 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { rowToBookingLink } from "../server/lib/booking-link-utils.js";
-import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
+import { readCalendarSettings } from "../server/lib/calendar-settings.js";
 import { listGoogleCalendars } from "../server/lib/google-calendar.js";
 import type { CalendarEvent, CalendarEventDraft } from "../shared/api.js";
 import {
   CALENDAR_VIEW_PREFERENCES_KEY,
   normalizeCalendarViewPreferences,
 } from "../shared/calendar-view-preferences.js";
+import { getWeekStartsOn } from "../shared/calendar-week.js";
 import { SHARED_GOOGLE_CALENDARS } from "../shared/feature-flags.js";
 import {
-  addDaysToDateKey,
+  getCalendarViewDateRange,
   dateKeyInTimezone,
-  dateTimeInTimezoneToIso,
+  type CalendarViewMode,
 } from "../shared/timezone.js";
 import { extractVideoLink } from "./event-action-helpers.js";
 import { listCalendarEvents } from "./list-events.js";
@@ -27,9 +28,14 @@ function safeDraftId(id: unknown): string | null {
   return typeof id === "string" && /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
 }
 
+function isCalendarViewMode(value: unknown): value is CalendarViewMode {
+  return value === "month" || value === "week" || value === "day";
+}
+
 async function fetchEventsForRange(
   from: string,
   to: string,
+  timezone: string,
   calendarSourceKeys?: string[],
 ): Promise<{
   events: CalendarEvent[];
@@ -38,7 +44,10 @@ async function fetchEventsForRange(
   range: { from: string; to: string; timezone: string; defaulted: boolean };
 }> {
   try {
-    return await listCalendarEvents({ from, to, calendarSourceKeys });
+    return await listCalendarEvents(
+      { from, to, calendarSourceKeys },
+      { timezone },
+    );
   } catch (error: any) {
     return {
       events: [],
@@ -52,7 +61,7 @@ async function fetchEventsForRange(
       range: {
         from,
         to,
-        timezone: "UTC",
+        timezone,
         defaulted: false,
       },
     };
@@ -79,12 +88,21 @@ export default defineAction({
     if (nav?.view === "calendar" || !nav?.view) {
       const email = getRequestUserEmail();
       if (!email) throw new Error("no authenticated user");
-      const timezone = await getCalendarTimezone(email);
-      // Work in calendar days, then resolve the two edges to instants once.
-      const viewDay = nav?.date ?? dateKeyInTimezone(new Date(), timezone);
-      // Noon UTC so the weekday can never be shifted by an offset.
-      const weekday = new Date(`${viewDay}T12:00:00Z`).getUTCDay();
-      const weekStart = addDaysToDateKey(viewDay, -weekday);
+      const settings = await readCalendarSettings(email);
+      const timezone = settings.timezone;
+      const viewMode = isCalendarViewMode(nav?.calendarViewMode)
+        ? nav.calendarViewMode
+        : "week";
+      const viewDay =
+        typeof nav?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(nav.date)
+          ? nav.date
+          : dateKeyInTimezone(new Date(), timezone);
+      const range = getCalendarViewDateRange(
+        viewMode,
+        viewDay,
+        timezone,
+        getWeekStartsOn(settings.weekStart),
+      );
 
       const sharedCalendarsEnabled = await isFeatureFlagEnabled(
         SHARED_GOOGLE_CALENDARS,
@@ -123,12 +141,9 @@ export default defineAction({
       }
 
       const eventResult = await fetchEventsForRange(
-        dateTimeInTimezoneToIso(weekStart, "00:00", timezone),
-        dateTimeInTimezoneToIso(
-          addDaysToDateKey(weekStart, 7),
-          "00:00",
-          timezone,
-        ),
+        range.from,
+        range.to,
+        timezone,
         sharedCalendarsEnabled
           ? visibleCalendarSources.map((source) => source.sourceKey)
           : undefined,
@@ -151,6 +166,8 @@ export default defineAction({
           calendarReadOnly: e.calendarReadOnly,
           location: e.location || undefined,
           allDay: e.allDay || undefined,
+          recurrence: e.recurrence || undefined,
+          recurringEventId: e.recurringEventId || undefined,
           attendeeCount: e.attendees?.length ?? 0,
           attendeeNames: e.attendees
             ?.filter((a: any) => !a.self)

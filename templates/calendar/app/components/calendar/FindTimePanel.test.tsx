@@ -153,4 +153,70 @@ describe("FindTimeTakeover", () => {
         ?.getAttribute("data-dialog-overlay-class"),
     ).toContain("z-[310]");
   });
+
+  it("keeps evening suggestions inside the time grid", () => {
+    useActionQuery.mockReturnValue({
+      data: {
+        range: {
+          from: "2026-08-09T00:00:00.000Z",
+          to: "2026-08-16T00:00:00.000Z",
+          timezone: "UTC",
+          durationMinutes: 30,
+          slotStepMinutes: 30,
+        },
+        googleConnected: true,
+        participants: [],
+        busy: [
+          {
+            participantEmail: "guest@example.com",
+            start: "2026-08-09T20:00:00.000Z",
+            end: "2026-08-09T21:00:00.000Z",
+            title: "Evening conflict",
+          },
+        ],
+        slots: [
+          {
+            start: "2026-08-09T20:00:00.000Z",
+            end: "2026-08-09T20:30:00.000Z",
+            date: "2026-08-09",
+            durationMinutes: 30,
+            availableParticipantEmails: [],
+            unavailableParticipantEmails: [],
+          },
+        ],
+      },
+      isFetching: false,
+      isLoading: false,
+    });
+
+    act(() => {
+      root.render(
+        <FindTimeTakeover
+          open
+          onOpenChange={() => undefined}
+          date="2026-08-09"
+          timezone="UTC"
+          durationMinutes={30}
+          attendees={[]}
+          onSelectSlot={() => undefined}
+        />,
+      );
+    });
+
+    const lateSlot = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("8:00 PM"),
+    );
+    const grid = Array.from(document.querySelectorAll<HTMLElement>("div")).find(
+      (node) => node.style.minHeight,
+    );
+
+    expect(lateSlot).toBeTruthy();
+    expect(grid).toBeTruthy();
+    expect(
+      document.querySelector('[title="guest@example.com: Evening conflict"]'),
+    ).toBeTruthy();
+    expect(Number.parseFloat(lateSlot?.style.top ?? "0")).toBeLessThan(
+      Number.parseFloat(grid?.style.minHeight ?? "0"),
+    );
+  });
 });

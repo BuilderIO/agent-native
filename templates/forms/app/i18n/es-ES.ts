@@ -98,6 +98,9 @@ const messages = {
     conditionContains: "contiene",
     conditionValue: "Respuesta",
     conditionValuePlaceholder: "Escribe una respuesta...",
+    allowMultiple: "Permitir varios archivos",
+    accept: "Tipos de archivo aceptados",
+    acceptPlaceholder: "p. ej., image/*, .pdf",
     fieldTypes: {
       text: "Texto corto",
       email: "Correo electrónico",
@@ -110,6 +113,7 @@ const messages = {
       date: "Fecha",
       rating: "Clasificación",
       scale: "Escala",
+      file: "Carga de archivos",
     },
   },
   builder: {
@@ -181,6 +185,7 @@ const messages = {
       dateLabel: "Fecha",
       ratingLabel: "Valoración",
       scaleLabel: "Escala",
+      fileLabel: "Carga de archivos",
       option1: "Opción 1",
       option2: "Opción 2",
       option3: "Opción 3",

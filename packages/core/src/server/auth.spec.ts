@@ -83,6 +83,7 @@ describe("server/auth", () => {
     vi.doUnmock("./better-auth-instance.js");
     vi.doUnmock("../db/client.js");
     vi.doUnmock("../org/context.js");
+    vi.doUnmock("../org/auth-policy.js");
     vi.doUnmock("./embed-session.js");
     vi.doUnmock("./email.js");
     vi.doUnmock("./sentry.js");
@@ -4145,6 +4146,140 @@ describe("server/auth", () => {
       });
       expect(JSON.stringify(result)).not.toContain("Failed query");
       expect(JSON.stringify(result)).not.toContain('select "id"');
+    });
+
+    it("classifies register failures without masking unknown errors as conflicts", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const signUpEmail = vi.fn(async ({ body }: any) => {
+        if (body.email === "existing@example.com") {
+          throw new Error("User already exists");
+        }
+        throw new Error("Unexpected signup provider failure");
+      });
+      const isGoogleSignInRequiredForEmail = vi.fn(
+        async (email: string) => email === "google-only@example.com",
+      );
+      vi.doMock("../org/auth-policy.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        isGoogleSignInRequiredForEmail,
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail,
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const registerHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/register",
+      )?.[1];
+      expect(registerHandler).toBeTypeOf("function");
+
+      const unknownEvent = createJsonPostEvent("/_agent-native/auth/register", {
+        email: "unknown@example.com",
+        password: "secret-password",
+      });
+      await expect(registerHandler(unknownEvent)).resolves.toEqual({
+        error: "We couldn't create your account right now. Please try again.",
+      });
+      expect(unknownEvent.res.status).toBe(500);
+
+      const existingEvent = createJsonPostEvent(
+        "/_agent-native/auth/register",
+        {
+          email: "existing@example.com",
+          password: "secret-password",
+        },
+      );
+      await expect(registerHandler(existingEvent)).resolves.toEqual({
+        error:
+          "An account with this email already exists. Sign in instead or reset your password.",
+      });
+      expect(existingEvent.res.status).toBe(409);
+
+      const googleEvent = createJsonPostEvent("/_agent-native/auth/register", {
+        email: "google-only@example.com",
+        password: "secret-password",
+      });
+      await expect(registerHandler(googleEvent)).resolves.toEqual({
+        error: "This organization requires Google sign-in.",
+      });
+      expect(googleEvent.res.status).toBe(403);
+      expect(signUpEmail).toHaveBeenCalledTimes(2);
+    });
+
+    it("returns 500 for unknown signup failures on the lazy fallback route", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const signUpEmail = vi.fn(async () => {
+        throw new Error("Unexpected lazy signup failure");
+      });
+      const auth = {
+        handler: vi.fn(async () => new Response("{}")),
+        api: {
+          getSession: vi.fn(async () => null),
+          signInEmail: vi.fn(),
+          signUpEmail,
+          signOut: vi.fn(),
+        },
+      };
+      const getBetterAuth = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("Better Auth initialization failed"))
+        .mockResolvedValue(auth);
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth,
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const registerHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/register",
+      )?.[1];
+      expect(registerHandler).toBeTypeOf("function");
+
+      const event = createJsonPostEvent("/_agent-native/auth/register", {
+        email: "unknown@example.com",
+        password: "secret-password",
+      });
+      await expect(registerHandler(event)).resolves.toEqual({
+        error: "We couldn't create your account right now. Please try again.",
+      });
+      expect(event.res.status).toBe(500);
+      expect(signUpEmail).toHaveBeenCalledTimes(1);
+      expect(getBetterAuth).toHaveBeenCalledTimes(2);
     });
 
     it("accepts HEAD on the auth session endpoint", async () => {

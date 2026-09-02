@@ -98,6 +98,9 @@ const messages = {
     conditionContains: "포함",
     conditionValue: "답변",
     conditionValuePlaceholder: "답변 입력...",
+    allowMultiple: "여러 파일 허용",
+    accept: "허용되는 파일 형식",
+    acceptPlaceholder: "예: image/*, .pdf",
     fieldTypes: {
       text: "짧은 텍스트",
       email: "이메일",
@@ -110,6 +113,7 @@ const messages = {
       date: "날짜",
       rating: "평가",
       scale: "규모",
+      file: "파일 업로드",
     },
   },
   builder: {
@@ -177,6 +181,7 @@ const messages = {
       dateLabel: "날짜",
       ratingLabel: "평점",
       scaleLabel: "척도",
+      fileLabel: "파일 업로드",
       option1: "옵션 1",
       option2: "옵션 2",
       option3: "옵션 3",

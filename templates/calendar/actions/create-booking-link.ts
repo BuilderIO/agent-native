@@ -126,6 +126,7 @@ export default defineAction({
         isActive: body.isActive ?? true,
         ownerEmail,
         orgId: getRequestOrgId(),
+        visibility: "private",
         createdAt: now,
         updatedAt: now,
       });

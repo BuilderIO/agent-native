@@ -12,6 +12,7 @@ function rowToBooking(
     | "id"
     | "name"
     | "email"
+    | "additionalGuestEmails"
     | "start"
     | "end"
     | "slug"
@@ -30,10 +31,14 @@ function rowToBooking(
       fieldResponses = JSON.parse(row.fieldResponses);
     } catch {}
   }
+  const additionalGuestEmails = parseAdditionalGuestEmails(
+    row.additionalGuestEmails,
+  );
   return {
     id: row.id,
     name: row.name,
     email: row.email,
+    additionalGuestEmails,
     start: row.start,
     end: row.end,
     slug: row.slug,
@@ -64,6 +69,7 @@ export default defineAction({
         id: schema.bookings.id,
         name: schema.bookings.name,
         email: schema.bookings.email,
+        additionalGuestEmails: schema.bookings.additionalGuestEmails,
         start: schema.bookings.start,
         end: schema.bookings.end,
         slug: schema.bookings.slug,
@@ -81,3 +87,20 @@ export default defineAction({
     return rows.map(rowToBooking);
   },
 });
+
+function parseAdditionalGuestEmails(
+  value: string | null | undefined,
+): string[] | undefined {
+  if (!value) return undefined;
+  const parsed: unknown = JSON.parse(value);
+  if (!Array.isArray(parsed)) {
+    throw new Error("Invalid stored additional guest emails");
+  }
+  const emails = parsed.filter(
+    (email): email is string => typeof email === "string",
+  );
+  if (emails.length !== parsed.length) {
+    throw new Error("Invalid stored additional guest emails");
+  }
+  return emails;
+}
