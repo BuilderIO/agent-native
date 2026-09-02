@@ -249,6 +249,7 @@ async function rememberGeneratedThumbnailAsset(
 async function hasAnotherRecordingReference(
   recordingId: string,
   url: string,
+  ownerEmail: string,
 ): Promise<boolean> {
   const [reference] = await getDb()
     .select({ id: schema.recordings.id })
@@ -256,6 +257,7 @@ async function hasAnotherRecordingReference(
     .where(
       and(
         ne(schema.recordings.id, recordingId),
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         or(
           eq(schema.recordings.videoUrl, url),
           eq(schema.recordings.thumbnailUrl, url),
@@ -270,6 +272,7 @@ async function hasAnotherRecordingReference(
 
 async function cleanupReplacedGeneratedThumbnail(
   recordingId: string,
+  ownerEmail: string,
   previousThumbnailUrl: string | null,
   nextThumbnailUrl: string,
 ): Promise<void> {
@@ -281,7 +284,13 @@ async function cleanupReplacedGeneratedThumbnail(
   if (!previousAsset || previousAsset.url !== previousThumbnailUrl) return;
 
   try {
-    if (await hasAnotherRecordingReference(recordingId, previousAsset.url)) {
+    if (
+      await hasAnotherRecordingReference(
+        recordingId,
+        previousAsset.url,
+        ownerEmail,
+      )
+    ) {
       return;
     }
     const deleted = await deleteUploadedFile(previousAsset.provider, {
@@ -552,6 +561,7 @@ async function ensureRecordingThumbnailOnce(
     if (uploaded) {
       await cleanupReplacedGeneratedThumbnail(
         recordingId,
+        ownerEmail,
         existingThumbnailUrl,
         url,
       );
