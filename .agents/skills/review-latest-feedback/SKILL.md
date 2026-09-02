@@ -32,10 +32,19 @@ Other agents work this channel concurrently, so an unclaimed report is one
 someone else is about to start investigating. The eye is a lock, not a
 bookmark, and a lock taken after the work is worthless.
 
-Scan the window newest to oldest with a channel read, and classify from
-**parent-level evidence only**: the message text, its attachments, and its
-existing reactions. That is enough to tell a clear bug from a preference, and
-it is cheap. Do not open full threads, read code, or investigate yet.
+Enumerate the window with `slack_read_channel`, paginating on its cursor until
+the window is covered, and classify from **parent-level evidence only**: the
+message text, its attachments, and its existing reactions. That is enough to
+tell a clear bug from a preference, and it is cheap. Do not open full threads,
+read code, or investigate yet.
+
+**`slack_search` is not a scan.** It ranks and truncates, so a channel-plus-date
+query silently returns a subset and never promises every message. A run that
+used search as its only cursor left a data-loss report — "undo made all my
+slides blank", with a clip, deck id, and run id attached — unclaimed and
+unanswered, alongside five other clear bugs. Search is for finding known
+things: your prior replies, your eyes, repeat symptoms. Enumeration is the
+channel read. State the message count you covered in the recap.
 
 A channel read returns parents, so use its timestamps directly. The
 full-thread-read rule below exists because *search* hits are usually replies —
@@ -519,7 +528,8 @@ on — that is how silence stays auditable.
 ```md
 ## Feedback sweep
 Start cursor: [Slack message](...)
-Answered since last run: N · Questions asked: N/3 · Dropped at 4 days: N
+Messages enumerated: N · Claimed: N · Answered since last run: N
+Questions asked: N/3 · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)
 
