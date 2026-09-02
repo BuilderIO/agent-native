@@ -1,6 +1,7 @@
 import {
   forwardRef,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -77,6 +78,13 @@ export const CommentComposer = forwardRef<
   useEffect(() => {
     if (autoFocus) innerRef.current?.focus();
   }, [autoFocus]);
+
+  useLayoutEffect(() => {
+    const element = innerRef.current;
+    if (!element) return;
+    element.style.height = "auto";
+    element.style.height = `${element.scrollHeight}px`;
+  }, [rows, value]);
 
   const filtered =
     query === null
@@ -239,7 +247,7 @@ export const CommentComposer = forwardRef<
             }}
             placeholder={placeholder}
             className={cn(
-              "w-full resize-none bg-transparent placeholder:text-muted-foreground focus:outline-none",
+              "w-full resize-none overflow-y-hidden bg-transparent placeholder:text-muted-foreground focus:outline-none",
               className,
             )}
           />

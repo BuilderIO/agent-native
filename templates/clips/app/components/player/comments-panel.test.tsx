@@ -148,6 +148,25 @@ describe("CommentsPanel reply composer", () => {
     expect(composer?.parentElement?.className).not.toContain("border");
   });
 
+  it("grows comment textareas to fit their content without scrolling", () => {
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    );
+    expect(composer).not.toBeNull();
+    Object.defineProperty(composer, "scrollHeight", {
+      configurable: true,
+      value: 144,
+    });
+
+    act(() => {
+      if (!composer) return;
+      setTextareaValue(composer, "A comment long enough to wrap");
+    });
+
+    expect(composer?.style.height).toBe("144px");
+    expect(composer?.className).toContain("overflow-y-hidden");
+  });
+
   it("renders inline Markdown while flattening headings", () => {
     renderPanel("viewer@example.com", [
       {
