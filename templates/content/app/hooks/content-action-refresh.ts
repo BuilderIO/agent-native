@@ -5,8 +5,14 @@ const COMMENT_MUTATIONS = new Set([
 ]);
 
 const DOCUMENT_BODY_MUTATIONS = new Set([
+  "delete-document-property",
   "edit-document",
+  "pull-notion-page",
+  "push-notion-page",
   "restore-document-version",
+  "set-document-property",
+  "set-image-alt-text",
+  "transcribe-media",
   "update-document",
 ]);
 

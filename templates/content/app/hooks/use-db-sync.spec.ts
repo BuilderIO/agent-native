@@ -18,17 +18,24 @@ describe("contentActionRefreshPrefixes", () => {
     },
   );
 
-  it.each(["edit-document", "restore-document-version", "update-document"])(
-    "refreshes the open document after external %s",
-    (key) => {
-      expect(
-        contentActionRefreshPrefixes(
-          { source: "action", key, requestSource: "agent" },
-          "browser-tab",
-        ),
-      ).toEqual([["action", "get-document"]]);
-    },
-  );
+  it.each([
+    "delete-document-property",
+    "edit-document",
+    "pull-notion-page",
+    "push-notion-page",
+    "restore-document-version",
+    "set-document-property",
+    "set-image-alt-text",
+    "transcribe-media",
+    "update-document",
+  ])("refreshes the open document after external %s", (key) => {
+    expect(
+      contentActionRefreshPrefixes(
+        { source: "action", key, requestSource: "agent" },
+        "browser-tab",
+      ),
+    ).toEqual([["action", "get-document"]]);
+  });
 
   it("does not duplicate the originating tab's optimistic refresh", () => {
     expect(
