@@ -235,9 +235,14 @@ describe("production Netlify site concurrency guard", () => {
       "utf8",
     );
     assert.match(betaSource, /actions\.listWorkflowRuns/);
-    assert.match(betaSource, /context\.payload\.before/);
+    assert.match(betaSource, /context\.runId/);
+    assert.match(betaSource, /run\.id < context\.runId/);
     assert.match(betaSource, /actions\.getWorkflowRun/);
-    assert.match(betaSource, /run\.event === 'push'/);
+    assert.match(
+      betaSource,
+      /\['push', 'workflow_dispatch'\]\.includes\(run\.event\)/,
+    );
+    assert.match(betaSource, /workflow_dispatch/);
   });
 
   it("rejects the dead workflow_call event check", () => {

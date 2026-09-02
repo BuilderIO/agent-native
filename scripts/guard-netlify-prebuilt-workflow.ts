@@ -623,6 +623,20 @@ for (const [path, target, buildContext] of [
   }
 }
 
+for (const required of [
+  "context.runId",
+  "run.id < context.runId",
+  "run.event",
+  "workflow_dispatch",
+  "actions.getWorkflowRun",
+] as const) {
+  if (!beta.includes(required)) {
+    issues.push(
+      `${betaPath} must queue push and manual beta runs behind the prior workflow run (${required})`,
+    );
+  }
+}
+
 if (issues.length) {
   for (const issue of issues) console.error(`::error::${issue}`);
   process.exit(1);
