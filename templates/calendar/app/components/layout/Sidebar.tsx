@@ -1000,7 +1000,19 @@ export function Sidebar({
                               )?.status === "error" && (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
-                                    <IconAlertTriangle className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+                                    <span
+                                      tabIndex={0}
+                                      className="inline-flex shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                      aria-label={t(
+                                        "sidebar.overlayCalendarUnavailable",
+                                        { email: person.name || person.email },
+                                      )}
+                                    >
+                                      <IconAlertTriangle
+                                        className="h-3 w-3 text-muted-foreground/60"
+                                        aria-hidden="true"
+                                      />
+                                    </span>
                                   </TooltipTrigger>
                                   <TooltipContent side="right">
                                     {t("sidebar.overlayCalendarUnavailable", {

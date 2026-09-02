@@ -230,6 +230,7 @@ export function TimeZoneGrid({
                     <button
                       key={slot.start}
                       type="button"
+                      aria-pressed={isSelected}
                       onClick={() => onSelect(slot.start)}
                       onMouseEnter={() => setHoveredSlot(slot.start)}
                       onMouseLeave={() =>
@@ -262,10 +263,16 @@ export function TimeZoneGrid({
           </div>
         </div>
         {canScrollLeft && (
-          <div className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-background to-transparent" />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-background to-transparent"
+          />
         )}
         {canScrollRight && (
-          <div className="pointer-events-none absolute inset-y-0 right-0 flex w-10 items-center justify-end bg-gradient-to-l from-background to-transparent pr-0.5">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 right-0 flex w-10 items-center justify-end bg-gradient-to-l from-background to-transparent pr-0.5"
+          >
             <IconChevronRight className="h-4 w-4 animate-pulse text-muted-foreground" />
           </div>
         )}
