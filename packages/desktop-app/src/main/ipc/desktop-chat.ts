@@ -746,9 +746,9 @@ export function desktopTerminalWorkspacePath(): string {
 export function resolveDesktopTerminalCwd(preferredPath?: string): string {
   const candidates = [
     preferredPath,
-    desktopTerminalWorkspacePath(),
     process.env.AGENT_NATIVE_PROJECT_ROOT,
     process.env.CODE_AGENTS_PROJECT_ROOT,
+    desktopTerminalWorkspacePath(),
     process.env.INIT_CWD,
     process.env.PWD,
     process.cwd(),

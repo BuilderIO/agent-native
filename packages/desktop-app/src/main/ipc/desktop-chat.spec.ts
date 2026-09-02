@@ -50,6 +50,21 @@ describe("desktop chat relay target URLs", () => {
     }
   });
 
+  it("preserves an explicit project root before the app-owned fallback", () => {
+    const projectRoot = mkdtempSync(path.join("/tmp", "project-root-"));
+    vi.spyOn(process, "cwd").mockReturnValue("/tmp");
+    vi.stubEnv("AGENT_NATIVE_PROJECT_ROOT", projectRoot);
+    vi.stubEnv("CODE_AGENTS_PROJECT_ROOT", "/");
+    vi.stubEnv("INIT_CWD", "/");
+    vi.stubEnv("PWD", "/");
+
+    try {
+      expect(resolveDesktopTerminalCwd()).toBe(projectRoot);
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
   it("configures the desktop sidebar tool for supported CLI agents", () => {
     const registration = {
       url: "http://127.0.0.1:3456/mcp",
