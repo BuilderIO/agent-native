@@ -52,7 +52,10 @@ import {
   runWithRequestContext,
   type RequestContext,
 } from "../server/request-context.js";
-import type { JobFrontmatter } from "./frontmatter.js";
+import {
+  recoveredFactoryOwnerOrgId,
+  type JobFrontmatter,
+} from "./frontmatter.js";
 import {
   attachAutomationRunThread,
   finishAutomationRun,
@@ -232,7 +235,14 @@ export async function resolveBackgroundAutomationIdentity(
     effectiveRunAs === "creator"
       ? automation.meta.createdBy || automation.resource.owner
       : automation.resource.owner;
-  const orgId = automation.meta.orgId ?? undefined;
+  const orgId =
+    recoveredFactoryOwnerOrgId(
+      automation.meta,
+      automation.resource.path,
+      automation.resource.owner,
+    ) ??
+    automation.meta.orgId ??
+    undefined;
   const validity = await validateAutomationRunIdentity(userEmail, orgId);
   return validity.ok
     ? {

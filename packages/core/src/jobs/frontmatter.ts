@@ -105,23 +105,54 @@ function isFactoryAutomationPath(path: string): boolean {
   );
 }
 
+/** Same prefix as `organizationResourceOwner`; keep this file free of store. */
+function organizationIdFromOwner(
+  owner: string | null | undefined,
+): string | null {
+  if (!owner?.startsWith("__organization__:")) return null;
+  const encoded = owner.slice("__organization__:".length);
+  if (!encoded) return null;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    // coercion-ok: a malformed owner key is not an organization id
+    return null;
+  }
+}
+
+/**
+ * Organization id for a recovered Factory-folder job. Null when the path is
+ * not Factory-owned, the resource is not organization-scoped, another app
+ * owns it, or a declared `orgId` does not match the resource owner.
+ */
+export function recoveredFactoryOwnerOrgId(
+  meta: Pick<JobFrontmatter, "appId" | "orgId">,
+  path: string,
+  owner: string | null | undefined,
+): string | null {
+  if (!isFactoryAutomationPath(path)) return null;
+  const ownerOrgId = organizationIdFromOwner(owner);
+  if (!ownerOrgId) return null;
+  const ownerAppId = meta.appId?.trim();
+  if (ownerAppId && ownerAppId !== "factory") return null;
+  const declaredOrgId = meta.orgId?.trim();
+  if (declaredOrgId && declaredOrgId !== ownerOrgId) return null;
+  return ownerOrgId;
+}
+
 /**
  * Path-scoped recovery for Factory-folder org jobs that lost `appId`.
  * Owner must be organization-scoped; a personal resource on a Factory-looking
  * path is not Factory-owned. Do not loosen `jobBelongsToApp` for other apps.
  */
 export function isRecoveredFactoryJob(
-  meta: Pick<JobFrontmatter, "appId">,
+  meta: Pick<JobFrontmatter, "appId" | "orgId">,
   path: string,
   actorAppId: string | null | undefined,
   owner: string | null | undefined,
 ): boolean {
   if (actorAppId?.trim() !== "factory") return false;
-  if (!isFactoryAutomationPath(path)) return false;
-  // Same prefix as `organizationResourceOwner`; keep this file free of store.
-  if (!owner?.startsWith("__organization__:")) return false;
-  const ownerAppId = meta.appId?.trim();
-  return !ownerAppId || ownerAppId === "factory";
+  return recoveredFactoryOwnerOrgId(meta, path, owner) !== null;
 }
 
 export interface JobResourceClassification {

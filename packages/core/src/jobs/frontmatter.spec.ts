@@ -5,6 +5,7 @@ import {
   classifyJobResource,
   isRecoveredFactoryJob,
   jobBelongsToApp,
+  recoveredFactoryOwnerOrgId,
   parseJobResource,
   patchJobFrontmatterFields,
   type JobFrontmatter,
@@ -265,5 +266,15 @@ Run the job.`),
         "alice@example.com",
       ),
     ).toBe(false);
+    expect(
+      isRecoveredFactoryJob({ orgId: "org-1" }, path, "factory", orgOwner),
+    ).toBe(true);
+    expect(
+      isRecoveredFactoryJob({ orgId: "org-2" }, path, "factory", orgOwner),
+    ).toBe(false);
+    expect(recoveredFactoryOwnerOrgId({}, path, orgOwner)).toBe("org-1");
+    expect(recoveredFactoryOwnerOrgId({ orgId: "org-2" }, path, orgOwner)).toBe(
+      null,
+    );
   });
 });
