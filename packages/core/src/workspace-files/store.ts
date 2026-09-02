@@ -7,6 +7,8 @@
  * resource in the current personal or organization scope.
  */
 
+import { getOrgRoleForEmail } from "../mcp/actions/service-token-access.js";
+import { canManageOrg } from "../org/permissions.js";
 import {
   SHARED_OWNER,
   isLegacyOrganizationWorkspaceFile,
@@ -19,6 +21,7 @@ import {
   type ResourceMeta,
   type ResourceVisibility,
 } from "../resources/store.js";
+import { getRequestUserEmail } from "../server/request-context.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -87,6 +90,19 @@ function workspaceFileMetadata(scope: WorkspaceFilesScope) {
     scope: scope.scope,
     scopeId: scope.scopeId,
   };
+}
+
+async function assertCanMutateWorkspaceFile(
+  scope: WorkspaceFilesScope,
+): Promise<void> {
+  if (scope.scope !== "org") return;
+  const email = getRequestUserEmail()?.trim();
+  const role = email ? await getOrgRoleForEmail(scope.scopeId, email) : null;
+  if (!email || !canManageOrg(role)) {
+    throw new Error(
+      "Only organization owners and admins can edit organization files",
+    );
+  }
 }
 
 /**
@@ -181,6 +197,7 @@ export async function writeWorkspaceFile(
 ): Promise<WorkspaceFileMeta> {
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
+  await assertCanMutateWorkspaceFile(scope);
 
   const maxFileBytes = Math.min(
     opts?.maxFileBytes ?? MAX_FILE_BYTES,
@@ -318,6 +335,7 @@ export async function deleteWorkspaceFile(
 ): Promise<boolean> {
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
+  await assertCanMutateWorkspaceFile(scope);
 
   const resolved = await resolveResourceForScope(scope, path);
   return resolved ? resourceDeleteByPath(resolved.owner, path) : false;

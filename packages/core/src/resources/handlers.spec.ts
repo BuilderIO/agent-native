@@ -777,7 +777,7 @@ Legacy webhook.`,
 
       await handleUpdateResource({
         _params: { id: "legacy-org-resource" },
-        _body: { content: "new" },
+        _body: { content: "new", path: "renamed.md" },
         context: {},
       });
 
@@ -787,11 +787,12 @@ Legacy webhook.`,
       });
       expect(mockResourcePut).toHaveBeenCalledWith(
         "__organization__:org-1",
-        "analysis.md",
+        "renamed.md",
         "new",
         "text/markdown",
         undefined,
       );
+      expect(mockResourceDelete).toHaveBeenCalledWith("legacy-org-resource");
     });
   });
 

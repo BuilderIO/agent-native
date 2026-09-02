@@ -5,6 +5,8 @@ const mockResourceGetByPath = vi.hoisted(() => vi.fn());
 const mockResourceList = vi.hoisted(() => vi.fn());
 const mockResourceDeleteByPath = vi.hoisted(() => vi.fn());
 const mockIsLegacyOrganizationWorkspaceFile = vi.hoisted(() => vi.fn());
+const mockGetOrgRoleForEmail = vi.hoisted(() => vi.fn());
+const mockGetRequestUserEmail = vi.hoisted(() => vi.fn());
 
 vi.mock("../resources/store.js", () => ({
   SHARED_OWNER: "__shared__",
@@ -15,6 +17,14 @@ vi.mock("../resources/store.js", () => ({
   resourceGetByPath: mockResourceGetByPath,
   resourceList: mockResourceList,
   resourceDeleteByPath: mockResourceDeleteByPath,
+}));
+
+vi.mock("../mcp/actions/service-token-access.js", () => ({
+  getOrgRoleForEmail: mockGetOrgRoleForEmail,
+}));
+
+vi.mock("../server/request-context.js", () => ({
+  getRequestUserEmail: mockGetRequestUserEmail,
 }));
 
 import {
@@ -48,6 +58,8 @@ describe("workspace-files Resources adapter", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(false);
+    mockGetOrgRoleForEmail.mockResolvedValue("admin");
+    mockGetRequestUserEmail.mockReturnValue("alice@example.com");
   });
 
   it("writes scratch paths as hidden agent scratch resources", async () => {
@@ -101,6 +113,22 @@ describe("workspace-files Resources adapter", () => {
         },
       }),
     );
+  });
+
+  it("rejects organization writes from non-admin members", async () => {
+    mockGetOrgRoleForEmail.mockResolvedValue("member");
+
+    await expect(
+      writeWorkspaceFile(
+        { scope: "org", scopeId: "org_123" },
+        "analysis/summary.md",
+        "summary",
+        "text/markdown",
+      ),
+    ).rejects.toThrow(
+      "Only organization owners and admins can edit organization files",
+    );
+    expect(mockResourcePut).not.toHaveBeenCalled();
   });
 
   it("reads resources with offset and maxChars", async () => {
@@ -223,6 +251,20 @@ describe("workspace-files Resources adapter", () => {
       "__organization__:org_123",
       "scratch/tmp.md",
     );
+  });
+
+  it("rejects organization deletes from non-admin members", async () => {
+    mockGetOrgRoleForEmail.mockResolvedValue("member");
+
+    await expect(
+      deleteWorkspaceFile(
+        { scope: "org", scopeId: "org_123" },
+        "scratch/tmp.md",
+      ),
+    ).rejects.toThrow(
+      "Only organization owners and admins can edit organization files",
+    );
+    expect(mockResourceDeleteByPath).not.toHaveBeenCalled();
   });
 
   it("rejects traversal paths", () => {

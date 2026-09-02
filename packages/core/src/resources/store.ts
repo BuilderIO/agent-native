@@ -83,20 +83,39 @@ export function isLegacySharedResourceVisibleToOrganization(
   if (resource.owner !== SHARED_OWNER || resource.metadata === null)
     return true;
 
-  let metadata: unknown;
+  const legacy = legacyOrganizationMetadata(resource.metadata);
+  return legacy.kind !== "organization" || legacy.orgId === orgId;
+}
+
+type LegacyOrganizationMetadata =
+  | { kind: "organization"; orgId: string }
+  | { kind: "other" }
+  | { kind: "malformed" };
+
+function legacyOrganizationMetadata(
+  metadata: string,
+): LegacyOrganizationMetadata {
+  let parsed: unknown;
   try {
-    metadata = JSON.parse(resource.metadata);
+    parsed = JSON.parse(metadata);
   } catch (error) {
-    if (error instanceof SyntaxError) return false;
+    if (error instanceof SyntaxError) return { kind: "malformed" };
     throw error;
   }
-  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
-    return true;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { kind: "other" };
   }
 
-  const candidate = metadata as Record<string, unknown>;
-  if (candidate.source !== "workspace-files") return true;
-  return candidate.scope === "org" && candidate.scopeId === orgId;
+  const candidate = parsed as Record<string, unknown>;
+  if (
+    candidate.source !== "workspace-files" ||
+    candidate.scope !== "org" ||
+    typeof candidate.scopeId !== "string" ||
+    !candidate.scopeId
+  ) {
+    return { kind: "other" };
+  }
+  return { kind: "organization", orgId: candidate.scopeId };
 }
 
 export function isLegacyOrganizationWorkspaceFile(
@@ -105,24 +124,8 @@ export function isLegacyOrganizationWorkspaceFile(
 ): boolean {
   if (resource.owner !== SHARED_OWNER || resource.metadata === null)
     return false;
-
-  let metadata: unknown;
-  try {
-    metadata = JSON.parse(resource.metadata);
-  } catch (error) {
-    if (error instanceof SyntaxError) return false;
-    throw error;
-  }
-  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
-    return false;
-  }
-
-  const candidate = metadata as Record<string, unknown>;
-  return (
-    candidate.source === "workspace-files" &&
-    candidate.scope === "org" &&
-    candidate.scopeId === orgId
-  );
+  const legacy = legacyOrganizationMetadata(resource.metadata);
+  return legacy.kind === "organization" && legacy.orgId === orgId;
 }
 
 function resourceOrganizationId(orgId?: string | null): string | null {
@@ -1771,6 +1774,7 @@ export async function resourceList(
 export async function resourceListContentByOwnersAndPrefixes(
   owners: readonly string[],
   pathPrefixes: readonly string[],
+  options?: Pick<ResourceListOptions, "orgId">,
 ): Promise<ResourceContentProjection[]> {
   const uniqueOwners = [...new Set(owners.filter(Boolean))];
   const uniquePrefixes = [...new Set(pathPrefixes.filter(Boolean))];
@@ -1811,7 +1815,7 @@ export async function resourceListContentByOwnersAndPrefixes(
     .filter((resource) =>
       isLegacySharedResourceVisibleToOrganization(
         resource,
-        resourceOrganizationId(),
+        resourceOrganizationId(options?.orgId),
       ),
     )
     .map(({ metadata: _metadata, ...resource }) => resource);

@@ -590,18 +590,25 @@ export async function handleUpdateResource(event: any) {
   const body = await readBody(event);
   const nextPath = body.path ?? existing.path;
   const activeSharedOwner = sharedResourceOwner(orgId);
+  const isLegacyOrganizationWorkspaceResource =
+    existing.owner === SHARED_OWNER &&
+    isLegacyOrganizationWorkspaceFile(existing, orgId);
 
   // Existing `__shared__` rows are legacy app defaults. In an organization,
   // editing one creates an organization override instead of mutating the
   // fallback seen by every tenant in the deployment.
   if (existing.owner === SHARED_OWNER && activeSharedOwner !== SHARED_OWNER) {
-    return resourcePut(
+    const resource = await resourcePut(
       activeSharedOwner,
       nextPath,
       body.content ?? existing.content,
       body.mimeType ?? existing.mimeType,
       body.metadata !== undefined ? { metadata: body.metadata } : undefined,
     );
+    if (isLegacyOrganizationWorkspaceResource) {
+      await resourceDelete(existing.id);
+    }
+    return resource;
   }
 
   if (

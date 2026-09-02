@@ -747,6 +747,10 @@ export async function detectEngineFromUserSecrets(
   };
 
   const preferByo = getAppConfig().agent.preferBringYourOwnKey;
+  const firstEntry = _registry.values().next().value;
+  if (!preferByo && firstEntry?.name === "builder") {
+    if (await hasAllKeys(firstEntry)) return firstEntry;
+  }
 
   if (preferByo) {
     for (const entry of _registry.values()) {
