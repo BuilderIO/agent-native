@@ -8,15 +8,17 @@ import {
   readDeployCredentialEnv,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isFormFileValue } from "../server/lib/file-upload-policy.js";
 import type { FormField } from "../shared/types.js";
 
 export const COMMUNITY_APP_FORM_SLUG = "community-app-submission";
 export const COMMUNITY_APP_BUILDER_MODEL = "community-apps";
 const BUILDER_WRITE_TIMEOUT_MS = 30_000;
+const PROMOTION_CLAIM_LEASE_MS = 5 * 60_000;
 
 type CommunityAppPayload = {
   name: string;
@@ -66,6 +68,15 @@ function slugify(value: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 56);
+}
+
+function hasActivePromotionClaim(promotedAt: string | null): boolean {
+  if (!promotedAt) return false;
+  const timestamp = Date.parse(promotedAt);
+  return (
+    Number.isFinite(timestamp) &&
+    timestamp >= Date.now() - PROMOTION_CLAIM_LEASE_MS
+  );
 }
 
 function fieldValue(
@@ -137,8 +148,8 @@ function readSubmission(
       ? [rawScreenshots]
       : [];
   const screenshots = screenshotValues.map((value) => {
-    const url = isRecord(value) ? stringValue(value.url) : stringValue(value);
-    return safeHttpUrl(url);
+    if (!isFormFileValue(value) || !value.id || !value.provider) return null;
+    return safeHttpUrl(value.url);
   });
 
   if (!name) {
@@ -282,10 +293,28 @@ export default defineAction({
   }),
   run: async ({ responseId }, context?: ActionRunContext) => {
     const db = getDb();
+    const [responseRef] = await db
+      .select({ formId: schema.responses.formId })
+      .from(schema.responses)
+      .where(eq(schema.responses.id, responseId))
+      .limit(1);
+    if (!responseRef) {
+      fail("That submission could not be found.", {
+        errorCode: "response_not_found",
+        statusCode: 404,
+      });
+    }
+
+    await assertAccess("form", responseRef.formId, "admin");
     const [response] = await db
       .select()
       .from(schema.responses)
-      .where(eq(schema.responses.id, responseId))
+      .where(
+        and(
+          eq(schema.responses.id, responseId),
+          eq(schema.responses.formId, responseRef.formId),
+        ),
+      )
       .limit(1);
     if (!response) {
       fail("That submission could not be found.", {
@@ -294,11 +323,10 @@ export default defineAction({
       });
     }
 
-    await assertAccess("form", response.formId, "admin");
     const [form] = await db
       .select()
       .from(schema.forms)
-      .where(eq(schema.forms.id, response.formId))
+      .where(eq(schema.forms.id, responseRef.formId))
       .limit(1);
     if (!form || form.slug !== COMMUNITY_APP_FORM_SLUG) {
       fail("This response is not a community app submission.", {
@@ -314,8 +342,9 @@ export default defineAction({
       };
     }
     if (
-      response.promotionStatus === "publishing" ||
-      response.promotionStatus === "unknown"
+      response.promotionStatus === "unknown" ||
+      (response.promotionStatus === "publishing" &&
+        hasActivePromotionClaim(response.promotedAt))
     ) {
       fail(
         "This submission may already be in Builder. Check the catalog before retrying.",
@@ -341,6 +370,16 @@ export default defineAction({
           or(
             isNull(schema.responses.promotionStatus),
             eq(schema.responses.promotionStatus, "failed"),
+            and(
+              eq(schema.responses.promotionStatus, "publishing"),
+              or(
+                isNull(schema.responses.promotedAt),
+                lt(
+                  schema.responses.promotedAt,
+                  new Date(Date.now() - PROMOTION_CLAIM_LEASE_MS).toISOString(),
+                ),
+              ),
+            ),
           ),
         ),
       )

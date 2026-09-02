@@ -1,1 +1,1 @@
-export { default, loader } from "./templates._index";
+export { clientLoader, default, loader } from "./templates._index";

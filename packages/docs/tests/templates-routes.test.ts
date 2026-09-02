@@ -92,23 +92,25 @@ describe("template routes", () => {
 
   it("accepts every reviewed community app slug on its detail route", async () => {
     for (const app of communityApps) {
-      await expect(
+      expect(
         communityAppLoader({
           params: { slug: app.slug },
         } as unknown as Parameters<typeof communityAppLoader>[0]),
-      ).resolves.toEqual(expect.objectContaining({ slug: app.slug }));
-      expect(communityAppMeta({ loaderData: app })).toEqual(
+      ).toEqual({ app, hydrated: false });
+      expect(
+        communityAppMeta({ loaderData: { app, hydrated: false } }),
+      ).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ title: `${app.name} - Community App` }),
         ]),
       );
     }
 
-    await expect(
+    expect(
       communityAppLoader({
         params: { slug: "not-a-real-community-app" },
       } as unknown as Parameters<typeof communityAppLoader>[0]),
-    ).rejects.toEqual(expect.objectContaining({ status: 404 }));
+    ).toEqual({ app: null, hydrated: false });
   });
 
   it("uses product-specific OG image titles for template pages", () => {

@@ -110,10 +110,6 @@ GTM_CONTAINER_ID = "GTM-N3WSTXZ"
 NITRO_PRESET = "netlify"
 AGENT_NATIVE_WORKSPACE_APP_AUDIENCE = "public"
 VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE = "public"
-# The /apps catalog is mutable CMS-backed SSR content. Keep its public CDN
-# response fresh without weakening the shared anonymous-shell contract.
-AGENT_NATIVE_SSR_CACHE = "30s"
-
 [context.production.environment]
 # The docs app owns the framework schema at release time, so production
 # request functions do not spend their cold-start budget on migration probes.

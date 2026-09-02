@@ -14,6 +14,8 @@ const response = {
         name: "nomad.png",
         type: "image/png",
         size: 120,
+        id: "asset_123",
+        provider: "builder",
       },
     ],
   }),
@@ -113,7 +115,7 @@ const { default: promoteCommunitySubmission } =
 describe("promote-community-submission action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    dbMock.setResults([[response], [form]]);
+    dbMock.setResults([[{ formId: response.formId }], [response], [form]]);
     credentialMock.mockReturnValue("private-key");
     vi.stubGlobal(
       "fetch",
@@ -181,6 +183,40 @@ describe("promote-community-submission action", () => {
     await expect(
       promoteCommunitySubmission.run({ responseId: response.id }),
     ).rejects.toMatchObject({ errorCode: "promotion_unknown" });
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it("can recover a publish claim left by a crashed request", async () => {
+    const staleResponse = {
+      ...response,
+      promotionStatus: "publishing" as const,
+      promotedAt: "2020-01-01T00:00:00.000Z",
+    };
+    dbMock.setResults([[{ formId: response.formId }], [staleResponse], [form]]);
+
+    await expect(
+      promoteCommunitySubmission.run({ responseId: response.id }),
+    ).resolves.toMatchObject({ status: "published" });
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects screenshot URLs without file storage metadata", async () => {
+    const responseWithUrl = {
+      ...response,
+      data: JSON.stringify({
+        ...JSON.parse(response.data),
+        screenshots: ["https://files.example.test/nomad.png"],
+      }),
+    };
+    dbMock.setResults([
+      [{ formId: response.formId }],
+      [responseWithUrl],
+      [form],
+    ]);
+
+    await expect(
+      promoteCommunitySubmission.run({ responseId: response.id }),
+    ).rejects.toMatchObject({ errorCode: "invalid_submission" });
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 });

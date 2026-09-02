@@ -7,14 +7,20 @@ import {
   IconExternalLink,
 } from "@tabler/icons-react";
 import { useRef, useState, type ReactNode } from "react";
-import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
+import {
+  Link,
+  useLoaderData,
+  type ClientLoaderFunctionArgs,
+  type LoaderFunctionArgs,
+} from "react-router";
 
-import { loadCommunityAppCatalog } from "../../server/lib/community-apps.server";
 import { BuilderImage } from "../components/builder-image";
 import {
+  findCommunityApp,
   findCommunityAppInCatalog,
   type CommunityApp,
 } from "../components/community-apps";
+import { fetchCommunityApps } from "../components/community-apps.client";
 import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import {
@@ -25,23 +31,42 @@ import { trackEvent } from "../components/TemplateCard";
 import enUS from "../i18n/en-US";
 import { withDefaultSocialImage, withTemplateSocialImage } from "../seo";
 
-export async function loader({ params }: LoaderFunctionArgs) {
-  const catalog = await loadCommunityAppCatalog();
-  const app = findCommunityAppInCatalog(catalog.apps, params.slug);
-  if (!app) {
-    throw new Response("Not Found", { status: 404 });
-  }
-  return app;
+export type CommunityAppRouteData = {
+  app: CommunityApp | null;
+  hydrated: boolean;
+};
+
+export function loader({ params }: LoaderFunctionArgs): CommunityAppRouteData {
+  return { app: findCommunityApp(params.slug) ?? null, hydrated: false };
 }
+
+export async function clientLoader({
+  params,
+  serverLoader,
+}: ClientLoaderFunctionArgs): Promise<CommunityAppRouteData> {
+  const fallback = await serverLoader<typeof loader>();
+  try {
+    return {
+      app:
+        findCommunityAppInCatalog(await fetchCommunityApps(), params.slug) ??
+        null,
+      hydrated: true,
+    };
+  } catch {
+    return { app: fallback.app, hydrated: true };
+  }
+}
+
+clientLoader.hydrate = true;
 
 export const meta = ({
   data,
   loaderData,
 }: {
-  data?: CommunityApp;
-  loaderData?: CommunityApp;
+  data?: CommunityAppRouteData;
+  loaderData?: CommunityAppRouteData;
 }) => {
-  const app = data ?? loaderData;
+  const app = (data ?? loaderData)?.app;
   if (!app) {
     return withDefaultSocialImage([
       { title: enUS.templateDetail.notFoundMetaTitle },
@@ -188,9 +213,21 @@ function CommunityActionLink({
 export default function CommunityAppPage() {
   const { locale } = useLocale();
   const t = useT();
-  const app = useLoaderData<typeof loader>();
+  const routeData = useLoaderData<typeof loader>();
 
-  if (!app) {
+  if (!routeData.app && !routeData.hydrated) {
+    return (
+      <TemplateLandingShell>
+        <div
+          className="mt-16 h-80 animate-pulse border border-[var(--docs-border)] bg-[var(--bg-secondary)]"
+          aria-busy="true"
+          aria-hidden="true"
+        />
+      </TemplateLandingShell>
+    );
+  }
+
+  if (!routeData.app) {
     return (
       <TemplateLandingShell>
         <Link
@@ -208,6 +245,7 @@ export default function CommunityAppPage() {
     );
   }
 
+  const app = routeData.app;
   const primaryUrl = app.demoUrl ?? app.repositoryUrl ?? app.sourceUrl;
   const secondaryUrl = app.demoUrl
     ? (app.repositoryUrl ?? app.sourceUrl)
