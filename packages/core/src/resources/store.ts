@@ -99,6 +99,32 @@ export function isLegacySharedResourceVisibleToOrganization(
   return candidate.scope === "org" && candidate.scopeId === orgId;
 }
 
+export function isLegacyOrganizationWorkspaceFile(
+  resource: Pick<ResourceMeta, "owner" | "metadata">,
+  orgId?: string | null,
+): boolean {
+  if (resource.owner !== SHARED_OWNER || resource.metadata === null)
+    return false;
+
+  let metadata: unknown;
+  try {
+    metadata = JSON.parse(resource.metadata);
+  } catch (error) {
+    if (error instanceof SyntaxError) return false;
+    throw error;
+  }
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return false;
+  }
+
+  const candidate = metadata as Record<string, unknown>;
+  return (
+    candidate.source === "workspace-files" &&
+    candidate.scope === "org" &&
+    candidate.scopeId === orgId
+  );
+}
+
 function resourceOrganizationId(orgId?: string | null): string | null {
   return orgId === undefined ? (getRequestOrgId() ?? null) : orgId;
 }

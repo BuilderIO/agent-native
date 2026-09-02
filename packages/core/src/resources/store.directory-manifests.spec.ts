@@ -79,8 +79,10 @@ describe("resourceListContentByOwnersAndPrefixes", () => {
   });
 
   it("keeps legacy organization files inside their tagged organization", async () => {
-    const { isLegacySharedResourceVisibleToOrganization } =
-      await import("./store.js");
+    const {
+      isLegacyOrganizationWorkspaceFile,
+      isLegacySharedResourceVisibleToOrganization,
+    } = await import("./store.js");
 
     const resource = {
       owner: "__shared__",
@@ -97,6 +99,8 @@ describe("resourceListContentByOwnersAndPrefixes", () => {
     expect(isLegacySharedResourceVisibleToOrganization(resource, "org-b")).toBe(
       false,
     );
+    expect(isLegacyOrganizationWorkspaceFile(resource, "org-a")).toBe(true);
+    expect(isLegacyOrganizationWorkspaceFile(resource, "org-b")).toBe(false);
     expect(
       isLegacySharedResourceVisibleToOrganization(
         { owner: "__shared__", metadata: null },

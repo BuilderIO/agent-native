@@ -8,6 +8,8 @@
  */
 
 import {
+  SHARED_OWNER,
+  isLegacyOrganizationWorkspaceFile,
   sharedResourceOwner,
   resourceDeleteByPath,
   resourceGetByPath,
@@ -48,6 +50,26 @@ function ownerForScope(scope: WorkspaceFilesScope): string {
   return scope.scope === "org"
     ? sharedResourceOwner(scope.scopeId)
     : scope.scopeId;
+}
+
+function optionsForScope(scope: WorkspaceFilesScope) {
+  return scope.scope === "org" ? { orgId: scope.scopeId } : undefined;
+}
+
+async function resolveResourceForScope(
+  scope: WorkspaceFilesScope,
+  path: string,
+): Promise<{ resource: Resource; owner: string } | null> {
+  const owner = ownerForScope(scope);
+  const options = optionsForScope(scope);
+  const resource = await resourceGetByPath(owner, path, options);
+  if (resource) return { resource, owner };
+  if (scope.scope !== "org") return null;
+
+  const legacy = await resourceGetByPath(SHARED_OWNER, path, options);
+  return legacy && isLegacyOrganizationWorkspaceFile(legacy, scope.scopeId)
+    ? { resource: legacy, owner: SHARED_OWNER }
+    : null;
 }
 
 /** True for `scratch/...` paths — hidden agent staging, never durable. */
@@ -198,8 +220,8 @@ export async function appendWorkspaceFile(
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
 
-  const existing = await resourceGetByPath(ownerForScope(scope), path);
-  const newContent = existing ? existing.content + text : text;
+  const existing = await resolveResourceForScope(scope, path);
+  const newContent = existing ? existing.resource.content + text : text;
   return writeWorkspaceFile(scope, path, newContent, contentType);
 }
 
@@ -215,10 +237,10 @@ export async function readWorkspaceFile(
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
 
-  const resource = await resourceGetByPath(ownerForScope(scope), path);
-  if (!resource) return null;
+  const resolved = await resolveResourceForScope(scope, path);
+  if (!resolved) return null;
 
-  let content = resource.content;
+  let content = resolved.resource.content;
   if (opts?.offset || opts?.maxChars) {
     const off = opts.offset ?? 0;
     content = content.slice(
@@ -227,7 +249,7 @@ export async function readWorkspaceFile(
     );
   }
 
-  return resourceToFile(resource, scope, content);
+  return resourceToFile(resolved.resource, scope, content);
 }
 
 /**
@@ -240,8 +262,8 @@ export async function getWorkspaceFileMeta(
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
 
-  const resource = await resourceGetByPath(ownerForScope(scope), path);
-  return resource ? resourceToMeta(resource) : null;
+  const resolved = await resolveResourceForScope(scope, path);
+  return resolved ? resourceToMeta(resolved.resource) : null;
 }
 
 /**
@@ -256,14 +278,31 @@ export async function listWorkspaceFiles(
   const normalizedPrefix = normalizePrefix(prefix);
   const resources = await resourceList(owner, normalizedPrefix, {
     includeAgentScratch: true,
+    ...optionsForScope(scope),
   });
+  const allResources =
+    scope.scope === "org"
+      ? [
+          ...resources,
+          ...(
+            await resourceList(SHARED_OWNER, normalizedPrefix, {
+              includeAgentScratch: true,
+              ...optionsForScope(scope),
+            })
+          ).filter(
+            (resource) =>
+              isLegacyOrganizationWorkspaceFile(resource, scope.scopeId) &&
+              !resources.some((current) => current.path === resource.path),
+          ),
+        ]
+      : resources;
   const filtered = normalizedPrefix
-    ? resources.filter(
+    ? allResources.filter(
         (resource) =>
           resource.path === normalizedPrefix ||
           resource.path.startsWith(`${normalizedPrefix}/`),
       )
-    : resources;
+    : allResources;
 
   return filtered
     .map(resourceToMeta)
@@ -280,7 +319,8 @@ export async function deleteWorkspaceFile(
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
 
-  return resourceDeleteByPath(ownerForScope(scope), path);
+  const resolved = await resolveResourceForScope(scope, path);
+  return resolved ? resourceDeleteByPath(resolved.owner, path) : false;
 }
 
 /**

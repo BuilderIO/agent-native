@@ -4,10 +4,13 @@ const mockResourcePut = vi.hoisted(() => vi.fn());
 const mockResourceGetByPath = vi.hoisted(() => vi.fn());
 const mockResourceList = vi.hoisted(() => vi.fn());
 const mockResourceDeleteByPath = vi.hoisted(() => vi.fn());
+const mockIsLegacyOrganizationWorkspaceFile = vi.hoisted(() => vi.fn());
 
 vi.mock("../resources/store.js", () => ({
+  SHARED_OWNER: "__shared__",
   sharedResourceOwner: (orgId: string) =>
     `__organization__:${encodeURIComponent(orgId)}`,
+  isLegacyOrganizationWorkspaceFile: mockIsLegacyOrganizationWorkspaceFile,
   resourcePut: mockResourcePut,
   resourceGetByPath: mockResourceGetByPath,
   resourceList: mockResourceList,
@@ -44,6 +47,7 @@ function resource(path: string, content = "hello") {
 describe("workspace-files Resources adapter", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(false);
   });
 
   it("writes scratch paths as hidden agent scratch resources", async () => {
@@ -126,7 +130,61 @@ describe("workspace-files Resources adapter", () => {
     expect(mockResourceGetByPath).toHaveBeenCalledWith(
       "__organization__:org_123",
       "analysis/data.json",
+      { orgId: "org_123" },
     );
+  });
+
+  it("reads legacy organization files from the shared owner", async () => {
+    const legacy = {
+      ...resource("analysis/legacy.json"),
+      owner: "__shared__",
+      metadata: JSON.stringify({
+        source: "workspace-files",
+        scope: "org",
+        scopeId: "org_123",
+      }),
+    };
+    mockResourceGetByPath
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(legacy);
+    mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+
+    const file = await readWorkspaceFile(
+      { scope: "org", scopeId: "org_123" },
+      "analysis/legacy.json",
+    );
+
+    expect(file?.content).toBe("hello");
+    expect(mockResourceGetByPath).toHaveBeenNthCalledWith(
+      2,
+      "__shared__",
+      "analysis/legacy.json",
+      { orgId: "org_123" },
+    );
+  });
+
+  it("lists legacy organization files without overriding current files", async () => {
+    const current = resource("analysis/current.md");
+    const legacy = {
+      ...resource("analysis/legacy.md"),
+      owner: "__shared__",
+    };
+    mockResourceList
+      .mockResolvedValueOnce([current])
+      .mockResolvedValueOnce([current, legacy]);
+    mockIsLegacyOrganizationWorkspaceFile.mockImplementation(
+      (resource: { owner: string }) => resource.owner === "__shared__",
+    );
+
+    const files = await listWorkspaceFiles(
+      { scope: "org", scopeId: "org_123" },
+      "analysis/",
+    );
+
+    expect(files.map((file) => file.path)).toEqual([
+      "analysis/current.md",
+      "analysis/legacy.md",
+    ]);
   });
 
   it("lists exact prefix folders without prefix lookalikes", async () => {

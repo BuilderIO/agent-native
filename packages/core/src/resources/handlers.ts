@@ -40,6 +40,7 @@ import {
   ensurePersonalDefaults,
   canWriteLocalWorkspaceResourcePath,
   isLocalWorkspaceResourceId,
+  isLegacyOrganizationWorkspaceFile,
   isLegacySharedResourceVisibleToOrganization,
   organizationIdFromResourceOwner,
   sharedResourceOwner,
@@ -557,15 +558,15 @@ export async function handleUpdateResource(event: any) {
     return { error: "Resource ID is required" };
   }
 
-  const existing = await resourceGet(id);
+  const email = await resolveEmail(event);
+  const orgId = await resolveOrgId(event);
+  const existing = await resourceGet(id, { userEmail: email, orgId });
   if (!existing) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
 
   // Ownership check: only the owner (or shared resource editors) can update
-  const email = await resolveEmail(event);
-  const orgId = await resolveOrgId(event);
   if (
     !canReadOwner(existing.owner, email, orgId) ||
     !isLegacySharedResourceVisibleToOrganization(existing, orgId)
@@ -652,15 +653,15 @@ export async function handleDeleteResource(event: any) {
     return { error: "Resource ID is required" };
   }
 
-  const existing = await resourceGet(id);
+  const email = await resolveEmail(event);
+  const orgId = await resolveOrgId(event);
+  const existing = await resourceGet(id, { userEmail: email, orgId });
   if (!existing) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
 
   // Ownership check: only the owner (or shared resource editors) can delete
-  const email = await resolveEmail(event);
-  const orgId = await resolveOrgId(event);
   if (
     !canReadOwner(existing.owner, email, orgId) ||
     !isLegacySharedResourceVisibleToOrganization(existing, orgId)
@@ -684,7 +685,8 @@ export async function handleDeleteResource(event: any) {
 
   if (
     existing.owner === SHARED_OWNER &&
-    sharedResourceOwner(orgId) !== SHARED_OWNER
+    sharedResourceOwner(orgId) !== SHARED_OWNER &&
+    !isLegacyOrganizationWorkspaceFile(existing, orgId)
   ) {
     setResponseStatus(event, 403);
     return {

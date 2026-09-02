@@ -14,6 +14,7 @@ const mockResourceEffectiveContext = vi.fn();
 const mockEnsurePersonalDefaults = vi.fn();
 const mockCanWriteLocalWorkspaceResourcePath = vi.fn();
 const mockIsLocalWorkspaceResourceId = vi.fn();
+const mockIsLegacyOrganizationWorkspaceFile = vi.fn();
 const mockUploadFile = vi.fn();
 const mockCanUpdateAutomationResource = vi.fn();
 
@@ -30,6 +31,8 @@ vi.mock("./store.js", () => ({
     mockCanWriteLocalWorkspaceResourcePath(...args),
   isLocalWorkspaceResourceId: (...args: any[]) =>
     mockIsLocalWorkspaceResourceId(...args),
+  isLegacyOrganizationWorkspaceFile: (...args: any[]) =>
+    mockIsLegacyOrganizationWorkspaceFile(...args),
   isLegacySharedResourceVisibleToOrganization: () => true,
   resourceGet: (...args: any[]) => mockResourceGet(...args),
   resourceGetByPath: (...args: any[]) => mockResourceGetByPath(...args),
@@ -106,6 +109,7 @@ describe("resource handlers", () => {
     mockEnsurePersonalDefaults.mockResolvedValue(undefined);
     mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(false);
     mockIsLocalWorkspaceResourceId.mockReturnValue(false);
+    mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(false);
     mockUploadFile.mockResolvedValue(null);
     mockCanUpdateAutomationResource.mockResolvedValue(false);
     vi.mocked(getSession).mockResolvedValue({ email: "test@test.com" } as any);
@@ -753,6 +757,42 @@ Legacy webhook.`,
       expect(result).toEqual({ error: "Resource not found" });
       expect(mockResourcePut).not.toHaveBeenCalled();
     });
+
+    it("resolves the organization before reading a legacy shared resource", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "QA Org",
+        role: "admin",
+      });
+      mockResourceGet.mockResolvedValue({
+        id: "legacy-org-resource",
+        path: "analysis.md",
+        owner: "__shared__",
+        content: "old",
+        mimeType: "text/markdown",
+      });
+      mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+      mockResourcePut.mockResolvedValue({ id: "org-override" });
+
+      await handleUpdateResource({
+        _params: { id: "legacy-org-resource" },
+        _body: { content: "new" },
+        context: {},
+      });
+
+      expect(mockResourceGet).toHaveBeenCalledWith("legacy-org-resource", {
+        userEmail: "test@test.com",
+        orgId: "org-1",
+      });
+      expect(mockResourcePut).toHaveBeenCalledWith(
+        "__organization__:org-1",
+        "analysis.md",
+        "new",
+        "text/markdown",
+        undefined,
+      );
+    });
   });
 
   describe("handleDeleteResource", () => {
@@ -842,6 +882,33 @@ Legacy webhook.`,
       expect(lastStatus).toBe(404);
       expect(result).toEqual({ error: "Resource not found" });
       expect(mockResourceDelete).not.toHaveBeenCalled();
+    });
+
+    it("resolves the organization before reading a legacy shared resource", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "QA Org",
+        role: "admin",
+      });
+      mockResourceGet.mockResolvedValue({
+        id: "legacy-org-resource",
+        path: "analysis.md",
+        owner: "__shared__",
+      });
+      mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+      mockResourceDelete.mockResolvedValue(true);
+
+      await handleDeleteResource({
+        _params: { id: "legacy-org-resource" },
+        context: {},
+      });
+
+      expect(mockResourceGet).toHaveBeenCalledWith("legacy-org-resource", {
+        userEmail: "test@test.com",
+        orgId: "org-1",
+      });
+      expect(mockResourceDelete).toHaveBeenCalledWith("legacy-org-resource");
     });
   });
 
