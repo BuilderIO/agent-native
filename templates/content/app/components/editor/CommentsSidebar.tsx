@@ -10,7 +10,8 @@ import {
   IconMessageCircle,
   IconArrowUp,
   IconArrowBackUp,
-  IconChevronDown,
+  IconFilter,
+  IconUser,
 } from "@tabler/icons-react";
 import {
   Fragment,
@@ -28,6 +29,14 @@ import {
   AvatarFallback as UserAvatarFallback,
   AvatarImage as UserAvatarImage,
 } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Tooltip,
   TooltipContent,
@@ -355,6 +364,7 @@ interface CommentsSidebarProps {
   alignToAnchors?: boolean;
   forceVisible?: boolean;
   visibleThreadId?: string | null;
+  presentation?: "inline" | "history";
 }
 
 export function CommentsSidebar({
@@ -375,6 +385,7 @@ export function CommentsSidebar({
   alignToAnchors = true,
   forceVisible = false,
   visibleThreadId,
+  presentation = "inline",
 }: CommentsSidebarProps) {
   const t = useT();
   const { data: members = [] } = useMentionMembers();
@@ -385,7 +396,13 @@ export function CommentsSidebar({
   const [replyMentions, setReplyMentions] = useState<MentionEntry[]>([]);
   const [pendingText, setPendingText] = useState("");
   const [pendingMentions, setPendingMentions] = useState<MentionEntry[]>([]);
-  const [showResolved, setShowResolved] = useState(false);
+  const [historyStatus, setHistoryStatus] = useState<
+    "all" | "open" | "resolved"
+  >("all");
+  const [historyType, setHistoryType] = useState<"comments" | "suggestions">(
+    "comments",
+  );
+  const [historyAuthor, setHistoryAuthor] = useState<string | null>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const pendingInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -395,10 +412,36 @@ export function CommentsSidebar({
       ? open.filter((thread) => thread.threadId === visibleThreadId)
       : open;
   }, [threads, visibleThreadId]);
-  const resolvedThreads = useMemo(
-    () => threads?.filter((t) => t.resolved) ?? [],
-    [threads],
-  );
+  const historyAuthors = useMemo(() => {
+    const authors = new Map<string, string>();
+    for (const thread of threads) {
+      for (const comment of thread.comments) {
+        authors.set(
+          comment.author_email,
+          comment.author_name ?? comment.author_email.split("@")[0],
+        );
+      }
+    }
+    return [...authors.entries()].sort((left, right) =>
+      left[1].localeCompare(right[1]),
+    );
+  }, [threads]);
+  const historyThreads = useMemo(() => {
+    if (historyType === "suggestions") return [];
+    return threads.filter((thread) => {
+      if (historyStatus === "open" && thread.resolved) return false;
+      if (historyStatus === "resolved" && !thread.resolved) return false;
+      if (
+        historyAuthor &&
+        !thread.comments.some(
+          (comment) => comment.author_email === historyAuthor,
+        )
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [historyAuthor, historyStatus, historyType, threads]);
 
   useEffect(() => {
     if (pendingComment) {
@@ -614,7 +657,9 @@ export function CommentsSidebar({
   }, [onSelectedThreadChange, selectedThreadId, openThreads]);
 
   const hasContent =
-    openThreads.length > 0 || !!pendingComment || resolvedThreads.length > 0;
+    presentation === "history"
+      ? threads.length > 0
+      : openThreads.length > 0 || !!pendingComment;
   if (!hasContent && !isLoading && !forceVisible) return null;
 
   const items = layoutCommentThreads(
@@ -647,6 +692,130 @@ export function CommentsSidebar({
       resolved: false,
     });
   };
+
+  if (presentation === "history") {
+    return (
+      <div className="min-h-full w-full bg-background" data-comments-history>
+        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-1 border-b border-border bg-background px-3 py-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <IconFilter size={14} />
+                {historyType === "comments"
+                  ? t("comments.title")
+                  : t("comments.suggestions")}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuLabel>{t("comments.typeFilter")}</DropdownMenuLabel>
+              <DropdownMenuItem onSelect={() => setHistoryType("comments")}>
+                {t("comments.title")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setHistoryType("suggestions")}>
+                {t("comments.suggestions")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex h-8 items-center rounded-md px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {historyStatus === "all"
+                  ? t("comments.allStatuses")
+                  : historyStatus === "open"
+                    ? t("comments.open")
+                    : t("comments.resolvedStatus")}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuLabel>
+                {t("comments.statusFilter")}
+              </DropdownMenuLabel>
+              <DropdownMenuItem onSelect={() => setHistoryStatus("all")}>
+                {t("comments.allStatuses")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setHistoryStatus("open")}>
+                {t("comments.open")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setHistoryStatus("resolved")}>
+                {t("comments.resolvedStatus")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <IconUser size={14} />
+                {historyAuthor
+                  ? (historyAuthors.find(
+                      ([email]) => email === historyAuthor,
+                    )?.[1] ?? t("comments.allAuthors"))
+                  : t("comments.allAuthors")}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuLabel>
+                {t("comments.authorFilter")}
+              </DropdownMenuLabel>
+              <DropdownMenuItem onSelect={() => setHistoryAuthor(null)}>
+                {t("comments.allAuthors")}
+              </DropdownMenuItem>
+              {historyAuthors.length > 0 ? <DropdownMenuSeparator /> : null}
+              {historyAuthors.map(([email, name]) => (
+                <DropdownMenuItem
+                  key={email}
+                  onSelect={() => setHistoryAuthor(email)}
+                >
+                  {name}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        <div className="grid gap-2 p-3">
+          {isLoading ? (
+            [0, 1, 2].map((item) => (
+              <div
+                key={item}
+                className="h-24 animate-pulse rounded-lg bg-muted/60"
+                aria-hidden="true"
+              />
+            ))
+          ) : historyThreads.length === 0 ? (
+            <div className="px-2 py-10 text-center text-sm text-muted-foreground">
+              {t("comments.noFilteredComments")}
+            </div>
+          ) : (
+            historyThreads.map((thread) =>
+              thread.resolved ? (
+                <ResolvedThreadView
+                  key={thread.threadId}
+                  thread={thread}
+                  canResolve={canResolve}
+                  onReopen={() => handleReopen(thread)}
+                  t={t}
+                />
+              ) : (
+                <HistoryThreadView
+                  key={thread.threadId}
+                  thread={thread}
+                  onOpen={() => onActivateThread?.(thread.threadId)}
+                />
+              ),
+            )
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -784,38 +953,40 @@ export function CommentsSidebar({
           </Fragment>
         );
       })}
-
-      {/* Resolved comments — collapsible, reopenable */}
-      {resolvedThreads.length > 0 && (
-        <div className="mx-2 mr-4 mt-4 mb-6">
-          <button
-            type="button"
-            onClick={() => setShowResolved((v) => !v)}
-            aria-expanded={showResolved}
-            className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent"
-          >
-            <IconChevronDown
-              size={14}
-              className={showResolved ? "" : "-rotate-90 transition-transform"}
-            />
-            {t("comments.resolved", { count: resolvedThreads.length })}
-          </button>
-          {showResolved && (
-            <div className="mt-1.5 space-y-1.5">
-              {resolvedThreads.map((thread) => (
-                <ResolvedThreadView
-                  key={thread.threadId}
-                  thread={thread}
-                  canResolve={canResolve}
-                  onReopen={() => handleReopen(thread)}
-                  t={t}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </div>
+  );
+}
+
+function HistoryThreadView({
+  thread,
+  onOpen,
+}: {
+  thread: CommentThread;
+  onOpen: () => void;
+}) {
+  const first = thread.comments[0];
+  return (
+    <button
+      type="button"
+      className="rounded-lg bg-popover p-3 text-start shadow-sm ring-1 ring-border/50 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={onOpen}
+    >
+      {thread.quotedText ? (
+        <p className="mb-2 line-clamp-2 border-s-2 border-border ps-2 text-xs italic text-muted-foreground">
+          {thread.quotedText}
+        </p>
+      ) : null}
+      <div className="flex items-start gap-2">
+        <CommentAvatar
+          email={first.author_email}
+          name={first.author_name ?? first.author_email}
+          className="size-5 shrink-0"
+        />
+        <span className="min-w-0 flex-1 text-[13px] text-foreground/90">
+          {renderCommentBody(first.content, first.mentions)}
+        </span>
+      </div>
+    </button>
   );
 }
 
@@ -886,10 +1057,10 @@ function ThreadView({
     <div
       ref={cardRef}
       data-thread-card={thread.threadId}
-      className={`group/thread mx-2 mr-4 rounded-lg bg-popover shadow-md cursor-pointer transition-shadow ${
+      className={`group/thread mx-2 mr-4 cursor-pointer rounded-lg bg-popover shadow-md ring-1 ring-border/50 transition-[transform,box-shadow] duration-150 ease-[var(--ease-collapse)] ${
         isActive
-          ? "ring-2 ring-primary/60"
-          : "ring-1 ring-border/50 hover:ring-border"
+          ? "-translate-x-1 shadow-lg"
+          : "hover:-translate-x-1 hover:shadow-lg"
       }`}
       style={{ marginTop }}
       onClick={() => {

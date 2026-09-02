@@ -984,6 +984,31 @@ export function DocumentToolbar({
             </>
           )}
 
+          {showCommentsControl ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    utilityPanel === "comments" &&
+                      "bg-accent text-accent-foreground",
+                  )}
+                  aria-label={t("comments.title")}
+                  aria-pressed={utilityPanel === "comments"}
+                  onClick={() =>
+                    onUtilityPanelChange(
+                      utilityPanel === "comments" ? null : "comments",
+                    )
+                  }
+                >
+                  <IconMessageCircle size={16} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("comments.title")}</TooltipContent>
+            </Tooltip>
+          ) : null}
+
           <DropdownMenu modal={false}>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1047,22 +1072,6 @@ export function DocumentToolbar({
                   <IconInfoCircle className="me-2 h-4 w-4" />
                   {t("editor.toolbar.info")}
                 </DropdownMenuItem>
-                {showCommentsControl ? (
-                  <DropdownMenuItem
-                    onSelect={() =>
-                      onUtilityPanelChange(
-                        utilityPanel === "comments" ? null : "comments",
-                      )
-                    }
-                    className={cn(
-                      utilityPanel === "comments" &&
-                        "bg-accent text-accent-foreground",
-                    )}
-                  >
-                    <IconMessageCircle className="me-2 h-4 w-4" />
-                    {t("comments.title")}
-                  </DropdownMenuItem>
-                ) : null}
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               {isLocalFileDocument ? (

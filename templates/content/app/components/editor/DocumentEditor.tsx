@@ -412,6 +412,40 @@ function useElementMinWidth(
   return matches;
 }
 
+export function positionAnchoredCommentCard({
+  anchorRect,
+  containerRect,
+  cardHeight,
+  preferredWidth = 320,
+  gap = 8,
+  edge = 16,
+}: {
+  anchorRect: Pick<DOMRect, "top" | "bottom" | "left" | "right">;
+  containerRect: Pick<DOMRect, "top" | "bottom" | "left" | "right" | "width">;
+  cardHeight: number;
+  preferredWidth?: number;
+  gap?: number;
+  edge?: number;
+}) {
+  const width = Math.min(preferredWidth, containerRect.width - edge * 2);
+  const centeredLeft =
+    (anchorRect.left + anchorRect.right) / 2 - containerRect.left - width / 2;
+  const left = Math.min(
+    containerRect.width - width - edge,
+    Math.max(edge, centeredLeft),
+  );
+  const below = anchorRect.bottom - containerRect.top + gap;
+  const above = anchorRect.top - containerRect.top - cardHeight - gap;
+  const fitsBelow =
+    below + cardHeight <= containerRect.bottom - containerRect.top - edge;
+  return {
+    left,
+    top: fitsBelow ? below : Math.max(edge, above),
+    width,
+    placement: fitsBelow ? ("below" as const) : ("above" as const),
+  };
+}
+
 export function documentEditorTitleRegionClassName(hasDatabase: boolean) {
   if (hasDatabase) {
     return cn(
@@ -1888,17 +1922,25 @@ function DocumentEditorBody({
     !isLocalFileDocument ? documentId : null,
   );
   const documentLayoutRef = useRef<HTMLDivElement>(null);
+  const anchoredCommentRef = useRef<HTMLElement>(null);
+  const [anchoredCommentPosition, setAnchoredCommentPosition] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    placement: "above" | "below";
+  } | null>(null);
   const hasUtilityRailSpace = useElementMinWidth(documentLayoutRef, 960);
-  const showDesktopUtilityPanel = utilityPanel !== null && hasUtilityRailSpace;
+  const showCommentsHistoryDrawer =
+    utilityPanel === "comments" && commentsBrowseOpen;
+  const showDesktopUtilityPanel =
+    utilityPanel !== null && hasUtilityRailSpace && !showCommentsHistoryDrawer;
   const showAnchoredCommentPopover =
     utilityPanel === "comments" &&
     !hasUtilityRailSpace &&
     (!!pendingComment || !!selectedThreadId);
   const showUtilityPanelSheet =
-    utilityPanel !== null &&
-    !showDesktopUtilityPanel &&
-    !showAnchoredCommentPopover &&
-    (utilityPanel !== "comments" || commentsBrowseOpen);
+    showCommentsHistoryDrawer ||
+    (utilityPanel === "info" && !showDesktopUtilityPanel);
 
   const handleComment = useCallback(
     (
@@ -1967,6 +2009,61 @@ function DocumentEditorBody({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [dismissCommentFocus]);
+
+  useEffect(() => {
+    if (!showAnchoredCommentPopover) {
+      setAnchoredCommentPosition(null);
+      return;
+    }
+    const layout = documentLayoutRef.current;
+    const scrollContainer = scrollContainerRef.current;
+    if (!layout || !scrollContainer) return;
+    let frame = 0;
+    const update = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const escapedThreadId = selectedThreadId
+          ? globalThis.CSS?.escape
+            ? globalThis.CSS.escape(selectedThreadId)
+            : selectedThreadId.replace(/["\\]/g, "\\$&")
+          : null;
+        const marked = scrollContainer.querySelector(
+          escapedThreadId
+            ? `[data-comment-thread="${escapedThreadId}"]`
+            : ".comment-highlight--pending",
+        ) as HTMLElement | null;
+        if (!marked) return;
+        const paragraph = marked.closest(
+          "p, li, blockquote, h1, h2, h3, h4, h5, h6",
+        );
+        const anchorRect = (paragraph ?? marked).getBoundingClientRect();
+        const containerRect = layout.getBoundingClientRect();
+        const cardHeight =
+          anchoredCommentRef.current?.getBoundingClientRect().height ?? 180;
+        setAnchoredCommentPosition(
+          positionAnchoredCommentCard({
+            anchorRect,
+            containerRect,
+            cardHeight,
+          }),
+        );
+      });
+    };
+    update();
+    scrollContainer.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    if (anchoredCommentRef.current) {
+      resizeObserver?.observe(anchoredCommentRef.current);
+    }
+    return () => {
+      cancelAnimationFrame(frame);
+      scrollContainer.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+      resizeObserver?.disconnect();
+    };
+  }, [selectedThreadId, showAnchoredCommentPopover, scrollContainerRef]);
 
   const focusTitleEnd = useCallback(() => {
     const textarea = titleInputRef.current;
@@ -2087,6 +2184,7 @@ function DocumentEditorBody({
   const renderCommentsSidebar = (
     visibleThreadId?: string | null,
     alignToAnchors = hasUtilityRailSpace,
+    presentation: "inline" | "history" = "inline",
   ) => (
     <CommentsSidebar
       documentId={documentId}
@@ -2113,6 +2211,7 @@ function DocumentEditorBody({
       alignToAnchors={alignToAnchors}
       forceVisible
       visibleThreadId={visibleThreadId}
+      presentation={presentation}
     />
   );
   const defaultIconKind = documentEditorDefaultIconKind(document);
@@ -2178,7 +2277,7 @@ function DocumentEditorBody({
             )}
           </button>
         ) : null}
-        {hasUtilityRailSpace ? (
+        {hasUtilityRailSpace || showCommentsHistoryDrawer ? (
           <button
             type="button"
             className={cn(
@@ -2203,7 +2302,7 @@ function DocumentEditorBody({
           }
         />
       ) : (
-        renderCommentsSidebar()
+        renderCommentsSidebar(undefined, false, "history")
       )}
     </div>
   ) : null;
@@ -2678,12 +2777,26 @@ function DocumentEditorBody({
 
               {showAnchoredCommentPopover ? (
                 <aside
-                  className="pointer-events-none absolute inset-y-0 end-4 z-30 w-[min(20rem,calc(100%-2rem))]"
+                  ref={anchoredCommentRef}
+                  className="pointer-events-none absolute z-30 transition-[top,left] duration-150 ease-[var(--ease-collapse)]"
                   aria-label={t("comments.title")}
                   data-comments-anchored-popover
+                  data-placement={anchoredCommentPosition?.placement}
+                  style={
+                    anchoredCommentPosition
+                      ? {
+                          left: anchoredCommentPosition.left,
+                          top: anchoredCommentPosition.top,
+                          width: anchoredCommentPosition.width,
+                        }
+                      : { visibility: "hidden" }
+                  }
                 >
                   <div className="pointer-events-auto">
-                    {renderCommentsSidebar(selectedThreadId, true)}
+                    {renderCommentsSidebar(
+                      pendingComment ? "__pending-only__" : selectedThreadId,
+                      false,
+                    )}
                   </div>
                 </aside>
               ) : null}
@@ -2693,7 +2806,7 @@ function DocumentEditorBody({
 
         {showUtilityPanelSheet ? (
           <Sheet
-            open={utilityPanel !== null}
+            open={showUtilityPanelSheet}
             onOpenChange={(open) => {
               if (!open) {
                 handleUtilityPanelChange(null);
@@ -2702,7 +2815,7 @@ function DocumentEditorBody({
           >
             <SheetContent
               side="right"
-              className="flex min-h-0 w-[85vw] max-w-sm flex-col overflow-hidden p-0"
+              className="flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0"
               aria-describedby={undefined}
             >
               <SheetHeader className="sr-only">

@@ -11,6 +11,7 @@ import {
   documentEditorTitleRegionClassName,
   enqueueDocumentSave,
   metadataUpdatesWithPendingTitle,
+  positionAnchoredCommentCard,
   refreshUnchangedContentSaveWatermark,
   shouldAwaitAuthoritativeDocument,
   titleMatchConfirmsSave,
@@ -22,6 +23,37 @@ import {
 } from "./DocumentToolbar";
 
 describe("document editor layout", () => {
+  it("centers a compact comment card below its paragraph when space permits", () => {
+    expect(
+      positionAnchoredCommentCard({
+        anchorRect: { top: 100, bottom: 160, left: 100, right: 500 },
+        containerRect: {
+          top: 0,
+          bottom: 800,
+          left: 0,
+          right: 700,
+          width: 700,
+        },
+        cardHeight: 180,
+      }),
+    ).toEqual({ left: 140, top: 168, width: 320, placement: "below" });
+  });
+
+  it("flips a compact comment card above and clamps it within the viewport", () => {
+    expect(
+      positionAnchoredCommentCard({
+        anchorRect: { top: 620, bottom: 700, left: -50, right: 150 },
+        containerRect: {
+          top: 0,
+          bottom: 720,
+          left: 0,
+          right: 360,
+          width: 360,
+        },
+        cardHeight: 220,
+      }),
+    ).toEqual({ left: 16, top: 392, width: 320, placement: "above" });
+  });
   it("keeps a local-file editor mounted when its saved timestamp advances", () => {
     const key = (documentUpdatedAt: string) =>
       visualEditorInstanceKey({
@@ -398,7 +430,7 @@ describe("document editor layout", () => {
     expect(source).toContain('utilityPanel === "info" ? null : "info"');
     expect(source).toContain('utilityPanel === "comments" ? null : "comments"');
     expect(source).not.toContain('aria-pressed={utilityPanel === "info"}');
-    expect(source).not.toContain('aria-pressed={utilityPanel === "comments"}');
+    expect(source).toContain('aria-pressed={utilityPanel === "comments"}');
     expect(source).toContain("setDeleteDialogOpen(true)");
     expect(source).toContain("text-destructive focus:text-destructive");
     expect(source).toContain("<IconTrash");
@@ -545,14 +577,14 @@ describe("document editor layout", () => {
     expect(source).toContain("onClickCapture={(event) => {");
   });
 
-  it("keeps the narrow utility sheet width-safe and vertically reachable", () => {
+  it("keeps the comments history drawer width-safe and vertically reachable", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       "utf8",
     );
 
     expect(source).toContain(
-      'className="flex min-h-0 w-[85vw] max-w-sm flex-col overflow-hidden p-0"',
+      'className="flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0"',
     );
     expect(source).toContain(
       'className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"',

@@ -193,7 +193,10 @@ describe("comments sidebar layout", () => {
     expect(source).toContain('aria-label={t("comments.reopen")}');
     expect(source).toContain("group-focus-within/thread:opacity-100");
     expect(source).not.toContain("hidden group-hover/thread:flex");
-    expect(source).toContain("aria-expanded={showResolved}");
+    expect(source).toContain('presentation === "history"');
+    expect(source).toContain("data-comments-history");
+    expect(source).not.toContain("showResolved");
+    expect(source).not.toContain('t("comments.resolved", {');
   });
 
   it("captures inline comment activation at the document state boundary", () => {
@@ -219,12 +222,12 @@ describe("comments sidebar layout", () => {
     );
   });
 
-  it("keeps the pending composer in normal flow on narrow sheets", () => {
+  it("keeps the pending composer in normal flow in the anchored card", () => {
     const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
       encoding: "utf8",
     });
 
-    expect(source).toContain("pendingComment && alignToAnchors");
+    expect(source).toContain("alignToAnchors");
     expect(source).toContain(
       '"relative mx-2 mt-3 rounded-lg bg-popover p-3 shadow-md ring-1 ring-border/50"',
     );
