@@ -649,12 +649,12 @@ qui ne l'a pas définie.
 Le déploiement doit également satisfaire quatre conditions, toutes déjà remplies
 par une application de production normale :
 
-| Prérequis | Pourquoi | Comment vérifier |
-| --------- | -------- | ---------------- |
-| **Postgres sur un hôte accessible publiquement** | La passerelle contacte la base de données depuis son propre réseau. PGlite, SQLite, `localhost`, `*.internal` et les adresses IP nues sont refusés avant même que la chaîne de connexion ne quitte votre machine. | `DATABASE_URL` pointe vers un Postgres géré tel que Neon |
-| **`BUILDER_PRIVATE_KEY` définie comme variable d'environnement du DÉPLOIEMENT** | Elle authentifie l'enregistrement et détermine quelle organisation Builder possède le canal. | Voir la note ci-dessous — c'est l'étape que l'on oublie le plus souvent |
-| **Un déploiement de production** | Les préversions de déploiement conservent la synchronisation locale, si bien qu'un identifiant de branche jetable ne quitte jamais la machine et qu'un dépôt actif ne crée pas un canal par pull request. | `CONTEXT=production` / `BRANCH=production`, ou `VERCEL_ENV=production` |
-| **La plateforme identifie le déploiement** | L'enregistrement est indexé sur l'origine publique de l'application ; un processus qui n'est pas réellement le déploiement ne doit donc pas la revendiquer. | Netlify, Vercel, AWS Lambda, Cloud Run, Render et Cloudflare Pages se signalent d'eux-mêmes. Sur un simple conteneur ou une VM, définissez `AGENT_NATIVE_REALTIME_APP_URL` avec l'origine propre du déploiement |
+| Prérequis                                                                       | Pourquoi                                                                                                                                                                                                          | Comment vérifier                                                                                                                                                                                                |
+| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Postgres sur un hôte accessible publiquement**                                | La passerelle contacte la base de données depuis son propre réseau. PGlite, SQLite, `localhost`, `*.internal` et les adresses IP nues sont refusés avant même que la chaîne de connexion ne quitte votre machine. | `DATABASE_URL` pointe vers un Postgres géré tel que Neon                                                                                                                                                        |
+| **`BUILDER_PRIVATE_KEY` définie comme variable d'environnement du DÉPLOIEMENT** | Elle authentifie l'enregistrement et détermine quelle organisation Builder possède le canal.                                                                                                                      | Voir la note ci-dessous — c'est l'étape que l'on oublie le plus souvent                                                                                                                                         |
+| **Un déploiement de production**                                                | Les préversions de déploiement conservent la synchronisation locale, si bien qu'un identifiant de branche jetable ne quitte jamais la machine et qu'un dépôt actif ne crée pas un canal par pull request.         | `CONTEXT=production` / `BRANCH=production`, ou `VERCEL_ENV=production`                                                                                                                                          |
+| **La plateforme identifie le déploiement**                                      | L'enregistrement est indexé sur l'origine publique de l'application ; un processus qui n'est pas réellement le déploiement ne doit donc pas la revendiquer.                                                       | Netlify, Vercel, AWS Lambda, Cloud Run, Render et Cloudflare Pages se signalent d'eux-mêmes. Sur un simple conteneur ou une VM, définissez `AGENT_NATIVE_REALTIME_APP_URL` avec l'origine propre du déploiement |
 
 <Callout tone="warning">
 
@@ -700,12 +700,12 @@ curl -s https://your-app.example.com/_agent-native/health | jq .realtime
 }
 ```
 
-| Champ | Signification |
-| ----- | ------------- |
-| `transport` | `"hosted"` dès que la variable d'environnement est définie, `"local"` sinon. Si vous lisez `local`, la variable n'a pas atteint le déploiement en cours d'exécution. |
-| `registered` | Un canal a été résolu. `false` signifie que l'application utilise toujours son propre `/_agent-native/poll`. |
+| Champ         | Signification                                                                                                                                                                                                                                         |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transport`   | `"hosted"` dès que la variable d'environnement est définie, `"local"` sinon. Si vous lisez `local`, la variable n'a pas atteint le déploiement en cours d'exécution.                                                                                  |
+| `registered`  | Un canal a été résolu. `false` signifie que l'application utilise toujours son propre `/_agent-native/poll`.                                                                                                                                          |
 | `channelHash` | Les 8 premiers caractères d'un SHA-256 de l'identifiant de canal — assez pour distinguer deux déploiements ou confirmer une rotation, inutile pour se connecter. Le point de terminaison est public, l'identifiant lui-même n'est donc jamais publié. |
-| `unavailable` | Présent uniquement lorsque la résolution a ÉCHOUÉ, par opposition à une résolution en « aucun canal ». Une passerelle injoignable et une application non enregistrée sont deux problèmes différents. |
+| `unavailable` | Présent uniquement lorsque la résolution a ÉCHOUÉ, par opposition à une résolution en « aucun canal ». Une passerelle injoignable et une application non enregistrée sont deux problèmes différents.                                                  |
 
 Lorsque `registered` vaut `false`, les journaux du déploiement contiennent une
 ligne `[realtime]` indiquant la raison : un identifiant refusé, une URL de base
@@ -726,7 +726,7 @@ identifiant.
 s'enregistrer peut aussi réenregistrer une origine existante, ce qui renvoie le
 secret de signature de ce canal et réoriente sa base de données. Détenir ce
 secret permet d'émettre un jeton d'abonnement pour n'importe quel utilisateur de
-l'application, exposant son *flux de changements* — quels enregistrements ont
+l'application, exposant son _flux de changements_ — quels enregistrements ont
 changé, et quand — mais pas les enregistrements eux-mêmes, puisque les clients
 relisent le contenu depuis l'application avec leur propre session. Traitez un
 identifiant d'enregistrement comme valant pour toute l'organisation.
