@@ -89,6 +89,21 @@ describe("Inbox navigation commands", () => {
     );
   });
 
+  it("normalizes hidden combined-inbox triage routes", () => {
+    const source = inboxSource();
+
+    expect(source).toContain("const shouldNormalizeCombinedInboxRoute =");
+    expect(source).toContain("activeLabelIsInboxScoped ||");
+    expect(source).toContain('nextParams.delete("label")');
+    expect(source).toContain('nextParams.delete("tab")');
+    expect(source).toContain(
+      "const effectiveLabel = shouldNormalizeCombinedInboxRoute",
+    );
+    expect(source).toContain(
+      "if (shouldNormalizeCombinedInboxRoute) return filtered;",
+    );
+  });
+
   it("uses the saved filter query instead of a Gmail label query", () => {
     const source = inboxSource();
 

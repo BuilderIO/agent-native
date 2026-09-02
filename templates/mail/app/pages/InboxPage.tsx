@@ -385,6 +385,10 @@ export function InboxPage() {
     !!activeLabel &&
     activeLabelRecord?.type !== "user" &&
     isInboxScopedAppLabel(activeLabelRecord?.id ?? activeLabel);
+  const shouldNormalizeCombinedInboxRoute =
+    combineInbox &&
+    view === "inbox" &&
+    (activeLabelIsInboxScoped || activeInboxTab === OTHER_INBOX_TAB_PARAM);
 
   // Always fetch from the URL view (inbox, starred, etc.).
   // Top-bar triage tabs (Important / pinned labels / "Other") are slices of
@@ -427,6 +431,21 @@ export function InboxPage() {
     view,
   ]);
 
+  useEffect(() => {
+    if (!shouldNormalizeCombinedInboxRoute) return;
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("label");
+    nextParams.delete("tab");
+    const search = nextParams.toString();
+    void navigate(
+      {
+        pathname: "/inbox",
+        search: search ? `?${search}` : "",
+      },
+      { replace: true },
+    );
+  }, [navigate, searchParams, shouldNormalizeCombinedInboxRoute]);
+
   const isPinnedTab =
     !!activeLabel &&
     view === "inbox" &&
@@ -440,9 +459,11 @@ export function InboxPage() {
     !combineInbox &&
     activeInboxTab === OTHER_INBOX_TAB_PARAM &&
     !searchQuery;
-  const effectiveLabel = clientSliceTab
+  const effectiveLabel = shouldNormalizeCombinedInboxRoute
     ? undefined
-    : (activeLabel ?? undefined);
+    : clientSliceTab
+      ? undefined
+      : (activeLabel ?? undefined);
   const emailView = activeSavedFilter
     ? "all"
     : mailboxWideLabelTab
@@ -482,6 +503,8 @@ export function InboxPage() {
         (e) => e.accountEmail && activeAccounts.has(e.accountEmail),
       );
     }
+
+    if (shouldNormalizeCombinedInboxRoute) return filtered;
 
     // Top-bar triage tab: slice the loaded inbox with the exact same
     // membership rule the badge uses (qualifiesForInboxTab). This is what
@@ -569,6 +592,7 @@ export function InboxPage() {
     connectedEmails,
     hasNoteToSelf,
     activeLabelIsInboxScoped,
+    shouldNormalizeCombinedInboxRoute,
     savedFilterQueries,
   ]);
 
