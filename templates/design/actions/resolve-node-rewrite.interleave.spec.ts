@@ -191,6 +191,37 @@ describe("node rewrite propose/accept interleave", () => {
     ).toBe(true);
   });
 
+  it("returns the published winner when the same request proposes again", async () => {
+    const first = await proposeAction.run({
+      source: { fileId: "file_1" },
+      target: { nodeId: "hero" },
+      baseVersionHash: "hash_base",
+      repromptId: "reprompt_1",
+      variants: [
+        {
+          html: '<section data-agent-native-node-id="hero" class="first">First</section>',
+          summary: "First proposal",
+        },
+      ],
+    });
+
+    const duplicate = await proposeAction.run({
+      source: { fileId: "file_1" },
+      target: { nodeId: "hero" },
+      baseVersionHash: "hash_base",
+      repromptId: "reprompt_1",
+      variants: [
+        {
+          html: '<section data-agent-native-node-id="hero" class="duplicate">Duplicate</section>',
+          summary: "Duplicate proposal",
+        },
+      ],
+    });
+
+    expect(duplicate).toEqual(first);
+    expect(duplicate.variants[0]?.summary).toBe("First proposal");
+  });
+
   it("does not write an old proposal when a newer request wins before reservation", async () => {
     const proposed = await proposeAction.run({
       source: { fileId: "file_1" },
