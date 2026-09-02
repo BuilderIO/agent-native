@@ -12,6 +12,13 @@
  * (templates/clips/desktop/src/styles.css) is deliberately NOT imported: it
  * declares `:root { font-size: 13px }` plus `html`/`body` background and color
  * rules that would reskin the whole docs site.
+ *
+ * i18n-raw-literal-disable-file -- this is artwork, not UI copy. The wrapper is
+ * a `role="img"` with a localized `aria-label` and the entire frame inside it is
+ * `aria-hidden`, so no assistive tech ever reads these strings; they are the
+ * pixels of a product screenshot (fake clip titles, owner names, macOS chrome).
+ * Translating them across 11 catalogs would add churn with nothing to show for
+ * it, since the localized alt text is what a non-English reader actually gets.
  */
 import {
   IconAppWindow,
@@ -258,7 +265,12 @@ function LibraryWindow() {
             {LIBRARY_RECORDINGS.map((recording) => (
               <div className="library-card" key={recording.title}>
                 <div className="library-card-thumb">
-                  <img src={recording.thumbnail} alt="" loading="lazy" />
+                  <img
+                    src={recording.thumbnail}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                  />
                   <div className="library-card-thumb-overlay">
                     <IconPlayerPlay size={26} />
                   </div>

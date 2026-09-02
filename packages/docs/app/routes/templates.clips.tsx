@@ -259,9 +259,11 @@ export default function ClipsTemplate() {
         title={
           <>
             <span className="text-[var(--fg-secondary)] lg:whitespace-nowrap">
-              Screen recordings your{" "}
+              {t("templateLanding.clips.s007Primary")}{" "}
             </span>
-            <span className="block text-[var(--fg)]">AI can see and hear.</span>
+            <span className="block text-[var(--fg)]">
+              {t("templateLanding.clips.s007Secondary")}
+            </span>
           </>
         }
         eyebrow={<ClipsWordmark />}
@@ -349,11 +351,10 @@ export default function ClipsTemplate() {
           <div className="flex items-center px-6 pt-8 pb-6 sm:px-10 order-1 lg:order-2 lg:w-1/3 lg:shrink-0 lg:py-8 lg:pt-8 lg:pb-8 lg:ps-16 lg:pe-8">
             <div>
               <h2 className="font-poppins text-2xl font-medium leading-[1.3] tracking-[-0.24px] text-[var(--fg)]">
-                Get a personalized recommendation
+                {t("templateLanding.clips.s063")}
               </h2>
               <p className="mt-2 text-[15px] leading-6 text-[var(--fg-secondary)]">
-                Paste this prompt into Claude, ChatGPT, or Cursor to see how
-                Clips could impact your workflow.
+                {t("templateLanding.clips.s064")}
               </p>
             </div>
           </div>
