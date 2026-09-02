@@ -551,9 +551,10 @@ const enUS = {
     copyCommunityInstallCommand: "Copy install command",
     viewRepository: "View repository",
     tryCommunityDemo: "Try demo",
-    customizeDescription: "You can customize this code completely.",
-    customizeOnline: "Customize online",
-    customizeLocally: "Customize locally",
+    customizeDescription: "Use this app as a starting point.",
+    customizeOnline: "Online",
+    customizeOnlineBadge: "Join waitlist",
+    customizeLocally: "Local",
     communityNew: "New",
     communityComingSoon: "Coming soon",
     communityGithubStars: "{{count}} GitHub stars",
@@ -573,7 +574,7 @@ const enUS = {
     communitySubmissionName: "App name",
     communitySubmissionNamePlaceholder: "Customer Support Hub",
     communitySubmissionUrl: "App URL",
-    communitySubmissionUrlPlaceholder: "example.com or https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "Description",
     communitySubmissionDescriptionPlaceholder:
       "What does the app do, and who is it for?",
@@ -590,8 +591,15 @@ const enUS = {
     communitySubmissionSubmit: "Submit app",
     communitySubmissionReady:
       "Thanks. We will review your app before publishing it.",
-    communitySubmissionValidation:
-      "Add a name and description, then enter an app link like example.com. We’ll add https:// for you. If you add a repository, use a github.com link. Upload PNG, JPG, or WebP images up to 1.5 MB each.",
+    communitySubmissionNameError: "Enter an app name.",
+    communitySubmissionDescriptionError: "Add a short description.",
+    communitySubmissionUrlError: "Enter a valid app link, such as example.com.",
+    communitySubmissionRepositoryError: "Enter a GitHub repository link.",
+    communitySubmissionScreenshotsError:
+      "Use PNG, JPG, or WebP images up to 1.5 MB each, with up to 5 images.",
+    communitySubmissionSubmitError:
+      "Couldn’t submit right now. Check the highlighted fields and try again.",
+    communitySubmissionSubmitting: "Submitting…",
   },
   buildFromScratch: {
     title: "Build from scratch",
@@ -1474,7 +1482,7 @@ const enUS = {
       s004: "Re-use it.",
       s005: "All Apps",
       s006Primary: "Decks from your AI agent.",
-      s006Secondary: "On brand, editable, yours.",
+      s006Secondary: "On-brand & editable",
       s007: "Generate branded slide decks from your AI agent, apply your own manual changes anytime, export anywhere.",
       s008: "Try It",
       s009: "How it works",

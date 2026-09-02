@@ -127,6 +127,78 @@ function stripNeonPooler(url: string): string {
   return url.replace(/-pooler(\.[a-z0-9.-]+\.neon\.tech)/, "$1");
 }
 
+interface RuntimeDatabaseResolution {
+  url: string;
+  source: string;
+}
+
+function envDatabaseValue(key: string): string | undefined {
+  const value = process.env[key]?.trim();
+  return value || undefined;
+}
+
+function resolveRuntimeDatabase(fallback = ""): RuntimeDatabaseResolution {
+  const appName = getAppEnvPrefix();
+  if (appName) {
+    const appUnpooled = envDatabaseValue(`${appName}_DATABASE_URL_UNPOOLED`);
+    if (appUnpooled) {
+      return {
+        url: stripNeonPooler(appUnpooled),
+        source: `${appName}_DATABASE_URL_UNPOOLED`,
+      };
+    }
+
+    const appUrl = envDatabaseValue(`${appName}_DATABASE_URL`);
+    if (appUrl) {
+      return {
+        url: isServerlessRuntime() ? stripNeonPooler(appUrl) : appUrl,
+        source: `${appName}_DATABASE_URL`,
+      };
+    }
+  }
+
+  const configuredUnpooled = getAppConfig().runtime.databaseUrlUnpooled;
+  if (configuredUnpooled) {
+    const netlifyUnpooled = envDatabaseValue("NETLIFY_DATABASE_URL_UNPOOLED");
+    const databaseUnpooled = envDatabaseValue("DATABASE_URL_UNPOOLED");
+    return {
+      url: stripNeonPooler(configuredUnpooled),
+      source:
+        netlifyUnpooled === configuredUnpooled
+          ? "NETLIFY_DATABASE_URL_UNPOOLED"
+          : databaseUnpooled === configuredUnpooled
+            ? "DATABASE_URL_UNPOOLED"
+            : "DATABASE_URL_UNPOOLED",
+    };
+  }
+
+  const netlifyUnpooled = envDatabaseValue("NETLIFY_DATABASE_URL_UNPOOLED");
+  if (netlifyUnpooled) {
+    return {
+      url: stripNeonPooler(netlifyUnpooled),
+      source: "NETLIFY_DATABASE_URL_UNPOOLED",
+    };
+  }
+
+  const databaseUnpooled = envDatabaseValue("DATABASE_URL_UNPOOLED");
+  if (databaseUnpooled) {
+    return {
+      url: stripNeonPooler(databaseUnpooled),
+      source: "DATABASE_URL_UNPOOLED",
+    };
+  }
+
+  const url = getDatabaseUrl(fallback);
+  return {
+    url: isServerlessRuntime() ? stripNeonPooler(url) : url,
+    source: envDatabaseValue("DATABASE_URL")
+      ? "DATABASE_URL"
+      : envDatabaseValue("NETLIFY_DATABASE_URL")
+        ? "NETLIFY_DATABASE_URL"
+        : "default",
+  };
+}
+
 /**
  * Resolve the URL used by request-time database clients.
  *
@@ -137,17 +209,11 @@ function stripNeonPooler(url: string): string {
  * checks that intentionally inspect the configured deployment value.
  */
 export function getRuntimeDatabaseUrl(fallback = ""): string {
-  const appUnpooled = getConfiguredAppDatabaseUrl("DATABASE_URL_UNPOOLED");
-  if (appUnpooled) return stripNeonPooler(appUnpooled);
+  return resolveRuntimeDatabase(fallback).url;
+}
 
-  const appUrl = getConfiguredAppDatabaseUrl("DATABASE_URL");
-  if (appUrl) return isServerlessRuntime() ? stripNeonPooler(appUrl) : appUrl;
-
-  const unpooled = getAppConfig().runtime.databaseUrlUnpooled;
-  if (unpooled) return stripNeonPooler(unpooled);
-
-  const url = getDatabaseUrl(fallback);
-  return isServerlessRuntime() ? stripNeonPooler(url) : url;
+export function getRuntimeDatabaseSource(fallback = ""): string {
+  return resolveRuntimeDatabase(fallback).source;
 }
 
 /** Same per-app resolution for DATABASE_AUTH_TOKEN (used by Turso/libsql). */
