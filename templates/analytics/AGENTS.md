@@ -25,6 +25,9 @@ Read the relevant skill before deeper work:
 - `creative-context` for governed contexts and immutable dashboard revisions.
 - `admin-surfaces` for the `/agents` fleet flags, usage audit, and connected DBs.
 
+Before building common workspace or agent UI, read `agent-native-toolkit` and use
+`customizing-agent-native` to follow the customization ladder.
+
 ## How To Answer A Data Question
 
 1. **Search existing work first.** For a metric question, call

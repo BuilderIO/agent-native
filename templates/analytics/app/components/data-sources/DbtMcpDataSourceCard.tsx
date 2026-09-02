@@ -25,10 +25,15 @@ import type { DbtMcpStatus } from "@/lib/data-source-status";
 const dbtIntegration = getDefaultMcpIntegrations().find(
   (integration) => integration.id === "dbt",
 );
-// This card owns organization scope, so skip the dialog's personal/workspace
-// choice and enforce the shared scope again at the create boundary.
+// This card owns provider setup and organization scope, so open the manual
+// connection form directly and enforce the shared scope again at create time.
 const dbtDialogIntegration = dbtIntegration
-  ? { ...dbtIntegration, supportsOrganizationScope: false }
+  ? {
+      ...dbtIntegration,
+      availability: "ready" as const,
+      connectionMode: "direct" as const,
+      supportsOrganizationScope: false,
+    }
   : undefined;
 
 export function DbtMcpDataSourceCard({

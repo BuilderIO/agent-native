@@ -19,11 +19,35 @@ vi.mock("@agent-native/core/client/resources", () => ({
       id: "dbt",
       name: "dbt",
       logoUrl: "",
+      availability: "provider-setup",
+      connectionMode: "manual",
       supportsOrganizationScope: true,
     },
   ],
-  McpIntegrationDialog: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="mcp-create-dialog" /> : null,
+  McpIntegrationDialog: ({
+    open,
+    defaultScope,
+    integrations,
+  }: {
+    open: boolean;
+    defaultScope: string;
+    integrations: Array<{
+      availability?: string;
+      connectionMode?: string;
+      supportsOrganizationScope?: boolean;
+    }>;
+  }) =>
+    open ? (
+      <div
+        data-testid="mcp-create-dialog"
+        data-scope={defaultScope}
+        data-availability={integrations[0]?.availability ?? "direct-form"}
+        data-connection-mode={integrations[0]?.connectionMode}
+        data-supports-org-scope={String(
+          integrations[0]?.supportsOrganizationScope,
+        )}
+      />
+    ) : null,
   McpIntegrationLogo: () => null,
   useCreateMcpServer: () => ({ mutateAsync: vi.fn() }),
   useMcpServers: () => ({
@@ -106,6 +130,47 @@ describe("DbtMcpDataSourceCard", () => {
     expect(
       container.querySelector('[data-testid="mcp-create-dialog"]'),
     ).toBeNull();
+  });
+
+  it("opens the dbt manual form with organization scope enforced", async () => {
+    await act(async () => {
+      root.render(
+        <DbtMcpDataSourceCard
+          status={{
+            available: true,
+            configured: false,
+            capabilities: {
+              discovery: false,
+              lineage: false,
+              healthAndFreshness: false,
+              semanticLayer: false,
+            },
+            sqlTools: { available: false, intentionallyUnused: true },
+            toolCount: 0,
+            setupLink: "/data-sources?source=dbt&returnTo=ask",
+          }}
+          isLoading={false}
+          canManageOrg
+          hasOrg
+          focused
+          showAskContinuation
+          onSaved={vi.fn()}
+        />,
+      );
+    });
+
+    const connectButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "dataSources.connect",
+    );
+    expect(connectButton).toBeTruthy();
+
+    await act(async () => connectButton?.click());
+
+    const dialog = container.querySelector('[data-testid="mcp-create-dialog"]');
+    expect(dialog?.getAttribute("data-scope")).toBe("org");
+    expect(dialog?.getAttribute("data-availability")).toBe("ready");
+    expect(dialog?.getAttribute("data-connection-mode")).toBe("direct");
+    expect(dialog?.getAttribute("data-supports-org-scope")).toBe("false");
   });
 
   it("shows connected state without mutation controls to non-admin members", async () => {
