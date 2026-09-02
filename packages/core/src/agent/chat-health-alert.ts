@@ -43,6 +43,7 @@ export type ChatHealthAlertOutcome =
   | { status: "cooldown"; retryAfterMs: number }
   | { status: "alerted"; turns: number; badRate: number; recipients: number }
   | { status: "delivery-failed"; reason: string }
+  | { status: "persistence-failed"; reason: string }
   | { status: "check-failed"; reason: string };
 
 interface TurnCounts {
@@ -182,11 +183,14 @@ export async function checkChatHealthAndAlert(
 
   // Stamp only after Slack confirms delivery, so a failed alert retries on the
   // next sweep instead of being silenced by its own cooldown.
-  await putSetting(LAST_ALERT_SETTING_KEY, { at: now }).catch(
-    (error: unknown) => {
-      console.error("[chat-health-alert] could not stamp cooldown:", error);
-    },
-  );
+  try {
+    await putSetting(LAST_ALERT_SETTING_KEY, { at: now });
+  } catch (error) {
+    const reason =
+      "Slack delivered, but the alert cooldown could not be persisted.";
+    console.error("[chat-health-alert] could not stamp cooldown:", error);
+    return { status: "persistence-failed", reason };
+  }
 
   return {
     status: "alerted",

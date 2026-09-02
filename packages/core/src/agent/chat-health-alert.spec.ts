@@ -17,12 +17,14 @@ vi.mock("../db/client.js", () => ({
 
 const settings = new Map<string, Record<string, unknown>>();
 let settingsReadThrows = false;
+let settingsWriteThrows = false;
 vi.mock("../settings/store.js", () => ({
   getSetting: vi.fn(async (key: string) => {
     if (settingsReadThrows) throw new Error("settings unreadable");
     return settings.get(key) ?? null;
   }),
   putSetting: vi.fn(async (key: string, value: Record<string, unknown>) => {
+    if (settingsWriteThrows) throw new Error("settings write failed");
     settings.set(key, value);
   }),
 }));
@@ -47,6 +49,7 @@ beforeEach(() => {
   turnQueryThrows = false;
   settings.clear();
   settingsReadThrows = false;
+  settingsWriteThrows = false;
   notifyWithDelivery.mockClear();
   execute.mockClear();
 });
@@ -132,5 +135,16 @@ describe("checkChatHealthAndAlert", () => {
 
     await checkChatHealthAndAlert(NOW + 60_000);
     expect(notifyWithDelivery).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports when Slack delivered but cooldown persistence failed", async () => {
+    turns(20, 15);
+    settingsWriteThrows = true;
+    const out = await checkChatHealthAndAlert(NOW);
+    expect(out).toEqual({
+      status: "persistence-failed",
+      reason: "Slack delivered, but the alert cooldown could not be persisted.",
+    });
+    expect(notifyWithDelivery).toHaveBeenCalledTimes(1);
   });
 });
