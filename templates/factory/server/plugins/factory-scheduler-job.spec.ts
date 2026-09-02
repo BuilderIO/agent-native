@@ -27,6 +27,7 @@ vi.mock("@agent-native/core/resources", () => ({
   resourceDeleteByPath: resourceDeleteByPathMock,
   resourceGetByPath: resourceGetByPathMock,
   resourceList: resourceListMock,
+  resourceListContentByOwnersAndPrefixes: vi.fn().mockResolvedValue([]),
   resourcePut: resourcePutMock,
   resourcePutIfCurrent: resourcePutIfCurrentMock,
   WORKSPACE_OWNER: "workspace",

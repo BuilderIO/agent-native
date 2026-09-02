@@ -20,6 +20,7 @@ import {
 } from "./cron.js";
 import {
   buildJobResourceContent,
+  isRecoveredFactoryJob,
   jobBelongsToApp,
   parseJobResource,
   patchJobFrontmatterFields,
@@ -263,7 +264,12 @@ async function processRecurringJobsWithLease(
       // the shared scheduler. Once a job declares an owner, only that app may
       // evaluate or execute it. Without this boundary every app's scheduled
       // worker can claim the same organization resource.
-      if (!jobBelongsToApp(meta, deps.appId)) continue;
+      if (
+        !jobBelongsToApp(meta, deps.appId) &&
+        !isRecoveredFactoryJob(meta, resource.path, deps.appId)
+      ) {
+        continue;
+      }
       healthOrgIds.add(meta.orgId ?? null);
 
       // A host-targeted run is reconciled from the durable relay command. It

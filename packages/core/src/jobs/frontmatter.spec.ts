@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildJobResourceContent,
   classifyJobResource,
+  isRecoveredFactoryJob,
   jobBelongsToApp,
   parseJobResource,
   patchJobFrontmatterFields,
@@ -232,5 +233,23 @@ Run the job.`),
       false,
     );
     expect(jobBelongsToApp({}, "mail")).toBe(true);
+  });
+
+  it("recovers Factory-folder org jobs that lost appId for Factory only", () => {
+    const path = "jobs/factories/demo-factory/factory-slack-feedback.md";
+    expect(isRecoveredFactoryJob({}, path, "factory")).toBe(true);
+    expect(isRecoveredFactoryJob({ appId: "factory" }, path, "factory")).toBe(
+      true,
+    );
+    expect(isRecoveredFactoryJob({}, path, "mail")).toBe(false);
+    expect(isRecoveredFactoryJob({ appId: "calendar" }, path, "factory")).toBe(
+      false,
+    );
+    expect(
+      isRecoveredFactoryJob({}, "jobs/calendar-digest.md", "factory"),
+    ).toBe(false);
+    expect(
+      isRecoveredFactoryJob({}, "jobs/factory-pr-babysit.md", "factory"),
+    ).toBe(true);
   });
 });

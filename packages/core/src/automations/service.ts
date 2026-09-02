@@ -2,6 +2,7 @@ import { getDbExec } from "../db/client.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../jobs/cron.js";
 import {
   buildJobResourceContent,
+  isRecoveredFactoryJob,
   jobBelongsToApp,
   normalizeJobMcpTools,
   parseJobResource,
@@ -247,25 +248,6 @@ export async function canUpdateAutomationResource(
     return membership ? isOrganizationAdmin(membership) : false;
   }
   return (await mutationAccess(actor, resource, meta)).canUpdate;
-}
-
-function isFactoryAutomationPath(path: string): boolean {
-  return (
-    /^jobs\/factories\/[^/]+\/[^/]+\.md$/.test(path) ||
-    /^jobs\/factory-[^/]+\.md$/.test(path)
-  );
-}
-
-/** Path membership for recovered Factory jobs. Do not loosen `jobBelongsToApp`. */
-function isRecoveredFactoryJob(
-  meta: JobFrontmatter,
-  path: string,
-  actorAppId: string | null | undefined,
-): boolean {
-  if (actorAppId?.trim() !== "factory") return false;
-  if (!isFactoryAutomationPath(path)) return false;
-  const ownerAppId = meta.appId?.trim();
-  return !ownerAppId || ownerAppId === "factory";
 }
 
 /**

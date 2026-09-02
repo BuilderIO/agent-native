@@ -252,11 +252,16 @@ Observe Slack.
         automationId: "resource-1",
         name: "factories/support-triage/factory-slack-feedback",
         prompt: "Watch Slack more closely.",
+        scheduleMode: "interval",
+        intervalMinutes: 10,
         enabled: false,
       },
       { userEmail: "teammate@example.com" },
     );
     expect(result).toMatchObject({ ok: true, id: "resource-1" });
-    expect(resourcePutIfCurrentMock).toHaveBeenCalled();
+    const saved = resourcePutIfCurrentMock.mock.calls[0]?.[0].content as string;
+    expect(saved).toContain("appId: factory");
+    expect(saved).toContain("nextRun: 2026-08-24T00:00:00.000Z");
+    expect(saved).not.toMatch(/^domain:/m);
   });
 });

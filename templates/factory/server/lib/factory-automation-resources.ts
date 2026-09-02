@@ -4,8 +4,7 @@ import {
 } from "@agent-native/core/jobs/frontmatter";
 import {
   organizationResourceOwner,
-  resourceGetByPath,
-  resourceList,
+  resourceListContentByOwnersAndPrefixes,
   type Resource,
 } from "@agent-native/core/resources";
 
@@ -40,6 +39,30 @@ function isFactoryAppOwned(meta: JobFrontmatter): boolean {
   return true;
 }
 
+function resourceFromContentProjection(row: {
+  id: string;
+  path: string;
+  owner: string;
+  content: string;
+}): Resource {
+  return {
+    id: row.id,
+    path: row.path,
+    owner: row.owner,
+    content: row.content,
+    mimeType: "text/markdown",
+    size: row.content.length,
+    createdAt: 0,
+    updatedAt: 0,
+    createdBy: "system",
+    visibility: "workspace",
+    threadId: null,
+    runId: null,
+    expiresAt: null,
+    metadata: null,
+  };
+}
+
 export function factoryIdFromAutomationName(name: string): string | null {
   const nested = name.match(/^factories\/([^/]+)\//);
   if (nested?.[1]) return nested[1];
@@ -57,24 +80,16 @@ export async function listFactoryAutomationDefinitions(
   factoryId: string,
 ): Promise<FactoryAutomationDefinition[]> {
   const owner = organizationResourceOwner(orgId);
-  const listed = (
-    await Promise.all(
-      factoryAutomationJobPrefixes(factoryId).map((prefix) =>
-        resourceList(owner, prefix),
-      ),
-    )
-  ).flat();
-  const unique = new Map(listed.map((meta) => [meta.path, meta]));
-  const jobs = [...unique.values()].filter(
-    (meta) => meta.path.endsWith(".md") && !meta.path.endsWith(".keep"),
+  const listed = await resourceListContentByOwnersAndPrefixes(
+    [owner],
+    factoryAutomationJobPrefixes(factoryId),
   );
-  const resources = await Promise.all(
-    jobs.map((meta) => resourceGetByPath(meta.owner, meta.path)),
-  );
-  return resources
-    .filter((resource): resource is Resource => resource !== null)
-    .filter((resource) => jobBelongsToFactory(resource.path, factoryId))
-    .map((resource) => {
+  const unique = new Map(listed.map((row) => [row.path, row]));
+  return [...unique.values()]
+    .filter((row) => row.path.endsWith(".md") && !row.path.endsWith(".keep"))
+    .filter((row) => jobBelongsToFactory(row.path, factoryId))
+    .map((row) => {
+      const resource = resourceFromContentProjection(row);
       const { meta, body } = parseJobResource(resource.content);
       return {
         name: factoryAutomationRunHistoryKey(resource.path),

@@ -98,6 +98,28 @@ export function jobBelongsToApp(
   return !meta.orgId?.trim();
 }
 
+function isFactoryAutomationPath(path: string): boolean {
+  return (
+    /^jobs\/factories\/[^/]+\/[^/]+\.md$/.test(path) ||
+    /^jobs\/factory-[^/]+\.md$/.test(path)
+  );
+}
+
+/**
+ * Path-scoped recovery for Factory-folder org jobs that lost `appId`.
+ * Do not use this to loosen `jobBelongsToApp` for other apps.
+ */
+export function isRecoveredFactoryJob(
+  meta: Pick<JobFrontmatter, "appId">,
+  path: string,
+  actorAppId: string | null | undefined,
+): boolean {
+  if (actorAppId?.trim() !== "factory") return false;
+  if (!isFactoryAutomationPath(path)) return false;
+  const ownerAppId = meta.appId?.trim();
+  return !ownerAppId || ownerAppId === "factory";
+}
+
 export interface JobResourceClassification {
   kind: "job" | "automation";
   hasExplicitTriggerType: boolean;

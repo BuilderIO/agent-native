@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const resourceListMock = vi.hoisted(() => vi.fn());
-const resourceGetByPathMock = vi.hoisted(() => vi.fn());
+const resourceListContentMock = vi.hoisted(() => vi.fn());
 const listAutomationRunsMock = vi.hoisted(() => vi.fn());
 const requireWorkspaceMemberMock = vi.hoisted(() => vi.fn());
 const workspaceMemberIdentityFromContextMock = vi.hoisted(() => vi.fn());
@@ -13,8 +12,7 @@ vi.mock("@agent-native/core/action", () => ({
 
 vi.mock("@agent-native/core/resources", () => ({
   organizationResourceOwner: (orgId: string) => `__organization__:${orgId}`,
-  resourceList: resourceListMock,
-  resourceGetByPath: resourceGetByPathMock,
+  resourceListContentByOwnersAndPrefixes: resourceListContentMock,
 }));
 
 vi.mock("@agent-native/core/triggers", () => ({
@@ -43,8 +41,7 @@ beforeEach(() => {
   });
   readFactoryDefinitionMock.mockResolvedValue({ id: "support-triage" });
   listAutomationRunsMock.mockResolvedValue([]);
-  resourceListMock.mockResolvedValue([]);
-  resourceGetByPathMock.mockResolvedValue(null);
+  resourceListContentMock.mockResolvedValue([]);
 });
 
 function factoryJobResource(content: string) {
@@ -62,8 +59,7 @@ describe("list-factory-automations", { timeout: 15_000 }, () => {
     const resource = factoryJobResource(
       "---\ndomain: factory\nfactoryId: support-triage\nmodel: claude-sonnet\nschedule: '*/5 * * * *'\nenabled: true\ntriggerType: schedule\ncreatedBy: alice@example.com\n---\nObserve Slack.\n",
     );
-    resourceListMock.mockResolvedValue([resource]);
-    resourceGetByPathMock.mockResolvedValue(resource);
+    resourceListContentMock.mockResolvedValue([resource]);
 
     const { default: action } = await import("./list-factory-automations.js");
     const result = await action.run(
@@ -84,8 +80,7 @@ describe("list-factory-automations", { timeout: 15_000 }, () => {
     const resource = factoryJobResource(
       "---\nenabled: true\nlastStatus: running\nlastRun: 2026-09-01T21:45:00.000Z\n---\nObserve Slack.\n",
     );
-    resourceListMock.mockResolvedValue([resource]);
-    resourceGetByPathMock.mockResolvedValue(resource);
+    resourceListContentMock.mockResolvedValue([resource]);
 
     const { default: action } = await import("./list-factory-automations.js");
     const result = await action.run(
@@ -100,9 +95,9 @@ describe("list-factory-automations", { timeout: 15_000 }, () => {
         enabled: true,
       }),
     ]);
-    expect(resourceListMock).toHaveBeenCalledWith(
-      "__organization__:org-1",
-      "jobs/factories/support-triage/",
+    expect(resourceListContentMock).toHaveBeenCalledWith(
+      ["__organization__:org-1"],
+      ["jobs/factories/support-triage/"],
     );
   });
 });

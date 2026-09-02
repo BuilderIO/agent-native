@@ -1,12 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const resourceListMock = vi.hoisted(() => vi.fn());
-const resourceGetByPathMock = vi.hoisted(() => vi.fn());
+const resourceListContentMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/resources", () => ({
   organizationResourceOwner: (orgId: string) => `__organization__:${orgId}`,
-  resourceList: resourceListMock,
-  resourceGetByPath: resourceGetByPathMock,
+  resourceListContentByOwnersAndPrefixes: resourceListContentMock,
 }));
 
 import {
@@ -17,8 +15,7 @@ import {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  resourceListMock.mockResolvedValue([]);
-  resourceGetByPathMock.mockResolvedValue(null);
+  resourceListContentMock.mockResolvedValue([]);
 });
 
 describe("listFactoryAutomationDefinitions", () => {
@@ -30,8 +27,7 @@ describe("listFactoryAutomationDefinitions", () => {
       content: "---\nenabled: true\nlastStatus: running\n---\nObserve Slack.\n",
       updatedAt: 1,
     };
-    resourceListMock.mockResolvedValue([resource]);
-    resourceGetByPathMock.mockResolvedValue(resource);
+    resourceListContentMock.mockResolvedValue([resource]);
 
     const definitions = await listFactoryAutomationDefinitions(
       "org-1",
@@ -46,9 +42,9 @@ describe("listFactoryAutomationDefinitions", () => {
     ]);
     expect(definitions[0]?.meta.domain).toBeUndefined();
     expect(definitions[0]?.meta.triggerType).toBeUndefined();
-    expect(resourceListMock).toHaveBeenCalledWith(
-      "__organization__:org-1",
-      "jobs/factories/demo-factory/",
+    expect(resourceListContentMock).toHaveBeenCalledWith(
+      ["__organization__:org-1"],
+      ["jobs/factories/demo-factory/"],
     );
   });
 
@@ -60,11 +56,10 @@ describe("listFactoryAutomationDefinitions", () => {
       content: "---\nenabled: true\n---\nBabysit PRs.\n",
       updatedAt: 1,
     };
-    resourceListMock.mockImplementation(
-      async (_owner: string, prefix: string) =>
-        prefix === "jobs/factory-" ? [resource] : [],
+    resourceListContentMock.mockImplementation(
+      async (_owners: string[], prefixes: string[]) =>
+        prefixes.includes("jobs/factory-") ? [resource] : [],
     );
-    resourceGetByPathMock.mockResolvedValue(resource);
 
     const definitions = await listFactoryAutomationDefinitions(
       "org-1",
@@ -84,8 +79,7 @@ describe("listFactoryAutomationDefinitions", () => {
       content: "---\nenabled: true\n---\nObserve Slack.\n",
       updatedAt: 1,
     };
-    resourceListMock.mockResolvedValue([resource]);
-    resourceGetByPathMock.mockResolvedValue(resource);
+    resourceListContentMock.mockResolvedValue([resource]);
 
     const definitions = await listFactoryAutomationDefinitions(
       "org-1",
@@ -105,8 +99,7 @@ describe("listFactoryAutomationDefinitions", () => {
       content: "---\nenabled: true\nappId: calendar\n---\nSend the digest.\n",
       updatedAt: 1,
     };
-    resourceListMock.mockResolvedValue([resource]);
-    resourceGetByPathMock.mockResolvedValue(resource);
+    resourceListContentMock.mockResolvedValue([resource]);
 
     await expect(
       listFactoryAutomationDefinitions("org-1", "demo-factory"),
@@ -121,8 +114,7 @@ describe("listFactoryAutomationDefinitions", () => {
       content: "---\nenabled: true\n---\nObserve Slack.\n",
       updatedAt: 1,
     };
-    resourceListMock.mockResolvedValue([resource]);
-    resourceGetByPathMock.mockResolvedValue(resource);
+    resourceListContentMock.mockResolvedValue([resource]);
 
     await expect(
       findFactoryAutomationDefinition("org-1", "demo-factory", "resource-slim"),
@@ -156,8 +148,7 @@ describe("listFactoryAutomationDefinitions isolation", () => {
       content: "---\nenabled: true\n---\nObserve Slack.\n",
       updatedAt: 1,
     };
-    resourceListMock.mockResolvedValue([resource]);
-    resourceGetByPathMock.mockResolvedValue(resource);
+    resourceListContentMock.mockResolvedValue([resource]);
 
     await expect(
       listFactoryAutomationDefinitions("org-1", "demo-factory"),

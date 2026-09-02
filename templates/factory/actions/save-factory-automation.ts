@@ -182,7 +182,10 @@ export default defineAction({
       ),
     };
     const schedule = scheduleCron(config);
-    if (definition.meta.triggerType === "schedule" && !isValidCron(schedule)) {
+    const scheduleOwned =
+      definition.meta.triggerType === "schedule" ||
+      definition.meta.triggerType == null;
+    if (scheduleOwned && !isValidCron(schedule)) {
       throw new Error(`Invalid cron expression "${schedule}".`);
     }
     let content = applyAutomationConfigFrontmatter(resource.content, config);
@@ -197,6 +200,7 @@ export default defineAction({
       "factoryId",
       input.factoryId,
     );
+    content = setAutomationFrontmatterField(content, "appId", "factory");
     if (input.model !== undefined) {
       content = setAutomationFrontmatterField(
         content,
@@ -211,7 +215,7 @@ export default defineAction({
         input.displayName,
       );
     }
-    if (definition.meta.triggerType === "schedule" && isValidCron(schedule)) {
+    if (scheduleOwned && isValidCron(schedule)) {
       const nextRun = nextOccurrence(
         schedule,
         undefined,
