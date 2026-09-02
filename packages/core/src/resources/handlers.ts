@@ -328,7 +328,7 @@ export async function handleGetResourceTree(event: any) {
   const tree = buildTree(resources);
 
   // Enrich typed resources with parsed metadata for richer UI
-  await enrichTreeNodes(tree);
+  await enrichTreeNodes(tree, orgId);
 
   return { tree };
 }
@@ -351,7 +351,10 @@ export async function handleGetEffectiveResourceContext(event: any) {
 /**
  * Walk the tree and add typed metadata for jobs, skills, and agents.
  */
-async function enrichTreeNodes(nodes: TreeNode[]): Promise<void> {
+async function enrichTreeNodes(
+  nodes: TreeNode[],
+  orgId: string | null,
+): Promise<void> {
   let parseFn: typeof import("../jobs/scheduler.js").parseJobFrontmatter;
   let describeFn: typeof import("../jobs/cron.js").describeCron;
   try {
@@ -365,11 +368,11 @@ async function enrichTreeNodes(nodes: TreeNode[]): Promise<void> {
 
   for (const node of nodes) {
     if (node.type === "folder" && node.children) {
-      await enrichTreeNodes(node.children);
+      await enrichTreeNodes(node.children, orgId);
     }
     if (node.type === "file" && node.resource) {
       try {
-        const full = await resourceGet(node.resource.id);
+        const full = await resourceGet(node.resource.id, { orgId });
         if (!full?.content) continue;
 
         if (
@@ -598,6 +601,15 @@ export async function handleUpdateResource(event: any) {
   // editing one creates an organization override instead of mutating the
   // fallback seen by every tenant in the deployment.
   if (existing.owner === SHARED_OWNER && activeSharedOwner !== SHARED_OWNER) {
+    if (nextPath !== existing.path) {
+      const destination = await resourceGetByPath(activeSharedOwner, nextPath, {
+        orgId,
+      });
+      if (destination) {
+        setResponseStatus(event, 409);
+        return { error: `A resource already exists at path "${nextPath}"` };
+      }
+    }
     const resource = await resourcePut(
       activeSharedOwner,
       nextPath,

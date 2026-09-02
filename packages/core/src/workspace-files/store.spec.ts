@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockResourcePut = vi.hoisted(() => vi.fn());
 const mockResourceGetByPath = vi.hoisted(() => vi.fn());
 const mockResourceList = vi.hoisted(() => vi.fn());
+const mockResourceDelete = vi.hoisted(() => vi.fn());
 const mockResourceDeleteByPath = vi.hoisted(() => vi.fn());
 const mockIsLegacyOrganizationWorkspaceFile = vi.hoisted(() => vi.fn());
 const mockGetOrgRoleForEmail = vi.hoisted(() => vi.fn());
@@ -15,6 +16,7 @@ vi.mock("../resources/store.js", () => ({
   isLegacyOrganizationWorkspaceFile: mockIsLegacyOrganizationWorkspaceFile,
   resourcePut: mockResourcePut,
   resourceGetByPath: mockResourceGetByPath,
+  resourceDelete: mockResourceDelete,
   resourceList: mockResourceList,
   resourceDeleteByPath: mockResourceDeleteByPath,
 }));
@@ -129,6 +131,27 @@ describe("workspace-files Resources adapter", () => {
       "Only organization owners and admins can edit organization files",
     );
     expect(mockResourcePut).not.toHaveBeenCalled();
+  });
+
+  it("removes the legacy organization row after writing its override", async () => {
+    const legacy = {
+      ...resource("analysis/summary.md", "old"),
+      owner: "__shared__",
+    };
+    mockResourceGetByPath.mockResolvedValue(legacy);
+    mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+    mockResourcePut.mockResolvedValue(
+      resource("analysis/summary.md", "summary"),
+    );
+
+    await writeWorkspaceFile(
+      { scope: "org", scopeId: "org_123" },
+      "analysis/summary.md",
+      "summary",
+      "text/markdown",
+    );
+
+    expect(mockResourceDelete).toHaveBeenCalledWith(legacy.id);
   });
 
   it("reads resources with offset and maxChars", async () => {

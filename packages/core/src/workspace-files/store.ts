@@ -13,6 +13,7 @@ import {
   SHARED_OWNER,
   isLegacyOrganizationWorkspaceFile,
   sharedResourceOwner,
+  resourceDelete,
   resourceDeleteByPath,
   resourceGetByPath,
   resourceList,
@@ -199,6 +200,11 @@ export async function writeWorkspaceFile(
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
   await assertCanMutateWorkspaceFile(scope);
 
+  const legacy =
+    scope.scope === "org"
+      ? await resourceGetByPath(SHARED_OWNER, path, optionsForScope(scope))
+      : null;
+
   const maxFileBytes = Math.min(
     opts?.maxFileBytes ?? MAX_FILE_BYTES,
     SAVE_TO_FILE_MAX_BYTES,
@@ -221,6 +227,14 @@ export async function writeWorkspaceFile(
       metadata: workspaceFileMetadata(scope),
     },
   );
+
+  if (
+    scope.scope === "org" &&
+    legacy &&
+    isLegacyOrganizationWorkspaceFile(legacy, scope.scopeId)
+  ) {
+    await resourceDelete(legacy.id);
+  }
 
   return resourceToMeta(resource);
 }

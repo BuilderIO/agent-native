@@ -773,6 +773,7 @@ Legacy webhook.`,
         mimeType: "text/markdown",
       });
       mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+      mockResourceGetByPath.mockResolvedValue(null);
       mockResourcePut.mockResolvedValue({ id: "org-override" });
 
       await handleUpdateResource({
@@ -793,6 +794,41 @@ Legacy webhook.`,
         undefined,
       );
       expect(mockResourceDelete).toHaveBeenCalledWith("legacy-org-resource");
+    });
+
+    it("rejects a legacy rename onto an existing organization resource", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "QA Org",
+        role: "admin",
+      });
+      mockResourceGet.mockResolvedValue({
+        id: "legacy-org-resource",
+        path: "analysis.md",
+        owner: "__shared__",
+        content: "old",
+        mimeType: "text/markdown",
+      });
+      mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+      mockResourceGetByPath.mockResolvedValue({
+        id: "existing-destination",
+        path: "renamed.md",
+        owner: "__organization__:org-1",
+      });
+
+      const result = await handleUpdateResource({
+        _params: { id: "legacy-org-resource" },
+        _body: { content: "new", path: "renamed.md" },
+        context: {},
+      });
+
+      expect(lastStatus).toBe(409);
+      expect(result).toEqual({
+        error: 'A resource already exists at path "renamed.md"',
+      });
+      expect(mockResourcePut).not.toHaveBeenCalled();
+      expect(mockResourceDelete).not.toHaveBeenCalled();
     });
   });
 
@@ -1103,6 +1139,22 @@ Legacy webhook.`,
       const file = result.tree[0];
       expect(file.type).toBe("file");
       expect(file.resource).toEqual(meta);
+    });
+
+    it("passes the resolved organization to tree enrichment reads", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "QA Org",
+        role: "member",
+      });
+      mockResourceListAccessible.mockResolvedValue([
+        { id: "r1", path: "agents/custom.md", owner: "__shared__" },
+      ]);
+
+      await handleGetResourceTree({ _query: {} });
+
+      expect(mockResourceGet).toHaveBeenCalledWith("r1", { orgId: "org-1" });
     });
   });
 });
