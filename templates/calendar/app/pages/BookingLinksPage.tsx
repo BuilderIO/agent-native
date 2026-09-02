@@ -778,7 +778,10 @@ function BookingHostsEditor({
               <button
                 type="button"
                 onClick={() => sendOverlayRequest(host)}
-                disabled={requestReciprocation.isPending}
+                disabled={
+                  requestReciprocation.isPending &&
+                  requestReciprocation.variables?.peerEmail === host.email
+                }
                 className="mt-1.5 font-medium text-primary underline-offset-2 hover:underline disabled:opacity-60"
               >
                 {t("bookingLinks.requestOverlayAccess")}

@@ -65,6 +65,27 @@ function settingsStore({
   };
 }
 
+/**
+ * A `mutateUserSetting` stand-in that actually persists what the updater
+ * returns, in a `{ log }` box the caller can inspect afterward. Used where a
+ * test needs to verify real stored state instead of just how many times the
+ * mock was called.
+ */
+function persistentMutateUserSetting(store: {
+  log: Record<string, string> | null;
+}) {
+  return async (
+    _email: string,
+    _key: string,
+    updater: (
+      current: Record<string, unknown> | null,
+    ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+  ) => {
+    store.log = (await updater(store.log)) as Record<string, string>;
+    return store.log;
+  };
+}
+
 describe("requestOverlayReciprocation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -87,6 +108,10 @@ describe("requestOverlayReciprocation", () => {
   });
 
   it("sends the request email and records the nudge timestamp", async () => {
+    const store: { log: Record<string, string> | null } = { log: null };
+    mutateUserSettingMock.mockImplementation(
+      persistentMutateUserSetting(store),
+    );
     getUserSettingMock.mockImplementation(settingsStore());
 
     const result = await requestOverlayReciprocation({
@@ -101,11 +126,59 @@ describe("requestOverlayReciprocation", () => {
         replyTo: "owner@example.com",
       }),
     );
-    expect(mutateUserSettingMock).toHaveBeenCalledWith(
-      "owner@example.com",
-      "calendar-overlay-nudges",
-      expect.any(Function),
+    // Verify the cooldown was actually persisted, not just that
+    // mutateUserSetting was invoked with some function.
+    expect(store.log).toEqual({ "peer@example.com": expect.any(String) });
+  });
+
+  it("blocks a second peer once the owner-wide daily nudge limit is reached", async () => {
+    const now = Date.now();
+    const recentSends = Object.fromEntries(
+      Array.from({ length: 20 }, (_, i) => [
+        `other-${i}@example.com`,
+        new Date(now - i * 60 * 1000).toISOString(),
+      ]),
     );
+    getUserSettingMock.mockImplementation(
+      settingsStore({ nudgeLog: recentSends }),
+    );
+
+    const result = await requestOverlayReciprocation({
+      ownerEmail: "owner@example.com",
+      peerEmail: "peer@example.com",
+    });
+
+    expect(result).toEqual({ sent: false, reason: "rate-limited" });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("does not count nudges older than 24 hours against the daily limit", async () => {
+    const now = Date.now();
+    const staleSends = Object.fromEntries(
+      Array.from({ length: 20 }, (_, i) => [
+        `other-${i}@example.com`,
+        new Date(now - 25 * 60 * 60 * 1000 - i * 1000).toISOString(),
+      ]),
+    );
+    const store: { log: Record<string, string> | null } = { log: staleSends };
+    mutateUserSettingMock.mockImplementation(
+      persistentMutateUserSetting(store),
+    );
+    getUserSettingMock.mockImplementation((email: string, key: string) =>
+      key === "calendar-overlay-nudges" && email === "owner@example.com"
+        ? Promise.resolve(store.log)
+        : settingsStore()(email, key),
+    );
+
+    const result = await requestOverlayReciprocation({
+      ownerEmail: "owner@example.com",
+      peerEmail: "peer@example.com",
+    });
+
+    expect(result).toEqual({ sent: true });
+    // The stale entries should have been pruned away, leaving only the peer
+    // that was just claimed.
+    expect(store.log).toEqual({ "peer@example.com": expect.any(String) });
   });
 
   it("is case-insensitive when matching the peer against the overlay list", async () => {

@@ -2,7 +2,6 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
-import { useQueryClient } from "@tanstack/react-query";
 
 export type HostSchedulingStatus =
   | "not-overlaid"
@@ -36,21 +35,17 @@ export interface RequestOverlayReciprocationResult {
     | "cooldown"
     | "already-reciprocal"
     | "email-not-configured"
-    | "not-overlaid";
+    | "not-overlaid"
+    | "rate-limited";
 }
 
 export function useRequestOverlayReciprocation() {
-  const queryClient = useQueryClient();
+  // useActionMutation already invalidates every ["action", ...] query
+  // (including get-host-scheduling-status) on success, so the tooltip
+  // badge picks up a changed reciprocal state without a second, narrower
+  // invalidation here.
   return useActionMutation<
     RequestOverlayReciprocationResult,
     { peerEmail: string }
-  >("request-overlay-reciprocation", {
-    onSuccess: () => {
-      // The peer's reciprocal state may have just changed (or turned out to
-      // already have changed) — refresh so the tooltip badge reflects it.
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-host-scheduling-status"],
-      });
-    },
-  });
+  >("request-overlay-reciprocation");
 }

@@ -179,14 +179,18 @@ export async function getHostSchedulingStatus(
           timezone?: string;
         } | null>,
       ]);
-      const timezone =
-        safeBookingTimeZone(config?.timezone) ||
-        safeBookingTimeZone(calendarSettings?.timezone) ||
-        (await getGoogleAccountTimezone(email)) ||
-        undefined;
       if (!config?.weeklySchedule) {
         return { email, status: "missing-schedule" };
       }
+      // Only resolve a time zone (including the Google account fallback,
+      // the most expensive step) once we know there's a schedule for it to
+      // interpret — a host with no saved schedule reports "missing-schedule"
+      // either way, so there is nothing to gain by looking one up first.
+      const timezone =
+        safeBookingTimeZone(config.timezone) ||
+        safeBookingTimeZone(calendarSettings?.timezone) ||
+        (await getGoogleAccountTimezone(email)) ||
+        undefined;
       if (!timezone) {
         return { email, status: "missing-timezone" };
       }

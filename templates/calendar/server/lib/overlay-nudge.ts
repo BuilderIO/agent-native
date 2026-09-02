@@ -13,8 +13,29 @@ import { overlaysBack } from "./booking-host-availability.js";
 import { CALENDAR_OVERLAY_ACCESS_REQUEST_EMAIL_ID } from "./emails.js";
 
 const NUDGE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+// An owner can add an unbounded number of emails to their own overlay list
+// (update-overlay-people has no cap), and the per-peer cooldown above only
+// throttles repeats to the *same* peer. Without an owner-wide ceiling, one
+// authenticated user could rotate through many distinct peer addresses and
+// use the app's configured sender as an unsolicited-email relay. This caps
+// total sends per rolling 24h window regardless of which peers they target.
+const MAX_NUDGES_PER_DAY = 20;
 
 type OverlayNudgeLog = Record<string, string>;
+
+/** Drops entries older than the cooldown window so the log can't grow forever. */
+function pruneExpiredNudges(
+  log: OverlayNudgeLog,
+  nowMs: number,
+): OverlayNudgeLog {
+  const pruned: OverlayNudgeLog = {};
+  for (const [email, sentAt] of Object.entries(log)) {
+    if (nowMs - new Date(sentAt).getTime() < NUDGE_COOLDOWN_MS) {
+      pruned[email] = sentAt;
+    }
+  }
+  return pruned;
+}
 
 export function renderOverlayAccessRequestEmail({
   ownerEmail,
@@ -49,25 +70,45 @@ async function claimNudgeSlot(
   ownerEmail: string,
   peer: string,
   claimedAt: string,
-): Promise<{ claimed: boolean; nextAvailableAt?: string }> {
+): Promise<{
+  claimed: boolean;
+  nextAvailableAt?: string;
+  rateLimited?: boolean;
+}> {
   let claimed = false;
   let nextAvailableAt: string | undefined;
+  let rateLimited = false;
+  const claimedAtMs = Date.parse(claimedAt);
   await mutateUserSetting(ownerEmail, "calendar-overlay-nudges", (current) => {
-    const log = (current as OverlayNudgeLog | null) ?? {};
+    claimed = false;
+    nextAvailableAt = undefined;
+    rateLimited = false;
+    const log = pruneExpiredNudges(
+      (current as OverlayNudgeLog | null) ?? {},
+      claimedAtMs,
+    );
     const lastSent = log[peer];
     if (lastSent) {
       const nextAt = new Date(new Date(lastSent).getTime() + NUDGE_COOLDOWN_MS);
-      if (nextAt.getTime() > Date.parse(claimedAt)) {
-        claimed = false;
+      if (nextAt.getTime() > claimedAtMs) {
         nextAvailableAt = nextAt.toISOString();
         return log;
       }
     }
+    // Every remaining entry is already within the cooldown window (older
+    // ones were just pruned), and peer's own stale entry (if any) doesn't
+    // count against itself here.
+    const recentSends = Object.keys(log).filter(
+      (email) => email !== peer,
+    ).length;
+    if (recentSends >= MAX_NUDGES_PER_DAY) {
+      rateLimited = true;
+      return log;
+    }
     claimed = true;
-    nextAvailableAt = undefined;
     return { ...log, [peer]: claimedAt };
   });
-  return { claimed, nextAvailableAt };
+  return { claimed, nextAvailableAt, rateLimited };
 }
 
 /** Releases a claimed nudge slot, but only if it still holds our exact claim. */
@@ -108,7 +149,8 @@ export async function requestOverlayReciprocation({
     | "cooldown"
     | "already-reciprocal"
     | "email-not-configured"
-    | "not-overlaid";
+    | "not-overlaid"
+    | "rate-limited";
 }> {
   const peer = peerEmail.toLowerCase();
   const owner = ownerEmail.toLowerCase();
@@ -134,6 +176,9 @@ export async function requestOverlayReciprocation({
 
   const claimedAt = new Date().toISOString();
   const claim = await claimNudgeSlot(ownerEmail, peer, claimedAt);
+  if (claim.rateLimited) {
+    return { sent: false, reason: "rate-limited" };
+  }
   if (!claim.claimed) {
     return {
       sent: false,
