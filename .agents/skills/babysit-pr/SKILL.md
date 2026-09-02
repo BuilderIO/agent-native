@@ -44,10 +44,18 @@ merging, except when the user explicitly invokes `/ship-now`.
    `rrule: FREQ=MINUTELY;INTERVAL=2`, `status: ACTIVE`,
    `targetThreadId: <this task's threadId>`, and
    `notificationPolicy: failed_runs_only`; update that exact automation instead
-   of creating a duplicate. Verify its persisted state before yielding. A
-   text-only wake-up reminder is not enough. If no durable wake-up
-   tool is available, keep the foreground loop running and do not stop after PR
-   creation.
+   of creating a duplicate. The `targetThreadId` is the heartbeat's owner. Read
+   the persisted automation before every update. If it is ACTIVE and its owner
+   is another task, do not overwrite its prompt, status, or `targetThreadId`,
+   and do not create a same-name duplicate; continue this invocation in the
+   foreground and leave that owner's watcher alone. If it is missing or paused,
+   claim it with this task's `targetThreadId`, then re-read it and verify that
+   the persisted owner is still this task before continuing. A competing claim
+   loses and must become foreground-only. Re-check the owner immediately before
+   every reschedule and before pausing; a watcher that no longer owns the
+   automation must never mutate or pause it. A text-only wake-up reminder is
+   not enough. If no durable wake-up tool is available, keep the foreground loop
+   running and do not stop after PR creation.
 2. Track when the last actionable item (new human/bot feedback, CI fix, merge-conflict resolution, or a local-change commit/push) occurred.
 3. After 30 minutes of no new actionable items with GitHub Actions CI green, cancel the loop (stop scheduling wake-ups) and report "All clear".
 
@@ -289,8 +297,10 @@ Only after 10 consecutive clean minutes, force merge with `gh pr merge <number> 
 - No new actionable feedback AND GitHub Actions green for 30 consecutive minutes
 - PR is merged or closed
 
-Before stopping on either condition, set the exact `babysit-pr-<number>` heartbeat
-to `PAUSED` and verify the PR's final state. Never leave a completed PR's
-heartbeat running.
+Before stopping on either condition, re-read the exact `babysit-pr-<number>`
+heartbeat. Set it to `PAUSED` only when its persisted `targetThreadId` still
+matches this task's threadId; otherwise leave the other owner's watcher alone.
+Verify the PR's final state. Never leave a heartbeat owned by this task running
+after completion.
 
 Before stopping OR merging, the unaddressed-comments command above must print **nothing** — re-run it as the final gate. "I replied earlier" is not sufficient; bots may have posted new rounds since.
