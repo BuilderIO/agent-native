@@ -122,6 +122,8 @@ export type HostSchedulingStatus =
 export interface HostSchedulingStatusResult {
   email: string;
   status: HostSchedulingStatus;
+  /** Only set when status is "active" — the time zone whose hours are enforced. */
+  timezone?: string;
 }
 
 /**
@@ -178,7 +180,7 @@ export async function getHostSchedulingStatus(
       if (!config?.weeklySchedule || !timezone) {
         return { email, status: "missing-schedule" };
       }
-      return { email, status: "active" };
+      return { email, status: "active", timezone };
     }),
   );
 }

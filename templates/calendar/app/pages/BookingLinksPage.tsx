@@ -583,10 +583,7 @@ function BookingHostsEditor({
   const { data: schedulingStatuses } =
     useHostSchedulingStatus(hostEmailsForStatus);
   const schedulingStatusByEmail = new Map(
-    (schedulingStatuses ?? []).map((entry) => [
-      entry.email.toLowerCase(),
-      entry.status,
-    ]),
+    (schedulingStatuses ?? []).map((entry) => [entry.email.toLowerCase(), entry]),
   );
   const requestReciprocation = useRequestOverlayReciprocation();
 
@@ -686,15 +683,19 @@ function BookingHostsEditor({
     status: HostSchedulingStatus;
   } | null {
     const normalized = normalizeHostEmail(host.email);
-    const status = normalized
-      ? schedulingStatusByEmail.get(normalized)
-      : undefined;
+    const entry = normalized ? schedulingStatusByEmail.get(normalized) : undefined;
+    const status = entry?.status;
     const name = host.displayName || host.email;
     if (status === "active") {
       return {
         icon: IconCircleCheck,
         className: "text-emerald-500",
-        label: t("bookingLinks.hostStatusActive", { name }),
+        label: entry?.timezone
+          ? t("bookingLinks.hostStatusActiveWithTimezone", {
+              name,
+              timezone: entry.timezone,
+            })
+          : t("bookingLinks.hostStatusActive", { name }),
         status,
       };
     }

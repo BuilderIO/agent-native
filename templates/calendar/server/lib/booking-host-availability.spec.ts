@@ -299,7 +299,13 @@ describe("getHostSchedulingStatus", () => {
 
     await expect(
       getHostSchedulingStatus("owner@example.com", ["peer@example.com"]),
-    ).resolves.toEqual([{ email: "peer@example.com", status: "active" }]);
+    ).resolves.toEqual([
+      {
+        email: "peer@example.com",
+        status: "active",
+        timezone: "America/Chicago",
+      },
+    ]);
   });
 
   it("never reports a status for the owner's own email", async () => {

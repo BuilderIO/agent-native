@@ -12,6 +12,8 @@ export type HostSchedulingStatus =
 export interface HostSchedulingStatusResult {
   email: string;
   status: HostSchedulingStatus;
+  /** Only set when status is "active" — the time zone whose hours are enforced. */
+  timezone?: string;
 }
 
 export function useHostSchedulingStatus(hostEmails: string[]) {

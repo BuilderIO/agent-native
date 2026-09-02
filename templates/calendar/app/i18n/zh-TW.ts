@@ -586,6 +586,8 @@ const messages = {
     overlayHostsHint:
       "來自你行事曆的聯絡人會依照他們的工作時間安排行程。其他電子郵件僅用於檢查衝突。",
     hostStatusActive: "已套用 {{name}} 的工作時間到此連結。",
+    hostStatusActiveWithTimezone:
+      "已套用 {{name}} 的工作時間（{{timezone}}）到此連結。",
     hostStatusAwaitingReciprocal:
       "{{name}} 尚未將你新增回他們的行事曆，因此僅會檢查空閒/忙碌狀態，而非其工作時間。",
     hostStatusMissingSchedule:
