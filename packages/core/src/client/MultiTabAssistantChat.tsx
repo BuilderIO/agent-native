@@ -2561,9 +2561,13 @@ export function MultiTabAssistantChat({
         case "plan":
           props.onExecModeChange?.("plan");
           break;
-        case "act":
-          props.onExecModeChange?.("build");
+        case "act": {
+          const ref = activeThreadIdRef.current
+            ? chatRefs.current.get(activeThreadIdRef.current)
+            : undefined;
+          if (!ref?.implementPlan()) props.onExecModeChange?.("build");
           break;
+        }
         case "help":
           setHelpVisible(true);
           break;
@@ -2974,13 +2978,17 @@ export function MultiTabAssistantChat({
                       : undefined
                   }
                   isThreadStateLoading={isLoading}
-                  onMessageCountChange={(count) =>
+                  onMessageCountChange={(count) => {
                     setMessageCounts((prev) =>
                       prev[tabId] === count
                         ? prev
                         : { ...prev, [tabId]: count },
-                    )
-                  }
+                    );
+                    // This sits after `{...props}`, so forwarding is not
+                    // optional: taking the callback for the tab counter alone
+                    // silently drops the host's.
+                    props.onMessageCountChange?.(count);
+                  }}
                   onSaveThread={handleSaveThread}
                   onGenerateTitle={handleGenerateTitle}
                   onSlashCommand={handleSlashCommand}

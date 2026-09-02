@@ -11,6 +11,6 @@ export default defineAction({
   run: async () => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
-    return readCalendarSettings(email);
+    return readCalendarSettings(email, { persistDetected: true });
   },
 });

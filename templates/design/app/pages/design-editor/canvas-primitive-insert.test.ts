@@ -23,6 +23,10 @@ describe("blankScreenHtml", () => {
     expect(html).not.toContain("<main");
   });
 
+  it("clips the screen by default so content past its edge stays out of frame", () => {
+    expect(html).toMatch(/body\s*\{[^}]*overflow:\s*hidden/);
+  });
+
   it("names the screen root and escapes the title", () => {
     expect(blankScreenHtml("A & B")).toContain(
       'data-agent-native-layer-name="A &amp; B"',

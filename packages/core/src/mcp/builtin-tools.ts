@@ -1213,10 +1213,11 @@ function askAppTool(
   return {
     tool: tool(
       "Send a natural-language message to an app's AI agent and get its " +
-        "response. Use this first for natural-language investigation, " +
-        "diagnosis, multi-step work, and changes; it runs with the app's " +
-        "full skills, instructions, tools, and context. Use direct action " +
-        "tools only for a known, bounded read or simple UI handoff. In a " +
+        "response. Prefer host page WebMCP or cataloged direct action tools for " +
+        "known, bounded current-app work. Use this when direct tools are " +
+        "unavailable or the task needs the app agent's interpretation, full " +
+        "skills, instructions, tools, and context for investigation, diagnosis, " +
+        "multi-step work, or changes. In a " +
         "single-app project the 'app' " +
         "param is optional (defaults to this app). When 'app' names a " +
         "different workspace app it is routed there over A2A; the result's " +

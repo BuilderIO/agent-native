@@ -4086,6 +4086,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var FRAME_PRIMITIVE_SELECTOR = '[data-an-primitive="frame"]';
     var frameLabelRenderKey = "";
     function outermostFrameElements() {
+      if (!designCanvasBoardSurface) return [];
       var frames = Array.prototype.slice.call(
         document.querySelectorAll(FRAME_PRIMITIVE_SELECTOR)
       );

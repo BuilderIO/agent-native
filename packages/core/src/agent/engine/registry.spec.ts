@@ -256,6 +256,7 @@ describe("AgentEngine registry", () => {
       })),
       resolveSecret: vi.fn(async () => null),
       getProviderCredentialAuthFailure: vi.fn(async () => null),
+      prefetchSecrets: vi.fn(async () => {}),
     }));
 
     const { registerAgentEngine, isResolvedEngineUsableForRequest } =
@@ -1758,6 +1759,51 @@ describe("AgentEngine registry", () => {
       );
     });
 
+    it("batch-loads candidate provider keys once per scope before the per-engine sweep", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => ({}),
+        getRequestUserEmail: () => "dana@example.com",
+        getRequestOrgId: () => "dana_org",
+      }));
+      const readAppSecret = vi.fn(async () => null);
+      const readAppSecrets = vi.fn(readAppSecretsFromSingles(readAppSecret));
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret,
+        readAppSecrets,
+      }));
+
+      const { registerAgentEngine, detectEngineFromUserSecrets } =
+        await import("./registry.js");
+      registerAgentEngine({
+        name: "anthropic",
+        label: "Anthropic",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: vi.fn() as any,
+      });
+
+      expect(await detectEngineFromUserSecrets()).toBeNull();
+      // One batched read per identity scope carries the whole candidate key
+      // set, instead of a point read per (key, scope).
+      expect(readAppSecrets).toHaveBeenCalledWith(
+        expect.objectContaining({
+          keys: ["ANTHROPIC_API_KEY"],
+          scope: "user",
+          scopeId: "dana@example.com",
+        }),
+      );
+      expect(readAppSecrets).toHaveBeenCalledWith(
+        expect.objectContaining({
+          keys: ["ANTHROPIC_API_KEY"],
+          scope: "org",
+          scopeId: "dana_org",
+        }),
+      );
+    });
+
     it("picks the Builder engine when the user has Builder keys in app_secrets", async () => {
       vi.doMock("../../server/request-context.js", () => ({
         getRequestContext: () => undefined,
@@ -2643,6 +2689,183 @@ describe("AgentEngine registry", () => {
       expect(detected?.name).toBe("builder");
     });
 
+    it("reads every candidate provider key in one batch per scope", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      const readAppSecret = vi.fn(async () => null);
+      const readAppSecrets = vi.fn(readAppSecretsFromSingles(readAppSecret));
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret,
+        readAppSecrets,
+      }));
+
+      const { registerAgentEngine, detectEngineFromUserSecrets } =
+        await import("./registry.js");
+
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: vi.fn() as any,
+      });
+      registerAgentEngine({
+        name: "ai-sdk:groq",
+        label: "Groq",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "groq-1",
+        supportedModels: [],
+        requiredEnvVars: ["GROQ_API_KEY"],
+        create: vi.fn() as any,
+      });
+
+      await detectEngineFromUserSecrets();
+
+      // The prefetch must cover both engines' keys up front. Probing per engine
+      // instead costs a read per (scope, key), which is what made the status
+      // endpoint issue ~50 serial reads per poll.
+      const batched = readAppSecrets.mock.calls.find(
+        ([args]: any) =>
+          args.keys.includes("OPENAI_API_KEY") &&
+          args.keys.includes("GROQ_API_KEY"),
+      );
+      expect(batched).toBeDefined();
+    });
+
+    it("does not read provider secrets when Builder already resolves", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
+        if (key === "BUILDER_PRIVATE_KEY") return { key, value: "p-key" };
+        if (key === "BUILDER_PUBLIC_KEY") return { key, value: "space" };
+        return null;
+      });
+      const readAppSecrets = vi.fn(readAppSecretsFromSingles(readAppSecret));
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret,
+        readAppSecrets,
+      }));
+
+      const { registerAgentEngine, detectEngineFromUserSecrets } =
+        await import("./registry.js");
+
+      registerAgentEngine({
+        name: "builder",
+        label: "Builder",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        create: vi.fn() as any,
+      });
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: vi.fn() as any,
+      });
+
+      const detected = await detectEngineFromUserSecrets();
+
+      // Builder resolves from the first registry entry without touching a
+      // provider key, so the batched prefetch must not run ahead of it and put
+      // extra scope reads on this continuously polled path.
+      expect(detected?.name).toBe("builder");
+      const providerRead = readAppSecrets.mock.calls.find(([args]: any) =>
+        args.keys.includes("OPENAI_API_KEY"),
+      );
+      expect(providerRead).toBeUndefined();
+    });
+
+    it("prefetches once when a non-Builder engine is registered ahead of Builder", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
+        if (key === "BUILDER_PRIVATE_KEY") return { key, value: "p-key" };
+        if (key === "BUILDER_PUBLIC_KEY") return { key, value: "space" };
+        return null;
+      });
+      const readAppSecrets = vi.fn(readAppSecretsFromSingles(readAppSecret));
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret,
+        readAppSecrets,
+      }));
+
+      const { registerAgentEngine, detectEngineFromUserSecrets } =
+        await import("./registry.js");
+
+      // Registration order is priority order (see registerBuiltinEngines), so a
+      // custom engine ahead of Builder is legitimately probed first. The
+      // invariant that matters is that the prefetch stays memoized: it must not
+      // re-run per engine as the loop walks the rest of the registry.
+      registerAgentEngine({
+        name: "custom-first",
+        label: "Custom",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "c",
+        supportedModels: [],
+        requiredEnvVars: ["CUSTOM_API_KEY"],
+        create: vi.fn() as any,
+      });
+      registerAgentEngine({
+        name: "builder",
+        label: "Builder",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        create: vi.fn() as any,
+      });
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: vi.fn() as any,
+      });
+
+      const detected = await detectEngineFromUserSecrets();
+      expect(detected?.name).toBe("builder");
+
+      // One combined key set per scope, not a batch per engine: every read that
+      // covers the first engine's key also covers the later engine's, and no
+      // read covers a single engine on its own.
+      const providerBatches = readAppSecrets.mock.calls
+        .map(([args]: any) => args.keys as string[])
+        .filter(
+          (keys) =>
+            keys.includes("CUSTOM_API_KEY") || keys.includes("OPENAI_API_KEY"),
+        );
+      expect(providerBatches.length).toBeGreaterThan(0);
+      for (const keys of providerBatches) {
+        expect(keys).toContain("CUSTOM_API_KEY");
+        expect(keys).toContain("OPENAI_API_KEY");
+      }
+    });
+
     it("resolveEngine still honors a stored BYOK provider when Builder is not connected", async () => {
       vi.doMock("../../settings/store.js", () => ({
         getSetting: vi.fn().mockResolvedValue({
@@ -2828,6 +3051,7 @@ describe("AgentEngine registry", () => {
         canUseDeployCredentialFallbackForRequest: vi.fn(() => true),
         getBuilderCredentialAuthFailure: vi.fn(async () => null),
         getProviderCredentialAuthFailure: vi.fn(async () => null),
+        prefetchSecrets: vi.fn(async () => {}),
         readDeployCredentialEnv: vi.fn(() => "https://deploy.example/v1"),
         resolveBuilderCredentialsDetailed: vi.fn(async () => ({
           privateKey: null,

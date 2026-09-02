@@ -152,9 +152,9 @@ https://dispatch.agent-native.com/mcp
 ```
 
 Then open Dispatch → Agents to choose whether the gateway exposes every app or
-only selected app IDs. External agents call `list_apps` to see the granted set,
-`ask_app` to route a natural-language task over A2A to a granted app, and
-`open_app` to return a deep link or inline app preview.
+only selected IDs. Use `list_apps` for grants, `open_app` for links/embeds, and
+named actions when cataloged. Use `ask_app` only when direct action is
+unavailable or app-agent reasoning helps.
 
 Use a direct app URL only when you intentionally want one isolated app:
 
@@ -243,9 +243,9 @@ precedence). Disable the set with `MCPConfig.builtinCrossAppTools: false`.
 
 The advertised `tools/list` and `resources/list` catalogs are intentionally
 tiny by default for ChatGPT/Claude-style app hosts, including OAuth MCP Apps
-callers and generic authenticated remote HTTP/static-token callers. The model
-sees the generic app-facing verbs (`list_apps`, `open_app`, `ask_app`, and
-app-only `create_embed_session`) and routes UI through
+callers. The unified gateway exposes only generic verbs (`list_apps`, `open_app`,
+`ask_app`, `create_embed_session`); named actions come from a direct app MCP
+connection or page WebMCP. Route UI through
 `open_app({ embed: true })`. Stdio/code clients use the same compact surface
 unless they explicitly opt into the full catalog, and
 `publicAgent.expose` remains the action-level opt-in for safe read/ingest tools

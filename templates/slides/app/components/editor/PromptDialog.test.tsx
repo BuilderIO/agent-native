@@ -6,7 +6,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const ensureEmbedAuthFetchInterceptor = vi.hoisted(() => vi.fn());
@@ -61,6 +61,11 @@ vi.mock("@agent-native/core/client/composer", () => ({
   PromptComposer: (props: {
     disabled?: boolean;
     onAttachmentsChange?: (files: File[]) => void;
+    onModelSelectionChange?: (selection: {
+      model?: string;
+      engine?: string;
+      effort?: string;
+    }) => void;
     onSubmit: (
       text: string,
       files: File[],
@@ -68,6 +73,13 @@ vi.mock("@agent-native/core/client/composer", () => ({
       options: Record<string, unknown>,
     ) => void | Promise<void>;
   }) => {
+    useEffect(() => {
+      props.onModelSelectionChange?.({
+        model: "gpt-5.6-terra",
+        engine: "builder",
+        effort: "high",
+      });
+    }, [props.onModelSelectionChange]);
     return (
       <>
         <button
@@ -82,7 +94,11 @@ vi.mock("@agent-native/core/client/composer", () => ({
           data-testid="prompt-composer"
           disabled={props.disabled}
           onClick={() =>
-            void props.onSubmit("  make a deck  \n", [promptFile], [], {})
+            void props.onSubmit("  make a deck  \n", [promptFile], [], {
+              model: "gpt-5.6-terra",
+              engine: "builder",
+              effort: "high",
+            })
           }
         >
           Prompt composer
@@ -562,6 +578,11 @@ describe("PromptPopover import mode", () => {
           discard: expect.any(Function),
           attachments: [],
         }),
+        {
+          model: "gpt-5.6-terra",
+          engine: "builder",
+          effort: "high",
+        },
       );
     });
     expect(screen.queryByRole("status")).toBeNull();
@@ -594,10 +615,51 @@ describe("PromptPopover import mode", () => {
         [expect.objectContaining({ name: "large.pdf" })],
         undefined,
         [],
+        {
+          model: "gpt-5.6-terra",
+          engine: "builder",
+          effort: "high",
+        },
       );
     });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("hands off the selected model when an attachment triggers sign-in", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const onBeforeUpload = vi.fn(() => false);
+
+    render(
+      <PromptPopover
+        open
+        centered
+        onOpenChange={vi.fn()}
+        title="New presentation"
+        onSubmit={vi.fn()}
+        onSkip={vi.fn()}
+        skipLabel="Skip prompt"
+        onBeforeUpload={onBeforeUpload}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("prompt-composer-attach"));
+
+    await waitFor(() => {
+      expect(onBeforeUpload).toHaveBeenCalledWith(
+        "",
+        [expect.objectContaining({ name: "large.pdf" })],
+        undefined,
+        undefined,
+        {
+          model: "gpt-5.6-terra",
+          engine: "builder",
+          effort: "high",
+        },
+      );
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("starts uploading when a prompt attachment is added and reuses it on submit", async () => {

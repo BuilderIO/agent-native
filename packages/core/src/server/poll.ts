@@ -25,7 +25,9 @@ import { EventEmitter } from "node:events";
 
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 
+import { setActionChangeFastPath } from "../action-change-fast-path.js";
 import {
+  actionChangeDedupeKey,
   ACTION_CHANGE_MARKER_KEY,
   parseActionChangeMarker,
   type ActionChangeTarget,
@@ -42,6 +44,7 @@ import {
   parseExtensionChangeMarker,
   type ExtensionChangeTarget,
 } from "../extensions/change-marker.js";
+import { REALTIME_REGISTRATION_SETTING_KEY } from "../realtime-registration-key.js";
 import { getSettingsEmitter } from "../settings/store.js";
 import { getSession } from "./auth.js";
 
@@ -218,10 +221,16 @@ async function readMaxUpdatedAtRaw(
     ) => Promise<{ rows: Array<Record<string, unknown>> }>;
   },
   table: "application_state" | "settings" | "tools",
+  excludeKey?: string,
 ): Promise<unknown> {
   try {
     const result = await db.execute(
-      `SELECT MAX(updated_at) as max_ts FROM ${table}`,
+      excludeKey
+        ? {
+            sql: `SELECT MAX(updated_at) as max_ts FROM ${table} WHERE key != ?`,
+            args: [excludeKey],
+          }
+        : `SELECT MAX(updated_at) as max_ts FROM ${table}`,
     );
     return result.rows[0]?.max_ts;
   } catch {
@@ -237,8 +246,29 @@ async function readMaxUpdatedAt(
     ) => Promise<{ rows: Array<Record<string, unknown>> }>;
   },
   table: "application_state" | "settings" | "tools",
+  excludeKey?: string,
 ): Promise<number> {
-  return timestampValue(await readMaxUpdatedAtRaw(db, table));
+  return timestampValue(await readMaxUpdatedAtRaw(db, table, excludeKey));
+}
+
+/**
+ * The settings watermark deliberately cannot see the realtime registration row.
+ *
+ * `wireLocalEmitters` already skips that key so the isolate that WRITES it fans
+ * out nothing — but the cross-instance detector below has no key filter, and a
+ * bare `MAX(updated_at)` advancing makes every OTHER live isolate record a
+ * durable `key:"*"` settings change. That invalidates every connected client's
+ * settings queries for a write none of them can see, which is exactly what the
+ * emitter skip exists to prevent. Filtering here closes the second half.
+ * `settings_updated_at_idx` still serves this: the excluded key is one row, so
+ * a backwards index scan skips at most one tuple before it stops.
+ */
+async function readSettingsMaxUpdatedAt(db: {
+  execute: (
+    query: string | { sql: string; args?: unknown[] },
+  ) => Promise<{ rows: Array<Record<string, unknown>> }>;
+}): Promise<number> {
+  return readMaxUpdatedAt(db, "settings", REALTIME_REGISTRATION_SETTING_KEY);
 }
 
 async function readExtensionMarkerMaxUpdatedAt(db: {
@@ -621,6 +651,11 @@ export class AppSyncState {
       this.recordChange(event);
     });
     getSettingsEmitter().on("settings", (event) => {
+      // Internal infrastructure, like the change-marker keys above: nothing
+      // renders it, so recording it would fan a durable sync event out to every
+      // connected client and invalidate their settings queries for a write they
+      // cannot see.
+      if (event.key === REALTIME_REGISTRATION_SETTING_KEY) return;
       this.recordChange(event);
     });
   }
@@ -1324,7 +1359,7 @@ export class AppSyncState {
         },
         dedupeKey !== undefined
           ? {
-              dedupeKey: `${dedupeKey}|${target.actionName ?? ""}|${target.owner ?? ""}|${target.orgId ?? ""}`,
+              dedupeKey: actionChangeDedupeKey(target, dedupeKey),
             }
           : undefined,
       );
@@ -1674,7 +1709,7 @@ export class AppSyncState {
       ] = await Promise.all([
         this.readMaxSyncEventVersion(),
         readMaxUpdatedAt(db, "application_state"),
-        readMaxUpdatedAt(db, "settings"),
+        readSettingsMaxUpdatedAt(db),
         readMaxUpdatedAtRaw(db, "tools"),
         readExtensionMarkerMaxUpdatedAt(db),
         readActionMarkerMaxUpdatedAt(db),
@@ -1808,7 +1843,7 @@ export class AppSyncState {
       ] = await Promise.all([
         readMaxUpdatedAt(db, "application_state"),
         readActionMarkerMaxUpdatedAt(db),
-        readMaxUpdatedAt(db, "settings"),
+        readSettingsMaxUpdatedAt(db),
         readMaxUpdatedAtRaw(db, "tools"),
       ]);
 
@@ -1913,7 +1948,9 @@ export class AppSyncState {
           // marker path.
           this.recordActionChanges(
             [target],
-            `action|${timestampValue(row.updated_at)}`,
+            target.nonce
+              ? `action|${target.nonce}`
+              : `action|${timestampValue(row.updated_at)}`,
           );
         }
         this.lastActionMarkerTs = actionMarkerTs;
@@ -2053,20 +2090,31 @@ export class AppSyncState {
 let _defaultState: AppSyncState | undefined;
 
 /**
- * Hosted-realtime gate for the default instance, env-only. Mirrors the
- * fail-closed transport-AND-url pair in `sentry-config.ts`'s
- * `resolveRealtimeClientConfig` (not imported — poll.ts is import-cycle
- * sensitive). Hosted apps are multi-writer (their own serverless instances
- * plus gateway instances share one DB), so THEY must DB-allocate versions too
- * — gating only the gateway would leave the app's user-event writes
- * clock-versioned and the cross-writer skew hole open.
+ * Hosted-realtime gate for the default instance, env-only. Mirrors the gate in
+ * `sentry-config.ts`'s `resolveRealtimeClientConfig` and the worker emitter in
+ * `deploy/build.ts` (not imported — poll.ts is import-cycle sensitive). Hosted
+ * apps are multi-writer (their own serverless instances plus gateway instances
+ * share one DB), so THEY must DB-allocate versions too — gating only the
+ * gateway would leave the app's user-event writes clock-versioned and the
+ * cross-writer skew hole open.
+ *
+ * The gateway URL is deliberately NOT part of this test any more. It is derived
+ * when unset, so requiring it here while the other two derive it would make
+ * this the one gate that says "local" while the client is on the gateway —
+ * precisely the skew this exists to prevent. `realtime-transport-gate.spec.ts`
+ * asserts all three still agree.
  */
 function hostedRealtimeTransportEnabled(): boolean {
-  return (
-    process.env.AGENT_NATIVE_REALTIME_TRANSPORT?.trim() === "hosted" &&
-    !!process.env.AGENT_NATIVE_REALTIME_GATEWAY_URL?.trim()
-  );
+  // config-ok: one of three copies that must agree byte-for-byte; the other
+  // two are in `sentry-config.ts` and in generated worker source, and this
+  // file cannot import either way without a cycle.
+  return process.env.AGENT_NATIVE_REALTIME_TRANSPORT?.trim() === "hosted";
 }
+
+/** Test seam for `realtime-transport-gate.spec.ts`, which compares this gate
+ * against its two uninmportable copies. */
+export const __hostedRealtimeTransportEnabledForTests =
+  hostedRealtimeTransportEnabled;
 
 /**
  * The process-wide default instance, bound to the global DB. All module-level
@@ -2135,6 +2183,22 @@ export function recordChange(event: {
 }): void {
   getDefaultAppSyncState().recordChange(event);
 }
+
+setActionChangeFastPath((target) => {
+  getDefaultAppSyncState().recordChange(
+    {
+      source: "action",
+      type: "change",
+      key: target.actionName,
+      ...(target.owner ? { owner: target.owner } : {}),
+      ...(target.orgId ? { orgId: target.orgId } : {}),
+      ...(target.requestSource ? { requestSource: target.requestSource } : {}),
+    },
+    target.nonce
+      ? { dedupeKey: actionChangeDedupeKey(target, `action|${target.nonce}`) }
+      : undefined,
+  );
+});
 
 /** Get all changes after a given version. */
 export function getChangesSince(since: number): {

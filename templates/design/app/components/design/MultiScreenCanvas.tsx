@@ -224,8 +224,8 @@ function hasScreenChildLayers(content: string): boolean {
 }
 
 import {
-  BOARD_SURFACE_BACKGROUND,
   getBoardContentKey,
+  resolveBoardSurfaceBackground,
   getBoardContentLayerSignature,
   getBoardSurfaceContentBounds,
   getBoardSurfaceRenderContent,
@@ -530,6 +530,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   selectedLayerSelectorGroupsByScreen = EMPTY_SELECTED_LAYER_SELECTOR_GROUPS_BY_SCREEN,
   onCrossScreenElementDrop,
   boardFileId,
+  canvasBackground,
   boardFileContent,
   boardFrameGeometry,
   onBoardDrawPrimitive,
@@ -683,16 +684,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       height: surfaceSize.height / scale,
     };
   }, [canvasZoom, pan.x, pan.y, surfaceSize.height, surfaceSize.width]);
-  // The board iframe cannot read the host's CSS vars, so the themed canvas
-  // colour has to be resolved out here or the board stays dark in light mode.
+  // The board iframe cannot read the host's CSS vars. Prefer the live
+  // design canvas colour; the theme var is only the unset fallback.
   const boardSurfaceBackground = useMemo(() => {
-    if (typeof window === "undefined") return BOARD_SURFACE_BACKGROUND;
-    const themed = window
-      .getComputedStyle(document.documentElement)
-      .getPropertyValue("--design-editor-canvas-bg")
-      .trim();
-    return themed || BOARD_SURFACE_BACKGROUND;
-  }, [resolvedTheme]);
+    const themed =
+      typeof window === "undefined"
+        ? ""
+        : window
+            .getComputedStyle(document.documentElement)
+            .getPropertyValue("--design-editor-canvas-bg")
+            .trim();
+    return resolveBoardSurfaceBackground(canvasBackground, themed);
+  }, [canvasBackground, resolvedTheme]);
 
   const boardSurfaceRenderGeometry = useMemo(() => {
     if (!boardFrameGeometry) return undefined;
@@ -8542,7 +8545,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 pointerEvents: "none",
                 transform: `scale(${boardFrameGeometry.width / boardStaticPreviewViewport.width}, ${boardFrameGeometry.height / boardStaticPreviewViewport.height})`,
                 transformOrigin: "top left",
-                background: BOARD_SURFACE_BACKGROUND,
+                background: boardSurfaceBackground,
               }}
             />
           </div>
@@ -8579,10 +8582,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 // this layer's pointer events imperatively during a wheel
                 // gesture, exactly like the [data-screen-content] wrappers.
                 data-board-surface-layer
-                style={getBoardSurfaceLayerStyle({
-                  geometry: boardGeo,
-                  interactive: boardSurfaceInteractive,
-                })}
+                style={{
+                  ...getBoardSurfaceLayerStyle({
+                    geometry: boardGeo,
+                    interactive: boardSurfaceInteractive,
+                  }),
+                  // The live colour is painted here, behind a transparent
+                  // board document. Inside the document it would be part of
+                  // the srcdoc, so every colour-picker tick would rebuild the
+                  // iframe; out here it is a CSS change and updates instantly.
+                  background: boardSurfaceBackground,
+                }}
               >
                 <DesignCanvas
                   content={boardRenderContent}
@@ -8593,7 +8603,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   zoom={100}
                   deviceFrame="none"
                   boardSurface
-                  embeddedFrameBackground={boardSurfaceBackground}
+                  // Transparent on purpose: the wrapper above paints the
+                  // board. A colour here lands after BOARD_SURFACE_RENDER_STYLE
+                  // in the head and, being !important too, would win and cover
+                  // the live colour with a stale one.
+                  transparentBackground
                   embeddedFrame={{
                     viewportWidth: Math.max(1, Math.round(boardW)),
                     viewportHeight: Math.max(1, Math.round(boardH)),
@@ -9436,9 +9450,9 @@ function DraftPrimitiveContent({
             draft.geometry.height,
           )}
           fill={draft.fill ?? "hsl(var(--primary) / 0.12)"}
-          stroke={draft.stroke ?? "hsl(var(--primary))"}
+          stroke={draft.stroke ?? "none"}
           strokeLinejoin="round"
-          strokeWidth={draft.strokeWidth ?? 1.5}
+          strokeWidth={draft.strokeWidth ?? 0}
         />
       </svg>
     );
@@ -10443,7 +10457,9 @@ const Screen = memo(function Screen({
         }}
         onMouseLeave={() => updateDirectHover(false)}
         className={cn(
-          "group/artboard relative block overflow-visible rounded-lg bg-background text-left outline-none transition-colors",
+          // Square corners: a screen is a page, and a rounded card implies a
+          // corner radius the exported document does not have.
+          "group/artboard relative block overflow-visible bg-background text-left outline-none transition-colors",
           "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
           emphasized
             ? "text-foreground"
@@ -11095,7 +11111,7 @@ function BreakpointPreviewRow({
               tabIndex={0}
               data-screen-card
               className={cn(
-                "group/artboard relative block cursor-pointer overflow-visible rounded-lg bg-background text-left outline-none transition-colors",
+                "group/artboard relative block cursor-pointer overflow-visible bg-background text-left outline-none transition-colors",
                 "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
               )}
               style={{ width: frameWidth, height: frameHeight }}
@@ -11427,7 +11443,6 @@ function PassiveSelectionBox({
         top: SURFACE_PADDING + geometry.y,
         width: geometry.width,
         height: geometry.height,
-        borderRadius: 13 * chromeScale,
         borderWidth: 1.5 * chromeScale,
         transition: getSelectionBoxTransition(chromeSettling),
         transform: geometry.rotation
@@ -11492,7 +11507,6 @@ function SelectionBox({
         background: filled
           ? "var(--design-editor-selection-color)"
           : "transparent",
-        borderRadius: 13 * chromeScale,
         borderWidth: 1.5 * chromeScale,
         transition: getSelectionBoxTransition(chromeSettling),
         transform: geometry.rotation
