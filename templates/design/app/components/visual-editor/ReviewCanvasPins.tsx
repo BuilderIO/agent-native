@@ -29,6 +29,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -1014,7 +1015,7 @@ export function ReviewCanvasPins({
     !activeThreadId &&
     !repromptDraftRequest;
 
-  return (
+  return createPortal(
     <>
       {pinPlacementEnabled ? (
         <div
@@ -1169,7 +1170,8 @@ export function ReviewCanvasPins({
           ) : null}
         </ReviewPin>
       ) : null}
-    </>
+    </>,
+    document.body,
   );
 }
 

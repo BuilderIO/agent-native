@@ -275,6 +275,13 @@ test("Select layer on a non-active overview screen routes selection to that exac
     ).toBeVisible();
     const editPrompt = page.getByRole("textbox", { name: "Leave feedback…" });
     await expect(editPrompt).toBeVisible();
+    const editPopover = page
+      .locator("[data-review-popover]")
+      .filter({ has: editPrompt })
+      .last();
+    await expect
+      .poll(async () => (await editPopover.boundingBox())?.width ?? 0)
+      .toBeGreaterThanOrEqual(300);
     await page.waitForTimeout(500);
     const editPromptBox = await editPrompt.boundingBox();
     expect(editPromptBox).not.toBeNull();

@@ -189,6 +189,30 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     expect(document.body.textContent).not.toContain("Keep this popover open");
   });
 
+  it("portals review chrome outside a transformed canvas owner", async () => {
+    container.style.transform = "scale(0.2)";
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active={false}
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+
+    const reviewChrome = document.querySelector<HTMLElement>(
+      "[data-review-popover]",
+    );
+    expect(reviewChrome).not.toBeNull();
+    expect(reviewChrome?.parentElement).toBe(document.body);
+  });
+
   it("moves one empty draft and persists only after feedback is entered", async () => {
     await act(async () => {
       root.render(
