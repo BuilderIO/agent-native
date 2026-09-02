@@ -7,6 +7,7 @@ export function actionCallIsReadOnly(
   fallback: boolean,
 ): boolean {
   const effect = entry.planMode?.effect;
+  if (typeof effect === "string") return effect === "read";
   if (typeof effect === "function") {
     try {
       return effect(params) === "read";

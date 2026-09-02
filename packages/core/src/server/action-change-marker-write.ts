@@ -34,9 +34,9 @@ export async function writeActionChangeMarker(
     ...actionChangeTarget(options),
     nonce: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
   };
-  publishActionChangeFastPath(target);
   const sessionId = actionChangeMarkerSession(target);
   if (!sessionId) return;
+  publishActionChangeFastPath(target);
   await appStatePut(
     sessionId,
     ACTION_CHANGE_MARKER_KEY,
