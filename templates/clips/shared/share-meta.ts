@@ -1,5 +1,6 @@
 import {
   AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+  AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
@@ -166,7 +167,10 @@ export function buildClipsShareMeta(options: {
           { property: "og:image:secure_url", content: absoluteImage },
           {
             property: "og:image:type",
-            content: AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
+            content:
+              absoluteImage === AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE
+                ? AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE
+                : AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
           },
           {
             property: "og:image:width",

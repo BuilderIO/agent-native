@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 
+import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "@agent-native/core/shared";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -137,8 +138,7 @@ describe("Clips Slack unfurls", () => {
         basePath: "/clips",
       }),
     ).toMatchObject({
-      thumbnail_url:
-        "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9c533fed169648069bffaed652ec0897",
+      thumbnail_url: AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
     });
   });
 

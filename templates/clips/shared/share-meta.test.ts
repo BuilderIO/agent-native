@@ -1,3 +1,7 @@
+import {
+  AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+  AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE,
+} from "@agent-native/core/shared";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -85,8 +89,11 @@ describe("Clips share metadata", () => {
 
     expect(meta).toContainEqual({
       property: "og:image",
-      content:
-        "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9c533fed169648069bffaed652ec0897",
+      content: AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+    });
+    expect(meta).toContainEqual({
+      property: "og:image:type",
+      content: AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE,
     });
     expect(meta).toContainEqual({
       name: "twitter:card",
@@ -139,9 +146,7 @@ describe("Clips share metadata", () => {
       origin: "https://clips.example.com",
     });
 
-    expect(imageUrl).toBe(
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9c533fed169648069bffaed652ec0897",
-    );
+    expect(imageUrl).toBe(AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE);
   });
 
   it("proxies public stored thumbnails through the same-origin image route", () => {

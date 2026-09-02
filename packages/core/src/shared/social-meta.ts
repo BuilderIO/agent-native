@@ -5,8 +5,12 @@ export type SocialMetaDescriptor =
 
 export const AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE =
   "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9ff332b274a147229544c2bf5877a10d";
+// The static default asset above is stored as a JPEG on the Builder CDN; the
+// dynamically rendered /_agent-native/og-image.png is always a PNG. Keep the
+// two types distinct rather than assuming every social image is a PNG.
+export const AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE = "image/jpeg";
 export const AGENT_NATIVE_SOCIAL_IMAGE_PATH = "/_agent-native/og-image.png";
-export const AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER = "font-text-v2";
+export const AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER = "font-text-v3";
 export const AGENT_NATIVE_SOCIAL_IMAGE_WIDTH = "1200";
 export const AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT = "630";
 export const AGENT_NATIVE_SOCIAL_IMAGE_TYPE = "image/png";
@@ -25,13 +29,19 @@ function hasMetaName(meta: SocialMetaDescriptor[], name: string) {
   return meta.some((item) => "name" in item && item.name === name);
 }
 
+function socialImageType(image: string): string {
+  return image === AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE
+    ? AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE
+    : AGENT_NATIVE_SOCIAL_IMAGE_TYPE;
+}
+
 export function defaultSocialImageMeta(
   image = AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
 ): SocialMetaDescriptor[] {
   return [
     { property: "og:image", content: image },
     { property: "og:image:secure_url", content: image },
-    { property: "og:image:type", content: AGENT_NATIVE_SOCIAL_IMAGE_TYPE },
+    { property: "og:image:type", content: socialImageType(image) },
     { property: "og:image:width", content: AGENT_NATIVE_SOCIAL_IMAGE_WIDTH },
     { property: "og:image:height", content: AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT },
     { property: "og:image:alt", content: AGENT_NATIVE_SOCIAL_IMAGE_ALT },
@@ -57,7 +67,7 @@ export function withDefaultSocialImage<T extends SocialMetaDescriptor>(
           { property: "og:image:secure_url", content: image },
           {
             property: "og:image:type",
-            content: AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
+            content: socialImageType(image),
           },
           {
             property: "og:image:width",

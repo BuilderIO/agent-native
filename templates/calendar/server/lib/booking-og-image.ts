@@ -16,10 +16,13 @@ export interface BookingOgImageInput {
 
 const WIDTH = 1200;
 const HEIGHT = 630;
+// guard:allow-raw-color — fixed brand palette for a generated social-preview image, not app UI theming
 const BG = "#0A0A0A";
 const SURFACE = "#0a0a0a";
 const BORDER = "#1f1f1f";
+// guard:allow-raw-color — fixed brand palette for a generated social-preview image, not app UI theming
 const FG = "#FAF9F5";
+// guard:allow-raw-color — fixed brand palette for a generated social-preview image, not app UI theming
 const MUTED = "#9A9997";
 const FONT_FAMILY = "Liberation Sans, Arial, system-ui, sans-serif";
 const FONT_SOURCE_PATHS = [
