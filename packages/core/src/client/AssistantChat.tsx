@@ -1922,6 +1922,8 @@ export interface AssistantChatHandle {
     images?: string[],
     options?: AssistantChatSendOptions,
   ): void;
+  /** Implement the latest plan when the plan-mode callout is available. */
+  implementPlan(): boolean;
   /** Programmatically prefill the composer without submitting. */
   prefillMessage(text: string): void;
   /**
@@ -2026,6 +2028,9 @@ export interface AssistantChatProps {
   threadFooterSlot?: AssistantChatThreadFooterSlot;
   /** Optional content rendered in the empty state, above the suggestion buttons. */
   emptyStateAddon?: React.ReactNode;
+  /** Optional content rendered in the empty state, below the suggestion
+   *  buttons. Unlike `threadFooterSlot` this never survives the first message. */
+  emptyStateFooter?: React.ReactNode;
   /** Whether to show the header bar. Default: true */
   showHeader?: boolean;
   /** CSS class for the outer container */
@@ -2491,6 +2496,7 @@ const AssistantChatInner = forwardRef<
     suggestions,
     dynamicSuggestions,
     threadFooterSlot,
+    emptyStateFooter,
     emptyStateAddon,
     showHeader = true,
     onSwitchToCli,
@@ -5750,6 +5756,33 @@ const AssistantChatInner = forwardRef<
     return () => window.clearTimeout(timer);
   }, [addToQueue, pendingReconnectRecovery]);
 
+  const latestMessage = messages[messages.length - 1];
+  const latestMessageRole = latestMessage?.role;
+  const latestAssistantWasPlan =
+    latestMessageRole === "assistant" &&
+    getRequestModeMetadata(latestMessage) === "plan";
+  const showPlanModeCallout =
+    execMode === "plan" &&
+    !planModeDisabled &&
+    !isComposerDisabled &&
+    !showRunningInUI;
+  const canImplementPlan = showPlanModeCallout && latestAssistantWasPlan;
+  const handleImplementPlan = useCallback(() => {
+    if (!canImplementPlan) return false;
+    onExecModeChange?.("build");
+    void addToQueue(
+      "Implement the plan.",
+      undefined,
+      undefined,
+      undefined,
+      "act",
+    );
+    return true;
+  }, [addToQueue, canImplementPlan, onExecModeChange]);
+  const handleSwitchToAct = useCallback(() => {
+    onExecModeChange?.("build");
+  }, [onExecModeChange]);
+
   // Expose imperative handle
   useImperativeHandle(
     ref,
@@ -5776,6 +5809,9 @@ const AssistantChatInner = forwardRef<
           undefined,
           options?.usageLabel,
         );
+      },
+      implementPlan() {
+        return handleImplementPlan();
       },
       prefillMessage(text: string) {
         tiptapRef.current?.setText(text);
@@ -5852,6 +5888,7 @@ const AssistantChatInner = forwardRef<
     [
       addToQueue,
       exportPersistableThreadRepo,
+      handleImplementPlan,
       isRunning,
       messages.length,
       stageComposerContextItem,
@@ -5885,7 +5922,6 @@ const AssistantChatInner = forwardRef<
     isReconnecting,
     reconnectFrozen,
   });
-  const latestMessage = messages[messages.length - 1];
   const reconnectStatusContent =
     visibleReconnectContent.length > 0
       ? visibleReconnectContent
@@ -5906,7 +5942,10 @@ const AssistantChatInner = forwardRef<
     () => new Set<string>(),
   );
   useEffect(() => {
-    if (!cpDevMode || !threadId) {
+    // An unsent thread has no row yet, so the endpoint answers 404 "Thread not
+    // found" — a guaranteed failed request on every fresh chat. It also cannot
+    // hold checkpoints, so there is nothing to ask for.
+    if (!cpDevMode || !threadId || messages.length === 0) {
       setCheckpointRunIds(new Set<string>());
       return;
     }
@@ -5935,7 +5974,7 @@ const AssistantChatInner = forwardRef<
     return () => {
       cancelled = true;
     };
-  }, [apiUrl, cpDevMode, threadId, isRunning]);
+  }, [apiUrl, cpDevMode, threadId, isRunning, messages.length]);
   const checkpointCtx = useMemo(
     () => ({ apiUrl, devMode: cpDevMode, threadId, checkpointRunIds }),
     [apiUrl, cpDevMode, threadId, checkpointRunIds],
@@ -5968,33 +6007,10 @@ const AssistantChatInner = forwardRef<
       "retry",
     );
   }, [addToQueue, lastUserText]);
-  const latestMessageRole = latestMessage?.role;
-  const latestAssistantWasPlan =
-    latestMessageRole === "assistant" &&
-    getRequestModeMetadata(latestMessage) === "plan";
   const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
   const bounceMissingKeySetup = useCallback(() => {
     setMissingKeyBouncePulse((pulse) => pulse + 1);
   }, []);
-  const showPlanModeCallout =
-    execMode === "plan" &&
-    !planModeDisabled &&
-    !isComposerDisabled &&
-    !showRunningInUI;
-  const canImplementPlan = showPlanModeCallout && latestAssistantWasPlan;
-  const handleImplementPlan = useCallback(() => {
-    onExecModeChange?.("build");
-    void addToQueue(
-      "Implement the plan.",
-      undefined,
-      undefined,
-      undefined,
-      "act",
-    );
-  }, [addToQueue, onExecModeChange]);
-  const handleSwitchToAct = useCallback(() => {
-    onExecModeChange?.("build");
-  }, [onExecModeChange]);
   const visibleLoopLimit = showContinue
     ? (loopLimitInfo ?? lastMessageLoopLimit ?? {})
     : lastMessageLoopLimit;
@@ -6482,6 +6498,11 @@ const AssistantChatInner = forwardRef<
                                     {showInlineEmptyThreadFooterSlot ? (
                                       <div className="agent-thread-footer-slot agent-thread-footer-slot--empty">
                                         {resolvedThreadFooterSlot}
+                                      </div>
+                                    ) : null}
+                                    {emptyStateFooter ? (
+                                      <div className="agent-empty-state-footer">
+                                        {emptyStateFooter}
                                       </div>
                                     ) : null}
                                   </div>

@@ -22,9 +22,16 @@ import { nanoid } from "nanoid";
 import { getDb, schema } from "../db/index.js";
 import { normalizeBookingDurationInput } from "../lib/booking-durations.js";
 import {
+  getEligibleHostAvailability,
+  withHostTimezones,
+} from "../lib/booking-host-availability.js";
+import {
+  getBookingLinkRequiredHostEmails,
   rowToBookingLink,
   serializeBookingHosts,
 } from "../lib/booking-link-utils.js";
+import { displayNameFromIdentifier } from "../lib/booking-og-image.js";
+import { getOwnerBookingTimeZone } from "../lib/booking-timezone.js";
 import { ensureBookingUsername } from "./booking-usernames.js";
 
 async function requireRequestContext<T>(
@@ -123,6 +130,7 @@ export const createBookingLink = defineEventHandler(async (event: H3Event) => {
           isActive: body.isActive ?? true,
           ownerEmail,
           orgId: getRequestOrgId(),
+          visibility: "private",
           createdAt: now,
           updatedAt: now,
         });
@@ -235,7 +243,24 @@ export const getPublicBookingLink = defineEventHandler(
         };
       }
 
-      return rowToBookingLink(rows[0]);
+      const bookingLink = rowToBookingLink(rows[0]);
+      const [ownerTimezone, eligibleHosts] = await Promise.all([
+        getOwnerBookingTimeZone(rows[0].ownerEmail),
+        getEligibleHostAvailability(
+          rows[0].ownerEmail,
+          getBookingLinkRequiredHostEmails(rows[0]),
+        ),
+      ]);
+
+      return {
+        ...withHostTimezones(bookingLink, ownerTimezone, eligibleHosts),
+        // Identify the owner without exposing their raw email address to
+        // anonymous visitors of the public booking page.
+        ownerName: displayNameFromIdentifier(
+          canonicalUsername,
+          rows[0].ownerEmail,
+        ),
+      };
     } catch (error: any) {
       setResponseStatus(event, 500);
       return { error: error.message };

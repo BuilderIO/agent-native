@@ -280,6 +280,36 @@ const PATTERNS = [
     fixedBy: ".agents/skills/address-feedback* (2026-08-19 clarification gate)",
     re: /\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\bclarif(?:ication|y)\b|\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b|\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b[^.!?]{0,80}\b(?:url|link|details?|information|issue)\b|\bclarif(?:ication|y)\b[^.!?]{0,120}\b(?:already|thread|reply|fixed|fixing|solved|found|agent-native|someone|details?|not|unfriendly|robotic|tone|warm|harsh)\b|\bthank(?:s|ed|ing)?\b[^.!?]{0,80}\b(?:first|before|them|reporter)\b|\b(?:didn'?t|doesn'?t|without|skipped|forgot(?:ten)?)\b[^.!?]{0,80}\bthank(?:s|ed|ing)?\b/i,
   },
+  // Added 2026-09-01. `feedback-reply-tone` counts duplicate and unfriendly
+  // questions but not their volume, so the 2026-09-01 sweep that posted 23
+  // questions in one hour (4% answered, against 88% for the runs that asked
+  // one or two) scored zero on every existing key. The cap in
+  // review-latest-feedback is what this key has to move; if it stays at zero
+  // while the user keeps saying the asks are odd, the key is wrong, not the
+  // behavior. Watch it alongside `unanswered-feedback-followup`, which has
+  // read zero since it landed because a per-run state file could not see the
+  // previous run's questions at all.
+  // Added 2026-09-02. Distinct from `repeat-issue` and `done-while-broken`:
+  // this is specifically the sweep re-fixing a bug the channel already
+  // reported and was already told was fixed. Measured because a repeat report
+  // is the only falsification signal the workflow gets for its own Fixed
+  // claims, and it was previously invisible - one Analytics outage drew three
+  // separate investigations, and the same Zoom invalid_client was answered
+  // twice 17 hours apart with neither reply linking the other.
+  {
+    key: "repeat-report-refix",
+    label: "Told we keep re-fixing an already-reported bug",
+    fixedBy:
+      ".agents/skills/review-latest-feedback (2026-09-02 repeat-report gate)",
+    re: /\b(?:same|identical)\b[^.!?\n]{0,60}\b(?:thing|bug|issue|problem|report|error|failure)\b[^.!?\n]{0,80}\b(?:again|over and over|on repeat|repeatedly|multiple times|keeps? (?:getting )?report\w*|twice|three times|third time)\b|\bkeep(?:s)?\b[^.!?\n]{0,40}\b(?:re-?)?(?:fix|investigat|report)\w*\b[^.!?\n]{0,60}\b(?:same|again|over and over|on repeat)\b|\b(?:already|previously)\b[^.!?\n]{0,50}\b(?:said|told|claimed|marked)\b[^.!?\n]{0,40}\bfixed\b[^.!?\n]{0,60}\b(?:still|again|not|isn['’]?t)\b|\b(?:report|answer|fix)(?:ed|s)?\b[^.!?\n]{0,60}\b(?:twice|three times|two|three|four)\b[^.!?\n]{0,40}\b(?:times?|separate|different)\b[^.!?\n]{0,40}\b(?:investigat\w*|report\w*|thread\w*|repl\w*)\b|\b(?:duplicate|dupe)\w*\b[^.!?\n]{0,50}\b(?:investigation|report|of the same|work)\b/i,
+  },
+  {
+    key: "feedback-question-volume",
+    label: "Told the feedback sweep asked too many or low-value questions",
+    fixedBy:
+      ".agents/skills/review-latest-feedback (2026-09-01 three-question budget)",
+    re: /\b(?:too many|so many|stop asking|spam(?:ming|med)?|carpet|blast(?:ed|ing)?|barrage|flood(?:ed|ing)?)\b[^.!?\n]{0,80}\b(?:questions?|asks?|replies|messages?|threads?)\b|\b(?:questions?|asks?|replies|messages?)\b[^.!?\n]{0,60}\b(?:odd|weird|strange|pointless|useless|low[- ]value|generic|templated|robotic|noisy|annoying)\b|\b(?:don['’]?t|do not|stop|quit)\b[^.!?\n]{0,60}\b(?:ask(?:ing)?|reply(?:ing)?|post(?:ing)?)\b[^.!?\n]{0,60}\b(?:every|each|all)\b[^.!?\n]{0,40}\b(?:thread|report|message|item)\b/i,
+  },
   {
     key: "cross-thread-interference",
     label: "Agent acted on other agents' threads or work uninvited",

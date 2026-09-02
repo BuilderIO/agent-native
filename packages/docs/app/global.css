@@ -400,6 +400,11 @@ pre:where(:not(.builder-brand-tokens *)) {
   margin: 16px 0;
 }
 
+.docs-content :where(.code-block, pre) {
+  direction: ltr;
+  text-align: start;
+}
+
 hr {
   border: none;
   border-top: 1px solid var(--docs-border);
@@ -1903,11 +1908,11 @@ html.dark .shiki span {
   overflow-x: auto;
 }
 
-/* Feature cards */
 .templates-index-page :where(.grid) > * {
   min-width: 0;
 }
 
+/* Feature cards */
 .feature-card {
   border: 1px solid var(--docs-border);
   border-radius: 6px;
@@ -2117,17 +2122,9 @@ html.dark .shiki span {
 .template-detail-page button,
 .template-detail-page .primary-button,
 .template-detail-page .secondary-button,
-.template-detail-page .template-detail-cta-actions a {
+.template-detail-page .template-detail-cta-actions a,
+.templates-index-page .secondary-button {
   text-transform: uppercase;
-}
-
-.template-card-primary-button {
-  min-height: 32px;
-  padding: 0 12px;
-  font-family: var(--font-sans);
-  font-size: 14px;
-  font-weight: 400;
-  letter-spacing: normal;
 }
 
 /* Mobile docs nav dropdown */

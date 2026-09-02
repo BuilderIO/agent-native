@@ -172,6 +172,20 @@ export function shouldHandleAgentSidebarToggle(
   return typeof detail.scopeId === "string" && detail.scopeId === toggleScopeId;
 }
 
+export function shouldHandleAgentPanelChatShortcut(
+  target: EventTarget | null,
+): boolean {
+  const element = target as HTMLElement | null;
+  if (!element) return true;
+  return !(
+    element.tagName === "INPUT" ||
+    element.tagName === "TEXTAREA" ||
+    element.tagName === "SELECT" ||
+    element.isContentEditable ||
+    element.closest?.("[contenteditable]")
+  );
+}
+
 function postPerAppChatSidebarStateToEmbeddedFrames(open: boolean): void {
   const message = buildAppChatSidebarStateMessage(open);
   for (const frame of document.querySelectorAll("iframe")) {
@@ -997,6 +1011,8 @@ function AgentPanelInner({
   apiUrl,
   emptyStateText,
   emptyStateAddon,
+  emptyStateFooter,
+  onMessageCountChange,
   suggestions,
   dynamicSuggestions,
   showHeader = true,
@@ -2388,6 +2404,8 @@ function AgentPanelInner({
                 contentHidden={mode !== "chat"}
                 emptyStateText={emptyStateText}
                 emptyStateAddon={emptyStateAddon}
+                emptyStateFooter={emptyStateFooter}
+                onMessageCountChange={onMessageCountChange}
                 suggestions={suggestions}
                 dynamicSuggestions={dynamicSuggestions}
                 onSwitchToCli={() => switchMode("cli")}
@@ -3130,6 +3148,8 @@ export interface AgentSidebarProps {
   adapterReloadKey?: AssistantChatProps["adapterReloadKey"];
   /** Optional content rendered at the bottom of the chat thread. */
   threadFooterSlot?: AssistantChatProps["threadFooterSlot"];
+  emptyStateFooter?: AssistantChatProps["emptyStateFooter"];
+  onMessageCountChange?: AssistantChatProps["onMessageCountChange"];
   /** Initial sidebar width in pixels. Mount-only; user resize and a saved
    *  localStorage value override this. Default: 380 */
   defaultSidebarWidth?: number;
@@ -3774,6 +3794,7 @@ export function AgentSidebar({
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "i") {
+        if (!shouldHandleAgentPanelChatShortcut(e.target)) return;
         e.preventDefault();
         let selectionText = "";
         try {
@@ -4252,6 +4273,9 @@ export function AgentToggleButton({ className }: { className?: string }) {
         <button
           type="button"
           aria-label={t("agentPanel.toggleAgent")}
+          onPointerEnter={() => void preloadAgentChatSurface()}
+          onFocus={() => void preloadAgentChatSurface()}
+          onPointerDown={() => void preloadAgentChatSurface()}
           onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
           className={cn(
             "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",

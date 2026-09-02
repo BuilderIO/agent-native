@@ -328,6 +328,14 @@ export default defineAction({
         screen.design = {
           id: designId,
           title: (access.resource as { title?: unknown }).title ?? null,
+          // The design's own linked system, not the template's. Picking one on
+          // an empty design writes it here and nowhere else, so leaving it out
+          // meant the first read after the choice could not see it.
+          designSystemId:
+            typeof (access.resource as { designSystemId?: unknown })
+              .designSystemId === "string"
+              ? (access.resource as { designSystemId: string }).designSystemId
+              : null,
           screens: files,
           activeScreen,
           activeCodeFile: resolveActiveCodeFile(files, designSelection),

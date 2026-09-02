@@ -69,6 +69,32 @@ booking links only show slots when the owner and every co-host can be checked as
 free. When a booking is confirmed, the app creates the Google Calendar event on
 the owner's connected account and adds co-hosts as invited attendees.
 
+### Peer working-hours hard filtering
+
+A co-host gets working-hours-aware scheduling only when the owner has also
+added that person to their calendar overlay ("subscribed to their calendar")
+via `update-overlay-people`, AND that person has reciprocally added the owner
+back to their own overlay list. `getEligibleHostAvailability`
+(`server/lib/booking-host-availability.ts`) enforces this two-way check before
+reading a peer's private `calendar-availability`/`calendar-settings` — overlay
+membership is just the owner's own setting, so without the reciprocal check an
+owner could add any registered email with no relationship required and have
+that stranger's private schedule and time zone read and enriched onto an
+anonymous public booking link. For reciprocally-overlaid hosts, the
+booking-link slot generator additionally intersects the owner's
+`weeklySchedule` with the host's own saved `calendar-availability` schedule
+(converted through the host's own time zone) before checking Google free/busy
+— so a group link never offers a time outside either person's working hours.
+Co-hosts who aren't in a two-way overlay relationship with the owner keep the
+original free/busy-only behavior; the UI picks hosts from the overlay list via
+a combobox in `BookingHostsEditor` (`app/pages/BookingLinksPage.tsx`), but
+still allows a raw email for hosts who should only be checked for conflicts.
+
+The public booking page also exposes each eligible host's resolved IANA time
+zone (never their raw schedule) so the booker can reveal a "Show time zones"
+grid comparing every host's local time for the same slots, in addition to
+their own browser time zone shown by default.
+
 Management sharing is separate from public booking access:
 
 - Use framework sharing actions / the share dialog to grant management access to

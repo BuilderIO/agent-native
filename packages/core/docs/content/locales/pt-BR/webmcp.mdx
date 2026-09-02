@@ -12,3 +12,23 @@ navegador e limites de segurança.
 Páginas autenticadas registram automaticamente as ações de backend qualificadas
 a partir do registro de ações existente. Ações que exigem aprovação são excluídas,
 e a lista ativa de ferramentas é validada novamente antes da chamada.
+Superfícies autenticadas com `sessionBypass`, como rotas de incorporação MCP, também
+registram ferramentas de ações de backend. Páginas públicas e sem sessão não as registram.
+
+## Descoberta HTTP e fallback com fetch
+
+Para agentes que não executam um navegador, o Agent-Native também publica um
+documento de compatibilidade HTTP em `GET /.well-known/mcp.json`. Ele descreve
+os endpoints das ações, seus esquemas JSON e se são somente leitura ou exigem
+autenticação. Essa é uma convenção de interoperabilidade do Agent-Native, não
+parte da especificação WebMCP nem substituto do MCP padrão.
+
+As ferramentas podem ser chamadas com `fetch` ou `curl` por meio de
+`POST /mcp/tool/:name`. Autenticação, autorização, validação e escopo do tenant
+continuam no servidor. O documento também aponta para `/mcp`, o manifesto WebMCP
+autenticado e o cartão de agente A2A.
+
+As ferramentas locais da página ainda exigem um navegador aberto compatível com
+WebMCP. Páginas de recursos podem publicar seu próprio link de descoberta JSON.
+Clips faz isso com `agentContextUrl`, que anuncia URLs diretas para o transcript
+completo e frames JPEG, mantendo o acesso HTTP disponível sem abrir o player.

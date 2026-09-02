@@ -41,7 +41,7 @@ Read the relevant skill before deeper work:
    then query; don't cross-check or add unasked breakdowns.
 4. **Answer in chat.** Return a short table or inline chart, not only a
    dashboard pointer; for >50 rows, state the total and top rows.
-5. **Deliver exports in chat.** See `analysis-workspace`; don't return only a path.
+5. **Deliver exports in chat.** Don't return only a path.
 6. **Chunk only reading.** Group 5-10 only for 30+ qualitative items when a query
    cannot answer; don't chunk queryable questions. See `adhoc-analysis`.
 
@@ -54,12 +54,12 @@ Read the relevant skill before deeper work:
   signups, conversions, and other curated product metrics. Answer sibling-app
   delegations with the built-in source and query catalog; sibling agents should
   send a natural-language question, never SQL.
-- For open-ended delegated requests, choose a safe default and label partial.
+- Delegated requests: choose a safe default; label partial.
 - Data integrity first. Never invent numbers, dimensions, filters, or source
   semantics; present only retrieved values with source, window, filters,
   row-count/sample-size, join method, and caveats.
-- Use actions for sources, queries, charts, dashboards, and sharing. Don't bypass
-  access checks with raw SQL for ownable resources.
+- Use actions for data and sharing; don't bypass ownable-resource access checks
+  with raw SQL.
 - Provider actions are bounded shortcuts, not limits. For broad or
   absence-sensitive Gong work, stage raw API data and use `query-staged-dataset`
   or a Data Program; see `provider-api`, `data-programs`, and `gong` for secure
@@ -80,11 +80,10 @@ Read the relevant skill before deeper work:
 - Never hardcode API keys, tokens, webhook URLs, secrets, private Builder data,
   or customer data. Use secrets/OAuth and obvious placeholders in examples.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
-- External MCP callers default to `ask_app` for interpretation, source choice,
-  analysis, or multi-step work. Direct reads require exact, complete input;
-  writes stay `ask_app`-only.
-- Dashboard reports and alert rules use their SQL-backed action surfaces; reports
-  cap at five recipients.
+- Use cataloged direct actions for bounded reads and allowlisted mutations. Use
+  `ask_app` for interpretation, source selection, multi-step work, unavailable
+  actions, or unsupported writes.
+- Reports/alerts use SQL actions; reports cap at five recipients.
 
 ## Actions
 
@@ -94,6 +93,7 @@ Read the relevant skill before deeper work:
 | `search-dashboard-references` | Find dashboards to replicate. |
 | `get-sql-dashboard` | Read the dashboard and exact panel SQL. |
 | `certify-dashboard` | Admin-only approval of its current version. |
+| DB | `list-db-admin-connections`, `list-connected-database-tables`, `db-admin-federated-read`: registry, schema, bounded joins. |
 
 ## Application State
 

@@ -1,19 +1,32 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { SSR_BETA_REDIRECT_MARKER } from "../shared/ssr-beta-redirect.js";
 import {
   BETA_OPT_OUT_PERSISTENCE_MARKER,
   injectBetaOptOutPersistence,
 } from "./beta-opt-out-html.js";
 
 describe("injectBetaOptOutPersistence", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("injects the opt-out handoff into custom auth HTML before authentication", () => {
     const html = injectBetaOptOutPersistence(
       "<!doctype html><html><head></head><body><form>Sign in</form></body></html>",
     );
 
     expect(html).toContain(BETA_OPT_OUT_PERSISTENCE_MARKER);
+    expect(html).toContain(SSR_BETA_REDIRECT_MARKER);
+    expect(html.indexOf(SSR_BETA_REDIRECT_MARKER)).toBeLessThan(
+      html.indexOf("</head>"),
+    );
+    expect(html.indexOf(SSR_BETA_REDIRECT_MARKER)).toBeLessThan(
+      html.indexOf("data-agent-native-beta-opt-out"),
+    );
     expect(html).toContain("agentNativeBetaOptOut");
     expect(html).toContain("agent-native:beta-opt-out-until");
+    expect(html).toContain("agent-native:beta-redirect-until");
     expect(html).toContain("window.localStorage.setItem");
     expect(html).toContain("window.history.replaceState");
     expect(html).toContain('id="environment-switcher"');
@@ -65,6 +78,9 @@ describe("injectBetaOptOutPersistence", () => {
     const reinjected = injectBetaOptOutPersistence(html);
 
     expect(reinjected).toBe(html);
+    expect(reinjected.match(/data-agent-native-beta-redirect/g)).toHaveLength(
+      1,
+    );
     expect(reinjected.match(/data-agent-native-beta-opt-out/g)).toHaveLength(1);
     expect(
       reinjected.match(/data-agent-native-environment-switcher/g),
@@ -75,6 +91,21 @@ describe("injectBetaOptOutPersistence", () => {
     );
     expect(reinjected.match(/id="environment-hide-badge"/g)).toHaveLength(1);
     expect(reinjected.match(/__anInitEnvironmentBadge/g)).toHaveLength(1);
+  });
+
+  it("embeds no request-derived path in the inline redirect script", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+
+    const html = injectBetaOptOutPersistence(
+      "<html><head></head><body>Sign in</body></html>",
+    );
+
+    // The early redirect decides from the browser's own location and storage.
+    // Nothing from the request reaches this inline script, so the login shell
+    // has no injection surface to escape in the first place.
+    expect(html).toContain(SSR_BETA_REDIRECT_MARKER);
+    expect(html).not.toContain("_agent-native/auth/session");
   });
 
   it("keeps the existing onboarding switcher instead of injecting a second one", () => {
@@ -89,6 +120,7 @@ describe("injectBetaOptOutPersistence", () => {
     `);
 
     expect(html).toContain(BETA_OPT_OUT_PERSISTENCE_MARKER);
+    expect(html).toContain(SSR_BETA_REDIRECT_MARKER);
     expect(html.match(/id="environment-switcher"/g)).toHaveLength(1);
     expect(html.match(/id="environment-production-link"/g)).toHaveLength(1);
     expect(html.match(/id="environment-hide-badge"/g)).toHaveLength(1);

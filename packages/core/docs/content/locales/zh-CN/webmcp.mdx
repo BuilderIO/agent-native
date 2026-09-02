@@ -10,3 +10,20 @@ WebMCP 是一项实验性的浏览器 API，网页可以注册工具，经过授
 指南](/docs/webmcp)。
 已认证页面会从现有操作注册表中自动注册符合条件的后端操作。需要批准的操作
 不会包含在内，并会在运行前重新验证当前工具列表。
+使用 `sessionBypass` 的已认证页面（例如 MCP 嵌入路由）也会注册后端操作工具。
+公共页面和未登录页面不会注册这些工具。
+
+## HTTP 发现与 fetch 回退
+
+对于不运行浏览器的代理，Agent-Native 还会在 `GET /.well-known/mcp.json`
+提供可获取的 HTTP 兼容文档。文档描述操作端点、JSON schema、是否只读以及
+是否需要身份验证。这是 Agent-Native 的互操作约定，不是 WebMCP 规范的一部分，
+也不是标准 MCP 的替代方案。
+
+工具可以通过 `fetch` 或 `curl` 调用 `POST /mcp/tool/:name`。身份验证、授权、
+校验和租户范围仍由服务器处理。文档还会链接到 `/mcp`、经过身份验证的 WebMCP
+清单和 A2A agent card。
+
+页面本地工具仍需要打开支持 WebMCP 的浏览器。资源页面也可以发布自己的 JSON
+发现链接。Clips 通过 `agentContextUrl` 提供完整 transcript 和 JPEG 帧 URL，
+因此无需打开播放器即可继续使用 HTTP 访问。

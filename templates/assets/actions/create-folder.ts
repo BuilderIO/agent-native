@@ -1,11 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { nowIso } from "../server/lib/json.js";
+import { assertCanApprove } from "../server/lib/library-access.js";
 
 export default defineAction({
   description:
@@ -17,7 +17,7 @@ export default defineAction({
     description: z.string().nullable().optional(),
   }),
   run: async ({ libraryId, parentId, title, description }) => {
-    await assertAccess("asset-library", libraryId, "editor");
+    await assertCanApprove(libraryId, "Creating a folder");
     if (parentId) {
       const [parent] = await getDb()
         .select()

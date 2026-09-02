@@ -93,6 +93,9 @@ const messages = {
     conditionContains: "包含",
     conditionValue: "答案",
     conditionValuePlaceholder: "输入答案...",
+    allowMultiple: "允许多个文件",
+    accept: "接受的文件类型",
+    acceptPlaceholder: "image/*、.pdf",
     fieldTypes: {
       text: "短文本",
       email: "电子邮件",
@@ -105,6 +108,7 @@ const messages = {
       date: "日期",
       rating: "等级",
       scale: "规模",
+      file: "文件上传",
     },
   },
   builder: {
@@ -167,6 +171,7 @@ const messages = {
       dateLabel: "日期",
       ratingLabel: "评分",
       scaleLabel: "量表",
+      fileLabel: "文件上传",
       option1: "选项 1",
       option2: "选项 2",
       option3: "选项 3",

@@ -43,9 +43,9 @@ APIs.
 An action is eligible when `agentTool` is not `false` and `needsApproval` is
 not declared. The latter is a fail-closed boundary: the server action approval
 contract belongs to the agent loop and cannot be delegated to a browser hint.
-Public paths, signed-out pages, and `sessionBypass` surfaces do not register
-backend action tools. Browsers without `document.modelContext` simply keep the
-normal app behavior.
+Authenticated `sessionBypass` surfaces, such as MCP embed routes, also register
+backend action tools. Public paths and signed-out pages do not. Browsers
+without `document.modelContext` simply keep the normal app behavior.
 
 No per-app WebMCP list or new `defineAction` metadata is required. Change the
 existing action definition when its exposure should change.
@@ -203,6 +203,45 @@ The framework automatically projects eligible backend actions and still lets a
 page register explicit client-only capabilities. Keep server-side approval
 actions on the agent loop, and retain normal MCP or A2A exposure for
 capabilities that must work without an open browser page.
+
+## HTTP discovery and fetch fallback
+
+For agents that do not run a browser, Agent-Native also publishes an additive
+HTTP compatibility document at `GET /.well-known/mcp.json`. It is a small,
+fetchable capability catalog inspired by the practical WebMCP examples in the
+ecosystem. It is not part of the WebMCP browser specification and it is not a
+replacement for the standard MCP protocol.
+
+The document includes each eligible backend action's `endpoint`, `method`,
+`parameters` / `inputSchema`, `readOnly`, and `requiresAuth` fields. Call the
+endpoint with ordinary HTTP, for example:
+
+```ts
+const manifest = await fetch(
+  "https://app.example.com/.well-known/mcp.json",
+).then((response) => response.json());
+const tool = manifest.tools.find(({ name }) => name === "list-orders");
+
+const result = await fetch(tool.endpoint, {
+  method: tool.method,
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({}),
+}).then((response) => response.json());
+```
+
+`POST /mcp/tool/:name` uses the same validated action dispatcher as the
+existing `/_agent-native/webmcp/actions/:name` route. Authentication,
+authorization, approval, validation, and tenant scoping remain server-side;
+the compatibility document does not make protected actions public.
+
+The manifest links to the standard `/mcp` endpoint, the authenticated
+`/_agent-native/webmcp/manifest`, and the A2A agent card. Page-local client
+tools still require an open WebMCP-capable browser. Resource pages should also
+publish their own alternate JSON discovery link when their capabilities are
+scoped to a particular object. Clips does this: fetch its `agentContextUrl`,
+then use the advertised transcript and JPEG frame URLs directly. That HTTP
+path remains the complete, browser-independent fallback; the page tools are a
+bounded convenience when the clip is already open in a compatible browser.
 
 ## Compatibility and safety
 

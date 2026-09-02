@@ -273,10 +273,23 @@ export interface BookingHost {
   displayName?: string;
 }
 
+/**
+ * A required co-host as shown to anonymous visitors of the public booking
+ * page: a display label derived from their email/displayName, never the raw
+ * address, plus their time zone when eligible for hard-filtering.
+ */
+export interface PublicBookingHost {
+  id: string;
+  label: string;
+  timezone?: string;
+}
+
 export interface Booking {
   id: string;
   name: string;
   email: string;
+  /** Additional invitees included on the booking */
+  additionalGuestEmails?: string[];
   eventTitle: string;
   start: string; // ISO 8601
   end: string; // ISO 8601
@@ -304,6 +317,12 @@ export interface BookingLink {
   durations?: number[];
   /** Required co-hosts in addition to the booking link owner */
   hosts?: BookingHost[];
+  /**
+   * Sanitized co-host labels for anonymous visitors. Only populated on the
+   * public booking-link read response, in place of `hosts`, which carries
+   * raw emails and is never sent publicly.
+   */
+  publicHosts?: PublicBookingHost[];
   /** Custom fields shown on the booking form */
   customFields?: CustomField[];
   /** Video conferencing configuration */
@@ -312,6 +331,18 @@ export interface BookingLink {
   isActive: boolean;
   /** Sharing visibility: private (default), org, or public */
   visibility?: "private" | "org" | "public";
+  /**
+   * The owner's booking time zone. Only populated on the public booking-link
+   * read response, for display in a multi-time-zone grid.
+   */
+  ownerTimezone?: string;
+  /**
+   * The owner's public display name, derived from their username/email
+   * without exposing the raw address. Only populated on the public
+   * booking-link read response, so anonymous visitors can identify who
+   * they're booking with.
+   */
+  ownerName?: string;
   /** Effective management role for the current caller, when loaded from a list. */
   accessRole?: "owner" | "admin" | "editor" | "commenter" | "viewer";
   createdAt: string;

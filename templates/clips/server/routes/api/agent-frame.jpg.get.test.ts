@@ -112,7 +112,7 @@ describe("agent-frame.jpg route", () => {
     mockProbeMediaDurationMs.mockResolvedValue(null);
   });
 
-  it("caches anonymous public frames and marks them publicly cacheable", async () => {
+  it("caches anonymous public frames without shared caching", async () => {
     mockLoadPublicAgentAccess.mockResolvedValue({
       ok: true,
       access: makeAccess({
@@ -131,10 +131,10 @@ describe("agent-frame.jpg route", () => {
     expect(mockLoadRecordingMediaBytes).toHaveBeenCalledTimes(1);
     expect(mockExtractJpegFrame).toHaveBeenCalledTimes(1);
     expect(headerValue(firstEvent, "Cache-Control")).toBe(
-      "public, max-age=300",
+      "private, max-age=0, no-store",
     );
     expect(headerValue(secondEvent, "Cache-Control")).toBe(
-      "public, max-age=300",
+      "private, max-age=0, no-store",
     );
   });
 
