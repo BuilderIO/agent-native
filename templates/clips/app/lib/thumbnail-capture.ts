@@ -189,6 +189,7 @@ export async function captureVideoBlobThumbnail(
         await seekVideoToTime(video, candidate);
         const thumbnail = await captureVideoThumbnailBlob(video);
         if (thumbnail) return thumbnail;
+        // coercion-ok: try the next frame candidate; null remains an absent thumbnail.
       } catch {
         // Try the first frame when the short clip has no decodable 350ms frame.
       }
