@@ -2,6 +2,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 
 import { BuilderImage } from "../components/builder-image";
+import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
 import { TemplateDocsLink } from "../components/template-docs";
@@ -45,7 +46,9 @@ export const meta = () =>
   );
 
 const template = templates.find((t) => t.slug === "clips")!;
-const CLIPS_PROMPT_URL = "https://clips.agent-native.com/share/B0AgxdvzuZ7H";
+const CLIPS_PROMPT_URL = firstPartyAppUrl(
+  "https://clips.agent-native.com/share/B0AgxdvzuZ7H",
+);
 const CLIPS_PROMPT_INSTRUCTION =
   "Find the single most impactful way I can use agent-native clips this week. Be brief and as specific to me as possible.";
 const AI_PROMPT = `Watch ${CLIPS_PROMPT_URL}. ${CLIPS_PROMPT_INSTRUCTION}`;
@@ -53,17 +56,17 @@ const AI_PROMPT = `Watch ${CLIPS_PROMPT_URL}. ${CLIPS_PROMPT_INSTRUCTION}`;
 const CLIP_PREVIEWS = [
   {
     title: "Introducing Agent-Native Clips",
-    href: "https://clips.agent-native.com/share/B0AgxdvzuZ7H",
+    href: firstPartyAppUrl("https://clips.agent-native.com/share/B0AgxdvzuZ7H"),
     thumbnail: "/clips/B0AgxdvzuZ7H.jpg",
   },
   {
     title: "Show Claude how to perform a task",
-    href: "https://clips.agent-native.com/share/U1f0uKYYKGF2",
+    href: firstPartyAppUrl("https://clips.agent-native.com/share/U1f0uKYYKGF2"),
     thumbnail: "/clips/U1f0uKYYKGF2.jpg",
   },
   {
     title: "Record browser workflows with Clips",
-    href: "https://clips.agent-native.com/share/1J2KR4ryo2Wg",
+    href: firstPartyAppUrl("https://clips.agent-native.com/share/1J2KR4ryo2Wg"),
     thumbnail: "/clips/1J2KR4ryo2Wg.jpg",
   },
 ];
@@ -242,7 +245,7 @@ export default function ClipsTemplate() {
         customizeTemplate={template}
         headingAction={
           <a
-            href="https://clips.agent-native.com"
+            href={firstPartyAppUrl("https://clips.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
             className="primary-button"
