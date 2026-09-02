@@ -64,6 +64,49 @@ describe("runtime diagnostics", () => {
     expect(getEffectiveDatabaseEnvStatus("NETLIFY_DATABASE_URL")).toBe(false);
   });
 
+  it("follows unpooled URL precedence for request-time clients", () => {
+    vi.stubEnv("APP_NAME", "forms");
+    vi.stubEnv(
+      "FORMS_DATABASE_URL_UNPOOLED",
+      "postgres://forms-direct.example/db",
+    );
+    vi.stubEnv("FORMS_DATABASE_URL", "postgres://forms.example/db");
+    vi.stubEnv("DATABASE_URL", "postgres://generic.example/db");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
+    mockRuntimeDatabaseUrl.mockReturnValue(
+      "postgres://forms-direct.example/db",
+    );
+    mockIsLocalDatabase.mockReturnValue(false);
+
+    expect(getEffectiveDatabaseEnvStatus("FORMS_DATABASE_URL_UNPOOLED")).toBe(
+      true,
+    );
+    expect(getEffectiveDatabaseEnvStatus("FORMS_DATABASE_URL")).toBe(false);
+    expect(getEffectiveDatabaseEnvStatus("DATABASE_URL")).toBe(false);
+    expect(getEffectiveDatabaseEnvStatus("NETLIFY_DATABASE_URL")).toBe(false);
+  });
+
+  it("reports an unpooled Netlify URL when it is the only remote database", () => {
+    vi.stubEnv("APP_NAME", "forms");
+    vi.stubEnv("FORMS_DATABASE_URL", "");
+    vi.stubEnv("FORMS_DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv(
+      "NETLIFY_DATABASE_URL_UNPOOLED",
+      "postgres://netlify-direct.example/db",
+    );
+    mockRuntimeDatabaseUrl.mockReturnValue(
+      "postgres://netlify-direct.example/db",
+    );
+    mockIsLocalDatabase.mockReturnValue(false);
+
+    expect(getEffectiveDatabaseEnvStatus("NETLIFY_DATABASE_URL_UNPOOLED")).toBe(
+      true,
+    );
+    expect(getEffectiveDatabaseEnvStatus("DATABASE_URL")).toBe(false);
+  });
+
   it("formats runtime debug details without leaking credentials", () => {
     const details = formatRuntimeDebugFingerprint({
       app: "design",

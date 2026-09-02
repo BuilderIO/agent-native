@@ -21,7 +21,9 @@ export function useDbStatus() {
 
   const configured =
     data?.some(
-      (entry) => /(?:^|_)DATABASE_URL$/.test(entry.key) && entry.configured,
+      (entry) =>
+        /(?:^|_)DATABASE_URL(?:_UNPOOLED)?$/.test(entry.key) &&
+        entry.configured,
     ) ?? false;
 
   return {

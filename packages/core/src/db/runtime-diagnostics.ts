@@ -131,9 +131,16 @@ function appEnvPrefix(): string | undefined {
 
 function databaseUrlSource(): string {
   const appName = appEnvPrefix();
+  if (appName && envValue(`${appName}_DATABASE_URL_UNPOOLED`)) {
+    return `${appName}_DATABASE_URL_UNPOOLED`;
+  }
   if (appName && envValue(`${appName}_DATABASE_URL`)) {
     return `${appName}_DATABASE_URL`;
   }
+  if (envValue("NETLIFY_DATABASE_URL_UNPOOLED")) {
+    return "NETLIFY_DATABASE_URL_UNPOOLED";
+  }
+  if (envValue("DATABASE_URL_UNPOOLED")) return "DATABASE_URL_UNPOOLED";
   if (envValue("DATABASE_URL")) return "DATABASE_URL";
   if (envValue("NETLIFY_DATABASE_URL")) return "NETLIFY_DATABASE_URL";
   return "default";
@@ -211,7 +218,7 @@ export function getDatabaseRuntimeFingerprint(): DatabaseRuntimeFingerprint {
 export function getEffectiveDatabaseEnvStatus(
   key: string,
 ): boolean | undefined {
-  if (!/(?:^|_)DATABASE_URL$/.test(key)) return undefined;
+  if (!/(?:^|_)DATABASE_URL(?:_UNPOOLED)?$/.test(key)) return undefined;
 
   const database = getDatabaseRuntimeFingerprint();
   if (!database.configured || isLocalDatabase()) return false;
