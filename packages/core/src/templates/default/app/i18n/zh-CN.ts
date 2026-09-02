@@ -11,6 +11,12 @@ const messages = {
     themeTitle: "主题",
     themeDescription: "切换深色 / 浅色",
   },
+  common: {
+    cancel: "取消",
+    confirmDisconnect: "确认断开连接",
+    disconnect: "断开连接",
+    disconnecting: "正在断开连接…",
+  },
   settings: {
     title: "设置",
     description: "此应用的语言和工作区偏好设置。",
@@ -26,6 +32,9 @@ const messages = {
     openTeamSettings: "打开团队设置",
     openResourceSettings: "打开资源设置",
     backHome: "返回首页",
+    builderConnection: {
+      manage: "管理 Builder.io 连接",
+    },
   },
   dispatch: {
     nav: {

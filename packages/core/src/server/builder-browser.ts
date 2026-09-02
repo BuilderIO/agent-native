@@ -756,6 +756,8 @@ export interface BuilderBrowserStatus {
    */
   envManaged: boolean;
   credentialSource?: "user" | "org" | "workspace" | "env";
+  /** True only when the current request may revoke the effective grant. */
+  canDisconnect?: boolean;
   /**
    * The currently effective Builder credential was rejected by Builder's API.
    * This is durable status about the credential pair, not a failure of an
@@ -1561,6 +1563,7 @@ export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
     branchProjectId: branchProjectId || undefined,
     envManaged,
     credentialSource: envManaged ? "env" : undefined,
+    canDisconnect: false,
     appHost: getBuilderAppHost(),
     apiHost: getBuilderApiHost(),
     connectUrl: origin ? getBuilderBrowserConnectUrl(origin) : "",

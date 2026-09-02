@@ -40,17 +40,13 @@ describe("AuthPage", () => {
     expect(html).toContain('data-agent-native-marketing-home="true"');
     expect(html).toContain('class="auth-marketing-screenshot"');
     expect(html).toContain("/auth-marketing/slides.webp");
-    expect(html).toContain('href="https://agent-native.com/apps/slides"');
-    expect(html).toContain("New to Slides?");
-    expect(html).toContain("has-bottom-right-learn-more");
+    expect(html).not.toContain("New to Slides?");
+    expect(html).not.toContain("auth-marketing-learn-more");
     expect(html).not.toContain('data-agent-native-starfield="true"');
     expect(html).toContain('class="split');
     expect(html).toContain('class="marketing-panel"');
     expect(html).toContain('class="form-panel');
     expect(html).not.toContain('id="local-note"');
-    expect(html).toMatch(
-      /class="auth-marketing-top-right">\s*<a[^>]+class="auth-marketing-learn-more"/,
-    );
     expect(onboardingHtml).toContain("aspect-ratio: 914 / 818");
     expect(onboardingHtml).toContain("width: 100%");
     expect(onboardingHtml).toContain("filter: blur(5px)");
@@ -71,7 +67,7 @@ describe("AuthPage", () => {
     const html = renderToString(<AuthPage {...props} />);
 
     expect(props.marketing?.learnMorePlacement).toBe("bottom-right");
-    expect(html).toContain("has-bottom-right-learn-more");
+    expect(html).not.toContain("has-bottom-right-learn-more");
   });
 
   it("keeps the magic-link entry and completion surfaces in the React tree", () => {

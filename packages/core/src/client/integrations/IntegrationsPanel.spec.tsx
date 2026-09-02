@@ -35,6 +35,18 @@ vi.mock("../resources/mcp-integration-catalog.js", () => ({
       availability: "ready",
       logoUrl: "",
     },
+    {
+      id: "builder-cms",
+      name: "Builder.io",
+      provider: "builder",
+      description: "Search Builder Publish and Hybrid Space content.",
+      useCase: "content models",
+      url: "https://mcp.builder.io/mcp/publish",
+      authMode: "oauth",
+      connectionMode: "oauth",
+      availability: "ready",
+      logoUrl: "",
+    },
   ],
 }));
 
@@ -155,6 +167,7 @@ describe("IntegrationsPanel MCP connection errors", () => {
 
     expect(container.textContent).toContain("Available integrations");
     expect(container.textContent).toContain("Context7");
+    expect(container.textContent).not.toContain("Builder.io");
     expect(container.querySelector(".animate-pulse")).toBeNull();
   });
 });
