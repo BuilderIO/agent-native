@@ -2710,9 +2710,20 @@ describe("AgentEngine registry", () => {
         readAppSecret,
         readAppSecrets,
       }));
+      vi.stubEnv("AGENT_ENGINE_PREFER_BYO_KEY", undefined);
 
-      const { registerAgentEngine, detectEngineFromUserSecrets } =
-        await import("./registry.js");
+      const {
+        registerAgentEngine,
+        unregisterAgentEngine,
+        listAgentEngines,
+        detectEngineFromUserSecrets,
+      } = await import("./registry.js");
+
+      // A reused Vitest worker can retain registered engines from another
+      // package suite; this test is specifically about Builder's priority.
+      for (const entry of listAgentEngines()) {
+        unregisterAgentEngine(entry.name);
+      }
 
       registerAgentEngine({
         name: "builder",
