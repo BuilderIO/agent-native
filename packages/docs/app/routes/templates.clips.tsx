@@ -344,7 +344,7 @@ export default function ClipsTemplate() {
           </div>
 
           <div className="flex items-center px-6 pt-8 pb-6 sm:px-10 order-1 lg:order-2 lg:w-1/3 lg:shrink-0 lg:py-8 lg:pt-8 lg:pb-8 lg:ps-16 lg:pe-8">
-            <div className="lg:max-w-[320px]">
+            <div>
               <h2 className="font-poppins text-2xl font-medium leading-[1.3] tracking-[-0.24px] text-[var(--fg)]">
                 Get a personalized recommendation
               </h2>
