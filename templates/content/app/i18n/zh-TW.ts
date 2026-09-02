@@ -632,6 +632,8 @@ const messages = {
     open: "未解決",
     resolvedStatus: "已解決",
     noFilteredComments: "沒有相符的留言。",
+    hideIndicators: "隱藏留言和醒目提示",
+    showIndicators: "顯示留言和醒目提示",
     agentRegardingText: "關於這段文字：“{{text}}”",
     agentThreadHeader: "評論對話串：",
     agentHelp: "請幫忙處理這個。",

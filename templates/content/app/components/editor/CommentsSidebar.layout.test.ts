@@ -215,11 +215,31 @@ describe("comments sidebar layout", () => {
 
   it("keeps multiline comment highlights padded as one forgiving target", () => {
     const styles = readFileSync("app/global.css", { encoding: "utf8" });
+    const highlightStyles = styles.slice(
+      styles.indexOf(".notion-editor .comment-highlight"),
+      styles.indexOf("/* @mention tokens inside comment bodies */"),
+    );
 
-    expect(styles).toContain("padding-block: 0.2em");
-    expect(styles).toContain("padding-inline: 0.15em");
-    expect(styles).toContain("margin-inline: -0.15em");
-    expect(styles).toContain("box-decoration-break: clone");
+    expect(highlightStyles).toContain("padding-block: 0.2em");
+    expect(highlightStyles).toContain("padding-inline: 0.15em");
+    expect(highlightStyles).toContain("margin-inline: -0.15em");
+    expect(highlightStyles).toContain("box-decoration-break: clone");
+    expect(highlightStyles).toContain("content-box");
+    expect(highlightStyles).not.toContain("border-bottom: 1px");
+  });
+
+  it("opens the selected inline thread for reply and closes it on deselection", () => {
+    const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("selectedThreadIsOpen");
+    expect(source).toContain(
+      'presentation === "inline" && canComment && selectedThreadIsOpen',
+    );
+    expect(source).toContain("setReplyingThreadId(nextReplyingThreadId)");
+    expect(source).toContain("setReplyingThreadId(thread.threadId)");
+    expect(source).not.toContain("current === thread.threadId ? null");
   });
 
   it("captures inline comment activation at the document state boundary", () => {

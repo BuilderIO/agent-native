@@ -354,7 +354,7 @@ describe("document editor layout", () => {
     expect(source).toContain("return <DocumentEditorSkeleton />");
   });
 
-  it("keeps one selected utility rail inside the document scroll surface", () => {
+  it("keeps the contextual right rail inside the document scroll surface", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       {
@@ -364,7 +364,7 @@ describe("document editor layout", () => {
 
     const scrollIndex = source.indexOf("data-document-print-scroll");
     const contentIndex = source.indexOf("data-document-scroll-content");
-    const desktopPanelIndex = source.indexOf("{showDesktopUtilityPanel ? (");
+    const desktopPanelIndex = source.indexOf("{showDesktopRightRail ? (");
     const mobileSheetIndex = source.indexOf("<Sheet");
 
     expect(scrollIndex).toBeGreaterThan(-1);
@@ -376,7 +376,7 @@ describe("document editor layout", () => {
     );
     expect(source).toContain('utilityPanel === "info"');
     expect(source).toContain('setUtilityPanel("comments")');
-    expect(source).not.toContain("showDesktopComments");
+    expect(source).toContain("showInlineComments");
   });
 
   it("moves page metadata to Info and omits the body below full-page databases", () => {
@@ -431,17 +431,23 @@ describe("document editor layout", () => {
     expect(source).toContain("editor.toolbar.info");
     expect(source).toContain("comments.title");
     expect(source).toContain("showCommentsControl ?");
-    expect(editorSource).not.toContain("commentsHistoryOpen=");
+    expect(editorSource).toContain(
+      "commentsHistoryOpen={showCommentsHistoryDrawer}",
+    );
     expect(source).toContain("onSelect={() => void handleCopyPageLink()}");
     expect(source).toContain('utilityPanel === "info" ? null : "info"');
-    expect(source).toContain('utilityPanel === "comments" ? null : "comments"');
+    expect(source).toContain('commentsHistoryOpen ? null : "comments"');
     expect(source).not.toContain('aria-pressed={utilityPanel === "info"}');
-    expect(source).toContain('aria-pressed={utilityPanel === "comments"}');
+    expect(source).toContain("aria-pressed={commentsHistoryOpen}");
     expect(source).toContain(
       'utilityPanel === "info" && "bg-accent text-foreground"',
     );
-    expect(editorSource).not.toContain("setShowCommentIndicators");
-    expect(editorSource).not.toContain("showCommentIndicators=");
+    expect(editorSource).toContain("setShowCommentIndicators");
+    expect(editorSource).toContain(
+      "showCommentIndicators={showCommentIndicators}",
+    );
+    expect(editorSource).toContain('"comments.hideIndicators"');
+    expect(editorSource).toContain('"comments.showIndicators"');
     expect(editorSource).not.toContain(
       "absolute end-2 top-2 z-20 flex items-center",
     );

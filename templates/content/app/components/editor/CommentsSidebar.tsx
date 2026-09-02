@@ -412,6 +412,19 @@ export function CommentsSidebar({
       ? open.filter((thread) => thread.threadId === visibleThreadId)
       : open;
   }, [threads, visibleThreadId]);
+  const selectedThreadIsOpen =
+    !!selectedThreadId &&
+    openThreads.some((thread) => thread.threadId === selectedThreadId);
+
+  useEffect(() => {
+    const nextReplyingThreadId =
+      presentation === "inline" && canComment && selectedThreadIsOpen
+        ? selectedThreadId
+        : null;
+    setReplyingThreadId(nextReplyingThreadId);
+    setReplyText("");
+    setReplyMentions([]);
+  }, [canComment, presentation, selectedThreadId, selectedThreadIsOpen]);
   const historyAuthors = useMemo(() => {
     const authors = new Map<string, string>();
     for (const thread of threads) {
@@ -923,9 +936,7 @@ export function CommentsSidebar({
                   threadPositions.get(thread.threadId)?.documentTop,
                 );
                 if (canComment) {
-                  setReplyingThreadId((current) =>
-                    current === thread.threadId ? null : thread.threadId,
-                  );
+                  setReplyingThreadId(thread.threadId);
                 }
                 setReplyText("");
                 setReplyMentions([]);

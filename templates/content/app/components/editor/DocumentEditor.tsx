@@ -19,6 +19,8 @@ import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { Document, DocumentSyncStatus } from "@shared/api";
 import {
   IconDatabase,
+  IconEye,
+  IconEyeOff,
   IconFileText,
   IconLoader2,
   IconX,
@@ -1919,6 +1921,7 @@ function DocumentEditorBody({
   const [lastUtilityPanel, setLastUtilityPanel] =
     useState<Exclude<DocumentUtilityPanel, null>>("comments");
   const [commentsBrowseOpen, setCommentsBrowseOpen] = useState(false);
+  const [showCommentIndicators, setShowCommentIndicators] = useState(true);
   const activeThreadId = hoveredThreadId ?? selectedThreadId;
   const { data: threads, isLoading: commentsLoading } = useComments(
     !isLocalFileDocument ? documentId : null,
@@ -1936,22 +1939,30 @@ function DocumentEditorBody({
   const hasUtilityRailSpace = useElementMinWidth(documentLayoutRef, 960);
   const showCommentsHistoryDrawer =
     utilityPanel === "comments" && commentsBrowseOpen;
-  const showDesktopUtilityPanel =
-    utilityPanel !== null && hasUtilityRailSpace && !showCommentsHistoryDrawer;
+  const hasOpenCommentThreads =
+    threads?.some((thread) => !thread.resolved) ?? false;
+  const showInlineComments =
+    showCommentIndicators &&
+    hasUtilityRailSpace &&
+    !showCommentsHistoryDrawer &&
+    utilityPanel !== "info" &&
+    (hasOpenCommentThreads || !!pendingComment);
+  const showDesktopInfoPanel = utilityPanel === "info" && hasUtilityRailSpace;
+  const showDesktopRightRail = showInlineComments || showDesktopInfoPanel;
   const showAnchoredCommentPopover =
     utilityPanel === "comments" &&
     !hasUtilityRailSpace &&
     (!!pendingComment || !!selectedThreadId);
   const showUtilityPanelSheet =
     showCommentsHistoryDrawer ||
-    (utilityPanel === "info" && !showDesktopUtilityPanel);
+    (utilityPanel === "info" && !showDesktopInfoPanel);
 
   useEffect(() => {
     if (utilityPanel) setLastUtilityPanel(utilityPanel);
   }, [utilityPanel]);
 
   useLayoutEffect(() => {
-    if (!showDesktopUtilityPanel || utilityPanel !== "comments") {
+    if (!showInlineComments) {
       setCommentLaneOffset(0);
       return;
     }
@@ -1974,7 +1985,7 @@ function DocumentEditorBody({
       observer?.disconnect();
       window.removeEventListener("resize", update);
     };
-  }, [commentLaneOffset, showDesktopUtilityPanel, utilityPanel]);
+  }, [commentLaneOffset, showInlineComments]);
 
   const handleComment = useCallback(
     (
@@ -2300,10 +2311,32 @@ function DocumentEditorBody({
           >
             {utilityPanelTitle}
           </h2>
-          {hasUtilityRailSpace || inSheet ? (
+          {panel === "comments" ? (
             <button
               type="button"
               className="ms-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-pressed={!showCommentIndicators}
+              aria-label={t(
+                showCommentIndicators
+                  ? "comments.hideIndicators"
+                  : "comments.showIndicators",
+              )}
+              onClick={() => setShowCommentIndicators((visible) => !visible)}
+            >
+              {showCommentIndicators ? (
+                <IconEye size={16} />
+              ) : (
+                <IconEyeOff size={16} />
+              )}
+            </button>
+          ) : null}
+          {hasUtilityRailSpace || inSheet ? (
+            <button
+              type="button"
+              className={cn(
+                "flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                panel !== "comments" && "ms-auto",
+              )}
               aria-label={t("editor.toolbar.closeUtilityPanel")}
               onClick={() => handleUtilityPanelChange(null)}
             >
@@ -2406,6 +2439,7 @@ function DocumentEditorBody({
             isFavorite={document.isFavorite}
             onToggleFavorite={handleToggleFavorite}
             utilityPanel={utilityPanel}
+            commentsHistoryOpen={showCommentsHistoryDrawer}
             onUtilityPanelChange={handleUtilityPanelChange}
             showCommentsControl={canComment && !isLocalFileDocument}
             onOpenBreadcrumbItem={handleOpenToolbarBreadcrumb}
@@ -2487,14 +2521,14 @@ function DocumentEditorBody({
             <div
               className={cn(
                 "relative flex min-h-full w-full min-w-0",
-                showDesktopUtilityPanel ? "justify-center" : "flex-col",
+                showDesktopRightRail ? "justify-center" : "flex-col",
               )}
               data-document-scroll-content
             >
               <div
                 className={cn(
                   "min-w-0",
-                  showDesktopUtilityPanel ? "flex-1" : "w-full",
+                  showDesktopRightRail ? "flex-1" : "w-full",
                 )}
               >
                 <div
@@ -2725,6 +2759,7 @@ function DocumentEditorBody({
                                 ? activateCommentThread
                                 : undefined
                             }
+                            showCommentIndicators={showCommentIndicators}
                             onJoinTitle={joinFirstBodyBlockToTitle}
                             notionPageLinks={notionPageLinks}
                             onOpenNotionPageLink={handleOpenNotionPageLink}
@@ -2775,8 +2810,8 @@ function DocumentEditorBody({
                 ) : null}
               </div>
 
-              {showDesktopUtilityPanel ? (
-                utilityPanel === "comments" ? (
+              {showDesktopRightRail ? (
+                showInlineComments ? (
                   <aside
                     ref={commentLaneRef}
                     className="relative w-80 shrink-0"
