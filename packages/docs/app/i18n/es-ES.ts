@@ -555,9 +555,10 @@ const esES = {
     copyCommunityInstallCommand: "Copiar comando de instalación",
     viewRepository: "Ver repositorio",
     tryCommunityDemo: "Probar demo",
-    customizeDescription: "Puedes personalizar completamente este código.",
-    customizeOnline: "Personalizar en línea",
-    customizeLocally: "Personalizar localmente",
+    customizeDescription: "Usa esta app como punto de partida.",
+    customizeOnline: "En línea",
+    customizeOnlineBadge: "Unirse a la lista de espera",
+    customizeLocally: "Local",
     communityNew: "Nueva",
     communityComingSoon: "Próximamente",
     communityGithubStars: "{{count}} estrellas en GitHub",
@@ -578,7 +579,7 @@ const esES = {
     communitySubmissionName: "Nombre de la aplicación",
     communitySubmissionNamePlaceholder: "Centro de atención al cliente",
     communitySubmissionUrl: "URL de la aplicación",
-    communitySubmissionUrlPlaceholder: "example.com o https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "Descripción",
     communitySubmissionDescriptionPlaceholder:
       "¿Qué hace la aplicación y para quién es?",
@@ -595,8 +596,17 @@ const esES = {
     communitySubmissionSubmit: "Enviar aplicación",
     communitySubmissionReady:
       "Gracias. Revisaremos tu aplicación antes de publicarla.",
-    communitySubmissionValidation:
-      "Añade un nombre y una descripción, y después introduce un enlace de aplicación como example.com. Añadiremos https:// por ti. Si añades un repositorio, usa un enlace de github.com. Sube imágenes PNG, JPG o WebP de hasta 1,5 MB cada una.",
+    communitySubmissionNameError: "Introduce un nombre para la aplicación.",
+    communitySubmissionDescriptionError: "Añade una descripción breve.",
+    communitySubmissionUrlError:
+      "Introduce un enlace válido, como example.com.",
+    communitySubmissionRepositoryError:
+      "Introduce un enlace a un repositorio de GitHub.",
+    communitySubmissionScreenshotsError:
+      "Usa imágenes PNG, JPG o WebP de hasta 1,5 MB cada una, con un máximo de 5 imágenes.",
+    communitySubmissionSubmitError:
+      "No se pudo enviar ahora. Revisa los campos marcados e inténtalo de nuevo.",
+    communitySubmissionSubmitting: "Enviando…",
   },
   buildFromScratch: {
     title: "Crear desde cero",
@@ -1487,7 +1497,7 @@ const esES = {
       s004: "Refinar",
       s005: "Todas las plantillas",
       s006Primary: "Presentaciones de diapositivas",
-      s006Secondary: "para personas y agentes",
+      s006Secondary: "Con tu marca y editables",
       s007: "Genera presentaciones de diapositivas con tu marca desde tu agente de IA, aplica tus propios cambios manuales en cualquier momento y expórtalas donde quieras.",
       s008: "Probar",
       s009: "como funciona",

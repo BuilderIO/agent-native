@@ -552,9 +552,10 @@ const koKR = {
     copyCommunityInstallCommand: "설치 명령 복사",
     viewRepository: "저장소 보기",
     tryCommunityDemo: "데모 사용해 보기",
-    customizeDescription: "이 코드는 완전히 맞춤 설정할 수 있습니다.",
-    customizeOnline: "온라인에서 맞춤 설정",
-    customizeLocally: "로컬에서 맞춤 설정",
+    customizeDescription: "이 앱을 시작점으로 사용하세요.",
+    customizeOnline: "온라인",
+    customizeOnlineBadge: "대기자 명단 등록",
+    customizeLocally: "로컬",
     communityNew: "새 앱",
     communityComingSoon: "곧 공개",
     communityGithubStars: "GitHub 별 {{count}}개",
@@ -574,7 +575,7 @@ const koKR = {
     communitySubmissionName: "앱 이름",
     communitySubmissionNamePlaceholder: "고객 지원 허브",
     communitySubmissionUrl: "앱 URL",
-    communitySubmissionUrlPlaceholder: "example.com 또는 https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "설명",
     communitySubmissionDescriptionPlaceholder:
       "앱은 무엇을 하며 누구를 위한 것인가요?",
@@ -589,8 +590,16 @@ const koKR = {
     communitySubmissionScreenshotRemove: "스크린샷 {{index}} 제거",
     communitySubmissionSubmit: "앱 제출",
     communitySubmissionReady: "감사합니다. 게시하기 전에 앱을 검토하겠습니다.",
-    communitySubmissionValidation:
-      "이름과 설명을 입력한 다음 example.com과 같은 앱 링크를 입력하세요. https://는 자동으로 추가됩니다. 저장소를 추가하려면 github.com 링크를 사용하세요. PNG, JPG 또는 WebP 이미지는 각각 1.5MB 이하로 업로드하세요.",
+    communitySubmissionNameError: "앱 이름을 입력하세요.",
+    communitySubmissionDescriptionError: "간단한 설명을 추가하세요.",
+    communitySubmissionUrlError:
+      "example.com과 같은 유효한 앱 링크를 입력하세요.",
+    communitySubmissionRepositoryError: "GitHub 저장소 링크를 입력하세요.",
+    communitySubmissionScreenshotsError:
+      "PNG, JPG 또는 WebP 이미지를 사용하세요. 각 1.5MB 이하, 최대 5개입니다.",
+    communitySubmissionSubmitError:
+      "지금 제출할 수 없습니다. 강조 표시된 필드를 확인하고 다시 시도하세요.",
+    communitySubmissionSubmitting: "제출 중…",
   },
   buildFromScratch: {
     title: "처음부터 만들기",
@@ -1444,8 +1453,8 @@ const koKR = {
       s003: "생성",
       s004: "구체화",
       s005: "모든 템플릿",
-      s006Primary: "사람과 에이전트를 위한",
-      s006Secondary: "슬라이드 프레젠테이션",
+      s006Primary: "AI 에이전트가 만드는 슬라이드.",
+      s006Secondary: "브랜드에 맞고 편집 가능",
       s007: "AI 에이전트로 브랜드에 맞는 슬라이드 덱을 생성하고, 언제든 직접 수정한 뒤 어디로든 내보내세요.",
       s008: "사용해 보기",
       s009: "작동 원리",

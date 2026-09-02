@@ -1,8 +1,10 @@
 import { type LocaleCode } from "@agent-native/core/client/i18n";
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import zhTW from "./i18n/zh-TW";
 
 const enUS = {
+  creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     whatsNew: "What's new",
   },
@@ -4960,6 +4962,10 @@ function mergeMessages(overrides: {
     dialogs: { ...enUS.dialogs, ...overrides.dialogs },
     commandPalette: { ...enUS.commandPalette, ...overrides.commandPalette },
     common: { ...enUS.common, ...overrides.common },
+    creativeContext: {
+      ...enUS.creativeContext,
+      ...overrides.creativeContext,
+    },
     dataDictionary: { ...enUS.dataDictionary, ...overrides.dataDictionary },
     dataSources: { ...enUS.dataSources, ...overrides.dataSources },
     analyticsBackend: {
@@ -6971,6 +6977,13 @@ export const messagesByLocale = {
     },
   }),
 } satisfies Record<LocaleCode, Messages>;
+
+for (const locale of Object.keys(creativeContextMessagesByLocale) as Array<
+  keyof typeof creativeContextMessagesByLocale
+>) {
+  messagesByLocale[locale].creativeContext =
+    creativeContextMessagesByLocale[locale];
+}
 
 type AnalyticsPartialMessages = {
   [K in Section]?: Partial<Messages[K]>;
