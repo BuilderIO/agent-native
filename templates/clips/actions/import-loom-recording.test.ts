@@ -315,6 +315,88 @@ describe("first imported recording transactional email", () => {
     ).rejects.toThrow("thumbnail queue unavailable");
   });
 
+  it("does not reuse an automatic thumbnail from an earlier direct import", async () => {
+    const sourceUrl = "https://media.example.com/source.mp4";
+    const updateValues = vi.fn();
+    const existing = {
+      id: "recording-retry",
+      organizationId: "org-1",
+      ownerEmail: "owner@example.com",
+      status: "uploading",
+      videoUrl: null,
+      failureReason:
+        "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage, then retry this import.",
+      sourceAppName: "Video link",
+      sourceWindowTitle: sourceUrl,
+      thumbnailUrl: "https://media.example.com/old-thumbnail.jpg",
+      editsJson: "{}",
+      title: "Earlier import",
+      titleSource: "upload",
+      spaceIds: "[]",
+      visibility: "private",
+      folderId: null,
+      description: "",
+      createdAt: "2026-09-01T00:00:00.000Z",
+    };
+    const selectWhere = vi
+      .fn()
+      .mockResolvedValueOnce([existing])
+      .mockResolvedValueOnce([]);
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({ where: selectWhere })),
+      })),
+      insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
+      update: vi.fn(() => ({
+        set: (values: unknown) => {
+          updateValues(values);
+          return { where: vi.fn(async () => undefined) };
+        },
+      })),
+    } as any;
+    mocks.getDb.mockReturnValue(db);
+    mocks.getCurrentOwnerEmail.mockReturnValue("owner@example.com");
+    mocks.requireOrganizationAccess.mockResolvedValue({
+      organizationId: "org-1",
+    });
+    mocks.getDefaultRecordingVisibility.mockResolvedValue("private");
+    mocks.parseSpaceIds.mockReturnValue([]);
+    mocks.stringifySpaceIds.mockReturnValue("[]");
+    mocks.isCandidateDirectVideoUrl.mockReturnValue(true);
+    mocks.hasRequestVideoStorage.mockResolvedValue(true);
+    mocks.downloadDirectVideo.mockResolvedValue({
+      bytes: new Uint8Array([1, 2, 3]),
+      mimeType: "video/mp4",
+      sizeBytes: 3,
+    });
+    mocks.uploadFile.mockResolvedValue({
+      id: "asset-1",
+      url: "https://media.example.com/recording-retry.mp4",
+      provider: "builder",
+    });
+    mocks.queueBuilderMediaCompression.mockResolvedValue(undefined);
+    mocks.ensureEnabledAt.mockRejectedValue(
+      new Error("email store unavailable"),
+    );
+
+    const result = await importLoomRecording.run({
+      url: sourceUrl,
+      recordingId: "recording-retry",
+    });
+
+    expect(updateValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "ready",
+        videoUrl: "https://media.example.com/recording-retry.mp4",
+        thumbnailUrl: null,
+      }),
+    );
+    expect(result).toMatchObject({
+      recordingId: "recording-retry",
+      thumbnailUrl: null,
+    });
+  });
+
   it("completes a persisted import when transactional email enqueue fails", async () => {
     const insertValues = vi.fn(async () => undefined);
     const db = {

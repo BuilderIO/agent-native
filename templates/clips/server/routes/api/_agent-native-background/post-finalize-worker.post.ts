@@ -52,6 +52,22 @@ function thumbnailRetryDelayMs(retryAttempt: number): number {
   return Math.min(30_000, 5_000 * 2 ** Math.max(0, retryAttempt));
 }
 
+async function scheduleThumbnailRetry(
+  recordingId: string,
+  retryAttempt: number | undefined,
+): Promise<number | null> {
+  const nextRetryAttempt = (retryAttempt ?? 0) + 1;
+  if (nextRetryAttempt > MAX_THUMBNAIL_RETRIES) return null;
+  await dispatchPostFinalizeJob({
+    recordingId,
+    kind: "thumbnail",
+    delayMs: thumbnailRetryDelayMs(retryAttempt ?? 0),
+    retryAttempt: nextRetryAttempt,
+    requireAccepted: true,
+  });
+  return nextRetryAttempt;
+}
+
 export default defineEventHandler(async (event: H3Event) => {
   const parsed = bodySchema.safeParse(await readBody(event).catch(() => null));
   if (!parsed.success) {
@@ -134,41 +150,67 @@ export default defineEventHandler(async (event: H3Event) => {
         return { ok: true, kind, result };
       }
       if (kind === "thumbnail") {
-        const result = await ensureRecordingThumbnail({
-          recordingId,
-          ownerEmail: recording.ownerEmail,
-        });
-        if (isRetryableRecordingThumbnailStatus(result.status)) {
-          const nextRetryAttempt = (retryAttempt ?? 0) + 1;
-          if (nextRetryAttempt <= MAX_THUMBNAIL_RETRIES) {
-            await dispatchPostFinalizeJob({
+        try {
+          const result = await ensureRecordingThumbnail({
+            recordingId,
+            ownerEmail: recording.ownerEmail,
+          });
+          if (isRetryableRecordingThumbnailStatus(result.status)) {
+            const nextRetryAttempt = await scheduleThumbnailRetry(
               recordingId,
-              kind,
-              delayMs: thumbnailRetryDelayMs(retryAttempt ?? 0),
-              retryAttempt: nextRetryAttempt,
-              requireAccepted: true,
+              retryAttempt,
+            );
+            if (nextRetryAttempt !== null) {
+              return {
+                ok: true,
+                kind,
+                result,
+                retryScheduled: true,
+                retryAttempt: nextRetryAttempt,
+              };
+            }
+            console.warn("[post-finalize-worker] thumbnail retries exhausted", {
+              recordingId,
+              status: result.status,
+              retryAttempt,
             });
             return {
               ok: true,
               kind,
               result,
-              retryScheduled: true,
-              retryAttempt: nextRetryAttempt,
+              retryExhausted: true,
             };
           }
-          console.warn("[post-finalize-worker] thumbnail retries exhausted", {
+          return { ok: true, kind, result };
+        } catch (error) {
+          const nextRetryAttempt = await scheduleThumbnailRetry(
             recordingId,
-            status: result.status,
             retryAttempt,
-          });
+          );
+          if (nextRetryAttempt !== null) {
+            return {
+              ok: true,
+              kind,
+              retryScheduled: true,
+              retryAttempt: nextRetryAttempt,
+              error: error instanceof Error ? error.message : String(error),
+            };
+          }
+          console.warn(
+            "[post-finalize-worker] thumbnail retries exhausted after error",
+            {
+              recordingId,
+              retryAttempt,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          );
           return {
             ok: true,
             kind,
-            result,
             retryExhausted: true,
+            error: error instanceof Error ? error.message : String(error),
           };
         }
-        return { ok: true, kind, result };
       }
       if (kind === "media-ready") {
         const result = await finalizeRecording.run({

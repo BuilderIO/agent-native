@@ -73,6 +73,7 @@ vi.mock("../../../lib/ensure-recording-thumbnail.js", () => ({
       "skipped-frame-extraction",
       "skipped-upload-failed",
       "skipped-race",
+      "skipped-lease",
     ].includes(status),
 }));
 
@@ -319,6 +320,48 @@ describe("post-finalize worker", () => {
       kind: "thumbnail",
       delayMs: 20_000,
       retryAttempt: 3,
+      requireAccepted: true,
+    });
+  });
+
+  it("retries thumbnail jobs when generation throws", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "thumbnail",
+      token: "valid-token",
+    });
+    mockDb.select.mockImplementationOnce(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => [
+          {
+            id: "rec-1",
+            ownerEmail: "owner@example.test",
+            orgId: "org-1",
+            status: "ready",
+            uploadGenerationId: null,
+          },
+        ]),
+      };
+      return builder;
+    });
+    mockEnsureRecordingThumbnail.mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "thumbnail",
+      retryScheduled: true,
+      retryAttempt: 1,
+      error: "database unavailable",
+    });
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      kind: "thumbnail",
+      delayMs: 5_000,
+      retryAttempt: 1,
       requireAccepted: true,
     });
   });

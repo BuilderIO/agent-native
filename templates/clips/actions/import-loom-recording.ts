@@ -10,6 +10,7 @@ import { extractLoomVideoId, normalizeLoomShareUrl } from "@shared/loom.js";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { parseEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { queueBuilderMediaCompression } from "../server/lib/builder-media-compression.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
@@ -249,6 +250,9 @@ export default defineAction({
     const titleSource = args.title
       ? "manual"
       : (existingRecording?.titleSource ?? "upload");
+    const existingEditorThumbnail = Boolean(
+      parseEdits(existingRecording?.editsJson).thumbnail,
+    );
 
     const buildRecordingValues = (
       videoSizeBytes: number,
@@ -264,7 +268,9 @@ export default defineAction({
       sourceWindowTitle: sourceUrl,
       description: existingRecording?.description ?? "",
       thumbnailUrl:
-        oembed?.thumbnail_url ?? existingRecording?.thumbnailUrl ?? null,
+        oembed?.thumbnail_url ??
+        (existingEditorThumbnail ? existingRecording?.thumbnailUrl : null) ??
+        null,
       durationMs,
       videoFormat,
       videoSizeBytes,
@@ -568,8 +574,7 @@ export default defineAction({
       sourceUrl,
       videoUrl,
       embedUrl: videoUrl,
-      thumbnailUrl:
-        oembed?.thumbnail_url ?? existingRecording?.thumbnailUrl ?? null,
+      thumbnailUrl: recordingValues.thumbnailUrl,
       durationMs,
       importMode: "reuploaded" as const,
       storageProvider: upload.provider,

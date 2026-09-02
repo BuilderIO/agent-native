@@ -6,15 +6,21 @@ const mocks = vi.hoisted(() => ({
   and: vi.fn(),
   eq: vi.fn(),
   isNull: vi.fn(),
+  ne: vi.fn(),
   like: vi.fn(),
   or: vi.fn(),
   extractJpegFrame: vi.fn(),
   uploadFile: vi.fn(),
   deleteUploadedFile: vi.fn(),
+  readAppState: vi.fn(),
+  compareAndSetAppState: vi.fn(),
   writeAppState: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
+  readAppState: (...args: unknown[]) => mocks.readAppState(...args),
+  compareAndSetAppState: (...args: unknown[]) =>
+    mocks.compareAndSetAppState(...args),
   writeAppState: (...args: unknown[]) => mocks.writeAppState(...args),
 }));
 vi.mock("@agent-native/core/file-upload", () => ({
@@ -25,6 +31,7 @@ vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => mocks.and(...args),
   eq: (...args: unknown[]) => mocks.eq(...args),
   isNull: (...args: unknown[]) => mocks.isNull(...args),
+  ne: (...args: unknown[]) => mocks.ne(...args),
   like: (...args: unknown[]) => mocks.like(...args),
   or: (...args: unknown[]) => mocks.or(...args),
 }));
@@ -38,6 +45,8 @@ vi.mock("../db/index.js", () => ({
       videoUrl: "recordings.videoUrl",
       thumbnailUrl: "recordings.thumbnailUrl",
       editsJson: "recordings.editsJson",
+      animatedThumbnailUrl: "recordings.animatedThumbnailUrl",
+      filmstripUrl: "recordings.filmstripUrl",
     },
   },
 }));
@@ -63,7 +72,16 @@ function createDb(
   ],
 ) {
   const selectWhere = vi.fn().mockResolvedValue([recording]);
-  const select = vi.fn(() => ({ from: vi.fn(() => ({ where: selectWhere })) }));
+  const selectResult = {
+    limit: vi.fn(() => selectWhere()),
+    then: (
+      resolve: (value: unknown) => unknown,
+      reject: (error: unknown) => unknown,
+    ) => selectWhere().then(resolve, reject),
+  };
+  const select = vi.fn(() => ({
+    from: vi.fn(() => ({ where: vi.fn(() => selectResult) })),
+  }));
   const updateReturning = vi.fn().mockResolvedValue(updated);
   const updateWhere = vi.fn(() => ({ returning: updateReturning }));
   const updateSet = vi.fn(() => ({ where: updateWhere }));
@@ -101,6 +119,7 @@ describe("ensureRecordingThumbnail", () => {
     mocks.and.mockReturnValue("conditions");
     mocks.eq.mockImplementation((column, value) => ({ column, value }));
     mocks.isNull.mockImplementation((column) => ({ column, isNull: true }));
+    mocks.ne.mockImplementation((column, value) => ({ column, value }));
     mocks.like.mockImplementation((column, value) => ({ column, value }));
     mocks.or.mockReturnValue("or-conditions");
     mocks.ownerEmailMatches.mockReturnValue("owner-match");
@@ -110,6 +129,8 @@ describe("ensureRecordingThumbnail", () => {
       provider: "builder",
     });
     mocks.deleteUploadedFile.mockResolvedValue(true);
+    mocks.readAppState.mockResolvedValue(null);
+    mocks.compareAndSetAppState.mockResolvedValue(true);
     mocks.writeAppState.mockResolvedValue(undefined);
   });
 
@@ -171,6 +192,54 @@ describe("ensureRecordingThumbnail", () => {
     expect(mocks.extractJpegFrame).not.toHaveBeenCalled();
     expect(mocks.uploadFile).not.toHaveBeenCalled();
     expect(update).not.toHaveBeenCalled();
+  });
+
+  it("persists a supplied thumbnail before the recording is ready", async () => {
+    const { db, update } = createDb(
+      recording({ status: "uploading", videoUrl: null }),
+    );
+    mocks.getDb.mockReturnValue(db);
+
+    const result = await ensureRecordingThumbnail({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+      thumbnailBytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+      thumbnailMimeType: "image/png",
+    });
+
+    expect(result.status).toBe("generated");
+    expect(mocks.uploadFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+        filename: "thumb-rec-1.png",
+        mimeType: "image/png",
+      }),
+    );
+    expect(update).toHaveBeenCalledOnce();
+  });
+
+  it("defers to a thumbnail producer in another process", async () => {
+    const { db } = createDb(recording());
+    mocks.getDb.mockReturnValue(db);
+    mocks.readAppState.mockResolvedValue({
+      token: "other-process",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    await expect(
+      ensureRecordingThumbnail({
+        recordingId: "rec-1",
+        ownerEmail: "owner@example.com",
+        mediaBytes: new Uint8Array([9, 9, 9]),
+      }),
+    ).resolves.toMatchObject({
+      recordingId: "rec-1",
+      status: "skipped-lease",
+      changed: false,
+    });
+    expect(mocks.extractJpegFrame).not.toHaveBeenCalled();
+    expect(mocks.uploadFile).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
   });
 
   it("single-flights concurrent thumbnail uploads for one recording", async () => {
@@ -242,6 +311,63 @@ describe("ensureRecordingThumbnail", () => {
     expect(mocks.deleteUploadedFile).toHaveBeenCalledWith("builder", {
       url: "https://cdn.example.com/thumb.jpg",
     });
+  });
+
+  it("cleans up a replaced generated asset only after checking references", async () => {
+    const oldThumbnailUrl = "https://cdn.example.com/old-thumb.jpg";
+    const { db, selectWhere } = createDb(
+      recording({ thumbnailUrl: oldThumbnailUrl }),
+      [
+        {
+          id: "rec-1",
+          thumbnailUrl: "https://cdn.example.com/new-thumb.jpg",
+        },
+      ],
+    );
+    selectWhere.mockResolvedValueOnce([
+      recording({ thumbnailUrl: oldThumbnailUrl }),
+    ]);
+    selectWhere.mockResolvedValueOnce([]);
+    mocks.getDb.mockReturnValue(db);
+    mocks.uploadFile.mockResolvedValue({
+      url: "https://cdn.example.com/new-thumb.jpg",
+      provider: "builder",
+      id: "new-asset",
+    });
+    mocks.readAppState.mockImplementation(async (key: string) => {
+      if (key === "recording-thumbnail-asset-rec-1") {
+        return {
+          url: oldThumbnailUrl,
+          provider: "builder",
+          id: "old-asset",
+        };
+      }
+      return null;
+    });
+
+    const result = await ensureRecordingThumbnail({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+      thumbnailBytes: new Uint8Array([1, 2, 3]),
+      replaceNonEditorThumbnail: true,
+    });
+
+    expect(result).toMatchObject({
+      status: "generated",
+      thumbnailUrl: "https://cdn.example.com/new-thumb.jpg",
+    });
+    expect(mocks.deleteUploadedFile).toHaveBeenCalledWith("builder", {
+      url: oldThumbnailUrl,
+      id: "old-asset",
+    });
+    expect(mocks.writeAppState).toHaveBeenCalledWith(
+      "recording-thumbnail-asset-rec-1",
+      {
+        url: "https://cdn.example.com/new-thumb.jpg",
+        provider: "builder",
+        id: "new-asset",
+      },
+    );
   });
 
   it("cleans up the uploaded blob when thumbnail persistence fails", async () => {
