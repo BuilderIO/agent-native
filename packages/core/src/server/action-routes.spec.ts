@@ -2678,6 +2678,7 @@ describe("mountWebMcpActionRoutes", () => {
         description: "Search public docs",
         inputSchema: { type: "object" },
         readOnly: true,
+        title: "Search docs",
       },
     ]);
     expect(getOwnerFromEvent).toHaveBeenCalledTimes(1);
@@ -2758,6 +2759,7 @@ describe("mountWebMcpActionRoutes", () => {
         description: "Search public docs",
         inputSchema: {},
         readOnly: true,
+        title: "Search docs",
       },
     ]);
     await expect(
