@@ -59,7 +59,9 @@ function titleCase(value: string): string {
     .join(" ");
 }
 
-function displayNameFromIdentifier(
+// Also used by the public booking-link handler so it can identify the owner
+// without exposing their raw email address.
+export function displayNameFromIdentifier(
   username?: string | null,
   ownerEmail?: string | null,
 ): string {
