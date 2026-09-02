@@ -24,6 +24,9 @@ const store = vi.hoisted(() => ({
     string,
     { yjs_state: string; text_snapshot: string; version: number }
   >(),
+  /** Fires once from inside the state read, to land a peer commit in the
+   *  window between a cold load's read and the cache entry it publishes. */
+  onStateRead: null as null | (() => void),
 }));
 
 const emitMock = vi.hoisted(() => ({ fn: vi.fn() }));
@@ -47,7 +50,18 @@ vi.mock("../db/client.js", () => ({
       }
       if (/^\s*SELECT yjs_state, version FROM _collab_docs/i.test(sql)) {
         const row = store.rows.get(String(args[0]));
-        return { rows: row ? [{ ...row }] : [], rowsAffected: 0 };
+        const result = { rows: row ? [{ ...row }] : [], rowsAffected: 0 };
+        const hook = store.onStateRead;
+        store.onStateRead = null;
+        hook?.();
+        return result;
+      }
+      if (/^\s*SELECT version FROM _collab_docs/i.test(sql)) {
+        const row = store.rows.get(String(args[0]));
+        return {
+          rows: row ? [{ version: row.version }] : [],
+          rowsAffected: 0,
+        };
       }
       if (/^\s*SELECT 1 FROM _collab_docs/i.test(sql)) {
         const row = store.rows.get(String(args[0]));
@@ -105,6 +119,7 @@ function storedText(docId: string, field = "content"): string {
 beforeEach(async () => {
   vi.resetModules();
   store.rows.clear();
+  store.onStateRead = null;
   emitMock.fn.mockReset();
   manager = await import("./ydoc-manager.js");
 });
@@ -267,7 +282,62 @@ describe("ydoc-manager applyText (agent full-text path)", () => {
     expect(storedText(docId)).toBe("The quick brown fox");
   });
 
-  it("rejects a concurrently merged snapshot before persisting or emitting it", async () => {
+  it("does not publish a cold-loaded doc a peer already moved past", async () => {
+    const docId = "design_cold:screen_a";
+    await manager.applyText(docId, "v1", "content", "seed");
+    // Drop the cache so the next read is a genuine cold load.
+    manager.releaseDoc(docId);
+
+    const durable = store.rows.get(docId)!;
+    store.onStateRead = () => {
+      // The peer's commit lands after this process read the row but before it
+      // publishes the cache entry. Pre-fix, that entry — and this request —
+      // answered "v1" while the durable row already said "v2-from-peer".
+      const peer = new Y.Doc();
+      Y.applyUpdate(peer, fromB64(durable.yjs_state));
+      peer.transact(() => {
+        const text = peer.getText("content");
+        text.delete(0, text.length);
+        text.insert(0, "v2-from-peer");
+      }, "peer");
+      store.rows.set(docId, {
+        yjs_state: b64(Y.encodeStateAsUpdate(peer)),
+        text_snapshot: "v2-from-peer",
+        version: durable.version + 1,
+      });
+    };
+
+    expect(await manager.getText(docId, "content")).toBe("v2-from-peer");
+  });
+
+  it("serves another process's newer durable text from an already-cached doc", async () => {
+    const docId = "design_t3b:screen_a";
+    await manager.applyText(docId, "base", "content", "seed");
+    expect(await manager.getText(docId)).toBe("base");
+
+    // A peer serverless instance commits. This process's cached Y.Doc still
+    // holds "base"; nothing in-process tells it the row moved.
+    const durable = store.rows.get(docId)!;
+    const remoteDoc = new Y.Doc();
+    Y.applyUpdate(remoteDoc, fromB64(durable.yjs_state));
+    remoteDoc.transact(() => {
+      const text = remoteDoc.getText("content");
+      text.delete(0, text.length);
+      text.insert(0, "human");
+    }, "remote");
+    store.rows.set(docId, {
+      yjs_state: b64(Y.encodeStateAsUpdate(remoteDoc)),
+      text_snapshot: "human",
+      version: durable.version + 1,
+    });
+
+    // Reading through the cache must reflect the peer's write, not the text
+    // this instance happened to load first. A reader that answers "base" here
+    // is what makes an optimistic-concurrency guard reject correct writes.
+    expect(await manager.getText(docId)).toBe("human");
+  });
+
+  it("rejects a full-text write whose base a peer process already moved past", async () => {
     const docId = "design_t4:screen_a";
     await manager.applyText(docId, "base", "content", "seed");
     emitMock.fn.mockReset();
@@ -292,21 +362,65 @@ describe("ydoc-manager applyText (agent full-text path)", () => {
 
     await expect(
       manager.applyText(docId, "agent", "content", "agent", {
-        validateSnapshot: (snapshot) => {
-          if (snapshot !== "agent") {
-            throw new Error("invalid concurrent merge");
-          }
+        validateBase: (base) => {
+          if (base !== "base") throw new Error("stale base");
         },
       }),
-    ).rejects.toThrow("invalid concurrent merge");
+      // Rejected either by the caller's own base check or by the pinned
+      // version failing the CAS — the write path no longer pre-merges the
+      // peer, so which guard fires depends on ordering. Both are the conflict.
+    ).rejects.toThrow(/stale base|moved from version|kept changing/);
 
-    // The invalid merged candidate was neither durable nor visible, and the
-    // poisoned local cache was discarded so the next read reloads the human's
-    // last valid state.
+    // The caller's whole-document candidate never replaced the human's edit,
+    // and nothing was persisted or broadcast.
     expect(store.rows.get(docId)).toEqual(remoteDurable);
     expect(storedText(docId)).toBe("human");
     expect(emitMock.fn).not.toHaveBeenCalled();
     expect(await manager.getText(docId)).toBe("human");
+  });
+
+  it("rejects a peer commit that lands after the base was validated", async () => {
+    const docId = "design_t5:screen_a";
+    await manager.applyText(docId, "The quick fox", "content", "seed");
+    emitMock.fn.mockReset();
+
+    const durableBefore = store.rows.get(docId)!;
+
+    await expect(
+      manager.applyText(docId, "The quick brown fox", "content", "agent", {
+        // Runs inside the write lock, after the base converged and before the
+        // diff — the exact window a peer commit can still slip through. Land
+        // the human's edit here so persistMergedState merges two concurrent
+        // edits of the same range and produces a garbled snapshot.
+        validateBase: () => {
+          const remoteDoc = new Y.Doc();
+          Y.applyUpdate(remoteDoc, fromB64(durableBefore.yjs_state));
+          remoteDoc.transact(() => {
+            const text = remoteDoc.getText("content");
+            text.delete(0, text.length);
+            text.insert(0, "human wrote this instead");
+          }, "remote");
+          store.rows.set(docId, {
+            yjs_state: b64(Y.encodeStateAsUpdate(remoteDoc)),
+            text_snapshot: "human wrote this instead",
+            version: durableBefore.version + 1,
+          });
+        },
+        validateSnapshot: (snapshot) => {
+          if (snapshot !== "The quick brown fox") {
+            throw new Error("invalid concurrent merge");
+          }
+        },
+      }),
+    ).rejects.toThrow(/moved from version/);
+
+    // Pinning the validated base version turns this into a conflict BEFORE the
+    // merge: the peer's commit is never merged with, so there is no garbled
+    // candidate for validateSnapshot to catch. Nothing durable or visible
+    // changed, and the human's edit stands.
+    expect(storedText(docId)).toBe("human wrote this instead");
+    expect(emitMock.fn).not.toHaveBeenCalled();
+    expect(await manager.getText(docId)).toBe("human wrote this instead");
   });
 });
 

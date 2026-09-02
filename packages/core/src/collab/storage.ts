@@ -114,6 +114,29 @@ export async function loadYDocRecord(
   };
 }
 
+/**
+ * Read only the CAS version. A cached Y.Doc lives in one process's memory
+ * while any other instance can advance the row, so a reader that never
+ * re-checks this number is serving state of unbounded age. `null` means no
+ * row at all — never conflate it with version 0, which is real stored state.
+ */
+export async function loadYDocVersion(docId: string): Promise<number | null> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT version FROM _collab_docs WHERE doc_id = ?`,
+    args: [docId],
+  });
+  if (rows.length === 0) return null;
+  const version = Number(rows[0].version);
+  if (!Number.isFinite(version)) {
+    throw new Error(
+      `_collab_docs.version for ${docId} is unreadable: ${String(rows[0].version)}`,
+    );
+  }
+  return version;
+}
+
 /** Load Yjs state as Uint8Array, or null if not found. */
 export async function loadYDocState(docId: string): Promise<Uint8Array | null> {
   const record = await loadYDocRecord(docId);

@@ -439,7 +439,7 @@ describe("code-layer projection", () => {
     expect(tree).toEqual([]);
   });
 
-  it("keeps explicitly named document shell rows in the layer tree", () => {
+  it("omits a named document shell too, since a screen IS its body", () => {
     const html = `
       <!doctype html>
       <html data-agent-native-layer-name="Document">
@@ -453,18 +453,13 @@ describe("code-layer projection", () => {
 
     const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
 
+    // The screen frame carries the document's fill, stroke and effects now, so
+    // a shell row would only repeat the screen under a second name.
     expect(tree.map((node) => ({ tag: node.tag, name: node.name }))).toEqual([
-      { tag: "html", name: "Document" },
+      { tag: "main", name: "Home" },
     ]);
-    expect(
-      tree[0]?.children.map((node) => ({ tag: node.tag, name: node.name })),
-    ).toEqual([{ tag: "body", name: "Body" }]);
-    expect(
-      tree[0]?.children[0]?.children.map((node) => ({
-        tag: node.tag,
-        name: node.name,
-      })),
-    ).toEqual([{ tag: "main", name: "Home" }]);
+    expect(JSON.stringify(tree)).not.toContain('"tag":"html"');
+    expect(JSON.stringify(tree)).not.toContain('"tag":"body"');
   });
 });
 

@@ -1963,12 +1963,12 @@ function treeTypeForNode(node: CodeLayerNode): CodeLayerTreeNodeType {
   return "element";
 }
 
-function isCollapsibleDocumentShellNode(
-  node: CodeLayerTreeNode,
-  nodesById: Map<string, CodeLayerNode>,
-): boolean {
-  if (node.tag !== "html" && node.tag !== "body") return false;
-  return nodesById.get(node.id)?.layerNameSource === "tag";
+function isCollapsibleDocumentShellNode(node: CodeLayerTreeNode): boolean {
+  // A screen IS its document: the frame's box comes from the board and its
+  // paint from this <body>, and the inspector now shows both on the screen's
+  // own selection. Older screens stamped the screen title onto <body>, which
+  // exempted them here and listed the same object twice under one name.
+  return node.tag === "html" || node.tag === "body";
 }
 
 function compactCodeLayerTreeNodes(
@@ -1990,10 +1990,7 @@ function compactCodeLayerTreeNodes(
       nextAncestors,
     );
     const compactedNode: CodeLayerTreeNode = { ...node, children };
-    const promotedNodes = isCollapsibleDocumentShellNode(
-      compactedNode,
-      nodesById,
-    )
+    const promotedNodes = isCollapsibleDocumentShellNode(compactedNode)
       ? children
       : [compactedNode];
 
