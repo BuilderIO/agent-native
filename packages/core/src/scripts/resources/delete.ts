@@ -7,6 +7,8 @@
  *   pnpm action resource-delete --path <path> [--scope personal|shared]
  */
 
+import { getOrgRoleForEmail } from "../../mcp/actions/service-token-access.js";
+import { canManageOrg } from "../../org/permissions.js";
 import {
   canWriteLocalWorkspaceResourcePath,
   isLegacyOrganizationWorkspaceFile,
@@ -23,6 +25,17 @@ import {
   getRequestUserEmail,
 } from "../../server/request-context.js";
 import { parseArgs, fail } from "../utils.js";
+
+async function assertCanDeleteSharedResource(): Promise<void> {
+  const orgId = getRequestOrgId();
+  if (!orgId) return;
+
+  const email = getRequestUserEmail()?.trim() ?? getAmbientUserEmail()?.trim();
+  const role = email ? await getOrgRoleForEmail(orgId, email) : null;
+  if (!email || !canManageOrg(role)) {
+    fail("Only organization owners and admins can edit organization files");
+  }
+}
 
 async function deleteSharedResource(resourcePath: string): Promise<boolean> {
   const orgId = getRequestOrgId() ?? null;
@@ -85,6 +98,7 @@ Options:
   }
   let deleted: boolean;
   if (scope === "shared") {
+    await assertCanDeleteSharedResource();
     deleted = await deleteSharedResource(resourcePath);
   } else if (scope === "workspace") {
     deleted = await resourceDeleteByPath(WORKSPACE_OWNER, resourcePath);

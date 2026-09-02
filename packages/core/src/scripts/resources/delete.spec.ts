@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   resourceDelete: vi.fn(),
   resourceDeleteByPath: vi.fn(),
   resourceGetByPath: vi.fn(),
+  getOrgRoleForEmail: vi.fn(),
 }));
 
 vi.mock("../../resources/store.js", () => ({
@@ -20,6 +21,10 @@ vi.mock("../../resources/store.js", () => ({
     orgId ? `__organization__:${orgId}` : "__shared__",
 }));
 
+vi.mock("../../mcp/actions/service-token-access.js", () => ({
+  getOrgRoleForEmail: mocks.getOrgRoleForEmail,
+}));
+
 import { runWithRequestContext } from "../../server/request-context.js";
 import deleteResourceScript from "./delete.js";
 
@@ -29,6 +34,7 @@ describe("resource-delete", () => {
     mocks.resourceDeleteByPath.mockResolvedValue(true);
     mocks.resourceDelete.mockResolvedValue(true);
     mocks.isLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+    mocks.getOrgRoleForEmail.mockResolvedValue("admin");
   });
 
   it("deletes the active organization resource and its legacy fallback", async () => {
@@ -65,5 +71,27 @@ describe("resource-delete", () => {
 
     expect(mocks.resourceDeleteByPath).not.toHaveBeenCalled();
     expect(mocks.resourceDelete).not.toHaveBeenCalled();
+  });
+
+  it("rejects shared deletion by an organization member", async () => {
+    mocks.getOrgRoleForEmail.mockResolvedValue("member");
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "org-1" },
+        () =>
+          deleteResourceScript([
+            "--path",
+            "notes/todo.md",
+            "--scope",
+            "shared",
+          ]),
+      ),
+    ).rejects.toThrow(
+      "Only organization owners and admins can edit organization files",
+    );
+
+    expect(mocks.resourceGetByPath).not.toHaveBeenCalled();
+    expect(mocks.resourceDeleteByPath).not.toHaveBeenCalled();
   });
 });
