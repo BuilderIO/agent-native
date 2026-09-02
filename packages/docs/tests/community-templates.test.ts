@@ -5,11 +5,13 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
-  COMMUNITY_APP_SUBMISSION_URL,
   communityApps,
   findCommunityApp,
 } from "../app/components/community-apps";
-import { buildCommunitySubmissionUrl } from "../app/components/CommunityAppSubmissionForm";
+import {
+  isGitHubRepositoryUrl,
+  normalizeHttpUrl,
+} from "../app/components/CommunityAppSubmissionForm";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../..");
@@ -50,43 +52,55 @@ describe("community apps", () => {
     }
   });
 
-  it("builds a prefilled GitHub issue URL from the submission form", () => {
-    const url = new URL(
-      buildCommunitySubmissionUrl({
-        name: "Example app",
-        appUrl: "https://example.com/app",
-        description: "A useful community app.",
-        repositoryUrl: "https://github.com/acme/example",
-        screenshots: "https://example.com/one.png\nhttps://example.com/two.png",
-      }),
-    );
-
-    expect(url.origin + url.pathname).toBe(
-      "https://github.com/BuilderIO/agent-native/issues/new",
-    );
-    expect(url.searchParams.get("title")).toBe("Community app: Example app");
-    expect(url.searchParams.get("body")).toContain(
-      "https://example.com/two.png",
-    );
-  });
-
-  it("keeps a manual GitHub issue form available for reviewers", () => {
-    expect(COMMUNITY_APP_SUBMISSION_URL).toContain(
-      "template=community-template.yml",
-    );
-
+  it("uses the Forms upload flow for screenshot uploads", () => {
     const form = fs.readFileSync(
       path.join(
         repoRoot,
-        ".github",
-        "ISSUE_TEMPLATE",
-        "community-template.yml",
+        "packages",
+        "docs",
+        "app",
+        "components",
+        "CommunityAppSubmissionForm.tsx",
       ),
       "utf-8",
     );
-    expect(form).toContain("id: app_url");
-    expect(form).toContain("id: repository");
-    expect(form).toContain("id: screenshots");
-    expect(form).toContain("id: readiness");
+    expect(form).toContain("uploadCommunityScreenshot");
+    expect(form).toContain("submitCommunityApp");
+    expect(form).toContain("multiple");
+    expect(form).toContain("onDrop={handleDrop}");
+    expect(form).toContain("removeScreenshot");
+    expect(form).toContain('accept="image/jpeg,image/png,image/webp"');
+    expect(form).not.toContain("data-netlify");
+    expect(form).not.toContain("form-name");
+    expect(form).not.toContain("https for you");
+    expect(form).not.toContain("Screenshot URLs");
+  });
+
+  it("accepts friendly app links and validates GitHub repositories", () => {
+    expect(normalizeHttpUrl("example.com")).toBe("https://example.com");
+    expect(normalizeHttpUrl(" https://example.com ")).toBe(
+      "https://example.com",
+    );
+    expect(isGitHubRepositoryUrl("github.com/owner/repository")).toBe(true);
+    expect(isGitHubRepositoryUrl("https://gitlab.com/owner/repository")).toBe(
+      false,
+    );
+    expect(isGitHubRepositoryUrl("github.com/owner")).toBe(false);
+  });
+
+  it("does not declare a Netlify submission form in the route", () => {
+    const route = fs.readFileSync(
+      path.join(
+        repoRoot,
+        "packages",
+        "docs",
+        "app",
+        "routes",
+        "templates._index.tsx",
+      ),
+      "utf-8",
+    );
+    expect(route).not.toContain("Netlify");
+    expect(route).not.toContain("data-netlify");
   });
 });

@@ -378,7 +378,10 @@ describe("<ExportMenu>", () => {
     expect(screen.queryByText("Connect Google")).toBeNull();
     fireEvent.click(await screen.findByText("Export to Google Slides"));
 
-    expect(window.open).toHaveBeenCalledWith("", "_blank");
+    expect(window.open).toHaveBeenCalledWith(
+      "https://docs.google.com/presentation/u/0/?usp=import",
+      "_blank",
+    );
     await waitFor(() => {
       expect(openedTab.close).toHaveBeenCalledOnce();
       expect(startWorkspaceProviderOAuth).toHaveBeenCalledWith(

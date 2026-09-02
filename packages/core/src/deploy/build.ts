@@ -57,6 +57,7 @@ import {
   frameworkSessionHintCookieName,
   resolveAuthCookieNamespace,
 } from "../server/cookie-namespace.js";
+import { resolveAgentNativeBuildId } from "../shared/build-id.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
   resolveSsrCacheHeaders,
@@ -1703,6 +1704,43 @@ function getAppOriginClientConfigScript() {
         env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON,
       ),
     );
+  const workspaceAppMountPaths = (() => {
+    const raw = firstNonEmpty(
+      env.AGENT_NATIVE_WORKSPACE_APPS_JSON,
+      env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON,
+    );
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw);
+      const entries = Array.isArray(parsed)
+        ? parsed
+        : parsed && typeof parsed === "object" && "apps" in parsed
+          ? parsed.apps
+          : null;
+      if (!Array.isArray(entries)) return;
+      const paths = Array.from(
+        new Set(
+          entries
+            .map((entry) => {
+              if (!entry || typeof entry !== "object") return null;
+              const rawPath =
+                typeof entry.path === "string"
+                  ? entry.path
+                  : typeof entry.id === "string"
+                    ? "/" + entry.id
+                    : null;
+              if (!rawPath) return null;
+              const normalized = normalizeAppBasePath(rawPath);
+              return normalized || null;
+            })
+            .filter(Boolean),
+        ),
+      );
+      return paths.length ? paths : undefined;
+    } catch {
+      return;
+    }
+  })();
   const appHomePath = resolveAgentNativeAppHomePath(getAgentNativeAppConfig().app);
   const config = {
     appHomePath,
@@ -1710,6 +1748,7 @@ function getAppOriginClientConfigScript() {
     ...(workspaceGatewayUrl ? { workspaceGatewayUrl } : {}),
     ...(workspaceOAuthOrigin ? { workspaceOAuthOrigin } : {}),
     ...(workspaceRuntime ? { workspaceRuntime: true } : {}),
+    ...(workspaceAppMountPaths ? { workspaceAppMountPaths } : {}),
   };
   if (Object.keys(config).length === 0) return null;
   return (
@@ -5644,13 +5683,12 @@ export function resolveNitroBuildReplacements(
   const configuredDeploymentEnvironment =
     deploymentEnvironment?.trim() ||
     env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT?.trim();
+  const buildId = resolveAgentNativeBuildId(env, "development");
   return {
     // Netlify exposes DEPLOY_ID only while building. Embed it into the Nitro
     // function so preview OAuth relays can target this immutable deployment
     // even though the value is unavailable in the function runtime.
-    "process.env.AGENT_NATIVE_BUILD_ID": JSON.stringify(
-      env.DEPLOY_ID?.trim() || env.AGENT_NATIVE_BUILD_ID?.trim() || "",
-    ),
+    "process.env.AGENT_NATIVE_BUILD_ID": JSON.stringify(buildId),
     "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
       env.GA_MEASUREMENT_ID?.trim() || "",
     ),

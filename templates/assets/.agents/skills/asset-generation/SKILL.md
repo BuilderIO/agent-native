@@ -93,6 +93,11 @@ claiming a brand match.
    directly; do not call `get-generation-run`, `refresh-generation-run`, or
    regenerate just to verify image runs. Use `get-asset` for full asset details
    and the audit-run actions for prompts, references, and settings.
+   A result with `draftPendingApproval: true` came from a kit the user can draft
+   in but not save into. Offer the candidate and say it needs a kit editor to be
+   saved; `save-generated-image` will refuse, so do not call it or retry. Video
+   carries the same marker on the initial async reply and on every
+   `refresh-generation-run` result, so it survives the poll.
 5. For template-backed work, pass a mentioned or selected `templateId`; for handoff
    work, pass `sessionId`.
 6. Let the server choose a small deterministic reference set unless the user

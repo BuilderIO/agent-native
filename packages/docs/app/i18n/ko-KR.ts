@@ -437,8 +437,7 @@ const koKR = {
   homepage: {
     hero: {
       title: "에이전틱 애플리케이션 프레임워크",
-      bodyLine1:
-        "사용자를 위한 두 번째 제품을 따로 만들지 않고도 AI 에이전트를 위해 개발하세요.",
+      bodyLine1: "직관적인 UI를 갖춘 자율형 에이전트를 구축하세요.",
       bodyLine2: "원하는 LLM을 사용하고 어디에나 배포하세요.",
       tryAnApp: "앱 사용해 보기",
     },
@@ -544,7 +543,7 @@ const koKR = {
     communityTitle: "커뮤니티 앱",
     communityDescription:
       "작성자가 관리하는 앱을 찾아보세요. 호스팅 버전이 있으면 사용해 보고, 소스 코드를 확인해 직접 맞춤 설정할 수 있습니다.",
-    submitCommunityTemplate: "GitHub 양식 열기",
+    submitCommunityTemplate: "앱 제출",
     communityEmpty:
       "커뮤니티 등록을 받고 있습니다. 명확한 목적의 Agent-Native 앱을 게시하고 카탈로그에 제출하세요.",
     publishGuide: "게시 가이드 읽기",
@@ -553,9 +552,10 @@ const koKR = {
     copyCommunityInstallCommand: "설치 명령 복사",
     viewRepository: "저장소 보기",
     tryCommunityDemo: "데모 사용해 보기",
-    customizeDescription: "이 코드는 완전히 맞춤 설정할 수 있습니다.",
-    customizeOnline: "온라인에서 맞춤 설정",
-    customizeLocally: "로컬에서 맞춤 설정",
+    customizeDescription: "이 앱을 시작점으로 사용하세요.",
+    customizeOnline: "온라인",
+    customizeOnlineBadge: "대기자 명단 등록",
+    customizeLocally: "로컬",
     communityNew: "새 앱",
     communityComingSoon: "곧 공개",
     communityGithubStars: "GitHub 별 {{count}}개",
@@ -575,22 +575,31 @@ const koKR = {
     communitySubmissionName: "앱 이름",
     communitySubmissionNamePlaceholder: "고객 지원 허브",
     communitySubmissionUrl: "앱 URL",
-    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "설명",
     communitySubmissionDescriptionPlaceholder:
       "앱은 무엇을 하며 누구를 위한 것인가요?",
     communitySubmissionRepository: "GitHub 저장소 (선택 사항)",
-    communitySubmissionRepositoryPlaceholder:
-      "https://github.com/owner/repository",
-    communitySubmissionScreenshots: "스크린샷 URL (선택 사항)",
-    communitySubmissionScreenshotsPlaceholder:
-      "공개 이미지 URL을 한 줄에 하나씩 입력하세요",
-    communitySubmissionSubmit: "GitHub로 계속",
-    communitySubmissionReady:
-      "GitHub issue 초안이 준비되었습니다. 그곳에서 제출을 완료하세요.",
-    communitySubmissionOpenDraft: "초안 열기",
-    communitySubmissionValidation:
-      "이름, 설명, 유효한 앱 URL을 입력하세요. 선택한 URL도 유효해야 합니다.",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
+    communitySubmissionScreenshots: "스크린샷 (선택 사항)",
+    communitySubmissionScreenshotsPlaceholder: "여기에 최대 5개의 이미지 드롭",
+    communitySubmissionScreenshotDropHint: "PNG, JPG 또는 WebP. 각 1.5MB 이하.",
+    communitySubmissionScreenshotSlot: "스크린샷 {{index}}",
+    communitySubmissionScreenshotsAdd: "스크린샷 추가",
+    communitySubmissionScreenshotsCount: "{{count}} / 5개 선택됨",
+    communitySubmissionScreenshotRemove: "스크린샷 {{index}} 제거",
+    communitySubmissionSubmit: "앱 제출",
+    communitySubmissionReady: "감사합니다. 게시하기 전에 앱을 검토하겠습니다.",
+    communitySubmissionNameError: "앱 이름을 입력하세요.",
+    communitySubmissionDescriptionError: "간단한 설명을 추가하세요.",
+    communitySubmissionUrlError:
+      "example.com과 같은 유효한 앱 링크를 입력하세요.",
+    communitySubmissionRepositoryError: "GitHub 저장소 링크를 입력하세요.",
+    communitySubmissionScreenshotsError:
+      "PNG, JPG 또는 WebP 이미지를 사용하세요. 각 1.5MB 이하, 최대 5개입니다.",
+    communitySubmissionSubmitError:
+      "지금 제출할 수 없습니다. 강조 표시된 필드를 확인하고 다시 시도하세요.",
+    communitySubmissionSubmitting: "제출 중…",
   },
   buildFromScratch: {
     title: "처음부터 만들기",
@@ -1444,8 +1453,8 @@ const koKR = {
       s003: "생성",
       s004: "구체화",
       s005: "모든 템플릿",
-      s006Primary: "사람과 에이전트를 위한",
-      s006Secondary: "슬라이드 프레젠테이션",
+      s006Primary: "AI 에이전트가 만드는 슬라이드.",
+      s006Secondary: "브랜드에 맞고 편집 가능",
       s007: "AI 에이전트로 브랜드에 맞는 슬라이드 덱을 생성하고, 언제든 직접 수정한 뒤 어디로든 내보내세요.",
       s008: "사용해 보기",
       s009: "작동 원리",

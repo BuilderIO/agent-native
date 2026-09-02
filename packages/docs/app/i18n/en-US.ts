@@ -436,8 +436,7 @@ const enUS = {
   homepage: {
     hero: {
       title: "The agentic application framework",
-      bodyLine1:
-        "Build for AI agents without building a second product for users.",
+      bodyLine1: "Build autonomous agents with intuitive UIs.",
       bodyLine2: "Bring your own LLM. Deploy anywhere.",
       tryAnApp: "Try an app",
     },
@@ -543,7 +542,7 @@ const enUS = {
     communityTitle: "Community apps",
     communityDescription:
       "Discover apps maintained by their authors. Try a hosted version when one is available, or inspect the source and customize it yourself.",
-    submitCommunityTemplate: "Open the GitHub form",
+    submitCommunityTemplate: "Submit an app",
     communityEmpty:
       "Community listings are open. Publish a focused Agent-Native app and submit it for the catalog.",
     publishGuide: "Read the publishing guide",
@@ -552,9 +551,10 @@ const enUS = {
     copyCommunityInstallCommand: "Copy install command",
     viewRepository: "View repository",
     tryCommunityDemo: "Try demo",
-    customizeDescription: "You can customize this code completely.",
-    customizeOnline: "Customize online",
-    customizeLocally: "Customize locally",
+    customizeDescription: "Use this app as a starting point.",
+    customizeOnline: "Online",
+    customizeOnlineBadge: "Join waitlist",
+    customizeLocally: "Local",
     communityNew: "New",
     communityComingSoon: "Coming soon",
     communityGithubStars: "{{count}} GitHub stars",
@@ -574,21 +574,32 @@ const enUS = {
     communitySubmissionName: "App name",
     communitySubmissionNamePlaceholder: "Customer Support Hub",
     communitySubmissionUrl: "App URL",
-    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "Description",
     communitySubmissionDescriptionPlaceholder:
       "What does the app do, and who is it for?",
     communitySubmissionRepository: "GitHub repository (optional)",
-    communitySubmissionRepositoryPlaceholder:
-      "https://github.com/owner/repository",
-    communitySubmissionScreenshots: "Screenshot URLs (optional)",
-    communitySubmissionScreenshotsPlaceholder: "One public image URL per line",
-    communitySubmissionSubmit: "Continue to GitHub",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
+    communitySubmissionScreenshots: "Screenshots (optional)",
+    communitySubmissionScreenshotsPlaceholder: "Drop up to 5 images here",
+    communitySubmissionScreenshotDropHint:
+      "PNG, JPG, or WebP. 1.5 MB max each.",
+    communitySubmissionScreenshotSlot: "Screenshot {{index}}",
+    communitySubmissionScreenshotsAdd: "Add screenshots",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 selected",
+    communitySubmissionScreenshotRemove: "Remove screenshot {{index}}",
+    communitySubmissionSubmit: "Submit app",
     communitySubmissionReady:
-      "Your GitHub issue draft is ready. Finish submitting it there.",
-    communitySubmissionOpenDraft: "Open the draft",
-    communitySubmissionValidation:
-      "Add a name, description, and valid app URL. Optional URLs must also be valid.",
+      "Thanks. We will review your app before publishing it.",
+    communitySubmissionNameError: "Enter an app name.",
+    communitySubmissionDescriptionError: "Add a short description.",
+    communitySubmissionUrlError: "Enter a valid app link, such as example.com.",
+    communitySubmissionRepositoryError: "Enter a GitHub repository link.",
+    communitySubmissionScreenshotsError:
+      "Use PNG, JPG, or WebP images up to 1.5 MB each, with up to 5 images.",
+    communitySubmissionSubmitError:
+      "Couldn’t submit right now. Check the highlighted fields and try again.",
+    communitySubmissionSubmitting: "Submitting…",
   },
   buildFromScratch: {
     title: "Build from scratch",
@@ -1471,7 +1482,7 @@ const enUS = {
       s004: "Re-use it.",
       s005: "All Apps",
       s006Primary: "Decks from your AI agent.",
-      s006Secondary: "On brand, editable, yours.",
+      s006Secondary: "On-brand & editable",
       s007: "Generate branded slide decks from your AI agent, apply your own manual changes anytime, export anywhere.",
       s008: "Try It",
       s009: "How it works",

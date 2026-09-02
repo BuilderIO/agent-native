@@ -156,7 +156,6 @@ import {
   isProductionServerlessFunctionRuntime,
   isTransientDatabaseError,
 } from "../db/client.js";
-import { isFeatureFlagEnabled } from "../feature-flags/index.js";
 import {
   filterFrameworkToolGroups,
   resolveFrameworkTools,
@@ -336,6 +335,7 @@ import {
   filterDirectA2AActions,
   filterReadOnlyActions,
   isSelectedA2AReceiver,
+  shouldSelectedA2AReceiverOwnObjective,
   resolveInitialToolNames,
   runA2AAgentLoop,
   runMCPAgentLoop,
@@ -2004,17 +2004,12 @@ export function createAgentChatPlugin(
           const extra = await resolveExtraContext(context.event, owner);
 
           const correlation = sanitizeA2ACorrelationMetadata(context.metadata);
-          const receiverOwnsObjective =
-            isSelectedA2AReceiver(
-              correlation.selectedReceiverApp,
-              options?.appId,
-            ) &&
-            !!options?.a2aReceiverOwnershipFlag &&
-            (await isFeatureFlagEnabled(options.a2aReceiverOwnershipFlag, {
-              userEmail,
-              userKey: userEmail,
-              orgId: getRequestOrgId() ?? undefined,
-            }));
+          const receiverOwnsObjective = shouldSelectedA2AReceiverOwnObjective({
+            authenticatedCallerEmail: userEmail,
+            enabled: !!options?.selectedA2AReceiverOwnsObjective,
+            selectedReceiverApp: correlation.selectedReceiverApp,
+            appId: options?.appId,
+          });
           const a2aStoredModel = await getStoredModelForEngine(a2aEngine, {
             appId: options?.appId,
           });
@@ -2841,9 +2836,9 @@ export function createAgentChatPlugin(
       } catch {
         // Ignore — templates without sharing still work.
       }
+      const { mountActionRoutes, mountWebMcpActionRoutes } =
+        await import("./action-routes.js");
       if (Object.keys(httpActions).length > 0) {
-        const { mountActionRoutes, mountWebMcpActionRoutes } =
-          await import("./action-routes.js");
         if (options?.actionRoutePublicPaths?.length) {
           registerAuthPublicPaths(
             options.actionRoutePublicPaths,
@@ -2857,14 +2852,25 @@ export function createAgentChatPlugin(
           resolveOrgId: options?.resolveOrgId,
           actionRouteAuth: options?.actionRouteAuth,
         });
-        mountWebMcpActionRoutes(nitroApp, httpActions, {
-          getOwnerFromEvent,
-          getUserNameFromEvent,
-          appId: options?.appId,
-          resolveOrgId: options?.resolveOrgId,
-          actionRouteAuth: options?.actionRouteAuth,
-        });
       }
+      mountWebMcpActionRoutes(nitroApp, httpActions, {
+        getOwnerFromEvent,
+        getUserNameFromEvent,
+        appId: options?.appId,
+        resolveOrgId: options?.resolveOrgId,
+        actionRouteAuth: options?.actionRouteAuth,
+        manifest: {
+          name: options?.appId
+            ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
+            : "Agent",
+          title: mcpOptions.title,
+          description:
+            mcpOptions.description ??
+            `Agent-Native ${options?.appId ?? "app"} agent`,
+          websiteUrl: mcpOptions.websiteUrl,
+          icons: mcpOptions.icons,
+        },
+      });
 
       const preRunGitStatusByThread = new Map<string, string | null>();
 

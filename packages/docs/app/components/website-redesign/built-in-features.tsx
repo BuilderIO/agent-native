@@ -9,6 +9,8 @@ interface Pillar {
   image?: string;
   darkImage?: string;
   lightImage?: string;
+  // Shown in place of the image above on hover, fading in over it.
+  hoverImage?: string;
 }
 
 const PILLARS: Pillar[] = [
@@ -18,6 +20,8 @@ const PILLARS: Pillar[] = [
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa06ad4fe59284a74a990a1f7002eece4",
     lightImage:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9bcf96ce33d84249ab3b1615e713d38e",
+    hoverImage:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd1c82abc0f3c488a9ef751c23f77d6f7",
   },
   {
     id: "agentChat",
@@ -76,7 +80,7 @@ export function BuiltInFeatures() {
                 // the illustration at its designed size (rather than
                 // growing it to fill an ever-wider single/double-column
                 // card) would still leave it oversized relative to the text.
-                <div className="relative mt-[var(--spacing-8)] w-full max-w-[433px] mobile:hidden">
+                <div className="group relative mt-[var(--spacing-8)] w-full max-w-[433px] mobile:hidden">
                   <BuilderImage
                     className="theme-img-dark relative block aspect-[104/75] w-full object-cover"
                     src={pillar.darkImage}
@@ -95,17 +99,41 @@ export function BuiltInFeatures() {
                     loading="lazy"
                     decoding="async"
                   />
+                  {pillar.hoverImage && (
+                    <BuilderImage
+                      className="absolute inset-0 block h-full w-full object-cover opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+                      src={pillar.hoverImage}
+                      alt=""
+                      crossOrigin="anonymous"
+                      sizes="(max-width: 480px) 100vw, (max-width: 768px) 50vw, (max-width: 1300px) 33vw, 433px"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  )}
                 </div>
               ) : pillar.image ? (
-                <BuilderImage
-                  className="block aspect-[104/75] w-full max-w-[433px] object-cover mobile:hidden"
-                  src={pillar.image}
-                  alt=""
-                  crossOrigin="anonymous"
-                  sizes="(max-width: 480px) 100vw, (max-width: 768px) 50vw, (max-width: 1300px) 33vw, 433px"
-                  loading="lazy"
-                  decoding="async"
-                />
+                <div className="group relative w-full max-w-[433px] mobile:hidden">
+                  <BuilderImage
+                    className="block aspect-[104/75] w-full object-cover"
+                    src={pillar.image}
+                    alt=""
+                    crossOrigin="anonymous"
+                    sizes="(max-width: 480px) 100vw, (max-width: 768px) 50vw, (max-width: 1300px) 33vw, 433px"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                  {pillar.hoverImage && (
+                    <BuilderImage
+                      className="absolute inset-0 block h-full w-full object-cover opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+                      src={pillar.hoverImage}
+                      alt=""
+                      crossOrigin="anonymous"
+                      sizes="(max-width: 480px) 100vw, (max-width: 768px) 50vw, (max-width: 1300px) 33vw, 433px"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  )}
+                </div>
               ) : null}
               <div className="flex flex-col gap-[var(--spacing-2)] p-[var(--spacing-8)]">
                 <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-6)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">

@@ -68,30 +68,27 @@ export function buildBookingEventAttendees({
   attendeeEmail,
   attendeeName,
   hostEmails = [],
+  additionalGuestEmails = [],
 }: {
   organizerEmail: string;
   attendeeEmail: string;
   attendeeName: string;
   hostEmails?: string[];
+  additionalGuestEmails?: string[];
 }) {
   const organizer = stripCrlf(organizerEmail).toLowerCase();
   const attendee = stripCrlf(attendeeEmail).toLowerCase();
-  const guests = [
-    ...(attendee !== organizer
-      ? [
-          {
-            email: attendee,
-            displayName: attendeeName,
-          },
-        ]
-      : []),
-    ...uniqueEmails(hostEmails)
-      .filter((email) => email !== attendee && email !== organizer)
-      .map((email) => ({
-        email,
-        displayName: displayNameFromEmail(email),
-      })),
-  ];
+  const guests = uniqueEmails([
+    attendee,
+    ...additionalGuestEmails,
+    ...hostEmails,
+  ])
+    .filter((email) => email !== organizer)
+    .map((email) => ({
+      email,
+      displayName:
+        email === attendee ? attendeeName : displayNameFromEmail(email),
+    }));
 
   return [
     {

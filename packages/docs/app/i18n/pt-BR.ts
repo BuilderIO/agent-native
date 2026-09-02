@@ -436,8 +436,7 @@ const ptBR = {
   homepage: {
     hero: {
       title: "O framework para aplicativos agentic",
-      bodyLine1:
-        "Construa para agentes de IA sem construir um segundo produto para os usuários.",
+      bodyLine1: "Crie agentes autônomos com interfaces intuitivas.",
       bodyLine2: "Traga seu próprio LLM. Implante em qualquer lugar.",
       tryAnApp: "Experimentar um app",
     },
@@ -543,7 +542,7 @@ const ptBR = {
     communityTitle: "Aplicativos da comunidade",
     communityDescription:
       "Descubra aplicativos mantidos por seus autores. Experimente uma versão hospedada quando disponível ou veja o código-fonte e personalize por conta própria.",
-    submitCommunityTemplate: "Abrir formulário do GitHub",
+    submitCommunityTemplate: "Enviar um aplicativo",
     communityEmpty:
       "As inscrições da comunidade estão abertas. Publique um aplicativo Agent-Native focado e envie-o para o catálogo.",
     publishGuide: "Ler o guia de publicação",
@@ -552,9 +551,10 @@ const ptBR = {
     copyCommunityInstallCommand: "Copiar comando de instalação",
     viewRepository: "Ver repositório",
     tryCommunityDemo: "Experimentar demo",
-    customizeDescription: "Você pode personalizar completamente este código.",
-    customizeOnline: "Personalizar online",
-    customizeLocally: "Personalizar localmente",
+    customizeDescription: "Use este app como ponto de partida.",
+    customizeOnline: "Online",
+    customizeOnlineBadge: "Entrar na lista de espera",
+    customizeLocally: "Local",
     communityNew: "Novo",
     communityComingSoon: "Em breve",
     communityGithubStars: "{{count}} estrelas no GitHub",
@@ -574,22 +574,33 @@ const ptBR = {
     communitySubmissionName: "Nome do aplicativo",
     communitySubmissionNamePlaceholder: "Central de suporte ao cliente",
     communitySubmissionUrl: "URL do aplicativo",
-    communitySubmissionUrlPlaceholder: "https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "Descrição",
     communitySubmissionDescriptionPlaceholder:
       "O que o aplicativo faz e para quem ele é?",
     communitySubmissionRepository: "Repositório do GitHub (opcional)",
-    communitySubmissionRepositoryPlaceholder:
-      "https://github.com/owner/repository",
-    communitySubmissionScreenshots: "URLs das capturas (opcional)",
-    communitySubmissionScreenshotsPlaceholder:
-      "Uma URL de imagem pública por linha",
-    communitySubmissionSubmit: "Continuar para o GitHub",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
+    communitySubmissionScreenshots: "Capturas de tela (opcional)",
+    communitySubmissionScreenshotsPlaceholder: "Solte até 5 imagens aqui",
+    communitySubmissionScreenshotDropHint:
+      "PNG, JPG ou WebP. Máximo de 1,5 MB cada.",
+    communitySubmissionScreenshotSlot: "Captura {{index}}",
+    communitySubmissionScreenshotsAdd: "Adicionar capturas",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 selecionadas",
+    communitySubmissionScreenshotRemove: "Remover captura {{index}}",
+    communitySubmissionSubmit: "Enviar aplicativo",
     communitySubmissionReady:
-      "O rascunho da sua issue no GitHub está pronto. Conclua o envio lá.",
-    communitySubmissionOpenDraft: "Abrir rascunho",
-    communitySubmissionValidation:
-      "Adicione um nome, uma descrição e uma URL de aplicativo válida. As URLs opcionais também precisam ser válidas.",
+      "Obrigado. Vamos revisar seu aplicativo antes de publicá-lo.",
+    communitySubmissionNameError: "Insira um nome para o aplicativo.",
+    communitySubmissionDescriptionError: "Adicione uma descrição curta.",
+    communitySubmissionUrlError: "Insira um link válido, como example.com.",
+    communitySubmissionRepositoryError:
+      "Insira um link de repositório do GitHub.",
+    communitySubmissionScreenshotsError:
+      "Use imagens PNG, JPG ou WebP de até 1,5 MB cada, com no máximo 5 imagens.",
+    communitySubmissionSubmitError:
+      "Não foi possível enviar agora. Verifique os campos destacados e tente novamente.",
+    communitySubmissionSubmitting: "Enviando…",
   },
   buildFromScratch: {
     title: "Criar do zero",
@@ -1482,7 +1493,7 @@ const ptBR = {
       s004: "Refinar",
       s005: "Todos os modelos",
       s006Primary: "Apresentações de slides",
-      s006Secondary: "para pessoas e agentes",
+      s006Secondary: "Com sua marca e editáveis",
       s007: "Gere apresentações com a identidade da sua marca usando seu agente de IA, faça suas próprias alterações manuais a qualquer momento e exporte para qualquer lugar.",
       s008: "Experimentar",
       s009: "Como funciona",

@@ -77,6 +77,19 @@ describe("app origin client config", () => {
     });
   });
 
+  it("projects workspace mount paths for early runtime path reconciliation", () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify([
+      { id: "dispatch", path: "/dispatch" },
+      { id: "diagrams", path: "/diagrams/" },
+    ]);
+
+    expect(resolvePublicAppOriginConfig()).toEqual({
+      appHomePath: "/home",
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/dispatch", "/diagrams"],
+    });
+  });
+
   it("prefers the canonical spelling over its mirror", () => {
     process.env.APP_URL = "https://canonical.example.com";
     process.env.VITE_APP_URL = "https://mirror.example.com";

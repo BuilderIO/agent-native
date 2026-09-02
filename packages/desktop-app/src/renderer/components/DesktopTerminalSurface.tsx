@@ -32,6 +32,12 @@ interface DesktopTerminalSurfaceProps {
   agent: DesktopTerminalAgentId;
   theme: RendererTheme;
   className?: string;
+  activeApp?: {
+    id: string;
+    name: string;
+    path?: string;
+    view?: string;
+  };
   submitRequest?: AgentTerminalSubmitRequest;
   onPromptSubmitted?: (request: AgentTerminalSubmitRequest) => void;
   onNewUiTab?: () => void;
@@ -61,6 +67,7 @@ export default function DesktopTerminalSurface({
   agent,
   theme,
   className,
+  activeApp,
   submitRequest,
   onPromptSubmitted,
   onNewUiTab,
@@ -202,8 +209,8 @@ export default function DesktopTerminalSurface({
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger>
                       <span className="desktop-dropdown-item__main">
-                        <IconTerminal2 size={14} className="shrink-0" />
-                        Provider
+                        <IconTerminal2 size={14} strokeWidth={1.8} />
+                        <span>Provider</span>
                       </span>
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent className="w-52">
@@ -267,6 +274,8 @@ export default function DesktopTerminalSurface({
             <DesktopTerminalTabs
               agent={tab.agent}
               theme={theme}
+              active={tab.id === activeTabId}
+              activeApp={tab.id === activeTabId ? activeApp : undefined}
               submitRequest={tab.id === activeTabId ? submitRequest : undefined}
               onPromptSubmitted={onPromptSubmitted}
             />

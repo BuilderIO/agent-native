@@ -2,6 +2,11 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  BETA_REDIRECT_SIGN_OUT_STORAGE_KEY,
+  BETA_REDIRECT_STORAGE_KEY,
+} from "../shared/environment-lanes.js";
+
 // `signingOut` is deliberately one-way for the life of a document, so every
 // case needs a fresh module rather than a reset hook.
 async function loadSignOut() {
@@ -92,6 +97,92 @@ describe("signOut", () => {
     expect(replace.mock.calls[0][0]).toContain("/sign-in?c=");
   });
 
+  it("signals the early redirect before revocation and clears it before leaving", async () => {
+    const { signOut } = await loadSignOut();
+    const originalSessionStorage = Object.getOwnPropertyDescriptor(
+      window,
+      "sessionStorage",
+    );
+    const values = new Map<string, string>();
+    const setItem = vi.fn((key: string, value: string) => {
+      values.set(key, value);
+    });
+    const removeItem = vi.fn((key: string) => values.delete(key));
+    Object.defineProperty(window, "sessionStorage", {
+      configurable: true,
+      value: { setItem, removeItem },
+    });
+    try {
+      let resolveRevoke: ((response: Response) => void) | undefined;
+      const revoke = new Promise<Response>((resolve) => {
+        resolveRevoke = resolve;
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => revoke),
+      );
+
+      const pending = signOut();
+      await Promise.resolve();
+      expect(setItem).toHaveBeenCalledWith(
+        BETA_REDIRECT_SIGN_OUT_STORAGE_KEY,
+        "1",
+      );
+      expect(values.get(BETA_REDIRECT_SIGN_OUT_STORAGE_KEY)).toBe("1");
+
+      resolveRevoke!(
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      );
+      await pending;
+
+      expect(removeItem).toHaveBeenCalledWith(
+        BETA_REDIRECT_SIGN_OUT_STORAGE_KEY,
+      );
+      expect(values.has(BETA_REDIRECT_SIGN_OUT_STORAGE_KEY)).toBe(false);
+    } finally {
+      if (originalSessionStorage) {
+        Object.defineProperty(window, "sessionStorage", originalSessionStorage);
+      } else {
+        delete (window as Window & { sessionStorage?: Storage }).sessionStorage;
+      }
+    }
+  });
+
+  it("clears the beta redirect marker before leaving after revocation", async () => {
+    const { signOut } = await loadSignOut();
+    const originalLocalStorage = Object.getOwnPropertyDescriptor(
+      window,
+      "localStorage",
+    );
+    const values = new Map([[BETA_REDIRECT_STORAGE_KEY, "future"]]);
+    const removeItem = vi.fn((key: string) => values.delete(key));
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        removeItem,
+        setItem: vi.fn(),
+      },
+    });
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(JSON.stringify({ ok: true }))),
+      );
+
+      await signOut();
+
+      expect(removeItem).toHaveBeenCalledWith(BETA_REDIRECT_STORAGE_KEY);
+      expect(values.has(BETA_REDIRECT_STORAGE_KEY)).toBe(false);
+      expect(replace).toHaveBeenCalledTimes(1);
+    } finally {
+      if (originalLocalStorage) {
+        Object.defineProperty(window, "localStorage", originalLocalStorage);
+      } else {
+        delete (window as Window & { localStorage?: Storage }).localStorage;
+      }
+    }
+  });
+
   it("notifies other tabs again after revocation settles", async () => {
     const { signOut } = await loadSignOut();
     const originalLocalStorage = Object.getOwnPropertyDescriptor(
@@ -139,10 +230,10 @@ describe("signOut", () => {
       window,
       "localStorage",
     );
-    const setItem = vi.fn();
+    const removeItem = vi.fn();
     Object.defineProperty(window, "localStorage", {
       configurable: true,
-      value: { setItem },
+      value: { removeItem },
     });
     vi.stubGlobal(
       "fetch",
@@ -155,7 +246,7 @@ describe("signOut", () => {
 
     expect(window.location.reload).toHaveBeenCalledTimes(1);
     expect(replace).not.toHaveBeenCalled();
-    expect(setItem).not.toHaveBeenCalled();
+    expect(removeItem).toHaveBeenCalledWith(BETA_REDIRECT_STORAGE_KEY);
     expect(warn).toHaveBeenCalled();
     if (originalLocalStorage) {
       Object.defineProperty(window, "localStorage", originalLocalStorage);
@@ -172,10 +263,10 @@ describe("signOut", () => {
       window,
       "localStorage",
     );
-    const setItem = vi.fn();
+    const removeItem = vi.fn();
     Object.defineProperty(window, "localStorage", {
       configurable: true,
-      value: { setItem },
+      value: { removeItem },
     });
     let signal: AbortSignal | undefined;
     vi.stubGlobal(
@@ -197,7 +288,7 @@ describe("signOut", () => {
     expect(signal?.aborted).toBe(true);
     expect(window.location.reload).toHaveBeenCalledTimes(1);
     expect(replace).not.toHaveBeenCalled();
-    expect(setItem).not.toHaveBeenCalled();
+    expect(removeItem).toHaveBeenCalledWith(BETA_REDIRECT_STORAGE_KEY);
     expect(warn).toHaveBeenCalledWith(
       "Unable to complete the sign-out request",
       expect.anything(),

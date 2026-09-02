@@ -5,6 +5,7 @@ import {
   getAudioStreamWithFallback,
   getCameraStreamWithFallback,
   isMediaConstraintFailure,
+  shouldRequestSystemAudio,
   voiceFocusedAudioConstraints,
 } from "./media-capture-constraints";
 
@@ -50,6 +51,13 @@ describe("desktop media capture constraints", () => {
       height: { ideal: 1080 },
     });
     expect(options.video).not.toHaveProperty("displaySurface");
+  });
+
+  it("only requests system audio when screen capture and the mic are enabled", () => {
+    expect(shouldRequestSystemAudio(true, true)).toBe(true);
+    expect(shouldRequestSystemAudio(true, false)).toBe(false);
+    expect(shouldRequestSystemAudio(true, true, false)).toBe(false);
+    expect(shouldRequestSystemAudio(false, true)).toBe(false);
   });
 
   it("classifies invalid media constraints as constraint failures", () => {
