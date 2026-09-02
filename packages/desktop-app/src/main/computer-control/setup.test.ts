@@ -14,6 +14,7 @@ function dependencies(overrides: Record<string, unknown> = {}) {
     openExternal: vi.fn(async () => {}),
     extensionPath: vi.fn(() => "/bundled/chrome-extension"),
     pathExists: vi.fn(() => true),
+    prepareBrowserSetup: vi.fn(async () => {}),
     revealExtensionFolder: vi.fn(async () => {}),
     openChromeExtensions: vi.fn(),
     restart: vi.fn(),
@@ -57,6 +58,7 @@ describe("computer access setup", () => {
     expect(deps.pathExists).toHaveBeenCalledWith(
       "/bundled/chrome-extension/manifest.json",
     );
+    expect(deps.prepareBrowserSetup).toHaveBeenCalledOnce();
     expect(deps.revealExtensionFolder).toHaveBeenCalledWith(
       "/bundled/chrome-extension",
     );
