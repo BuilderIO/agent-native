@@ -1016,6 +1016,116 @@ describe("Builder CMS read client", () => {
     expect(browseBody.params.arguments).not.toHaveProperty("enrich");
   });
 
+  it("caps Builder MCP browse reads at the provider page limit", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "oauth-access-token",
+      authorization: "Bearer oauth-access-token",
+      source: "oauth",
+    });
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+          headers: { "mcp-session-id": "session-1" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    content: [
+                      {
+                        id: "builder-entry-1",
+                        lastUpdated: "2026-09-02T12:00:00.000Z",
+                        data: { title: "Builder entry" },
+                      },
+                    ],
+                    totalCount: 101,
+                  }),
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+
+    const result = await readBuilderCmsContentEntries({
+      model: "agent-native-blog-article-test",
+      limit: 10_000,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    const browseBody = JSON.parse(
+      String((fetchImpl.mock.calls[2]?.[1] as RequestInit).body),
+    );
+    expect(browseBody.params.arguments.limit).toBe(100);
+    expect(result).toMatchObject({
+      state: "live",
+      entries: [{ id: "builder-entry-1" }],
+      progress: {
+        requestedLimit: 10_000,
+        pageSize: 100,
+        fetchedEntryCount: 1,
+        partial: true,
+      },
+    });
+  });
+
+  it("surfaces Builder MCP JSON-RPC errors instead of returning an empty read", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "oauth-access-token",
+      authorization: "Bearer oauth-access-token",
+      source: "oauth",
+    });
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+          headers: { "mcp-session-id": "session-1" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            error: { code: -32602, message: "limit must be at most 100" },
+          }),
+          { status: 200 },
+        ),
+      );
+
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "agent-native-blog-article-test",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "error",
+      entries: [],
+      message: "Builder MCP request failed: limit must be at most 100",
+    });
+  });
+
   it("paginates Builder content through the Content API up to the read limit", async () => {
     process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
     resolveBuilderCredentialMock.mockImplementation(async (key) =>
@@ -1688,7 +1798,16 @@ describe("Builder CMS read client", () => {
         expect(headers).not.toHaveProperty("mcp-method");
         expect(headers).not.toHaveProperty("mcp-protocol-version");
         expect(body.params?._meta).toBeUndefined();
-        return new Response("not found", { status: 404 });
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            error: {
+              code: -32601,
+              message: "Method not found: server/discover",
+            },
+          }),
+          { status: 200 },
+        );
       }
       if (body.method === "initialize") {
         const protocolVersion = String(body.params?.protocolVersion);

@@ -554,8 +554,20 @@ async function postBuilderMcp(args: {
   if (!response.ok) {
     throw new Error(`Builder MCP request failed with HTTP ${response.status}.`);
   }
+  const json = JSON.parse(text) as Record<string, unknown>;
+  const rpcError =
+    json.error && typeof json.error === "object" && !Array.isArray(json.error)
+      ? (json.error as Record<string, unknown>)
+      : null;
+  if (rpcError) {
+    const message =
+      typeof rpcError.message === "string" && rpcError.message.trim()
+        ? rpcError.message.trim()
+        : "The Builder MCP tool rejected the request.";
+    throw new Error(`Builder MCP request failed: ${message}`);
+  }
   return {
-    json: JSON.parse(text) as Record<string, unknown>,
+    json,
     sessionId: response.headers.get("mcp-session-id"),
   };
 }
@@ -758,7 +770,10 @@ async function initializeBuilderMcp(args: {
     // A legacy server may reject server/discover before initialize.
     if (
       !(error instanceof Error) ||
-      !/HTTP (?:400|404|405)\./.test(error.message)
+      !(
+        /HTTP (?:400|404|405)\./.test(error.message) ||
+        /Method not found(?:: server\/discover)?/.test(error.message)
+      )
     ) {
       throw error;
     }
@@ -836,7 +851,8 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
 }): Promise<BuilderCmsReadResult> {
   const fetchedAt = new Date().toISOString();
   const endpoint = args.endpoint;
-  const limit = readLimit(args.limit);
+  const requestedLimit = readLimit(args.limit);
+  const limit = Math.min(requestedLimit, BUILDER_CMS_PAGE_SIZE);
   const startOffset =
     typeof args.offset === "number" && Number.isFinite(args.offset)
       ? Math.max(0, Math.floor(args.offset))
@@ -893,7 +909,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
     fetchedAt,
     message: null,
     progress: {
-      requestedLimit: limit,
+      requestedLimit,
       pageSize: BUILDER_CMS_PAGE_SIZE,
       startOffset,
       nextOffset: contentEntries.length,
