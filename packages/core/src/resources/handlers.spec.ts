@@ -6,6 +6,7 @@ const mockResourceGet = vi.fn();
 const mockResourceGetByPath = vi.fn();
 const mockResourcePut = vi.fn();
 const mockResourceDelete = vi.fn();
+const mockResourceDeleteIfCurrent = vi.fn();
 const mockResourceDeleteByPath = vi.fn();
 const mockResourceList = vi.fn();
 const mockResourceListAccessible = vi.fn();
@@ -38,6 +39,8 @@ vi.mock("./store.js", () => ({
   resourceGetByPath: (...args: any[]) => mockResourceGetByPath(...args),
   resourcePut: (...args: any[]) => mockResourcePut(...args),
   resourceDelete: (...args: any[]) => mockResourceDelete(...args),
+  resourceDeleteIfCurrent: (...args: any[]) =>
+    mockResourceDeleteIfCurrent(...args),
   resourceDeleteByPath: (...args: any[]) => mockResourceDeleteByPath(...args),
   resourceList: (...args: any[]) => mockResourceList(...args),
   resourceListAccessible: (...args: any[]) =>
@@ -108,6 +111,7 @@ describe("resource handlers", () => {
     lastStatus = 200;
     mockEnsurePersonalDefaults.mockResolvedValue(undefined);
     mockResourceGet.mockResolvedValue(null);
+    mockResourceDeleteIfCurrent.mockResolvedValue(true);
     mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(false);
     mockIsLocalWorkspaceResourceId.mockReturnValue(false);
     mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(false);
@@ -772,6 +776,12 @@ Legacy webhook.`,
         owner: "__shared__",
         content: "old",
         mimeType: "text/markdown",
+        updatedAt: 1,
+        metadata: JSON.stringify({
+          source: "workspace-files",
+          scope: "org",
+          scopeId: "org-1",
+        }),
       });
       mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
       mockResourceGetByPath.mockResolvedValue(null);
@@ -794,7 +804,18 @@ Legacy webhook.`,
         "text/markdown",
         undefined,
       );
-      expect(mockResourceDelete).toHaveBeenCalledWith("legacy-org-resource");
+      expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith({
+        owner: "__shared__",
+        path: "analysis.md",
+        expectedId: "legacy-org-resource",
+        expectedUpdatedAt: 1,
+        expectedContent: "old",
+        expectedMetadata: JSON.stringify({
+          source: "workspace-files",
+          scope: "org",
+          scopeId: "org-1",
+        }),
+      });
     });
 
     it("rejects a legacy rename onto an existing organization resource", async () => {
@@ -921,6 +942,13 @@ Legacy webhook.`,
         id: "legacy-org-resource",
         path: "analysis.md",
         owner: "__shared__",
+        content: "legacy",
+        updatedAt: 1,
+        metadata: JSON.stringify({
+          source: "workspace-files",
+          scope: "org",
+          scopeId: "org-1",
+        }),
       });
       mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
 
@@ -930,10 +958,18 @@ Legacy webhook.`,
       });
 
       expect(mockResourceDelete).toHaveBeenNthCalledWith(1, "org-resource");
-      expect(mockResourceDelete).toHaveBeenNthCalledWith(
-        2,
-        "legacy-org-resource",
-      );
+      expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith({
+        owner: "__shared__",
+        path: "analysis.md",
+        expectedId: "legacy-org-resource",
+        expectedUpdatedAt: 1,
+        expectedContent: "legacy",
+        expectedMetadata: JSON.stringify({
+          source: "workspace-files",
+          scope: "org",
+          scopeId: "org-1",
+        }),
+      });
     });
 
     it("keeps Dispatch workspace resources delete-protected", async () => {

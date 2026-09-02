@@ -12,8 +12,8 @@ import { canManageOrg } from "../../org/permissions.js";
 import {
   canWriteLocalWorkspaceResourcePath,
   isLegacyOrganizationWorkspaceFile,
-  resourceDelete,
   resourceDeleteByPath,
+  resourceDeleteIfCurrent,
   resourceGetByPath,
   SHARED_OWNER,
   sharedResourceOwner,
@@ -55,15 +55,35 @@ async function deleteSharedResource(resourcePath: string): Promise<boolean> {
     if (!deleted) return false;
 
     const legacy = await resourceGetByPath(SHARED_OWNER, resourcePath, options);
-    if (legacy && isLegacyOrganizationWorkspaceFile(legacy, orgId)) {
-      await resourceDelete(legacy.id);
+    if (
+      legacy &&
+      isLegacyOrganizationWorkspaceFile(legacy, orgId) &&
+      typeof legacy.metadata === "string"
+    ) {
+      await resourceDeleteIfCurrent({
+        owner: legacy.owner,
+        path: legacy.path,
+        expectedId: legacy.id,
+        expectedUpdatedAt: legacy.updatedAt,
+        expectedContent: legacy.content,
+        expectedMetadata: legacy.metadata,
+      });
     }
     return true;
   }
 
   const legacy = await resourceGetByPath(SHARED_OWNER, resourcePath, options);
-  return legacy && isLegacyOrganizationWorkspaceFile(legacy, orgId)
-    ? resourceDeleteByPath(SHARED_OWNER, resourcePath)
+  return legacy &&
+    isLegacyOrganizationWorkspaceFile(legacy, orgId) &&
+    typeof legacy.metadata === "string"
+    ? resourceDeleteIfCurrent({
+        owner: legacy.owner,
+        path: legacy.path,
+        expectedId: legacy.id,
+        expectedUpdatedAt: legacy.updatedAt,
+        expectedContent: legacy.content,
+        expectedMetadata: legacy.metadata,
+      })
     : false;
 }
 

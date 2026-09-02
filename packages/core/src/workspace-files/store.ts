@@ -13,7 +13,7 @@ import {
   SHARED_OWNER,
   isLegacyOrganizationWorkspaceFile,
   sharedResourceOwner,
-  resourceDelete,
+  resourceDeleteIfCurrent,
   resourceDeleteByPath,
   resourceGetByPath,
   resourceList,
@@ -231,9 +231,17 @@ export async function writeWorkspaceFile(
   if (
     scope.scope === "org" &&
     legacy &&
-    isLegacyOrganizationWorkspaceFile(legacy, scope.scopeId)
+    isLegacyOrganizationWorkspaceFile(legacy, scope.scopeId) &&
+    typeof legacy.metadata === "string"
   ) {
-    await resourceDelete(legacy.id);
+    await resourceDeleteIfCurrent({
+      owner: SHARED_OWNER,
+      path: legacy.path,
+      expectedId: legacy.id,
+      expectedUpdatedAt: legacy.updatedAt,
+      expectedContent: legacy.content,
+      expectedMetadata: legacy.metadata,
+    });
   }
 
   return resourceToMeta(resource);
@@ -361,8 +369,19 @@ export async function deleteWorkspaceFile(
       path,
       optionsForScope(scope),
     );
-    if (legacy && isLegacyOrganizationWorkspaceFile(legacy, scope.scopeId)) {
-      await resourceDelete(legacy.id);
+    if (
+      legacy &&
+      isLegacyOrganizationWorkspaceFile(legacy, scope.scopeId) &&
+      typeof legacy.metadata === "string"
+    ) {
+      await resourceDeleteIfCurrent({
+        owner: SHARED_OWNER,
+        path: legacy.path,
+        expectedId: legacy.id,
+        expectedUpdatedAt: legacy.updatedAt,
+        expectedContent: legacy.content,
+        expectedMetadata: legacy.metadata,
+      });
     }
   }
   return deleted;

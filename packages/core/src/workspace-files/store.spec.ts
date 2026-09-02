@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockResourcePut = vi.hoisted(() => vi.fn());
 const mockResourceGetByPath = vi.hoisted(() => vi.fn());
 const mockResourceList = vi.hoisted(() => vi.fn());
-const mockResourceDelete = vi.hoisted(() => vi.fn());
+const mockResourceDeleteIfCurrent = vi.hoisted(() => vi.fn());
 const mockResourceDeleteByPath = vi.hoisted(() => vi.fn());
 const mockIsLegacyOrganizationWorkspaceFile = vi.hoisted(() => vi.fn());
 const mockGetOrgRoleForEmail = vi.hoisted(() => vi.fn());
@@ -16,7 +16,7 @@ vi.mock("../resources/store.js", () => ({
   isLegacyOrganizationWorkspaceFile: mockIsLegacyOrganizationWorkspaceFile,
   resourcePut: mockResourcePut,
   resourceGetByPath: mockResourceGetByPath,
-  resourceDelete: mockResourceDelete,
+  resourceDeleteIfCurrent: mockResourceDeleteIfCurrent,
   resourceList: mockResourceList,
   resourceDeleteByPath: mockResourceDeleteByPath,
 }));
@@ -62,6 +62,7 @@ describe("workspace-files Resources adapter", () => {
     mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(false);
     mockGetOrgRoleForEmail.mockResolvedValue("admin");
     mockGetRequestUserEmail.mockReturnValue("alice@example.com");
+    mockResourceDeleteIfCurrent.mockResolvedValue(true);
   });
 
   it("writes scratch paths as hidden agent scratch resources", async () => {
@@ -137,6 +138,11 @@ describe("workspace-files Resources adapter", () => {
     const legacy = {
       ...resource("analysis/summary.md", "old"),
       owner: "__shared__",
+      metadata: JSON.stringify({
+        source: "workspace-files",
+        scope: "org",
+        scopeId: "org_123",
+      }),
     };
     mockResourceGetByPath.mockResolvedValue(legacy);
     mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
@@ -151,7 +157,14 @@ describe("workspace-files Resources adapter", () => {
       "text/markdown",
     );
 
-    expect(mockResourceDelete).toHaveBeenCalledWith(legacy.id);
+    expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith({
+      owner: "__shared__",
+      path: legacy.path,
+      expectedId: legacy.id,
+      expectedUpdatedAt: legacy.updatedAt,
+      expectedContent: legacy.content,
+      expectedMetadata: legacy.metadata,
+    });
   });
 
   it("reads resources with offset and maxChars", async () => {
@@ -284,6 +297,11 @@ describe("workspace-files Resources adapter", () => {
     const legacy = {
       ...resource("scratch/tmp.md"),
       owner: "__shared__",
+      metadata: JSON.stringify({
+        source: "workspace-files",
+        scope: "org",
+        scopeId: "org_123",
+      }),
     };
     mockResourceGetByPath
       .mockResolvedValueOnce(current)
@@ -298,7 +316,14 @@ describe("workspace-files Resources adapter", () => {
       ),
     ).resolves.toBe(true);
 
-    expect(mockResourceDelete).toHaveBeenCalledWith(legacy.id);
+    expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith({
+      owner: "__shared__",
+      path: legacy.path,
+      expectedId: legacy.id,
+      expectedUpdatedAt: legacy.updatedAt,
+      expectedContent: legacy.content,
+      expectedMetadata: legacy.metadata,
+    });
   });
 
   it("rejects organization deletes from non-admin members", async () => {

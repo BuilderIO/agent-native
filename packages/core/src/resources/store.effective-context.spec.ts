@@ -586,4 +586,53 @@ describe("resourceEffectiveContext", () => {
       content: "after",
     });
   });
+
+  it("does not delete a replacement during conditional legacy cleanup", async () => {
+    const {
+      SHARED_OWNER,
+      resourceDeleteByPath,
+      resourceDeleteIfCurrent,
+      resourceGetByPath,
+      resourcePut,
+    } = await import("./store.js");
+    const path = `context/conditional-delete-${Date.now()}-${Math.random()}.md`;
+    const legacyMetadata = {
+      source: "workspace-files",
+      scope: "org",
+      scopeId: "org-a",
+    };
+
+    try {
+      const legacy = await resourcePut(
+        SHARED_OWNER,
+        path,
+        "legacy",
+        undefined,
+        {
+          metadata: legacyMetadata,
+        },
+      );
+      await resourcePut(SHARED_OWNER, path, "global default", undefined, {
+        metadata: { source: "global" },
+      });
+
+      await expect(
+        resourceDeleteIfCurrent({
+          owner: SHARED_OWNER,
+          path,
+          expectedId: legacy.id,
+          expectedUpdatedAt: legacy.updatedAt,
+          expectedContent: legacy.content,
+          expectedMetadata: legacy.metadata as string,
+        }),
+      ).resolves.toBe(false);
+      await expect(
+        resourceGetByPath(SHARED_OWNER, path),
+      ).resolves.toMatchObject({
+        content: "global default",
+      });
+    } finally {
+      await resourceDeleteByPath(SHARED_OWNER, path);
+    }
+  });
 });

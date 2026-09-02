@@ -33,6 +33,7 @@ import {
   resourceGetByPath,
   resourcePut,
   resourceDelete,
+  resourceDeleteIfCurrent,
   resourceList,
   resourceListAccessible,
   resourceMove,
@@ -615,8 +616,18 @@ export async function handleUpdateResource(event: any) {
       body.mimeType ?? existing.mimeType,
       body.metadata !== undefined ? { metadata: body.metadata } : undefined,
     );
-    if (isLegacyOrganizationWorkspaceResource) {
-      await resourceDelete(existing.id);
+    if (
+      isLegacyOrganizationWorkspaceResource &&
+      typeof existing.metadata === "string"
+    ) {
+      await resourceDeleteIfCurrent({
+        owner: existing.owner,
+        path: existing.path,
+        expectedId: existing.id,
+        expectedUpdatedAt: existing.updatedAt,
+        expectedContent: existing.content,
+        expectedMetadata: existing.metadata,
+      });
     }
     return resource;
   }
@@ -717,8 +728,19 @@ export async function handleDeleteResource(event: any) {
     const legacy = await resourceGetByPath(SHARED_OWNER, existing.path, {
       orgId,
     });
-    if (legacy && isLegacyOrganizationWorkspaceFile(legacy, orgId)) {
-      await resourceDelete(legacy.id);
+    if (
+      legacy &&
+      isLegacyOrganizationWorkspaceFile(legacy, orgId) &&
+      typeof legacy.metadata === "string"
+    ) {
+      await resourceDeleteIfCurrent({
+        owner: legacy.owner,
+        path: legacy.path,
+        expectedId: legacy.id,
+        expectedUpdatedAt: legacy.updatedAt,
+        expectedContent: legacy.content,
+        expectedMetadata: legacy.metadata,
+      });
     }
   }
   return { ok: true };

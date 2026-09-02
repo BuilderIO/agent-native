@@ -218,6 +218,15 @@ export interface ResourceConditionalWrite {
   mimeType?: string;
 }
 
+export interface ResourceConditionalDelete {
+  owner: string;
+  path: string;
+  expectedId: string;
+  expectedUpdatedAt: number;
+  expectedContent: string;
+  expectedMetadata: string;
+}
+
 export interface ResourceListOptions {
   includeAgentScratch?: boolean;
   workspaceAppId?: string | null;
@@ -1632,6 +1641,31 @@ export async function resourcePutIfCurrent(
   const resource = rowToResource(rows[0]);
   emitResourceChange(resource.id, resource.path, resource.owner);
   return resource;
+}
+
+export async function resourceDeleteIfCurrent(
+  input: ResourceConditionalDelete,
+): Promise<boolean> {
+  await ensureTable();
+  if (isLocalWorkspaceResourceId(input.expectedId)) return false;
+
+  const client = getDbExec();
+  const result = await client.execute({
+    sql: `DELETE FROM resources WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ? AND metadata = ?`,
+    args: [
+      input.owner,
+      input.path,
+      input.expectedId,
+      input.expectedUpdatedAt,
+      input.expectedContent,
+      input.expectedMetadata,
+    ],
+  });
+  const deleted = result.rowsAffected === 1;
+  if (deleted) {
+    emitResourceDelete(input.expectedId, input.path, input.owner);
+  }
+  return deleted;
 }
 
 export async function resourceDelete(id: string): Promise<boolean> {
