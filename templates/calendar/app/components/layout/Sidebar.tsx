@@ -494,7 +494,7 @@ function GoogleAccountsSection({
     <div className="px-1.5 py-1.5">
       <div className="mb-1 flex min-h-8 items-center justify-between px-3">
         <div className="flex items-center">
-          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
             {t("sidebar.myCalendars")}
           </span>
         </div>
@@ -904,7 +904,7 @@ export function Sidebar({
               <div className="px-1.5 py-1.5">
                 <div className="flex min-h-8 items-center justify-between px-3">
                   <div className="flex items-center gap-1">
-                    <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                    <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                       {t("sidebar.otherCalendars")}
                     </span>
                     <Tooltip>
@@ -949,7 +949,7 @@ export function Sidebar({
                             <span className="min-w-0 flex-1 text-start">
                               People
                             </span>
-                            <span className="text-[10px]">
+                            <span className="text-xs">
                               {overlayPeople.length}
                             </span>
                           </button>
@@ -1084,7 +1084,7 @@ export function Sidebar({
                             <span className="min-w-0 flex-1 text-start">
                               Feeds
                             </span>
-                            <span className="text-[10px]">
+                            <span className="text-xs">
                               {externalCalendars.length}
                             </span>
                           </button>
