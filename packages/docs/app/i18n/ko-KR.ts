@@ -520,7 +520,7 @@ const koKR = {
       download: "다운로드",
       apps: "앱",
       privacyPolicy: "개인정보 처리방침",
-      saasTerms: "SaaS 약관",
+      saasTerms: "호스팅 서비스 약관",
       legalResources: "법률 리소스",
     },
   },
@@ -1743,7 +1743,7 @@ const koKR = {
       eyebrow: "법률 리소스",
       title: "Agent-Native 법률 리소스",
       intro:
-        "Agent-Native는 Builder.io가 운영하는 호스팅 예제를 위한 간결한 보충 정책을 제공하고, Builder.io의 공통 정책은 정식 원문으로 연결합니다. 프레임워크 자체는 오픈 소스이며, 호스팅 서비스 페이지는 포크나 셀프 호스팅 배포에는 적용되지 않습니다.",
+        "Builder.io가 운영하는 Agent-Native 호스팅 애플리케이션과 서비스에 적용되는 독립적인 법률 정책입니다.",
       agentNative: {
         title: "Agent-Native 정책",
         body: "이 페이지들은 공통 정책 체계를 Agent-Native 오픈 소스 프로젝트와 호스팅 예제에 맞게 조정합니다.",
@@ -1751,8 +1751,8 @@ const koKR = {
         privacy: "Agent-Native 개인정보 처리방침",
       },
       builder: {
-        title: "현재 Builder.io 공통 정책",
-        body: "이 Builder.io 정책은 호스팅 서비스, 콘텐츠, AI 기능, 안전, 지적 재산 및 법적 요청에 대한 공통 규칙을 제공합니다. 최신 본문은 링크된 원문을 확인하세요.",
+        title: "호스팅 서비스 추가 정책",
+        body: "허용되는 사용, AI 기능, 플랫폼 규칙, 중지 및 삭제, 저작권, 법 집행기관 요청에 대한 로컬 사본입니다. 영어 버전이 우선합니다.",
       },
       links: {
         terms: "SaaS 서비스 계약",
@@ -1766,7 +1766,7 @@ const koKR = {
       },
       notIncluded: {
         title: "포함되지 않는 상업적 조건",
-        body: "Agent-Native에는 유료 플랜이나 엔터프라이즈 계약이 없습니다. 엔터프라이즈 SLA, 지원 약관, DPA, 보안 부속서 및 전문 서비스 약관과 같은 Builder.io 상업 문서는 별도의 서면 계약이 없는 한 호스팅 예제에 포함되지 않습니다.",
+        body: "Agent-Native에는 유료 요금제나 엔터프라이즈 계약이 없습니다. 엔터프라이즈 SLA, 지원 약관, DPA, 보안 부록, 전문 서비스 약관 및 요금과 같은 상업 자료는 포함되지 않습니다.",
       },
     },
     privacy: {

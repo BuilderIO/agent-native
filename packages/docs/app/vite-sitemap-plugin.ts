@@ -29,7 +29,7 @@ import {
 } from "./components/docs-locale";
 import { isRedirectedDocsPath } from "./components/docs-slug-redirects";
 import enUS from "./i18n/en-US";
-import { BUILDER_LEGAL_RESOURCES } from "./legal-resources";
+import { LEGAL_POLICY_METADATA } from "./legal-policy-list";
 
 export const SITE_URL = "https://www.agent-native.com";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -195,6 +195,11 @@ type DocsSitePage = AgentWebPage & { docSlug?: string; draft?: boolean };
 
 function buildDocsSitePages(rootDir: string): DocsSitePage[] {
   const docsDir = path.resolve(rootDir, "../core/docs/content");
+  const legalPolicyMarkdown = (filename: string) =>
+    fs.readFileSync(
+      path.resolve(rootDir, "app/legal-policies", filename),
+      "utf8",
+    );
   const templateCardPath = path.resolve(
     rootDir,
     "app/components/TemplateCard.tsx",
@@ -393,8 +398,13 @@ Agent-Native is an open source framework for building apps where AI agents and U
         "",
         enUS.legal.resources.builder.body,
         "",
-        ...BUILDER_LEGAL_RESOURCES.map(
-          ({ key, href }) => `- [${enUS.legal.resources.links[key]}](${href})`,
+        ...LEGAL_POLICY_METADATA.slice(2).map(
+          ({ key, slug }) =>
+            "- [" +
+            enUS.legal.resources.links[key] +
+            "](" +
+            sitePathForLocale("/legal/" + slug) +
+            ")",
         ),
         "",
         `## ${enUS.legal.resources.notIncluded.title}`,
@@ -406,22 +416,27 @@ Agent-Native is an open source framework for building apps where AI agents and U
     },
     {
       path: sitePathForLocale("/privacy"),
-      title: "Agent-Native Privacy Policy",
-      description:
-        "Privacy policy for Agent-Native hosted applications, apps, and browser extensions.",
-      markdown:
-        "# Agent-Native Privacy Policy\n\nPrivacy policy for Agent-Native hosted applications, apps, and browser extensions. Chrome extension disclosures are included at `/privacy#clips-chrome-extension`.\n",
+      title: LEGAL_POLICY_METADATA[1].title,
+      description: LEGAL_POLICY_METADATA[1].description,
+      markdown: legalPolicyMarkdown(LEGAL_POLICY_METADATA[1].filename),
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/privacy.tsx")),
     },
     {
       path: sitePathForLocale("/terms"),
-      title: "Agent-Native Terms of Service",
-      description:
-        "Terms of Service for Agent-Native hosted applications, apps, demos, and official hosted services.",
-      markdown:
-        "# Agent-Native Terms of Service\n\nTerms of Service for Agent-Native hosted applications, apps, demos, and official hosted services.\n",
+      title: LEGAL_POLICY_METADATA[0].title,
+      description: LEGAL_POLICY_METADATA[0].description,
+      markdown: legalPolicyMarkdown(LEGAL_POLICY_METADATA[0].filename),
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/terms.tsx")),
     },
+    ...LEGAL_POLICY_METADATA.slice(2).map((policy) => ({
+      path: sitePathForLocale("/legal/" + policy.slug),
+      title: policy.title,
+      description: policy.description,
+      markdown: legalPolicyMarkdown(policy.filename),
+      lastmod: gitLastmod(
+        path.resolve(rootDir, "app/legal-policies", policy.filename),
+      ),
+    })),
     {
       path: sitePathForLocale("/apps"),
       title: "Agent-Native Apps",

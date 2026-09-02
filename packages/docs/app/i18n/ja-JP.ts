@@ -520,7 +520,7 @@ const jaJP = {
       download: "ダウンロード",
       apps: "アプリ",
       privacyPolicy: "プライバシーポリシー",
-      saasTerms: "SaaS 利用規約",
+      saasTerms: "ホスト型サービス利用規約",
       legalResources: "法務リソース",
     },
   },
@@ -1752,7 +1752,7 @@ const jaJP = {
       eyebrow: "法務リソース",
       title: "Agent-Native の法務リソース",
       intro:
-        "Agent-Native は Builder.io が運営するホスト型サンプル向けの補足ポリシーを用意し、Builder.io の共通ポリシーを正式な原文へリンクします。フレームワーク自体はオープンソースであり、これらのホスト型サービス向けページはフォークやセルフホスト環境には適用されません。",
+        "Builder.io が運営する Agent-Native のホスト型アプリケーションとサービスに適用される独立した法務ポリシーです。",
       agentNative: {
         title: "Agent-Native のポリシー",
         body: "これらのページは、共通のポリシーを Agent-Native のオープンソースプロジェクトとホスト型サンプル向けに調整したものです。",
@@ -1760,8 +1760,8 @@ const jaJP = {
         privacy: "Agent-Native プライバシーポリシー",
       },
       builder: {
-        title: "現在の Builder.io 共通ポリシー",
-        body: "Builder.io のポリシーは、ホスト型サービス、コンテンツ、AI 機能、安全性、知的財産、法的要請に関する共通ルールを定めます。最新の本文はリンク先の原文を確認してください。",
+        title: "ホスト型サービスの追加ポリシー",
+        body: "利用規約、AI 機能、プラットフォームルール、停止と削除、著作権、法執行機関からの要請に関するローカルコピーです。英語版が優先されます。",
       },
       links: {
         terms: "SaaS サービス契約",
@@ -1775,7 +1775,7 @@ const jaJP = {
       },
       notIncluded: {
         title: "含まれない商用条件",
-        body: "Agent-Native には有料プランやエンタープライズ契約はありません。エンタープライズ SLA、サポート条件、DPA、セキュリティ補遺、プロフェッショナルサービス条件などの Builder.io の商用文書は、別途書面で合意しない限りホスト型サンプルには含まれません。",
+        body: "Agent-Native には有料プランもエンタープライズ契約もありません。エンタープライズ SLA、サポート条件、DPA、セキュリティ補遺、プロフェッショナルサービス条件、料金などの商用資料は含まれません。",
       },
     },
     privacy: {

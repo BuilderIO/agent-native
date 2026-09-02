@@ -519,7 +519,7 @@ const ptBR = {
       download: "Baixar",
       apps: "Apps",
       privacyPolicy: "Política de Privacidade",
-      saasTerms: "Termos de SaaS",
+      saasTerms: "Termos do serviço hospedado",
       legalResources: "Recursos jurídicos",
     },
   },
@@ -1753,7 +1753,7 @@ const ptBR = {
       eyebrow: "Recursos jurídicos",
       title: "Recursos jurídicos do Agent-Native",
       intro:
-        "O Agent-Native mantém um suplemento específico para exemplos hospedados operados pela Builder.io e direciona para as políticas compartilhadas da Builder.io em sua fonte canônica. O framework é open source, e estas páginas de serviços hospedados não se aplicam a forks ou implantações auto-hospedadas.",
+        "Políticas jurídicas independentes do Agent-Native para aplicações e serviços hospedados operados pela Builder.io.",
       agentNative: {
         title: "Políticas do Agent-Native",
         body: "Estas páginas adaptam o conjunto de políticas compartilhado ao projeto open source e aos exemplos hospedados do Agent-Native.",
@@ -1761,8 +1761,8 @@ const ptBR = {
         privacy: "Política de Privacidade do Agent-Native",
       },
       builder: {
-        title: "Políticas compartilhadas atuais da Builder.io",
-        body: "Estas políticas da Builder.io definem regras compartilhadas para serviços hospedados, conteúdo, recursos de IA, segurança, propriedade intelectual e solicitações legais. Consulte a fonte vinculada para ver o texto atual.",
+        title: "Políticas adicionais do serviço hospedado",
+        body: "Estas cópias locais abrangem uso aceitável, recursos de IA, regras da plataforma, suspensão e remoção, direitos autorais e solicitações de autoridades. A versão em inglês prevalece.",
       },
       links: {
         terms: "Contrato de Serviços SaaS",
@@ -1776,7 +1776,7 @@ const ptBR = {
       },
       notIncluded: {
         title: "Condições comerciais não incluídas",
-        body: "O Agent-Native não tem planos pagos nem contrato empresarial. Materiais comerciais da Builder.io, como SLAs empresariais, termos de suporte, DPA, adendos de segurança e termos de serviços profissionais, não fazem parte dos exemplos hospedados, salvo se um acordo escrito separado determinar o contrário.",
+        body: "O Agent-Native não tem planos pagos nem contrato empresarial. Materiais comerciais como SLAs empresariais, termos de suporte, DPAs, adendos de segurança, termos de serviços profissionais e taxas não estão incluídos.",
       },
     },
     privacy: {

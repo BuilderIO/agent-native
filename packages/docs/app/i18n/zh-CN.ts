@@ -512,7 +512,7 @@ const zhCN = {
       download: "下载",
       apps: "应用",
       privacyPolicy: "隐私政策",
-      saasTerms: "SaaS 条款",
+      saasTerms: "托管服务条款",
       legalResources: "法律资源",
     },
   },
@@ -1719,7 +1719,7 @@ const zhCN = {
       eyebrow: "法律资源",
       title: "Agent-Native 法律资源",
       intro:
-        "Agent-Native 为 Builder.io 运营的托管示例维护一份精简补充，并将 Builder.io 的通用政策链接到其规范来源。框架本身是开源的，这些托管服务页面不适用于分叉项目或自行托管的部署。",
+        "适用于 Builder.io 运营的 Agent-Native 托管应用和服务的独立法律政策。",
       agentNative: {
         title: "Agent-Native 政策",
         body: "这些页面将通用政策框架调整为适用于 Agent-Native 开源项目和托管示例的版本。",
@@ -1727,8 +1727,8 @@ const zhCN = {
         privacy: "Agent-Native 隐私政策",
       },
       builder: {
-        title: "当前 Builder.io 通用政策",
-        body: "这些 Builder.io 政策为托管服务、内容、AI 功能、安全、知识产权和法律请求提供通用规则。最新正文请以链接的规范来源为准。",
+        title: "托管服务的其他政策",
+        body: "这些本地副本涵盖可接受使用、AI 功能、平台规则、暂停和下架、版权以及执法请求。英文版本具有控制效力。",
       },
       links: {
         terms: "SaaS 服务协议",
@@ -1742,7 +1742,7 @@ const zhCN = {
       },
       notIncluded: {
         title: "不包含商业条款",
-        body: "Agent-Native 没有付费计划或企业合同。除非另有单独的书面协议，Builder.io 的企业 SLA、支持条款、DPA、安全附录和专业服务条款等商业材料不属于托管示例的一部分。",
+        body: "Agent-Native 没有付费计划或企业合同。不包含企业 SLA、支持条款、DPA、安全附录、专业服务条款和费用等商业材料。",
       },
     },
     privacy: {

@@ -47,6 +47,13 @@ describe("docs agent web generation", () => {
       expect(paths).toContain("/contact/");
       expect(paths).toContain("/legal/");
       expect(paths).toContain("/terms/");
+      expect(paths).toContain("/privacy/");
+      expect(paths).toContain("/legal/acceptable-use/");
+      expect(paths).toContain("/legal/ai-terms/");
+      expect(paths).toContain("/legal/platform-rules/");
+      expect(paths).toContain("/legal/takedown/");
+      expect(paths).toContain("/legal/dmca/");
+      expect(paths).toContain("/legal/law-enforcement/");
       expect(paths).toContain("/apps/calendar/");
     },
     AGENT_WEB_GENERATION_TIMEOUT_MS,

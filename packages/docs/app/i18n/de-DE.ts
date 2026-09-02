@@ -522,7 +522,7 @@ const deDE = {
       download: "Herunterladen",
       apps: "Apps",
       privacyPolicy: "Datenschutzerklärung",
-      saasTerms: "SaaS-Bedingungen",
+      saasTerms: "Bedingungen für den gehosteten Dienst",
       legalResources: "Rechtliche Ressourcen",
     },
   },
@@ -1762,7 +1762,7 @@ const deDE = {
       eyebrow: "Rechtliche Ressourcen",
       title: "Rechtliche Ressourcen für Agent-Native",
       intro:
-        "Agent-Native führt eine gezielte Ergänzung für von Builder.io betriebene gehostete Beispiele und verlinkt die gemeinsamen Builder.io-Richtlinien von ihrer maßgeblichen Quelle. Das Framework ist Open Source; diese Seiten zu gehosteten Diensten gelten nicht für Forks oder selbst gehostete Bereitstellungen.",
+        "Eigenständige rechtliche Richtlinien von Agent-Native für von Builder.io betriebene gehostete Anwendungen und Dienste.",
       agentNative: {
         title: "Agent-Native-Richtlinien",
         body: "Diese Seiten passen den gemeinsamen Richtlinienrahmen an das Open-Source-Projekt und die gehosteten Beispiele von Agent-Native an.",
@@ -1770,8 +1770,8 @@ const deDE = {
         privacy: "Agent-Native-Datenschutzerklärung",
       },
       builder: {
-        title: "Aktuelle gemeinsame Builder.io-Richtlinien",
-        body: "Diese Builder.io-Richtlinien enthalten gemeinsame Regeln für gehostete Dienste, Inhalte, KI-Funktionen, Sicherheit, geistiges Eigentum und rechtliche Anfragen. Der verlinkten Quelle ist der aktuelle Text zu entnehmen.",
+        title: "Weitere Richtlinien für den gehosteten Dienst",
+        body: "Diese lokalen Kopien behandeln zulässige Nutzung, KI-Funktionen, Plattformregeln, Sperrungen und Entfernungen, Urheberrecht sowie behördliche Anfragen. Die englische Fassung ist maßgeblich.",
       },
       links: {
         terms: "SaaS-Servicevereinbarung",
@@ -1785,7 +1785,7 @@ const deDE = {
       },
       notIncluded: {
         title: "Nicht enthaltene kommerzielle Bedingungen",
-        body: "Agent-Native hat keine kostenpflichtigen Tarife oder Unternehmensverträge. Kommerzielle Materialien von Builder.io, etwa Enterprise-SLAs, Supportbedingungen, DPA, Sicherheitszusätze und Bedingungen für professionelle Dienstleistungen, sind nicht Teil der gehosteten Beispiele, sofern nicht eine separate schriftliche Vereinbarung etwas anderes bestimmt.",
+        body: "Agent-Native hat keine kostenpflichtigen Tarife und keinen Enterprise-Vertrag. Kommerzielle Unterlagen wie Enterprise-SLAs, Supportbedingungen, DPAs, Sicherheitszusätze, Professional-Services-Bedingungen und Gebühren sind nicht enthalten.",
       },
     },
     privacy: {

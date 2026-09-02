@@ -1,9 +1,9 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
 import type { ReactNode } from "react";
-import { Link } from "react-router";
+import { Link, useOutlet } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
-import { BUILDER_LEGAL_RESOURCES } from "../legal-resources";
+import { ADDITIONAL_LEGAL_POLICY_METADATA } from "../legal-policy-list";
 import { withDefaultSocialImage } from "../seo";
 
 const UPDATED_AT = "September 2, 2026";
@@ -16,7 +16,7 @@ export const meta = () =>
     {
       name: "description",
       content:
-        "Agent-Native hosted-service terms, privacy policy, and shared Builder.io legal policies.",
+        "Standalone Agent-Native hosted-service terms, privacy, acceptable-use, AI, safety, copyright, takedown, and law-enforcement policies.",
     },
     {
       property: "og:title",
@@ -25,7 +25,7 @@ export const meta = () =>
     {
       property: "og:description",
       content:
-        "Agent-Native hosted-service terms, privacy policy, and shared Builder.io legal policies.",
+        "Standalone Agent-Native hosted-service terms, privacy, acceptable-use, AI, safety, copyright, takedown, and law-enforcement policies.",
     },
   ]);
 
@@ -46,9 +46,20 @@ const linkClassName =
   "font-medium text-[var(--fg)] underline decoration-[var(--docs-border)] underline-offset-4 transition hover:text-[var(--docs-accent)]";
 
 export default function LegalPage() {
+  const outlet = useOutlet();
   const t = useT();
   const { locale } = useLocale();
   const localizedPath = (path: string) => sitePathForLocale(path, locale);
+  const policyLabels = {
+    acceptableUse: t("legal.resources.links.acceptableUse"),
+    aiTerms: t("legal.resources.links.aiTerms"),
+    platformRules: t("legal.resources.links.platformRules"),
+    takedown: t("legal.resources.links.takedown"),
+    dmca: t("legal.resources.links.dmca"),
+    lawEnforcement: t("legal.resources.links.lawEnforcement"),
+  } as const;
+
+  if (outlet) return outlet;
 
   return (
     <main className="mx-auto w-full max-w-site px-6 py-14 sm:py-20">
@@ -87,16 +98,14 @@ export default function LegalPage() {
         <Section title={t("legal.resources.builder.title")}>
           <p>{t("legal.resources.builder.body")}</p>
           <ul className="m-0 list-disc space-y-2 pl-5">
-            {BUILDER_LEGAL_RESOURCES.map(({ key, href }) => (
-              <li key={key}>
-                <a
-                  href={href}
-                  target="_blank"
-                  rel="noreferrer"
+            {ADDITIONAL_LEGAL_POLICY_METADATA.map((policy) => (
+              <li key={policy.slug}>
+                <Link
+                  to={localizedPath("/legal/" + policy.slug)}
                   className={linkClassName}
                 >
-                  {t(`legal.resources.links.${key}`)}
-                </a>
+                  {policyLabels[policy.key as keyof typeof policyLabels]}
+                </Link>
               </li>
             ))}
           </ul>

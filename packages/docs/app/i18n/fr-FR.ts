@@ -521,7 +521,7 @@ const frFR = {
       download: "Télécharger",
       apps: "Apps",
       privacyPolicy: "Politique de confidentialité",
-      saasTerms: "Conditions SaaS",
+      saasTerms: "Conditions du service hébergé",
       legalResources: "Ressources juridiques",
     },
   },
@@ -1761,7 +1761,7 @@ const frFR = {
       eyebrow: "Ressources juridiques",
       title: "Ressources juridiques pour Agent-Native",
       intro:
-        "Agent-Native maintient un supplément ciblé pour les exemples hébergés exploités par Builder.io et renvoie vers les politiques communes de Builder.io depuis leur source de référence. Le framework est open source et ces pages consacrées aux services hébergés ne régissent pas les forks ni les déploiements auto-hébergés.",
+        "Politiques juridiques autonomes d’Agent-Native pour les applications et services hébergés opérés par Builder.io.",
       agentNative: {
         title: "Politiques Agent-Native",
         body: "Ces pages adaptent le cadre de politiques commun au projet open source et aux exemples hébergés d’Agent-Native.",
@@ -1769,8 +1769,8 @@ const frFR = {
         privacy: "Politique de confidentialité d’Agent-Native",
       },
       builder: {
-        title: "Politiques communes actuelles de Builder.io",
-        body: "Ces politiques de Builder.io définissent les règles communes pour les services hébergés, le contenu, les fonctions d’IA, la sécurité, la propriété intellectuelle et les demandes juridiques. Consultez la source liée pour connaître le texte actuel.",
+        title: "Politiques supplémentaires du service hébergé",
+        body: "Ces copies locales couvrent l’utilisation acceptable, les fonctions d’IA, les règles de la plateforme, la suspension et le retrait, les droits d’auteur et les demandes des autorités. La version anglaise fait foi.",
       },
       links: {
         terms: "Accord de services SaaS",
@@ -1784,7 +1784,7 @@ const frFR = {
       },
       notIncluded: {
         title: "Conditions commerciales non incluses",
-        body: "Agent-Native n’a pas d’offres payantes ni de contrat entreprise. Les documents commerciaux de Builder.io, tels que les SLA d’entreprise, les conditions d’assistance, les DPA, les avenants de sécurité et les conditions de services professionnels, ne font pas partie des exemples hébergés sauf accord écrit distinct.",
+        body: "Agent-Native ne propose aucun forfait payant ni contrat d’entreprise. Les documents commerciaux comme les SLA d’entreprise, les conditions d’assistance, les DPA, les avenants de sécurité, les services professionnels et les frais ne sont pas inclus.",
       },
     },
     privacy: {

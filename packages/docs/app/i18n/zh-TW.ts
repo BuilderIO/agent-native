@@ -510,7 +510,7 @@ const messages = {
       download: "下載",
       apps: "應用",
       privacyPolicy: "隱私權政策",
-      saasTerms: "SaaS 條款",
+      saasTerms: "代管服務條款",
       legalResources: "法律資源",
     },
   },
@@ -1719,7 +1719,7 @@ const messages = {
       eyebrow: "法律資源",
       title: "Agent-Native 法律資源",
       intro:
-        "Agent-Native 為 Builder.io 營運的託管範例維護一份精簡補充，並將 Builder.io 的通用政策連結至其規範來源。框架本身是開放原始碼，這些託管服務頁面不適用於分支專案或自行託管的部署。",
+        "適用於 Builder.io 營運之 Agent-Native 代管應用程式與服務的獨立法律政策。",
       agentNative: {
         title: "Agent-Native 政策",
         body: "這些頁面將通用政策框架調整為適用於 Agent-Native 開放原始碼專案和託管範例的版本。",
@@ -1727,8 +1727,8 @@ const messages = {
         privacy: "Agent-Native 隱私權政策",
       },
       builder: {
-        title: "目前 Builder.io 通用政策",
-        body: "這些 Builder.io 政策為託管服務、內容、AI 功能、安全、智慧財產和法律請求提供通用規則。最新正文請以連結的規範來源為準。",
+        title: "代管服務的其他政策",
+        body: "這些本地副本涵蓋可接受使用、AI 功能、平台規則、暫停與下架、著作權及執法請求。英文版本具有控制效力。",
       },
       links: {
         terms: "SaaS 服務協議",
@@ -1742,7 +1742,7 @@ const messages = {
       },
       notIncluded: {
         title: "不包含商業條款",
-        body: "Agent-Native 沒有付費方案或企業合約。除非另有單獨的書面協議，Builder.io 的企業 SLA、支援條款、DPA、安全附錄和專業服務條款等商業材料不屬於託管範例的一部分。",
+        body: "Agent-Native 沒有付費方案或企業合約。不包含企業 SLA、支援條款、DPA、安全附錄、專業服務條款及費用等商業資料。",
       },
     },
     privacy: {

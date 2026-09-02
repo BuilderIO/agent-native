@@ -519,7 +519,7 @@ const enUS = {
       download: "Download",
       apps: "Apps",
       privacyPolicy: "Privacy Policy",
-      saasTerms: "SaaS Terms",
+      saasTerms: "Hosted Terms",
       legalResources: "Legal resources",
     },
   },
@@ -1742,7 +1742,7 @@ const enUS = {
       eyebrow: "Legal resources",
       title: "Legal resources for Agent-Native",
       intro:
-        "Agent-Native keeps a focused supplement for Builder.io-operated hosted examples and links shared Builder.io policies from their canonical source. The framework itself is open source, and these hosted-service pages do not govern forks or self-hosted deployments.",
+        "Standalone Agent-Native legal policies for Builder-operated hosted applications and services.",
       agentNative: {
         title: "Agent-Native policies",
         body: "These pages adapt the shared policy framework to Agent-Native's open-source project and hosted examples.",
@@ -1750,8 +1750,8 @@ const enUS = {
         privacy: "Agent-Native Privacy Policy",
       },
       builder: {
-        title: "Current shared Builder.io policies",
-        body: "These Builder.io policies provide the shared rules for hosted services, content, AI features, safety, intellectual property, and legal requests. Follow the linked source for the current text.",
+        title: "Additional hosted-service policies",
+        body: "These local copies cover acceptable use, AI features, platform rules, suspension and takedown, copyright, and law-enforcement requests. The English version controls.",
       },
       links: {
         terms: "SaaS Services Agreement",
@@ -1765,7 +1765,7 @@ const enUS = {
       },
       notIncluded: {
         title: "Commercial terms not included",
-        body: "Agent-Native has no paid plans or enterprise contract. Builder.io commercial materials such as enterprise SLAs, support terms, DPAs, security addenda, and professional-services terms are not part of the hosted examples unless a separate written agreement says otherwise.",
+        body: "Agent-Native has no paid plans or enterprise contract. Commercial materials such as enterprise SLAs, support terms, DPAs, security addenda, professional-services terms, and fees are not included.",
       },
     },
     privacy: {
