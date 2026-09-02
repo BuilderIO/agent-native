@@ -655,6 +655,14 @@ function builderMcpEntriesFromToolResponse(
     .filter((entry): entry is BuilderCmsSourceEntry => Boolean(entry));
 }
 
+function builderMcpProviderEntryCount(response: unknown): number {
+  if (!response || typeof response !== "object") return 0;
+  const record = response as Record<string, unknown>;
+  if (Array.isArray(record.content)) return record.content.length;
+  if (Array.isArray(record.results)) return record.results.length;
+  return 0;
+}
+
 function normalizeBuilderCmsModel(
   value: unknown,
 ): BuilderCmsModelSummary | null {
@@ -941,18 +949,19 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       contentJson,
       args.model,
     );
+    const providerEntryCount = builderMcpProviderEntryCount(contentJson);
     const appended = appendUniqueBuilderEntries(
       contentEntries,
       seenIds,
       pageEntries,
     );
     pagesRead += 1;
-    offset += pageEntries.length;
+    offset += pageLimit;
     const totalCount = builderMcpTotalCount(contentJson);
     hasMore =
       totalCount !== null
-        ? startOffset + contentEntries.length < totalCount
-        : pageEntries.length >= pageLimit;
+        ? offset < totalCount
+        : providerEntryCount >= pageLimit;
     if (hasMore && appended === 0) {
       throw new Error(
         "Builder MCP pagination returned no new entries before the source was complete.",
@@ -970,7 +979,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       requestedLimit,
       pageSize: BUILDER_CMS_PAGE_SIZE,
       startOffset,
-      nextOffset: startOffset + contentEntries.length,
+      nextOffset: offset,
       fetchedEntryCount: startOffset + contentEntries.length,
       hasMore,
       partial: hasMore,
@@ -1220,53 +1229,90 @@ export async function readBuilderCmsContentEntryResult(args: {
 
   if (privateKey && (authorization?.source === "oauth" || !publicKey)) {
     const endpoint = builderMcpEndpoint(authorization?.source);
-    const connection = await initializeBuilderMcp({
-      endpoint,
-      privateKey,
-      fetchImpl: args.fetchImpl ?? fetch,
-    });
-    const entryResult = await postBuilderMcp({
-      endpoint,
-      privateKey,
-      fetchImpl: args.fetchImpl ?? fetch,
-      connection,
-      payload: {
-        jsonrpc: "2.0",
-        id: `entry-${args.entryId}`,
-        method: "tools/call",
-        params: {
-          name: "browse_model_content",
-          arguments: {
-            modelName: args.model,
-            limit: BUILDER_CMS_PAGE_SIZE,
-            fields: `${builderCmsListEntryFields()},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`,
+    try {
+      const connection = await initializeBuilderMcp({
+        endpoint,
+        privateKey,
+        fetchImpl: args.fetchImpl ?? fetch,
+      });
+      let offset = 0;
+      while (offset < BUILDER_CMS_MAX_READ_LIMIT) {
+        const entryResult = await postBuilderMcp({
+          endpoint,
+          privateKey,
+          fetchImpl: args.fetchImpl ?? fetch,
+          connection,
+          payload: {
+            jsonrpc: "2.0",
+            id: `entry-${args.entryId}-${offset}`,
+            method: "tools/call",
+            params: {
+              name:
+                authorization?.source === "oauth"
+                  ? "browse_model_content"
+                  : "get_builder_content",
+              arguments: {
+                modelName: args.model,
+                limit: BUILDER_CMS_PAGE_SIZE,
+                ...(offset > 0 ? { offset } : {}),
+                ...(authorization?.source === "legacy" ? { enrich: true } : {}),
+                fields: `${builderCmsListEntryFields()},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`,
+              },
+            },
           },
-        },
-      },
-    });
-    const entryJson = parseBuilderMcpToolJson(entryResult.json.result);
-    if (!entryJson) {
+        });
+        const entryJson = parseBuilderMcpToolJson(entryResult.json.result);
+        if (!entryJson) {
+          throw new BuilderCmsContentEntryReadError(
+            "Builder MCP entry read returned malformed tool content.",
+            "malformed_body",
+            "mcp_malformed_response",
+            false,
+          );
+        }
+        const entries = builderMcpEntriesFromToolResponse(
+          entryJson,
+          args.model,
+        );
+        const providerEntryCount = builderMcpProviderEntryCount(entryJson);
+        const entry = entries.find(
+          (candidate) => candidate.id === args.entryId,
+        );
+        if (entry) {
+          return { state: "found", entry, providerStatus: "mcp_200" };
+        }
+        const totalCount = builderMcpTotalCount(entryJson);
+        const nextOffset = offset + BUILDER_CMS_PAGE_SIZE;
+        const hasMore =
+          totalCount !== null
+            ? nextOffset < totalCount
+            : providerEntryCount >= BUILDER_CMS_PAGE_SIZE;
+        if (!hasMore) {
+          return {
+            state: "not_found",
+            entry: null,
+            providerStatus: "mcp_not_found",
+          };
+        }
+        offset = nextOffset;
+      }
       throw new BuilderCmsContentEntryReadError(
-        "Builder MCP entry read returned malformed tool content.",
-        "malformed_body",
-        "mcp_malformed_response",
-        false,
-      );
-    }
-    const entries = builderMcpEntriesFromToolResponse(entryJson, args.model);
-    const entry = entries.find((candidate) => candidate.id === args.entryId);
-    const totalCount = builderMcpTotalCount(entryJson);
-    if (!entry && totalCount !== null && totalCount > entries.length) {
-      throw new BuilderCmsContentEntryReadError(
-        "Builder MCP entry lookup was truncated before the requested entry could be confirmed present or missing.",
+        "Builder MCP entry lookup exceeded the bounded read limit before the requested entry could be confirmed present or missing.",
         "transient_read_failure",
         "mcp_partial_lookup",
         true,
       );
+    } catch (error) {
+      if (error instanceof BuilderCmsContentEntryReadError) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      const denied = /HTTP (?:401|403)\./.test(message);
+      throw new BuilderCmsContentEntryReadError(
+        `Builder MCP entry read failed: ${message}`,
+        denied ? "access_denied" : "transient_read_failure",
+        denied ? "mcp_access_denied" : "mcp_transient_failure",
+        !denied,
+      );
     }
-    return entry?.id === args.entryId
-      ? { state: "found", entry, providerStatus: "mcp_200" }
-      : { state: "not_found", entry: null, providerStatus: "mcp_not_found" };
   }
 
   const url = new URL(

@@ -1215,6 +1215,71 @@ describe("Builder CMS read client", () => {
     expect(secondPageBody.params.arguments.offset).toBe(100);
   });
 
+  it("advances MCP pagination by the provider window when entries are invalid", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "oauth-access-token",
+      authorization: "Bearer oauth-access-token",
+      source: "oauth",
+    });
+    const page = (content: unknown[], totalCount: number) =>
+      new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          result: {
+            content: [
+              { type: "text", text: JSON.stringify({ content, totalCount }) },
+            ],
+          },
+        }),
+        { status: 200 },
+      );
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: { supportedVersions: ["2026-07-28"] },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        page(
+          [
+            ...Array.from({ length: 99 }, (_, index) => ({
+              id: `builder-entry-${index + 1}`,
+              data: { title: `Builder entry ${index + 1}` },
+            })),
+            null,
+          ],
+          101,
+        ),
+      )
+      .mockResolvedValueOnce(
+        page([{ id: "builder-entry-101", data: { title: "Last entry" } }], 101),
+      );
+
+    const result = await readBuilderCmsContentEntries({
+      model: "agent-native-blog-article-test",
+      limit: 10_000,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result).toMatchObject({
+      state: "live",
+      message: null,
+      entries: expect.arrayContaining([
+        expect.objectContaining({ id: "builder-entry-101" }),
+      ]),
+    });
+    const secondPageBody = JSON.parse(
+      String((fetchImpl.mock.calls[2]?.[1] as RequestInit).body),
+    );
+    expect(secondPageBody.params.arguments.offset).toBe(100);
+  });
+
   it("rejects malformed Builder MCP tool content instead of accepting an empty source", async () => {
     resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
@@ -1692,7 +1757,7 @@ describe("Builder CMS read client", () => {
     ).toBe(true);
   });
 
-  it("does not report a truncated OAuth entry lookup as not found", async () => {
+  it("hydrates an OAuth entry beyond the first MCP page", async () => {
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "oauth-access-token",
       authorization: "Bearer oauth-access-token",
@@ -1718,7 +1783,37 @@ describe("Builder CMS read client", () => {
               content: [
                 {
                   type: "text",
-                  text: JSON.stringify({ content: [], totalCount: 101 }),
+                  text: JSON.stringify({
+                    content: Array.from({ length: 100 }, (_, index) => ({
+                      id: `builder-entry-${index + 1}`,
+                      data: { title: `Builder entry ${index + 1}` },
+                    })),
+                    totalCount: 101,
+                  }),
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    content: [
+                      {
+                        id: "builder-entry-101",
+                        data: { title: "Builder entry 101", blocks: [] },
+                      },
+                    ],
+                    totalCount: 101,
+                  }),
                 },
               ],
             },
@@ -1733,9 +1828,100 @@ describe("Builder CMS read client", () => {
         entryId: "builder-entry-101",
         fetchImpl: fetchImpl as unknown as typeof fetch,
       }),
+    ).resolves.toMatchObject({ state: "found", providerStatus: "mcp_200" });
+    const secondPageBody = JSON.parse(
+      String((fetchImpl.mock.calls[2]?.[1] as RequestInit).body),
+    );
+    expect(secondPageBody.params.arguments.offset).toBe(100);
+  });
+
+  it("uses the legacy content tool for private-key-only hydration", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
+    );
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+          headers: { "mcp-session-id": "session-1" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    content: [
+                      {
+                        id: "legacy-entry",
+                        data: { title: "Legacy", blocks: [] },
+                      },
+                    ],
+                    totalCount: 1,
+                  }),
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+
+    await expect(
+      readBuilderCmsContentEntryResult({
+        model: "blog_article",
+        entryId: "legacy-entry",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({ state: "found" });
+    const body = JSON.parse(
+      String((fetchImpl.mock.calls[2]?.[1] as RequestInit).body),
+    );
+    expect(body.params).toMatchObject({
+      name: "get_builder_content",
+      arguments: { enrich: true },
+    });
+  });
+
+  it("classifies transient MCP hydration failures as retryable", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "oauth-access-token",
+      authorization: "Bearer oauth-access-token",
+      source: "oauth",
+    });
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: { supportedVersions: ["2026-07-28"] },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 503 }));
+
+    await expect(
+      readBuilderCmsContentEntryResult({
+        model: "blog_article",
+        entryId: "builder-entry-1",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
     ).rejects.toMatchObject<Partial<BuilderCmsContentEntryReadError>>({
       reason: "transient_read_failure",
-      providerStatus: "mcp_partial_lookup",
+      providerStatus: "mcp_transient_failure",
       retryable: true,
     });
   });
