@@ -416,6 +416,10 @@ describe("document editor layout", () => {
         encoding: "utf8",
       },
     );
+    const editorSource = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
 
     expect(source).toContain(
       "relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4",
@@ -426,11 +430,14 @@ describe("document editor layout", () => {
     expect(source).toContain("editor.toolbar.copyPageLink");
     expect(source).toContain("editor.toolbar.info");
     expect(source).toContain("comments.title");
+    expect(editorSource).toContain(
+      "commentsHistoryOpen={showCommentsHistoryDrawer}",
+    );
     expect(source).toContain("onSelect={() => void handleCopyPageLink()}");
     expect(source).toContain('utilityPanel === "info" ? null : "info"');
-    expect(source).toContain('utilityPanel === "comments" ? null : "comments"');
+    expect(source).toContain('commentsHistoryOpen ? null : "comments"');
     expect(source).not.toContain('aria-pressed={utilityPanel === "info"}');
-    expect(source).toContain('aria-pressed={utilityPanel === "comments"}');
+    expect(source).toContain("aria-pressed={commentsHistoryOpen}");
     expect(source).toContain("setDeleteDialogOpen(true)");
     expect(source).toContain("text-destructive focus:text-destructive");
     expect(source).toContain("<IconTrash");

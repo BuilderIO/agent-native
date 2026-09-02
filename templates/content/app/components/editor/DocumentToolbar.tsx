@@ -479,6 +479,7 @@ interface DocumentToolbarProps {
   isFavorite?: boolean;
   onToggleFavorite?: (isFavorite: boolean) => void;
   utilityPanel: "info" | "comments" | null;
+  commentsHistoryOpen?: boolean;
   onUtilityPanelChange: (panel: "info" | "comments" | null) => void;
   showCommentsControl?: boolean;
   databaseExportContext?: DatabaseExportContext | null;
@@ -508,6 +509,7 @@ export function DocumentToolbar({
   isFavorite = false,
   onToggleFavorite,
   utilityPanel,
+  commentsHistoryOpen = false,
   onUtilityPanelChange,
   showCommentsControl = true,
   databaseExportContext,
@@ -991,14 +993,13 @@ export function DocumentToolbar({
                   type="button"
                   className={cn(
                     "flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    utilityPanel === "comments" &&
-                      "bg-accent text-accent-foreground",
+                    commentsHistoryOpen && "bg-accent text-accent-foreground",
                   )}
                   aria-label={t("comments.title")}
-                  aria-pressed={utilityPanel === "comments"}
+                  aria-pressed={commentsHistoryOpen}
                   onClick={() =>
                     onUtilityPanelChange(
-                      utilityPanel === "comments" ? null : "comments",
+                      commentsHistoryOpen ? null : "comments",
                     )
                   }
                 >
