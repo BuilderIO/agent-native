@@ -446,15 +446,15 @@ const jaJP = {
     },
     actions: {
       title: "1 つの Action があらゆる面を動かす",
-      bodyLine1: "Action は Agent-Native アプリを構成する基本単位です。",
+      bodyLine1: "Action はエージェントができることを定義します。",
       bodyLine2:
-        "機能を一度定義すれば、UI、agent チャット、HTTP API、MCP、A2A、CLI から利用できます。",
+        "各機能を一度定義すれば、エージェント、UI、HTTP API、MCP、A2A、CLI から利用できます。",
       diagramAlt:
         "1 つの Action が UI、MCP、Agent チャット、A2A、HTTP API、CLI を動かす",
     },
     builtIn: {
-      title: "すべての Agent-Native アプリに組み込み済み",
-      body: "ユーザーと AI エージェントが共に働くために必要なものが、すでに 1 つのアプリケーションに組み込まれています。",
+      title: "エージェントに必要なものすべて",
+      body: "UI、コンテキスト、データ、権限、インフラが、あらかじめ連携されています。",
       pillars: {
         reactUi: {
           title: "React UI",
@@ -462,7 +462,7 @@ const jaJP = {
         },
         agentChat: {
           title: "組み込みの agent チャット",
-          body: "アプリを離れずに、作業を任せたり質問したり結果を確認したりできます。",
+          body: "同じ UI で、作業を任せたり質問したり結果を確認したりできます。",
         },
         sharedState: {
           title: "共有アプリケーション状態",
@@ -478,11 +478,11 @@ const jaJP = {
         },
         automations: {
           title: "自動化",
-          body: "スケジュールやアプリケーションイベントに応じて agent の作業を自動実行します。",
+          body: "スケジュールやイベントに応じて agent の作業を自動実行します。",
         },
         agentTeams: {
           title: "Agent チーム",
-          body: "アプリ内、またはアプリをまたいで専門の agent に作業を任せられます。",
+          body: "同じワークスペース内、または接続された agent 間で専門の agent に作業を任せられます。",
         },
         auth: {
           title: "認証と組織",
@@ -496,19 +496,19 @@ const jaJP = {
     },
     stack: {
       title: "お使いのスタックで動作",
-      body: "LLM、データベース、ツール、インフラを持ち込めます。Agent-Native はオープンソースの TypeScript なので、アプリケーションはあなたのものであり続けます。",
+      body: "LLM、データベース、ツール、インフラを持ち込めます。Agent-Native はオープンソースの TypeScript なので、構築したものはすべてあなたのものです。",
       exploreApps: "Agent-Native で作られたアプリを見る",
     },
     showcase: {
       title: "Agent-Native で何を作れるか",
-      body: "あなたの仕事を理解し、行動し、共に取り組むエージェント型アプリ。独自に構築することも、これらのオープンソースアプリを試すこともできます。",
+      body: "会議、デザイン、プレゼンテーション、データなどの仕事に対応する UI 付きエージェントを構築できます。これらのオープンソースアプリから始めることも、独自に構築することもできます。",
       browseApps: "アプリを見る",
       scrollLeft: "アプリを左へスクロール",
       scrollRight: "アプリを右へスクロール",
     },
     bottomCta: {
-      title: "最初の Agent-Native アプリを作る",
-      body: "ユーザーと AI エージェントのために 1 つのアプリケーションを作成します。好きな LLM を持ち込んで、どこにでもデプロイできます。",
+      title: "最初の UI 付きエージェントを作る",
+      body: "エージェントと UI は同じ機能を共有します。好きな LLM を持ち込み、どこにでもデプロイできます。",
     },
     footer: {
       tagline: "agentic アプリケーションのための framework。",
