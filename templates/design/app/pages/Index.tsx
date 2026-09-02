@@ -28,7 +28,6 @@ import {
   IconDots,
   IconTrash,
   IconCopy,
-  IconCode,
   IconStack2,
   IconUserCircle,
   IconX,
@@ -88,7 +87,6 @@ import {
   clearPendingGeneration,
   writePendingGeneration,
 } from "@/lib/pending-generation";
-
 
 type ProjectType = "prototype" | "other";
 interface Design {
