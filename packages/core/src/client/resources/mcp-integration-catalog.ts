@@ -494,7 +494,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     verification: "restricted",
     logoUrl: mcpIntegrationLogo("dbt"),
     supportsOrganizationScope: true,
-    docsUrl: "https://docs.getdbt.com/docs/dbt-cloud-apis/mcp-server",
+    docsUrl: "https://docs.getdbt.com/docs/dbt-ai/mcp-quickstart-remote",
     setupNoteKey: "mcpIntegrations.catalog.dbt.setupNote",
     headerPlaceholder:
       "Authorization: Token <DBT_SERVICE_TOKEN>\nx-dbt-prod-environment-id: <DBT_PROD_ENVIRONMENT_ID>",
