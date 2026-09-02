@@ -201,6 +201,15 @@ try {
 const reusableDocument = parsedWorkflows.get(reusablePath);
 issues.push(...validateReusableWorkflowConcurrency(reusableDocument ?? {}));
 
+for (const [path, document] of [
+  [reusablePath, reusableDocument],
+  [betaPath, parsedWorkflows.get(betaPath)],
+] as const) {
+  if (asRecord(document?.concurrency)?.["cancel-in-progress"] !== false) {
+    issues.push(`${path} beta deploys must queue every source SHA`);
+  }
+}
+
 const productionConcurrency = asRecord(
   parsedWorkflows.get(productionPath)?.concurrency,
 );

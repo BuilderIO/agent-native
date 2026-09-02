@@ -14,7 +14,10 @@ permissions:
 
 concurrency:
   group: deploy-agent-native-beta-sites-prebuilt
-  cancel-in-progress: true
+  # Every main push gets a source-SHA-pinned beta publish. The per-site child
+  # queues serialize uploads, so a newer merge cannot cancel an older one
+  # before the docs host has received an artifact.
+  cancel-in-progress: false
 
 jobs:
   wait-for-beta:
