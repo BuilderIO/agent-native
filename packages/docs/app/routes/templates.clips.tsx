@@ -260,10 +260,11 @@ export default function ClipsTemplate() {
         }
         description={<p>{t("templateLanding.clips.s008")}</p>}
         descriptionPlacement="below-title"
+        mediaOverlapsHeader
         media={
           <ClipsLibraryMock
             label={t("templateLanding.clips.s001")}
-            className="h-[460px] sm:h-[600px] lg:h-[700px]"
+            className="h-[420px] sm:h-[620px] lg:h-[800px]"
           />
         }
       />

@@ -21,6 +21,8 @@ type TemplateHeroProps = {
   customizeTemplate?: TemplateHeroTemplate;
   /** Place the description under the title instead of in the right column. */
   descriptionPlacement?: "side" | "below-title";
+  /** Drop the header's bottom padding so the media can overlap it. */
+  mediaOverlapsHeader?: boolean;
 };
 
 export function TemplateHero({
@@ -35,8 +37,12 @@ export function TemplateHero({
   titleClassName = "",
   customizeTemplate,
   descriptionPlacement = "side",
+  mediaOverlapsHeader = false,
 }: TemplateHeroProps) {
   const belowTitle = descriptionPlacement === "below-title";
+  const headerPadding = mediaOverlapsHeader
+    ? "pb-10 sm:pb-14 lg:pb-0"
+    : "pb-10 sm:pb-14 lg:pb-20";
 
   const descriptionBlock = (
     <div
@@ -68,7 +74,7 @@ export function TemplateHero({
         </div>
 
         <div
-          className={`relative grid gap-3 px-6 pb-10 pt-12 sm:gap-4 sm:px-10 sm:pb-14 sm:pt-16 lg:grid-cols-3 lg:gap-6 lg:pb-20 lg:pt-24 ${headerClassName}`}
+          className={`relative grid gap-3 px-6 pt-12 sm:gap-4 sm:px-10 sm:pt-16 lg:grid-cols-3 lg:gap-6 lg:pt-24 ${headerPadding} ${headerClassName}`}
         >
           <div className="font-mono text-[15px] font-bold tracking-[0.14em] lg:col-start-1 lg:row-start-1">
             {eyebrow}

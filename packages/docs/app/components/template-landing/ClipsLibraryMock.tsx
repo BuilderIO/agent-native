@@ -699,14 +699,16 @@ const CLIPS_MOCK_CSS = [
   // Shell
   // Horizontal padding keeps the window off the container edges; overflow stays
   // visible so the tray popover can hang above the window's top edge.
-  // Padding reserves room for the popover to hang above the window's top edge
-  // and for the window's shadow, while the box itself stays clipped.
-  ".clips-mock { position: relative; width: 100%; padding: 46px 28px 28px; overflow: hidden; }",
+  // The negative margin pulls the window up into the header block, and the top
+  // padding reserves room for the popover to hang above the window's top edge
+  // while the box itself stays clipped.
+  ".clips-mock { position: relative; width: 100%; margin-top: -160px; padding: 182px 40px 28px; overflow: hidden; }",
   ".clips-mock, .clips-mock * { box-sizing: border-box; }",
   ".clips-mock-frame { position: relative; height: 100%; }",
   // The popover is a fixed 340x408 panel. Shrink it on narrow screens, where
   // the mock is shorter, rather than let the "Start recording" CTA clip out.
-  "@media (max-width: 640px) { .clips-mock .clips-mock-popover { transform: scale(0.72); transform-origin: top right; } }",
+  // The desktop overlap values are far too aggressive for a narrow column.
+  "@media (max-width: 640px) { .clips-mock { margin-top: 0; padding: 54px 16px 18px; } .clips-mock .clips-mock-popover { top: -44px; right: 12px; transform: scale(0.72); transform-origin: top right; } }",
 
   // Faux app window
   ".clips-mock .library-window { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; background: #212121; color: #e6e6e6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.18); }",
@@ -761,7 +763,7 @@ const CLIPS_MOCK_CSS = [
 
   // Tray popover — values mirror templates/clips/desktop/src/styles.css, with
   // the dark palette pinned so the art does not follow the visitor's theme.
-  ".clips-mock .clips-mock-popover { --brand: #f5f5f5; --brand-hover: #e5e5e5; --brand-ring: rgba(245, 245, 245, 0.28); --bg: #212121; --surface: #262626; --surface-hover: #2e2e2e; --surface-strong: #3d3d3d; --fg: #f5f5f5; --fg-muted: #a3a3a3; --fg-subtle: #737373; --border: #3d3d3d; --border-strong: #4d4d4d; --radius: 12px; --radius-sm: 8px; --radius-pill: 999px; --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4); --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3); position: absolute; top: -34px; right: 40px; width: 340px; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size: 13px; line-height: 1.4; color: var(--fg); box-shadow: 0 32px 64px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.3); }",
+  ".clips-mock .clips-mock-popover { --brand: #f5f5f5; --brand-hover: #e5e5e5; --brand-ring: rgba(245, 245, 245, 0.28); --bg: #212121; --surface: #262626; --surface-hover: #2e2e2e; --surface-strong: #3d3d3d; --fg: #f5f5f5; --fg-muted: #a3a3a3; --fg-subtle: #737373; --border: #3d3d3d; --border-strong: #4d4d4d; --radius: 12px; --radius-sm: 8px; --radius-pill: 999px; --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4); --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3); position: absolute; top: -160px; right: 217px; width: 340px; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size: 13px; line-height: 1.4; color: var(--fg); box-shadow: 0 32px 64px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.3); }",
   ".clips-mock .app { margin: 0; padding: 14px; display: flex; flex-direction: column; gap: 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; }",
   ".clips-mock .app-recorder { gap: 0; padding: 0; overflow: hidden; }",
   ".clips-mock .app-recorder > .bottom-row { flex: 0 0 auto; padding: 7px 14px 10px; border-top: 1px solid var(--border); background: var(--bg); }",
