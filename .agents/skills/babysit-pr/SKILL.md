@@ -52,16 +52,20 @@ merging, except when the user explicitly invokes `/ship-now`.
    its write. Never use the legacy shared `babysit-pr-<number>` identity for a
    new invocation. If that legacy watcher or any task-scoped watcher with a
    different owner is ACTIVE, leave it untouched and continue this invocation
-   in the foreground; do not overwrite, pause, or create a same-name duplicate.
-   Read the exact task-scoped automation before every update and verify its
-   persisted `targetThreadId` still matches this task. If the exact watcher is
-   missing or paused, create or resume only this task-scoped watcher, then
-   re-read it to verify the owner. If the host rejects another heartbeat for
-   this task, keep the foreground loop running. Re-check the owner and exact
-   watcher name immediately before every reschedule and before pausing; a
-   watcher must never mutate or pause another task's record. A text-only wake-up
-   reminder is not enough. If no durable wake-up tool is available, keep the
-   foreground loop running and do not stop after PR creation.
+   in the foreground; do not overwrite, pause, or create any watcher for this
+   PR. This is a terminal foreground-only branch for this invocation, so skip
+   the missing-watcher create or resume path below. Only when no ACTIVE legacy
+   or foreign-owned watcher was found may this invocation create or resume its
+   own task-scoped watcher. Read the exact task-scoped automation before every
+   update and verify its persisted `targetThreadId` still matches this task. If
+   the exact watcher is missing or paused, create or resume only this
+   task-scoped watcher, then re-read it to verify the owner. If the host rejects
+   another heartbeat for this task, keep the foreground loop running. Re-check
+   the owner and exact watcher name immediately before every reschedule and
+   before pausing; a watcher must never mutate or pause another task's record. A
+   text-only wake-up reminder is not enough. If no durable wake-up tool is
+   available, keep the foreground loop running and do not stop after PR
+   creation.
 2. Track when the last actionable item (new human/bot feedback, CI fix, merge-conflict resolution, or a local-change commit/push) occurred.
 3. After 30 minutes of no new actionable items with GitHub Actions CI green, cancel the loop (stop scheduling wake-ups) and report "All clear".
 
