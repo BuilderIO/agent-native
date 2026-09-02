@@ -11,9 +11,16 @@ database with the exact name `DB`.
 
 ## Configure the binding
 
-Add the D1 database to Wrangler:
+Build first so the framework generates the Wrangler config used by the module
+Worker deployment:
 
-```jsonc filename="wrangler.jsonc"
+```bash
+npx @agent-native/core@latest build
+```
+
+Merge the D1 binding into the generated `.output/server/wrangler.json`:
+
+```jsonc filename=".output/server/wrangler.json"
 {
   "d1_databases": [
     {
@@ -23,6 +30,13 @@ Add the D1 database to Wrangler:
     }
   ]
 }
+```
+
+Preserve the generated `main`, `assets`, and `compatibility_flags` properties,
+then deploy that same generated config:
+
+```bash
+npx wrangler deploy --config .output/server/wrangler.json
 ```
 
 The framework reads the `DB` binding from the Cloudflare runtime. Do not set
