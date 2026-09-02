@@ -67,9 +67,27 @@ see the previous run, which is why the follow-up never happened. Run this
 first, every time:
 
 ```
-slack_search: "this was sent from a bot." in:<#CHANNEL> after:<TODAY-5>
-  sort=timestamp sort_dir=asc
+slack_search: "? this was sent from a bot." in:<#CHANNEL>
+  sort=timestamp sort_dir=asc include_context=true max_context_length=300
 ```
+
+Three details in that query are load-bearing; a run that changed them missed
+all eight of its answered threads.
+
+**Search `"? this was sent from a bot."`, not the bare disclosure.** Every
+reply this workflow ever posted carries the disclosure — fixes, status
+updates, questions alike — so the bare string returns 80+ hits, mostly
+terminal, and no run will open 80 threads. The leading `?` phrase-matches only
+replies that asked something, which is exactly the pending set.
+
+**Keep `include_context=true` on every page, including page 2 and beyond.**
+The `Context after` block names who spoke after your question, so you find
+answers without opening every thread. Dropping it on later pages to save
+tokens blinds you to every answer past page one.
+
+**Take the parent from the permalink's `thread_ts`, never from `Message_ts`.**
+`Message_ts` is your own reply's timestamp; reading or replying to it targets
+the wrong message.
 
 Also search for the invoking identity's eye-marked parents before applying the
 disclosure filter:
@@ -286,6 +304,43 @@ recap before editing. `fix-at-the-boundary` owns the method. A fix that
 repairs the route in the report and leaves the identical crash in the sibling
 route is not a fix, and the reporter was told otherwise.
 
+### Repeats get more time, not the same fix again
+
+Before fixing anything, search the channel for prior reports of the same
+symptom:
+
+```
+slack_search: <2-4 distinctive symptom words> in:<#CHANNEL>
+  sort=timestamp sort_dir=desc
+```
+
+Search the symptom in the reporter's words — `zoom invalid_client`,
+`logout twice`, `stuck loading` — not your diagnosis of it. Different people
+describe one bug differently, so read the hits rather than trusting the count.
+
+**A repeat report after a Fixed claim is evidence that fix failed.** It is the
+only falsification signal this workflow gets, and it outranks your own belief
+that the code is correct. Treat it as a stop, not as a fresh report:
+
+1. **Find what we said last time.** Read the prior thread and its **Fixed**
+   reply, then find the commit or PR behind it. You are looking for the
+   specific claim that turned out to be wrong.
+2. **Work out why it did not take**, and name which it was: never deployed;
+   deployed but the fix addressed a sibling path, not the reported one; the
+   root cause was misdiagnosed; or it fixed one symptom of several. Each has a
+   different repair, and re-applying the same class of change is how the same
+   bug ships three times.
+3. **Reproduce end to end before editing, and verify end to end after.** For a
+   repeat, a passing unit test is not sufficient evidence — exercise the real
+   surface the reporter used. `verifying-changes` owns the per-area proof.
+4. **Cluster the reports.** One investigation, one fix, one recap row naming
+   every thread, and a reply in each. Three separate investigations of one
+   Analytics outage is three times the cost for one answer.
+
+Record `Repeat of: <link>` and the prior failed fix in the recap row so the
+next run inherits the history instead of rediscovering it. Never tell a
+reporter a repeat is fixed on the same evidence that supported the last claim.
+
 Choose the narrowest seam the evidence supports:
 
 - One isolated symptom → fix the owning local seam, add a regression check.
@@ -458,6 +513,7 @@ on — that is how silence stays auditable.
 ## Feedback sweep
 Start cursor: [Slack message](...)
 Answered since last run: N · Questions asked: N/3 · Dropped at 4 days: N
+Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)
 
 | Source / item | Disposition | Replied? | Why and evidence |
