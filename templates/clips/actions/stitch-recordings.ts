@@ -41,6 +41,7 @@ import { z } from "zod";
 
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
+import { ensureRecordingThumbnail } from "../server/lib/ensure-recording-thumbnail.js";
 import {
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
@@ -194,6 +195,22 @@ export default defineAction({
       // Reuse the first source's thumbnail so the new row has something to show immediately.
       thumbnailUrl: ordered[0].thumbnailUrl ?? null,
     } as any);
+
+    if (videoUrl && !ordered[0].thumbnailUrl) {
+      await ensureRecordingThumbnail({
+        recordingId: id,
+        ownerEmail,
+        mimeType: "video/mp4",
+      }).catch((err) => {
+        console.warn(
+          "[clips] Stitched recording thumbnail generation skipped",
+          {
+            recordingId: id,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
+      });
+    }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
     if (!videoUrl) {

@@ -26,6 +26,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { queueBuilderMediaCompression } from "../server/lib/builder-media-compression.js";
 import { debugLog } from "../server/lib/debug.js";
+import { ensureRecordingThumbnail } from "../server/lib/ensure-recording-thumbnail.js";
 import {
   applyFaststart,
   hasPlayableMp4Metadata,
@@ -540,6 +541,28 @@ async function leaveRecordingProcessingForMediaVerification(params: {
   };
 }
 
+async function ensureReadyRecordingThumbnail(params: {
+  recordingId: string;
+  ownerEmail: string;
+  mimeType?: string;
+  mediaBytes?: Uint8Array;
+}): Promise<void> {
+  const result = await ensureRecordingThumbnail(params).catch((error) => {
+    console.warn("[finalize] recording thumbnail repair failed", {
+      recordingId: params.recordingId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  });
+  if (result && !["generated", "already-set"].includes(result.status)) {
+    console.warn("[finalize] recording thumbnail was not persisted", {
+      recordingId: params.recordingId,
+      status: result.status,
+      detail: result.detail,
+    });
+  }
+}
+
 // Flip recording to 'ready', seed transcript row, fire background transcript,
 // emit clip.created. Used by both the resumable and buffered upload paths.
 async function markRecordingReady(params: {
@@ -555,6 +578,8 @@ async function markRecordingReady(params: {
   finalHasAudio: boolean;
   finalHasCamera: boolean;
   existingTitle: string;
+  mimeType?: string;
+  mediaBytes?: Uint8Array;
   // Whether a seekable rewrite (MP4 faststart / WebM Cues remux) was already
   // applied to the uploaded bytes. When false, a best-effort background repair
   // is triggered so streamed/raw uploads still become seekable.
@@ -573,6 +598,8 @@ async function markRecordingReady(params: {
     finalHasAudio,
     finalHasCamera,
     existingTitle,
+    mimeType,
+    mediaBytes,
     seekableApplied,
   } = params;
   const db = getDb();
@@ -628,6 +655,14 @@ async function markRecordingReady(params: {
       id,
       status: postUpdate?.status,
     });
+    if (postUpdate?.status === "ready") {
+      await ensureReadyRecordingThumbnail({
+        recordingId: id,
+        ownerEmail,
+        mimeType,
+        mediaBytes,
+      });
+    }
     return {
       id,
       status:
@@ -641,6 +676,13 @@ async function markRecordingReady(params: {
       durationMs: finalDurationMs,
     };
   }
+
+  await ensureReadyRecordingThumbnail({
+    recordingId: id,
+    ownerEmail,
+    mimeType,
+    mediaBytes,
+  });
 
   const [existingTranscript] = await db
     .select({ recordingId: schema.recordingTranscripts.recordingId })
@@ -820,6 +862,7 @@ async function retryPendingMediaVerification(params: {
       finalHeight: candidate.finalHeight,
       finalHasAudio: candidate.finalHasAudio,
       finalHasCamera: candidate.finalHasCamera,
+      mimeType: candidate.mimeType,
       seekableApplied: candidate.seekableApplied,
     });
     if (result.status === "ready" && result.transitionedToReady) {
@@ -1028,6 +1071,13 @@ export default defineAction({
       // chunks are gone by then).
       if (existing.status === "ready" && existing.videoUrl) {
         debugLog("[finalize] already finalized, returning existing", { id });
+        await ensureReadyRecordingThumbnail({
+          recordingId: id,
+          ownerEmail,
+          mimeType:
+            args.mimeType ??
+            (existing.videoFormat === "mp4" ? "video/mp4" : "video/webm"),
+        });
         // A prior attempt may have persisted the ready row and then failed
         // before deleting its resumable-session handle. The provider upload is
         // complete at this point, so retire only the local retry state.
@@ -1281,6 +1331,7 @@ export default defineAction({
           videoUrl,
           videoSizeBytes: servedBytes ?? resumableSession.bytesUploaded,
           sourceSizeBytes: resumableSession.bytesUploaded,
+          mimeType,
           // Streaming path forwards raw MediaRecorder bytes straight to the
           // provider — no faststart/Cues rewrite happened. Repair in the
           // background.
@@ -1824,6 +1875,8 @@ export default defineAction({
         videoUrl: upload.url,
         videoSizeBytes: servedBytes ?? uploadData.byteLength,
         sourceSizeBytes: assembled.byteLength,
+        mimeType,
+        mediaBytes: uploadData,
         seekableApplied,
       });
       if (result.status === "ready" && result.transitionedToReady) {

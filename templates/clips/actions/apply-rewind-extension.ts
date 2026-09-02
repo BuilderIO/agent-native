@@ -9,6 +9,7 @@ import { z } from "zod";
 import { isPrivateClip } from "../app/lib/rewind-visibility.js";
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
+import { ensureRecordingThumbnail } from "../server/lib/ensure-recording-thumbnail.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
@@ -198,6 +199,16 @@ export default defineAction({
       updatedAt: now,
     };
     await writeAppState(key, applied);
+    await ensureRecordingThumbnail({
+      recordingId: args.recordingId,
+      ownerEmail,
+      mimeType: "video/mp4",
+    }).catch((err) => {
+      console.warn("[clips] Rewind recording thumbnail generation skipped", {
+        recordingId: args.recordingId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
     await writeAppState("refresh-signal", { ts: Date.now() });
     return { recordingId: args.recordingId, request: applied };
   },

@@ -26,6 +26,14 @@ const mockDispatchPostFinalizeJob = vi.hoisted(() =>
 );
 const mockClearSeekableRepairPending = vi.hoisted(() => vi.fn());
 const mockMarkSeekableRepairPending = vi.hoisted(() => vi.fn());
+const mockEnsureRecordingThumbnail = vi.hoisted(() =>
+  vi.fn(async () => ({
+    recordingId: "rec_1",
+    status: "already-set" as const,
+    changed: false,
+    thumbnailUrl: null,
+  })),
+);
 const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockDeleteAppState = vi.hoisted(() => vi.fn());
@@ -122,6 +130,11 @@ vi.mock("../server/db/index.js", () => ({
 
 vi.mock("../server/lib/debug.js", () => ({
   debugLog: vi.fn(),
+}));
+
+vi.mock("../server/lib/ensure-recording-thumbnail.js", () => ({
+  ensureRecordingThumbnail: (...args: unknown[]) =>
+    mockEnsureRecordingThumbnail(...args),
 }));
 
 vi.mock("../server/lib/builder-media-compression.js", () => ({
@@ -341,6 +354,13 @@ describe("finalize-recording media serve verification", () => {
     mockDeleteAppState.mockResolvedValue(undefined);
     mockClearSeekableRepairPending.mockResolvedValue(undefined);
     mockMarkSeekableRepairPending.mockResolvedValue(undefined);
+    mockEnsureRecordingThumbnail.mockClear();
+    mockEnsureRecordingThumbnail.mockResolvedValue({
+      recordingId: "rec_1",
+      status: "already-set",
+      changed: false,
+      thumbnailUrl: null,
+    });
     mockCompareAndSetAppState.mockResolvedValue(true);
     mockUpdateWhere.mockImplementation(() => ({
       returning: mockUpdateReturning,
@@ -556,6 +576,14 @@ describe("finalize-recording media serve verification", () => {
     );
     expect(mockUpdateSet).toHaveBeenCalledWith(
       expect.objectContaining({ status: "ready", videoSizeBytes: 2 }),
+    );
+    expect(mockEnsureRecordingThumbnail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingId: "rec_1",
+        ownerEmail: "owner@example.com",
+        mimeType: "video/webm",
+        mediaBytes: expect.any(Uint8Array),
+      }),
     );
   });
 

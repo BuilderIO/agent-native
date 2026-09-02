@@ -6,6 +6,8 @@ const MIN_VISIBLE_MAX_LUMA = 28;
 const MIN_VISIBLE_PIXEL_RATIO = 0.005;
 const SEEK_TOLERANCE_SECONDS = 0.25;
 const DEFAULT_SEEK_TIMEOUT_MS = 5_000;
+const DEFAULT_UPLOAD_THUMBNAIL_TIME_MS = 350;
+const VIDEO_METADATA_TIMEOUT_MS = 10_000;
 
 function resolveAppUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -124,6 +126,81 @@ export async function captureVideoThumbnailBlob(
   });
 }
 
+function waitForVideoMetadata(video: HTMLVideoElement): Promise<void> {
+  if (video.readyState >= 1) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      finish(new Error("Thumbnail video metadata timed out"));
+    }, VIDEO_METADATA_TIMEOUT_MS);
+
+    const cleanup = () => {
+      clearTimeout(timeout);
+      video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      video.removeEventListener("error", handleError);
+    };
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) reject(error);
+      else resolve();
+    };
+    const handleLoadedMetadata = () => finish();
+    const handleError = () =>
+      finish(new Error("Thumbnail video could not load"));
+
+    video.addEventListener("loadedmetadata", handleLoadedMetadata);
+    video.addEventListener("error", handleError);
+    video.load();
+  });
+}
+
+export async function captureVideoBlobThumbnail(
+  videoBlob: Blob,
+  timeMs = DEFAULT_UPLOAD_THUMBNAIL_TIME_MS,
+): Promise<Blob | null> {
+  if (!videoBlob.size) return null;
+
+  const sourceUrl = URL.createObjectURL(videoBlob);
+  const video = document.createElement("video");
+  video.preload = "metadata";
+  video.muted = true;
+  video.playsInline = true;
+  video.src = sourceUrl;
+
+  try {
+    await waitForVideoMetadata(video);
+
+    const durationMs =
+      Number.isFinite(video.duration) && video.duration > 0
+        ? video.duration * 1000
+        : null;
+    const targetMs = durationMs
+      ? Math.min(Math.max(0, timeMs), Math.max(0, durationMs - 1))
+      : Math.max(0, timeMs);
+    const candidates = [targetMs, 0].filter(
+      (candidate, index, values) => values.indexOf(candidate) === index,
+    );
+
+    for (const candidate of candidates) {
+      try {
+        await seekVideoToTime(video, candidate);
+        const thumbnail = await captureVideoThumbnailBlob(video);
+        if (thumbnail) return thumbnail;
+      } catch {
+        // Try the first frame when the short clip has no decodable 350ms frame.
+      }
+    }
+    return null;
+  } finally {
+    video.removeAttribute("src");
+    video.load();
+    URL.revokeObjectURL(sourceUrl);
+  }
+}
+
 export function seekVideoToTime(
   video: HTMLVideoElement,
   timeMs: number,
@@ -196,7 +273,7 @@ export function seekVideoToTime(
 export async function uploadRecordingThumbnail(
   recordingId: string,
   blob: Blob,
-  options: { replaceAuto?: boolean } = {},
+  options: { replaceAuto?: boolean; signal?: AbortSignal } = {},
 ) {
   const suffix = options.replaceAuto ? "?replace=auto" : "";
   const response = await fetch(
@@ -205,6 +282,7 @@ export async function uploadRecordingThumbnail(
       method: "POST",
       headers: { "Content-Type": blob.type || "image/jpeg" },
       body: blob,
+      signal: options.signal,
     },
   );
 
@@ -213,4 +291,16 @@ export async function uploadRecordingThumbnail(
   }
 
   return response.json().catch(() => null);
+}
+
+export async function uploadVideoBlobThumbnail(
+  recordingId: string,
+  videoBlob: Blob,
+  options: { signal?: AbortSignal; timeMs?: number } = {},
+) {
+  const thumbnail = await captureVideoBlobThumbnail(videoBlob, options.timeMs);
+  if (!thumbnail) return null;
+  return uploadRecordingThumbnail(recordingId, thumbnail, {
+    signal: options.signal,
+  });
 }

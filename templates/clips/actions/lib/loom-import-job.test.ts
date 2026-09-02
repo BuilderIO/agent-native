@@ -40,6 +40,14 @@ const mockFetchLoomTranscript = vi.hoisted(() => vi.fn());
 const mockQueueBuilderMediaCompression = vi.hoisted(() =>
   vi.fn(async () => undefined),
 );
+const mockEnsureRecordingThumbnail = vi.hoisted(() =>
+  vi.fn(async () => ({
+    recordingId: "rec_1",
+    status: "generated" as const,
+    changed: true,
+    thumbnailUrl: "https://cdn.example.com/thumb.jpg",
+  })),
+);
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: mockWriteAppState,
@@ -60,6 +68,10 @@ vi.mock("../../server/db/index.js", () => ({
 }));
 vi.mock("../../server/lib/builder-media-compression.js", () => ({
   queueBuilderMediaCompression: mockQueueBuilderMediaCompression,
+}));
+vi.mock("../../server/lib/ensure-recording-thumbnail.js", () => ({
+  ensureRecordingThumbnail: (...args: unknown[]) =>
+    mockEnsureRecordingThumbnail(...args),
 }));
 vi.mock("./loom-transcript.js", () => ({
   fetchLoomTranscript: mockFetchLoomTranscript,
@@ -85,6 +97,7 @@ describe("runLoomImportJob", () => {
     mockDownloadLoomVideo.mockReset();
     mockFetchLoomTranscript.mockReset();
     mockQueueBuilderMediaCompression.mockClear();
+    mockEnsureRecordingThumbnail.mockClear();
   });
 
   afterEach(() => {

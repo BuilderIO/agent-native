@@ -12,6 +12,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { queueBuilderMediaCompression } from "../server/lib/builder-media-compression.js";
+import { ensureRecordingThumbnail } from "../server/lib/ensure-recording-thumbnail.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import {
   getCurrentOwnerEmail,
@@ -480,6 +481,19 @@ export default defineAction({
       });
     }
 
+    const thumbnail = await ensureRecordingThumbnail({
+      recordingId: id,
+      ownerEmail,
+      mediaBytes: media.bytes,
+      mimeType: media.mimeType,
+    }).catch((err) => {
+      console.warn("[clips] Direct video thumbnail generation skipped", {
+        recordingId: id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    });
+
     void queueBuilderMediaCompression({
       recordingId: id,
       ownerEmail,
@@ -562,7 +576,7 @@ export default defineAction({
       sourceUrl,
       videoUrl,
       embedUrl: videoUrl,
-      thumbnailUrl: oembed?.thumbnail_url ?? null,
+      thumbnailUrl: thumbnail?.thumbnailUrl ?? oembed?.thumbnail_url ?? null,
       durationMs,
       importMode: "reuploaded" as const,
       storageProvider: upload.provider,

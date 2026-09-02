@@ -4,6 +4,7 @@ import { and, asc, eq, gte, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../../server/db/index.js";
 import { queueBuilderMediaCompression } from "../../server/lib/builder-media-compression.js";
+import { ensureRecordingThumbnail } from "../../server/lib/ensure-recording-thumbnail.js";
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
 import { transactionalEmailStore } from "../../server/lib/transactional-email-store.js";
 import {
@@ -227,6 +228,28 @@ export async function runLoomImportJob({
       return { status: "failed", failureReason };
     }
     console.log("[loom-import] recording ready", { recordingId });
+
+    if (media && upload) {
+      const thumbnail = await ensureRecordingThumbnail({
+        recordingId,
+        ownerEmail,
+        mediaBytes: media.bytes,
+        mimeType: media.mimeType,
+        replaceNonEditorThumbnail: true,
+      }).catch((err) => {
+        console.warn("[clips] Loom thumbnail generation skipped", {
+          recordingId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return null;
+      });
+      if (thumbnail?.status === "skipped-frame-extraction") {
+        console.warn("[clips] Loom thumbnail frame extraction skipped", {
+          recordingId,
+          detail: thumbnail.detail,
+        });
+      }
+    }
 
     if (media && upload) {
       void queueBuilderMediaCompression({
