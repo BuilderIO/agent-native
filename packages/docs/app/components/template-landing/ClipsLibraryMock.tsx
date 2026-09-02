@@ -25,7 +25,6 @@ import {
   IconMessage2,
   IconMicrophone2,
   IconPlayerPlay,
-  IconPlus,
   IconSearch,
   IconSettings,
   IconShare,
@@ -211,14 +210,6 @@ function LibrarySidebar() {
           <IconFolderPlus size={13} />
         </div>
         <div className="library-sidebar-empty">No folders yet</div>
-      </div>
-
-      <div className="library-sidebar-section">
-        <div className="library-sidebar-section-header">
-          <span>Spaces</span>
-          <IconPlus size={13} />
-        </div>
-        <div className="library-sidebar-empty">No spaces yet</div>
       </div>
 
       <div className="library-sidebar-spacer" />
