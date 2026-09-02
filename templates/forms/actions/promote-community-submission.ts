@@ -345,9 +345,8 @@ export default defineAction({
       };
     }
     if (
-      response.promotionStatus === "unknown" ||
-      (response.promotionStatus === "publishing" &&
-        hasActivePromotionClaim(response.promotedAt))
+      response.promotionStatus === "publishing" &&
+      hasActivePromotionClaim(response.promotedAt)
     ) {
       fail(
         "This submission may already be in Builder. Check the catalog before retrying.",
@@ -375,6 +374,7 @@ export default defineAction({
           or(
             isNull(schema.responses.promotionStatus),
             eq(schema.responses.promotionStatus, "failed"),
+            eq(schema.responses.promotionStatus, "unknown"),
             and(
               eq(schema.responses.promotionStatus, "publishing"),
               or(

@@ -54,10 +54,36 @@ export function CommunityPromotionCell({
   }
 
   const error = localError ?? response.communityPromotion?.error;
-  if (status === "unknown" || status === "publishing") {
+  if (status === "publishing") {
     return (
       <div className="min-w-40 space-y-1">
         <Badge variant="outline">{t("responses.communityNeedsCheck")}</Badge>
+        {error ? (
+          <p className="m-0 max-w-48 text-xs leading-4 text-destructive">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (status === "unknown") {
+    return (
+      <div className="min-w-40 space-y-1.5">
+        <Badge variant="outline">{t("responses.communityNeedsCheck")}</Badge>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1.5 text-xs"
+          disabled={promotion.isPending}
+          onClick={publish}
+        >
+          <IconUpload className="size-3.5" aria-hidden="true" />
+          {promotion.isPending
+            ? t("responses.communityPublishing")
+            : t("common.retry")}
+        </Button>
         {error ? (
           <p className="m-0 max-w-48 text-xs leading-4 text-destructive">
             {error}

@@ -195,6 +195,30 @@ describe("promote-community-submission action", () => {
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 
+  it("can retry an ambiguous promotion with the same Builder entry ID", async () => {
+    const unknownResponse = {
+      ...response,
+      promotionStatus: "unknown" as const,
+      promotionError: "Check the Builder catalog before retrying.",
+    };
+    dbMock.setResults([
+      [{ formId: response.formId }],
+      [unknownResponse],
+      [form],
+    ]);
+
+    await expect(
+      promoteCommunitySubmission.run({ responseId: response.id }),
+    ).resolves.toMatchObject({
+      status: "published",
+      builderContentId: "builder-entry-1",
+    });
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toContain(
+      "/community-apps/community-response_123456?",
+    );
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+  });
+
   it("requires the reserved form organization to be configured", async () => {
     credentialMock.mockImplementation((key: string) =>
       key === "BUILDER_CMS_PRIVATE_KEY" ? "private-key" : undefined,
