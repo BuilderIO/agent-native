@@ -346,7 +346,8 @@ branch, stay on it.
    that skill’s tick loop exactly. Before yielding after PR creation, confirm
    that the task-scoped durable heartbeat
    `babysit-pr-<number>-<this task's threadId>` is active and targets this task,
-   following the babysit ownership check. An ACTIVE legacy per-PR heartbeat or
+   following the babysit ownership check and its atomic conditional-update or
+   serialized-coordinator requirement. An ACTIVE legacy per-PR heartbeat or
    task-scoped heartbeat targeting another task is owned by that task: do not
    overwrite, pause, or duplicate it; keep this ship invocation in the
    foreground while the existing owner continues. Treat `babysit-pr` as the

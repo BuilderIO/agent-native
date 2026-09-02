@@ -46,26 +46,30 @@ merging, except when the user explicitly invokes `/ship-now`.
    `rrule: FREQ=MINUTELY;INTERVAL=2`, `status: ACTIVE`,
    `targetThreadId: <this task's threadId>`, and
    `notificationPolicy: failed_runs_only`; update that exact task-scoped
-   automation on later ticks. The task-scoped name is the concurrency boundary:
-   different invocations for the same PR never write the same automation, so a
-   read-then-update claim cannot overwrite another task between its check and
-   its write. Never use the legacy shared `babysit-pr-<number>` identity for a
-   new invocation. If that legacy watcher or any task-scoped watcher with a
-   different owner is ACTIVE, leave it untouched and continue this invocation
-   in the foreground; do not overwrite, pause, or create any watcher for this
-   PR. This is a terminal foreground-only branch for this invocation, so skip
-   the missing-watcher create or resume path below. Only when no ACTIVE legacy
-   or foreign-owned watcher was found may this invocation create or resume its
-   own task-scoped watcher. Read the exact task-scoped automation before every
-   update and verify its persisted `targetThreadId` still matches this task. If
-   the exact watcher is missing or paused, create or resume only this
-   task-scoped watcher, then re-read it to verify the owner. If the host rejects
-   another heartbeat for this task, keep the foreground loop running. Re-check
-   the owner and exact watcher name immediately before every reschedule and
-   before pausing; a watcher must never mutate or pause another task's record. A
-   text-only wake-up reminder is not enough. If no durable wake-up tool is
-   available, keep the foreground loop running and do not stop after PR
-   creation.
+   automation on later ticks. The task-scoped name prevents different
+   invocations from targeting the same record, but it is not an atomic
+   ownership update. Every claim, reschedule, and pause must use one atomic
+   compare-and-set/update-if-current operation, or the host's serialized
+   coordinator, with the observed revision, ETag, or equivalent version plus
+   the expected `targetThreadId` and status. Never use a read followed by an
+   unconditional write. Never use the legacy shared
+   `babysit-pr-<number>` identity for a new invocation. If that legacy watcher
+   or any task-scoped watcher with a different owner is ACTIVE, leave it
+   untouched and continue this invocation in the foreground; do not overwrite,
+   pause, or create any watcher for this PR. This is a terminal foreground-only
+   branch for this invocation, so skip the missing-watcher create or resume path
+   below. Only when no ACTIVE legacy or foreign-owned watcher was found may this
+   invocation create or resume its own task-scoped watcher. Read the exact
+   task-scoped automation before every update and verify its persisted
+   `targetThreadId` still matches this task. Claim a missing or paused watcher
+   only with an atomic create-if-absent or update-if-current operation; a failed
+   precondition loses the claim and remains foreground-only. After every
+   successful mutation, reread and verify the owner and version. Before each
+   reschedule or pause, reread the current version and make the mutation
+   conditional on that exact version and owner; a failed precondition is a
+   no-op and must not be retried unconditionally. A text-only wake-up reminder
+   is not enough. If no durable wake-up tool is available, keep the foreground
+   loop running and do not stop after PR creation.
 2. Track when the last actionable item (new human/bot feedback, CI fix, merge-conflict resolution, or a local-change commit/push) occurred.
 3. After 30 minutes of no new actionable items with GitHub Actions CI green, cancel the loop (stop scheduling wake-ups) and report "All clear".
 
@@ -307,11 +311,13 @@ Only after 10 consecutive clean minutes, force merge with `gh pr merge <number> 
 - No new actionable feedback AND GitHub Actions green for 30 consecutive minutes
 - PR is merged or closed
 
-Before stopping on either condition, re-read this task's exact
-`babysit-pr-<number>-<this task's threadId>` heartbeat. Set that task-scoped
-automation to `PAUSED` only when its persisted `targetThreadId` still matches
-this task's threadId; otherwise leave it and every other owner's watcher alone.
-Never pause the legacy shared per-PR identity. Verify the PR's final state. Never
-leave a heartbeat owned by this task running after completion.
+Before stopping on either condition, reread this task's exact
+`babysit-pr-<number>-<this task's threadId>` heartbeat and capture its current
+version. Pause it only with the same atomic update-if-current or serialized
+coordinator operation, requiring that version and this task's
+`targetThreadId`; otherwise leave it and every other owner's watcher alone. A
+failed precondition is a no-op. Never pause the legacy shared per-PR identity.
+Verify the PR's final state. Never leave a heartbeat owned by this task running
+after completion.
 
 Before stopping OR merging, the unaddressed-comments command above must print **nothing** — re-run it as the final gate. "I replied earlier" is not sufficient; bots may have posted new rounds since.
