@@ -41,6 +41,7 @@ import {
   putRecordingBackupChunk,
   putRecordingBackupMeta,
 } from "@/lib/recording-backup";
+import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
 import { uploadChunkRequest } from "@/lib/upload-request";
 
 // Re-exported for existing callers; the canonical impls live in
@@ -1448,6 +1449,10 @@ export class RecorderEngine {
         const remainder = new Blob(this.pendingStreamBlobs, {
           type: this.mimeType,
         });
+        void this.uploadThumbnailForBlob(
+          new Blob(this.localChunks, { type: this.mimeType }),
+          this.uploadAbort?.signal,
+        );
         this.pendingStreamBlobs = [];
         this.pendingStreamBytes = 0;
         result = await this.uploadChunk(remainder, this.chunkIndex++, {
@@ -2025,6 +2030,8 @@ export class RecorderEngine {
     },
     signal?: AbortSignal,
   ): Promise<Record<string, unknown> | undefined> {
+    void this.uploadThumbnailForBlob(blob, signal);
+
     // Reset the upload index for post-stop blob uploads: MP4/QuickTime never
     // streamed chunks, and the compression path has just cleared server chunks.
     this.chunkIndex = 0;
@@ -2142,6 +2149,8 @@ export class RecorderEngine {
       throw new Error("Cannot retry an empty recording upload.");
     }
 
+    void this.uploadThumbnailForBlob(blob, signal);
+
     this.chunkIndex = 0;
     const totalChunks = Math.ceil(blob.size / STREAM_CHUNK_BYTES);
     let result: Record<string, unknown> | undefined;
@@ -2174,6 +2183,22 @@ export class RecorderEngine {
     }
 
     return result;
+  }
+
+  private async uploadThumbnailForBlob(
+    blob: Blob,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (!this.opts.recordingId || blob.size === 0) return;
+    try {
+      await uploadVideoBlobThumbnail(this.opts.recordingId, blob, { signal });
+    } catch (error) {
+      if (signal?.aborted) return;
+      console.warn("[recorder] upload-time thumbnail skipped", {
+        recordingId: this.opts.recordingId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private async uploadChunk(
