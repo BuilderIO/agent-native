@@ -560,6 +560,11 @@ const LIBRARY_BACKDROP_CSS = [
   ".library-window-topbar span { width: 11px; height: 11px; border-radius: 999px; background: #4d4d4d; }",
   ".library-window-body { flex: 1; min-height: 0; display: flex; }",
 
+  // The real tray popover is dark in the product screenshots; the imported
+  // stylesheet only reaches that palette through prefers-color-scheme, which
+  // varies per capture machine. Pin the dark values so the shot is stable.
+  ".app-recorder { --bg: #212121; --surface: #262626; --surface-hover: #2e2e2e; --surface-strong: #3d3d3d; --fg: #f5f5f5; --fg-muted: #a3a3a3; --fg-subtle: #737373; --border: #3d3d3d; --border-strong: #4d4d4d; --brand: #f5f5f5; --brand-hover: #e5e5e5; --brand-ring: rgba(245, 245, 245, 0.28); --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4); --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3); color: var(--fg); }",
+
   ".library-sidebar { width: 216px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; padding: 14px 12px; background: #181818; border-right: 1px solid #2c2c2c; box-sizing: border-box; }",
   ".library-brand { display: flex; align-items: center; gap: 8px; padding: 4px 4px 12px; }",
   ".library-brand-mark { height: 14px; width: 24px; flex-shrink: 0; color: #e6e6e6; }",
