@@ -9501,6 +9501,7 @@ function DesignEditor() {
         // any structural/source mutation merely because it was behind another
         // layer at the pointer location.
         persistPendingNodeId: false,
+        breakpointWidthPx: candidate.breakpointWidthPx,
       });
       focusDesignInspectorForSelection();
     },
@@ -9519,7 +9520,7 @@ function DesignEditor() {
   }, []);
 
   const openRepromptComposer = useCallback(
-    (screenId: string, info: ElementInfo) => {
+    (screenId: string, info: ElementInfo, breakpointWidthPx?: number) => {
       if (!id || !canEditDesign) return;
       const screen = overviewScreens.find(
         (candidate) => candidate.id === screenId,
@@ -9541,6 +9542,7 @@ function DesignEditor() {
 
       handleScreenElementSelect(screenId, info, undefined, {
         persistPendingNodeId: false,
+        breakpointWidthPx,
       });
       setCommentsHidden(false);
       viewModeRef.current = "overview";
@@ -9573,14 +9575,22 @@ function DesignEditor() {
   const handleContextMenuReprompt = useCallback(() => {
     const screenId = activeFile?.id ?? activeFileId;
     if (!screenId || !selectedElement) return;
-    openRepromptComposer(screenId, selectedElement);
+    openRepromptComposer(
+      screenId,
+      selectedElement,
+      activeBreakpointWidthStateRef.current,
+    );
   }, [activeFile?.id, activeFileId, openRepromptComposer, selectedElement]);
 
   const handleContextMenuRepromptLayer = useCallback(
     (candidate: CanvasLayerHitCandidate) => {
       const screenId = candidate.screenId ?? activeFile?.id ?? activeFileId;
       if (!screenId) return;
-      openRepromptComposer(screenId, candidate.info);
+      openRepromptComposer(
+        screenId,
+        candidate.info,
+        candidate.breakpointWidthPx,
+      );
     },
     [activeFile?.id, activeFileId, openRepromptComposer],
   );
@@ -18118,7 +18128,9 @@ function DesignEditor() {
           onIframeHotkey={handleIframeHotkey}
           onFigmaClipboardPaste={handleCanvasFigmaClipboardPaste}
           onImagePaste={handleCanvasImagePaste}
-          onIframeContextMenu={handleIframeContextMenu}
+          onIframeContextMenu={(payload) =>
+            handleIframeContextMenu({ ...payload, breakpointWidthPx })
+          }
           onVisualStyleChange={(selector, styles, info, metadata) => {
             activateResponsiveScope();
             handleScreenVisualStyleChange(
@@ -18178,7 +18190,7 @@ function DesignEditor() {
           tweakValues={cssVarValues}
           drawMode={false}
           pinMode={screenIsActive && pinMode}
-          commentPinsHidden={!(screenIsActive && pinMode)}
+          commentPinsHidden={commentsHidden || !screenIsActive}
           onExitPinMode={handleExitReviewCommentMode}
           designId={id}
           designTitle={design?.title}
@@ -18230,6 +18242,7 @@ function DesignEditor() {
       canEditDesign,
       activeTool,
       pinMode,
+      commentsHidden,
       spacePanActive,
       overviewClearSelectionRequest,
       selectedCanvasSelector,

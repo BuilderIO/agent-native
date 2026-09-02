@@ -164,6 +164,7 @@ export interface CanvasLayerHitCandidate {
   key: string;
   label: string;
   screenId?: string;
+  breakpointWidthPx?: number;
   info: ElementInfo;
 }
 
