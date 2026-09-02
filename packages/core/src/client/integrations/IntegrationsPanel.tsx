@@ -23,7 +23,7 @@ import {
   matchesMcpConnectHost,
   resolveMcpConnectGuideId,
 } from "../../shared/mcp-connect-content.js";
-import { agentNativePath } from "../api-path.js";
+import { agentNativePath, appPath } from "../api-path.js";
 import {
   Tooltip,
   TooltipContent,
@@ -1201,7 +1201,9 @@ export function IntegrationsPanel() {
                 logo: <IconTerminal2 size={18} strokeWidth={1.8} />,
                 actionLabel: t("mcpIntegrations.connect"),
                 onAction: () => {
-                  const route = `${buildSettingsRoute("mcp")}?guide=${encodeURIComponent(externalHostGuide)}`;
+                  const route = appPath(
+                    `${buildSettingsRoute("mcp")}?guide=${encodeURIComponent(externalHostGuide)}`,
+                  );
                   window.history.pushState(null, "", route);
                   window.dispatchEvent(new PopStateEvent("popstate"));
                 },

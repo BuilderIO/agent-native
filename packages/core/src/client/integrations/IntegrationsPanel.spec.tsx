@@ -118,6 +118,7 @@ describe("IntegrationsPanel MCP connection errors", () => {
     container.remove();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("shows the connection cause and reconnects the saved server", async () => {
@@ -165,6 +166,7 @@ describe("IntegrationsPanel MCP connection errors", () => {
     ["Anthropic", "claude"],
     ["OpenAI", "chatgpt"],
     ["Codex", "codex"],
+    ["Cursor", "cursor"],
     ["xAI", "grok"],
   ])("routes %s searches to the shared MCP guide", async (query, guide) => {
     await act(async () => {
@@ -198,6 +200,37 @@ describe("IntegrationsPanel MCP connection errors", () => {
     expect(window.location.pathname).toBe("/settings/mcp");
     expect(new URLSearchParams(window.location.search).get("guide")).toBe(
       guide,
+    );
+  });
+
+  it("keeps the MCP guide route inside the mounted app", async () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/content");
+    window.history.replaceState({}, "", "/content/settings/integrations");
+
+    await act(async () => {
+      root.render(<IntegrationsPanel />);
+    });
+
+    const search = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Search integrations"]',
+    );
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(search, "Cursor");
+      search?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const connect = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "mcpIntegrations.connect",
+    );
+    await act(async () => connect?.click());
+
+    expect(window.location.pathname).toBe("/content/settings/mcp");
+    expect(new URLSearchParams(window.location.search).get("guide")).toBe(
+      "cursor",
     );
   });
 });

@@ -169,6 +169,12 @@ export const MCP_CONNECT_HOSTS: readonly McpConnectHost[] = [
     guideId: "codex",
   },
   {
+    id: "cursor",
+    label: "Cursor",
+    aliases: ["cursor"],
+    guideId: "cursor",
+  },
+  {
     id: "grok",
     label: "Grok",
     aliases: ["grok", "xai", "x.ai"],
@@ -180,31 +186,70 @@ export const MCP_CONNECT_HOST_SEARCH_TEXT = MCP_CONNECT_HOSTS.flatMap(
   (host) => [host.label, ...host.aliases],
 ).join(" ");
 
+const MCP_CONNECT_GENERIC_SEARCH_TERMS = [
+  "external ai host",
+  "mcp",
+  "model context protocol",
+  "connect",
+] as const;
+
+function normalizeMcpConnectQuery(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function queryContainsTerm(query: string, term: string): boolean {
+  if (query.length < 3) return false;
+  const normalizedTerm = normalizeMcpConnectQuery(term);
+  if (query === normalizedTerm) return true;
+  return ` ${query} `.includes(` ${normalizedTerm} `);
+}
+
+function queryMatchesHostAlias(query: string, alias: string): boolean {
+  const normalizedAlias = normalizeMcpConnectQuery(alias);
+  return (
+    queryContainsTerm(query, alias) ||
+    (query.length >= 3 &&
+      !query.includes(" ") &&
+      normalizedAlias.startsWith(query))
+  );
+}
+
+function matchingMcpConnectHosts(query: string): McpConnectHost[] {
+  return MCP_CONNECT_HOSTS.map((host) => ({
+    host,
+    specificity: Math.max(
+      0,
+      ...host.aliases
+        .filter((alias) => queryMatchesHostAlias(query, alias))
+        .map((alias) => normalizeMcpConnectQuery(alias).length),
+    ),
+  }))
+    .filter(({ specificity }) => specificity > 0)
+    .sort((left, right) => right.specificity - left.specificity)
+    .map(({ host }) => host);
+}
+
 export function resolveMcpConnectGuideId(
   query: string | null | undefined,
 ): McpConnectGuideId {
-  const normalized = query?.trim().toLowerCase();
+  const normalized = normalizeMcpConnectQuery(query ?? "");
   if (!normalized) return "claude";
-
-  const exactMatch = MCP_CONNECT_HOSTS.find((host) =>
-    host.aliases.some((alias) => alias === normalized),
-  );
-  if (exactMatch) return exactMatch.guideId;
-
-  const partialMatch = MCP_CONNECT_HOSTS.find((host) =>
-    host.aliases.some(
-      (alias) => alias.includes(normalized) || normalized.includes(alias),
-    ),
-  );
-  return partialMatch?.guideId ?? "other";
+  return matchingMcpConnectHosts(normalized)[0]?.guideId ?? "other";
 }
 
 export function matchesMcpConnectHost(query: string): boolean {
-  const normalized = query.trim().toLowerCase();
+  const normalized = normalizeMcpConnectQuery(query);
   if (!normalized) return true;
   return (
-    MCP_CONNECT_HOST_SEARCH_TEXT.toLowerCase().includes(normalized) ||
-    "external ai host mcp model context protocol connect".includes(normalized)
+    matchingMcpConnectHosts(normalized).length > 0 ||
+    MCP_CONNECT_GENERIC_SEARCH_TERMS.some((term) =>
+      queryContainsTerm(normalized, term),
+    )
   );
 }
 
