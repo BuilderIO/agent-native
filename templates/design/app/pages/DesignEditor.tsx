@@ -15120,52 +15120,31 @@ function DesignEditor() {
       </div>
     </div>
   );
-  const designShareTabLabelClassName =
-    "inline-flex items-center justify-center gap-1.5";
   const designSharePopoverClassName =
     "z-[100010] !w-[min(620px,calc(100vw-32px))] !p-3 " +
     "[&_[role=tablist]]:!inline-flex [&_[role=tablist]]:!w-fit [&_[role=tablist]]:!max-w-full [&_[role=tablist]]:!self-start [&_[role=tablist]]:!overflow-x-auto [&_[role=tablist]]:justify-start [&_[role=tablist]]:gap-1 [&_[role=tablist]]:rounded-lg [&_[role=tablist]]:border [&_[role=tablist]]:border-[var(--design-editor-panel-divider-color)] [&_[role=tablist]]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tablist]]:p-1 " +
     "[&_[role=tab]]:!h-8 [&_[role=tab]]:!flex-none [&_[role=tab]]:rounded-md [&_[role=tab]]:px-3 [&_[role=tab]]:!text-[12px] [&_[role=tab]]:font-semibold [&_[role=tab]]:shadow-none [&_[role=tab]]:ring-0 " +
-    "[&_[role=tab]:hover]:bg-white/70 dark:[&_[role=tab]:hover]:bg-[var(--design-editor-control-bg)] [&_[role=tab]:hover]:text-foreground " +
-    "[&_[role=tab][aria-selected=true]]:bg-white dark:[&_[role=tab][aria-selected=true]]:bg-[var(--design-editor-control-bg)] [&_[role=tab][aria-selected=true]]:text-foreground [&_[role=tab][aria-selected=true]]:shadow-sm [&_[role=tab][aria-selected=true]]:ring-1 [&_[role=tab][aria-selected=true]]:ring-[var(--design-editor-control-border)]";
+    "[&_[role=tab]:hover]:text-foreground " +
+    "[&_[role=tab][aria-selected=true]]:!bg-background dark:[&_[role=tab][aria-selected=true]]:!bg-[var(--design-editor-panel-bg)] [&_[role=tab][aria-selected=true]]:text-foreground";
   const designShareTabs = {
-    shareLabel: (
-      <span className={designShareTabLabelClassName}>
-        <IconLink className="size-3.5" />
-        {"Share link" /* i18n-ignore share tab label */}
-      </span>
-    ),
+    shareLabel: "Share link" /* i18n-ignore share tab label */,
     defaultValue: "share",
     tabs: [
       {
         value: "export",
-        label: (
-          <span className={designShareTabLabelClassName}>
-            <IconFileExport className="size-3.5" />
-            {t("designEditor.export")}
-          </span>
-        ),
+        label: t("designEditor.export"),
         content: shareExportTab,
       },
       {
         value: "send",
-        label: (
-          <span className={designShareTabLabelClassName}>
-            <IconTerminal2 className="size-3.5" />
-            {"Send to agent" /* i18n-ignore share tab label */}
-          </span>
-        ),
+        label: "Send to agent" /* i18n-ignore share tab label */,
         content: shareSendToTab,
       },
       {
         value: "context",
-        label: (
-          <span className={designShareTabLabelClassName}>
-            {t("creativeContext.share.tabLabel", {
-              defaultValue: "Context",
-            })}
-          </span>
-        ),
+        label: t("creativeContext.share.tabLabel", {
+          defaultValue: "Context",
+        }),
         content: (
           <CreativeContextShareTab
             resource={{
