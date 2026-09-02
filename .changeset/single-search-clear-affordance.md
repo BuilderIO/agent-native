@@ -1,5 +1,6 @@
 ---
 "@agent-native/core": patch
+"@agent-native/dispatch": patch
 ---
 
-Suppress WebKit's native search cancel widget so search fields render a single clear button instead of two.
+Search fields that draw their own clear button no longer also show WebKit's native cancel widget, so only one clear control renders.
