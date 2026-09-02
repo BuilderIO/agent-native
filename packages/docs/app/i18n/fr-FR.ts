@@ -521,7 +521,8 @@ const frFR = {
       download: "Télécharger",
       apps: "Apps",
       privacyPolicy: "Politique de confidentialité",
-      saasTerms: "Conditions SaaS",
+      saasTerms: "Conditions du service hébergé",
+      legalResources: "Ressources juridiques",
     },
   },
   gettingStarted: {
@@ -1756,6 +1757,35 @@ const frFR = {
   },
   legal: {
     lastUpdated: "Dernière mise à jour : {{date}}",
+    resources: {
+      eyebrow: "Ressources juridiques",
+      title: "Ressources juridiques pour Agent-Native",
+      intro:
+        "Politiques juridiques autonomes d’Agent-Native pour les applications et services hébergés.",
+      agentNative: {
+        title: "Politiques Agent-Native",
+        body: "Ces pages adaptent le cadre de politiques commun au projet open source et aux exemples hébergés d’Agent-Native.",
+        terms: "Conditions d’utilisation d’Agent-Native",
+        privacy: "Politique de confidentialité d’Agent-Native",
+      },
+      builder: {
+        title: "Politiques supplémentaires du service hébergé",
+        body: "Ces copies locales couvrent l’utilisation acceptable, les fonctions d’IA, les règles de la plateforme, la suspension et le retrait, les droits d’auteur et les demandes des autorités. La version anglaise fait foi.",
+      },
+      links: {
+        terms: "Accord de services SaaS",
+        privacy: "Politique de confidentialité",
+        acceptableUse: "Politique d’utilisation acceptable",
+        aiTerms: "Conditions relatives à l’IA",
+        platformRules: "Règles de la plateforme",
+        takedown: "Politique de suspension, retrait et traitement des données",
+        lawEnforcement: "Politique relative aux demandes des autorités",
+      },
+      notIncluded: {
+        title: "Conditions commerciales non incluses",
+        body: "Agent-Native ne propose aucun forfait payant ni contrat d’entreprise. Les documents commerciaux comme les SLA d’entreprise, les conditions d’assistance, les DPA, les avenants de sécurité, les services professionnels et les frais ne sont pas inclus.",
+      },
+    },
     privacy: {
       eyebrow: "Politique de confidentialité",
       title: "Agent-Native applications hébergées",
@@ -1778,6 +1808,7 @@ const frFR = {
       sections: {
         scope: "Portée",
         information: "Informations que nous collectons",
+        cookies: "Cookies et analytique",
         clipsExtension: "Extension Chrome Agent-Native Clips",
         use: "Comment nous utilisons les informations",
         sharing: "Partage et tiers",
@@ -1793,6 +1824,8 @@ const frFR = {
           "Cette politique est destinée à compléter la politique plus large de Builder.io",
         scope2Suffix:
           "pour le comportement de l’application hébergée Agent-Native.",
+        cookies:
+          "Le site de documentation et les applications hébergées Agent-Native peuvent utiliser des cookies nécessaires à l’authentification et à la sécurité, au stockage de préférences comme la langue ou le thème, ainsi que des technologies analytiques configurées. Le site de documentation peut charger Google Analytics ou Google Tag Manager lorsque le déploiement les configure, et le service hébergé peut utiliser des analyses propriétaires pour mesurer la fiabilité et l’utilisation des fonctionnalités. Nous n’utilisons pas le contenu des applications hébergées pour la publicité de tiers. Vous pouvez contrôler les cookies dans les paramètres du navigateur, mais la désactivation des cookies nécessaires peut empêcher la connexion ou d’autres fonctions.",
         clips1:
           "Le Agent-Native Clips Chrome extension vous aide à démarrer des enregistrements basés sur le navigateur et, lorsqu'il est activé, à joindre les diagnostics du navigateur à un clip. Il peut collecter la source de capture sélectionnée, le support de caméra et de microphone que vous choisissez d'inclure, le titre et l'URL de l'onglet actif, ainsi que l'état d'authentification nécessaire pour connecter l'extension au Clips hébergé.",
         clips2:
@@ -1938,6 +1971,8 @@ const frFR = {
         scope2Middle: "et le Agent-Native",
         scope2Suffix:
           "Si vous utilisez une application Agent-Native hébergée au nom d'une entreprise ou d'une organisation, vous déclarez que vous avez le pouvoir d'accepter ces conditions pour cette organisation.",
+        scope3:
+          "Agent-Native ne propose ni offres payantes ni abonnements d’hébergement payants. Les conditions commerciales de Builder.io, telles que les bons de commande, les frais, l’assistance entreprise, les niveaux de service et les avenants relatifs au traitement des données, ne font pas partie de cette offre sauf accord écrit distinct.",
         hostedService:
           "Builder.io peut fournir des applications, des modèles, des démos, des espaces de travail partagés, des extensions de navigateur et des flux de travail d'agent associés Agent-Native hébergés. Le service hébergé peut être mis à jour, limité, suspendu ou interrompu à mesure que le produit évolue.",
         accounts1:

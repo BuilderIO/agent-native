@@ -510,7 +510,8 @@ const messages = {
       download: "下載",
       apps: "應用",
       privacyPolicy: "隱私權政策",
-      saasTerms: "SaaS 條款",
+      saasTerms: "代管服務條款",
+      legalResources: "法律資源",
     },
   },
   gettingStarted: {
@@ -1714,6 +1715,34 @@ const messages = {
   },
   legal: {
     lastUpdated: "上次更新：{{date}}",
+    resources: {
+      eyebrow: "法律資源",
+      title: "Agent-Native 法律資源",
+      intro: "適用於 Agent-Native 代管應用程式與服務的獨立法律政策。",
+      agentNative: {
+        title: "Agent-Native 政策",
+        body: "這些頁面將通用政策框架調整為適用於 Agent-Native 開放原始碼專案和託管範例的版本。",
+        terms: "Agent-Native 服務條款",
+        privacy: "Agent-Native 隱私權政策",
+      },
+      builder: {
+        title: "代管服務的其他政策",
+        body: "這些本地副本涵蓋可接受使用、AI 功能、平台規則、暫停與下架、著作權及執法請求。英文版本具有控制效力。",
+      },
+      links: {
+        terms: "SaaS 服務協議",
+        privacy: "隱私權政策",
+        acceptableUse: "可接受使用政策",
+        aiTerms: "AI 條款",
+        platformRules: "平台規則",
+        takedown: "暫停、下架和資料處理政策",
+        lawEnforcement: "執法機關請求政策",
+      },
+      notIncluded: {
+        title: "不包含商業條款",
+        body: "Agent-Native 沒有付費方案或企業合約。不包含企業 SLA、支援條款、DPA、安全附錄、專業服務條款及費用等商業資料。",
+      },
+    },
     privacy: {
       eyebrow: "隱私政策",
       title: "Agent-Native 託管應用程式",
@@ -1736,6 +1765,7 @@ const messages = {
       sections: {
         scope: "適用範圍",
         information: "我們收集的資訊",
+        cookies: "Cookie 和分析",
         clipsExtension: "Agent-Native Clips Chrome 擴充功能",
         use: "我們如何使用資訊",
         sharing: "共用和第三方",
@@ -1749,6 +1779,8 @@ const messages = {
           "Agent-Native 是開放原始碼的，來源程式碼可在 MIT 授權證下獲得。本政策僅適用於 Builder.io 為 Agent-Native 使用者運營的託管應用程式和服務。它不適用於其他人對程式碼的使用，包括分叉、自訂範本、私人部署或自託管版本。如果您操作自己的部署，則您應對自己的資料實踐和隱私政策負責。",
         scope2Prefix: "本政策旨在補充 Builder.io 更廣泛的政策",
         scope2Suffix: "對於 Agent-Native 託管應用程式行為。",
+        cookies:
+          "Agent-Native 文件網站和託管應用程式可能會使用必要的 Cookie 來進行驗證與安全防護、儲存語言或主題等偏好設定，以及執行已設定的分析技術。如果部署已進行設定，文件網站可能會載入 Google Analytics 或 Google Tag Manager；託管服務也可能使用第一方分析來衡量可靠性和功能使用情況。我們不會將託管應用程式內容用於第三方廣告。您可以在瀏覽器設定中管理 Cookie，但停用必要 Cookie 可能會導致無法登入或使用其他功能。",
         clips1:
           "Agent-Native Clips Chrome extension 可幫助您開始基於瀏覽器的錄製，並在啟用後將瀏覽器診斷附加到剪輯。它可能會收集所選的捕獲來源、您選取包含的攝影機和麥克風媒體、活動分頁標題和 URL，以及將擴充功能連線到託管 Clips 所需的驗證狀態。",
         clips2:
@@ -1891,6 +1923,8 @@ const messages = {
         scope2Middle: "和 Agent-Native",
         scope2Suffix:
           "如果您代表公司或組織使用託管 Agent-Native 應用程式，則表示您有權接受該組織的這些條款。",
+        scope3:
+          "Agent-Native 沒有付費方案或付費託管訂閱。除非另行簽署書面協議，Builder.io 的商業條款（例如訂單表、費用、企業支援、服務級別和資料處理附錄）不屬於本服務的一部分。",
         hostedService:
           "Builder.io 可以提供託管的 Agent-Native 應用程式、範本、示範、共用工作區、瀏覽器擴充功能和相關代理工作流程。隨著產品的發展，託管服務可能會更新、限制、暫停或終止。",
         accounts1:
