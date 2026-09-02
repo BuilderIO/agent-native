@@ -1,5 +1,6 @@
 import { getDbExec } from "../db/client.js";
 import { notifyWithDelivery } from "../notifications/registry.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import { getSetting, putSetting } from "../settings/store.js";
 
 /**
@@ -51,6 +52,11 @@ interface TurnCounts {
   bad: number;
 }
 
+interface AlertRecipient {
+  owner: string;
+  orgId: string;
+}
+
 /**
  * Scores the LAST run of each turn in the window, matching how
  * `scripts/chat-health.mjs` reports so a page and the CLI never disagree.
@@ -82,7 +88,7 @@ async function countRecentTurns(since: number): Promise<TurnCounts> {
 }
 
 /** Use one owner/admin only when the app has an unambiguous org scope. */
-async function alertOwner(): Promise<string | null> {
+async function alertOwner(): Promise<AlertRecipient | null> {
   const { rows } = await getDbExec().execute({
     sql: `SELECT org_id, email, role FROM org_members
           ORDER BY CASE role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, email`,
@@ -99,7 +105,8 @@ async function alertOwner(): Promise<string | null> {
   const email = String(
     (recipient as Record<string, unknown> | undefined)?.email ?? "",
   );
-  return email || null;
+  const [orgId] = [...orgIds];
+  return email && orgId ? { owner: email, orgId } : null;
 }
 
 export async function checkChatHealthAndAlert(
@@ -142,13 +149,13 @@ export async function checkChatHealthAndAlert(
     };
   }
 
-  let owner: string | null;
+  let recipient: AlertRecipient | null;
   try {
-    owner = await alertOwner();
+    recipient = await alertOwner();
   } catch (error) {
     return { status: "check-failed", reason: String(error) };
   }
-  if (!owner) {
+  if (!recipient) {
     return {
       status: "delivery-failed",
       reason:
@@ -159,23 +166,27 @@ export async function checkChatHealthAndAlert(
   const pct = Math.round(badRate * 100);
   let delivery: Awaited<ReturnType<typeof notifyWithDelivery>>;
   try {
-    delivery = await notifyWithDelivery(
-      {
-        severity: "critical",
-        title: `Chat is failing: ${pct}% of turns ended without an answer`,
-        body:
-          `${counts.bad} of ${counts.turns} turns in the last hour ended without ` +
-          `an answer. Run \`node scripts/chat-health.mjs --hours 1\` for the ` +
-          `per-reason breakdown.`,
-        channels: ["slack"],
-        metadata: {
-          turns: counts.turns,
-          bad: counts.bad,
-          badRate,
-          windowMs: WINDOW_MS,
-        },
-      },
-      { owner },
+    delivery = await runWithRequestContext(
+      { userEmail: recipient.owner, orgId: recipient.orgId },
+      () =>
+        notifyWithDelivery(
+          {
+            severity: "critical",
+            title: `Chat is failing: ${pct}% of turns ended without an answer`,
+            body:
+              `${counts.bad} of ${counts.turns} turns in the last hour ended without ` +
+              `an answer. Run \`node scripts/chat-health.mjs --hours 1\` for the ` +
+              `per-reason breakdown.`,
+            channels: ["slack"],
+            metadata: {
+              turns: counts.turns,
+              bad: counts.bad,
+              badRate,
+              windowMs: WINDOW_MS,
+            },
+          },
+          { owner: recipient.owner },
+        ),
     );
   } catch (error) {
     console.error("[chat-health-alert] Slack delivery failed:", error);
