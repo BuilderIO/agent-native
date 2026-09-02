@@ -1190,6 +1190,103 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
+  describe("details bodies authored as ordinary Markdown", () => {
+    it("preserves supported unindented block children inside a native toggle", () => {
+      const source = L(
+        "<details>",
+        "<summary>Planned revisions</summary>",
+        "Paragraph with `inline code`.",
+        "## Heading",
+        "- bullet",
+        "> quote",
+        "```ts",
+        "\tconst answer = 42;",
+        "```",
+        "![diagram](https://example.com/diagram.png)",
+        "</details>",
+      );
+
+      const toggle = nfmToDoc(source).content[0];
+      expect(toggle?.type).toBe("notionToggle");
+      expect(toggle?.content?.map((node) => node.type)).toEqual([
+        "paragraph",
+        "heading",
+        "bulletList",
+        "blockquote",
+        "codeBlock",
+        "image",
+      ]);
+      expect(toggle?.content?.[4]?.content?.[0]?.text).toBe(
+        "\tconst answer = 42;",
+      );
+      expect(canonicalizeNfm(source)).toBe(
+        L(
+          "<details>",
+          "<summary>Planned revisions</summary>",
+          "\tParagraph with `inline code`.",
+          "\t## Heading",
+          "\t- bullet",
+          "\t> quote",
+          "\t```ts",
+          "\t\tconst answer = 42;",
+          "\t```",
+          "\t![diagram](https://example.com/diagram.png)",
+          "</details>",
+        ),
+      );
+    });
+
+    it("keeps already-canonical and mixed-indentation details content nested", () => {
+      const source = L(
+        "<details>",
+        "<summary>Mixed</summary>",
+        "\tCanonical child",
+        "Unindented child",
+        "\t- canonical list",
+        "</details>",
+      );
+
+      const expected = L(
+        "<details>",
+        "<summary>Mixed</summary>",
+        "\tCanonical child",
+        "\tUnindented child",
+        "\t- canonical list",
+        "</details>",
+      );
+      expect(canonicalizeNfm(source)).toBe(expected);
+      expect(canonicalizeNfm(expected)).toBe(expected);
+    });
+
+    it("does not treat a details close tag inside fenced code as the container close", () => {
+      const source = L(
+        "<details>",
+        "<summary>HTML example</summary>",
+        "```html",
+        "</details>",
+        "```",
+        "</details>",
+      );
+
+      const toggle = nfmToDoc(source).content[0];
+      expect(toggle?.type).toBe("notionToggle");
+      expect(toggle?.content?.[0]).toMatchObject({
+        type: "codeBlock",
+        content: [{ type: "text", text: "</details>" }],
+      });
+      expect(canonicalizeNfm(source)).toBe(
+        L(
+          "<details>",
+          "<summary>HTML example</summary>",
+          "\t```html",
+          "\t</details>",
+          "\t```",
+          "</details>",
+        ),
+      );
+    });
+  });
+
   // n20: canonicalization must never apply the editor-only
   // terminal-filler-paragraph trim, or intentional Notion empty blocks are
   // deleted (and nesting must not apply the trim at all).
