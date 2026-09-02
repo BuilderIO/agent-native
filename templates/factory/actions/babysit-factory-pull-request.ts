@@ -31,9 +31,11 @@ import {
 import {
   babysitFingerprint,
   babysitOutOfScopeClause,
+  countHumanReviewComments,
   DEFAULT_BABYSIT_BOT_AUTHORS,
   DEFAULT_BABYSIT_PR_COMMENT,
   formatBabysitAuditSummary,
+  hasHumanChangesRequested,
   hasMergeConflict,
   reconcileBabysitState,
   shouldPostBabysitComment,
@@ -312,7 +314,11 @@ export default defineAction({
       mergeableState: pullRequest.mergeableState,
     });
     const parkedPatch = {
-      prBabysitReviewCommentCount: snapshot.comments.length,
+      prBabysitHumanReviewCommentCount: countHumanReviewComments(
+        snapshot.comments,
+      ),
+      prBabysitCommentsTruncated: snapshot.commentsTruncated === true,
+      prBabysitChangesRequested: hasHumanChangesRequested(snapshot.reviews),
       prBabysitMergeConflict: mergeConflict,
     };
     const evidenceDetails = {
@@ -465,8 +471,7 @@ export default defineAction({
       prBabysitLastCheckedAt: nowIso,
       prBabysitLastCommentAt: nowIso,
       prBabysitLastCommentUrl: comment.htmlUrl,
-      prBabysitReviewCommentCount: snapshot.comments.length,
-      prBabysitMergeConflict: mergeConflict,
+      ...parkedPatch,
     });
     return {
       ok: true,

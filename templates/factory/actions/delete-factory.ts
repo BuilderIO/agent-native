@@ -28,6 +28,7 @@ import {
 import {
   listFactoryAutomationCleanupPaths,
   removeFactoryAutomationResources,
+  removeFactoryAutomationRunHistory,
   restoreFactoryAutomationSnapshots,
   snapshotFactoryAutomations,
 } from "../server/plugins/factory-scheduler-job.js";
@@ -189,6 +190,24 @@ export default defineAction({
         name: factory.name,
         verified: false,
         verificationError: `Automations still present: ${leftoverJobs.join(", ")}`,
+      };
+    }
+
+    try {
+      await removeFactoryAutomationRunHistory(
+        orgId,
+        factoryId,
+        userEmail,
+        snapshots.map((snapshot) => snapshot.path),
+      );
+    } catch (error) {
+      return {
+        ok: true,
+        factoryId,
+        name: factory.name,
+        verified: false,
+        verificationError:
+          error instanceof Error ? error.message : String(error),
       };
     }
 

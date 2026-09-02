@@ -21,6 +21,7 @@ const requireWorkspaceMemberMock = vi.hoisted(() => vi.fn());
 const workspaceMemberIdentityFromContextMock = vi.hoisted(() => vi.fn());
 const listFactoryAutomationCleanupPathsMock = vi.hoisted(() => vi.fn());
 const removeFactoryAutomationResourcesMock = vi.hoisted(() => vi.fn());
+const removeFactoryAutomationRunHistoryMock = vi.hoisted(() => vi.fn());
 const snapshotFactoryAutomationsMock = vi.hoisted(() => vi.fn());
 const restoreFactoryAutomationSnapshotsMock = vi.hoisted(() => vi.fn());
 
@@ -54,6 +55,7 @@ vi.mock("../server/lib/require-workspace-member.js", () => ({
 vi.mock("../server/plugins/factory-scheduler-job.js", () => ({
   listFactoryAutomationCleanupPaths: listFactoryAutomationCleanupPathsMock,
   removeFactoryAutomationResources: removeFactoryAutomationResourcesMock,
+  removeFactoryAutomationRunHistory: removeFactoryAutomationRunHistoryMock,
   snapshotFactoryAutomations: snapshotFactoryAutomationsMock,
   restoreFactoryAutomationSnapshots: restoreFactoryAutomationSnapshotsMock,
 }));
@@ -87,6 +89,7 @@ beforeEach(() => {
   });
   listFactoryAutomationCleanupPathsMock.mockResolvedValue([]);
   removeFactoryAutomationResourcesMock.mockResolvedValue(undefined);
+  removeFactoryAutomationRunHistoryMock.mockResolvedValue(undefined);
   snapshotFactoryAutomationsMock.mockResolvedValue(existingSnapshots);
   restoreFactoryAutomationSnapshotsMock.mockResolvedValue(undefined);
 });
@@ -132,6 +135,12 @@ describe("delete-factory", () => {
       "support-triage",
     );
     expect(removeFactoryAutomationResourcesMock).toHaveBeenCalledWith(
+      "org-1",
+      "support-triage",
+      "member@example.com",
+      ["jobs/factories/support-triage/factory-slack-feedback.md"],
+    );
+    expect(removeFactoryAutomationRunHistoryMock).toHaveBeenCalledWith(
       "org-1",
       "support-triage",
       "member@example.com",
@@ -200,6 +209,7 @@ describe("delete-factory", () => {
       "org-1",
       existingSnapshots,
     );
+    expect(removeFactoryAutomationRunHistoryMock).not.toHaveBeenCalled();
   });
 
   it("restores scheduled automations when schedule removal fails", async () => {
@@ -261,6 +271,7 @@ describe("delete-factory", () => {
       "org-1",
       existingSnapshots,
     );
+    expect(removeFactoryAutomationRunHistoryMock).not.toHaveBeenCalled();
   });
 
   it("returns an unverified success when post-commit confirmation cannot be read", async () => {
@@ -341,5 +352,6 @@ describe("delete-factory", () => {
         "Automations still present: jobs/factories/support-triage/factory-slack-custom.md",
     });
     expect(restoreFactoryAutomationSnapshotsMock).not.toHaveBeenCalled();
+    expect(removeFactoryAutomationRunHistoryMock).not.toHaveBeenCalled();
   });
 });

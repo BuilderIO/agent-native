@@ -53,6 +53,7 @@ import {
   ensureFactoryAutomations,
   factoryAutomationTemplatePrompt,
   removeFactoryAutomationResources,
+  removeFactoryAutomationRunHistory,
   snapshotFactoryAutomations,
 } from "./factory-scheduler-job.js";
 
@@ -99,7 +100,7 @@ describe("ensureFactoryAutomations", () => {
 });
 
 describe("removeFactoryAutomationResources", () => {
-  it("deletes prefix jobs, discovered factory jobs, and their run history", async () => {
+  it("deletes prefix jobs and discovered factory jobs without run history", async () => {
     const prefixPath =
       "jobs/factories/support-triage/legacy-without-trigger.md";
     const discoveredPath =
@@ -154,6 +155,24 @@ describe("removeFactoryAutomationResources", () => {
       "__organization__:org-1",
       outsidePath,
     );
+    expect(deleteAutomationRunsMock).not.toHaveBeenCalled();
+  });
+
+  it("deletes run history for the same Factory job paths after SQL commit", async () => {
+    const prefixPath =
+      "jobs/factories/support-triage/legacy-without-trigger.md";
+    const discoveredPath =
+      "jobs/factories/support-triage/factory-slack-custom.md";
+    resourceListMock.mockResolvedValue([]);
+    listAutomationDefinitionsMock.mockResolvedValue([]);
+
+    await removeFactoryAutomationRunHistory(
+      "org-1",
+      "support-triage",
+      "owner@example.com",
+      [prefixPath, discoveredPath],
+    );
+
     expect(deleteAutomationRunsMock).toHaveBeenCalledWith(
       "__organization__:org-1",
       "factories/support-triage/legacy-without-trigger",
@@ -161,10 +180,6 @@ describe("removeFactoryAutomationResources", () => {
     expect(deleteAutomationRunsMock).toHaveBeenCalledWith(
       "__organization__:org-1",
       "factories/support-triage/factory-slack-custom",
-    );
-    expect(deleteAutomationRunsMock).toHaveBeenCalledWith(
-      "__organization__:org-1",
-      "factory-slack-feedback",
     );
   });
 

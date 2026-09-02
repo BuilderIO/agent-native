@@ -820,14 +820,7 @@ export async function removeFactoryAutomationResources(
         factoryAutomationJobPath(factoryId, seed.name),
       );
   const paths = [...new Set([...listed, ...extraPaths, ...seedFallback])];
-  await Promise.all(
-    paths.map(async (path) => {
-      await resourceDeleteByPath(owner, path);
-      if (path.endsWith(".md")) {
-        await deleteAutomationRuns(owner, factoryAutomationRunHistoryKey(path));
-      }
-    }),
-  );
+  await Promise.all(paths.map((path) => resourceDeleteByPath(owner, path)));
   const remaining = await listFactoryAutomationCleanupPaths(
     orgId,
     factoryId,
@@ -838,6 +831,28 @@ export async function removeFactoryAutomationResources(
       `Factory automation cleanup could not delete: ${remaining.join(", ")}.`,
     );
   }
+}
+
+export async function removeFactoryAutomationRunHistory(
+  orgId: string,
+  factoryId: string,
+  ownerEmail?: string,
+  extraPaths: readonly string[] = [],
+): Promise<void> {
+  const owner = organizationResourceOwner(orgId);
+  const listed = await listFactoryAutomationCleanupPaths(
+    orgId,
+    factoryId,
+    ownerEmail,
+  );
+  const paths = [...new Set([...listed, ...extraPaths])];
+  await Promise.all(
+    paths
+      .filter((path) => path.endsWith(".md"))
+      .map((path) =>
+        deleteAutomationRuns(owner, factoryAutomationRunHistoryKey(path)),
+      ),
+  );
 }
 
 async function ensureDefaultTriageConfig(

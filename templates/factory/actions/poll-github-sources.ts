@@ -30,6 +30,8 @@ import {
 } from "../server/triage/metadata.js";
 import {
   babysitLeavesReviewWindow,
+  countHumanReviewComments,
+  hasHumanChangesRequested,
   hasMergeConflict,
   shouldReopenParkedBabysit,
 } from "../server/triage/pr-babysit.js";
@@ -109,53 +111,64 @@ export default defineAction({
     ]);
     const parkedRechecks = new Map<
       number,
-      { reviewComments: number; mergeConflict: boolean }
+      {
+        humanReviewCommentCount: number;
+        commentsTruncated: boolean;
+        changesRequested: boolean;
+        mergeConflict: boolean;
+      }
     >();
-    if (includePullRequests && pullRequests.length > 0) {
-      const existingPrs = await db
-        .select({
-          id: triageItems.id,
-          metadataJson: triageItems.metadataJson,
-          pullRequestNumber: triageItems.pullRequestNumber,
-        })
-        .from(triageItems)
-        .where(
-          and(
-            orgFactoryItemFilter(orgId, factoryId),
-            eq(triageItems.source, "github"),
-          ),
-        );
-      const parkedNumbers = new Set(
-        existingPrs
-          .filter((row) =>
-            babysitLeavesReviewWindow(
-              metadataString(
-                parseTriageMetadata(row.metadataJson),
-                "prBabysitState",
-              ),
+    const existingPrs = includePullRequests
+      ? await db
+          .select({
+            id: triageItems.id,
+            metadataJson: triageItems.metadataJson,
+            pullRequestNumber: triageItems.pullRequestNumber,
+            headSha: triageItems.headSha,
+            sourceUrl: triageItems.sourceUrl,
+            title: triageItems.title,
+          })
+          .from(triageItems)
+          .where(
+            and(
+              orgFactoryItemFilter(orgId, factoryId),
+              eq(triageItems.source, "github"),
             ),
           )
-          .map((row) => row.pullRequestNumber)
-          .filter((value): value is number => typeof value === "number"),
-      );
-      await Promise.all(
-        pullRequests
-          .filter((pullRequest) => parkedNumbers.has(pullRequest.number))
-          .map(async (pullRequest) => {
-            const summary = await client.getPullRequestSummary(
-              repository,
-              pullRequest.number,
-            );
-            parkedRechecks.set(pullRequest.number, {
-              reviewComments: summary.reviewComments,
-              mergeConflict: hasMergeConflict({
-                mergeable: summary.mergeable,
-                mergeableState: summary.mergeableState,
-              }),
-            });
+      : [];
+    const parkedRows = existingPrs.filter(
+      (row) =>
+        typeof row.pullRequestNumber === "number" &&
+        babysitLeavesReviewWindow(
+          metadataString(
+            parseTriageMetadata(row.metadataJson),
+            "prBabysitState",
+          ),
+        ),
+    );
+    await Promise.all(
+      parkedRows.map(async (row) => {
+        const number = row.pullRequestNumber;
+        if (typeof number !== "number") return;
+        const summary = await client.getPullRequestSummary(repository, number);
+        const headSha = summary.headSha || row.headSha;
+        if (!headSha) return;
+        const evidence = await client.getPullRequestEvidence(
+          repository,
+          number,
+          headSha,
+        );
+        parkedRechecks.set(number, {
+          humanReviewCommentCount: countHumanReviewComments(evidence.comments),
+          commentsTruncated: evidence.commentsTruncated,
+          changesRequested: hasHumanChangesRequested(evidence.reviews),
+          mergeConflict: hasMergeConflict({
+            mergeable: summary.mergeable,
+            mergeableState: summary.mergeableState,
           }),
-      );
-    }
+        });
+      }),
+    );
     const now = new Date().toISOString();
     let issueCount = 0;
     let pullRequestCount = 0;
@@ -302,15 +315,22 @@ export default defineAction({
         const parkedRecheck = parkedRechecks.get(pullRequest.number);
         const reopenParked = shouldReopenParkedBabysit({
           parked: babysitLeavesReviewWindow(existingBabysitState),
-          storedReviewCommentCount: metadataNumber(
-            existingMetadata,
-            "prBabysitReviewCommentCount",
-          ),
-          nextReviewCommentCount: parkedRecheck?.reviewComments,
           storedMergeConflict:
             metadataBoolean(existingMetadata, "prBabysitMergeConflict") ===
             true,
           nextMergeConflict: parkedRecheck?.mergeConflict === true,
+          storedChangesRequested:
+            metadataBoolean(existingMetadata, "prBabysitChangesRequested") ===
+            true,
+          nextChangesRequested: parkedRecheck?.changesRequested === true,
+          storedCommentsTruncated:
+            metadataBoolean(existingMetadata, "prBabysitCommentsTruncated") ===
+            true,
+          storedHumanReviewCommentCount: metadataNumber(
+            existingMetadata,
+            "prBabysitHumanReviewCommentCount",
+          ),
+          nextHumanReviewCommentCount: parkedRecheck?.humanReviewCommentCount,
         });
         const metadataWithBabysit = reopenParked
           ? mergeTriageMetadata(metadata, { prBabysitState: "queued" })
@@ -383,6 +403,55 @@ export default defineAction({
             },
           });
         pullRequestCount += 1;
+      }
+      const listedPrNumbers = new Set(
+        pullRequests.map((pullRequest) => pullRequest.number),
+      );
+      for (const row of parkedRows) {
+        const number = row.pullRequestNumber;
+        if (typeof number !== "number" || listedPrNumbers.has(number)) continue;
+        const existingMetadata = parseTriageMetadata(row.metadataJson);
+        const parkedRecheck = parkedRechecks.get(number);
+        const reopenParked = shouldReopenParkedBabysit({
+          parked: true,
+          storedMergeConflict:
+            metadataBoolean(existingMetadata, "prBabysitMergeConflict") ===
+            true,
+          nextMergeConflict: parkedRecheck?.mergeConflict === true,
+          storedChangesRequested:
+            metadataBoolean(existingMetadata, "prBabysitChangesRequested") ===
+            true,
+          nextChangesRequested: parkedRecheck?.changesRequested === true,
+          storedCommentsTruncated:
+            metadataBoolean(existingMetadata, "prBabysitCommentsTruncated") ===
+            true,
+          storedHumanReviewCommentCount: metadataNumber(
+            existingMetadata,
+            "prBabysitHumanReviewCommentCount",
+          ),
+          nextHumanReviewCommentCount: parkedRecheck?.humanReviewCommentCount,
+        });
+        if (!reopenParked) continue;
+        const metadataWithBabysit = mergeTriageMetadata(row.metadataJson, {
+          prBabysitState: "queued",
+        });
+        await tx
+          .update(triageItems)
+          .set({
+            metadataJson: metadataWithBabysit,
+            updatedAt: now,
+            status: "pr_observed",
+          })
+          .where(and(eq(triageItems.id, row.id), eq(triageItems.orgId, orgId)));
+        updated += 1;
+        newlyObserved.push({
+          itemId: row.id,
+          source: "github",
+          sourceUrl: row.sourceUrl ?? "",
+          summary: row.title ?? `PR #${number}`,
+          number,
+          added: false,
+        });
       }
       await requireExistingFactory(
         tx as unknown as ReturnType<typeof getDb>,

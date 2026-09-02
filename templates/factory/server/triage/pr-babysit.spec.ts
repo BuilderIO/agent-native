@@ -11,6 +11,8 @@ import {
   reconcileBabysitState,
   shouldPostBabysitComment,
   shouldRecordBabysitAudit,
+  countHumanReviewComments,
+  hasHumanChangesRequested,
   shouldReopenParkedBabysit,
   shouldRequestBabysitWork,
   type BabysitInput,
@@ -399,29 +401,79 @@ describe("babysit work policy", () => {
     expect(
       shouldReopenParkedBabysit({
         parked: true,
-        storedReviewCommentCount: 1,
-        nextReviewCommentCount: 1,
         storedMergeConflict: false,
         nextMergeConflict: false,
+        storedChangesRequested: false,
+        nextChangesRequested: false,
+        storedCommentsTruncated: false,
+        storedHumanReviewCommentCount: 1,
+        nextHumanReviewCommentCount: 1,
       }),
     ).toBe(false);
     expect(
       shouldReopenParkedBabysit({
         parked: true,
-        storedReviewCommentCount: 1,
-        nextReviewCommentCount: 2,
         storedMergeConflict: false,
         nextMergeConflict: false,
+        storedChangesRequested: false,
+        nextChangesRequested: false,
+        storedCommentsTruncated: false,
+        storedHumanReviewCommentCount: 1,
+        nextHumanReviewCommentCount: 2,
       }),
     ).toBe(true);
     expect(
       shouldReopenParkedBabysit({
         parked: true,
-        storedReviewCommentCount: 1,
-        nextReviewCommentCount: 1,
         storedMergeConflict: false,
         nextMergeConflict: true,
+        storedChangesRequested: false,
+        nextChangesRequested: false,
+        storedCommentsTruncated: false,
+        storedHumanReviewCommentCount: 1,
+        nextHumanReviewCommentCount: 1,
       }),
+    ).toBe(true);
+    expect(
+      shouldReopenParkedBabysit({
+        parked: true,
+        storedMergeConflict: false,
+        nextMergeConflict: false,
+        storedChangesRequested: false,
+        nextChangesRequested: true,
+        storedCommentsTruncated: false,
+        storedHumanReviewCommentCount: 1,
+        nextHumanReviewCommentCount: 1,
+      }),
+    ).toBe(true);
+    expect(
+      shouldReopenParkedBabysit({
+        parked: true,
+        storedMergeConflict: false,
+        nextMergeConflict: false,
+        storedChangesRequested: false,
+        nextChangesRequested: false,
+        storedCommentsTruncated: true,
+        storedHumanReviewCommentCount: 1,
+        nextHumanReviewCommentCount: 40,
+      }),
+    ).toBe(false);
+    expect(
+      countHumanReviewComments([
+        comment({ id: "1", author: "reviewer" }),
+        comment({ id: "2", author: "builderio-bot" }),
+      ]),
+    ).toBe(1);
+    expect(
+      hasHumanChangesRequested([
+        { author: "builderio-bot", state: "changes_requested" },
+        { author: "reviewer", state: "commented" },
+      ]),
+    ).toBe(false);
+    expect(
+      hasHumanChangesRequested([
+        { author: "reviewer", state: "changes_requested" },
+      ]),
     ).toBe(true);
   });
 

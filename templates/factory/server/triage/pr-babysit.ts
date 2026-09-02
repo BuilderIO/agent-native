@@ -124,19 +124,54 @@ export function shouldRecordBabysitAudit(input: {
   return input.posted || input.previousState !== input.nextState;
 }
 
+export function isBabysitBotAuthor(
+  author: string | null | undefined,
+  botAuthors: readonly string[] = DEFAULT_BABYSIT_BOT_AUTHORS,
+): boolean {
+  const login = author?.trim().toLowerCase();
+  if (!login) return false;
+  return botAuthors.some((bot) => bot.toLowerCase() === login);
+}
+
+export function countHumanReviewComments(
+  comments: readonly { author: string }[],
+  botAuthors: readonly string[] = DEFAULT_BABYSIT_BOT_AUTHORS,
+): number {
+  return comments.filter(
+    (comment) => !isBabysitBotAuthor(comment.author, botAuthors),
+  ).length;
+}
+
+export function hasHumanChangesRequested(
+  reviews: readonly { author: string; state: string }[],
+  botAuthors: readonly string[] = DEFAULT_BABYSIT_BOT_AUTHORS,
+): boolean {
+  return reviews.some(
+    (review) =>
+      review.state === "changes_requested" &&
+      !isBabysitBotAuthor(review.author, botAuthors),
+  );
+}
+
+/** New human review work or a real conflict. Bot replies and truncated totals do not reopen. */
 export function shouldReopenParkedBabysit(input: {
   parked: boolean;
-  storedReviewCommentCount: number | null | undefined;
-  nextReviewCommentCount: number | null | undefined;
   storedMergeConflict: boolean;
   nextMergeConflict: boolean;
+  storedChangesRequested: boolean;
+  nextChangesRequested: boolean;
+  storedCommentsTruncated: boolean;
+  storedHumanReviewCommentCount: number | null | undefined;
+  nextHumanReviewCommentCount: number | null | undefined;
 }): boolean {
   if (!input.parked) return false;
   if (input.nextMergeConflict && !input.storedMergeConflict) return true;
+  if (input.nextChangesRequested && !input.storedChangesRequested) return true;
+  if (input.storedCommentsTruncated) return false;
   if (
-    typeof input.nextReviewCommentCount === "number" &&
-    typeof input.storedReviewCommentCount === "number" &&
-    input.nextReviewCommentCount > input.storedReviewCommentCount
+    typeof input.nextHumanReviewCommentCount === "number" &&
+    typeof input.storedHumanReviewCommentCount === "number" &&
+    input.nextHumanReviewCommentCount > input.storedHumanReviewCommentCount
   ) {
     return true;
   }

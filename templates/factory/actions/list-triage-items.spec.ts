@@ -187,4 +187,53 @@ describe("list-triage-items automation limits", () => {
       "fresh",
     ]);
   });
+
+  it("keeps scanning past a parked page so the review cursor stays usable", async () => {
+    const parked = (id: string) => ({
+      ...item(id, "99"),
+      id,
+      metadataJson: JSON.stringify({
+        authorId: "99",
+        author: "octocat",
+        prBabysitState: "waiting",
+      }),
+    });
+    const pages = [
+      [parked("p1"), parked("p2"), parked("p3")],
+      [item("fresh", "99")],
+    ];
+    let itemPages = 0;
+    getDbMock.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            orderBy: vi.fn(() => {
+              if (itemPages < pages.length) {
+                return {
+                  limit: vi.fn().mockResolvedValue(pages[itemPages++] ?? []),
+                };
+              }
+              return Promise.resolve([]);
+            }),
+          })),
+        })),
+      })),
+    });
+    const { default: action } = await import("./list-triage-items.js");
+    const result = await action.run(
+      {
+        factoryId: "support-triage",
+        source: "github",
+        needsReview: true,
+        limit: 2,
+      },
+      {
+        userEmail: "owner@example.com",
+      },
+    );
+    expect(result.items.map((entry: { id: string }) => entry.id)).toEqual([
+      "fresh",
+    ]);
+    expect(result.hasMore).toBe(false);
+  });
 });
