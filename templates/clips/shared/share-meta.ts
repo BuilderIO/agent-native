@@ -26,7 +26,6 @@ export type ClipsShareMetaRecording = {
   archivedAt?: string | null;
   trashedAt?: string | null;
   sourceAppName?: string | null;
-  sourceWindowTitle?: string | null;
   videoUrl?: string | null;
 };
 

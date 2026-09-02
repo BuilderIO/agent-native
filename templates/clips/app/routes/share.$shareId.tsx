@@ -133,7 +133,6 @@ type SharePageMetaRecording = {
   archivedAt: string | null;
   trashedAt: string | null;
   sourceAppName: string | null;
-  sourceWindowTitle: string | null;
   videoUrl: string | null;
 };
 
@@ -226,7 +225,6 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       archivedAt: schema.recordings.archivedAt,
       trashedAt: schema.recordings.trashedAt,
       sourceAppName: schema.recordings.sourceAppName,
-      sourceWindowTitle: schema.recordings.sourceWindowTitle,
       videoUrl: schema.recordings.videoUrl,
     })
     .from(schema.recordings)
@@ -284,7 +282,6 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     archivedAt: rec.archivedAt,
     trashedAt: rec.trashedAt,
     sourceAppName: rec.sourceAppName,
-    sourceWindowTitle: rec.sourceWindowTitle,
     videoUrl: rec.videoUrl,
   };
   const canExposeAnonymousAgentContext =

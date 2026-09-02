@@ -41,7 +41,6 @@ function recording(overrides: Record<string, unknown> = {}) {
     expiresAt: null,
     videoUrl: "https://media.example.com/rec-1.mp4",
     sourceAppName: null,
-    sourceWindowTitle: null,
     ...overrides,
   } as any;
 }
