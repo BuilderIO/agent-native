@@ -48,6 +48,7 @@ afterEach(() => {
 interface HarnessProps {
   value: string;
   contentUpdatedAt: string;
+  contentRevision?: string;
   editorOwnedFocus?: boolean;
 }
 
@@ -61,6 +62,10 @@ interface Captured {
   emitted: string[];
   setContentCalls: number;
   registerEmitted?: (markdown: string) => boolean;
+  reconciled?: Array<{
+    status: "merged" | "conflict" | "failed";
+    content: string;
+  }>;
 }
 
 function makeHarness() {
@@ -69,6 +74,7 @@ function makeHarness() {
   function Harness({
     value,
     contentUpdatedAt,
+    contentRevision,
     editorOwnedFocus = false,
   }: HarnessProps) {
     const guardsRef = React.useRef<ReturnType<
@@ -92,6 +98,13 @@ function makeHarness() {
       editor,
       value,
       contentUpdatedAt,
+      contentRevision,
+      onBaseAwareReconcile: (result) => {
+        (captured.reconciled ??= []).push({
+          status: result.status,
+          content: result.content,
+        });
+      },
       editable: true,
       isEditorFocused: () => editorOwnedFocus,
       getMarkdown: getEditorMarkdown,
@@ -189,6 +202,62 @@ function render(
 }
 
 describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
+  it("merges a newer non-overlapping revision and reports the combined draft", async () => {
+    const { captured, Harness } = makeHarness();
+    render(root, Harness, {
+      value: "Alpha\n\nBravo\n\nCharlie",
+      contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+      contentRevision: "revision-1",
+    });
+    await flush();
+
+    act(() =>
+      captured.editor!.commands.setContent("Alpha local\n\nBravo\n\nCharlie"),
+    );
+    render(root, Harness, {
+      value: "Alpha\n\nBravo\n\nCharlie server",
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      contentRevision: "revision-2",
+    });
+    await flush();
+
+    expect(getEditorMarkdown(captured.editor!)).toBe(
+      "Alpha local\n\nBravo\n\nCharlie server",
+    );
+    expect(captured.reconciled).toEqual([
+      {
+        status: "merged",
+        content: "Alpha local\n\nBravo\n\nCharlie server",
+      },
+    ]);
+  });
+
+  it("reports an overlap once and preserves the local draft", async () => {
+    const { captured, Harness } = makeHarness();
+    render(root, Harness, {
+      value: "Alpha\n\nBravo",
+      contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+      contentRevision: "revision-1",
+    });
+    await flush();
+    act(() => captured.editor!.commands.setContent("Alpha local\n\nBravo"));
+
+    const newer = {
+      value: "Alpha server\n\nBravo",
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      contentRevision: "revision-2",
+    };
+    render(root, Harness, newer);
+    await flush();
+    render(root, Harness, newer);
+    await flush();
+
+    expect(getEditorMarkdown(captured.editor!)).toBe("Alpha local\n\nBravo");
+    expect(captured.reconciled).toEqual([
+      { status: "conflict", content: "Alpha local\n\nBravo" },
+    ]);
+  });
+
   it("persists the first local edit after a synced empty collaborative document", async () => {
     const captured: Captured = {
       editor: null,

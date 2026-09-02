@@ -57,6 +57,9 @@ export type PageOwnedDocumentCachePatch = Pick<
   | "source"
   | "createdAt"
   | "updatedAt"
+  | "revision"
+  | "bodyRevision"
+  | "contentHash"
 >;
 
 export const LIST_DOCUMENTS_QUERY_KEY = [
@@ -423,6 +426,9 @@ export function documentUpdateSuccessPatch(
 ): PageOwnedDocumentCachePatch {
   return {
     updatedAt: data.updatedAt,
+    revision: data.revision,
+    bodyRevision: data.bodyRevision,
+    contentHash: data.contentHash,
     ...(variables.title !== undefined ? { title: data.title } : {}),
     ...(variables.content !== undefined ? { content: data.content } : {}),
     ...(variables.description !== undefined

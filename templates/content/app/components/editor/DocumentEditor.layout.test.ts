@@ -98,6 +98,26 @@ describe("document editor layout", () => {
     ).toBeLessThan(handler.indexOf("debouncedSave("));
   });
 
+  it("freezes body autosave until an overlapping reconcile conflict is explicitly resolved", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const handler = source.slice(
+      source.indexOf("const handleContentChange"),
+      source.indexOf("const handleContentSaveNow"),
+    );
+    expect(handler).toContain("if (documentReconcileConflict)");
+    expect(handler).toContain(
+      "setDocumentReconcileConflict({ localDraft: newContent });",
+    );
+    expect(handler.indexOf("return;")).toBeLessThan(
+      handler.indexOf("debouncedSave("),
+    );
+    expect(source).toContain('{t("editor.keepLocalDraft")}');
+    expect(source).toContain("void handleContentSaveNow(localDraft)");
+  });
+
   it("waits for the first authoritative document fetch, then stays mounted", () => {
     expect(
       shouldAwaitAuthoritativeDocument({

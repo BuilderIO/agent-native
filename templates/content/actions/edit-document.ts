@@ -1,10 +1,7 @@
+import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import {
-  agentTouchDocument,
-  hasCollabState,
-  searchAndReplace,
-} from "@agent-native/core/collab";
+import { agentTouchDocument } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
@@ -28,6 +25,7 @@ import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
+import { mutateDocumentBody } from "./_document-edit-mutation.js";
 import { editLinkedLocalDocumentThroughBrowser } from "./_linked-local-document-edit.js";
 
 interface TextEdit {
@@ -47,48 +45,78 @@ const reuseLabelSchema = z.object({
     .optional(),
 });
 
+const editDocumentSchema = z.object({
+  id: z
+    .string()
+    .optional()
+    .describe("Stable ID of the document to edit (required)."),
+  baseRevision: z
+    .string()
+    .optional()
+    .describe(
+      "Opaque revision returned by get-document for the exact body being edited.",
+    ),
+  idempotencyKey: z
+    .string()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe("Caller-generated stable key for one logical document edit."),
+  find: z
+    .string()
+    .optional()
+    .describe("Exact non-empty text to replace in single-edit mode."),
+  replace: z
+    .string()
+    .optional()
+    .describe(
+      'Replacement text in single-edit mode; omit to delete the matched text (default: "").',
+    ),
+  edits: z
+    .string()
+    .optional()
+    .describe(
+      "JSON array of {find, replace} objects for a snapshot-stable batch; use instead of find/replace.",
+    ),
+  contextPackId: z
+    .string()
+    .optional()
+    .describe("Exact Creative Context pack used for this edit."),
+  contextModeOverride: z
+    .literal("off")
+    .optional()
+    .describe(
+      "Disable Creative Context for this edit only without changing the saved preference.",
+    ),
+  reuseLabels: z
+    .array(reuseLabelSchema)
+    .optional()
+    .default([])
+    .describe("Exact item versions that influenced this document edit."),
+});
+
+const externalEditDocumentSchema = editDocumentSchema.extend({
+  id: z.string().min(1).describe("Stable ID of the document to edit."),
+  baseRevision: z
+    .string()
+    .min(1)
+    .describe(
+      "Opaque revision returned by get-document for the exact body being edited.",
+    ),
+  idempotencyKey: z
+    .string()
+    .min(1)
+    .max(200)
+    .describe("Caller-generated stable key for one logical document edit."),
+});
+
 export default defineAction({
   description:
-    "Surgically edit an existing document's Markdown with exact search-and-replace operations. Prefer this over update-document when preserving the rest of the document; every find string must match exactly.",
+    "Surgically edit an existing document's Markdown with exact search-and-replace operations. Prefer this over update-document when preserving the rest of the document; every find string must match exactly once in the immutable base. First call get-document, then pass its baseRevision and a caller-generated idempotencyKey.",
   deferLoading: false,
   mcpTool: true,
-  schema: z.object({
-    id: z
-      .string()
-      .optional()
-      .describe("Stable ID of the document to edit (required)."),
-    find: z
-      .string()
-      .optional()
-      .describe("Exact non-empty text to replace in single-edit mode."),
-    replace: z
-      .string()
-      .optional()
-      .describe(
-        'Replacement text in single-edit mode; omit to delete the matched text (default: "").',
-      ),
-    edits: z
-      .string()
-      .optional()
-      .describe(
-        "JSON array of {find, replace} objects for an ordered batch; use instead of find/replace.",
-      ),
-    contextPackId: z
-      .string()
-      .optional()
-      .describe("Exact Creative Context pack used for this edit."),
-    contextModeOverride: z
-      .literal("off")
-      .optional()
-      .describe(
-        "Disable Creative Context for this edit only without changing the saved preference.",
-      ),
-    reuseLabels: z
-      .array(reuseLabelSchema)
-      .optional()
-      .default([])
-      .describe("Exact item versions that influenced this document edit."),
-  }),
+  agentInputSchema: externalEditDocumentSchema,
+  schema: editDocumentSchema,
   http: false,
   run: async (args, ctx) => {
     const id = args.id;
@@ -127,6 +155,56 @@ export default defineAction({
 
     const access = await assertAccess("document", id, "editor");
     const existing = access.resource;
+    const isExternalCaller =
+      ctx?.caller === "tool" ||
+      ctx?.caller === "mcp" ||
+      ctx?.caller === "webmcp" ||
+      ctx?.caller === "a2a";
+    if (isExternalCaller) {
+      if (!args.baseRevision || !args.idempotencyKey) {
+        throw new ActionContractError(
+          "External document edits require baseRevision and idempotencyKey from get-document.",
+          { errorCode: "DOCUMENT_EDIT_PROTOCOL_REQUIRED", statusCode: 400 },
+        );
+      }
+      const isLinkedLocalSource =
+        existing.sourceMode === "local-files" &&
+        existing.sourceKind !== "folder" &&
+        Boolean(existing.sourcePath) &&
+        !id.startsWith("local-file:") &&
+        !id.startsWith("local-folder:");
+      if (isLinkedLocalSource) {
+        throw new ActionContractError(
+          "Revisioned external edits are unavailable for linked-local documents because the source-file write cannot share the SQL receipt transaction.",
+          {
+            errorCode: "LINKED_LOCAL_REVISION_PROTOCOL_UNAVAILABLE",
+            statusCode: 409,
+          },
+        );
+      }
+      const result = await mutateDocumentBody({
+        documentId: id,
+        baseRevision: args.baseRevision,
+        idempotencyKey: args.idempotencyKey,
+        edits,
+        ctx,
+      });
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      try {
+        agentTouchDocument(id, {
+          edit: {
+            descriptor: {
+              kind: "text",
+              quote: edits[0]?.replace.slice(0, 80) ?? "",
+            },
+            label: existing.title || undefined,
+          },
+        });
+      } catch (error) {
+        console.error("edit-document: agent presence publish failed", error);
+      }
+      return result;
+    }
 
     // ─── Apply edits to the document markdown ───────────────────────────────
     //
@@ -141,7 +219,7 @@ export default defineAction({
     // and could only patch text inside existing nodes, never create structure.)
     const applied = applyDocumentTextEdits(existing.content ?? "", edits);
     let { content } = applied;
-    const { results, appliedEdits, changeCount } = applied;
+    const { results, changeCount } = applied;
 
     if (changeCount === 0) {
       return { applied: 0, total: edits.length, results };
@@ -346,6 +424,7 @@ export default defineAction({
           .update(schema.documents)
           .set({
             content,
+            bodyRevision: existing.bodyRevision + 1,
             updatedAt: now,
             ...(linkedLocalReconciliationDocument ?? {}),
           })
@@ -411,35 +490,20 @@ export default defineAction({
       };
     }
 
-    // Make the agent edit VISIBLE as a live collaborator. Content's collab doc
-    // binds the TipTap Y.XmlFragment("default"), so a live editing session is
-    // patched surgically through `searchAndReplace` (which also auto-publishes
-    // agent presence + a lingering recent-edit highlight on the changed text).
-    // When no collab session exists (no editor open, XmlFragment unseeded) the
-    // SQL write above is authoritative and reconciles on next open; we still
-    // touch agent presence best-effort so a viewer who opens the doc mid-linger
-    // sees the AI flag. All of this is wrapped so presence never fails the edit.
+    // Presence is metadata only. Canonical SQL and change-sync are the sole
+    // body-delivery path; this action must never independently mutate Yjs.
     if (isAgentCaller) {
       try {
-        if (await hasCollabState(id)) {
-          for (const edit of appliedEdits) {
-            await searchAndReplace(id, edit.find, edit.replace, "agent");
-          }
-        } else {
-          const firstChange = appliedEdits.find((e) => e.replace)?.replace;
-          agentTouchDocument(id, {
-            edit: {
-              descriptor: {
-                kind: "text",
-                quote: (firstChange ?? appliedEdits[0]?.find ?? "").slice(
-                  0,
-                  80,
-                ),
-              },
-              label: existing.title || undefined,
+        const firstChange = edits.find((edit) => edit.replace)?.replace;
+        agentTouchDocument(id, {
+          edit: {
+            descriptor: {
+              kind: "text",
+              quote: (firstChange ?? edits[0]?.find ?? "").slice(0, 80),
             },
-          });
-        }
+            label: existing.title || undefined,
+          },
+        });
       } catch (error) {
         console.error("edit-document: agent presence publish failed", error);
       }

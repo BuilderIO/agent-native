@@ -133,6 +133,7 @@ const messages = {
     copyUnsavedText: "複製我未儲存的文字",
     unsavedTextCopied: "已複製未儲存的文字",
     useDiskVersion: "使用磁碟版本",
+    keepLocalDraft: "保留我的版本",
     collabConnectingReadOnly: "正在連接即時編輯器。顯示唯讀快照。",
     liveDocumentSaveBeforeSyncFailed: "即時文件無法在同步前儲存。",
     documentTitle: "檔案標題",

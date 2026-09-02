@@ -41,6 +41,188 @@ export interface TopLevelDiff {
   toPos: number;
 }
 
+export interface TopLevelHunk {
+  baseFromIndex: number;
+  baseToIndex: number;
+  changedFromIndex: number;
+  changedToIndex: number;
+}
+
+export type BaseAwareReconcileResult =
+  | { status: "noop" }
+  | { status: "applied"; mergedDoc: ProseMirrorNode }
+  | { status: "conflict"; localDraft: ProseMirrorNode }
+  | { status: "failed"; reason: "schema" | "ambiguous" | "transaction" };
+
+function nodesEqual(left: ProseMirrorNode, right: ProseMirrorNode): boolean {
+  return left.eq(right);
+}
+
+/**
+ * Return every changed top-level run in base coordinates. The bounded LCS is
+ * intentionally conservative: large or duplicate-heavy ambiguous documents
+ * fail closed instead of guessing which identical block an edit targeted.
+ */
+export function diffTopLevelHunks(
+  baseDoc: ProseMirrorNode,
+  changedDoc: ProseMirrorNode,
+): TopLevelHunk[] | null {
+  const base = Array.from({ length: baseDoc.childCount }, (_, i) =>
+    baseDoc.child(i),
+  );
+  const changed = Array.from({ length: changedDoc.childCount }, (_, i) =>
+    changedDoc.child(i),
+  );
+  if (base.length * changed.length > 250_000) return null;
+
+  const width = changed.length + 1;
+  const lcs = new Uint32Array((base.length + 1) * width);
+  for (let i = base.length - 1; i >= 0; i--) {
+    for (let j = changed.length - 1; j >= 0; j--) {
+      lcs[i * width + j] = nodesEqual(base[i], changed[j])
+        ? 1 + lcs[(i + 1) * width + j + 1]
+        : Math.max(lcs[(i + 1) * width + j], lcs[i * width + j + 1]);
+    }
+  }
+
+  const matches: Array<[number, number]> = [];
+  let i = 0;
+  let j = 0;
+  while (i < base.length && j < changed.length) {
+    if (nodesEqual(base[i], changed[j])) {
+      matches.push([i++, j++]);
+      continue;
+    }
+    const skipBase = lcs[(i + 1) * width + j];
+    const skipChanged = lcs[i * width + j + 1];
+    if (skipBase === skipChanged) {
+      // A plain substitution leaves the same suffix LCS after advancing both
+      // sides. Treat that as one changed run; only competing cross-matches are
+      // ambiguous enough to fail closed.
+      const skipBoth = lcs[(i + 1) * width + j + 1];
+      if (skipBoth === skipBase) {
+        i++;
+        j++;
+        continue;
+      }
+      return null;
+    }
+    if (skipBase > skipChanged) i++;
+    else j++;
+  }
+
+  const hunks: TopLevelHunk[] = [];
+  let baseCursor = 0;
+  let changedCursor = 0;
+  for (const [baseMatch, changedMatch] of [
+    ...matches,
+    [base.length, changed.length] as [number, number],
+  ]) {
+    if (baseCursor !== baseMatch || changedCursor !== changedMatch) {
+      hunks.push({
+        baseFromIndex: baseCursor,
+        baseToIndex: baseMatch,
+        changedFromIndex: changedCursor,
+        changedToIndex: changedMatch,
+      });
+    }
+    baseCursor = baseMatch + 1;
+    changedCursor = changedMatch + 1;
+  }
+  return hunks;
+}
+
+function hunksOverlap(left: TopLevelHunk, right: TopLevelHunk): boolean {
+  const leftInsert = left.baseFromIndex === left.baseToIndex;
+  const rightInsert = right.baseFromIndex === right.baseToIndex;
+  if (leftInsert && rightInsert) {
+    return left.baseFromIndex === right.baseFromIndex;
+  }
+  if (leftInsert) {
+    return (
+      left.baseFromIndex >= right.baseFromIndex &&
+      left.baseFromIndex <= right.baseToIndex
+    );
+  }
+  if (rightInsert) {
+    return (
+      right.baseFromIndex >= left.baseFromIndex &&
+      right.baseFromIndex <= left.baseToIndex
+    );
+  }
+  return (
+    left.baseFromIndex < right.baseToIndex &&
+    right.baseFromIndex < left.baseToIndex
+  );
+}
+
+function mappedLocalIndex(
+  baseIndex: number,
+  localHunks: readonly TopLevelHunk[],
+): number {
+  let mapped = baseIndex;
+  for (const hunk of localHunks) {
+    if (hunk.baseToIndex > baseIndex) break;
+    mapped +=
+      hunk.changedToIndex -
+      hunk.changedFromIndex -
+      (hunk.baseToIndex - hunk.baseFromIndex);
+  }
+  return mapped;
+}
+
+/** Apply authoritative server changes onto a locally edited document. */
+export function reconcileDocAgainstBase(
+  editor: Editor,
+  baseDoc: ProseMirrorNode,
+  serverDoc: ProseMirrorNode,
+): BaseAwareReconcileResult {
+  const liveDoc = editor.state.doc;
+  if (
+    baseDoc.type.schema !== editor.schema ||
+    serverDoc.type.schema !== editor.schema ||
+    baseDoc.type !== liveDoc.type ||
+    serverDoc.type !== liveDoc.type
+  ) {
+    return { status: "failed", reason: "schema" };
+  }
+  const localHunks = diffTopLevelHunks(baseDoc, liveDoc);
+  const serverHunks = diffTopLevelHunks(baseDoc, serverDoc);
+  if (!localHunks || !serverHunks) {
+    return { status: "failed", reason: "ambiguous" };
+  }
+  if (serverHunks.length === 0) return { status: "noop" };
+  if (
+    localHunks.some((local) =>
+      serverHunks.some((server) => hunksOverlap(local, server)),
+    )
+  ) {
+    return { status: "conflict", localDraft: liveDoc };
+  }
+
+  try {
+    const tr = editor.state.tr;
+    for (const hunk of [...serverHunks].reverse()) {
+      const fromIndex = mappedLocalIndex(hunk.baseFromIndex, localHunks);
+      const toIndex = mappedLocalIndex(hunk.baseToIndex, localHunks);
+      tr.replaceWith(
+        positionOfChild(tr.doc, fromIndex),
+        positionOfChild(tr.doc, toIndex),
+        serverDoc.content.cut(
+          positionOfChild(serverDoc, hunk.changedFromIndex),
+          positionOfChild(serverDoc, hunk.changedToIndex),
+        ),
+      );
+    }
+    tr.setMeta("addToHistory", false);
+    tr.setMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION, true);
+    editor.view.dispatch(tr);
+    return { status: "applied", mergedDoc: editor.state.doc };
+  } catch {
+    return { status: "failed", reason: "transaction" };
+  }
+}
+
 /**
  * Diff two documents at top-level-node granularity: trim the common prefix and
  * suffix (node equality via ProseMirror's `Node.eq`, which is deep) and return

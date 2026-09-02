@@ -97,6 +97,13 @@ describe("Content action-owned agent catalogs", () => {
     expect(createProperties?.content?.description).toContain("Markdown");
     expect(createProperties?.parentId?.description).toContain("root page");
     expect(editProperties?.find?.description).toContain("Exact");
-    expect(editProperties?.edits?.description).toContain("ordered batch");
+    expect(editProperties?.edits?.description).toContain(
+      "snapshot-stable batch",
+    );
+    expect(editDocument.tool.parameters?.required).toEqual(
+      expect.arrayContaining(["id", "baseRevision", "idempotencyKey"]),
+    );
+    expect(editProperties?.baseRevision?.description).toContain("get-document");
+    expect(editProperties?.idempotencyKey?.description).toContain("stable key");
   });
 });

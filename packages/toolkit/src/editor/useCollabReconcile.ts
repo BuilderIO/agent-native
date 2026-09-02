@@ -11,6 +11,7 @@ import {
   RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION,
   applyDocSurgically,
   defaultParseValue,
+  reconcileDocAgainstBase,
 } from "./surgical-apply.js";
 
 export { RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION };
@@ -60,6 +61,16 @@ export interface UseCollabReconcileOptions {
   value: string;
   /** Timestamp of the authoritative value; gates newer-than reconcile. */
   contentUpdatedAt?: string | null;
+  /** Opaque authoritative body revision. Enables base-aware reconciliation. */
+  contentRevision?: string | null;
+  /** Reports an automatic merge to persist, or a conflict whose local draft was preserved. */
+  onBaseAwareReconcile?: (result: {
+    status: "merged" | "conflict" | "failed";
+    content: string;
+    serverContent: string;
+    baseRevision: string;
+    serverRevision: string;
+  }) => void;
   /** Whether the editor accepts edits. Reconcile/seed only run for the live editor. */
   editable: boolean;
   /**
@@ -234,6 +245,8 @@ export function useCollabReconcile({
   awareness = null,
   value,
   contentUpdatedAt,
+  contentRevision,
+  onBaseAwareReconcile,
   editable,
   isEditorFocused = defaultIsEditorFocused,
   getMarkdown = getEditorMarkdown,
@@ -272,6 +285,11 @@ export function useCollabReconcile({
       ? initialAppliedUpdatedAt
       : (contentUpdatedAt ?? null),
   );
+  const authoritativeBaseRef = useRef<{
+    value: string;
+    revision: string;
+  } | null>(null);
+  const reportedConflictRevisionRef = useRef<string | null>(null);
 
   // Whether THIS client is the one that seeds the empty shared doc / applies an
   // authoritative external snapshot into it. Exactly one client does, so the
@@ -519,6 +537,10 @@ export function useCollabReconcile({
           (value === lastAppliedValueRef.current ||
             normalizedValue === lastAppliedSerializedRef.current))
       ) {
+        if (contentRevision) {
+          authoritativeBaseRef.current = { value, revision: contentRevision };
+          reportedConflictRevisionRef.current = null;
+        }
         if (contentUpdatedAt) {
           lastAppliedUpdatedAtRef.current = contentUpdatedAt;
         }
@@ -596,6 +618,74 @@ export function useCollabReconcile({
           return;
         }
         isSettingContentRef.current = true;
+        const authoritativeBase = authoritativeBaseRef.current;
+        if (
+          contentRevision &&
+          onBaseAwareReconcile &&
+          authoritativeBase &&
+          authoritativeBase.revision !== contentRevision
+        ) {
+          const parse =
+            parseValue === false ? null : (parseValue ?? defaultParseValue);
+          const baseDoc = parse?.(editor, authoritativeBase.value) ?? null;
+          const serverDoc = parse?.(editor, value) ?? null;
+          if (!baseDoc || !serverDoc) {
+            isSettingContentRef.current = false;
+            if (reportedConflictRevisionRef.current !== contentRevision) {
+              reportedConflictRevisionRef.current = contentRevision;
+              onBaseAwareReconcile({
+                status: "failed",
+                content: beforeMarkdown,
+                serverContent: value,
+                baseRevision: authoritativeBase.revision,
+                serverRevision: contentRevision,
+              });
+            }
+            return;
+          }
+          const reconciled = reconcileDocAgainstBase(
+            editor,
+            baseDoc,
+            serverDoc,
+          );
+          if (
+            reconciled.status === "conflict" ||
+            reconciled.status === "failed"
+          ) {
+            isSettingContentRef.current = false;
+            if (reportedConflictRevisionRef.current !== contentRevision) {
+              reportedConflictRevisionRef.current = contentRevision;
+              onBaseAwareReconcile({
+                status: reconciled.status,
+                content: beforeMarkdown,
+                serverContent: value,
+                baseRevision: authoritativeBase.revision,
+                serverRevision: contentRevision,
+              });
+            }
+            return;
+          }
+          const merged = getMarkdown(editor);
+          isSettingContentRef.current = false;
+          authoritativeBaseRef.current = { value, revision: contentRevision };
+          reportedConflictRevisionRef.current = null;
+          lastEmittedRef.current = merged;
+          pushEmittedRing(recentEmittedRef.current, merged);
+          lastAppliedValueRef.current = value;
+          lastAppliedSerializedRef.current = merged;
+          if (contentUpdatedAt)
+            lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+          if (reconciled.status === "applied" && merged !== normalized) {
+            onBaseAwareReconcile({
+              status: "merged",
+              content: merged,
+              serverContent: value,
+              baseRevision: authoritativeBase.revision,
+              serverRevision: contentRevision,
+            });
+          }
+          return;
+        }
         // Surgical path first: replace only the changed top-level run so
         // unchanged block NodeViews are never torn down and (under
         // Collaboration) Yjs sees a minimal edit instead of a full-fragment
@@ -623,6 +713,10 @@ export function useCollabReconcile({
         pushEmittedRing(recentEmittedRef.current, serialized);
         lastAppliedValueRef.current = value;
         lastAppliedSerializedRef.current = serialized;
+        if (contentRevision) {
+          authoritativeBaseRef.current = { value, revision: contentRevision };
+          reportedConflictRevisionRef.current = null;
+        }
         if (contentUpdatedAt) {
           lastAppliedUpdatedAtRef.current = contentUpdatedAt;
         }
@@ -637,6 +731,7 @@ export function useCollabReconcile({
     };
   }, [
     contentUpdatedAt,
+    contentRevision,
     editor,
     value,
     collab,
@@ -647,6 +742,7 @@ export function useCollabReconcile({
     parseValue,
     normalizeValue,
     isEditorFocused,
+    onBaseAwareReconcile,
   ]);
 
   const shouldIgnoreUpdate = (transaction: Transaction): boolean => {

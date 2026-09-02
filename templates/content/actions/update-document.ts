@@ -36,6 +36,10 @@ import {
   setFavoriteMembership,
 } from "./_content-favorites.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
+import {
+  documentContentHash,
+  documentRevisionToken,
+} from "./_document-edit-mutation.js";
 import { serializeDocumentSource } from "./_document-source.js";
 
 // Not (yet) part of the shared API surface — kept local to avoid touching
@@ -526,6 +530,7 @@ export default defineAction({
       if (args.description !== undefined)
         updates.description = args.description.trim();
       if (contentChanged) updates.content = content;
+      if (contentChanged) updates.bodyRevision = existing.bodyRevision + 1;
       if (iconChanged) updates.icon = args.icon;
       let contentCasConflict = false;
       await db.transaction(async (tx) => {
@@ -702,6 +707,12 @@ export default defineAction({
               canManage: canManageRole(access.role),
               createdAt: current.createdAt,
               updatedAt: current.updatedAt,
+              revision: documentRevisionToken(
+                current.bodyRevision,
+                current.content,
+              ),
+              bodyRevision: current.bodyRevision,
+              contentHash: documentContentHash(current.content),
               source: serializeDocumentSource(current),
               softDeletedDatabaseIds: [],
             },
@@ -788,6 +799,9 @@ export default defineAction({
         canManage: canManageRole(access.role),
         createdAt: doc.createdAt,
         updatedAt: doc.updatedAt,
+        revision: documentRevisionToken(doc.bodyRevision, doc.content),
+        bodyRevision: doc.bodyRevision,
+        contentHash: documentContentHash(doc.content),
         contentFidelity: inspectNfmFidelity(doc.content),
         source: serializeDocumentSource(doc),
         softDeletedDatabaseIds,
