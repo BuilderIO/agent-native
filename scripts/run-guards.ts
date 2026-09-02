@@ -63,6 +63,7 @@ const guards = [
   "guard:persistent-compositing",
   "guard:help-icon-scale",
   "guard:no-default-chrome",
+  "guard:single-search-clear",
   "guard:no-boot-data-work",
   "guard:no-untracked-imports",
   "guard:no-heavy-dashboard-list-reads",

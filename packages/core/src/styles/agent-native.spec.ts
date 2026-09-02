@@ -55,18 +55,22 @@ describe("agent-native shell surface tokens", () => {
   });
 
   /**
-   * Every search field in the repo draws its own clear button, so leaving
-   * WebKit's cancel widget in place renders two "x" controls side by side.
-   * Assert the suppression here rather than per component: the reported
-   * duplicate came back the moment a new search field was added.
+   * A search field that draws its own clear button must drop WebKit's cancel
+   * widget or it shows two "x" controls. The selector must stay scoped to the
+   * opt-in class: a bare `input[type="search"]` rule would also strip the only
+   * pointer-accessible clear from the fields that render no button of their
+   * own. `guard:single-search-clear` keeps the class and the button paired.
    */
-  it("suppresses the native search cancel and decoration widgets", () => {
+  it("suppresses the native search widgets only for fields that own their clear button", () => {
     const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",
     });
 
     expect(css).toMatch(
-      /input\[type="search"\]::-webkit-search-cancel-button,\s*input\[type="search"\]::-webkit-search-decoration,\s*input\[type="search"\]::-webkit-search-results-button,\s*input\[type="search"\]::-webkit-search-results-decoration\s*\{[^}]*-webkit-appearance: none;[^}]*appearance: none;/s,
+      /\.search-field-owns-clear::-webkit-search-cancel-button,\s*\.search-field-owns-clear::-webkit-search-decoration,\s*\.search-field-owns-clear::-webkit-search-results-button,\s*\.search-field-owns-clear::-webkit-search-results-decoration\s*\{[^}]*-webkit-appearance: none;[^}]*appearance: none;/s,
+    );
+    expect(css).not.toMatch(
+      /(^|[\s,])input\[type="search"\]::-webkit-search-cancel-button/m,
     );
   });
 
