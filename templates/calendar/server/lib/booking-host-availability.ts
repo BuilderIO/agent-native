@@ -7,7 +7,10 @@ import type {
 } from "../../shared/api.js";
 import { displayNameFromIdentifier } from "./booking-og-image.js";
 import { safeBookingTimeZone } from "./booking-timezone.js";
-import { getGoogleAccountTimezone } from "./google-calendar.js";
+import {
+  getGoogleAccountTimezone,
+  listOverlayEvents,
+} from "./google-calendar.js";
 
 export interface EligibleHostAvailability {
   email: string;
@@ -38,15 +41,42 @@ async function overlaysBack(
 }
 
 /**
+ * Alternative to in-app overlay reciprocation: a peer who has shared their
+ * real Google Calendar with the owner's connected account at "reader" level
+ * or above has already granted a real, Google-enforced permission — stronger
+ * than our own self-declared overlay list, since only "reader"+ (not
+ * "freeBusyReader") can satisfy events.list. A minimal single-day probe
+ * (cheap relative to a real event fetch) is enough: success proves the ACL
+ * grant exists without needing the peer to also reciprocate inside this app.
+ */
+async function hasVerifiedCalendarAccess(
+  ownerEmail: string,
+  peerEmail: string,
+): Promise<boolean> {
+  const timeMin = new Date().toISOString();
+  const timeMax = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const { errors } = await listOverlayEvents(
+    timeMin,
+    timeMax,
+    [peerEmail],
+    ownerEmail,
+  );
+  return errors.length === 0;
+}
+
+/**
  * Cross-references booking-link hosts against the owner's calendar overlay
- * ("subscribed peer") list. Only hosts the owner has explicitly overlaid,
- * AND who have reciprocally overlaid the owner back, get their real
- * working-hours schedule and time zone used for hard-filtering — everyone
- * else keeps today's free/busy-only behavior. The reciprocal check matters
- * because overlay membership alone is just the owner's own setting: without
- * it, an owner could add any registered email with no relationship required
- * and have that stranger's private schedule and time zone read and enriched
- * onto an anonymous public booking link.
+ * ("subscribed peer") list. A host the owner has explicitly overlaid gets
+ * their real working-hours schedule and time zone used for hard-filtering
+ * once the relationship is verified either way: the peer reciprocally
+ * overlaid the owner back inside this app, or the peer has separately
+ * granted the owner's connected Google account real "reader"+ calendar
+ * access (see `hasVerifiedCalendarAccess`). Everyone else keeps today's
+ * free/busy-only behavior. One of these two checks matters because overlay
+ * membership alone is just the owner's own setting: without it, an owner
+ * could add any registered email with no relationship required and have
+ * that stranger's private schedule and time zone read and enriched onto an
+ * anonymous public booking link.
  */
 export async function getEligibleHostAvailability(
   ownerEmail: string | undefined,
@@ -73,11 +103,15 @@ export async function getEligibleHostAvailability(
   );
   if (candidateEmails.length === 0) return [];
 
-  const reciprocity = await Promise.all(
-    candidateEmails.map((email) => overlaysBack(email, owner)),
+  const verified = await Promise.all(
+    candidateEmails.map(
+      async (email) =>
+        (await overlaysBack(email, owner)) ||
+        (await hasVerifiedCalendarAccess(ownerEmail, email)),
+    ),
   );
   const eligibleEmails = candidateEmails.filter(
-    (_email, index) => reciprocity[index],
+    (_email, index) => verified[index],
   );
   if (eligibleEmails.length === 0) return [];
 
@@ -141,7 +175,9 @@ export async function getHostSchedulingStatus(
   const owner = ownerEmail.toLowerCase();
   const emails = Array.from(
     new Set(
-      hostEmails.map((email) => email.toLowerCase()).filter((email) => email !== owner),
+      hostEmails
+        .map((email) => email.toLowerCase())
+        .filter((email) => email !== owner),
     ),
   );
   if (emails.length === 0) return [];
@@ -159,13 +195,17 @@ export async function getHostSchedulingStatus(
       if (!overlayEmails.has(email)) {
         return { email, status: "not-overlaid" };
       }
-      if (!(await overlaysBack(email, owner))) {
+      const verified =
+        (await overlaysBack(email, owner)) ||
+        (await hasVerifiedCalendarAccess(ownerEmail, email));
+      if (!verified) {
         return { email, status: "awaiting-reciprocal-overlay" };
       }
       const [config, calendarSettings] = await Promise.all([
-        getUserSetting(email, "calendar-availability") as Promise<
-          AvailabilityConfig | null
-        >,
+        getUserSetting(
+          email,
+          "calendar-availability",
+        ) as Promise<AvailabilityConfig | null>,
         getUserSetting(email, "calendar-settings") as Promise<{
           timezone?: string;
         } | null>,

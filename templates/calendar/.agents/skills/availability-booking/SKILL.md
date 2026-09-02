@@ -73,14 +73,18 @@ the owner's connected account and adds co-hosts as invited attendees.
 
 A co-host gets working-hours-aware scheduling only when the owner has also
 added that person to their calendar overlay ("subscribed to their calendar")
-via `update-overlay-people`, AND that person has reciprocally added the owner
-back to their own overlay list. `getEligibleHostAvailability`
+via `update-overlay-people`, AND the relationship is verified one of two ways:
+that person has reciprocally added the owner back to their own overlay list,
+or the peer has separately granted the owner's connected Google account real
+"reader"+ ACL access to their Google Calendar (verified by a probe call to
+`listOverlayEvents` — only "reader"+ access, not "freeBusyReader", can satisfy
+`events.list`). `getEligibleHostAvailability`
 (`server/lib/booking-host-availability.ts`) enforces this two-way check before
 reading a peer's private `calendar-availability`/`calendar-settings` — overlay
-membership is just the owner's own setting, so without the reciprocal check an
-owner could add any registered email with no relationship required and have
-that stranger's private schedule and time zone read and enriched onto an
-anonymous public booking link. For reciprocally-overlaid hosts, the
+membership is just the owner's own setting, so without one of these two
+verifications an owner could add any registered email with no relationship
+required and have that stranger's private schedule and time zone read and
+enriched onto an anonymous public booking link. For verified hosts, the
 booking-link slot generator additionally intersects the owner's
 `weeklySchedule` with the host's own saved `calendar-availability` schedule
 (converted through the host's own time zone) before checking Google free/busy

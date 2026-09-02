@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getUserSettingMock = vi.hoisted(() => vi.fn());
 const getGoogleAccountTimezoneMock = vi.hoisted(() => vi.fn());
+const listOverlayEventsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: getUserSettingMock,
 }));
 vi.mock("./google-calendar.js", () => ({
   getGoogleAccountTimezone: getGoogleAccountTimezoneMock,
+  listOverlayEvents: listOverlayEventsMock,
 }));
 
 import type { BookingLink } from "../../shared/api";
@@ -49,6 +51,11 @@ describe("getEligibleHostAvailability", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getGoogleAccountTimezoneMock.mockResolvedValue(null);
+    listOverlayEventsMock.mockResolvedValue({
+      events: [],
+      errors: [{ email: "peer@example.com", error: "no access" }],
+      accountErrors: [],
+    });
   });
 
   it("returns nothing when the owner has no overlay people", async () => {
@@ -71,7 +78,7 @@ describe("getEligibleHostAvailability", () => {
     ).resolves.toEqual([]);
   });
 
-  it("skips an overlaid host who has not reciprocally overlaid the owner back", async () => {
+  it("skips an overlaid host who has not reciprocally overlaid the owner back and has no verified Google access", async () => {
     getUserSettingMock.mockImplementation(
       async (email: string, key: string) => {
         if (
@@ -98,6 +105,47 @@ describe("getEligibleHostAvailability", () => {
     await expect(
       getEligibleHostAvailability("owner@example.com", ["peer@example.com"]),
     ).resolves.toEqual([]);
+  });
+
+  it("treats verified Google Calendar access as equivalent to reciprocal overlay", async () => {
+    getUserSettingMock.mockImplementation(
+      async (email: string, key: string) => {
+        if (
+          email === "owner@example.com" &&
+          key === "calendar-overlay-people"
+        ) {
+          return { people: [{ email: "peer@example.com", color: "#fff" }] };
+        }
+        // Peer never added the owner back inside the app...
+        if (email === "peer@example.com" && key === "calendar-overlay-people") {
+          return { people: [] };
+        }
+        if (email === "peer@example.com" && key === "calendar-availability") {
+          return {
+            timezone: "America/Chicago",
+            weeklySchedule: WEEKLY_SCHEDULE,
+          };
+        }
+        return null;
+      },
+    );
+    // ...but the owner's connected Google account can read the peer's real
+    // calendar, which only "reader"+ Google ACL access allows.
+    listOverlayEventsMock.mockResolvedValue({
+      events: [],
+      errors: [],
+      accountErrors: [],
+    });
+
+    await expect(
+      getEligibleHostAvailability("owner@example.com", ["peer@example.com"]),
+    ).resolves.toEqual([
+      {
+        email: "peer@example.com",
+        weeklySchedule: WEEKLY_SCHEDULE,
+        timezone: "America/Chicago",
+      },
+    ]);
   });
 
   it("returns schedule and timezone for an overlaid host with saved availability", async () => {
@@ -235,6 +283,11 @@ describe("getHostSchedulingStatus", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getGoogleAccountTimezoneMock.mockResolvedValue(null);
+    listOverlayEventsMock.mockResolvedValue({
+      events: [],
+      errors: [{ email: "peer@example.com", error: "no access" }],
+      accountErrors: [],
+    });
   });
 
   it("reports not-overlaid when the host is not in the owner's overlay list", async () => {
@@ -249,7 +302,7 @@ describe("getHostSchedulingStatus", () => {
     ]);
   });
 
-  it("reports awaiting-reciprocal-overlay when the peer has not added the owner back", async () => {
+  it("reports awaiting-reciprocal-overlay when the peer has not added the owner back and has no verified Google access", async () => {
     getUserSettingMock.mockImplementation(
       async (email: string, key: string) => {
         if (
@@ -270,6 +323,38 @@ describe("getHostSchedulingStatus", () => {
     ).resolves.toEqual([
       { email: "peer@example.com", status: "awaiting-reciprocal-overlay" },
     ]);
+  });
+
+  it("reports active when the peer has not reciprocally overlaid the owner but Google Calendar access is verified", async () => {
+    getUserSettingMock.mockImplementation(
+      async (email: string, key: string) => {
+        if (
+          email === "owner@example.com" &&
+          key === "calendar-overlay-people"
+        ) {
+          return { people: [{ email: "peer@example.com", color: "#fff" }] };
+        }
+        if (email === "peer@example.com" && key === "calendar-overlay-people") {
+          return { people: [] };
+        }
+        if (email === "peer@example.com" && key === "calendar-availability") {
+          return {
+            timezone: "America/Chicago",
+            weeklySchedule: WEEKLY_SCHEDULE,
+          };
+        }
+        return null;
+      },
+    );
+    listOverlayEventsMock.mockResolvedValue({
+      events: [],
+      errors: [],
+      accountErrors: [],
+    });
+
+    await expect(
+      getHostSchedulingStatus("owner@example.com", ["peer@example.com"]),
+    ).resolves.toEqual([{ email: "peer@example.com", status: "active" }]);
   });
 
   it("reports missing-schedule when the overlay is reciprocal but no schedule is saved", async () => {
