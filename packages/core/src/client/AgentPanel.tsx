@@ -1052,6 +1052,12 @@ function AgentPanelInner({
     },
     [chatOnly],
   );
+  const previousDefaultModeRef = useRef(defaultMode);
+  useEffect(() => {
+    if (previousDefaultModeRef.current === defaultMode) return;
+    previousDefaultModeRef.current = defaultMode;
+    switchMode(defaultMode);
+  }, [defaultMode, switchMode]);
   useEffect(() => {
     const nextMode = normalizeAgentPanelModeForSurface(mode, chatOnly);
     if (nextMode !== mode) switchMode(nextMode);
@@ -1119,7 +1125,15 @@ function AgentPanelInner({
   // CLI terminal tabs (ephemeral — not persisted to SQL)
   const [cliTabs, setCliTabs] = useState<string[]>(["cli-1"]);
   const [activeCliTab, setActiveCliTab] = useState("cli-1");
+  const [mountedCliTabs, setMountedCliTabs] = useState<string[]>([]);
   const cliCounter = useRef(1);
+
+  useEffect(() => {
+    if (mode !== "cli" || !activeCliTab) return;
+    setMountedCliTabs((current) =>
+      current.includes(activeCliTab) ? current : [...current, activeCliTab],
+    );
+  }, [activeCliTab, mode]);
 
   const addCliTab = useCallback(() => {
     const id = `cli-${++cliCounter.current}`;
@@ -1145,6 +1159,9 @@ function AgentPanelInner({
     },
     [onNewUiTab, switchMode],
   );
+  const cliTabsToRender = renderCliTab
+    ? cliTabs.filter((id) => mountedCliTabs.includes(id))
+    : cliTabs;
 
   const closeCliTab = useCallback(
     (id: string) => {
@@ -2510,7 +2527,7 @@ function AgentPanelInner({
         {/* CLI terminals — code-capable dev mode: real terminal, otherwise handoff. */}
         {(canUseCodeTools || renderCliTab) &&
           (mode === "cli" || Boolean(renderCliTab)) &&
-          cliTabs.map((id) => (
+          cliTabsToRender.map((id) => (
             <div
               key={id}
               className="min-h-0 relative flex-1"

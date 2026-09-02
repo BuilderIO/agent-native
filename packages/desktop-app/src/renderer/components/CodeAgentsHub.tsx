@@ -2711,7 +2711,9 @@ export default function CodeAgentsHub({
                 isActive={isTabActive}
                 chatEnabled={shouldUseDesktopAppChatShell(tab.path)}
                 toggleScopeId={tab.id}
-                defaultMode={terminalPreferences.enabled ? "cli" : "chat"}
+                defaultMode={
+                  terminalPreferences.enabled && isTabActive ? "cli" : "chat"
+                }
                 terminal={
                   terminalPreferences.enabled
                     ? {

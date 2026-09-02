@@ -277,7 +277,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain("onNewUiTab={handleNewUiTab}");
     expect(hubSource).toContain("shouldUseDesktopAppChatShell(tab.path)");
     expect(hubSource).toContain(
-      'defaultMode={terminalPreferences.enabled ? "cli" : "chat"}',
+      'terminalPreferences.enabled && isTabActive ? "cli" : "chat"',
     );
     expect(hubSource).toContain(
       "terminalPreferences.enabled\n                    ? {",

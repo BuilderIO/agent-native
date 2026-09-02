@@ -555,6 +555,11 @@ describe("AgentPanel header overflow actions", () => {
 
     expect(source).toContain('(mode === "cli" || Boolean(renderCliTab))');
     expect(source).toContain('active: mode === "cli" && id === activeCliTab');
+    expect(source).toContain("const [mountedCliTabs, setMountedCliTabs]");
+    expect(source).toContain(
+      "cliTabs.filter((id) => mountedCliTabs.includes(id))",
+    );
+    expect(source).toContain("previousDefaultModeRef.current === defaultMode");
   });
 });
 
