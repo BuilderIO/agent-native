@@ -954,28 +954,54 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const handleCombinedInboxChange = useCallback(
     (next: boolean) => {
       updateSettings.mutate({ combineInbox: next });
+      if (next) {
+        if (
+          view !== "inbox" ||
+          (!isInboxScopedAppLabel(activeLabel) &&
+            activeInboxTab !== OTHER_INBOX_TAB_PARAM)
+        ) {
+          return;
+        }
+        const nextParams = new URLSearchParams(location.search);
+        nextParams.delete("label");
+        nextParams.delete("tab");
+        const search = nextParams.toString();
+        void navigate({
+          pathname: "/inbox",
+          search: search ? `?${search}` : "",
+        });
+        return;
+      }
       if (
-        !next ||
         view !== "inbox" ||
-        (!isInboxScopedAppLabel(activeLabel) &&
-          activeInboxTab !== OTHER_INBOX_TAB_PARAM)
+        threadId ||
+        activeLabel ||
+        activeInboxTab ||
+        activeFilterId ||
+        activeSearchQuery
       ) {
         return;
       }
-      const nextParams = new URLSearchParams(location.search);
-      nextParams.delete("label");
-      nextParams.delete("tab");
-      const search = nextParams.toString();
-      void navigate({
-        pathname: "/inbox",
-        search: search ? `?${search}` : "",
-      });
+      const splitRoute = pinnedLabels.includes("important")
+        ? "/inbox?label=important"
+        : pinnedLabels.some(
+              (id) => !collapsibleViews.some((view) => view.id === id),
+            )
+          ? `/inbox?tab=${OTHER_INBOX_TAB_PARAM}`
+          : "/inbox";
+      if (splitRoute !== "/inbox") {
+        void navigate(splitRoute, { replace: true });
+      }
     },
     [
       activeInboxTab,
       activeLabel,
+      activeFilterId,
+      activeSearchQuery,
       location.search,
       navigate,
+      pinnedLabels,
+      threadId,
       updateSettings,
       view,
     ],

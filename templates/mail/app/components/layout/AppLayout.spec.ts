@@ -91,6 +91,8 @@ describe("AppLayout inbox rail count", () => {
       "onCombinedInboxChange={handleCombinedInboxChange}",
     );
     expect(source).toContain("!isInboxScopedAppLabel(activeLabel)");
+    expect(source).toContain('pinnedLabels.includes("important")');
+    expect(source).toContain("`/inbox?tab=${OTHER_INBOX_TAB_PARAM}`");
     expect(source).toContain("!combineInbox &&");
     expect(source).toContain("if (combineInbox) continue;");
     expect(source).toContain(
