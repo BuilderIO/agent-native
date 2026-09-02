@@ -623,6 +623,8 @@ export function ReviewCanvasPins({
 
   useEffect(() => {
     if (
+      !active ||
+      hidden ||
       !canvas ||
       !repromptDraftRequest ||
       repromptDraftRequest.fileId !== targetId ||
@@ -658,8 +660,10 @@ export function ReviewCanvasPins({
     setDraftComposerOpen(true);
     onRepromptDraftConsumed?.(repromptDraftRequest.nonce);
   }, [
+    active,
     canvas,
     frameNodeGeometry,
+    hidden,
     onRepromptDraftConsumed,
     repromptDraftRequest,
     targetId,

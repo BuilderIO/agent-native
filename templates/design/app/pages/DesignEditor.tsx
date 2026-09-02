@@ -18177,8 +18177,9 @@ function DesignEditor() {
           }
           tweakValues={cssVarValues}
           drawMode={false}
-          pinMode={false}
-          commentPinsHidden
+          pinMode={screenIsActive && pinMode}
+          commentPinsHidden={!(screenIsActive && pinMode)}
+          onExitPinMode={handleExitReviewCommentMode}
           designId={id}
           designTitle={design?.title}
           commentContextId={`${id}:${screen.id}`}
@@ -18228,6 +18229,7 @@ function DesignEditor() {
       mode,
       canEditDesign,
       activeTool,
+      pinMode,
       spacePanActive,
       overviewClearSelectionRequest,
       selectedCanvasSelector,
@@ -18259,6 +18261,7 @@ function DesignEditor() {
       design?.title,
       repromptDraftRequest,
       handleRepromptDraftConsumed,
+      handleExitReviewCommentMode,
       layoutGrids,
       t,
     ],

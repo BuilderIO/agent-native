@@ -588,6 +588,48 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("leaves an overview reprompt for the active visible canvas to consume", async () => {
+    const onConsumed = vi.fn();
+    const onClose = vi.fn();
+    const request = {
+      nonce: 3,
+      fileId: "screen-1",
+      target: {
+        nodeId: "hero",
+        selector: '[data-agent-native-node-id="hero"]',
+      },
+      point: { xPct: 50, yPct: 40 },
+    };
+    const renderPins = (active: boolean, hidden: boolean) => (
+      <ReviewCanvasPins
+        active={active}
+        hidden={hidden}
+        onClose={onClose}
+        canvasSelector=".review-test-canvas"
+        resourceType="design"
+        resourceId="design-1"
+        targetId="screen-1"
+        canPost
+        canResolve
+        sourceType="inline"
+        repromptDraftRequest={request}
+        onRepromptDraftConsumed={onConsumed}
+      />
+    );
+
+    await act(async () => root.render(renderPins(false, true)));
+    expect(onConsumed).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain(
+      "designEditor.nodeRewrite.composerTitle",
+    );
+
+    await act(async () => root.render(renderPins(true, false)));
+    expect(onConsumed).toHaveBeenCalledWith(3);
+    expect(document.body.textContent).toContain(
+      "designEditor.nodeRewrite.composerTitle",
+    );
+  });
+
   it("resets composer-local mode when a reprompt replaces an open comment draft", async () => {
     const iframe = document.createElement("iframe");
     iframe.setAttribute("data-design-preview-iframe", "");

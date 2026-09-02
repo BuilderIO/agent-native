@@ -187,7 +187,7 @@ describe("CanvasContextMenu Select layer", () => {
   });
 });
 
-describe("CanvasContextMenu regenerate", () => {
+describe("CanvasContextMenu edit with AI", () => {
   const candidate = {
     key: "hero",
     label: "Hero",
@@ -212,7 +212,7 @@ describe("CanvasContextMenu regenerate", () => {
       onReprompt,
     });
 
-    await act(async () => view.findButton("Regenerate")?.click());
+    await act(async () => view.findButton("Edit with AI")?.click());
     expect(onReprompt).toHaveBeenCalledWith(
       expect.objectContaining({ action: "reprompt", selectedCount: 1 }),
     );

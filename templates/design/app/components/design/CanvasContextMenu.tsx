@@ -376,7 +376,7 @@ export interface CanvasContextMenuProps {
 
 const DEFAULT_LABELS: CanvasContextMenuLabels = {
   selectLayer: "Select layer",
-  reprompt: "Regenerate…",
+  reprompt: "Edit with AI…",
   pasteHere: "Paste here",
   selectAll: "Select all",
   zoomToFit: "Zoom to fit",

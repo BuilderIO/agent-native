@@ -5020,6 +5020,29 @@ export function DesignCanvas({
     </div>
   );
 
+  const reviewCanvasPins =
+    designId && (screenId || commentContextId) ? (
+      <ReviewCanvasPins
+        active={!!pinMode}
+        hidden={commentPinsHidden}
+        onClose={() => onExitPinMode?.()}
+        canvasSelector={`[data-review-canvas-id="${reviewCanvasId}"]`}
+        resourceType="design"
+        resourceId={designId}
+        targetId={screenId ?? commentContextId ?? ""}
+        canPost={reviewCanPost}
+        canResolve={reviewCanResolve}
+        focusRequest={reviewFocusRequest}
+        onDispatchCommentToAgent={onDispatchCommentToAgent}
+        onSendThreadToAgent={onSendThreadToAgent}
+        sendingThreadId={reviewSendingThreadId}
+        sourceType={sourceType ?? (externalPreviewUrl ? "localhost" : "inline")}
+        sourceVersionHash={sourceContentHash(content)}
+        repromptDraftRequest={repromptDraftRequest}
+        onRepromptDraftConsumed={onRepromptDraftConsumed}
+      />
+    ) : null;
+
   if (embeddedFrame) {
     if (embeddedFrameFluid) {
       return (
@@ -5031,6 +5054,7 @@ export function DesignCanvas({
           className="relative h-full w-full overflow-hidden"
         >
           {iframeElement}
+          {reviewCanvasPins}
         </div>
       );
     }
@@ -5061,6 +5085,7 @@ export function DesignCanvas({
         >
           {iframeElement}
         </div>
+        {reviewCanvasPins}
       </div>
     );
   }
@@ -5144,29 +5169,7 @@ export function DesignCanvas({
         </div>
       )}
 
-      {designId && (screenId || commentContextId) ? (
-        <ReviewCanvasPins
-          active={!!pinMode}
-          hidden={commentPinsHidden}
-          onClose={() => onExitPinMode?.()}
-          canvasSelector={`[data-review-canvas-id="${reviewCanvasId}"]`}
-          resourceType="design"
-          resourceId={designId}
-          targetId={screenId ?? commentContextId ?? ""}
-          canPost={reviewCanPost}
-          canResolve={reviewCanResolve}
-          focusRequest={reviewFocusRequest}
-          onDispatchCommentToAgent={onDispatchCommentToAgent}
-          onSendThreadToAgent={onSendThreadToAgent}
-          sendingThreadId={reviewSendingThreadId}
-          sourceType={
-            sourceType ?? (externalPreviewUrl ? "localhost" : "inline")
-          }
-          sourceVersionHash={sourceContentHash(content)}
-          repromptDraftRequest={repromptDraftRequest}
-          onRepromptDraftConsumed={onRepromptDraftConsumed}
-        />
-      ) : null}
+      {reviewCanvasPins}
     </div>
   );
 }
