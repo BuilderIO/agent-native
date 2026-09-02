@@ -4195,4 +4195,180 @@ describe("DesktopIdentityBroker", () => {
     await expect(secondCeremony).resolves.toBe(true);
     expect(targetCookies.set).toHaveBeenCalledTimes(2);
   });
+
+  it("bounds concurrent workspace app session mints across distinct apps", async () => {
+    const authority = authorityFixture();
+    const appIds = ["mail", "design", "assets", "dispatch-child"];
+    const apps = appIds.map((id) => ({
+      ...appFixture(),
+      id,
+      origin: `https://${id}.agent-native.com`,
+      cookieNames: [`an_session_${id}`, "an_session"],
+      session: {
+        cookies: cookieStore(),
+        fetch: vi.fn(),
+      } as unknown as Electron.Session,
+    }));
+
+    let concurrent = 0;
+    let maxConcurrent = 0;
+    for (const app of apps) {
+      (app.session.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        async (input: string) => {
+          const url = new URL(input);
+          if (url.pathname === "/_agent-native/embed/start") {
+            concurrent += 1;
+            maxConcurrent = Math.max(maxConcurrent, concurrent);
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            concurrent -= 1;
+            return new Response("<html></html>", { status: 200 });
+          }
+          return url.pathname === "/_agent-native/auth/session"
+            ? sessionResponse("steve@example.com")
+            : new Response(null, { status: 404 });
+        },
+      );
+    }
+
+    const identityFetch = vi.fn(async (input: string, init?: RequestInit) => {
+      const url = new URL(input);
+      if (url.pathname === "/_agent-native/auth/session") {
+        return sessionResponse("steve@example.com");
+      }
+      if (
+        url.pathname ===
+        "/_agent-native/actions/create-workspace-app-embed-session"
+      ) {
+        const body = JSON.parse(String(init?.body)) as { app: string };
+        return new Response(
+          JSON.stringify({
+            startUrl: `https://${body.app}.agent-native.com/_agent-native/embed/start?ticket=${body.app}-ticket`,
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore([
+          sessionCookie(
+            "an_session_dispatch",
+            authority.origin,
+            "dispatch-session",
+          ),
+        ]),
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      openExternal: vi.fn(),
+      resolveApp: (id) =>
+        id === authority.id
+          ? authority
+          : (apps.find((app) => app.id === id) ?? null),
+      listApps: () => [authority, ...apps],
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+    broker.setStatusForSetting("signed-in");
+
+    // All four tabs mount together, the way they do at launch, and each
+    // independently asks the broker to ensure its own session.
+    await expect(
+      Promise.all(apps.map((app) => broker.ensureAppSession(app.id))),
+    ).resolves.toEqual([true, true, true, true]);
+
+    expect(maxConcurrent).toBeGreaterThan(0);
+    expect(maxConcurrent).toBeLessThanOrEqual(3);
+  });
+
+  it("retries a 429 mint response honoring Retry-After, then gives up distinctly from a hard failure", async () => {
+    vi.useFakeTimers();
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    try {
+      const authority = authorityFixture();
+      const mail = appFixture();
+      mail.session = {
+        cookies: cookieStore(),
+        fetch: vi.fn(async () => new Response(null, { status: 429 })),
+      } as unknown as Electron.Session;
+      (mail.session.fetch as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce(
+          new Response(null, {
+            status: 429,
+            headers: { "retry-after": "1" },
+          }),
+        )
+        .mockResolvedValueOnce(new Response(null, { status: 429 }))
+        .mockResolvedValueOnce(new Response(null, { status: 429 }));
+
+      const identityFetch = vi.fn(async (input: string) => {
+        const url = new URL(input);
+        if (url.pathname === "/_agent-native/auth/session") {
+          return sessionResponse("steve@example.com");
+        }
+        if (
+          url.pathname ===
+          "/_agent-native/actions/create-workspace-app-embed-session"
+        ) {
+          return new Response(
+            JSON.stringify({
+              startUrl: `${mail.origin}/_agent-native/embed/start?ticket=mail-ticket`,
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(null, { status: 404 });
+      });
+
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const broker = new DesktopIdentityBroker({
+        identitySession: {
+          cookies: cookieStore([
+            sessionCookie(
+              "an_session_dispatch",
+              authority.origin,
+              "dispatch-session",
+            ),
+          ]),
+          fetch: identityFetch,
+          clearStorageData: vi.fn(async () => {}),
+        } as unknown as Electron.Session,
+        openExternal: vi.fn(),
+        resolveApp: (id) =>
+          id === authority.id ? authority : id === mail.id ? mail : null,
+        listApps: () => [authority, mail],
+        createWindow: vi.fn() as never,
+        reloadApp: vi.fn(),
+        clearLocalBroker: vi.fn(),
+      });
+      broker.setStatusForSetting("signed-in");
+
+      const result = broker.ensureAppSession(mail.id);
+      // Run every pending timer (the Retry-After wait and the exponential
+      // backoff between later attempts) until the retries are exhausted.
+      await vi.runAllTimersAsync();
+
+      await expect(result).resolves.toBe(false);
+      expect(mail.session.fetch).toHaveBeenCalledTimes(3);
+      // The first retry must have honored the 1s Retry-After header rather
+      // than falling straight to exponential backoff.
+      expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 1000);
+      expect(warn).toHaveBeenCalledWith(
+        "[desktop identity] workspace app session mint rate limited",
+        expect.objectContaining({ appId: "mail", attempts: 3 }),
+      );
+      expect(warn).not.toHaveBeenCalledWith(
+        "[desktop identity] workspace app session mint failed",
+        expect.anything(),
+      );
+      warn.mockRestore();
+      setTimeoutSpy.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

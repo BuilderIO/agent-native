@@ -469,14 +469,7 @@ export default function DownloadPage() {
         <GridInner className="relative flex flex-col items-center gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-10)] pt-[var(--spacing-40)] pb-[var(--spacing-24)] text-center">
           <h1 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-1)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)] mobile:leading-[1.2]">
             {t("downloadPage.title")}
-            {isNightly && (
-              <>
-                {" "}
-                <span className="text-[var(--b-text-eyebrow)]">
-                  {t("downloadPage.nightly")}
-                </span>
-              </>
-            )}
+            {isNightly && <> {t("downloadPage.nightly")}</>}
           </h1>
           <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
             {t("downloadPage.body")}

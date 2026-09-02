@@ -880,6 +880,67 @@ describe("EventDetailPopover characterization", () => {
     );
   });
 
+  it("offers series scope before removing Google Meet from a recurring event", async () => {
+    const event = baseEvent({
+      id: "event-recurring",
+      accountEmail: "steve@example.com",
+      recurringEventId: "series-1",
+      hangoutLink: "https://meet.google.com/abc-defg-hij",
+    });
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const removeButton = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="eventForm.delete eventForm.googleMeet"]',
+    );
+    expect(removeButton).toBeTruthy();
+
+    await act(async () => {
+      removeButton!.click();
+      await flushMicrotasks();
+    });
+
+    expect(document.body.textContent).toContain("eventForm.applyChangesTo");
+    expect(document.body.textContent).toContain("eventForm.thisEvent");
+    expect(document.body.textContent).toContain("eventForm.allEvents");
+    expect(updateEventMutate).not.toHaveBeenCalled();
+
+    const allEventsOption = document.querySelector<HTMLButtonElement>(
+      "#guest-update-scope-all",
+    );
+    expect(allEventsOption).toBeTruthy();
+    act(() => allEventsOption!.click());
+
+    const confirmButton = findByExactText<HTMLButtonElement>(
+      "button",
+      "eventForm.updateEvent",
+    );
+    expect(confirmButton).toBeTruthy();
+    await act(async () => {
+      confirmButton!.click();
+      await flushMicrotasks();
+    });
+
+    expect(updateEventMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "event-recurring",
+        removeGoogleMeet: true,
+        scope: "all",
+      }),
+      expect.objectContaining({ onSettled: expect.any(Function) }),
+    );
+  });
+
   it("opens the meeting link on Cmd+J while open, and removes the listener on unmount", () => {
     const event = baseEvent({
       id: "event-4",

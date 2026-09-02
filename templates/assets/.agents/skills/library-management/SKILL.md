@@ -35,9 +35,74 @@ Every action that touches an ownable resource must scope its queries:
   Cross-kit asset lists must first resolve the accessible library IDs, then
   query `image_assets` by those IDs and include the parent kit title for UI chips.
 - **Read by id**: `await resolveAccess("asset-library", libraryId)`. The `requireLibrary(id)` helper in `_helpers.ts` wraps this.
-- **Write**: `await assertAccess("asset-library", libraryId, "editor")` for updates / inserts; `"admin"` for deletes.
+- **Write**: never `assertAccess(..., "editor")` directly. Use `server/lib/library-access.ts`, which splits writing into drafting and approving (below); `"admin"` still guards library archive / delete.
 
 All assets / runs derive `libraryId` first, then assert against the parent library. Never query `image_assets` without also pinning `library_id` to a value the caller has access to.
+
+### Drafting vs approving
+
+A kit `viewer` may **draft**: generation runs, generation sessions, and `image_assets` rows with `role: "generated"` and `status: "candidate"`. Drafts never reach the kit's content — `shouldIncludeAssetInLibraryResults` filters unsaved candidates out of every library read — so a read-only collaborator can safely make them.
+
+`editor` is still required to **approve**: promoting a candidate to `saved`, uploads, imports, folders, collections, style brief, canonical logo, templates, and deletes.
+
+| Helper | Bar | Use for |
+| --- | --- | --- |
+| `assertCanDraft(libraryId)` | viewer | generate / refine / rerun, sessions, variant slots |
+| `assertCanApprove(libraryId, what)` | editor | save, upload, import, organize, kit settings |
+| `assertCanDraftAuthoredBy(libraryId, author, what)` | viewer for own | a session or run someone else may have created |
+| `assertCanDeleteAsset(asset)` | viewer for own draft | discarding a candidate vs deleting kit content |
+
+Drafting in a kit is not a licence to touch another drafter's work, so the
+author-scoped rule guards every write that lands on an existing row someone else
+made:
+
+- `requireGenerationSessionInLibrary` scopes the session a generation attaches
+  to. Belonging to the kit is not enough — appending a candidate also moves the
+  session's `activeAssetId`. Pass the access you already resolved to skip the
+  second lookup.
+- `refresh-generation-run` reconciles a run row (status, error, outputs) and
+  `rerun-generation-run` reuses its prompt, settings, and session, so both stay
+  with the run's `ownerEmail`.
+- Draft *reads* narrow the same way. `resolveDraftReadScope` +
+  `canReadDraftAsset` / `canReadRun` keep candidates and run history to their
+  author plus anyone who could approve them, across `get-library`,
+  `list-assets`, `search-assets`, and `list-draft-assets`. The lookup only runs
+  when a read actually returns candidates, so ordinary asset lists cost nothing.
+  Content fetched by explicit id (`/api/assets/:id/content`, `get-asset`) stays
+  gated on kit read access only, because cross-app embeds of a fresh candidate
+  depend on it.
+- Draft *inputs* answer to the read rule too. `assertCanUseAssets` /
+  `assertCanUseRuns` guard every path that takes an asset or run id —
+  generation references, lineage source, subject, video source, and session
+  attachments — because a scope that holds on list surfaces but not on id
+  arguments is not a boundary. `selectReferences` takes a required `draftScope`
+  so a new generation path cannot forget it: the automatic pool scores every
+  asset in the kit, candidates included.
+- Sessions and run history narrow the same way. `sessionReadFilter` /
+  `canReadSession` keep `list-generation-sessions` and `get-generation-session`
+  to the sessions a below-approver caller created (and strip items, candidates,
+  and runs they cannot read), and `runReadFilter` / `canReadRun` do the same for
+  `list-generation-runs` and `get-generation-run`. Reading one by id is not a
+  way around the list rule.
+- Deleting a draft goes through `deleteDraftAssetIfUnchanged`, never a bare
+  delete-by-id. Authorization comes from a prior read, so the predicate lets an
+  editor's concurrent approval win, and the confirming re-read keeps the answer
+  portable. `delete-asset` reports the refusal; `dismiss-variant-slots` counts
+  it in `assetsRetained`.
+- Paging happens after the filter, not before. `draftReadFilter` turns the scope
+  into a WHERE clause for `list-draft-assets`; filtering post-`limit` silently
+  drops the caller's own older drafts behind other people's newer ones.
+- `dismiss-variant-slots` re-reads every asset behind the slots it clears.
+  Variant state is client-writable, so a slot id is never permission to delete:
+  anything outside the state's kit, already saved, or authored by someone else
+  clears from the tray and comes back in `assetsRetained`. The delete itself is
+  conditional on the state that was authorized, so an editor's save always beats
+  an in-flight dismissal, and the outcome is confirmed by re-reading rather than
+  by an adapter-specific row count.
+
+`assertCanDraft` returns `{ role, canApprove }`. Generation actions report `draftPendingApproval: true` when `canApprove` is false so the caller can say the images are waiting on an editor instead of claiming they were saved. `get-library-access` exposes the same answer to the UI and to other agents.
+
+The refusal message keeps the framework's `Requires editor role on asset-library <id> (have viewer)` prefix on purpose: core's permanent-precondition classifier matches that shape and ends the agent turn instead of retrying a grant it cannot obtain. Keep it if you reword the remedy.
 
 ## Adding a new field
 

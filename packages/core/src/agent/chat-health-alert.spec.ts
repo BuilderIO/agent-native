@@ -3,9 +3,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 let turnRows: Array<Record<string, unknown>> = [];
 let memberRows: Array<Record<string, unknown>> = [];
 let turnQueryThrows = false;
+let memberQueryThrows = false;
+let deleteClaimThrows = false;
 
 const execute = vi.fn(async ({ sql }: { sql: string }) => {
-  if (sql.includes("org_members")) return { rows: memberRows, rowsAffected: 0 };
+  if (sql.includes("org_members")) {
+    if (memberQueryThrows) throw new Error("member lookup failed");
+    const rows = sql.includes("role IN ('owner', 'admin')")
+      ? memberRows.filter((row) => row.role === "owner" || row.role === "admin")
+      : memberRows;
+    return { rows, rowsAffected: 0 };
+  }
   if (turnQueryThrows) throw new Error("ledger unreadable");
   return { rows: turnRows, rowsAffected: 0 };
 });
@@ -17,18 +25,43 @@ vi.mock("../db/client.js", () => ({
 
 const settings = new Map<string, Record<string, unknown>>();
 let settingsReadThrows = false;
-vi.mock("../settings/store.js", () => ({
-  getSetting: vi.fn(async (key: string) => {
+let settingsWriteThrows = false;
+const mutateSetting = vi.fn(
+  async (
+    key: string,
+    updater: (
+      current: Record<string, unknown> | null,
+    ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+  ) => {
     if (settingsReadThrows) throw new Error("settings unreadable");
-    return settings.get(key) ?? null;
-  }),
-  putSetting: vi.fn(async (key: string, value: Record<string, unknown>) => {
-    settings.set(key, value);
-  }),
+    const current = settings.get(key) ?? null;
+    if (settingsWriteThrows && current?.claimId) {
+      throw new Error("settings write failed");
+    }
+    const next = await updater(current);
+    settings.set(key, next);
+    return next;
+  },
+);
+const deleteSettingIfValue = vi.fn(
+  async (key: string, expected: Record<string, unknown>) => {
+    if (deleteClaimThrows) throw new Error("claim release failed");
+    const current = settings.get(key);
+    if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
+    settings.delete(key);
+    return true;
+  },
+);
+vi.mock("../settings/store.js", () => ({
+  deleteSettingIfValue,
+  mutateSetting,
 }));
 
-const notify = vi.fn(async () => undefined);
-vi.mock("../notifications/registry.js", () => ({ notify }));
+const notifyWithDelivery = vi.fn(async () => ({
+  notification: undefined,
+  deliveredChannels: ["slack"],
+}));
+vi.mock("../notifications/registry.js", () => ({ notifyWithDelivery }));
 
 const { checkChatHealthAndAlert } = await import("./chat-health-alert.js");
 
@@ -40,12 +73,17 @@ function turns(total: number, bad: number) {
 
 beforeEach(() => {
   turnRows = [];
-  memberRows = [{ email: "owner@example.com" }];
+  memberRows = [{ org_id: "org-1", email: "owner@example.com", role: "owner" }];
   turnQueryThrows = false;
+  memberQueryThrows = false;
+  deleteClaimThrows = false;
   settings.clear();
   settingsReadThrows = false;
-  notify.mockClear();
+  settingsWriteThrows = false;
+  notifyWithDelivery.mockClear();
   execute.mockClear();
+  mutateSetting.mockClear();
+  deleteSettingIfValue.mockClear();
 });
 
 describe("checkChatHealthAndAlert", () => {
@@ -53,34 +91,121 @@ describe("checkChatHealthAndAlert", () => {
     turns(2, 2);
     const out = await checkChatHealthAndAlert(NOW);
     expect(out).toEqual({ status: "insufficient-data", turns: 2 });
-    expect(notify).not.toHaveBeenCalled();
+    expect(notifyWithDelivery).not.toHaveBeenCalled();
   });
 
   it("stays quiet while the app is answering", async () => {
     turns(20, 2);
     const out = await checkChatHealthAndAlert(NOW);
     expect(out.status).toBe("healthy");
-    expect(notify).not.toHaveBeenCalled();
+    expect(notifyWithDelivery).not.toHaveBeenCalled();
   });
 
-  it("pages every owner and admin once the app stops answering", async () => {
-    memberRows = [{ email: "a@example.com" }, { email: "b@example.com" }];
+  it("pages Slack once when the app stops answering", async () => {
+    memberRows = [
+      { org_id: "org-1", email: "a@example.com", role: "owner" },
+      { org_id: "org-1", email: "b@example.com", role: "admin" },
+    ];
     turns(20, 15);
     const out = await checkChatHealthAndAlert(NOW);
-    expect(out).toMatchObject({ status: "alerted", turns: 20, recipients: 2 });
-    expect(notify).toHaveBeenCalledTimes(2);
-    expect(notify.mock.calls[0][0]).toMatchObject({ severity: "critical" });
-    expect(notify.mock.calls[0][1]).toEqual({ owner: "a@example.com" });
+    expect(out).toMatchObject({ status: "alerted", turns: 20, recipients: 1 });
+    expect(notifyWithDelivery).toHaveBeenCalledTimes(1);
+    expect(notifyWithDelivery.mock.calls[0][0]).toMatchObject({
+      severity: "critical",
+      channels: ["slack"],
+    });
+    expect(notifyWithDelivery.mock.calls[0][1]).toEqual({
+      owner: "a@example.com",
+    });
+  });
+
+  it("fails closed when owner scope spans multiple organizations", async () => {
+    memberRows = [
+      { org_id: "org-1", email: "a@example.com", role: "owner" },
+      { org_id: "org-2", email: "b@example.com", role: "admin" },
+    ];
+    turns(20, 15);
+    const out = await checkChatHealthAndAlert(NOW);
+    expect(out).toEqual({
+      status: "delivery-failed",
+      reason:
+        "No single owner/admin organization scope is available for Slack health alerts.",
+    });
+    expect(notifyWithDelivery).not.toHaveBeenCalled();
+  });
+
+  it("ignores regular members in other organizations", async () => {
+    memberRows = [
+      { org_id: "org-1", email: "a@example.com", role: "owner" },
+      { org_id: "org-2", email: "member@example.com", role: "member" },
+    ];
+    turns(20, 15);
+    const out = await checkChatHealthAndAlert(NOW);
+    expect(out).toMatchObject({ status: "alerted", recipients: 1 });
+    expect(notifyWithDelivery).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the claim when recipient lookup fails", async () => {
+    turns(20, 15);
+    memberQueryThrows = true;
+    const first = await checkChatHealthAndAlert(NOW);
+    expect(first.status).toBe("check-failed");
+
+    memberQueryThrows = false;
+    const second = await checkChatHealthAndAlert(NOW);
+    expect(second.status).toBe("alerted");
+    expect(notifyWithDelivery).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the claim when no recipient is available", async () => {
+    turns(20, 15);
+    memberRows = [];
+    const first = await checkChatHealthAndAlert(NOW);
+    expect(first.status).toBe("delivery-failed");
+
+    memberRows = [
+      { org_id: "org-1", email: "owner@example.com", role: "owner" },
+    ];
+    const second = await checkChatHealthAndAlert(NOW);
+    expect(second.status).toBe("alerted");
+    expect(notifyWithDelivery).toHaveBeenCalledTimes(1);
   });
 
   it("pages once per outage, not once per sweep", async () => {
     turns(20, 15);
     await checkChatHealthAndAlert(NOW);
-    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notifyWithDelivery).toHaveBeenCalledTimes(1);
 
     const out = await checkChatHealthAndAlert(NOW + 60_000);
     expect(out.status).toBe("cooldown");
-    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notifyWithDelivery).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows only one overlapping sweep to page", async () => {
+    turns(20, 15);
+    let sendStarted!: () => void;
+    let releaseSend!: () => void;
+    const started = new Promise<void>((resolve) => {
+      sendStarted = resolve;
+    });
+    const send = new Promise<void>((resolve) => {
+      releaseSend = resolve;
+    });
+    notifyWithDelivery.mockImplementation(async () => {
+      sendStarted();
+      await send;
+      return { notification: undefined, deliveredChannels: ["slack"] };
+    });
+
+    const first = checkChatHealthAndAlert(NOW);
+    await started;
+    const second = await checkChatHealthAndAlert(NOW);
+    releaseSend();
+    const firstOut = await first;
+
+    expect(second.status).toBe("cooldown");
+    expect(firstOut.status).toBe("alerted");
+    expect(notifyWithDelivery).toHaveBeenCalledTimes(1);
   });
 
   it("pages again once the cooldown has passed", async () => {
@@ -88,7 +213,7 @@ describe("checkChatHealthAndAlert", () => {
     await checkChatHealthAndAlert(NOW);
     const out = await checkChatHealthAndAlert(NOW + 60 * 60_000 + 1);
     expect(out.status).toBe("alerted");
-    expect(notify).toHaveBeenCalledTimes(2);
+    expect(notifyWithDelivery).toHaveBeenCalledTimes(2);
   });
 
   // The whole point of the module: a monitor that cannot read the ledger has
@@ -99,7 +224,7 @@ describe("checkChatHealthAndAlert", () => {
     const out = await checkChatHealthAndAlert(NOW);
     expect(out.status).toBe("check-failed");
     expect(out.status).not.toBe("healthy");
-    expect(notify).not.toHaveBeenCalled();
+    expect(notifyWithDelivery).not.toHaveBeenCalled();
   });
 
   // An unreadable cooldown stamp is not an absent one. Treating it as absent
@@ -109,15 +234,48 @@ describe("checkChatHealthAndAlert", () => {
     settingsReadThrows = true;
     const out = await checkChatHealthAndAlert(NOW);
     expect(out.status).toBe("check-failed");
-    expect(notify).not.toHaveBeenCalled();
+    expect(notifyWithDelivery).not.toHaveBeenCalled();
   });
 
-  it("an undeliverable recipient does not suppress the others", async () => {
-    memberRows = [{ email: "a@example.com" }, { email: "b@example.com" }];
+  it("does not stamp cooldown when Slack is not delivered", async () => {
     turns(20, 15);
-    notify.mockRejectedValueOnce(new Error("channel down"));
+    notifyWithDelivery.mockResolvedValueOnce({
+      notification: undefined,
+      deliveredChannels: [],
+    });
     const out = await checkChatHealthAndAlert(NOW);
-    expect(out.status).toBe("alerted");
-    expect(notify).toHaveBeenCalledTimes(2);
+    expect(out.status).toBe("delivery-failed");
+    expect(settings).toEqual(new Map());
+    expect(deleteSettingIfValue).toHaveBeenCalledTimes(1);
+
+    await checkChatHealthAndAlert(NOW + 60_000);
+    expect(notifyWithDelivery).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries after a failed claim release once its short lease expires", async () => {
+    turns(20, 15);
+    deleteClaimThrows = true;
+    notifyWithDelivery.mockResolvedValueOnce({
+      notification: undefined,
+      deliveredChannels: [],
+    });
+    const first = await checkChatHealthAndAlert(NOW);
+    expect(first.status).toBe("delivery-failed");
+
+    deleteClaimThrows = false;
+    const second = await checkChatHealthAndAlert(NOW + 5 * 60_000 + 1);
+    expect(second.status).toBe("alerted");
+    expect(notifyWithDelivery).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports when Slack delivered but cooldown persistence failed", async () => {
+    turns(20, 15);
+    settingsWriteThrows = true;
+    const out = await checkChatHealthAndAlert(NOW);
+    expect(out).toEqual({
+      status: "persistence-failed",
+      reason: "Slack delivered, but the alert cooldown could not be persisted.",
+    });
+    expect(notifyWithDelivery).toHaveBeenCalledTimes(1);
   });
 });

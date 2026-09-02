@@ -84,7 +84,6 @@ export function useCreateComment() {
       anchorPrefix?: string;
       anchorSuffix?: string;
       anchorStartOffset?: number;
-      authorName?: string;
       mentions?: string;
     }
   >("add-comment");

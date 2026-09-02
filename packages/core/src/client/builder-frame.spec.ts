@@ -34,15 +34,37 @@ function setAncestorOrigin(origin: string | null) {
   });
 }
 
+function setDocumentReferrer(referrer: string) {
+  Object.defineProperty(document, "referrer", {
+    configurable: true,
+    value: referrer,
+  });
+}
+
 describe("isInBuilderFrame", () => {
   beforeEach(() => {
     window.history.replaceState({}, "", "/");
     setParentWindow(window);
     setAncestorOrigin(null);
+    setDocumentReferrer("");
   });
 
   it("does not treat a plain top-level page as Builder", () => {
     expect(isInBuilderFrame()).toBe(false);
+  });
+
+  it("does not treat a top-level Dispatch page opened from Builder as Builder", () => {
+    setDocumentReferrer("https://builder.io/content/123");
+
+    expect(isInBuilderFrame()).toBe(false);
+  });
+
+  it("does not treat the hosted Dispatch shell as a Builder editor", () => {
+    setParentWindow({ postMessage: vi.fn() });
+    setAncestorOrigin("https://agent-workspace.builder.io");
+
+    expect(isInBuilderFrame()).toBe(false);
+    expect(shouldParentFrameOwnAgentPanel()).toBe(true);
   });
 
   it("treats Builder preview params as Builder in top-level webviews", () => {
@@ -124,6 +146,13 @@ describe("shouldParentFrameOwnAgentPanel", () => {
     setAncestorOrigin("https://builder.io");
 
     expect(shouldParentFrameOwnAgentPanel()).toBe(false);
+  });
+
+  it("keeps the app chat panel delegated for the beta Dispatch shell", () => {
+    setParentWindow({ postMessage: vi.fn() });
+    setAncestorOrigin("https://beta.agent-workspace.builder.io");
+
+    expect(shouldParentFrameOwnAgentPanel()).toBe(true);
   });
 });
 

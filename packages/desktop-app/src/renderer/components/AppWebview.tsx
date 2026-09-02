@@ -654,6 +654,21 @@ function withUrlPath(rawUrl: string, path?: string): string {
   }
 }
 
+export function resolveDesktopAppPath(
+  app: Pick<AppDefinition, "id">,
+  appConfig?: Pick<AppConfig, "isBuiltIn">,
+  path?: string,
+): string | undefined {
+  if (path && path !== "/") return path;
+  if (
+    appConfig?.isBuiltIn === true ||
+    DESKTOP_DEFAULT_APPS.some((candidate) => candidate.id === app.id)
+  ) {
+    return "/home";
+  }
+  return path;
+}
+
 function isAgentNativeOpenPath(path: string | undefined): path is string {
   if (!path) return false;
   try {
@@ -759,7 +774,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const rawUrl = sourceUrl?.trim()
       ? withUrlParams(sourceUrl.trim(), urlParams)
       : withUrlParams(
-          withUrlPath(resolveAppWebviewUrl(app, appConfig), urlPath),
+          withUrlPath(
+            resolveAppWebviewUrl(app, appConfig),
+            resolveDesktopAppPath(app, appConfig, urlPath),
+          ),
           {
             ...(appConfig?.mode === "dev" && appConfig.localPath
               ? { _agentNativeDesktopCode: "1" }

@@ -811,6 +811,29 @@ describe("listWorkspaceApps", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch", "fresh-app"]);
   });
 
+  it("extends existing pending Builder app rows to the current TTL", async () => {
+    stubManifest();
+    vi.stubEnv("BRANCH", "feature-a");
+    const dayMs = 24 * 60 * 60 * 1_000;
+    const now = Date.now();
+    mocks.settings.set(settingsKey, {
+      pendingApps: [
+        pendingApp("legacy-app", {
+          contextId: "branch:feature-a",
+          createdAt: new Date(now - 8 * dayMs).toISOString(),
+          expiresAt: new Date(now - dayMs).toISOString(),
+        }),
+      ],
+    });
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["dispatch", "legacy-app"]);
+  });
+
   it("does not show a pending row after the app is present in the manifest", async () => {
     stubNoPendingContext();
     stubManifest([
@@ -1227,6 +1250,16 @@ describe("startWorkspaceAppCreation", () => {
     expect(result.mode).toBe("builder");
     expect(mocks.runBuilderAgent).toHaveBeenCalledWith(
       expect.objectContaining({ userId: "builder-user-42" }),
+    );
+    const pendingApps = (
+      mocks.settings.get("dispatch-app-creation-settings:org:org-123") as any
+    )?.pendingApps;
+    const pendingExpiresAt = Date.parse(pendingApps?.[0]?.expiresAt ?? "");
+    expect(pendingExpiresAt - Date.now()).toBeGreaterThan(
+      29 * 24 * 60 * 60 * 1_000,
+    );
+    expect(pendingExpiresAt - Date.now()).toBeLessThan(
+      31 * 24 * 60 * 60 * 1_000,
     );
     const builderPrompt = String(
       mocks.runBuilderAgent.mock.calls.at(-1)?.[0]?.prompt ?? "",

@@ -11,7 +11,7 @@ import {
   IconExternalLink,
   IconSearch,
 } from "@tabler/icons-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router";
 
 import {
@@ -35,6 +35,13 @@ type FactoryAuditCounts = {
   held: number;
   dispatched: number;
   failed: number;
+  added: number;
+  listed: number;
+  left: number;
+  inboxLimit: number | null;
+  workLimit: number | null;
+  authorFiltered: number | null;
+  updated: number | null;
 };
 
 type FactoryAuditEvent = {
@@ -56,7 +63,7 @@ type FactoryAuditItem = {
   sourceUrl: string | null;
   title: string;
   summary: string | null;
-  outcome: "held" | "dispatched" | "failed" | "inspected";
+  outcome: "held" | "dispatched" | "failed" | "inspected" | "left";
   status: string;
   rationale: string | null;
   dispatchError: string | null;
@@ -65,6 +72,9 @@ type FactoryAuditItem = {
   ownerArea: string | null;
   guards: string | null;
   events: FactoryAuditEvent[];
+  listedStatus?: string | null;
+  firstSeenThisRun?: boolean;
+  builderAlreadyStarted?: boolean;
   userLabels?: Record<string, string>;
 };
 
@@ -89,6 +99,9 @@ type FactoryAuditRun = {
   finishedAt: number | null;
   error: string | null;
   counts: FactoryAuditCounts;
+  inbox?: FactoryAuditItem[];
+  work?: FactoryAuditItem[];
+  actions?: FactoryAuditItem[];
   items: FactoryAuditItem[];
   trace: FactoryAuditTraceStep[];
 };
@@ -418,9 +431,12 @@ function AuditRunDetail({
   builderSlackUserId: string | null;
 }) {
   const t = useT();
+  const inbox = run.inbox ?? [];
+  const work = run.work ?? run.items ?? [];
+  const actions = run.actions ?? [];
   const items = run.items ?? [];
   const trace = run.trace ?? [];
-  const failedItems = items.filter((item) => item.outcome === "failed");
+  const failedItems = uniqueFailedItems([...actions, ...items]);
 
   return (
     <>
@@ -475,22 +491,53 @@ function AuditRunDetail({
         </div>
       )}
 
-      <div className="mt-5 grid gap-1.5">
-        {items.length === 0 ? (
-          <p className="rounded-md bg-muted/20 p-4 text-sm text-muted-foreground">
-            {t("factoryRoute.auditNoEvents")}
-          </p>
-        ) : (
-          items.map((item) => (
-            <AuditItemRow
-              key={item.itemId}
-              item={item}
-              factoryId={factoryId}
-              builderSlackUserId={builderSlackUserId}
-            />
-          ))
-        )}
-      </div>
+      {inbox.length === 0 && work.length === 0 && actions.length === 0 ? (
+        <p className="mt-5 rounded-md bg-muted/20 p-4 text-sm text-muted-foreground">
+          {t("factoryRoute.auditNoEvents")}
+        </p>
+      ) : (
+        <>
+          <AuditSection
+            title={t("factoryRoute.auditSectionInbox")}
+            count={run.counts?.added ?? inbox.length}
+          >
+            {inbox.map((item) => (
+              <AuditItemRow
+                key={`inbox-${item.itemId}`}
+                item={item}
+                factoryId={factoryId}
+                builderSlackUserId={builderSlackUserId}
+              />
+            ))}
+          </AuditSection>
+          <AuditSection
+            title={t("factoryRoute.auditSectionWork")}
+            count={run.counts?.listed ?? work.length}
+          >
+            {work.map((item) => (
+              <AuditItemRow
+                key={`work-${item.itemId}`}
+                item={item}
+                factoryId={factoryId}
+                builderSlackUserId={builderSlackUserId}
+              />
+            ))}
+          </AuditSection>
+          <AuditSection
+            title={t("factoryRoute.auditSectionActions")}
+            count={actions.length}
+          >
+            {actions.map((item) => (
+              <AuditItemRow
+                key={`action-${item.itemId}`}
+                item={item}
+                factoryId={factoryId}
+                builderSlackUserId={builderSlackUserId}
+              />
+            ))}
+          </AuditSection>
+        </>
+      )}
 
       {trace.length > 0 && (
         <details className="group mt-5 overflow-hidden rounded-lg border border-border bg-muted/20">
@@ -543,7 +590,7 @@ function AuditItemRow({
             />
           </p>
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
-            {formatItemOutcome(item.outcome, t)}
+            {formatItemRowHint(item, t)}
           </p>
         </div>
         <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:block">
@@ -774,6 +821,27 @@ function AuditSkeleton({ rows }: { rows: number }) {
   );
 }
 
+function AuditSection({
+  title,
+  count,
+  children,
+}: {
+  title: string;
+  count: number;
+  children: ReactNode;
+}) {
+  return (
+    <section className="mt-5">
+      <h3 className="text-xs font-medium text-muted-foreground">
+        {title}
+        <span aria-hidden="true"> · </span>
+        {count}
+      </h3>
+      <div className="mt-2 grid gap-1.5">{children}</div>
+    </section>
+  );
+}
+
 function runHeadlineStatus(run: FactoryAuditRun): string {
   if (run.status === "error" || (run.counts?.failed ?? 0) > 0) return "error";
   if (run.status === "running") return "running";
@@ -788,25 +856,22 @@ function formatRunHeadline(
   t: ReturnType<typeof useT>,
 ): string {
   if (!counts) return "";
-  const parts: string[] = [];
-  if (counts.newlyObserved > 0) {
-    parts.push(
-      t("factoryRoute.auditObserved", { count: counts.newlyObserved }),
-    );
-  } else {
-    parts.push(t("factoryRoute.auditNoNew"));
-  }
-  if (counts.scanned > 0 && counts.scanned !== counts.newlyObserved) {
-    parts.push(t("factoryRoute.auditScanned", { count: counts.scanned }));
-  }
+  const added = counts.added ?? counts.newlyObserved ?? 0;
+  const listed = counts.listed ?? counts.scanned ?? 0;
+  const parts = [
+    t("factoryRoute.auditAdded", { count: added }),
+    t("factoryRoute.auditListed", { count: listed }),
+  ];
   if (counts.failed > 0) {
     parts.push(t("factoryRoute.auditFailed", { count: counts.failed }));
   }
   if (counts.dispatched > 0) {
-    parts.push(t("factoryRoute.auditDispatched", { count: counts.dispatched }));
+    parts.push(
+      t("factoryRoute.auditStartedCount", { count: counts.dispatched }),
+    );
   }
   if (counts.held > 0) {
-    parts.push(t("factoryRoute.auditHeld", { count: counts.held }));
+    parts.push(t("factoryRoute.auditSkipped", { count: counts.held }));
   }
   return parts.join(" · ");
 }
@@ -818,7 +883,23 @@ function formatItemOutcome(
   if (outcome === "failed") return t("factoryRoute.auditOutcomeFailed");
   if (outcome === "dispatched") return t("factoryRoute.auditOutcomeDispatched");
   if (outcome === "held") return t("factoryRoute.auditOutcomeHeld");
+  if (outcome === "left") return t("factoryRoute.auditOutcomeLeft");
   return t("factoryRoute.auditOutcomeInspected");
+}
+
+function formatItemRowHint(
+  item: FactoryAuditItem,
+  t: ReturnType<typeof useT>,
+): string {
+  const parts = [formatItemOutcome(item.outcome, t)];
+  if (item.firstSeenThisRun) parts.push(t("factoryRoute.auditNewThisRun"));
+  else if (item.listedStatus || item.builderAlreadyStarted) {
+    parts.push(t("factoryRoute.auditSeenBefore"));
+  }
+  if (item.builderAlreadyStarted && item.outcome === "left") {
+    parts.push(t("factoryRoute.auditAlreadyStarted"));
+  }
+  return parts.join(" · ");
 }
 
 function formatAuditSource(source: string | null): string {
@@ -893,6 +974,18 @@ function formatAuditAge(value: string | number, nowLabel: string) {
   const elapsedMonths = Math.floor(elapsedDays / 30);
   if (elapsedMonths < 12) return `${elapsedMonths}mo`;
   return `${Math.floor(elapsedMonths / 12)}y`;
+}
+
+function uniqueFailedItems(items: FactoryAuditItem[]): FactoryAuditItem[] {
+  const seen = new Set<string>();
+  const unique: FactoryAuditItem[] = [];
+  for (const item of items) {
+    if (item.outcome !== "failed") continue;
+    if (seen.has(item.itemId)) continue;
+    seen.add(item.itemId);
+    unique.push(item);
+  }
+  return unique;
 }
 
 function formatAuditLabel(value: string): string {

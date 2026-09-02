@@ -439,7 +439,7 @@ const deDE = {
     hero: {
       title: "Das Framework für agentische Anwendungen",
       bodyLine1:
-        "Baue für KI-Agenten, ohne ein zweites Produkt für Nutzer zu bauen.",
+        "Entwickle autonome Agenten mit intuitiven Benutzeroberflächen.",
       bodyLine2: "Bring dein eigenes LLM mit. Deploye überall.",
       tryAnApp: "App ausprobieren",
     },
@@ -539,21 +539,72 @@ const deDE = {
     eyebrow:
       "Starte mit einer funktionierenden App und lass sie vom Agenten weiterentwickeln.",
     body: "Du kannst alles anpassen.",
+    firstPartyTitle: "Von Agent-Native erstellt",
     community:
       "Du möchtest lieber eine leere App? Starte von Grund auf mit dem Framework-Guide.",
     createYourOwn: "Von Grund auf starten",
-    communityTitle: "Community-Vorlagen",
+    communityTitle: "Community-Apps",
     communityDescription:
-      "Unabhängige Apps, die von ihren Autorinnen und Autoren gepflegt werden. Installiere sie aus einem öffentlichen GitHub-Repository oder teste eine gehostete Version, falls verfügbar.",
-    submitCommunityTemplate: "Eigene Vorlage einreichen",
+      "Entdecke Apps, die von ihren Autorinnen und Autoren gepflegt werden. Teste eine gehostete Version oder prüfe den Quellcode und passe ihn selbst an.",
+    submitCommunityTemplate: "App einreichen",
     communityEmpty:
-      "Die Community-Liste ist offen. Veröffentliche eine fokussierte Agent-Native-App in einem öffentlichen Repository und reiche sie für den Katalog ein.",
+      "Die Community-Liste ist offen. Veröffentliche eine fokussierte Agent-Native-App und reiche sie für den Katalog ein.",
     publishGuide: "Veröffentlichungsleitfaden lesen",
     communityTrust:
-      "Community-Vorlagen sind Code von Drittanbietern. Prüfe Repository, Lizenz, Abhängigkeiten und Installationsskripte vor der Ausführung.",
+      "Community-Apps sind Code von Drittanbietern. Prüfe Quellcode, Lizenz, Abhängigkeiten und Installationsskripte vor der Ausführung.",
     copyCommunityInstallCommand: "Installationsbefehl kopieren",
     viewRepository: "Repository ansehen",
     tryCommunityDemo: "Demo testen",
+    customizeDescription: "Nutze diese App als Ausgangspunkt.",
+    customizeOnline: "Online",
+    customizeOnlineBadge: "Warteliste beitreten",
+    customizeLocally: "Lokal",
+    communityNew: "Neu",
+    communityComingSoon: "Demnächst",
+    communityGithubStars: "{{count}} GitHub-Sterne",
+    tryCommunityApp: "App testen",
+    viewCommunitySource: "Quellcode ansehen",
+    communityEyebrow: "Community-App",
+    communityScreenshots: "Screenshots",
+    previousScreenshot: "Vorheriger Screenshot",
+    nextScreenshot: "Nächster Screenshot",
+    communityNoScreenshots: "Screenshots erscheinen hier nach der Prüfung.",
+    communityScreenshotAlt: "{{name}} Screenshot {{index}}",
+    communityNoHostedVersion:
+      "Eine gehostete Version folgt bald. Verfolge die Entwicklung über den Quellcode.",
+    communitySubmissionTitle: "Community-App teilen",
+    communitySubmissionDescription:
+      "Zeige uns, wo deine App zu finden ist und was sie macht. Wir prüfen die Angaben vor der Veröffentlichung.",
+    communitySubmissionName: "App-Name",
+    communitySubmissionNamePlaceholder: "Kundensupport-Zentrale",
+    communitySubmissionUrl: "App-URL",
+    communitySubmissionUrlPlaceholder: "example.com",
+    communitySubmissionDescriptionLabel: "Beschreibung",
+    communitySubmissionDescriptionPlaceholder:
+      "Was macht die App und für wen ist sie gedacht?",
+    communitySubmissionRepository: "GitHub-Repository (optional)",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
+    communitySubmissionScreenshots: "Screenshots (optional)",
+    communitySubmissionScreenshotsPlaceholder: "Bis zu 5 Bilder hierher ziehen",
+    communitySubmissionScreenshotDropHint:
+      "PNG, JPG oder WebP. Jeweils maximal 1,5 MB.",
+    communitySubmissionScreenshotSlot: "Screenshot {{index}}",
+    communitySubmissionScreenshotsAdd: "Screenshots hinzufügen",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 ausgewählt",
+    communitySubmissionScreenshotRemove: "Screenshot {{index}} entfernen",
+    communitySubmissionSubmit: "App einreichen",
+    communitySubmissionReady:
+      "Danke. Wir prüfen deine App vor der Veröffentlichung.",
+    communitySubmissionNameError: "Gib einen App-Namen ein.",
+    communitySubmissionDescriptionError: "Füge eine kurze Beschreibung hinzu.",
+    communitySubmissionUrlError:
+      "Gib einen gültigen App-Link ein, z. B. example.com.",
+    communitySubmissionRepositoryError: "Gib einen GitHub-Repository-Link ein.",
+    communitySubmissionScreenshotsError:
+      "Verwende PNG-, JPG- oder WebP-Bilder mit jeweils maximal 1,5 MB und höchstens 5 Bilder.",
+    communitySubmissionSubmitError:
+      "Die Übermittlung ist gerade nicht möglich. Prüfe die markierten Felder und versuche es erneut.",
+    communitySubmissionSubmitting: "Wird gesendet…",
   },
   buildFromScratch: {
     title: "Von Grund auf bauen",
@@ -1447,7 +1498,7 @@ const deDE = {
       s004: "Verfeinern",
       s005: "Alle Vorlagen",
       s006Primary: "Folienpräsentationen",
-      s006Secondary: "für Menschen und Agenten",
+      s006Secondary: "Markenkonform & bearbeitbar",
       s007: "Lassen Sie Ihren KI-Agenten Präsentationen in Ihrem Markendesign erstellen, nehmen Sie jederzeit eigene manuelle Änderungen vor und exportieren Sie sie überallhin.",
       s008: "Ausprobieren",
       s009: "Wie es funktioniert",

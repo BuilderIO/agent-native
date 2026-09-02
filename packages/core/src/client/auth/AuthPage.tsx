@@ -24,6 +24,11 @@ export interface AuthMarketingProps {
   tagline?: string;
   description?: string;
   features?: string[];
+  screenshotSrc?: string;
+  screenshotWidth?: number;
+  screenshotHeight?: number;
+  learnMoreUrl?: string;
+  learnMorePlacement?: "top-right" | "bottom-right";
 }
 
 export interface AuthLocaleOption {
@@ -47,6 +52,7 @@ export interface AuthPageProps {
   initialPrompt: boolean;
   initialView: AuthView;
   appBasePath: string;
+  homePath: string;
   workspaceRuntime: boolean;
   trackingApp: string;
   defaultLocale: string;
@@ -93,6 +99,8 @@ const ANALYTICS_ANONYMOUS_ID_KEY = "agent-native.anonymous_id";
 const ANALYTICS_SESSION_ID_KEY = "agent-native.session_id";
 const FIRST_TOUCH_STORAGE_KEY = "an_attribution";
 const FIRST_TOUCH_COOKIE = "an_ft";
+const GOOGLE_AUTH_URL_PATH = "/_agent-native/google/auth-url";
+const BUILDER_DESKTOP_RETURN_ORIGIN = "http://127.0.0.1:8080";
 
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
@@ -363,6 +371,17 @@ export function isElectron(
   return userAgent.includes("Electron");
 }
 
+/**
+ * Builder's desktop webview uses Electron without the Agent-Native marker.
+ * This only selects the local workspace return origin; native deep-link
+ * handling remains exclusive to Agent-Native Desktop.
+ */
+export function isBuilderDesktop(
+  userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent,
+): boolean {
+  return isElectron(userAgent) && !isAgentNativeDesktop(userAgent);
+}
+
 function isInFrame(): boolean {
   try {
     return window.self !== window.top;
@@ -372,11 +391,14 @@ function isInFrame(): boolean {
   }
 }
 
-function configuredOAuthOrigin(value: string): string {
+function configuredOAuthOrigin(
+  value: string,
+  currentOrigin = typeof window === "undefined" ? "" : window.location.origin,
+): string {
   if (!value) return "";
   try {
     const origin = new URL(value).origin;
-    return origin !== window.location.origin ? origin : "";
+    return origin !== currentOrigin ? origin : "";
   } catch {
     // coercion-ok: malformed optional OAuth configuration uses same-origin behavior.
     return "";
@@ -456,16 +478,48 @@ export function normalizeOAuthReturnPath(
   }
 }
 
-function oauthReturnTarget(
+export function resolveOAuthReturnOrigin(input: {
+  previewOrigin: string;
+  workspaceGatewayReturnOrigin: string;
+  userAgent: string;
+}): string {
+  return (
+    input.previewOrigin ||
+    input.workspaceGatewayReturnOrigin ||
+    (isAgentNativeDesktop(input.userAgent) || isBuilderDesktop(input.userAgent)
+      ? BUILDER_DESKTOP_RETURN_ORIGIN
+      : "")
+  );
+}
+
+export function oauthReturnTarget(
   target: string,
   workspaceGatewayReturnOrigin: string,
+  userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent,
 ): string {
   const path = normalizeOAuthReturnPath(target);
-  const origin =
-    builderPreviewReturnOrigin() ||
-    workspaceGatewayReturnOrigin ||
-    (isAgentNativeDesktop() ? "http://127.0.0.1:8080" : "");
+  const origin = resolveOAuthReturnOrigin({
+    previewOrigin: builderPreviewReturnOrigin(),
+    workspaceGatewayReturnOrigin,
+    userAgent,
+  });
   return origin ? origin + path : path;
+}
+
+export function resolveGoogleAuthUrlPath(input: {
+  builderPreview: boolean;
+  currentOrigin: string;
+  publicOAuthOrigin: string;
+  runtimeAppBasePath: string;
+}): string {
+  const previewOrigin = input.builderPreview
+    ? configuredOAuthOrigin(input.publicOAuthOrigin, input.currentOrigin)
+    : "";
+  // The public OAuth authority is rooted at the app origin even when the
+  // preview itself is mounted under a workspace prefix such as /dispatch.
+  return previewOrigin
+    ? `${previewOrigin}${GOOGLE_AUTH_URL_PATH}`
+    : `${input.runtimeAppBasePath}${GOOGLE_AUTH_URL_PATH}`;
 }
 
 function createFlowId(): string {
@@ -561,6 +615,7 @@ export function AuthPage(props: AuthPageProps) {
     googleOnly,
     initialPrompt,
     appBasePath,
+    homePath,
     workspaceRuntime,
     trackingApp,
     defaultLocale,
@@ -654,6 +709,7 @@ export function AuthPage(props: AuthPageProps) {
       return signInJourney({
         at: `${runtimeAppBasePath}/`,
         basePath: runtimeAppBasePath,
+        homePath,
       });
     }
     return signInJourney({
@@ -664,8 +720,9 @@ export function AuthPage(props: AuthPageProps) {
       continuation: new URLSearchParams(window.location.search).get("c"),
       legacyReturn: new URLSearchParams(window.location.search).get("return"),
       basePath: runtimeAppBasePath,
+      homePath,
     });
-  }, [runtimeAppBasePath]);
+  }, [homePath, runtimeAppBasePath]);
   const resumeHref = React.useCallback(() => journey().resumeHref, [journey]);
   const redirectToSignedInApp = React.useCallback(
     (target?: string) => {
@@ -857,6 +914,7 @@ export function AuthPage(props: AuthPageProps) {
           continuation: params.get("c"),
           legacyReturn: params.get("return"),
           basePath: runtimeAppBasePath,
+          homePath,
         }).resumeHref;
         const landingPath = safeAttributionValue(returnPath);
         if (landingPath) attribution.landing_path = landingPath;
@@ -881,7 +939,7 @@ export function AuthPage(props: AuthPageProps) {
       auth_mode: authMode,
       auth_view: view,
     });
-  }, [authMode, runtimeAppBasePath, trackingApp]);
+  }, [authMode, homePath, runtimeAppBasePath, trackingApp]);
 
   React.useEffect(() => {
     const hostname = window.location.hostname.toLowerCase();
@@ -1238,12 +1296,16 @@ export function AuthPage(props: AuthPageProps) {
     return isAgentNativeDesktop() ? "redirect" : "popup";
   }, [googleAuthMode]);
 
-  const googleAuthUrlPath = React.useCallback(() => {
-    const previewOrigin = isBuilderPreview()
-      ? configuredOAuthOrigin(publicOAuthOrigin)
-      : "";
-    return `${previewOrigin}${apiPath("/_agent-native/google/auth-url")}`;
-  }, [apiPath, publicOAuthOrigin]);
+  const googleAuthUrlPath = React.useCallback(
+    () =>
+      resolveGoogleAuthUrlPath({
+        builderPreview: isBuilderPreview(),
+        currentOrigin: window.location.origin,
+        publicOAuthOrigin,
+        runtimeAppBasePath,
+      }),
+    [publicOAuthOrigin, runtimeAppBasePath],
+  );
 
   const startGoogle = React.useCallback(async () => {
     if (!showGoogle || googleBusy) return;
@@ -2587,64 +2649,109 @@ export function AuthPage(props: AuthPageProps) {
     <MarketingHome
       appName={marketingCopy.appName}
       variant="auth"
-      background={<Starfield id="starfield" />}
+      background={
+        marketingCopy.screenshotSrc ? null : <Starfield id="starfield" />
+      }
+      topRight={
+        marketingCopy.learnMoreUrl ? (
+          <a
+            className="auth-marketing-learn-more"
+            href={marketingCopy.learnMoreUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <span>
+              {t("newToApp").replace(
+                "{appName}",
+                marketingCopy.appName.replace(/^Agent-Native\s+/i, ""),
+              )}
+            </span>
+            <span aria-hidden="true"> - </span>
+            <span className="auth-marketing-learn-more-link">
+              {t("learnMore")}
+            </span>
+          </a>
+        ) : null
+      }
       auth={
         <>
           {authCard}
           {localNote}
         </>
       }
-      className="auth-marketing-home"
+      className={[
+        "auth-marketing-home",
+        marketingCopy.screenshotSrc ? "has-product-screenshot" : "",
+        marketingCopy.learnMorePlacement === "bottom-right"
+          ? "has-bottom-right-learn-more"
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
     >
-      <div className="marketing-content">
-        <h2 className="app-name">
+      {marketingCopy.screenshotSrc ? (
+        <div className="auth-marketing-screenshot-wrap">
           <img
-            className="brand-mark"
-            src={brandMarkSrc}
-            alt=""
-            aria-hidden="true"
+            className="auth-marketing-screenshot"
+            src={marketingCopy.screenshotSrc}
+            alt={`${marketingCopy.appName} preview`}
+            width={marketingCopy.screenshotWidth}
+            height={marketingCopy.screenshotHeight}
+            fetchPriority="high"
+            decoding="async"
           />
-          <span>{marketingCopy.appName}</span>
-        </h2>
-        <p className="app-tagline" data-marketing-field="tagline">
-          {marketingCopy.tagline}
-        </p>
-        {marketingCopy.description ? (
-          <p className="app-desc" data-marketing-field="description">
-            {marketingCopy.description}
-          </p>
-        ) : null}
-        {marketingCopy.features?.length ? (
-          <ul className="feature-list">
-            {marketingCopy.features.map((feature, index) => (
-              <li key={index} data-marketing-feature-index={index}>
-                {feature}
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        <div className="marketing-actions">
-          <a
-            className="oss-link"
-            href={githubUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 00-1.3-3.2 4.2 4.2 0 00-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 00-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 00-.1 3.2A4.6 4.6 0 004 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21" />
-            </svg>
-            <span data-i18n="openSource">{t("openSource")}</span>
-          </a>
         </div>
-      </div>
+      ) : (
+        <div className="marketing-content">
+          <h2 className="app-name">
+            <img
+              className="brand-mark"
+              src={brandMarkSrc}
+              alt=""
+              aria-hidden="true"
+            />
+            <span>{marketingCopy.appName}</span>
+          </h2>
+          <p className="app-tagline" data-marketing-field="tagline">
+            {marketingCopy.tagline}
+          </p>
+          {marketingCopy.description ? (
+            <p className="app-desc" data-marketing-field="description">
+              {marketingCopy.description}
+            </p>
+          ) : null}
+          {marketingCopy.features?.length ? (
+            <ul className="feature-list">
+              {marketingCopy.features.map((feature, index) => (
+                <li key={index} data-marketing-feature-index={index}>
+                  {feature}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="marketing-actions">
+            <a
+              className="oss-link"
+              href={githubUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 00-1.3-3.2 4.2 4.2 0 00-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 00-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 00-.1 3.2A4.6 4.6 0 004 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21" />
+              </svg>
+              <span data-i18n="openSource">{t("openSource")}</span>
+            </a>
+          </div>
+        </div>
+      )}
     </MarketingHome>
   ) : (
     <>

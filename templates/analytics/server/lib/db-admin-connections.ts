@@ -245,6 +245,7 @@ async function secretMetadata(
 
 export async function listDbAdminConnections(
   ctx: DbAdminAdminContext,
+  options: { includeSecretMetadata?: boolean } = {},
 ): Promise<DbAdminConnection[]> {
   const { rows } = await getDbExec().execute({
     sql: `SELECT id, name, app_id AS "appId", app_url AS "appUrl",
@@ -257,11 +258,18 @@ export async function listDbAdminConnections(
           ORDER BY updated_at DESC, name ASC`,
     args: [ctx.orgId],
   });
+  const includeSecretMetadata = options.includeSecretMetadata !== false;
   return Promise.all(
     rows.map(async (row) =>
       rowToConnection(
         row as Record<string, unknown>,
-        await secretMetadata(ctx, row as Record<string, unknown>),
+        includeSecretMetadata
+          ? await secretMetadata(ctx, row as Record<string, unknown>)
+          : {
+              databaseUrlLast4: null,
+              hasDatabaseAuthToken: false,
+              databaseAuthTokenLast4: null,
+            },
       ),
     ),
   );

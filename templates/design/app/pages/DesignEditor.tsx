@@ -590,10 +590,7 @@ import { runVisualDuplicateChange } from "./design-editor/commands/visual-duplic
 import { runVisualStructureChange } from "./design-editor/commands/visual-structure-change";
 import { runWriteFrameGeometrySnapshot } from "./design-editor/commands/write-frame-geometry-snapshot";
 import { getCreatedScreenNavigationPlan } from "./design-editor/created-screen-navigation";
-import {
-  designPrecedentDirectives,
-  loadCreativeContextPrecedent,
-} from "./design-editor/creative-context-precedent";
+import { designPrecedentDirectives } from "./design-editor/creative-context-precedent";
 import {
   applyDesignDataOperations,
   buildFrameGeometryDataOperations,
@@ -716,6 +713,10 @@ import {
   isAbsoluteCodeLayerNode,
   warnIfPoisonedBoardCoordsNormalized,
 } from "./design-editor/html-layer-positioning";
+import {
+  allIntakeTopicsCovered,
+  loadIntakeContextFromAppState,
+} from "./design-editor/intake-question-topics";
 import { createLatestWriteQueue } from "./design-editor/latest-write-queue";
 import {
   layerStateIdsForScreen,
@@ -8936,12 +8937,30 @@ function DesignEditor() {
   // setAgentChatContextItem would re-fire itself every commit — an infinite
   // render loop (caught live: "Maximum update depth exceeded" in overview
   // mode). Instead, only the narrow "was our key removed" check reads the
-  // store, via a ref updated by a SEPARATE effect below whose only job is
+  // store, via a ref updated by a SEPARATE effect above whose only job is
   // bookkeeping (it never calls setAgentChatContextItem itself, so it cannot
   // feed back into this one).
   const mirroredSelectionIdRef = useRef<string | null>(null);
+  const mirroredExcerptRef = useRef<string | null>(null);
   const sentSelectionIdRef = useRef<string | null>(null);
   const composerContextHasOurKeyRef = useRef(true);
+
+  // Bookkeeping only — mirrors "does the shared composer context still carry
+  // our key" into a ref for the effect below to read. This is intentionally
+  // NOT a dependency of that effect (see its comment): this effect only ever
+  // writes a ref, never calls setAgentChatContextItem or any other state
+  // setter, so it can run on every store change without feeding back into a
+  // re-render loop. Declared (and thus run) before the mirror effect so a
+  // send that lands in the same commit as an unrelated content change is
+  // already reflected in the ref by the time the mirror effect reads it.
+  const composerContextItemsForBookkeeping =
+    useAgentChatContext(isSignedIn).items;
+  useEffect(() => {
+    const key = "design:selected-element";
+    composerContextHasOurKeyRef.current =
+      composerContextItemsForBookkeeping.some((item) => item.key === key);
+  }, [composerContextItemsForBookkeeping]);
+
   useEffect(
     () =>
       runMirrorSelectionToAgentChat({
@@ -8951,6 +8970,7 @@ function DesignEditor() {
         design,
         id,
         isSignedIn,
+        mirroredExcerptRef,
         mirroredSelectionIdRef,
         selectedCodeLayerNode,
         selectedElement,
@@ -8966,20 +8986,6 @@ function DesignEditor() {
       selectedElement,
     ],
   );
-
-  // Bookkeeping only — mirrors "does the shared composer context still carry
-  // our key" into a ref for the effect above to read. This is intentionally
-  // NOT a dependency of that effect (see its comment): this effect only ever
-  // writes a ref, never calls setAgentChatContextItem or any other state
-  // setter, so it can run on every store change without feeding back into a
-  // re-render loop.
-  const composerContextItemsForBookkeeping =
-    useAgentChatContext(isSignedIn).items;
-  useEffect(() => {
-    const key = "design:selected-element";
-    composerContextHasOurKeyRef.current =
-      composerContextItemsForBookkeeping.some((item) => item.key === key);
-  }, [composerContextItemsForBookkeeping]);
 
   useEffect(() => {
     const key = "design:design-system";
@@ -15168,46 +15174,31 @@ function DesignEditor() {
       </div>
     </div>
   );
-  const designShareTabLabelClassName =
-    "inline-flex items-center justify-center gap-1.5";
   const designSharePopoverClassName =
     "z-[100010] !w-[min(620px,calc(100vw-32px))] !p-3 " +
-    "[&_[role=tablist]]:!inline-flex [&_[role=tablist]]:!w-fit [&_[role=tablist]]:!self-start [&_[role=tablist]]:justify-start [&_[role=tablist]]:gap-1 [&_[role=tablist]]:rounded-lg [&_[role=tablist]]:border [&_[role=tablist]]:border-[var(--design-editor-panel-divider-color)] [&_[role=tablist]]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tablist]]:p-1 " +
+    "[&_[role=tablist]]:!inline-flex [&_[role=tablist]]:!w-fit [&_[role=tablist]]:!max-w-full [&_[role=tablist]]:!self-start [&_[role=tablist]]:!overflow-x-auto [&_[role=tablist]]:justify-start [&_[role=tablist]]:gap-1 [&_[role=tablist]]:rounded-lg [&_[role=tablist]]:border [&_[role=tablist]]:border-[var(--design-editor-panel-divider-color)] [&_[role=tablist]]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tablist]]:p-1 " +
     "[&_[role=tab]]:!h-8 [&_[role=tab]]:!flex-none [&_[role=tab]]:rounded-md [&_[role=tab]]:px-3 [&_[role=tab]]:!text-[12px] [&_[role=tab]]:font-semibold [&_[role=tab]]:shadow-none [&_[role=tab]]:ring-0 " +
-    "[&_[role=tab]:hover]:bg-white/70 dark:[&_[role=tab]:hover]:bg-[var(--design-editor-control-bg)] [&_[role=tab]:hover]:text-foreground " +
-    "[&_[role=tab][aria-selected=true]]:bg-white dark:[&_[role=tab][aria-selected=true]]:bg-[var(--design-editor-control-bg)] [&_[role=tab][aria-selected=true]]:text-foreground [&_[role=tab][aria-selected=true]]:shadow-sm [&_[role=tab][aria-selected=true]]:ring-1 [&_[role=tab][aria-selected=true]]:ring-[var(--design-editor-control-border)]";
+    "[&_[role=tab]:hover]:text-foreground " +
+    "[&_[role=tab][aria-selected=true]]:!bg-background dark:[&_[role=tab][aria-selected=true]]:!bg-[var(--design-editor-panel-bg)] [&_[role=tab][aria-selected=true]]:text-foreground";
   const designShareTabs = {
-    shareLabel: (
-      <span className={designShareTabLabelClassName}>
-        <IconLink className="size-3.5" />
-        {"Share link" /* i18n-ignore share tab label */}
-      </span>
-    ),
+    shareLabel: "Share link" /* i18n-ignore share tab label */,
     defaultValue: "share",
     tabs: [
       {
         value: "export",
-        label: (
-          <span className={designShareTabLabelClassName}>
-            <IconFileExport className="size-3.5" />
-            {t("designEditor.export")}
-          </span>
-        ),
+        label: t("designEditor.export"),
         content: shareExportTab,
       },
       {
         value: "send",
-        label: (
-          <span className={designShareTabLabelClassName}>
-            <IconTerminal2 className="size-3.5" />
-            {"Send to agent" /* i18n-ignore share tab label */}
-          </span>
-        ),
+        label: "Send to agent" /* i18n-ignore share tab label */,
         content: shareSendToTab,
       },
       {
         value: "context",
-        label: <span className={designShareTabLabelClassName}>Context</span>,
+        label: t("creativeContext.share.tabLabel", {
+          defaultValue: "Context",
+        }),
         content: (
           <CreativeContextShareTab
             resource={{
@@ -19209,17 +19200,19 @@ function DesignEditor() {
     </>
   );
 
-  const pendingNodeRewriteCompact = rightSidebarWidth < 320;
+  // The right rail resizes down to 240px, so labelled controls in this row must
+  // collapse to icons or they push the Share CTA past the panel edge.
+  const rightToolbarCompact = rightSidebarWidth < 320;
   const pendingNodeRewriteLabel = t("designEditor.nodeRewrite.pendingReview", {
     count: pendingNodeRewriteProposals.length,
   });
   const pendingNodeRewriteButtonContent = (
     <>
-      {!pendingNodeRewriteCompact ? (
+      {!rightToolbarCompact ? (
         <span className="size-1.5 shrink-0 rounded-full bg-primary" />
       ) : null}
       <IconFileStack className="size-3.5 shrink-0" />
-      {pendingNodeRewriteCompact ? (
+      {rightToolbarCompact ? (
         <span className="min-w-4 rounded bg-primary/10 px-1 text-center text-[10px] font-semibold tabular-nums text-primary">
           {pendingNodeRewriteProposals.length}
         </span>
@@ -19230,9 +19223,7 @@ function DesignEditor() {
   );
   const pendingNodeRewriteButtonClassName = cn(
     "h-8 rounded-md border-primary/30 bg-primary/5 text-xs hover:bg-primary/10",
-    pendingNodeRewriteCompact
-      ? "min-w-10 gap-1 px-1.5"
-      : "max-w-44 gap-1.5 px-2",
+    rightToolbarCompact ? "min-w-10 gap-1 px-1.5" : "max-w-44 gap-1.5 px-2",
   );
   const pendingNodeRewriteControl =
     pendingNodeRewriteProposals.length ===
@@ -19252,7 +19243,7 @@ function DesignEditor() {
             {pendingNodeRewriteButtonContent}
           </Button>
         </TooltipTrigger>
-        {pendingNodeRewriteCompact ? (
+        {rightToolbarCompact ? (
           <TooltipContent>{pendingNodeRewriteLabel}</TooltipContent>
         ) : null}
       </Tooltip>
@@ -19269,13 +19260,13 @@ function DesignEditor() {
                 aria-label={pendingNodeRewriteLabel}
               >
                 {pendingNodeRewriteButtonContent}
-                {!pendingNodeRewriteCompact ? (
+                {!rightToolbarCompact ? (
                   <IconChevronDown className="size-3 shrink-0 opacity-70" />
                 ) : null}
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          {pendingNodeRewriteCompact ? (
+          {rightToolbarCompact ? (
             <TooltipContent>{pendingNodeRewriteLabel}</TooltipContent>
           ) : null}
         </Tooltip>
@@ -19307,7 +19298,10 @@ function DesignEditor() {
       data-design-chrome-region="right-toolbar"
       className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] px-[var(--design-baseline-unit)] py-[var(--design-baseline-half)]"
     >
-      <div className="flex min-h-[var(--design-row-height)] items-center gap-[var(--design-baseline-half)]">
+      <div
+        data-design-chrome-region="right-toolbar-actions"
+        className="flex min-h-[var(--design-row-height)] items-center gap-[var(--design-baseline-half)]"
+      >
         <div className="flex min-w-0 flex-1 items-center gap-[var(--design-baseline-half)]">
           {hostEmbeddedEditor ? null : (
             <DesignCollaboratorsMenu
@@ -21157,16 +21151,15 @@ function DesignEditor() {
             await loadDesignSystemGenerationContext(designSystemId);
           const shouldExploreVariants =
             promptRequestsVariantExploration(prompt);
-          const precedent = shouldExploreVariants
+          const intake = shouldExploreVariants
             ? null
             : await (async () => {
                 await creativeContextPersistRef.current?.catch(() => {});
-                return loadCreativeContextPrecedent(
-                  (await readCreativeContextState()).selectedContextId,
-                );
+                return loadIntakeContextFromAppState(readCreativeContextState);
               })();
           const shouldSkipQuestions =
-            shouldExploreVariants || precedent?.status === "strong";
+            shouldExploreVariants ||
+            (intake ? allIntakeTopicsCovered(intake.coverage) : false);
           const context = [
             `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
             `User request: "${prompt}"`,
@@ -21179,15 +21172,27 @@ function DesignEditor() {
               : shouldSkipQuestions
                 ? [
                     ...designGenerationDirectives(id, designSystemId),
-                    ...(precedent?.status === "strong"
+                    ...(intake?.explicitContext &&
+                    intake.precedent.status === "strong"
                       ? designPrecedentDirectives(
-                          precedent.contextId,
-                          precedent.matches,
+                          intake.precedent.contextId,
+                          intake.precedent.matches,
                           id,
                         )
                       : []),
                   ]
-                : designIntakeQuestionDirectives(id, designSystemId)),
+                : designIntakeQuestionDirectives(
+                    id,
+                    designSystemId,
+                    0,
+                    intake
+                      ? {
+                          coverage: intake.coverage,
+                          contextUnavailable: intake.unavailable,
+                          unavailableReason: intake.unavailableReason,
+                        }
+                      : undefined,
+                  )),
           ].join("\n");
           clearGenerationCompleteTimer();
           setGenerationIssue(null);

@@ -34,6 +34,8 @@ type DesktopEnvironmentLanePreference =
   import("../../shared/environment-lane.js").DesktopEnvironmentLanePreference;
 type DesktopEnvironmentLaneState =
   import("../../shared/ipc-channels.js").DesktopEnvironmentLaneState;
+type DesktopTerminalContext =
+  import("../../shared/ipc-channels.js").DesktopTerminalContext;
 
 type CodeAgentRunStatus =
   | "queued"
@@ -1118,7 +1120,9 @@ interface ElectronAPI {
 
   desktopChat: {
     getApiUrl(appId: string): Promise<string | null>;
-    getTerminalInfoUrl(appId?: string): Promise<string | null>;
+    getTerminalInfoUrl(
+      context?: DesktopTerminalContext | null,
+    ): Promise<string | null>;
     onOpenApp(cb: (request: DesktopChatOpenAppRequest) => void): () => void;
   };
 

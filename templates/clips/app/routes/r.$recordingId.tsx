@@ -1,5 +1,8 @@
 import { AgentPanel } from "@agent-native/core/client/agent-chat";
-import { agentNativePath } from "@agent-native/core/client/api-path";
+import {
+  agentNativePath,
+  appBasePath,
+} from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useActionMutation,
@@ -40,7 +43,6 @@ import {
   IconArrowLeft,
   IconChevronDown,
   IconCalendar,
-  IconScissors,
   IconAlertTriangle,
   IconHelpCircle,
   IconClipboardCopy,
@@ -62,6 +64,7 @@ import { toast } from "sonner";
 
 import { EditableRecordingTitle } from "@/components/editable-recording-title";
 import { EditorLayout } from "@/components/editor/editor-layout";
+import { useClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
 import { CommentsPanel } from "@/components/player/comments-panel";
 import { RecordingOptionsMenu } from "@/components/player/delete-recording-menu";
@@ -108,6 +111,7 @@ import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
 import { cn } from "@/lib/utils";
 
+import { buildAgentApiUrls } from "../../shared/agent-context";
 import { STALE_PENDING_TRANSCRIPT_REASON } from "../../shared/transcript-status";
 
 const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
@@ -447,6 +451,25 @@ export default function RecordingPage() {
     | "commenter"
     | "viewer"
     | undefined;
+  const directAgentContextUrl = useMemo(() => {
+    if (
+      typeof window === "undefined" ||
+      !recording?.id ||
+      (recording.visibility !== "public" && role !== "owner")
+    ) {
+      return null;
+    }
+    return buildAgentApiUrls(recording.id, {
+      origin: window.location.origin,
+      basePath: appBasePath(),
+    }).contextUrl;
+  }, [recording?.id, recording?.visibility, role]);
+  useClipAgentWebMcp({
+    recordingId: recording?.id ?? "",
+    agentContextUrl: directAgentContextUrl,
+    recordingStatus: recording?.status,
+    frameAvailable: !isLoomEmbedBackedRecording(recording),
+  });
   const comments = playerDataQ.data?.comments ?? [];
   const reactions = useMemo(
     () =>
@@ -1433,7 +1456,6 @@ export default function RecordingPage() {
               )}
               onClick={() => setEditing((v) => !v)}
             >
-              <IconScissors className="h-4 w-4" />
               {editing ? t("recordingPage.done") : t("recordingPage.edit")}
             </Button>
           ) : null}

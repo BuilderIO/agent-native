@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import type { AuthPageProps } from "../client/auth/AuthPage.js";
 import { LOCALE_STORAGE_KEY } from "../localization/shared.js";
 import {
@@ -23,6 +27,7 @@ function readAuthPageData(html: string): AuthPageProps {
 
 describe("getOnboardingHtml", () => {
   afterEach(() => {
+    resetAppConfigForTests();
     vi.unstubAllEnvs();
   });
 
@@ -68,6 +73,34 @@ describe("getOnboardingHtml", () => {
     );
     expect(html).not.toContain('onclick="signInWithGoogle()"');
     expect(html).not.toContain("__anAuthView");
+  });
+
+  it("passes the built-in app screenshot and learn-more link to React", () => {
+    const marketing = readAuthPageData(
+      getOnboardingHtml({ requestHost: "clips.agent-native.com" }),
+    ).marketing;
+
+    expect(marketing).toMatchObject({
+      screenshotSrc: "/auth-marketing/clips.webp",
+      screenshotWidth: 914,
+      screenshotHeight: 818,
+      learnMoreUrl: "https://agent-native.com/apps/clips",
+    });
+  });
+
+  it("version-stamps the auth client when the deployment build id is available", () => {
+    vi.stubGlobal("__AGENT_NATIVE_BUILD_ID__", "deploy-auth-client-123");
+
+    try {
+      expect(getOnboardingHtml()).toContain(
+        'src="/assets/auth-client.js?__an_build=deploy-auth-client-123"',
+      );
+      expect(getResetPasswordHtml()).toContain(
+        'src="/assets/auth-client.js?__an_build=deploy-auth-client-123"',
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("renders deep-link tab selection in the initial SSR view", () => {
@@ -238,9 +271,14 @@ describe("getOnboardingHtml", () => {
       requestOrigin: "https://slides.agent-native.com",
     });
 
-    expect(readAuthPageData(html).appBasePath).toBe("/viteapp");
+    const pageData = readAuthPageData(html);
+    expect(pageData.appBasePath).toBe("/viteapp");
     expect(html).toContain('src="/viteapp/assets/auth-client.js"');
-    expect(html).toContain('src="/viteapp/agent-native-icon-dark.svg"');
+    expect(pageData.brandMarkSrc).toBe("/viteapp/agent-native-icon-dark.svg");
+    expect(pageData.marketing?.screenshotSrc).toBe(
+      "/viteapp/auth-marketing/slides.webp",
+    );
+    expect(html).toContain('href="/viteapp/auth-marketing/slides.webp"');
     expect(html).toContain('href="/viteapp/favicon.svg"');
     expect(html).toContain('href="/viteapp/icon-180.svg"');
     expect(html).toContain(
@@ -495,17 +533,23 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("Crear cuenta");
   });
 
-  it("localizes built-in Forms auth marketing copy from the locale picker", () => {
+  it("passes localized Forms auth marketing copy and its product screenshot to React", () => {
     const html = getOnboardingHtml({
       requestHost: "forms.agent-native.com",
     });
 
-    expect(html).toContain('data-marketing-field="tagline"');
-    expect(html).toContain('data-marketing-feature-index="0"');
-    expect(html).toContain("你的 AI 代理会与你一起构建、发布和分析表单。");
-    expect(html).toContain("用一句话创建完整表单");
-    expect(readAuthPageData(html).marketingLocales["zh-CN"]?.tagline).toContain(
+    const pageData = readAuthPageData(html);
+    expect(pageData.marketing).toMatchObject({
+      screenshotSrc: "/auth-marketing/forms.webp",
+      screenshotWidth: 914,
+      screenshotHeight: 818,
+      learnMoreUrl: "https://agent-native.com/apps/forms",
+    });
+    expect(pageData.marketingLocales["zh-CN"]?.tagline).toContain(
       "构建、发布和分析表单",
+    );
+    expect(pageData.marketingLocales["zh-CN"]?.features?.[0]).toContain(
+      "用一句话创建完整表单",
     );
   });
 
@@ -607,6 +651,12 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain('src="/assets/auth-client.js"');
     expect(readAuthPageData(html).appBasePath).toBe("");
     expect(html).not.toContain("function __anNormalizeReturnPath");
+  });
+
+  it("passes the configured app home to the hydrated sign-in page", () => {
+    defineAppConfig({ app: { homePath: "/inbox" } });
+
+    expect(readAuthPageData(getOnboardingHtml()).homePath).toBe("/inbox");
   });
 
   it("uses branded first-party marketing from the request host", () => {

@@ -253,6 +253,15 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
   });
 
+  it("preserves persisted chat-first tabs when the desktop hub mounts", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).not.toContain("chatFirstDefaultInitializedRef");
+  });
+
   it("moves the active app beside CLI tabs and restores it for UI tabs", () => {
     const hubSource = readFileSync(
       "src/renderer/components/CodeAgentsHub.tsx",
@@ -521,20 +530,37 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
   });
 
-  it("keeps the shared sidebar reachable from an empty full-screen chat", () => {
+  it("only exposes the shared sidebar from an active full-screen chat", () => {
     const hubSource = readFileSync(
       "src/renderer/components/CodeAgentsHub.tsx",
       "utf8",
     );
 
     expect(hubSource).toContain("!showTerminalSurface");
+    expect(hubSource).toContain("hasChatFirstActiveChat");
+    expect(hubSource).toContain("!chatFirstAppSelected");
+    expect(hubSource).toContain("const openChatFirstNewChat = useCallback(");
+    expect(hubSource).toContain("setHasChatFirstActiveChat(false)");
+    expect(hubSource).toContain("onNewChat: openChatFirstNewChat");
     expect(hubSource).toContain("chatFirstSurfacePanel.toggle");
     expect(hubSource).toContain("sidebarOpen={chatFirstSurfacePanel.open}");
     expect(hubSource).toContain(
       "onToggleSidebar={chatFirstSurfacePanel.toggle}",
     );
     expect(hubSource).toContain(
-      "{chatFirstSurfacePanel.open && !chatFirstAppTakesMain ? (",
+      "{chatFirstSurfacePanel.open && canRenderChatFirstSurfacePanel ? (",
+    );
+    expect(hubSource).toContain(
+      'const canRenderChatFirstSurfacePanel =\n    hasChatFirstActiveChat &&\n    !chatFirstAllAppsOpen &&\n    !scheduledTasksOpen &&\n    (!chatFirstAppSelected || activeChatFirstSurfaceTab?.placement === "side");',
+    );
+    expect(hubSource).toContain(
+      "const canToggleChatFirstSurfacePanel =\n    canRenderChatFirstSurfacePanel && !chatFirstAppSelected;",
+    );
+    expect(hubSource).toContain(
+      'if (!hasChatFirstActiveChat) {\n        setChatFirstNotice("Open a chat to view browser surfaces.");',
+    );
+    expect(hubSource).not.toContain(
+      "if (tabCount > 0 && (previousTabCount === null || previousTabCount === 0))",
     );
     expect(hubSource).not.toContain(
       "(hasChatFirstActiveChat || terminalPreferences.enabled) &&\n        chatFirstSurfacePanel.open",

@@ -1,5 +1,26 @@
 # @agent-native/toolkit
 
+## 0.19.1
+
+### Patch Changes
+
+- e74593d: Keep the auth marketing learn-more action in a dedicated top-right layout row.
+- Release all public npm packages with a patch version bump.
+
+## 0.19.0
+
+### Minor Changes
+
+- a1869cc: Render the shared authentication surface with hydratable React and reuse its marketing composition for SSR app entry pages.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 349ce5c: Persist Agent-Native prompt drafts synchronously and keep prompt surfaces isolated across refreshes.
+- 353f95a: Split template marketing home routes from authenticated app entries and add the shared browser auth handoff.
+- f0fb6c5: Use the cube spinner for shared loading indicators and the worded loader for full-page states across apps.
+- 03711a6: Keep app launch loaders animated across remounts, randomize their labels, and smoothly resize the centered label.
+
 ## 0.18.0
 
 ### Minor Changes

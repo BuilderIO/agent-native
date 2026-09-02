@@ -16,6 +16,7 @@ import {
 import {
   gmailBatchModifyByAccount,
   exchangeCode,
+  gmailToEmailMessage,
   getAuthUrl,
   getClientsWithErrors,
   listGmailMessages,
@@ -561,6 +562,32 @@ describe("listGmailMessages", () => {
       q: "",
       maxResults: 3,
       pageToken: undefined,
+    });
+  });
+});
+
+describe("gmailToEmailMessage", () => {
+  it("preserves commas inside quoted sender names", () => {
+    const message = gmailToEmailMessage({
+      id: "message-1",
+      threadId: "thread-1",
+      internalDate: "1750000000000",
+      labelIds: ["INBOX"],
+      payload: {
+        headers: [
+          {
+            name: "From",
+            value: '"Cuevas, Gustavo" <cuevas@example.com>',
+          },
+          { name: "Date", value: "2025-06-15T12:00:00.000Z" },
+        ],
+      },
+      snippet: "",
+    });
+
+    expect(message.from).toEqual({
+      name: "Cuevas, Gustavo",
+      email: "cuevas@example.com",
     });
   });
 });

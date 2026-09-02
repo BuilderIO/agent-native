@@ -17,10 +17,26 @@ describe("authenticated recording route loading", () => {
     );
   });
 
-  it("waits for the browser session before the share payload request", () => {
+  it("lets public shares proceed when session status is unavailable", () => {
     const route = readRoute("share.$shareId.tsx");
-    expect(route).toContain("enabled: !!shareId && !sessionLoading");
-    expect(route).toContain("if (sessionLoading || dataQ.isLoading)");
+    expect(route).toContain("status: sessionStatus,");
+    expect(route).toContain("enabled: !!shareId");
+    expect(route).toContain('sessionStatus === "loading"');
+    expect(route).toContain('sessionStatus === "signing-out"');
+    expect(route).toContain('sessionStatus === "unavailable"');
+    expect(route).toContain("retry: retrySession");
+    expect(route).toContain("retrySession();");
+    expect(route).toContain("retriedUnavailableSessionRef");
+    expect(route).toContain('t("sharePage.checkAgain")');
+    expect(route).toContain("void dataQ.refetch();");
+    expect(route).toContain("dataQ.data.status === 401");
+    expect(route).toContain("dataQ.data.status === 404");
+    expect(route).toContain("!needsPassword &&");
+    expect(route).toContain("overflow-y-auto data-[state=inactive]:hidden");
+    expect(route).toContain(
+      "h-[var(--agent-native-viewport-height,100vh)] min-h-0",
+    );
+    expect(route).toContain("overflow-y-auto xl:flex-1 xl:overflow-y-hidden");
     expect(route).toContain("request-recording-access");
     expect(route).toContain("RequestAccessDialog");
     expect(route).toContain("requesterEmail");
@@ -148,5 +164,14 @@ describe("authenticated recording route loading", () => {
     expect(meetingRoute).toContain("recordingId: schema.meetings.recordingId");
     expect(meetingRoute).toContain("recordingTranscripts");
     expect(meetingRoute).toContain("transcript: transcript");
+  });
+
+  it("keeps the shared clip agent scoped to the clip being viewed", () => {
+    const shareRoute = readRoute("share.$shareId.tsx");
+    const agentPanel = shareRoute.slice(shareRoute.lastIndexOf("<AgentPanel"));
+
+    expect(agentPanel).toContain("scope={");
+    expect(agentPanel).toContain('type: "recording"');
+    expect(agentPanel).toContain("id: recording.id");
   });
 });

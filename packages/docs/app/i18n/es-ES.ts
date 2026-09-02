@@ -438,8 +438,7 @@ const esES = {
   homepage: {
     hero: {
       title: "El framework de aplicaciones agentic",
-      bodyLine1:
-        "Crea para agentes de IA sin construir un segundo producto para los usuarios.",
+      bodyLine1: "Crea agentes autónomos con interfaces intuitivas.",
       bodyLine2: "Usa tu propio LLM. Despliega donde quieras.",
       tryAnApp: "Probar una app",
     },
@@ -540,21 +539,74 @@ const esES = {
     eyebrow:
       "Empieza con una app funcional y deja que el agente la evolucione.",
     body: "Puedes personalizarlo todo.",
+    firstPartyTitle: "Creado por Agent-Native",
     community:
       "¿Prefieres una app en blanco? Empieza desde cero con la guía del framework.",
     createYourOwn: "Empezar desde cero",
-    communityTitle: "Plantillas de la comunidad",
+    communityTitle: "Aplicaciones de la comunidad",
     communityDescription:
-      "Aplicaciones independientes mantenidas por sus autores. Instálalas desde un repositorio público de GitHub o prueba una versión alojada cuando esté disponible.",
-    submitCommunityTemplate: "Enviar tu plantilla",
+      "Descubre aplicaciones mantenidas por sus autores. Prueba una versión alojada cuando esté disponible o revisa el código fuente y personalízala.",
+    submitCommunityTemplate: "Enviar una aplicación",
     communityEmpty:
-      "El catálogo de la comunidad está abierto. Publica una aplicación Agent-Native enfocada en un repositorio público y envíala al catálogo.",
+      "El catálogo de la comunidad está abierto. Publica una aplicación Agent-Native enfocada y envíala al catálogo.",
     publishGuide: "Leer la guía de publicación",
     communityTrust:
-      "Las plantillas de la comunidad son código de terceros. Revisa el repositorio, la licencia, las dependencias y los scripts de instalación antes de ejecutarlo.",
+      "Las aplicaciones de la comunidad son código de terceros. Revisa el código fuente, la licencia, las dependencias y los scripts de instalación antes de ejecutarlas.",
     copyCommunityInstallCommand: "Copiar comando de instalación",
     viewRepository: "Ver repositorio",
     tryCommunityDemo: "Probar demo",
+    customizeDescription: "Usa esta app como punto de partida.",
+    customizeOnline: "En línea",
+    customizeOnlineBadge: "Unirse a la lista de espera",
+    customizeLocally: "Local",
+    communityNew: "Nueva",
+    communityComingSoon: "Próximamente",
+    communityGithubStars: "{{count}} estrellas en GitHub",
+    tryCommunityApp: "Probar aplicación",
+    viewCommunitySource: "Ver código fuente",
+    communityEyebrow: "Aplicación de la comunidad",
+    communityScreenshots: "Capturas de pantalla",
+    previousScreenshot: "Captura anterior",
+    nextScreenshot: "Siguiente captura",
+    communityNoScreenshots:
+      "Las capturas aparecerán aquí después de la revisión.",
+    communityScreenshotAlt: "Captura de {{name}} {{index}}",
+    communityNoHostedVersion:
+      "La versión alojada estará disponible pronto. Sigue el desarrollo desde el código fuente.",
+    communitySubmissionTitle: "Comparte una aplicación de la comunidad",
+    communitySubmissionDescription:
+      "Cuéntanos dónde encontrar tu aplicación y qué hace. Revisaremos los datos antes de publicar la ficha.",
+    communitySubmissionName: "Nombre de la aplicación",
+    communitySubmissionNamePlaceholder: "Centro de atención al cliente",
+    communitySubmissionUrl: "URL de la aplicación",
+    communitySubmissionUrlPlaceholder: "example.com",
+    communitySubmissionDescriptionLabel: "Descripción",
+    communitySubmissionDescriptionPlaceholder:
+      "¿Qué hace la aplicación y para quién es?",
+    communitySubmissionRepository: "Repositorio de GitHub (opcional)",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
+    communitySubmissionScreenshots: "Capturas (opcional)",
+    communitySubmissionScreenshotsPlaceholder: "Arrastra hasta 5 imágenes aquí",
+    communitySubmissionScreenshotDropHint:
+      "PNG, JPG o WebP. Máximo 1,5 MB cada una.",
+    communitySubmissionScreenshotSlot: "Captura {{index}}",
+    communitySubmissionScreenshotsAdd: "Añadir capturas",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 seleccionadas",
+    communitySubmissionScreenshotRemove: "Eliminar captura {{index}}",
+    communitySubmissionSubmit: "Enviar aplicación",
+    communitySubmissionReady:
+      "Gracias. Revisaremos tu aplicación antes de publicarla.",
+    communitySubmissionNameError: "Introduce un nombre para la aplicación.",
+    communitySubmissionDescriptionError: "Añade una descripción breve.",
+    communitySubmissionUrlError:
+      "Introduce un enlace válido, como example.com.",
+    communitySubmissionRepositoryError:
+      "Introduce un enlace a un repositorio de GitHub.",
+    communitySubmissionScreenshotsError:
+      "Usa imágenes PNG, JPG o WebP de hasta 1,5 MB cada una, con un máximo de 5 imágenes.",
+    communitySubmissionSubmitError:
+      "No se pudo enviar ahora. Revisa los campos marcados e inténtalo de nuevo.",
+    communitySubmissionSubmitting: "Enviando…",
   },
   buildFromScratch: {
     title: "Crear desde cero",
@@ -1445,7 +1497,7 @@ const esES = {
       s004: "Refinar",
       s005: "Todas las plantillas",
       s006Primary: "Presentaciones de diapositivas",
-      s006Secondary: "para personas y agentes",
+      s006Secondary: "Con tu marca y editables",
       s007: "Genera presentaciones de diapositivas con tu marca desde tu agente de IA, aplica tus propios cambios manuales en cualquier momento y expórtalas donde quieras.",
       s008: "Probar",
       s009: "como funciona",

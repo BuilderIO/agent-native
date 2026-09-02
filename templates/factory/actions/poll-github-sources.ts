@@ -37,6 +37,7 @@ type NewlyObservedSource = {
   sourceUrl: string;
   summary: string;
   number: number;
+  added: boolean;
 };
 
 function githubPollRollupSummary(
@@ -102,6 +103,7 @@ export default defineAction({
     let issueCount = 0;
     let pullRequestCount = 0;
     let added = 0;
+    let updated = 0;
     const newlyObserved: NewlyObservedSource[] = [];
 
     await db.transaction(async (tx) => {
@@ -149,6 +151,7 @@ export default defineAction({
           ? issue.updatedAt
           : (existing?.lastSeenAt ?? issue.updatedAt);
         if (!existing) added += 1;
+        else updated += 1;
         if (!existing || sourceChanged) {
           newlyObserved.push({
             itemId: id,
@@ -156,6 +159,7 @@ export default defineAction({
             sourceUrl: issue.htmlUrl,
             summary: issue.title,
             number: issue.number,
+            added: !existing,
           });
         }
         await tx
@@ -248,6 +252,7 @@ export default defineAction({
         const updatedAt = sourceChanged ? now : (existing?.updatedAt ?? now);
         const lastSeenAt = pullRequest.updatedAt;
         if (!existing) added += 1;
+        else updated += 1;
         if (!existing || (sourceChanged && status === "pr_observed")) {
           newlyObserved.push({
             itemId: id,
@@ -255,6 +260,7 @@ export default defineAction({
             sourceUrl: pullRequest.htmlUrl,
             summary: pullRequest.title,
             number: pullRequest.number,
+            added: !existing,
           });
         }
         await tx
@@ -315,7 +321,15 @@ export default defineAction({
           kind: "observed",
           source: "github",
           summary: "No open GitHub issues or pull requests were observed.",
-          details: { repository: repositoryName },
+          details: {
+            repository: repositoryName,
+            inboxLimit,
+            added: 0,
+            updated: 0,
+            authorFiltered: 0,
+            newlyObserved: 0,
+            truncated: false,
+          },
         },
         factoryId,
       );
@@ -332,7 +346,15 @@ export default defineAction({
             repository: repositoryName,
             issues: issueCount,
             pullRequests: pullRequestCount,
-            newlyObserved: newlyObserved.length,
+            inboxLimit,
+            added,
+            updated,
+            authorFiltered: 0,
+            newlyObserved: newlyObserved.filter((item) => item.added).length,
+            truncated: added + updated < issues.length + pullRequests.length,
+            itemIds: newlyObserved
+              .filter((item) => item.added)
+              .map((item) => item.itemId),
           },
         },
         factoryId,
@@ -348,7 +370,11 @@ export default defineAction({
             source: item.source,
             sourceUrl: item.sourceUrl,
             summary: item.summary,
-            details: { repository: repositoryName, number: item.number },
+            details: {
+              repository: repositoryName,
+              number: item.number,
+              added: item.added,
+            },
           },
           factoryId,
         );

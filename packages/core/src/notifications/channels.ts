@@ -40,6 +40,7 @@ import { registerNotificationChannel } from "./registry.js";
 import type { NotificationChannel, NotificationInput } from "./types.js";
 
 let _registered = false;
+const SLACK_DELIVERY_TIMEOUT_MS = 10_000;
 
 export function registerBuiltinNotificationChannels(): void {
   if (_registered) return;
@@ -134,6 +135,7 @@ function createSlackWebhookChannel(
         {
           method: "POST",
           headers,
+          signal: AbortSignal.timeout(SLACK_DELIVERY_TIMEOUT_MS),
           body: JSON.stringify({
             text: slackText(input.severity, input.title, input.body),
             blocks: [

@@ -14,6 +14,7 @@ import {
   _communityTemplateTrustMessage,
   _fixPackageJsonName,
   _fixWebManifestName,
+  _ensureScaffoldEmailBrandingConfig,
   _discoverEnclosingRepo,
   _getCoreDependencyVersion,
   _extractTarball,
@@ -165,6 +166,31 @@ describe("createApp", { timeout: 30000 }, () => {
     expect(fs.readFileSync(configPath, "utf-8")).toContain(
       'sourceTemplate: "chat"',
     );
+    expect(fs.readFileSync(configPath, "utf-8")).toContain('homePath: "/home"');
+  });
+
+  it("does not force an authenticated home on headless or community scaffolds", () => {
+    for (const [index, templateName] of [
+      "headless",
+      "community:acme/customer-portal",
+    ].entries()) {
+      const root = path.join(tmpDir, `custom-${index}`);
+      fs.mkdirSync(root, { recursive: true });
+
+      _ensureScaffoldEmailBrandingConfig(root, `custom-${index}`, templateName);
+
+      expect(
+        fs.readFileSync(
+          path.join(
+            root,
+            "server",
+            "plugins",
+            "agent-native-email-branding.ts",
+          ),
+          "utf-8",
+        ),
+      ).not.toContain("homePath");
+    }
   });
 
   it("keeps the blank scaffold headless instead of generating UI files", async () => {

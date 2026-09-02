@@ -294,6 +294,31 @@ function formatScopeType(type: string) {
   return type.replace(/[-_]+/g, " ");
 }
 
+function buildResourceContextItem(
+  scope: ChatThreadScope,
+  contextNamespace?: string,
+): AgentChatContextItem {
+  const type = formatScopeType(scope.type);
+  const label = scope.label?.trim();
+  const marker = `Resource context: ${scope.type}:${scope.id}`;
+  return {
+    key: scope.contextKey?.trim() || "agent-current-resource-context",
+    title: label || type.replace(/^./, (character) => character.toUpperCase()),
+    ...(contextNamespace ? { contextNamespace } : {}),
+    context: [
+      marker,
+      `The user is currently viewing this ${type}.`,
+      label ? `Resource name: ${label}` : "",
+      `Resource id: ${scope.id}`,
+      typeof window !== "undefined"
+        ? `Current URL: ${window.location.pathname}${window.location.search}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  };
+}
+
 // ─── History Popover ─────────────────────────────────────────────────────────
 
 function formatThreadTime(
@@ -1483,46 +1508,42 @@ export function MultiTabAssistantChat({
   useBrowserLayoutEffect(() => {
     const nextScope = scope;
     if (!nextScope) return;
-    const type = formatScopeType(nextScope.type);
-    const title =
-      nextScope.label?.trim() ||
-      type.replace(/^./, (character) => character.toUpperCase());
-    const key =
-      nextScope.contextKey?.trim() || "agent-current-resource-context";
+    const item = buildResourceContextItem(nextScope, contextNamespace);
     const marker = `Resource context: ${nextScope.type}:${nextScope.id}`;
     const existing = getAgentChatContextState().items.find(
-      (item) => item.key === key,
+      (current) => current.key === item.key,
     );
-    let ownsContextItem = false;
-    if (!existing || existing.context.startsWith("Resource context:")) {
-      setAgentChatContextItem({
-        key,
-        title,
-        ...(contextNamespace ? { contextNamespace } : {}),
-        context: [
-          marker,
-          `The user is currently viewing this ${type}.`,
-          nextScope.label ? `Resource name: ${nextScope.label}` : "",
-          `Resource id: ${nextScope.id}`,
-          typeof window !== "undefined"
-            ? `Current URL: ${window.location.pathname}${window.location.search}`
-            : "",
-        ]
-          .filter(Boolean)
-          .join("\n"),
-        openSidebar: false,
-        focus: false,
-      });
-      ownsContextItem = true;
-    }
+    const ownsContextItem =
+      !existing || existing.context.startsWith("Resource context:");
+    if (ownsContextItem)
+      setAgentChatContextItem({ ...item, openSidebar: false, focus: false });
     return () => {
       const current = getAgentChatContextState().items.find(
-        (item) => item.key === key,
+        (candidate) => candidate.key === item.key,
       );
       if (ownsContextItem && current?.context.startsWith(marker)) {
-        removeAgentChatContextItem(key);
+        removeAgentChatContextItem(item.key);
       }
     };
+  }, [contextNamespace, scope?.contextKey, scope?.id, scope?.type]);
+
+  useBrowserLayoutEffect(() => {
+    const nextScope = scope;
+    if (!nextScope) return;
+    const item = buildResourceContextItem(nextScope, contextNamespace);
+    const marker = `Resource context: ${nextScope.type}:${nextScope.id}`;
+    const existing = getAgentChatContextState().items.find(
+      (current) => current.key === item.key,
+    );
+    if (!existing || !existing.context.startsWith(marker)) return;
+    if (
+      existing.title === item.title &&
+      existing.context === item.context &&
+      existing.contextNamespace === item.contextNamespace
+    ) {
+      return;
+    }
+    setAgentChatContextItem({ ...item, openSidebar: false, focus: false });
   }, [
     contextNamespace,
     scope?.contextKey,

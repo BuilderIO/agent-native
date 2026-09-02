@@ -44,6 +44,7 @@ on:
       - ".github/workflows/auto-publish.yml"
       - "scripts/changeset-publish-sequential.ts"
       - "scripts/create-release-changeset.ts"
+      - "scripts/guard-no-major-changeset.mjs"
       - "scripts/guard-public-packages.ts"
       - "scripts/prebuild-workspace-packages.ts"
   workflow_dispatch:
@@ -288,6 +289,9 @@ jobs:
         env:
           RELEASE_TYPE: ${{ inputs.releaseType }}
         run: pnpm exec tsx scripts/create-release-changeset.ts "$RELEASE_TYPE"
+
+      - name: Enforce package bump policy
+        run: node scripts/guard-no-major-changeset.mjs
 
       # A stable merge can race with another PR's pending changeset. Keep
       # those changesets out of validation and publication so this merge

@@ -141,8 +141,8 @@ describe("DownloadPage", () => {
     expect(
       screen
         .getByRole("heading", { name: "Download Agent-Native Nightly" })
-        .querySelector("span")?.className,
-    ).toContain("b-text-eyebrow");
+        .querySelector("span"),
+    ).toBeNull();
     expect(
       screen
         .getByRole("radio", { name: "Nightly" })

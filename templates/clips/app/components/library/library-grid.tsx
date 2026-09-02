@@ -28,6 +28,7 @@ import {
   type ListRecordingsArgs,
   type RecordingSummary,
 } from "@/hooks/use-library";
+import { retryRecordingUploadFromBackup } from "@/lib/recording-retry";
 import { cn } from "@/lib/utils";
 
 import { BulkActionToolbar, type BulkMoveTarget } from "./bulk-action-toolbar";
@@ -369,6 +370,16 @@ export function LibraryGrid({
     }
   };
 
+  const handleRetry = async (rec: RecordingSummary) => {
+    try {
+      await retryRecordingUploadFromBackup(rec.id);
+    } catch (err: any) {
+      toast.error(err?.message ?? t("clipsFinalRaw.retryFailed"));
+    } finally {
+      void refetch();
+    }
+  };
+
   const chips: FilterChip[] = [];
   if (tagFilter) {
     chips.push({
@@ -456,6 +467,7 @@ export function LibraryGrid({
             "min-h-0 flex-1 overflow-y-auto",
             selected.size > 0 && "pb-20",
           )}
+          aria-busy={isLoading}
         >
           <div className="p-5">
             {isLoading ? (
@@ -506,6 +518,7 @@ export function LibraryGrid({
                     moveTargets={moveTargets}
                     onMove={canMoveSelection ? moveSingle : undefined}
                     isMovePending={moveRecording.isPending}
+                    onRetry={canManageRecordings ? handleRetry : undefined}
                     onCreateFolder={() => {
                       setCreateFolderTarget({ kind: "single", recording: r });
                     }}
