@@ -49,9 +49,10 @@ A channel read returns parents, so use its timestamps directly; *search* hits
 are usually replies, so resolve those through the permalink `thread_ts` first.
 
 Then add `👀` from the invoking identity to every item you intend to tackle,
-and read the reactions back, in one pass before any deep read. A run that
-identifies seven actionable reports and claims one has left six for a peer to
-duplicate. Skip parents that already carry your eye.
+and read reactions back before deep reads. A run that claims one of seven
+actionable reports has left six for a peer to duplicate. Parents that already
+carry your eye join the carried-over worklist;
+do not add a second reaction.
 
 Claiming is not working: Phase 0 only marks what you will take, never
 investigates or replies, so it does not preempt the rule that older open
@@ -68,15 +69,16 @@ of duplicated investigation costs two agents. If the reaction write or
 read-back fails, record the item as unavailable and stop working it — never
 proceed on an unverified claim.
 
-**Never end a run holding a claim you did not work.** Confirm every parent you
-eyed has a disposition; otherwise work it now or remove the eye. An eye with
+**Never end a run holding a claim you did not work.** This includes carried-over
+eyes: give each a disposition or remove it. An eye with
 nobody behind it is worse than none — peers read it as owned and skip it. One
 run left six eyed and unworked, a data-loss report among them, then rotated
 off its branch; all six looked handled.
 
 **The eye means "I have this," not "I owe you a message."** It carries no
 reply obligation — that coupling is what produced 23 questions in one hour.
-Every item gets a recap row; only some get a Slack reply.
+Every item gets a recap row; carried-over claims count there too, and only some
+get a Slack reply.
 
 Claim only what the classification rules below put in scope, with one
 clarification: "duplicate" means the same message twice, a re-post or
