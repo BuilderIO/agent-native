@@ -2,6 +2,7 @@ import { getDbExec } from "@agent-native/core/db";
 import {
   saveOAuthTokens,
   deleteOAuthTokens,
+  listOAuthAccounts,
   listOAuthAccountsByOwner,
 } from "@agent-native/core/oauth-tokens";
 import {
@@ -20,11 +21,13 @@ import type {
   UpdateEventScope,
 } from "../../shared/api.js";
 import { getGoogleEventColorHex } from "../../shared/google-event-colors.js";
+import { isCalendarTimezone } from "../../shared/timezone.js";
 import {
   createOAuth2Client,
   oauth2GetUserInfo,
   calendarListEvents,
   calendarFreeBusy,
+  calendarGetCalendar,
   calendarGetEvent,
   calendarInsertEvent,
   calendarDeleteEvent,
@@ -554,6 +557,15 @@ export async function exchangeCode(
     { ...tokens, ...(photoUrl ? { photoUrl } : {}) } as Record<string, unknown>,
     owner ?? email,
   );
+  // getGoogleAccountTimezone caches by the app-owner email (the argument to
+  // listOAuthAccountsByOwner), which is `owner` here when connecting a
+  // secondary account on someone else's behalf - not necessarily the
+  // connected account's own email. Invalidate both so a cached "no
+  // timezone" result from before this account existed (or was
+  // disconnected) can't keep suppressing either party's working-hours
+  // filter now that they've just connected.
+  invalidateAccountTimezoneCache(email);
+  if (owner) invalidateAccountTimezoneCache(owner);
 
   return email;
 }
@@ -616,6 +628,167 @@ export async function getClient(
     email,
   );
   return { accessToken };
+}
+
+const accountTimezoneCache = new Map<
+  string,
+  { value: string | null; expiresAt: number }
+>();
+const ACCOUNT_TIMEZONE_CACHE_TTL_MS = 60 * 60 * 1000;
+const ACCOUNT_TIMEZONE_CACHE_MAX_ENTRIES = 500;
+
+// Only cache confirmed outcomes (has/doesn't have a resolvable time zone).
+// A thrown error (token refresh, network, provider failure) is never cached
+// — it's indistinguishable from a real "no time zone" answer, and caching it
+// would silently disable a peer's working-hours filter for the TTL even
+// right after they reconnect.
+function cacheAccountTimezone(key: string, value: string | null): void {
+  if (
+    !accountTimezoneCache.has(key) &&
+    accountTimezoneCache.size >= ACCOUNT_TIMEZONE_CACHE_MAX_ENTRIES
+  ) {
+    const oldestKey = accountTimezoneCache.keys().next().value;
+    if (oldestKey !== undefined) accountTimezoneCache.delete(oldestKey);
+  }
+  accountTimezoneCache.set(key, {
+    value,
+    expiresAt: Date.now() + ACCOUNT_TIMEZONE_CACHE_TTL_MS,
+  });
+}
+
+/**
+ * Resolve a connected Google account's own reported primary-calendar time
+ * zone. Used as a fallback when a peer has never saved an app-level time
+ * zone — this reads real provider data rather than guessing, so it is safe
+ * to use anywhere a peer's app-level zone would otherwise be treated as
+ * "unknown".
+ *
+ * Looks up the peer's own OAuth account directly rather than through
+ * `getClient` — that helper falls back to the shared workspace connection
+ * when the peer has no personal one, which would misattribute the
+ * workspace account's time zone to this peer. Cached in-process (this is a
+ * stable profile value) since it's reachable from unauthenticated public
+ * booking routes and would otherwise hit Google's API on every request.
+ */
+// Bumped whenever an OAuth connect/disconnect invalidates a key, so an
+// in-flight lookup started before the mutation (reflecting pre-mutation
+// account state) can detect it should not write its result into the cache
+// once it finally resolves.
+const accountTimezoneEpoch = new Map<string, number>();
+
+/** Clears any cached (positive or negative) timezone result for one email. */
+export function invalidateAccountTimezoneCache(email: string): void {
+  const key = email.trim().toLowerCase();
+  accountTimezoneCache.delete(key);
+  accountTimezoneEpoch.set(key, (accountTimezoneEpoch.get(key) ?? 0) + 1);
+}
+
+const accountTimezoneInFlight = new Map<string, Promise<string | null>>();
+
+export async function getGoogleAccountTimezone(
+  email: string | undefined,
+): Promise<string | null> {
+  if (!email) return null;
+  const key = email.trim().toLowerCase();
+  const cached = accountTimezoneCache.get(key);
+  if (cached) {
+    if (cached.expiresAt > Date.now()) return cached.value;
+    accountTimezoneCache.delete(key);
+  }
+
+  // Coalesce concurrent misses for the same email (e.g. several visitors
+  // hitting the same public booking link at once) onto a single lookup
+  // instead of each independently refreshing tokens and calling Google.
+  const inFlight = accountTimezoneInFlight.get(key);
+  if (inFlight) return inFlight;
+
+  const epoch = accountTimezoneEpoch.get(key) ?? 0;
+  const lookup = resolveGoogleAccountTimezone(key, email, epoch).finally(() => {
+    accountTimezoneInFlight.delete(key);
+  });
+  accountTimezoneInFlight.set(key, lookup);
+  return lookup;
+}
+
+async function resolveGoogleAccountTimezone(
+  key: string,
+  email: string,
+  epoch: number,
+): Promise<string | null> {
+  let accounts: Awaited<ReturnType<typeof listOAuthAccountsByOwner>>;
+  try {
+    accounts = (await listOAuthAccountsByOwner("google", email)).filter(
+      (account) => hasCalendarScope(account.tokens),
+    );
+  } catch {
+    // coercion-ok: deliberately not the same as "confirmed no account" —
+    // this is never cached (see cacheAccountTimezone), so the caller
+    // (getEligibleHostAvailability) re-checks on the next request instead
+    // of a lookup failure being treated as a stable negative result.
+    return null;
+  }
+
+  if (accounts.length === 0) {
+    if ((accountTimezoneEpoch.get(key) ?? 0) === epoch) {
+      cacheAccountTimezone(key, null);
+    }
+    return null;
+  }
+
+  const account =
+    accounts.find((a) => a.accountId.trim().toLowerCase() === key) ??
+    accounts[0];
+
+  // Refresh once, up front — retrying this per Calendar-call attempt below
+  // would re-derive a fresh token from the same request each time and
+  // needlessly re-refresh even after a successful refresh, and a refresh
+  // failure here is not the transient-network case the retry below exists
+  // for (getValidAccessToken already distinguishes permanent vs. transient
+  // refresh failures internally).
+  let accessToken: string;
+  try {
+    const tokens = account.tokens as unknown as GoogleTokens;
+    accessToken = await getValidAccessToken(account.accountId, tokens, email);
+  } catch {
+    // coercion-ok: same reasoning as the lookup catch above.
+    return null;
+  }
+
+  let timezone: string | null = null;
+  let resolved = false;
+  // One immediate retry of just the Calendar call: a transient network
+  // blip here would otherwise be indistinguishable from a peer having no
+  // resolvable time zone at all, silently skipping their saved
+  // working-hours filter for this request (not just failing to cache a
+  // negative result, which the catch below already avoids).
+  for (let attempt = 0; attempt < 2 && !resolved; attempt++) {
+    try {
+      const calendar = await calendarGetCalendar(accessToken, "primary");
+      timezone = isCalendarTimezone(calendar?.timeZone)
+        ? calendar.timeZone
+        : null;
+      resolved = true;
+    } catch {
+      // coercion-ok: retried once above; the final failure after both
+      // attempts is handled distinctly (never cached) by the
+      // `if (!resolved)` branch right after this loop.
+    }
+  }
+  if (!resolved) {
+    // coercion-ok: deliberately not the same as "confirmed no timezone" —
+    // this is never cached (see cacheAccountTimezone), so the caller
+    // (getEligibleHostAvailability) re-checks on the next request instead
+    // of a lookup failure being treated as a stable negative result.
+    return null;
+  }
+
+  // An OAuth connect/disconnect for this email during this lookup means the
+  // account state we just read is already stale - don't let it overwrite
+  // whatever `invalidateAccountTimezoneCache` cleared.
+  if ((accountTimezoneEpoch.get(key) ?? 0) === epoch) {
+    cacheAccountTimezone(key, timezone);
+  }
+  return timezone;
 }
 
 export interface GoogleAccountSelection {
@@ -980,7 +1153,19 @@ export async function getAuthStatus(
 }
 
 export async function disconnect(email?: string): Promise<void> {
+  // The completed timezone cache is keyed by owner, which can differ from
+  // the accountId being disconnected (e.g. disconnecting a secondary
+  // account connected on someone else's behalf) - look the owner up before
+  // the row is deleted so we can invalidate the right cache key too.
+  let owner: string | null = null;
+  if (email) {
+    const accounts = await listOAuthAccounts("google");
+    owner = accounts.find((a) => a.accountId === email)?.owner ?? null;
+  }
+
   await deleteOAuthTokens("google", email);
+  if (email) invalidateAccountTimezoneCache(email);
+  if (owner) invalidateAccountTimezoneCache(owner);
 }
 
 export async function listEvents(
@@ -1218,8 +1403,23 @@ export async function listOverlayEvents(
   errors: Array<{ email: string; error: string }>;
   accountErrors: Array<{ email: string; error: string }>;
 }> {
-  const { clients, errors: refreshErrors } =
-    await getClientsForAccountsWithErrors(forEmail, options.accountEmails);
+  let clients: Array<{ email: string; accessToken: string }>;
+  let refreshErrors: Array<{ email: string; error: string }>;
+  try {
+    const resolved = await getClientsForAccountsWithErrors(
+      forEmail,
+      options.accountEmails,
+    );
+    clients = resolved.clients;
+    refreshErrors = resolved.errors;
+  } catch (error: any) {
+    const message = error?.message || "Unable to load overlay calendars";
+    return {
+      events: [],
+      errors: overlayEmails.map((email) => ({ email, error: message })),
+      accountErrors: [{ email: forEmail ?? "google", error: message }],
+    };
+  }
   const errors: Array<{ email: string; error: string }> = [];
   if (clients.length === 0) {
     const message =

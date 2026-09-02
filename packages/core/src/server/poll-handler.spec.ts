@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { publishActionChangeFastPath } from "../action-change-fast-path.js";
+
 const mockExecute = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() =>
   vi.fn(
@@ -812,10 +814,16 @@ describe("poll handler", () => {
           source: "action",
           actionName: "create-project",
           owner: "test@example.com",
+          nonce: "create-project-2000",
         }),
         updated_at: 2_000,
       },
     ];
+    publishActionChangeFastPath({
+      actionName: "create-project",
+      owner: "test@example.com",
+      nonce: "create-project-2000",
+    });
 
     const next = await handler({ query: { since: String(baseline.version) } });
 

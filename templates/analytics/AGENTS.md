@@ -80,9 +80,9 @@ Read the relevant skill before deeper work:
 - Never hardcode API keys, tokens, webhook URLs, secrets, private Builder data,
   or customer data. Use secrets/OAuth and obvious placeholders in examples.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
-- External MCP callers default to `ask_app` for interpretation, source choice,
-  analysis, or multi-step work. Direct reads require exact, complete input;
-  writes stay `ask_app`-only.
+- Use cataloged direct actions for bounded reads and allowlisted mutations. Use
+  `ask_app` for interpretation, source selection, multi-step work, unavailable
+  actions, or unsupported writes.
 - Reports/alerts use SQL actions; reports cap at five recipients.
 
 ## Actions

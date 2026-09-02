@@ -20,6 +20,7 @@ import {
   resolveAgentPanelChatSurface,
   shouldDefaultAgentChatSurfacePageNewChatButton,
   shouldHandleAgentSidebarToggle,
+  shouldHandleAgentPanelChatShortcut,
   shouldShowAgentPanelFullViewAction,
   shouldShowAgentPanelPageNewChatButton,
   shouldShowAgentPanelChatTabBar,
@@ -419,6 +420,19 @@ describe("AgentPanel shortcut hints", () => {
       toggleSidebar: "^\\",
       widenChat: "^⇧\\",
     });
+  });
+
+  it("does not capture chat focus inside editable controls", () => {
+    const input = document.createElement("input");
+    const editor = document.createElement("div");
+    editor.contentEditable = "true";
+    const nested = document.createElement("span");
+    editor.appendChild(nested);
+
+    expect(shouldHandleAgentPanelChatShortcut(input)).toBe(false);
+    expect(shouldHandleAgentPanelChatShortcut(editor)).toBe(false);
+    expect(shouldHandleAgentPanelChatShortcut(nested)).toBe(false);
+    expect(shouldHandleAgentPanelChatShortcut(document.body)).toBe(true);
   });
 });
 
