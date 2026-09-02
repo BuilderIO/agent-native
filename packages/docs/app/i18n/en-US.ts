@@ -894,7 +894,7 @@ const enUS = {
       s005: "Can See + Hear",
       s006: "All Apps",
       s007: "Screen recordings your AI can see and hear.",
-      s008: "Plus, capture browser debug logs, get transcripts, and use built-in dictation. 100% free, open-source, and customizable.",
+      s008: "Capture browser debug logs, get transcripts, and use built-in dictation. 100% free, open-source, and customizable.",
       s009: "Try it",
       s010: "What you can do",
       s011: "Record, transcribe, and debug — one app, one library, without the subscription stack.",
