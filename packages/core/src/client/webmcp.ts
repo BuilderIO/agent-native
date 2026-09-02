@@ -1,4 +1,5 @@
 import { agentNativeToolTitle } from "../shared/agent-mcp-metadata.js";
+import { agentNativePath } from "./api-path.js";
 import type {
   AgentNativeClientAction,
   AgentNativeClientActions,
@@ -496,10 +497,13 @@ export function createAgentNativeServerActionWebMcpRegistration(options?: {
     maxToolCount: 1_000,
     maxDescriptionChars: 10_000,
     actions: async () => {
-      const response = await fetchImpl("/_agent-native/webmcp/manifest", {
-        credentials: "same-origin",
-        headers: { Accept: "application/json" },
-      });
+      const response = await fetchImpl(
+        agentNativePath("/_agent-native/webmcp/manifest"),
+        {
+          credentials: "same-origin",
+          headers: { Accept: "application/json" },
+        },
+      );
       if (!response.ok) {
         throw new Error(`Unable to load WebMCP actions (${response.status})`);
       }
@@ -516,7 +520,9 @@ export function createAgentNativeServerActionWebMcpRegistration(options?: {
         ...(action.readOnly ? { readOnly: true } : {}),
         run: async (args, runtime) => {
           const result = await fetchImpl(
-            `/_agent-native/webmcp/actions/${encodeURIComponent(action.name)}`,
+            agentNativePath(
+              `/_agent-native/webmcp/actions/${encodeURIComponent(action.name)}`,
+            ),
             {
               method: "POST",
               credentials: "same-origin",

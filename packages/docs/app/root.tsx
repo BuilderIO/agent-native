@@ -1,4 +1,8 @@
-import { AgentNativeRouteWarmup } from "@agent-native/core/client/host";
+import { AgentNativeWebMcpActionRegistration } from "@agent-native/core/client/hooks";
+import {
+  AgentNativeRouteWarmup,
+  defineClientAction,
+} from "@agent-native/core/client/host";
 import {
   AgentNativeI18nProvider,
   getLocaleInitScript,
@@ -6,6 +10,7 @@ import {
 } from "@agent-native/core/client/i18n";
 import { recoverFromStaleChunkError } from "@agent-native/core/client/route-chunk-recovery";
 import { ErrorReportActions } from "@agent-native/core/client/ui";
+import { createAgentNativeWebMcpRegistration } from "@agent-native/core/client/webmcp";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   lazy,
@@ -24,6 +29,7 @@ import {
   Link,
   isRouteErrorResponse,
   useMatches,
+  useNavigate,
   useRouteError,
   useLocation,
   type LoaderFunctionArgs,
@@ -135,6 +141,58 @@ export async function loader({ request, url }: LoaderFunctionArgs) {
     messages,
     starCount,
   };
+}
+
+function DocsWebMcpNavigationRegistration() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const registration = createAgentNativeWebMcpRegistration({
+      actions: [
+        defineClientAction<{ path: string }, { path: string }>({
+          name: "navigate",
+          title: "Navigate docs",
+          description: "Navigate the documentation site to a same-origin path.",
+          schema: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                description:
+                  "Absolute same-origin path, including query or hash",
+              },
+            },
+            required: ["path"],
+            additionalProperties: false,
+          },
+          run: (input) => {
+            if (typeof input?.path !== "string") {
+              throw new Error("Docs navigation requires a string path");
+            }
+            const { path } = input;
+            if (!path.startsWith("/")) {
+              throw new Error("Docs navigation requires an absolute path");
+            }
+            const target = new URL(path, window.location.origin);
+            if (target.origin !== window.location.origin) {
+              throw new Error("Docs navigation must stay on the current site");
+            }
+            const destination = `${target.pathname}${target.search}${target.hash}`;
+            navigate(destination);
+            return { path: destination };
+          },
+        }),
+      ],
+    });
+
+    void registration.start().catch(() => {
+      // WebMCP is progressive enhancement. Unsupported browsers keep normal
+      // docs navigation without exposing a broken page-level integration.
+    });
+    return () => registration.stop();
+  }, [navigate]);
+
+  return null;
 }
 
 type RootLocaleData = Awaited<ReturnType<typeof loader>>;
@@ -527,7 +585,13 @@ export function RootShell({ mounted }: { mounted: boolean }) {
   // the Suspense boundary mounted in every phase removes that first teardown.
   return (
     <>
-      {mounted && <AgentNativeRouteWarmup />}
+      {mounted && (
+        <>
+          <AgentNativeRouteWarmup />
+          <AgentNativeWebMcpActionRegistration />
+          <DocsWebMcpNavigationRegistration />
+        </>
+      )}
       <Suspense fallback={fallback}>
         {mounted ? (
           <LazyAgentSidebar
