@@ -301,7 +301,7 @@ const PATTERNS = [
     label: "Told we keep re-fixing an already-reported bug",
     fixedBy:
       ".agents/skills/review-latest-feedback (2026-09-02 repeat-report gate)",
-    re: /\b(?:same|identical)\b[^.!?\n]{0,60}\b(?:thing|bug|issue|problem|report|error)\b[^.!?\n]{0,80}\b(?:again|over and over|on repeat|repeatedly|multiple times|keeps? (?:getting )?report\w*|twice|third time)\b|\bkeep(?:s)?\b[^.!?\n]{0,40}\b(?:re-?)?fix\w*\b[^.!?\n]{0,60}\b(?:same|again|over and over|on repeat)\b|\b(?:already|previously)\b[^.!?\n]{0,50}\b(?:said|told|claimed|marked)\b[^.!?\n]{0,40}\bfixed\b[^.!?\n]{0,60}\b(?:still|again|not|isn['’]?t)\b/i,
+    re: /\b(?:same|identical)\b[^.!?\n]{0,60}\b(?:thing|bug|issue|problem|report|error|failure)\b[^.!?\n]{0,80}\b(?:again|over and over|on repeat|repeatedly|multiple times|keeps? (?:getting )?report\w*|twice|three times|third time)\b|\bkeep(?:s)?\b[^.!?\n]{0,40}\b(?:re-?)?(?:fix|investigat|report)\w*\b[^.!?\n]{0,60}\b(?:same|again|over and over|on repeat)\b|\b(?:already|previously)\b[^.!?\n]{0,50}\b(?:said|told|claimed|marked)\b[^.!?\n]{0,40}\bfixed\b[^.!?\n]{0,60}\b(?:still|again|not|isn['’]?t)\b|\b(?:report|answer|fix)(?:ed|s)?\b[^.!?\n]{0,60}\b(?:twice|three times|two|three|four)\b[^.!?\n]{0,40}\b(?:times?|separate|different)\b[^.!?\n]{0,40}\b(?:investigat\w*|report\w*|thread\w*|repl\w*)\b|\b(?:duplicate|dupe)\w*\b[^.!?\n]{0,50}\b(?:investigation|report|of the same|work)\b/i,
   },
   {
     key: "feedback-question-volume",

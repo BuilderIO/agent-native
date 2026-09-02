@@ -50,6 +50,11 @@ Claiming is not working: Phase 0 only marks what you will take, never
 investigates or replies, so it does not preempt the rule that older open
 questions come before newer reports.
 
+Phase 1's searches reach back past this window, so they surface parents the
+channel scan never saw. Claim those the same way the moment they enter the
+worklist — eye first, read back, then investigate. Claim-before-investigation
+applies to every item you work, not only to the ones the scan found.
+
 Claim generously and correct cheaply. If a deeper read later shows an item is
 out of scope or already owned, remove the eye — an eye you retract costs
 nothing, while an hour of duplicated investigation costs two agents. If the
@@ -104,10 +109,6 @@ disclosure filter:
 slack_search: hasmy:eyes in:<#CHANNEL>
 ```
 
-Read each matching parent and reaction. An eye-only clear bug or authorized
-upvoted improvement is durable work even when it has no reply; keep it in the
-worklist until it has a terminal disposition.
-
 The test for "answered" is mechanical: **did a person speak after your
 question?** Someone counts when their message carries no disclosure marker —
 a disclosure-marked message is this workflow under any identity, so a later
@@ -118,6 +119,13 @@ what they actually said before acting. What the test decides is only whether
 the thread enters the answered set, not whether the answer is sufficient: a
 partial, unrelated, or "will check later" reply leaves the original question
 pending under the one-question rule, and does not earn a second question.
+
+A reply counts as answered **once**. If you already read it on an earlier
+sweep and it left the question pending, it is not new evidence — leave the
+thread pending, keep it out of `Answered since last run`, and do not let it
+outrank newer work again. Only a message newer than your last look at the
+thread re-enters the answered set. Otherwise one unhelpful reply would take
+priority on every run forever.
 
 Enumerate the answered set **before** any other work and write its count into
 the recap's `Answered since last run` field. Searching is not working the
@@ -134,14 +142,10 @@ are not pending questions. Treat **Open - no reply** as terminal only for an
 eye-only item with no outstanding clarification; it never replaces an
 unanswered clarification question that is still inside its four-day window.
 
-Do not apply either age branch below to a terminal disposition. The age branches
-apply only when the latest status is an unanswered **Clarification needed**
-question.
-
-Only an unanswered **Clarification needed** thread may enter either age branch.
-Never add a thread whose latest reply is **Fixed**, **Shipped**, or **In progress**
-to the pending-question set. If an older thread was recorded **Open - no
-reply** despite an unanswered clarification, restore it to the pending set.
+Only an unanswered **Clarification needed** thread enters the age branches
+below — never one whose latest reply is **Fixed**, **Shipped**, or **In
+progress**. If an older thread was recorded **Open - no reply** despite an
+unanswered clarification, restore it to the pending set.
 
 - **Someone answered** → that is now the highest-priority item in the run,
   ahead of every newer report. They spent effort answering you; the evidence
@@ -151,11 +155,11 @@ reply** despite an unanswered clarification, restore it to the pending set.
   follow-up before trying the fix.
   If the answer says the issue is already resolved, fixed elsewhere, or not
   ours — a linked PR, "this is fixed now", "not a Clips issue" — that is also
-  an answer. Close it with the matching terminal disposition instead of
-  leaving it open: **remove the `👀`**, record the row naming who resolved it
-  and where, and post no Slack message. Removing the eye is what makes the
-  closure durable — leave it on and the next run's `hasmy:eyes` search
-  resurfaces the thread as unfinished work forever.
+  an answer. Close it as **Resolved elsewhere** — a terminal disposition
+  distinct from **Skipped**, which means out of scope. Remove the `👀`, name
+  who resolved it and where in the row, and post no Slack message. Removing
+  the eye is what makes the closure durable — leave it on and the next run's
+  `hasmy:eyes` search resurfaces the thread as unfinished work forever.
 - **No answer, posted under 4 days ago** → leave it. Post nothing. A second
   message is a nag, not a follow-up.
 - **No answer, posted over 4 days ago** → the question failed. Drop it
@@ -179,10 +183,12 @@ does not exempt it from expiry.
 
 Every new reply carries the disclosure, so the search above is the primary
 cross-identity cursor. Legacy replies predating the marker need one more pass,
-since they carry neither disclosure nor eye:
+since they carry neither disclosure nor eye — run it once per valid workflow
+identity, not just your own, or the claim that these searches cover every
+run's questions is false:
 
 ```
-slack_search: from:<WORKFLOW_IDENTITY> in:<#CHANNEL>
+slack_search: from:<EACH_WORKFLOW_IDENTITY> in:<#CHANNEL>
   sort=timestamp sort_dir=asc
 ```
 
@@ -273,12 +279,11 @@ Run an unbounded reaction search across identities as well:
 slack_search: has:reaction in:<#CHANNEL>
 ```
 
-Read each matching parent and reaction metadata, retaining `👀` from any valid
-workflow identity. `hasmy:eyes` may optimize the current identity's scan, but
-it is never the only cursor. An eye-only clear bug or authorized upvoted
-improvement remains in the worklist and is rediscovered through this durable
-marker until it has a terminal disposition; it must not disappear when the
-message falls outside the five-day scan.
+Read each matching parent and its reaction metadata, retaining `👀` from any
+valid workflow identity — `hasmy:eyes` optimizes the current identity's scan
+but is never the only cursor. An eye-only clear bug or upvoted improvement
+stays in the worklist until it reaches a terminal disposition, rediscovered
+through that durable marker rather than dropping out with the scan window.
 
 Group repeat symptoms into one cluster with one owning investigation. Each
 report keeps its own eye and its own recap row; the cluster gets one fix.
@@ -316,31 +321,26 @@ slack_search: <2-4 distinctive symptom words> in:<#CHANNEL>
   sort=timestamp sort_dir=desc
 ```
 
-Search the symptom in the reporter's words — `zoom invalid_client`,
-`logout twice`, `stuck loading` — not your diagnosis of it. Different people
-describe one bug differently, so read the hits rather than trusting the count.
+Search in the reporter's words — `zoom invalid_client`, `logout twice` — not
+your diagnosis. People describe one bug differently, so read the hits rather
+than trusting the count.
 
 **A repeat report after a Fixed claim is evidence that fix failed.** It is the
-only falsification signal this workflow gets, and it outranks your own belief
-that the code is correct. Treat it as a stop, not as a fresh report:
+only falsification signal this workflow gets, and it outranks your belief that
+the code is correct. Treat it as a stop, not a fresh report:
 
-1. **Find what we said last time.** Read the prior thread and its **Fixed**
-   reply, then find the commit or PR behind it. You are looking for the
-   specific claim that turned out to be wrong.
-2. **Work out why it did not take**, and name which it was: never deployed;
-   deployed but the fix addressed a sibling path, not the reported one; the
-   root cause was misdiagnosed; or it fixed one symptom of several. Each has a
-   different repair, and re-applying the same class of change is how the same
-   bug ships three times.
-3. **Reproduce end to end before editing, and verify end to end after.** For a
-   repeat, a passing unit test is not sufficient evidence — exercise the real
-   surface the reporter used. `verifying-changes` owns the per-area proof.
-4. **Cluster the reports.** One investigation and one fix, not one per report.
-   Three separate investigations of one Analytics outage is three times the
-   cost for one answer. Clustering changes the work, not the bookkeeping:
-   every source thread keeps its own recap row, and Phase 3's reply rules
-   apply unchanged — reply in the representative thread, and mark the rest
-   clustered rather than pasting the same sentence into each.
+1. **Find what we said last time** — the prior thread, its **Fixed** reply,
+   and the commit behind it. You want the claim that turned out wrong.
+2. **Name why it did not take**: never deployed; fixed a sibling path, not the
+   reported one; root cause misdiagnosed; or one symptom of several. Each
+   needs a different repair, and re-applying the same class of change is how
+   one bug ships three times.
+3. **Reproduce end to end before editing, verify end to end after.** A passing
+   unit test is not sufficient for a repeat — exercise the surface the
+   reporter used. `verifying-changes` owns the per-area proof.
+4. **Cluster the reports**: one investigation and one fix, not one per report.
+   Clustering changes the work, not the bookkeeping — every source thread
+   keeps its own recap row, and Phase 3's reply rules apply unchanged.
 
 Record `Repeat of: <link>` and the prior failed fix in each row so the next
 run inherits the history instead of rediscovering it. Never tell a reporter a
@@ -523,7 +523,7 @@ Upvoted items in scope: N (built: N)
 
 | Source / item | Disposition | Replied? | Why and evidence |
 | --- | --- | --- | --- |
-| [Slack thread](...) | Fixed / Shipped / In progress / Asked / Open - no reply / Clustered / Skipped / Abandoned - no answer in 4 days | yes / no | ... |
+| [Slack thread](...) | Fixed / Shipped / In progress / Asked / Open - no reply / Clustered / Resolved elsewhere / Skipped / Abandoned - no answer in 4 days | yes / no | ... |
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Unavailable or unverified: ...
