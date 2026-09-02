@@ -833,13 +833,13 @@ const CLIPS_MOCK_CSS = [
 
   // Light mode. The docs shell puts `light`/`dark` on <html>, so the mock
   // follows the visitor's theme instead of staying pinned to the dark art.
-  "html.light .clips-mock { --lib-window-bg: #f1efe7; --lib-chrome-bg: #e9e6dc; --lib-chrome-border: #dcd8cb; --lib-dot: #c7c2b4; --lib-border: #dcd8cb; --lib-fg: #232019; --lib-fg-dim: #57534a; --lib-fg-muted: #706b60; --lib-fg-subtle: #837e71; --lib-fg-faint: #979183; --lib-btn-bg: #fdfcf9; --lib-btn-border: #d5d0c2; --lib-btn-fg: #403c33; --lib-btn-hover-bg: #f7f5ef; --lib-btn-hover-border: #beb8a7; --lib-hover-bg: rgba(61, 51, 30, 0.05); --lib-active-bg: rgba(61, 51, 30, 0.09); --lib-active-fg: #1e1b14; --lib-input-bg: #fdfcf9; --lib-input-border: #dad5c7; --lib-input-hover-border: #beb8a7; --lib-card-bg: #fdfcf9; --lib-card-border: #e2ded1; --lib-card-hover-border: #c2bcab; --lib-thumb-bg: #eae7dd; --lib-avatar-bg: #e3dfd2; --lib-avatar-fg: #5e594e; --lib-scroll: #c7c2b4; --lib-scroll-hover: #ada794; }",
-  "html.light .clips-mock .library-window { box-shadow: 0 24px 60px rgba(61, 51, 30, 0.14), 0 2px 8px rgba(61, 51, 30, 0.07); }",
-  "html.light .clips-mock .library-card:hover { box-shadow: 0 8px 20px rgba(61, 51, 30, 0.14); }",
-  "html.light .clips-mock .clips-mock-popover { --brand: #232019; --brand-hover: #14120d; --brand-ring: rgba(35, 32, 25, 0.2); --bg: #fefdfa; --surface: #f5f3ec; --surface-hover: #eeebe1; --surface-strong: #e7e4d9; --fg: #232019; --fg-muted: #6b6659; --fg-subtle: #8c8778; --border: #e1ddd0; --border-strong: #cfc9b9; --shadow-sm: 0 1px 2px rgba(61, 51, 30, 0.09); --shadow-md: 0 8px 24px rgba(61, 51, 30, 0.14), 0 2px 6px rgba(61, 51, 30, 0.07); }",
-  "html.light .clips-mock .clips-mock-popover.app { border-color: #dcd8cb; box-shadow: 0 28px 64px rgba(61, 51, 30, 0.22), 0 6px 18px rgba(61, 51, 30, 0.12); }",
-  "html.light .clips-mock .primary { color: #403c33; }",
-  "html.light .clips-mock .primary:hover { background: #ddd9cc; color: var(--fg); }",
+  "html.light .clips-mock { --lib-window-bg: #f1f0ea; --lib-chrome-bg: #eae8e1; --lib-chrome-border: #dedbd2; --lib-dot: #c8c5bb; --lib-border: #dedbd2; --lib-fg: #22201c; --lib-fg-dim: #56534d; --lib-fg-muted: #6f6b64; --lib-fg-subtle: #827e76; --lib-fg-faint: #969288; --lib-btn-bg: #fdfdfb; --lib-btn-border: #d7d3ca; --lib-btn-fg: #3f3c36; --lib-btn-hover-bg: #f8f7f3; --lib-btn-hover-border: #c0bcb2; --lib-hover-bg: rgba(50, 48, 38, 0.05); --lib-active-bg: rgba(50, 48, 38, 0.09); --lib-active-fg: #1d1b17; --lib-input-bg: #fdfdfb; --lib-input-border: #dcd8cf; --lib-input-hover-border: #c0bcb2; --lib-card-bg: #fdfdfb; --lib-card-border: #e3e0d8; --lib-card-hover-border: #c4c0b6; --lib-thumb-bg: #ebe9e3; --lib-avatar-bg: #e4e1d9; --lib-avatar-fg: #5d5a52; --lib-scroll: #c8c5bb; --lib-scroll-hover: #aeaaa0; }",
+  "html.light .clips-mock .library-window { box-shadow: 0 24px 60px rgba(50, 48, 38, 0.14), 0 2px 8px rgba(50, 48, 38, 0.07); }",
+  "html.light .clips-mock .library-card:hover { box-shadow: 0 8px 20px rgba(50, 48, 38, 0.14); }",
+  "html.light .clips-mock .clips-mock-popover { --brand: #22201c; --brand-hover: #131210; --brand-ring: rgba(34, 32, 28, 0.2); --bg: #fefefc; --surface: #f5f4ef; --surface-hover: #efede7; --surface-strong: #e8e6de; --fg: #22201c; --fg-muted: #6a6760; --fg-subtle: #8b887f; --border: #e2dfd7; --border-strong: #d1cdc4; --shadow-sm: 0 1px 2px rgba(50, 48, 38, 0.09); --shadow-md: 0 8px 24px rgba(50, 48, 38, 0.14), 0 2px 6px rgba(50, 48, 38, 0.07); }",
+  "html.light .clips-mock .clips-mock-popover.app { border-color: #dedbd2; box-shadow: 0 28px 64px rgba(50, 48, 38, 0.22), 0 6px 18px rgba(50, 48, 38, 0.12); }",
+  "html.light .clips-mock .primary { color: #3f3c36; }",
+  "html.light .clips-mock .primary:hover { background: #dedbd3; color: var(--fg); }",
 ].join("\n");
 
 export function ClipsLibraryMock({
