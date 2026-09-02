@@ -1590,6 +1590,89 @@ export async function resourcePut(
   };
 }
 
+/** Insert a resource only when its owner/path pair is still unused. */
+export async function resourcePutIfAbsent(
+  owner: string,
+  path: string,
+  content: string,
+  mimeType?: string,
+  options?: ResourceWriteOptions,
+): Promise<Resource | null> {
+  await ensureTable();
+  if (
+    owner === WORKSPACE_OWNER &&
+    (await shouldHandleWorkspaceResourceAsLocal(path))
+  ) {
+    return null;
+  }
+  if (owner === WORKSPACE_OWNER) {
+    await assertWritableWorkspaceResourcePath(path);
+  }
+
+  const client = getDbExec();
+  const now = Date.now();
+  const size = Buffer.byteLength(content, "utf8");
+  const mime = mimeType || "text/markdown";
+  const id = crypto.randomUUID();
+  const createdBy = normalizeCreatedBy(options?.createdBy);
+  const visibility = normalizeVisibility(options?.visibility);
+  const threadId = hasOption(options, "threadId")
+    ? (options?.threadId ?? null)
+    : null;
+  const runId = hasOption(options, "runId") ? (options?.runId ?? null) : null;
+  let expiresAt = hasOption(options, "expiresAt")
+    ? (options?.expiresAt ?? null)
+    : null;
+  if (visibility === "agent_scratch" && expiresAt === null) {
+    expiresAt = now + AGENT_SCRATCH_TTL_MS;
+  }
+  if (visibility === "workspace" && !hasOption(options, "expiresAt")) {
+    expiresAt = null;
+  }
+  const metadata = serializeMetadata(options?.metadata) ?? null;
+  const result = await client.execute({
+    sql: isPostgres()
+      ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO NOTHING`
+      : `INSERT OR IGNORE INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      id,
+      path,
+      owner,
+      content,
+      mime,
+      size,
+      now,
+      now,
+      createdBy,
+      visibility,
+      threadId,
+      runId,
+      expiresAt,
+      metadata,
+    ],
+  });
+  if (result.rowsAffected !== 1) return null;
+
+  emitResourceChange(id, path, owner, options?.requestSource);
+
+  return {
+    id,
+    path,
+    owner,
+    content,
+    mimeType: mime,
+    size,
+    createdAt: now,
+    updatedAt: now,
+    createdBy,
+    visibility,
+    threadId,
+    runId,
+    expiresAt,
+    metadata,
+  };
+}
+
 /**
  * Update an existing SQL resource only when the caller still owns the version
  * it read. Completion bookkeeping uses this instead of an upsert because a

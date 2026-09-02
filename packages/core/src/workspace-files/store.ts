@@ -362,7 +362,20 @@ export async function deleteWorkspaceFile(
   const resolved = await resolveResourceForScope(scope, path);
   if (!resolved) return false;
 
-  const deleted = await resourceDeleteByPath(resolved.owner, path);
+  const deleteConditionally =
+    scope.scope === "org" &&
+    resolved.owner === SHARED_OWNER &&
+    typeof resolved.resource.metadata === "string";
+  const deleted = deleteConditionally
+    ? await resourceDeleteIfCurrent({
+        owner: resolved.owner,
+        path: resolved.resource.path,
+        expectedId: resolved.resource.id,
+        expectedUpdatedAt: resolved.resource.updatedAt,
+        expectedContent: resolved.resource.content,
+        expectedMetadata: resolved.resource.metadata,
+      })
+    : await resourceDeleteByPath(resolved.owner, path);
   if (deleted && scope.scope === "org" && resolved.owner !== SHARED_OWNER) {
     const legacy = await resourceGetByPath(
       SHARED_OWNER,

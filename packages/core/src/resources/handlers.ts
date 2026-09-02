@@ -32,6 +32,7 @@ import {
   resourceGet,
   resourceGetByPath,
   resourcePut,
+  resourcePutIfAbsent,
   resourceDelete,
   resourceDeleteIfCurrent,
   resourceList,
@@ -602,20 +603,23 @@ export async function handleUpdateResource(event: any) {
   // editing one creates an organization override instead of mutating the
   // fallback seen by every tenant in the deployment.
   if (existing.owner === SHARED_OWNER && activeSharedOwner !== SHARED_OWNER) {
-    const destination = await resourceGetByPath(activeSharedOwner, nextPath, {
-      orgId,
-    });
-    if (destination) {
-      setResponseStatus(event, 409);
-      return { error: `A resource already exists at path "${nextPath}"` };
-    }
-    const resource = await resourcePut(
+    const metadata =
+      body.metadata !== undefined ? body.metadata : existing.metadata;
+    const writeOptions =
+      body.metadata !== undefined || typeof existing.metadata === "string"
+        ? { metadata }
+        : undefined;
+    const resource = await resourcePutIfAbsent(
       activeSharedOwner,
       nextPath,
       body.content ?? existing.content,
       body.mimeType ?? existing.mimeType,
-      body.metadata !== undefined ? { metadata: body.metadata } : undefined,
+      writeOptions,
     );
+    if (!resource) {
+      setResponseStatus(event, 409);
+      return { error: `A resource already exists at path "${nextPath}"` };
+    }
     if (
       isLegacyOrganizationWorkspaceResource &&
       typeof existing.metadata === "string"
@@ -723,7 +727,21 @@ export async function handleDeleteResource(event: any) {
     };
   }
 
-  const deleted = await resourceDelete(id);
+  const isLegacyOrganizationResource =
+    existing.owner === SHARED_OWNER &&
+    sharedResourceOwner(orgId) !== SHARED_OWNER &&
+    isLegacyOrganizationWorkspaceFile(existing, orgId) &&
+    typeof existing.metadata === "string";
+  const deleted = isLegacyOrganizationResource
+    ? await resourceDeleteIfCurrent({
+        owner: existing.owner,
+        path: existing.path,
+        expectedId: existing.id,
+        expectedUpdatedAt: existing.updatedAt,
+        expectedContent: existing.content,
+        expectedMetadata: existing.metadata,
+      })
+    : await resourceDelete(id);
   if (deleted && existingOrganizationId === orgId) {
     const legacy = await resourceGetByPath(SHARED_OWNER, existing.path, {
       orgId,

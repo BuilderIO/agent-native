@@ -289,6 +289,39 @@ describe("workspace-files Resources adapter", () => {
     );
   });
 
+  it("deletes a resolved legacy organization file conditionally", async () => {
+    const legacy = {
+      ...resource("analysis/legacy.md"),
+      owner: "__shared__",
+      metadata: JSON.stringify({
+        source: "workspace-files",
+        scope: "org",
+        scopeId: "org_123",
+      }),
+    };
+    mockResourceGetByPath
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(legacy);
+    mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+
+    await expect(
+      deleteWorkspaceFile(
+        { scope: "org", scopeId: "org_123" },
+        "analysis/legacy.md",
+      ),
+    ).resolves.toBe(true);
+
+    expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith({
+      owner: "__shared__",
+      path: legacy.path,
+      expectedId: legacy.id,
+      expectedUpdatedAt: legacy.updatedAt,
+      expectedContent: legacy.content,
+      expectedMetadata: legacy.metadata,
+    });
+    expect(mockResourceDeleteByPath).not.toHaveBeenCalled();
+  });
+
   it("removes a legacy row when deleting an organization override", async () => {
     const current = {
       ...resource("scratch/tmp.md"),

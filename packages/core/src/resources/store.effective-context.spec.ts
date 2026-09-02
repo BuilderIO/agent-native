@@ -587,6 +587,32 @@ describe("resourceEffectiveContext", () => {
     });
   });
 
+  it("does not overwrite an existing resource during conditional insert", async () => {
+    const {
+      SHARED_OWNER,
+      resourceDeleteByPath,
+      resourceGetByPath,
+      resourcePutIfAbsent,
+    } = await import("./store.js");
+    const path = `context/conditional-insert-${Date.now()}-${Math.random()}.md`;
+
+    try {
+      const first = await resourcePutIfAbsent(SHARED_OWNER, path, "first");
+      expect(first?.content).toBe("first");
+
+      await expect(
+        resourcePutIfAbsent(SHARED_OWNER, path, "second"),
+      ).resolves.toBeNull();
+      await expect(
+        resourceGetByPath(SHARED_OWNER, path),
+      ).resolves.toMatchObject({
+        content: "first",
+      });
+    } finally {
+      await resourceDeleteByPath(SHARED_OWNER, path);
+    }
+  });
+
   it("does not delete a replacement during conditional legacy cleanup", async () => {
     const {
       SHARED_OWNER,
