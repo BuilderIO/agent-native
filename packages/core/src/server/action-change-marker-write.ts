@@ -30,17 +30,17 @@ export function actionChangeTarget(
 export async function writeActionChangeMarker(
   options: NotifyActionChangeOptions,
 ): Promise<void> {
-  const target = actionChangeTarget(options);
+  const target = {
+    ...actionChangeTarget(options),
+    nonce: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  };
   publishActionChangeFastPath(target);
   const sessionId = actionChangeMarkerSession(target);
   if (!sessionId) return;
   await appStatePut(
     sessionId,
     ACTION_CHANGE_MARKER_KEY,
-    {
-      ...actionChangeMarkerValue(target),
-      nonce: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    },
+    actionChangeMarkerValue(target),
     { requestSource: options.requestSource ?? "agent" },
   );
 }

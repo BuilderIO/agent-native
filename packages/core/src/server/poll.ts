@@ -27,6 +27,7 @@ import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 
 import { setActionChangeFastPath } from "../action-change-fast-path.js";
 import {
+  actionChangeDedupeKey,
   ACTION_CHANGE_MARKER_KEY,
   parseActionChangeMarker,
   type ActionChangeTarget,
@@ -1325,7 +1326,7 @@ export class AppSyncState {
         },
         dedupeKey !== undefined
           ? {
-              dedupeKey: `${dedupeKey}|${target.actionName ?? ""}|${target.owner ?? ""}|${target.orgId ?? ""}`,
+              dedupeKey: actionChangeDedupeKey(target, dedupeKey),
             }
           : undefined,
       );
@@ -1914,7 +1915,9 @@ export class AppSyncState {
           // marker path.
           this.recordActionChanges(
             [target],
-            `action|${timestampValue(row.updated_at)}`,
+            target.nonce
+              ? `action|${target.nonce}`
+              : `action|${timestampValue(row.updated_at)}`,
           );
         }
         this.lastActionMarkerTs = actionMarkerTs;
@@ -2138,14 +2141,19 @@ export function recordChange(event: {
 }
 
 setActionChangeFastPath((target) => {
-  recordChange({
-    source: "action",
-    type: "change",
-    key: target.actionName,
-    ...(target.owner ? { owner: target.owner } : {}),
-    ...(target.orgId ? { orgId: target.orgId } : {}),
-    ...(target.requestSource ? { requestSource: target.requestSource } : {}),
-  });
+  getDefaultAppSyncState().recordChange(
+    {
+      source: "action",
+      type: "change",
+      key: target.actionName,
+      ...(target.owner ? { owner: target.owner } : {}),
+      ...(target.orgId ? { orgId: target.orgId } : {}),
+      ...(target.requestSource ? { requestSource: target.requestSource } : {}),
+    },
+    target.nonce
+      ? { dedupeKey: actionChangeDedupeKey(target, `action|${target.nonce}`) }
+      : undefined,
+  );
 });
 
 /** Get all changes after a given version. */
