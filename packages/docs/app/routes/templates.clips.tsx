@@ -12,6 +12,7 @@ import {
   TemplateLandingFaq,
   TemplateLandingShell,
 } from "../components/template-landing";
+import { ClipsLibraryMock } from "../components/template-landing/ClipsLibraryMock";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
 
@@ -259,13 +260,9 @@ export default function ClipsTemplate() {
         }
         description={<p>{t("templateLanding.clips.s008")}</p>}
         media={
-          <BuilderImage
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7a32fb5edffc4afa90e74e91b147b771"
-            crossOrigin="anonymous"
-            alt={t("templateLanding.clips.s001")}
-            loading="lazy"
-            decoding="async"
-            className="h-auto max-h-[536px] w-full object-cover object-top"
+          <ClipsLibraryMock
+            label={t("templateLanding.clips.s001")}
+            className="h-[360px] sm:h-[440px] lg:h-[536px]"
           />
         }
       />
