@@ -13,10 +13,10 @@ This index summarizes the atomic product contracts beneath the public roadmap. E
 
 | Capability state | Count |
 | ---------------- | ----: |
-| Verified         |     3 |
+| Verified         |     4 |
 | Failing          |     1 |
 | Stale            |     0 |
-| In Progress      |    19 |
+| In Progress      |    18 |
 | Approved Shape   |    89 |
 | Exploring        |     8 |
 | Deferred         |     0 |
@@ -379,7 +379,7 @@ graph LR
 
 | Capability                                                                                  | State          | User promise                                                                                                                                    |
 | ------------------------------------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Bounded collection export](capabilities/content.portability.collection-export.md)          | In Progress    | Export the authorized records in one Database or View to a readable file without changing what the View means or implying a whole-vault backup. |
+| [Bounded collection export](capabilities/content.portability.collection-export.md)          | Verified       | Export the authorized records in one Database or View to a readable file without changing what the View means or implying a whole-vault backup. |
 | [PDF export](capabilities/content.portability.pdf-export.md)                                | In Progress    | Create a readable PDF of an authorized Content representation without confusing it with the editable or lossless export.                        |
 | [Faithful round-tripping](capabilities/content.portability.roundtrip.md)                    | Approved Shape | Content preserves provider-owned meaning it cannot safely render or edit, so a supported change never silently destroys the rest of the work.   |
 | [Portable Source representation](capabilities/content.portability.source-representation.md) | Approved Shape | Connected and local material has a portable Content representation without pretending Content owns every original.                              |

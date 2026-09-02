@@ -6,7 +6,7 @@ name: "Bounded collection export"
 user_promise: "Export the authorized records in one Database or View to a readable file without changing what the View means or implying a whole-vault backup."
 primary_user_job: "Take the records I can see in one collection into CSV, Markdown, HTML, or a print-ready PDF representation with clear scope and field choices."
 kind: "workflow"
-state: "in_progress"
+state: "verified"
 publicness: "public"
 availability: "universal"
 dependencies:
@@ -25,7 +25,13 @@ proof_requirements:
     "Selected-field dependency, typed computed-value, body hydration, narrow projection, and cross-format renderer tests",
     "Real Content toolbar and dialog workflow through downloaded CSV, Markdown package, HTML, and browser print preview",
   ]
-evidence: []
+evidence:
+  [
+    "../../../actions/_collection-export.ts",
+    "../../../actions/export-document.db.test.ts",
+    "../../../app/components/editor/database/DatabaseExportDialog.test.ts",
+    "../../../shared/database-collection-export.ts",
+  ]
 superseded_by: null
 last_reviewed: "2026-09-02"
 ---
@@ -105,10 +111,15 @@ than truncating after 5,000 authorized candidates.
 
 ## Current evidence
 
-Content has an existing `export-document` Action, configurable CSV dialog,
-document renderers, and Database/View query primitives. These are useful donor
-machinery, but the unified projection, four-format interface, Markdown package,
-and complete proof remain in progress.
+The linked Action projection, renderers, and dialog tests prove access-first
+membership, saved and effective View composition, bounded ordering, selected
+field dependencies, explicit hydration failures, and four-format generation.
+Real-interface acceptance on 2026-09-02 additionally exercised the responsive
+dialog, downloaded and independently inspected CSV, Markdown ZIP, and HTML
+artifacts, opened the populated browser PDF print preview, and retried a
+hydration failure from the same dialog. This record is `verified` for the
+bounded collection-export contract; whole-vault recovery and binary PDF
+generation retain their separate proof gates.
 
 ## Proof plan
 
