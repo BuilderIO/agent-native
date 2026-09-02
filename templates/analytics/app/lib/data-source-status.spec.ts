@@ -268,6 +268,30 @@ describe("data source status", () => {
     ).toBe(false);
   });
 
+  it("declares dbt as MCP-backed and preserves its focused Ask return", () => {
+    const dbt = dataSources.find((source) => source.id === "dbt");
+    const resolution = focusedDataSourceFromSearchParams(
+      new URLSearchParams("source=dbt&returnTo=ask"),
+    );
+
+    expect(dbt).toMatchObject({
+      category: "analytics",
+      connectionKind: "mcp",
+    });
+    expect(dbt && "envKeys" in dbt).toBe(false);
+    expect(dbt && "walkthroughSteps" in dbt).toBe(false);
+    expect(resolution).toMatchObject({
+      status: "found",
+      source: { id: "dbt" },
+    });
+    expect(
+      dataSourceOAuthReturnPath(
+        resolution.status === "found" ? resolution.source : undefined,
+        true,
+      ),
+    ).toBe("/data-sources?source=dbt&returnTo=ask");
+  });
+
   it("focuses a provider-specific setup link and preserves the Ask return", () => {
     const resolution = focusedDataSourceFromSearchParams(
       new URLSearchParams("source=HubSpot&returnTo=ask"),

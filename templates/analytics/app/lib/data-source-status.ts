@@ -227,6 +227,7 @@ export function credentialRowsFromStatus(
 }
 
 export function getOptionalCredentialKeys(source: DataSource): Set<string> {
+  if (source.connectionKind === "mcp") return new Set();
   return new Set(
     source.walkthroughSteps
       .filter((step) => step.optional)
@@ -241,7 +242,7 @@ export function isSourceConfigured(
   source: DataSource,
   envStatus: EnvKeyStatus[],
 ): boolean {
-  if (source.id === "dbt") return false;
+  if (source.connectionKind === "mcp") return false;
 
   const statusMap = new Map(
     envStatus.map((s) => [normalizeCredentialKey(s.key), s.configured]),
