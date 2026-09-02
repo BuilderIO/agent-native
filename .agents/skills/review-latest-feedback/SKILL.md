@@ -28,9 +28,9 @@ posts three messages beats a run that posts thirty.
 
 ## Phase 0: claim what you are taking
 
-Other agents and people work this channel at the same time. An unclaimed
-report is one somebody else is about to start investigating, so the eye is a
-lock, not a bookmark — and a lock is worthless if you take it after the work.
+Other agents work this channel concurrently, so an unclaimed report is one
+someone else is about to start investigating. The eye is a lock, not a
+bookmark, and a lock taken after the work is worthless.
 
 Scan the window newest to oldest with a channel read, and classify from
 **parent-level evidence only**: the message text, its attachments, and its
@@ -55,20 +55,25 @@ channel scan never saw. Claim those the same way the moment they enter the
 worklist — eye first, read back, then investigate. Claim-before-investigation
 applies to every item you work, not only to the ones the scan found.
 
-Claim generously and correct cheaply. If a deeper read later shows an item is
-out of scope or already owned, remove the eye — an eye you retract costs
-nothing, while an hour of duplicated investigation costs two agents. If the
-reaction write or read-back fails, record that item as unavailable and stop
-working it; never proceed on an unverified claim.
+Claim generously and correct cheaply: if a deeper read shows an item is out of
+scope or already owned, remove the eye. A retracted eye costs nothing; an hour
+of duplicated investigation costs two agents. If the reaction write or
+read-back fails, record the item as unavailable and stop working it — never
+proceed on an unverified claim.
 
-**The eye means "I have this," not "I owe you a message."** It is a claim and
-an investigation marker with no reply obligation — that coupling is what
-produced 23 questions in a single hour. Items still get a recap row whether or
-not they get a Slack reply.
+**The eye means "I have this," not "I owe you a message."** It carries no
+reply obligation — that coupling is what produced 23 questions in one hour.
+Every item gets a recap row; only some get a Slack reply.
 
 Do not claim what you will not work: no preferences, product ideas, copy or
 layout suggestions, praise, status updates, merge or review requests, bot
 forwards, or duplicates. The classification rules are below.
+
+"Duplicate" means the same message twice — a re-post or cross-post. **A fresh
+report of a symptom we already answered is not a duplicate; it is the repeat
+signal.** Claim and cluster it so Phase 2's repeat gate can run. Skipping it
+is how a failed fix stays believed: someone says the bug is still there and we
+file it as noise.
 
 ## Phase 1: answer the people who answered you
 
@@ -147,19 +152,16 @@ below — never one whose latest reply is **Fixed**, **Shipped**, or **In
 progress**. If an older thread was recorded **Open - no reply** despite an
 unanswered clarification, restore it to the pending set.
 
-- **Someone answered** → that is now the highest-priority item in the run,
-  ahead of every newer report. They spent effort answering you; the evidence
-  you said you were blocked on now exists. Rebuild it and attempt the fix. Use
-  a **Fixed** reply only after all four verification bars pass; otherwise keep
-  the clarification open or ask one remaining specific question. Do not ask a
-  follow-up before trying the fix.
-  If the answer says the issue is already resolved, fixed elsewhere, or not
-  ours — a linked PR, "this is fixed now", "not a Clips issue" — that is also
-  an answer. Close it as **Resolved elsewhere** — a terminal disposition
-  distinct from **Skipped**, which means out of scope. Remove the `👀`, name
-  who resolved it and where in the row, and post no Slack message. Removing
-  the eye is what makes the closure durable — leave it on and the next run's
-  `hasmy:eyes` search resurfaces the thread as unfinished work forever.
+- **Someone answered** → highest priority in the run, ahead of every newer
+  report: the evidence you said blocked you now exists. Rebuild it and attempt
+  the fix. Reply **Fixed** only after all four bars pass; otherwise keep the
+  clarification open. Never ask a follow-up before trying the fix.
+  An answer that the issue is already resolved, fixed elsewhere, or not ours —
+  a linked PR, "not a Clips issue" — is still an answer. Close it as
+  **Resolved elsewhere** (terminal, and distinct from **Skipped**, which means
+  out of scope): remove the `👀`, name who resolved it and where, post
+  nothing. Removing the eye is what makes the closure durable, or the next
+  run's `hasmy:eyes` resurfaces it as unfinished forever.
 - **No answer, posted under 4 days ago** → leave it. Post nothing. A second
   message is a nag, not a follow-up.
 - **No answer, posted over 4 days ago** → the question failed. Drop it
@@ -285,8 +287,8 @@ but is never the only cursor. An eye-only clear bug or upvoted improvement
 stays in the worklist until it reaches a terminal disposition, rediscovered
 through that durable marker rather than dropping out with the scan window.
 
-Group repeat symptoms into one cluster with one owning investigation. Each
-report keeps its own eye and its own recap row; the cluster gets one fix.
+Group repeat symptoms into one cluster with one owning investigation; the
+repeat gate in Phase 2 owns how they are worked.
 
 For GitHub and Sentry, use native state as the cursor: recent open or
 unresolved items with no maintainer disposition, deduplicated against Slack.
