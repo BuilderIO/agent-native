@@ -299,14 +299,6 @@ export default function ClipsTemplate() {
         id="try-with-ai"
         className="scroll-mt-24 border-t border-[var(--docs-border)]"
       >
-        <div
-          aria-hidden="true"
-          className="hidden h-20 border-x border-[var(--docs-border)] lg:grid lg:grid-cols-3"
-        >
-          <div />
-          <div className="border-x border-[var(--docs-border)]" />
-          <div />
-        </div>
 
         <div className="flex flex-col border-t border-[var(--docs-border)] lg:flex-row lg:items-stretch lg:border-x">
           <div className="flex flex-1 items-center border-b border-[var(--docs-border)] px-6 py-8 sm:px-10 lg:w-2/3 lg:flex-none lg:border-b-0 lg:border-e lg:px-8 lg:py-8">
