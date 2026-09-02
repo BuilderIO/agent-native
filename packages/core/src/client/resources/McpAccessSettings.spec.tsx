@@ -113,6 +113,33 @@ describe("McpAccessSettings localization", () => {
     expect(container.textContent).toContain("grok.com/connectors");
   });
 
+  it("synchronizes the guide after browser navigation", async () => {
+    window.history.replaceState({}, "", "/settings/mcp?guide=grok");
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <McpAccessSettings appName="Content" />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await act(async () => {
+      window.history.pushState({}, "", "/settings/mcp?guide=cursor");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+
+    expect(
+      container
+        .querySelector("#mcp-guide-tab-cursor")
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
   it("renders the default guide without a browser during SSR", () => {
     const browserWindow = window;
     vi.stubGlobal("window", undefined);

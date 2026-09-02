@@ -99,11 +99,16 @@ export function McpAccessSettings({
   const [activeGuide, setActiveGuide] = useState<string>("claude");
 
   useEffect(() => {
-    setActiveGuide(
-      resolveMcpConnectGuideId(
-        new URLSearchParams(window.location.search).get("guide"),
-      ),
-    );
+    const syncGuide = () => {
+      setActiveGuide(
+        resolveMcpConnectGuideId(
+          new URLSearchParams(window.location.search).get("guide"),
+        ),
+      );
+    };
+    syncGuide();
+    window.addEventListener("popstate", syncGuide);
+    return () => window.removeEventListener("popstate", syncGuide);
   }, []);
 
   useEffect(() => {
