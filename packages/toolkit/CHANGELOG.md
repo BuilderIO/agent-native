@@ -1,5 +1,12 @@
 # @agent-native/toolkit
 
+## 0.19.1
+
+### Patch Changes
+
+- e74593d: Keep the auth marketing learn-more action in a dedicated top-right layout row.
+- Release all public npm packages with a patch version bump.
+
 ## 0.19.0
 
 ### Minor Changes

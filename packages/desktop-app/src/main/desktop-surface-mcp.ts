@@ -23,9 +23,17 @@ export interface DesktopSurfaceOpenAppRequest {
   view?: string;
 }
 
+export interface DesktopSurfaceActiveAppContext {
+  appId: string;
+  appName: string;
+  path?: string;
+  view?: string;
+}
+
 export interface DesktopSurfaceMcpBridgeOptions {
   listApps: () => readonly DesktopSurfaceApp[];
   openApp: (request: DesktopSurfaceOpenAppRequest) => void;
+  getActiveAppContext?: () => DesktopSurfaceActiveAppContext | null;
 }
 
 export interface DesktopSurfaceMcpRegistration {
@@ -171,6 +179,28 @@ export class DesktopSurfaceMcpBridge {
         annotations: { readOnlyHint: true, openWorldHint: false },
       },
       async () => textResult({ apps: this.options.listApps() }),
+    );
+    mcp.registerTool(
+      "get_active_app_context",
+      {
+        description:
+          "Return the workspace app currently selected in the desktop shell. Use this before app work so the terminal agent follows the same app context as the desktop UI.",
+        annotations: { readOnlyHint: true, openWorldHint: false },
+      },
+      async () => {
+        const activeApp = this.options.getActiveAppContext?.() ?? null;
+        return textResult({
+          activeApp: activeApp
+            ? {
+                ...activeApp,
+                mcpServer: `desktop_app_${activeApp.appId.replace(/[^A-Za-z0-9_]/g, "_")}`,
+              }
+            : null,
+          instructions: activeApp
+            ? `The active workspace app is ${activeApp.appName}. Use its configured MCP tools for app operations and keep navigation in this app${activeApp.path ? ` at ${activeApp.path}` : ""}.`
+            : "No workspace app is currently selected. Ask the user which app to use before making app-specific changes.",
+        });
+      },
     );
     mcp.registerTool(
       "open_app",

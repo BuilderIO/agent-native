@@ -96,6 +96,9 @@ const messages = {
     conditionContains: "में शामिल है",
     conditionValue: "उत्तर",
     conditionValuePlaceholder: "उत्तर दर्ज करें...",
+    allowMultiple: "एक से अधिक फ़ाइलें अनुमति दें",
+    accept: "स्वीकार किए गए फ़ाइल प्रकार",
+    acceptPlaceholder: "उदा. image/*, .pdf",
     fieldTypes: {
       text: "लघु पाठ",
       email: "ईमेल",
@@ -108,6 +111,7 @@ const messages = {
       date: "तारीख",
       rating: "रेटिंग",
       scale: "पैमाना",
+      file: "फ़ाइल अपलोड",
     },
   },
   builder: {
@@ -178,6 +182,7 @@ const messages = {
       dateLabel: "तारीख",
       ratingLabel: "रेटिंग",
       scaleLabel: "पैमाना",
+      fileLabel: "फ़ाइल अपलोड",
       option1: "विकल्प 1",
       option2: "विकल्प 2",
       option3: "विकल्प 3",

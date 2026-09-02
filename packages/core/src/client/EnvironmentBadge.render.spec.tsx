@@ -15,7 +15,10 @@ vi.mock("./app-config.js", () => ({
   injectedAgentNativeConfig: () => injectedAgentNativeConfigMock(),
 }));
 
-import { EnvironmentBadge } from "./EnvironmentBadge.js";
+import {
+  BETA_REDIRECT_STORAGE_KEY,
+  EnvironmentBadge,
+} from "./EnvironmentBadge.js";
 
 describe("EnvironmentBadge render", () => {
   let container: HTMLDivElement;
@@ -40,6 +43,7 @@ describe("EnvironmentBadge render", () => {
       },
     });
     window.localStorage?.removeItem("agent-native:beta-opt-out-until");
+    window.localStorage?.removeItem(BETA_REDIRECT_STORAGE_KEY);
     window.sessionStorage?.removeItem("agent-native:force-production");
   });
 
@@ -273,6 +277,9 @@ describe("EnvironmentBadge render", () => {
     expect(replace).toHaveBeenCalledWith(
       "https://beta.plan.agent-native.com/inbox?tab=all#runs",
     );
+    expect(
+      Number(window.localStorage.getItem(BETA_REDIRECT_STORAGE_KEY)),
+    ).toBeGreaterThan(Date.now());
   });
 
   it("keeps an employee on production for a forced browser session", () => {
