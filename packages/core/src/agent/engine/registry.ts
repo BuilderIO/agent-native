@@ -746,24 +746,6 @@ export async function detectEngineFromUserSecrets(
     return true;
   };
 
-  // Batch-load every candidate provider credential for this identity in one
-  // read per scope, so the per-engine checks below answer from the request
-  // memo instead of each key re-walking the four-scope waterfall. Without this
-  // an unconfigured request sweeps the whole registry one point read at a time.
-  const candidateProviderKeys = Array.from(
-    new Set(
-      [..._registry.values()]
-        .filter(
-          (entry) =>
-            entry.name !== "builder" && isAgentEnginePackageInstalled(entry),
-        )
-        .flatMap((entry) => entry.requiredEnvVars),
-    ),
-  );
-  if (candidateProviderKeys.length > 0) {
-    await prefetchSecrets(candidateProviderKeys);
-  }
-
   const preferByo = getAppConfig().agent.preferBringYourOwnKey;
 
   if (preferByo) {
