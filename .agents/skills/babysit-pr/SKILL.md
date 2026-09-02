@@ -85,15 +85,29 @@ merging, except when the user explicitly invokes `/ship-now`.
    use a read followed by an unconditional lease write. After every successful
    mutation, reread and verify the owner and version.
 
-   Renew the lease atomically at the start of every tick, after the required
-   fetch and before Step 0 checks, and again before any slow local validation or
-   heartbeat reschedule. Use an expiry longer than the two-minute cadence, but
-   never rely on expiry alone. A failed renewal fences this invocation: do not
-   perform PR work or update the heartbeat, and remain foreground-only. A
-   heartbeat wake that fails this fence must attempt the same-owner pause of
-   its exact task-scoped record before exiting. A text-only wake-up reminder is
-   not enough. If no durable wake-up tool is available, keep the foreground
-   loop running and do not stop after PR creation.
+   If this invocation successfully claims the lease but any later setup check
+   selects the foreground-only path, or creating/resuming the task-scoped
+   heartbeat fails, release the lease immediately with the same-owner/version
+   `git push --force-with-lease` operation before continuing foreground work.
+   Retry a failed release from a freshly observed lease version while ownership
+   is still this invocation's; if ownership moved, never release the new
+   owner's lease. This cleanup is required even when no heartbeat was created,
+   and must not wait for the stop conditions.
+
+   Choose a lease expiry at least three times the two-minute cadence. At the
+   start of every tick, after the required fetch, make the lease fence the
+   first Step 0 action: read the current record and atomically renew it with
+   the expected owner and version before any PR checks. Renew again immediately
+   before slow local validation, after validation if it may have consumed the
+   TTL, and immediately before scheduling the next heartbeat. A failed renewal
+   fences this invocation: do no PR work or heartbeat mutation, attempt the
+   same-owner pause of its exact task-scoped record when applicable, and remain
+   foreground-only. Only an expired or released record may be taken over with
+   `--force-with-lease` against the freshly observed lease oid; the old owner's
+   next wake must fence itself and pause its own task-scoped watcher before
+   exiting. A text-only wake-up reminder is not enough. If no durable wake-up
+   tool is available, keep the foreground loop running and do not stop after PR
+   creation.
 2. Track when the last actionable item (new human/bot feedback, CI fix, merge-conflict resolution, or a local-change commit/push) occurred.
 3. After 30 minutes of no new actionable items with GitHub Actions CI green, cancel the loop (stop scheduling wake-ups) and report "All clear".
 
