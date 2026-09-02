@@ -11,7 +11,6 @@ const mocks = vi.hoisted(() => ({
   extractJpegFrame: vi.fn(),
   uploadFile: vi.fn(),
   writeAppState: vi.fn(),
-  deleteRecordingMediaObjects: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -40,10 +39,6 @@ vi.mock("../db/index.js", () => ({
     },
   },
 }));
-vi.mock("./recording-media-cleanup.js", () => ({
-  deleteRecordingMediaObjects: (...args: unknown[]) =>
-    mocks.deleteRecordingMediaObjects(...args),
-}));
 vi.mock("./public-agent-context.js", () => ({
   loadRecordingMediaBytes: vi.fn(),
 }));
@@ -64,20 +59,9 @@ function createDb(
   updated: Array<Record<string, unknown>> = [
     { id: "rec-1", thumbnailUrl: "https://cdn.example.com/thumb.jpg" },
   ],
-  references: Array<Record<string, unknown>> = [],
 ) {
   const selectWhere = vi.fn().mockResolvedValue([recording]);
-  const referenceResults = vi.fn().mockResolvedValue(references);
-  const select = vi.fn((selection?: unknown) => {
-    if (!selection) {
-      return { from: vi.fn(() => ({ where: selectWhere })) };
-    }
-    return {
-      from: vi.fn(() => ({
-        where: referenceResults,
-      })),
-    };
-  });
+  const select = vi.fn(() => ({ from: vi.fn(() => ({ where: selectWhere })) }));
   const updateReturning = vi.fn().mockResolvedValue(updated);
   const updateWhere = vi.fn(() => ({ returning: updateReturning }));
   const updateSet = vi.fn(() => ({ where: updateWhere }));
@@ -117,7 +101,6 @@ describe("ensureRecordingThumbnail", () => {
       provider: "builder",
     });
     mocks.writeAppState.mockResolvedValue(undefined);
-    mocks.deleteRecordingMediaObjects.mockResolvedValue(undefined);
   });
 
   it("extracts and persists one thumbnail when the upload omitted it", async () => {
@@ -178,68 +161,6 @@ describe("ensureRecordingThumbnail", () => {
     expect(mocks.extractJpegFrame).not.toHaveBeenCalled();
     expect(mocks.uploadFile).not.toHaveBeenCalled();
     expect(update).not.toHaveBeenCalled();
-  });
-
-  it("cleans an unreferenced thumbnail when replacing it", async () => {
-    const oldThumbnailUrl = "https://cdn.example.com/old.jpg";
-    const { db } = createDb(recording({ thumbnailUrl: oldThumbnailUrl }), [
-      { id: "rec-1", thumbnailUrl: "https://cdn.example.com/thumb.jpg" },
-    ]);
-    mocks.getDb.mockReturnValue(db);
-
-    const result = await ensureRecordingThumbnail({
-      recordingId: "rec-1",
-      ownerEmail: "owner@example.com",
-      mediaBytes: new Uint8Array([9, 9, 9]),
-      replaceNonEditorThumbnail: true,
-    });
-
-    expect(result.status).toBe("generated");
-    expect(mocks.deleteRecordingMediaObjects).toHaveBeenCalledWith({
-      id: "rec-1",
-      thumbnailUrl: oldThumbnailUrl,
-    });
-  });
-
-  it("keeps a superseded thumbnail that another recording still references", async () => {
-    const oldThumbnailUrl = "https://cdn.example.com/shared.jpg";
-    const { db } = createDb(
-      recording({ thumbnailUrl: oldThumbnailUrl }),
-      [{ id: "rec-1", thumbnailUrl: "https://cdn.example.com/thumb.jpg" }],
-      [{ id: "other-recording", thumbnailUrl: oldThumbnailUrl }],
-    );
-    mocks.getDb.mockReturnValue(db);
-
-    await ensureRecordingThumbnail({
-      recordingId: "rec-1",
-      ownerEmail: "owner@example.com",
-      mediaBytes: new Uint8Array([9, 9, 9]),
-      replaceNonEditorThumbnail: true,
-    });
-
-    expect(mocks.deleteRecordingMediaObjects).not.toHaveBeenCalled();
-  });
-
-  it("keeps a thumbnail retained by an editor URL selection", async () => {
-    const oldThumbnailUrl = "https://cdn.example.com/editor.jpg";
-    const editsJson = JSON.stringify({
-      thumbnail: { kind: "url", value: oldThumbnailUrl },
-    });
-    const { db } = createDb(
-      recording({ thumbnailUrl: null, editsJson }),
-      [{ id: "rec-1", thumbnailUrl: "https://cdn.example.com/thumb.jpg" }],
-      [{ id: "rec-1", editsJson }],
-    );
-    mocks.getDb.mockReturnValue(db);
-
-    await ensureRecordingThumbnail({
-      recordingId: "rec-1",
-      ownerEmail: "owner@example.com",
-      mediaBytes: new Uint8Array([9, 9, 9]),
-      previousThumbnailUrl: oldThumbnailUrl,
-    });
-
-    expect(mocks.deleteRecordingMediaObjects).not.toHaveBeenCalled();
   });
 
   it("single-flights concurrent thumbnail uploads for one recording", async () => {

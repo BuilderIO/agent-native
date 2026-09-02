@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   isCandidateDirectVideoUrl: vi.fn(),
   queueBuilderMediaCompression: vi.fn(),
   ensureRecordingThumbnail: vi.fn(),
+  dispatchPostFinalizeJob: vi.fn(),
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -82,6 +83,17 @@ vi.mock("../server/lib/builder-media-compression.js", () => ({
 vi.mock("../server/lib/ensure-recording-thumbnail.js", () => ({
   ensureRecordingThumbnail: (...args: unknown[]) =>
     mocks.ensureRecordingThumbnail(...args),
+  isRetryableRecordingThumbnailStatus: (status: string) =>
+    [
+      "skipped-media-fetch",
+      "skipped-frame-extraction",
+      "skipped-upload-failed",
+      "skipped-race",
+    ].includes(status),
+}));
+vi.mock("../server/lib/post-finalize-dispatch.js", () => ({
+  dispatchPostFinalizeJob: (...args: unknown[]) =>
+    mocks.dispatchPostFinalizeJob(...args),
 }));
 
 vi.mock("../server/lib/recordings.js", () => ({
@@ -157,6 +169,7 @@ describe("first imported recording transactional email", () => {
       changed: false,
       thumbnailUrl: null,
     });
+    mocks.dispatchPostFinalizeJob.mockResolvedValue(undefined);
   });
 
   it("enqueues only when this recording is the first ready import after enablement", async () => {

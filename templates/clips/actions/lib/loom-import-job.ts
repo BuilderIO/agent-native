@@ -4,7 +4,11 @@ import { and, asc, eq, gte, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../../server/db/index.js";
 import { queueBuilderMediaCompression } from "../../server/lib/builder-media-compression.js";
-import { ensureRecordingThumbnail } from "../../server/lib/ensure-recording-thumbnail.js";
+import {
+  ensureRecordingThumbnail,
+  isRetryableRecordingThumbnailStatus,
+} from "../../server/lib/ensure-recording-thumbnail.js";
+import { dispatchPostFinalizeJob } from "../../server/lib/post-finalize-dispatch.js";
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
 import { transactionalEmailStore } from "../../server/lib/transactional-email-store.js";
 import {
@@ -247,6 +251,18 @@ export async function runLoomImportJob({
         console.warn("[clips] Loom thumbnail frame extraction skipped", {
           recordingId,
           detail: thumbnail.detail,
+        });
+      }
+      if (!thumbnail || isRetryableRecordingThumbnailStatus(thumbnail.status)) {
+        await dispatchPostFinalizeJob({
+          recordingId,
+          kind: "thumbnail",
+          requireAccepted: true,
+        }).catch((err) => {
+          console.warn("[clips] Loom thumbnail retry queue failed", {
+            recordingId,
+            error: err instanceof Error ? err.message : String(err),
+          });
         });
       }
     }

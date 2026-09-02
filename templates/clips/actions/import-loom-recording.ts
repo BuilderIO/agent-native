@@ -12,7 +12,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { queueBuilderMediaCompression } from "../server/lib/builder-media-compression.js";
-import { ensureRecordingThumbnail } from "../server/lib/ensure-recording-thumbnail.js";
+import {
+  ensureRecordingThumbnail,
+  isRetryableRecordingThumbnailStatus,
+} from "../server/lib/ensure-recording-thumbnail.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import {
   getCurrentOwnerEmail,
@@ -493,6 +496,18 @@ export default defineAction({
       });
       return null;
     });
+    if (!thumbnail || isRetryableRecordingThumbnailStatus(thumbnail.status)) {
+      await dispatchPostFinalizeJob({
+        recordingId: id,
+        kind: "thumbnail",
+        requireAccepted: true,
+      }).catch((err) => {
+        console.warn("[clips] Direct video thumbnail retry queue failed", {
+          recordingId: id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
 
     void queueBuilderMediaCompression({
       recordingId: id,

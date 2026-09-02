@@ -48,6 +48,9 @@ const mockEnsureRecordingThumbnail = vi.hoisted(() =>
     thumbnailUrl: "https://cdn.example.com/thumb.jpg",
   })),
 );
+const mockDispatchPostFinalizeJob = vi.hoisted(() =>
+  vi.fn(async () => undefined),
+);
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: mockWriteAppState,
@@ -72,6 +75,17 @@ vi.mock("../../server/lib/builder-media-compression.js", () => ({
 vi.mock("../../server/lib/ensure-recording-thumbnail.js", () => ({
   ensureRecordingThumbnail: (...args: unknown[]) =>
     mockEnsureRecordingThumbnail(...args),
+  isRetryableRecordingThumbnailStatus: (status: string) =>
+    [
+      "skipped-media-fetch",
+      "skipped-frame-extraction",
+      "skipped-upload-failed",
+      "skipped-race",
+    ].includes(status),
+}));
+vi.mock("../../server/lib/post-finalize-dispatch.js", () => ({
+  dispatchPostFinalizeJob: (...args: unknown[]) =>
+    mockDispatchPostFinalizeJob(...args),
 }));
 vi.mock("./loom-transcript.js", () => ({
   fetchLoomTranscript: mockFetchLoomTranscript,
@@ -98,6 +112,7 @@ describe("runLoomImportJob", () => {
     mockFetchLoomTranscript.mockReset();
     mockQueueBuilderMediaCompression.mockClear();
     mockEnsureRecordingThumbnail.mockClear();
+    mockDispatchPostFinalizeJob.mockClear();
   });
 
   afterEach(() => {

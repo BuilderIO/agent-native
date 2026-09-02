@@ -67,6 +67,13 @@ vi.mock("../../../../actions/lib/ensure-seekable-video.js", () => ({
 vi.mock("../../../lib/ensure-recording-thumbnail.js", () => ({
   ensureRecordingThumbnail: (...args: unknown[]) =>
     mockEnsureRecordingThumbnail(...args),
+  isRetryableRecordingThumbnailStatus: (status: string) =>
+    [
+      "skipped-media-fetch",
+      "skipped-frame-extraction",
+      "skipped-upload-failed",
+      "skipped-race",
+    ].includes(status),
 }));
 
 vi.mock("../../../../actions/request-transcript.js", () => ({
@@ -196,7 +203,6 @@ describe("post-finalize worker", () => {
       recordingId: "rec-1",
       kind: "thumbnail",
       token: "valid-token",
-      previousThumbnailUrl: "https://cdn.example.test/old-thumb.jpg",
     });
     mockDb.select.mockImplementationOnce(() => {
       const builder = {
@@ -227,7 +233,6 @@ describe("post-finalize worker", () => {
     expect(mockEnsureRecordingThumbnail).toHaveBeenCalledWith({
       recordingId: "rec-1",
       ownerEmail: "owner@example.test",
-      previousThumbnailUrl: "https://cdn.example.test/old-thumb.jpg",
     });
   });
 

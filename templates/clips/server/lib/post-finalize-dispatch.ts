@@ -53,7 +53,6 @@ export async function dispatchPostFinalizeJob(args: {
   delayMs?: number;
   retryAttempt?: number;
   regenerate?: boolean;
-  previousThumbnailUrl?: string;
   requireAccepted?: boolean;
 }): Promise<void> {
   const { requireAccepted = false, ...job } = args;

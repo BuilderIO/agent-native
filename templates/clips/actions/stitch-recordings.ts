@@ -197,17 +197,10 @@ export default defineAction({
     } as any);
 
     if (videoUrl && !ordered[0].thumbnailUrl) {
-      void dispatchPostFinalizeJob({
+      await dispatchPostFinalizeJob({
         recordingId: id,
         kind: "thumbnail",
-      }).catch((err) => {
-        console.warn(
-          "[clips] Stitched recording thumbnail repair queue failed",
-          {
-            recordingId: id,
-            error: err instanceof Error ? err.message : String(err),
-          },
-        );
+        requireAccepted: true,
       });
     }
 

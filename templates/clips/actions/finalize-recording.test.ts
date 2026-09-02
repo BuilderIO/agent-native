@@ -580,6 +580,7 @@ describe("finalize-recording media serve verification", () => {
     expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
       recordingId: "rec_1",
       kind: "thumbnail",
+      requireAccepted: true,
     });
   });
 

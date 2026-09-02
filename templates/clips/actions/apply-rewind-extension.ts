@@ -135,8 +135,6 @@ export default defineAction({
     }));
     edits.rewindOriginalStartMs = args.addedMs;
     edits.mediaStorageLayout = "external";
-    const previousThumbnailUrl = recording.thumbnailUrl?.trim() || null;
-
     const [transcript] = await db
       .select()
       .from(schema.recordingTranscripts)
@@ -200,15 +198,10 @@ export default defineAction({
       updatedAt: now,
     };
     await writeAppState(key, applied);
-    void dispatchPostFinalizeJob({
+    await dispatchPostFinalizeJob({
       recordingId: args.recordingId,
       kind: "thumbnail",
-      ...(previousThumbnailUrl ? { previousThumbnailUrl } : {}),
-    }).catch((err) => {
-      console.warn("[clips] Rewind recording thumbnail repair queue failed", {
-        recordingId: args.recordingId,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      requireAccepted: true,
     });
     await writeAppState("refresh-signal", { ts: Date.now() });
     return { recordingId: args.recordingId, request: applied };

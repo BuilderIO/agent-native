@@ -540,15 +540,13 @@ async function leaveRecordingProcessingForMediaVerification(params: {
   };
 }
 
-function queueReadyRecordingThumbnail(recordingId: string): void {
-  void dispatchPostFinalizeJob({
+async function queueReadyRecordingThumbnail(
+  recordingId: string,
+): Promise<void> {
+  await dispatchPostFinalizeJob({
     recordingId,
     kind: "thumbnail",
-  }).catch((err: unknown) => {
-    console.warn("[finalize] thumbnail repair dispatch failed", {
-      recordingId,
-      error: err instanceof Error ? err.message : String(err),
-    });
+    requireAccepted: true,
   });
 }
 
@@ -641,7 +639,7 @@ async function markRecordingReady(params: {
       status: postUpdate?.status,
     });
     if (postUpdate?.status === "ready") {
-      queueReadyRecordingThumbnail(id);
+      await queueReadyRecordingThumbnail(id);
     }
     return {
       id,
@@ -657,7 +655,7 @@ async function markRecordingReady(params: {
     };
   }
 
-  queueReadyRecordingThumbnail(id);
+  await queueReadyRecordingThumbnail(id);
 
   const [existingTranscript] = await db
     .select({ recordingId: schema.recordingTranscripts.recordingId })
@@ -1045,7 +1043,7 @@ export default defineAction({
       // chunks are gone by then).
       if (existing.status === "ready" && existing.videoUrl) {
         debugLog("[finalize] already finalized, returning existing", { id });
-        queueReadyRecordingThumbnail(id);
+        await queueReadyRecordingThumbnail(id);
         // A prior attempt may have persisted the ready row and then failed
         // before deleting its resumable-session handle. The provider upload is
         // complete at this point, so retire only the local retry state.
