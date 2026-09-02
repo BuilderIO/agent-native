@@ -1,4 +1,5 @@
 import { emit } from "@agent-native/core/event-bus";
+import { getOrgContext, orgMembers } from "@agent-native/core/org";
 import {
   getSession,
   recordChange,
@@ -8,7 +9,7 @@ import {
 } from "@agent-native/core/server";
 import { getSetting, getUserSetting } from "@agent-native/core/settings";
 import { accessFilter } from "@agent-native/core/sharing";
-import { eq, and, gt, gte, lt, lte, ne, inArray } from "drizzle-orm";
+import { and, eq, gt, gte, inArray, lt, lte, ne, or, sql } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
@@ -93,7 +94,13 @@ async function getBookingLinkOwnerEmail(
 }
 
 function stripCrlf(value: unknown): string {
-  return String(value ?? "")
+  return (
+    typeof value === "string"
+      ? value
+      : value == null
+        ? ""
+        : JSON.stringify(value)
+  )
     .replace(/[\r\n]+/g, " ")
     .trim();
 }
@@ -101,6 +108,8 @@ function stripCrlf(value: unknown): string {
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
+
+const MAX_ADDITIONAL_BOOKING_GUESTS = 5;
 
 export async function resolveBookingCalendarAccount({
   booking,
@@ -128,7 +137,7 @@ export async function resolveBookingCalendarAccount({
   return googleCalendar.getDefaultAccountSelection(ownerEmail);
 }
 
-async function deleteGoogleEventForBooking({
+export async function deleteGoogleEventForBooking({
   booking,
   hostEmail,
 }: {
@@ -147,7 +156,7 @@ async function deleteGoogleEventForBooking({
     });
     if (!account) return;
     await googleCalendar.deleteEvent(booking.googleEventId, account, {
-      sendUpdates: "none",
+      sendUpdates: "all",
     });
   } catch (error) {
     console.warn(
@@ -185,6 +194,41 @@ type ConflictResult = { items: ConflictItem[]; unavailableReason?: string };
 type BookingLinkRow = typeof schema.bookingLinks.$inferSelect;
 type ConflictDb = Pick<ReturnType<typeof getDb>, "select">;
 const BOOKING_SLOT_STEP_MINUTES = 30;
+
+type SameOrgBookingViewer = { email: string; orgId: string };
+
+function resolveSameOrgBookingViewer(
+  session: { email?: string; orgId?: string } | null,
+  bookingLink?: BookingLinkRow,
+): SameOrgBookingViewer | undefined {
+  const viewerEmail = session?.email?.trim().toLowerCase();
+  if (!viewerEmail || !session?.orgId || !bookingLink) return undefined;
+  if (viewerEmail === bookingLink.ownerEmail.trim().toLowerCase()) {
+    return undefined;
+  }
+  return bookingLink.orgId === session.orgId
+    ? { email: viewerEmail, orgId: session.orgId }
+    : undefined;
+}
+
+async function resolveBookingViewer(
+  event: H3Event,
+  bookingLink?: BookingLinkRow,
+): Promise<SameOrgBookingViewer | undefined> {
+  const session = await getSession(event);
+  if (!session?.email || !bookingLink) return undefined;
+  if (
+    session.email.trim().toLowerCase() ===
+    bookingLink.ownerEmail.trim().toLowerCase()
+  ) {
+    return undefined;
+  }
+  const orgContext = await getOrgContext(event);
+  return resolveSameOrgBookingViewer(
+    { ...session, orgId: orgContext.orgId ?? undefined },
+    bookingLink,
+  );
+}
 
 const bookingAvailabilityDraftSchema = z
   .object({
@@ -545,6 +589,8 @@ export async function getConflictItems({
   ownerEmail,
   hostEmails,
   conflictSlugs,
+  viewerEmail,
+  viewerOrgId,
   rangeStartIso,
   rangeEndIso,
   timezone,
@@ -553,6 +599,8 @@ export async function getConflictItems({
   ownerEmail?: string;
   hostEmails: string[];
   conflictSlugs: string[];
+  viewerEmail?: string;
+  viewerOrgId?: string;
   rangeStartIso: string;
   rangeEndIso: string;
   timezone: string;
@@ -567,14 +615,24 @@ export async function getConflictItems({
   );
   const freeBusyResolvedHosts = new Set<string>();
 
-  // Google is an availability enhancement, not a requirement: an owner who
-  // hasn't connected Google still has a schedule-only availability computed
-  // below from the weekly schedule and existing SQL bookings. Only actual
-  // Google failures (free/busy errors, event-listing errors, thrown
-  // exceptions) mark availability unavailable — not "not connected".
-  const ownerConnected = ownerEmail
-    ? await googleCalendar.isConnected(ownerEmail)
-    : false;
+  let ownerConnected = false;
+  try {
+    ownerConnected = ownerEmail
+      ? await googleCalendar.isConnected(ownerEmail)
+      : false;
+  } catch {
+    return {
+      items: [],
+      unavailableReason: formatAvailabilityUnavailableReason(ownerEmail),
+    };
+  }
+
+  if (requiredHosts.length > 0 && !ownerConnected) {
+    return {
+      items: [],
+      unavailableReason: formatAvailabilityUnavailableReason(ownerEmail),
+    };
+  }
 
   if (ownerConnected) {
     try {
@@ -602,9 +660,14 @@ export async function getConflictItems({
         }
         for (const [email, calendar] of Object.entries(freeBusy.calendars)) {
           const normalizedEmail = email.toLowerCase();
-          if (!calendar.errors || calendar.errors.length === 0) {
-            freeBusyResolvedHosts.add(normalizedEmail);
+          if (calendar.errors && calendar.errors.length > 0) {
+            return {
+              items: [],
+              unavailableReason:
+                formatAvailabilityUnavailableReason(normalizedEmail),
+            };
           }
+          freeBusyResolvedHosts.add(normalizedEmail);
           conflictItems.push(
             ...calendar.busy.map((busy) => ({
               start: busy.start,
@@ -638,19 +701,67 @@ export async function getConflictItems({
     }
   }
 
-  if (requiredHosts.length > 1) {
-    const owner = ownerEmail?.toLowerCase();
-    const unresolvedCoHosts = requiredHosts.filter(
-      (email) => email !== owner && !freeBusyResolvedHosts.has(email),
-    );
-    if (unresolvedCoHosts.length > 0) {
+  const unresolvedHosts = requiredHosts.filter(
+    (email) => !freeBusyResolvedHosts.has(email),
+  );
+  if (unresolvedHosts.length > 0) {
+    return {
+      items: conflictItems,
+      unavailableReason: `Availability unavailable for ${unresolvedHosts.join(", ")}`,
+    };
+  }
+
+  if (viewerEmail && !requiredHosts.includes(viewerEmail)) {
+    try {
+      const viewerAccounts =
+        await googleCalendar.getOwnedAccountEmails(viewerEmail);
+      if (viewerAccounts.length > 0) {
+        const viewerEvents = await googleCalendar.listEvents(
+          rangeStartIso,
+          rangeEndIso,
+          viewerEmail,
+          { accountEmails: viewerAccounts },
+        );
+        if (viewerEvents.errors.length > 0) {
+          return {
+            items: [],
+            unavailableReason: formatAvailabilityUnavailableReason(
+              viewerEvents.errors[0]?.email || viewerEmail,
+            ),
+          };
+        }
+        conflictItems.push(
+          ...viewerEvents.events
+            .filter(eventBlocksAvailability)
+            .map((event) => ({
+              start: event.start,
+              end: event.end,
+            })),
+        );
+      }
+    } catch {
       return {
-        items: conflictItems,
-        unavailableReason: `Availability unavailable for ${unresolvedCoHosts.join(", ")}`,
+        items: [],
+        unavailableReason: formatAvailabilityUnavailableReason(viewerEmail),
       };
     }
   }
 
+  const viewerBookingScope =
+    viewerEmail && viewerOrgId
+      ? and(
+          eq(schema.bookings.email, viewerEmail),
+          eq(schema.bookings.orgId, viewerOrgId),
+        )
+      : undefined;
+  const bookingScope =
+    conflictSlugs.length > 0 && viewerBookingScope
+      ? or(inArray(schema.bookings.slug, conflictSlugs), viewerBookingScope)
+      : conflictSlugs.length > 0
+        ? inArray(schema.bookings.slug, conflictSlugs)
+        : viewerBookingScope
+          ? viewerBookingScope
+          : undefined;
   const bookings = await db
     .select()
     .from(schema.bookings)
@@ -659,9 +770,7 @@ export async function getConflictItems({
         ne(schema.bookings.status, "cancelled"),
         lte(schema.bookings.start, rangeEndIso),
         gte(schema.bookings.end, rangeStartIso),
-        conflictSlugs.length > 0
-          ? inArray(schema.bookings.slug, conflictSlugs)
-          : undefined,
+        bookingScope,
       ),
     );
 
@@ -797,13 +906,17 @@ async function requestedSlotIsCurrentlyAvailable({
   start,
   end,
   duration,
+  viewerEmail,
+  viewerOrgId,
 }: {
   db?: ConflictDb;
   slug: string;
   start: Date;
   end: Date;
   duration: number;
-}): Promise<boolean> {
+  viewerEmail?: string;
+  viewerOrgId?: string;
+}): Promise<boolean | { unavailableReason: string }> {
   const context = await resolveAvailabilityContext({ slug, db });
   if (!context.effectiveConfig) return false;
 
@@ -814,11 +927,15 @@ async function requestedSlotIsCurrentlyAvailable({
     ownerEmail: context.ownerEmail,
     hostEmails: context.hostEmails,
     conflictSlugs: context.conflictSlugs,
+    viewerEmail,
+    viewerOrgId,
     rangeStartIso: dateStartIso(date, timezone),
     rangeEndIso: dateEndIso(date, timezone),
     timezone,
   });
-  if (conflictResult.unavailableReason) return false;
+  if (conflictResult.unavailableReason) {
+    return { unavailableReason: conflictResult.unavailableReason };
+  }
   const slots = generateAvailableSlotsForDate({
     date,
     duration,
@@ -873,6 +990,23 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     const cancelToken = nanoid();
     const attendeeName = stripCrlf(body.name);
     const attendeeEmail = stripCrlf(body.email).toLowerCase();
+    if (
+      body.additionalGuestEmails !== undefined &&
+      !Array.isArray(body.additionalGuestEmails)
+    ) {
+      setResponseStatus(event, 400);
+      return { error: "additionalGuestEmails must be an array" };
+    }
+    const normalizedAdditionalGuestEmails: string[] = Array.isArray(
+      body.additionalGuestEmails,
+    )
+      ? (body.additionalGuestEmails as unknown[]).map((email) =>
+          stripCrlf(email).toLowerCase(),
+        )
+      : [];
+    const additionalGuestEmails: string[] = Array.from(
+      new Set(normalizedAdditionalGuestEmails.filter((email) => email.length)),
+    ).filter((email) => email !== attendeeEmail);
     const notes = String(body.notes ?? "").trim();
 
     // Validate required fields
@@ -883,6 +1017,16 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     if (!isValidEmail(attendeeEmail)) {
       setResponseStatus(event, 400);
       return { error: "Enter a valid email address" };
+    }
+    if (additionalGuestEmails.length > MAX_ADDITIONAL_BOOKING_GUESTS) {
+      setResponseStatus(event, 400);
+      return {
+        error: `You can add up to ${MAX_ADDITIONAL_BOOKING_GUESTS} guests`,
+      };
+    }
+    if (additionalGuestEmails.some((email) => !isValidEmail(email))) {
+      setResponseStatus(event, 400);
+      return { error: "Enter valid email addresses for additional guests" };
     }
     const requestedSlug = stripCrlf(body.slug);
 
@@ -902,6 +1046,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     // After the guard above, bookingLink is either undefined (no requestedSlug)
     // or the full DB row. Cast away the "" from the short-circuit type.
     const link = bookingLink || undefined;
+
+    const viewer = await resolveBookingViewer(event, link);
 
     const hostEmail = (link as any)?.ownerEmail || (link as any)?.owner_email;
     if (!hostEmail) {
@@ -1022,6 +1168,19 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     // Check for conflicts + insert atomically in a transaction
     const db = getDb();
     const insertResult = await db.transaction(async (tx) => {
+      if (viewer) {
+        // The viewer row is the stable lock shared by every booking link in
+        // the viewer's org, including links owned by different hosts.
+        await tx
+          .update(orgMembers)
+          .set({ email: sql`${orgMembers.email}` })
+          .where(
+            and(
+              eq(orgMembers.orgId, viewer.orgId),
+              sql`lower(${orgMembers.email}) = ${viewer.email}`,
+            ),
+          );
+      }
       // Serialize booking creation per required host. The no-op write takes row
       // locks on each host's booking links without changing user-visible data.
       for (const email of requiredHostEmails) {
@@ -1037,15 +1196,19 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           ? [requestedSlug]
           : [];
 
-      if (
-        !(await requestedSlotIsCurrentlyAvailable({
-          db: tx,
-          slug: requestedSlug,
-          start: requestedRange.start,
-          end: requestedRange.end,
-          duration: requestedRange.duration,
-        }))
-      ) {
+      const slotAvailability = await requestedSlotIsCurrentlyAvailable({
+        db: tx,
+        slug: requestedSlug,
+        start: requestedRange.start,
+        end: requestedRange.end,
+        duration: requestedRange.duration,
+        viewerEmail: viewer?.email,
+        viewerOrgId: viewer?.orgId,
+      });
+      if (typeof slotAvailability !== "boolean") {
+        return slotAvailability;
+      }
+      if (!slotAvailability) {
         return { conflict: true } as const;
       }
 
@@ -1071,6 +1234,10 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         id,
         name: attendeeName,
         email: attendeeEmail,
+        additionalGuestEmails:
+          additionalGuestEmails.length > 0
+            ? JSON.stringify(additionalGuestEmails)
+            : null,
         start: requestedRange.start.toISOString(),
         end: requestedRange.end.toISOString(),
         slug: requestedSlug,
@@ -1090,6 +1257,9 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       return { conflict: false } as const;
     });
 
+    if ("unavailableReason" in insertResult) {
+      return unavailableAvailabilityResponse(event);
+    }
     if (insertResult.conflict) {
       setResponseStatus(event, 409);
       return { error: "This time slot is no longer available" };
@@ -1190,6 +1360,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
             attendeeEmail,
             attendeeName,
             hostEmails: coHostEmails,
+            additionalGuestEmails,
           }),
           createdAt: now,
           updatedAt: now,
@@ -1236,6 +1407,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       id,
       name: attendeeName,
       email: attendeeEmail,
+      additionalGuestEmails:
+        additionalGuestEmails.length > 0 ? additionalGuestEmails : undefined,
       start: requestedRange.start.toISOString(),
       end: requestedRange.end.toISOString(),
       slug: requestedSlug,
@@ -1332,6 +1505,7 @@ async function getAvailableSlotsForQuery(
     return { error: durationResult.error };
   }
   const duration = durationResult.duration;
+  const viewer = await resolveBookingViewer(event, context.bookingLink);
 
   if (hasRangeQuery) {
     const rangeStart = formatDateOnly(from!);
@@ -1341,6 +1515,8 @@ async function getAvailableSlotsForQuery(
       ownerEmail: context.ownerEmail,
       hostEmails: context.hostEmails,
       conflictSlugs: context.conflictSlugs,
+      viewerEmail: viewer?.email,
+      viewerOrgId: viewer?.orgId,
       rangeStartIso: dateStartIso(rangeStart, timezone),
       rangeEndIso: dateEndIso(rangeEnd, timezone),
       timezone,
@@ -1373,6 +1549,8 @@ async function getAvailableSlotsForQuery(
     ownerEmail: context.ownerEmail,
     hostEmails: context.hostEmails,
     conflictSlugs: context.conflictSlugs,
+    viewerEmail: viewer?.email,
+    viewerOrgId: viewer?.orgId,
     rangeStartIso: dateStartIso(date, timezone),
     rangeEndIso: dateEndIso(date, timezone),
     timezone,
@@ -1581,10 +1759,14 @@ function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
       fieldResponses = JSON.parse(row.fieldResponses);
     } catch {}
   }
+  const additionalGuestEmails = parseAdditionalGuestEmails(
+    row.additionalGuestEmails,
+  );
   return {
     id: row.id,
     name: row.name,
     email: row.email,
+    additionalGuestEmails,
     start: row.start,
     end: row.end,
     slug: row.slug,
@@ -1596,4 +1778,21 @@ function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
     status: row.status,
     createdAt: row.createdAt,
   };
+}
+
+function parseAdditionalGuestEmails(
+  value: string | null | undefined,
+): string[] | undefined {
+  if (!value) return undefined;
+  const parsed: unknown = JSON.parse(value);
+  if (!Array.isArray(parsed)) {
+    throw new Error("Invalid stored additional guest emails");
+  }
+  const emails = parsed.filter(
+    (email): email is string => typeof email === "string",
+  );
+  if (emails.length !== parsed.length) {
+    throw new Error("Invalid stored additional guest emails");
+  }
+  return emails;
 }

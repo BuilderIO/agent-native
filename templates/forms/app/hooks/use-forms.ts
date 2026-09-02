@@ -34,7 +34,7 @@ export function useCreateForm() {
   const qc = useQueryClient();
   return useActionMutation("create-form", {
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
+      void qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
     },
     onError: () => {
       toast.error("Failed to create form");
@@ -46,8 +46,8 @@ export function useUpdateForm() {
   const qc = useQueryClient();
   return useActionMutation("update-form", {
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
-      qc.invalidateQueries({ queryKey: ["action", "get-form"] });
+      void qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
+      void qc.invalidateQueries({ queryKey: ["action", "get-form"] });
     },
     onError: (err: unknown) => {
       // Surface the server's actual error message (e.g. publish validation
@@ -73,7 +73,7 @@ export function usePatchFormFields() {
   const qc = useQueryClient();
   return useActionMutation("patch-form-fields", {
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["action", "get-form"] });
+      void qc.invalidateQueries({ queryKey: ["action", "get-form"] });
     },
     onError: (err: unknown) => {
       const message =
@@ -119,8 +119,8 @@ export function useDeleteForm() {
       return { removed } satisfies FormListMutationContext;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
-      qc.invalidateQueries({ queryKey: ["action", "get-form"] });
+      void qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
+      void qc.invalidateQueries({ queryKey: ["action", "get-form"] });
     },
     onError: (_error, variables, context) => {
       const mutationContext = context as FormListMutationContext | undefined;
@@ -145,8 +145,8 @@ export function useRestoreForm() {
   const qc = useQueryClient();
   return useActionMutation("restore-form", {
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
-      qc.invalidateQueries({ queryKey: ["action", "get-form"] });
+      void qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
+      void qc.invalidateQueries({ queryKey: ["action", "get-form"] });
     },
     onError: () => {
       toast.error("Failed to restore form");
@@ -172,9 +172,83 @@ export function usePublicForm(formId: string) {
   });
 }
 
+type PublicFormFileValue = {
+  url: string;
+  name: string;
+  type: string;
+  size: number;
+  id?: string;
+  provider?: string;
+};
+
+function isBrowserFile(value: unknown): value is File {
+  return typeof File !== "undefined" && value instanceof File;
+}
+
+async function uploadPublicFormFile(
+  formId: string,
+  fieldId: string,
+  file: File,
+  fallbackError: string,
+): Promise<PublicFormFileValue> {
+  const body = new FormData();
+  body.append("fieldId", fieldId);
+  body.append("file", file, file.name);
+  const response = await fetch(
+    appApiPath(`/api/upload/${encodeURIComponent(formId)}`),
+    { method: "POST", body },
+  );
+  const payload: unknown = await response.json();
+  if (!response.ok) {
+    const message =
+      typeof payload === "object" &&
+      payload !== null &&
+      "error" in payload &&
+      typeof payload.error === "string"
+        ? payload.error
+        : fallbackError;
+    throw new Error(message);
+  }
+  if (
+    typeof payload !== "object" ||
+    payload === null ||
+    !("url" in payload) ||
+    typeof payload.url !== "string"
+  ) {
+    throw new Error(fallbackError);
+  }
+  return payload as PublicFormFileValue;
+}
+
+async function uploadPublicFormFiles(
+  formId: string,
+  data: Record<string, unknown>,
+  fallbackError: string,
+): Promise<Record<string, unknown>> {
+  const nextData = { ...data };
+  await Promise.all(
+    Object.entries(data).map(async ([fieldId, value]) => {
+      const files = isBrowserFile(value)
+        ? [value]
+        : Array.isArray(value) && value.length > 0 && value.every(isBrowserFile)
+          ? value
+          : null;
+      if (!files) return;
+      const uploaded = await Promise.all(
+        files.map((file) =>
+          uploadPublicFormFile(formId, fieldId, file, fallbackError),
+        ),
+      );
+      nextData[fieldId] = Array.isArray(value) ? uploaded : uploaded[0];
+    }),
+  );
+  return nextData;
+}
+
 export function useSubmitForm() {
+  const t = useT();
   return useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       formId,
       data,
       captchaToken,
@@ -186,20 +260,30 @@ export function useSubmitForm() {
       captchaToken?: string;
       _hp?: string;
       _t?: number;
-    }) =>
-      fetch(appApiPath(`/api/submit/${formId}`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          data,
-          captchaToken,
-          _hp,
-          _t,
-          _meta: { pageUrl: scrubPageUrl(window.location.href) },
-        }),
-      }).then((r) => {
-        if (!r.ok) return r.json().then((e: any) => Promise.reject(e));
-        return r.json();
-      }),
+    }) => {
+      const submittedData = await uploadPublicFormFiles(
+        formId,
+        data,
+        t("publicForm.failedSubmit"),
+      );
+      const response = await fetch(
+        appApiPath(`/api/submit/${encodeURIComponent(formId)}`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            data: submittedData,
+            captchaToken,
+            _hp,
+            _t,
+            _meta: { pageUrl: scrubPageUrl(window.location.href) },
+          }),
+        },
+      );
+      if (!response.ok) {
+        return response.json().then((error: unknown) => Promise.reject(error));
+      }
+      return response.json();
+    },
   });
 }

@@ -6,6 +6,7 @@ import {
 } from "./multi-screen/canvas-tools";
 import {
   getChromeBorderTransition,
+  getChromeLabelTransition,
   getSelectionBoxTransition,
 } from "./multi-screen/chrome-transitions";
 import { getDraftPreviewGeometryForTool } from "./multi-screen/draft-primitives";
@@ -26,6 +27,11 @@ describe("MultiScreenCanvas selection chrome transitions", () => {
 
   it("keeps hover chrome free to settle its inset after zoom", () => {
     expect(getChromeBorderTransition(true)).toContain("inset");
+  });
+
+  it("settles frame labels with an all-property transition after zoom", () => {
+    expect(getChromeLabelTransition(true)).toBe("all 150ms ease-out");
+    expect(getChromeLabelTransition(false)).toBe("opacity 150ms ease-out");
   });
 
   it("treats screen content as child hover instead of direct frame hover", () => {

@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
+  callAction,
   getBrowserTabId,
   readClientAppState,
   useActionMutation,
@@ -14,7 +15,6 @@ import {
   writeClientAppState,
 } from "@agent-native/core/client/hooks";
 import {
-  getEmbedAuthToken,
   isEmbedAuthActive,
   isEmbedMcpChatBridgeActive,
 } from "@agent-native/core/client/host";
@@ -30,6 +30,7 @@ import {
 import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
+  normalizeDocumentTitle,
 } from "@agent-native/core/shared";
 import {
   IconAlertTriangle,
@@ -43,7 +44,7 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
@@ -100,6 +101,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { assetContentUrl } from "@/lib/asset-urls";
 import {
   sortLibrariesByUsage,
   type ImageLibrarySummary,
@@ -113,7 +115,7 @@ import type {
   ImageQualityTier,
   StyleStrength,
 } from "../../shared/api";
-import { MODEL_ASPECT_RATIOS } from "../../shared/api";
+import { MODEL_ASPECT_RATIOS, type AssetAccessRole } from "../../shared/api";
 import {
   DEFAULT_LIBRARY_PRESETS,
   LibraryPreset,
@@ -192,6 +194,7 @@ type Library = {
   id: string;
   title: string;
   description?: string | null;
+  accessRole?: AssetAccessRole;
 };
 
 type GenerationConfig = {
@@ -445,28 +448,11 @@ function shouldUseContentProxyForPreview(asset: Asset) {
   );
 }
 
-function embedTokenParam() {
-  if (typeof window === "undefined") return null;
-  const externalToken =
-    typeof (window as any).__AGENT_NATIVE_EXTERNAL_EMBED?.token === "string"
-      ? (window as any).__AGENT_NATIVE_EXTERNAL_EMBED.token
-      : null;
-  if (externalToken) return externalToken;
-  return (
-    getEmbedAuthToken() ??
-    new URLSearchParams(window.location.search).get("__an_embed_token")
-  );
-}
-
-function assetContentUrl(asset: Asset, variant?: "thumb") {
-  const params = new URLSearchParams();
-  if (variant === "thumb") params.set("variant", "thumb");
-  const embedToken = embedTokenParam();
-  if (embedToken) params.set("__an_embed_token", embedToken);
-  const query = params.toString();
-  return absoluteAssetUrl(
-    `/api/assets/${asset.id}/content${query ? `?${query}` : ""}`,
-  );
+function assetContentPreviewUrl(asset: Asset, variant?: "thumb") {
+  return assetContentUrl(asset.id, {
+    variant,
+    origin: absoluteAppUrl("/"),
+  });
 }
 
 function uniqueSources(sources: Array<string | undefined>) {
@@ -481,8 +467,8 @@ function uniqueSources(sources: Array<string | undefined>) {
 function assetThumbnailSources(asset: Asset) {
   if (shouldUseContentProxyForPreview(asset)) {
     return uniqueSources([
-      assetContentUrl(asset, asset.thumbnailUrl ? "thumb" : undefined),
-      assetContentUrl(asset),
+      assetContentPreviewUrl(asset, asset.thumbnailUrl ? "thumb" : undefined),
+      assetContentPreviewUrl(asset),
     ]);
   }
   return uniqueSources(
@@ -494,7 +480,7 @@ function assetThumbnailSources(asset: Asset) {
 
 function assetOverlaySources(asset: Asset) {
   if (shouldUseContentProxyForPreview(asset)) {
-    return uniqueSources([assetContentUrl(asset)]);
+    return uniqueSources([assetContentPreviewUrl(asset)]);
   }
   return uniqueSources(
     [asset.previewUrl, asset.downloadUrl, asset.url, asset.thumbnailUrl].map(
@@ -547,7 +533,7 @@ function assetPayload(asset: Asset, requestedMediaType: PickerMediaType) {
   const displayTitle = assetDisplayTitle(asset);
   const fallbackLabel = assetTitle || assetPrompt || displayTitle || asset.id;
   const embeddedContentUrl = shouldUseContentProxyForPreview(asset)
-    ? assetContentUrl(asset)
+    ? assetContentPreviewUrl(asset)
     : undefined;
   const previewUrl = absoluteAssetUrl(embeddedContentUrl ?? asset.previewUrl);
   const url = absoluteAssetUrl(
@@ -869,7 +855,7 @@ function EmptyLibraryStarter({ onCreateBlank }: { onCreateBlank: () => void }) {
       {
         onSuccess: (library: any) => {
           setCreatingPresetId(null);
-          navigate(`/library/${library.id}`);
+          void navigate(`/library/${library.id}`);
         },
         onError: (error: Error) => {
           setCreatingPresetId(null);
@@ -929,7 +915,7 @@ function LibraryShellHeader({
   return (
     <header className="border-b border-border bg-background px-4 py-3 md:px-6">
       <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           <LibraryKitSelector
             selectedLibraryId={selectedLibraryId}
             libraries={libraries}
@@ -1011,7 +997,7 @@ function LibraryKitSelector({
 
   function selectLibrary(libraryId: string | null) {
     setOpen(false);
-    navigate(libraryId ? `/library/${libraryId}` : "/library");
+    void navigate(libraryId ? `/library/${libraryId}` : "/library");
   }
   const titleTrigger = triggerStyle === "title";
 
@@ -2013,6 +1999,40 @@ function LibraryCandidateStage({
         .sort((left, right) => String(right.id).localeCompare(String(left.id))),
     [libraryAssets, liveAssetIds],
   );
+  // Approving is per kit: this stage can show candidates from several kits at
+  // once, and the caller may be an editor in one and a viewer in the next. Ask
+  // once per kit on screen rather than assuming, or showing a Save that 403s.
+  const stageLibraryIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (activeLibraryId) ids.add(activeLibraryId);
+    if (liveLibraryId) ids.add(liveLibraryId);
+    for (const asset of draftAssets) {
+      if (asset.libraryId) ids.add(asset.libraryId);
+    }
+    return Array.from(ids);
+  }, [activeLibraryId, liveLibraryId, draftAssets]);
+  const libraryAccessResults = useQueries({
+    queries: stageLibraryIds.map((id) => ({
+      queryKey: ["action", "get-library-access", { libraryId: id }],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        callAction<{ libraryId: string; canApprove: boolean }>(
+          "get-library-access",
+          { libraryId: id } as never,
+          { method: "GET", signal },
+        ),
+    })),
+  });
+  const approvableLibraryIds = useMemo(() => {
+    const approvable = new Set<string>();
+    for (const result of libraryAccessResults) {
+      if (result.data?.canApprove) approvable.add(result.data.libraryId);
+    }
+    return approvable;
+  }, [libraryAccessResults]);
+  const canApproveLibrary = useCallback(
+    (id?: string | null) => Boolean(id && approvableLibraryIds.has(id)),
+    [approvableLibraryIds],
+  );
   const totalCount = slots.length + draftAssets.length;
   // Don't flash the empty state before the candidate sources have resolved, and
   // don't misreport a load failure as "no drafts".
@@ -2211,6 +2231,7 @@ function LibraryCandidateStage({
         foldersByLibraryId={foldersByLibraryId}
         savingSlotId={savingCandidateSlotId}
         promotingReferenceKeys={promotingReferenceKeys}
+        canApproveLibrary={canApproveLibrary}
         onSave={(slot, folderId) => {
           void handleSaveLiveCandidate(slot, folderId);
         }}
@@ -2286,6 +2307,19 @@ export function LibraryWorkspace({
         : null,
     [libraries, routeSelectedLibraryId],
   );
+
+  useEffect(() => {
+    if (!currentLibrary?.title) return;
+    const nextTitle = `${normalizeDocumentTitle(
+      currentLibrary.title,
+      "Library",
+    )} — Assets`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [currentLibrary?.title]);
 
   useEffect(() => {
     if (!routeSelectedLibraryId || !currentLibrary?.title) return;
@@ -2592,16 +2626,17 @@ export function AssetPickerSurface() {
     isLoading: presetsLoading,
     isPending: presetsPending,
   } = useActionQuery(
-    "list-generation-presets",
+    "list-templates",
     { libraryId: selectedLibraryId } as any,
     { enabled: Boolean(selectedLibraryId) && !usingStarterLibrary } as any,
   ) as {
-    data?: { presets?: GenerationPreset[] };
+    data?: { templates?: GenerationPreset[] };
     isLoading?: boolean;
     isPending?: boolean;
   };
   const generationPresets =
-    presetData?.presets?.filter((preset) => preset.mediaType !== "video") ?? [];
+    presetData?.templates?.filter((preset) => preset.mediaType !== "video") ??
+    [];
   const selectedPreset =
     presetId === "none"
       ? null
@@ -3195,7 +3230,11 @@ export function AssetPickerSurface() {
                 size="icon"
                 title={t("library.openAssets")}
               >
-                <a href={absoluteAppUrl("/")} target="_blank" rel="noreferrer">
+                <a
+                  href={absoluteAppUrl("/home")}
+                  target="_blank"
+                  rel="noreferrer"
+                >
                   <IconArrowUpRight className="h-4 w-4" />
                 </a>
               </Button>

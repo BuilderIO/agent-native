@@ -2896,7 +2896,7 @@ export default function WorkspaceIntegrationsRoute() {
         ),
       );
       setGroupEditor(null);
-      queryClient.invalidateQueries({ queryKey: GROUP_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: GROUP_QUERY_KEY });
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -2995,7 +2995,7 @@ export default function WorkspaceIntegrationsRoute() {
       setSetupWizard(null);
       setSetupForm(null);
       setSetupFormKey("");
-      queryClient.invalidateQueries({ queryKey: CONNECTION_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: CONNECTION_QUERY_KEY });
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -3071,7 +3071,7 @@ export default function WorkspaceIntegrationsRoute() {
         granted,
         knownAppIds,
       });
-      queryClient.invalidateQueries({ queryKey: CONNECTION_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: CONNECTION_QUERY_KEY });
       toast.success(
         granted ? t("integrations.grantAdded") : t("integrations.grantRevoked"),
       );

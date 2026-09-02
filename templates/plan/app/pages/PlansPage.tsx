@@ -5,12 +5,16 @@ import {
   useAgentEngineConfigured,
   type AgentSidebarStateChangeDetail,
 } from "@agent-native/core/client/agent-chat";
-import { track } from "@agent-native/core/client/analytics";
+import { track, trackEvent } from "@agent-native/core/client/analytics";
 import { appPath, agentNativePath } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
 import { PromptComposer } from "@agent-native/core/client/composer";
-import { useActionQuery, useSession } from "@agent-native/core/client/hooks";
+import {
+  useActionQuery,
+  useAvatarUrl,
+  useSession,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   InlineMarkdown,
@@ -2252,6 +2256,15 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   );
   const planQuery = usePlan(localPlanMode ? undefined : selectedId);
   const bundle = localPlanMode ? localPlanData : planQuery.data;
+  useEffect(() => {
+    if (!bundle) return;
+    trackEvent("app.first_action", {
+      action: "plan_viewed",
+      surface: "plan_reader",
+      resource_type: "plan",
+      resource_id: bundle.plan.id,
+    });
+  }, [bundle?.plan.id]);
   const localPlanBundle =
     localPlanMode && bundle && "localOnly" in bundle
       ? (bundle as LocalPlanBundle)
@@ -3065,7 +3078,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     (cta: string) => {
       if (!isLoggedOutPublicPlanView) return;
       try {
-        void track("share_cta_click", {
+        void trackEvent("share_cta_click", {
           surface: PLAN_SHARE_SURFACE,
           plan_id: selectedId ?? "",
           cta,
@@ -3092,7 +3105,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     if (shareViewFiredRef.current) return;
     shareViewFiredRef.current = true;
     try {
-      void track("share_view", {
+      void trackEvent("share_view", {
         surface: PLAN_SHARE_SURFACE,
         plan_id: selectedId ?? "",
         ref: shareAttribution.ref,
@@ -7397,11 +7410,11 @@ function PlanSkillDemoVideo({ demo }: { demo: PlanSkillDemo }) {
         />
         <div
           aria-hidden
-          className={`pointer-events-none absolute inset-0 bg-muted transition-opacity duration-300 ${
+          className={`skeleton-shimmer pointer-events-none absolute inset-0 bg-muted transition-opacity duration-300 ${
             isLoaded ? "opacity-0" : "opacity-100"
           }`}
         >
-          <div className="flex size-full animate-pulse flex-col justify-between p-4">
+          <div className="flex size-full flex-col justify-between p-4">
             <div className="space-y-2">
               <div className="h-3 w-1/3 rounded-full bg-border" />
               <div className="h-2.5 w-2/3 rounded-full bg-border/80" />
@@ -7504,6 +7517,23 @@ function LoggedOutEmptyPlan() {
 }
 
 type OverviewFilter = "all" | "plans" | "recaps" | "archived" | "deleted";
+
+function PlanOwnerAvatar({ email }: { email: string }) {
+  const avatarUrl = useAvatarUrl(email);
+  const name = emailToName(email);
+
+  return (
+    <Avatar className="size-5">
+      {avatarUrl ? <AvatarImage src={avatarUrl} alt={name} /> : null}
+      <AvatarFallback
+        className="text-[9px] font-semibold text-primary-foreground"
+        style={{ backgroundColor: emailToColor(email) }}
+      >
+        {commentAuthorInitials(name)}
+      </AvatarFallback>
+    </Avatar>
+  );
+}
 
 function PlansOverview({
   plans,
@@ -7785,20 +7815,7 @@ function PlansOverview({
                             className="flex min-w-0 items-center gap-1.5"
                             title={plan.ownerEmail}
                           >
-                            <Avatar className="size-5">
-                              <AvatarFallback
-                                className="text-[9px] font-semibold text-white"
-                                style={{
-                                  backgroundColor: emailToColor(
-                                    plan.ownerEmail,
-                                  ),
-                                }}
-                              >
-                                {commentAuthorInitials(
-                                  emailToName(plan.ownerEmail),
-                                )}
-                              </AvatarFallback>
-                            </Avatar>
+                            <PlanOwnerAvatar email={plan.ownerEmail} />
                             <span className="truncate">
                               {emailToName(plan.ownerEmail)}
                             </span>

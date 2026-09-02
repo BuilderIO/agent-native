@@ -40,6 +40,8 @@ export interface ResolveWorkspaceConnectionCredentialForAppOptions {
   connectionId?: string | null;
   userEmail?: string | null;
   orgId?: string | null;
+  /** Default true. Read-only readiness checks pass false so page loads do not write last_used_at. */
+  recordUsage?: boolean;
 }
 
 export interface ResolveWorkspaceConnectionCredentialsForAppOptions extends Omit<
@@ -429,13 +431,15 @@ async function resolveInRequestContext(
           ctx,
         });
         if (hit) {
-          await markWorkspaceConnectionUsed({
-            connectionId: connection.id,
-            appId:
-              connection.appAccess.mode === "explicit-grant"
-                ? appId
-                : undefined,
-          });
+          if (options.recordUsage !== false) {
+            await markWorkspaceConnectionUsed({
+              connectionId: connection.id,
+              appId:
+                connection.appAccess.mode === "explicit-grant"
+                  ? appId
+                  : undefined,
+            });
+          }
           const provenance: WorkspaceConnectionCredentialProvenance = {
             source: "workspace_connection",
             provider,

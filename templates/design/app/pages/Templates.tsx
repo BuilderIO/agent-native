@@ -47,6 +47,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useDesignSystems } from "@/hooks/use-design-systems";
+import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import { writePendingGeneration } from "@/lib/pending-generation";
 
 type TemplateCategory =
@@ -106,9 +107,9 @@ export default function Templates() {
     isLoading: designSystemsLoading,
   } = useDesignSystems();
 
-  const templates = data?.templates ?? [];
+  const templates = useMemo(() => data?.templates ?? [], [data?.templates]);
   const linkedTemplateId = searchParams.get("templateId");
-  const filtered = useMemo(() => {
+  const filtered = (() => {
     const query = search.trim().toLowerCase();
     return query
       ? templates.filter(
@@ -118,9 +119,23 @@ export default function Templates() {
             template.category.includes(query),
         )
       : templates;
-  }, [search, templates]);
+  })();
   const builtIns = filtered.filter((template) => template.isBuiltIn);
   const userTemplates = filtered.filter((template) => !template.isBuiltIn);
+
+  const resolveDefaultDesignSystemId = (): string | null => {
+    if (
+      defaultSystem &&
+      isDesignSystemUsableForGeneration(defaultSystem.data)
+    ) {
+      return defaultSystem.id;
+    }
+    return (
+      designSystems.find((system) =>
+        isDesignSystemUsableForGeneration(system.data),
+      )?.id ?? null
+    );
+  };
 
   const resolveTemplateDesignSystemId = (
     template: DesignTemplateSummary,
@@ -131,7 +146,7 @@ export default function Templates() {
     ) {
       return template.designSystemId;
     }
-    return defaultSystem?.id ?? designSystems[0]?.id ?? null;
+    return resolveDefaultDesignSystemId();
   };
 
   const setSelectedTemplateParam = (templateId: string | null) => {
@@ -161,11 +176,22 @@ export default function Templates() {
     handledTemplateIdRef.current = linkedTemplateId;
     setSearch("");
     setSelected(template);
-    setSelectedDesignSystemId(resolveTemplateDesignSystemId(template));
+    setSelectedDesignSystemId(
+      template.designSystemId &&
+        designSystems.some((system) => system.id === template.designSystemId)
+        ? template.designSystemId
+        : resolveDefaultDesignSystemId(),
+    );
     setPromptOpen(true);
     card?.scrollIntoView({ block: "center", behavior: "smooth" });
     useButton?.focus();
-  }, [designSystemsLoading, linkedTemplateId, templates]);
+  }, [
+    defaultSystem,
+    designSystems,
+    designSystemsLoading,
+    linkedTemplateId,
+    templates,
+  ]);
 
   const openTemplatePrompt = (
     template: DesignTemplateSummary,
@@ -234,7 +260,7 @@ export default function Templates() {
           queryKey: ["action", "list-designs"],
         })
         .catch(() => {});
-      navigate(`/design/${result.id}`);
+      void navigate(`/design/${result.id}`);
     } catch (error) {
       setCreating(false);
       throw error;
@@ -366,7 +392,7 @@ export default function Templates() {
         onDesignSystemChange={setSelectedDesignSystemId}
         onCreateDesignSystem={() => {
           setPromptOpen(false);
-          navigate("/design-systems/setup");
+          void navigate("/design-systems/setup");
         }}
       />
 

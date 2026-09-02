@@ -701,6 +701,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       var value = el && el.getAttribute && el.getAttribute(name);
       return value ? "[" + name + '="' + escapeAttribute(value) + '"]' : "";
     }
+    function isStableIdentitySelector(selector) {
+      if (!selector || /[\\s>+~,]/.test(selector)) return false;
+      if (/^#[^#.:[\\]()]+$/.test(selector)) return true;
+      return /^\\[(data-agent-native-node-id|data-code-layer-id|data-layer-id|data-builder-id|data-loc)="/.test(
+        selector
+      );
+    }
     function classSelectorSuffix(el, maxCount) {
       if (!el || !el.classList) return "";
       return Array.prototype.slice.call(el.classList, 0, maxCount).map(function(token) {
@@ -1375,6 +1382,40 @@ export const editorChromeBridgeScript: string = `"use strict";
     function isDocumentRootElement(el) {
       return el === document.body || el === document.documentElement;
     }
+    window.__agentNativeEditorChrome = true;
+    var MIN_SELECTABLE_EXTENT_PX = 4;
+    var NON_SELECTABLE_TAGS = [
+      "script",
+      "style",
+      "template",
+      "link",
+      "meta",
+      "title",
+      "noscript",
+      "br"
+    ];
+    function selectableBounds(el) {
+      var rect = el.getBoundingClientRect();
+      var padX = rect.width < MIN_SELECTABLE_EXTENT_PX ? MIN_SELECTABLE_EXTENT_PX / 2 : 0;
+      var padY = rect.height < MIN_SELECTABLE_EXTENT_PX ? MIN_SELECTABLE_EXTENT_PX / 2 : 0;
+      return {
+        left: rect.left - padX,
+        top: rect.top - padY,
+        right: rect.right + padX,
+        bottom: rect.bottom + padY,
+        width: rect.width + padX * 2,
+        height: rect.height + padY * 2
+      };
+    }
+    function outermostSvgAncestor(el) {
+      var owner = el && el.ownerSVGElement;
+      if (!owner) return null;
+      var root = owner;
+      while (root.ownerSVGElement) {
+        root = root.ownerSVGElement;
+      }
+      return root;
+    }
     function isBoardRootMarqueeSurface(el) {
       if (!designCanvasBoardSurface || !el) return false;
       if (isDocumentRootElement(el)) return true;
@@ -1413,6 +1454,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function selectionTargetForHit(hit) {
       if (!hit || isDocumentRootElement(hit)) return hit;
+      var svgRoot = outermostSvgAncestor(hit);
+      if (svgRoot) return svgRoot;
       return hit;
     }
     function freshRuntimeNodeId(prefix) {
@@ -1996,23 +2039,30 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function collectSelectableElements() {
       var nodes = Array.prototype.slice.call(
-        document.querySelectorAll(
-          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc]"
-        )
+        document.body ? document.body.querySelectorAll("*") : []
       );
       var seen = /* @__PURE__ */ new Set();
       var elements = [];
       nodes.forEach(function(node) {
-        var target = selectionTargetForHit(node);
-        if (!target || isDocumentRootElement(target) || isBoardRootMarqueeSurface(target) || isOverlayElement(target) || isLayerInteractionBlocked(target) || seen.has(target)) {
+        if (NON_SELECTABLE_TAGS.indexOf(node.tagName.toLowerCase()) !== -1) {
           return;
         }
-        var rect = target.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) return;
+        var target = selectionTargetForHit(node);
+        if (!target || isDocumentRootElement(target) || isBoardRootMarqueeSurface(target) || isOverlayElement(target) || isLayerInteractionBlocked(target) || isTemplateCloneElement(target) || seen.has(target) || isPaddedAwayFromView(target)) {
+          return;
+        }
         seen.add(target);
         elements.push(target);
       });
       return elements;
+    }
+    function isPaddedAwayFromView(el) {
+      var rect = el.getBoundingClientRect();
+      if (rect.width >= MIN_SELECTABLE_EXTENT_PX && rect.height >= MIN_SELECTABLE_EXTENT_PX) {
+        return false;
+      }
+      var cs = window.getComputedStyle(el);
+      return cs.display === "none" || cs.visibility === "hidden";
     }
     function collectSelectableElementInfos() {
       return collectSelectableElements().map(function(target) {
@@ -2198,6 +2248,14 @@ export const editorChromeBridgeScript: string = `"use strict";
     snapGuideLayer.setAttribute("data-agent-native-edit-overlay", "snap-guide");
     snapGuideLayer.style.cssText = "position:fixed;inset:0;z-index:100000;display:none;pointer-events:none;";
     document.body.appendChild(snapGuideLayer);
+    var gridCellOverlay = document.createElement("div");
+    gridCellOverlay.setAttribute("data-agent-native-edit-overlay", "grid-cells");
+    gridCellOverlay.style.cssText = "position:fixed;inset:0;z-index:99993;display:none;pointer-events:none;";
+    document.body.appendChild(gridCellOverlay);
+    var frameLabelLayer = document.createElement("div");
+    frameLabelLayer.setAttribute("data-agent-native-edit-overlay", "frame-label");
+    frameLabelLayer.style.cssText = "position:fixed;inset:0;z-index:99992;display:block;pointer-events:none;";
+    document.body.appendChild(frameLabelLayer);
     var measurementOverlay = document.createElement("div");
     measurementOverlay.setAttribute("data-agent-native-measurement-overlay", "");
     measurementOverlay.setAttribute(
@@ -2341,6 +2399,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       selectionOverlay.style.display = "none";
       hideSizeBadge();
       hideSpacingOverlay();
+      hideGridCellOverlay();
+      refreshFrameNameLabels();
       hideParentAutoLayoutOverlay();
       clearComponentTag();
     }
@@ -2937,7 +2997,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var persistentNodes = Array.prototype.slice.call(
         document.querySelectorAll("[data-agent-native-edit-overlay]")
       );
-      var activeSelector = forceFullDocument ? "" : preferredSelector || (selectedEl ? getSelector(selectedEl) : "");
+      var activeSelector = preferredSelector || (selectedEl ? getSelector(selectedEl) : "");
       var activeCandidates = [];
       if (Array.isArray(selectorCandidates)) {
         selectorCandidates.forEach(function(selector) {
@@ -3029,11 +3089,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         document.body.appendChild(node);
       });
       applyLayerStateSelectors();
+      frameLabelRenderKey = "";
       selectedEl = null;
       clearHoverGate();
-      for (var i = 0; i < activeCandidates.length && !selectedEl; i += 1) {
+      var reanchorCandidates = forceFullDocument ? activeCandidates.filter(isStableIdentitySelector) : activeCandidates;
+      for (var i = 0; i < reanchorCandidates.length && !selectedEl; i += 1) {
         try {
-          var match = document.querySelector(activeCandidates[i]);
+          var match = document.querySelector(reanchorCandidates[i]);
           if (match && !isLayerInteractionBlocked(match) && !isOverlayElement(match)) {
             selectedEl = selectionTargetForHit(match) || match;
           }
@@ -3883,23 +3945,225 @@ export const editorChromeBridgeScript: string = `"use strict";
       var placedRotatedLocalBox = positionOverlayForRotatedLocalBox(overlay, el);
       if (!placedRotatedLocalBox) {
         var rect = el.getBoundingClientRect();
+        var box = selectableBounds(el);
         overlay.style.display = "block";
-        overlay.style.top = rect.top + "px";
-        overlay.style.left = rect.left + "px";
-        overlay.style.width = rect.width + "px";
-        overlay.style.height = rect.height + "px";
+        overlay.style.top = box.top + "px";
+        overlay.style.left = box.left + "px";
+        overlay.style.width = box.width + "px";
+        overlay.style.height = box.height + "px";
         overlay.style.transform = "";
       }
       if (overlay === selectionOverlay) {
         applySelectionChrome(el);
         applySelectionHandleHitGeometry(el);
         updateSpacingOverlay(el);
+        updateGridCellOverlay(el);
+        refreshFrameNameLabels();
         updateComponentTag(el, rect);
         updateParentAutoLayoutOverlay(el);
         showSizeBadge(el);
       } else {
         applyElementOverlayChrome(overlay, el);
       }
+    }
+    var gridCellOverlayRenderKey = "";
+    function hideGridCellOverlay() {
+      gridCellOverlay.style.display = "none";
+      if (gridCellOverlayRenderKey) {
+        gridCellOverlay.innerHTML = "";
+        gridCellOverlayRenderKey = "";
+      }
+    }
+    function gridTrackSizes(template) {
+      var sizes = [];
+      if (!template || template === "none") return sizes;
+      template.split(/\\s+/).forEach(function(token) {
+        var size = readFinitePx(token);
+        if (size !== null) sizes.push(size);
+      });
+      return sizes;
+    }
+    function gridTrackDistribution(tracks, contentSize, gap, distribution) {
+      var used = 0;
+      for (var i = 0; i < tracks.length; i += 1) used += tracks[i];
+      used += gap * Math.max(0, tracks.length - 1);
+      var leftover = contentSize - used;
+      if (!(leftover > 0.01)) return { offset: 0, gap };
+      var mode = (distribution || "normal").split(" ").pop() || "normal";
+      if (mode === "center") return { offset: leftover / 2, gap };
+      if (mode === "end" || mode === "flex-end" || mode === "right") {
+        return { offset: leftover, gap };
+      }
+      if (mode === "space-between" && tracks.length > 1) {
+        return { offset: 0, gap: gap + leftover / (tracks.length - 1) };
+      }
+      if (mode === "space-around" && tracks.length > 0) {
+        var around = leftover / tracks.length;
+        return { offset: around / 2, gap: gap + around };
+      }
+      if (mode === "space-evenly" && tracks.length > 0) {
+        var evenly = leftover / (tracks.length + 1);
+        return { offset: evenly, gap: gap + evenly };
+      }
+      return { offset: 0, gap };
+    }
+    function updateGridCellOverlay(el) {
+      if (!el || !document.documentElement.contains(el)) {
+        hideGridCellOverlay();
+        return;
+      }
+      if (selectionChromeHidden || activeTextEditEl) {
+        hideGridCellOverlay();
+        return;
+      }
+      var cs = window.getComputedStyle(el);
+      if (cs.display !== "grid" && cs.display !== "inline-grid") {
+        hideGridCellOverlay();
+        return;
+      }
+      if (Math.abs(currentRotation(el)) > 0.01) {
+        hideGridCellOverlay();
+        return;
+      }
+      var columns = gridTrackSizes(cs.gridTemplateColumns);
+      var rows = gridTrackSizes(cs.gridTemplateRows);
+      if (columns.length === 0 || rows.length === 0) {
+        hideGridCellOverlay();
+        return;
+      }
+      var rect = el.getBoundingClientRect();
+      var contentLeft = rect.left + readPx(cs.borderLeftWidth) + readPx(cs.paddingLeft);
+      var contentTop = rect.top + readPx(cs.borderTopWidth) + readPx(cs.paddingTop);
+      var contentWidth = rect.width - readPx(cs.borderLeftWidth) - readPx(cs.borderRightWidth) - readPx(cs.paddingLeft) - readPx(cs.paddingRight);
+      var contentHeight = rect.height - readPx(cs.borderTopWidth) - readPx(cs.borderBottomWidth) - readPx(cs.paddingTop) - readPx(cs.paddingBottom);
+      var columnFlow = gridTrackDistribution(
+        columns,
+        contentWidth,
+        readPx(cs.columnGap),
+        cs.justifyContent
+      );
+      var rowFlow = gridTrackDistribution(
+        rows,
+        contentHeight,
+        readPx(cs.rowGap),
+        cs.alignContent
+      );
+      var originX = contentLeft + columnFlow.offset;
+      var originY = contentTop + rowFlow.offset;
+      var columnGap = columnFlow.gap;
+      var rowGap = rowFlow.gap;
+      var line = Math.max(1, chromeLineScale());
+      var nextKey = [
+        originX,
+        originY,
+        columnGap,
+        rowGap,
+        line,
+        columns.join(","),
+        rows.join(",")
+      ].join("|");
+      if (gridCellOverlay.style.display === "block" && gridCellOverlayRenderKey === nextKey) {
+        return;
+      }
+      gridCellOverlayRenderKey = nextKey;
+      gridCellOverlay.innerHTML = "";
+      gridCellOverlay.style.display = "block";
+      var color = chromeColorForElement(el);
+      var cellY = originY;
+      for (var row = 0; row < rows.length; row += 1) {
+        var cellX = originX;
+        for (var column = 0; column < columns.length; column += 1) {
+          var cell = document.createElement("div");
+          cell.setAttribute("data-agent-native-grid-cell", column + ":" + row);
+          cell.style.cssText = "position:absolute;box-sizing:border-box;pointer-events:none;left:" + cellX + "px;top:" + cellY + "px;width:" + columns[column] + "px;height:" + rows[row] + "px;border:" + line + "px solid color-mix(in srgb," + color + " 42%,transparent);";
+          gridCellOverlay.appendChild(cell);
+          cellX += columns[column] + columnGap;
+        }
+        cellY += rows[row] + rowGap;
+      }
+    }
+    var FRAME_LABEL_IDLE_COLOR = "rgba(113,113,122,0.95)";
+    var FRAME_PRIMITIVE_SELECTOR = '[data-an-primitive="frame"]';
+    var frameLabelRenderKey = "";
+    function outermostFrameElements() {
+      var frames = Array.prototype.slice.call(
+        document.querySelectorAll(FRAME_PRIMITIVE_SELECTOR)
+      );
+      return frames.filter(function(frame) {
+        if (isOverlayElement(frame)) return false;
+        var parent = frame.parentElement;
+        return !parent || !parent.closest(FRAME_PRIMITIVE_SELECTOR);
+      });
+    }
+    function frameLabelText(frame) {
+      var name = frame.getAttribute("data-agent-native-layer-name") || frame.getAttribute("aria-label") || "";
+      return name.trim() || "Frame";
+    }
+    function selectFrameFromLabel(frame, e) {
+      if (isLayerInteractionBlocked(frame)) return;
+      blurActiveTextEditor();
+      var previousSelectedEl = selectedEl;
+      selectedEl = frame;
+      positionOverlay(selectionOverlay, selectedEl);
+      if (!e.shiftKey && passiveSelectionEls.length) {
+        setPassiveSelectionElements([]);
+      }
+      preservePreviousSelectedElementForShiftClick(
+        previousSelectedEl,
+        selectedEl,
+        e
+      );
+      postElementSelect(selectedEl, e);
+    }
+    function refreshFrameNameLabels() {
+      var frames = outermostFrameElements();
+      var line = chromeLineScale();
+      var fontSize = 11 * line;
+      var labelHeight = 16 * line;
+      var placements = [];
+      frames.forEach(function(frame) {
+        var rect = frame.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+        var top = rect.top - labelHeight - 2 * line;
+        if (top < 0) top = rect.top + 2 * line;
+        placements.push({
+          frame,
+          text: frameLabelText(frame),
+          left: rect.left,
+          top,
+          maxWidth: Math.max(48 * line, rect.width),
+          selected: frame === selectedEl
+        });
+      });
+      var nextKey = placements.map(function(placement) {
+        return [
+          placement.text,
+          Math.round(placement.left),
+          Math.round(placement.top),
+          Math.round(placement.maxWidth),
+          placement.selected ? "1" : "0"
+        ].join(",");
+      }).join("|") + "@" + line;
+      if (frameLabelRenderKey === nextKey) return;
+      frameLabelRenderKey = nextKey;
+      frameLabelLayer.innerHTML = "";
+      placements.forEach(function(placement) {
+        var label = document.createElement("button");
+        label.type = "button";
+        label.setAttribute("data-agent-native-frame-label", "");
+        label.textContent = placement.text;
+        label.title = placement.text;
+        label.style.cssText = "position:absolute;margin:0;padding:0;border:0;background:transparent;max-width:" + placement.maxWidth + "px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:auto;cursor:default;text-align:left;font:500 " + fontSize + "px/" + labelHeight + "px ui-sans-serif,system-ui,-apple-system,sans-serif;left:" + placement.left + "px;top:" + placement.top + "px;height:" + labelHeight + "px;color:" + (placement.selected ? "var(--design-editor-accent-color)" : FRAME_LABEL_IDLE_COLOR);
+        label.addEventListener("mousedown", function(event) {
+          event.stopPropagation();
+        });
+        label.addEventListener("click", function(event) {
+          event.preventDefault();
+          event.stopPropagation();
+          selectFrameFromLabel(placement.frame, event);
+        });
+        frameLabelLayer.appendChild(label);
+      });
     }
     function refreshOverlays() {
       var textEditingEl = activeTextEditEl || document.querySelector(
@@ -3937,6 +4201,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (passiveSelectionEls.length > 0) hideSizeBadge();
       positionMultiSelectionBounds();
       positionGradientOverlay();
+      refreshFrameNameLabels();
       syncOverlayObservers();
     }
     var refreshOverlaysScheduled = false;
@@ -4016,7 +4281,12 @@ export const editorChromeBridgeScript: string = `"use strict";
     var OVERLAY_ANIMATION_TRACKING_MAX_MS = 4e3;
     function isOverlayAnimationTrackingTarget(target) {
       if (!target) return false;
-      return target === selectedEl || target === hoveredEl;
+      if (target === selectedEl || target === hoveredEl) return true;
+      var el = target;
+      if (!el || typeof el.closest !== "function") return false;
+      return Boolean(
+        el.closest(FRAME_PRIMITIVE_SELECTOR) || el.querySelector && el.querySelector(FRAME_PRIMITIVE_SELECTOR)
+      );
     }
     function tickOverlayAnimationTracking() {
       if (!overlayAnimationTrackingActive) return;
@@ -4210,7 +4480,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       return null;
     }
     function stopNativeInteraction(e) {
-      e.preventDefault();
+      if (e.cancelable) e.preventDefault();
       e.stopPropagation();
       if (e.stopImmediatePropagation) e.stopImmediatePropagation();
     }
@@ -4688,9 +4958,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       marqueeSelectionOverlay.style.top = rect.top + "px";
       marqueeSelectionOverlay.style.width = rect.width + "px";
       marqueeSelectionOverlay.style.height = rect.height + "px";
-      var hitElements = collectSelectableElements().filter(function(el) {
-        var bounds = el.getBoundingClientRect();
-        if (bounds.width <= 0 || bounds.height <= 0) return false;
+      if (!activeMarqueeSelection.candidates) {
+        activeMarqueeSelection.candidates = collectSelectableElements();
+      }
+      var hitElements = activeMarqueeSelection.candidates.filter(function(el) {
+        var bounds = selectableBounds(el);
+        if (bounds.left <= rect.left && bounds.top <= rect.top && bounds.right >= rect.right && bounds.bottom >= rect.bottom) {
+          return false;
+        }
         return rectsIntersect(rect, {
           left: bounds.left,
           top: bounds.top,
@@ -5917,12 +6192,62 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cs = window.getComputedStyle(el);
       return cs.display === "flex" || cs.display === "inline-flex" || cs.display === "grid" || cs.display === "inline-grid";
     }
+    var BRIDGE_REPLACED_TAGS = {
+      img: true,
+      video: true,
+      picture: true,
+      audio: true,
+      canvas: true,
+      svg: true,
+      path: true,
+      input: true,
+      textarea: true,
+      select: true,
+      br: true,
+      hr: true,
+      iframe: true
+    };
+    var BRIDGE_ADOPTING_PRIMITIVES = {
+      frame: true,
+      rectangle: true,
+      rect: true
+    };
+    function isFreeformRelativeContainer(el) {
+      if (!el || el === document.body || el === document.documentElement) {
+        return false;
+      }
+      if (window.getComputedStyle(el).position === "static") return false;
+      var children = el.children;
+      if (children.length === 0) return false;
+      for (var i = 0; i < children.length; i += 1) {
+        if (isOverlayElement(children[i])) continue;
+        var childPosition = window.getComputedStyle(children[i]).position;
+        if (childPosition !== "absolute" && childPosition !== "fixed") {
+          return false;
+        }
+      }
+      return true;
+    }
     function isAbsolutePrimitiveContainer(el) {
-      if (!el || (el.tagName || "").toLowerCase() !== "div") return false;
+      if (!el || el.nodeType !== 1) return false;
+      if (BRIDGE_REPLACED_TAGS[(el.tagName || "").toLowerCase()]) return false;
       var primitive = (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive") || "").toLowerCase();
-      if (primitive !== "frame") return false;
+      if (primitive) {
+        if (!BRIDGE_ADOPTING_PRIMITIVES[primitive]) return false;
+      } else if (isAutoLayoutElement(el) || !hasAbsolutePositionedChild(el)) {
+        return false;
+      }
       var cs = window.getComputedStyle(el);
       return cs.position === "absolute" || cs.position === "fixed";
+    }
+    function hasAbsolutePositionedChild(el) {
+      var kids = el.children;
+      for (var i = 0; i < kids.length; i += 1) {
+        if (isOverlayElement(kids[i])) continue;
+        var kidPosition = window.getComputedStyle(kids[i]).position;
+        if (kidPosition === "absolute" || kidPosition === "fixed") return true;
+      }
+      return false;
     }
     function isEmptyDropContainer(container, dragged) {
       for (var i = 0; i < dragged.length; i += 1) {
@@ -6257,7 +6582,7 @@ export const editorChromeBridgeScript: string = `"use strict";
               anchor: hit,
               placement: "inside",
               axis: parentFlowAxis(hit),
-              dropMode: isAbsolutePrimitiveContainer(hit) ? "absolute-container" : "flow-insert"
+              dropMode: isAbsolutePrimitiveContainer(hit) || isFreeformRelativeContainer(hit) ? "absolute-container" : "flow-insert"
             };
           }
           return {
@@ -6291,7 +6616,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           anchor: parent,
           placement: "inside",
           axis,
-          dropMode: isAbsolutePrimitiveContainer(parent) ? "absolute-container" : "flow-insert"
+          dropMode: isAbsolutePrimitiveContainer(parent) || isFreeformRelativeContainer(parent) ? "absolute-container" : "flow-insert"
         };
       }
       var beforeTarget = null;
@@ -6409,7 +6734,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           continue;
         }
         var parent = cursor.parentElement;
-        if (cursor !== document.body && isAbsolutePrimitiveContainer(cursor)) {
+        if (cursor !== document.body && (isAbsolutePrimitiveContainer(cursor) || isFreeformRelativeContainer(cursor))) {
           if (cursor === el.parentElement) return null;
           return {
             anchor: cursor,
@@ -6635,8 +6960,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var currentLeft = readPx(htmlEl.style.left || cs.left);
       var currentTop = readPx(htmlEl.style.top || cs.top);
-      htmlEl.style.left = currentLeft + (oldOriginX - newOriginX) + "px";
-      htmlEl.style.top = currentTop + (oldOriginY - newOriginY) + "px";
+      htmlEl.style.left = Math.round(currentLeft + (oldOriginX - newOriginX)) + "px";
+      htmlEl.style.top = Math.round(currentTop + (oldOriginY - newOriginY)) + "px";
     }
     function prepareFlowMembersForAbsoluteDrop(members, target, startRects, gestureStartRect, pointerOffset, clientX, clientY) {
       if (!target || target.dropMode !== "absolute-container") return;
@@ -6697,8 +7022,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var localDx = (clientDx * yy - yx * clientDy) / determinant;
       var localDy = (xx * clientDy - clientDx * xy) / determinant;
-      htmlEl.style.left = baseLeft + localDx + "px";
-      htmlEl.style.top = baseTop + localDy + "px";
+      htmlEl.style.left = Math.round(baseLeft + localDx) + "px";
+      htmlEl.style.top = Math.round(baseTop + localDy) + "px";
     }
     function applyRuntimeReorder(el, target) {
       if (!el || !target || !target.anchor || !target.anchor.parentElement)
@@ -6803,6 +7128,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       postElementMarqueeSelect(members, false, ev);
     }
     var SNAP_THRESHOLD_PX = 6;
+    var layoutGridStep = 1;
+    function quantizeToLayoutGrid(value) {
+      if (!(layoutGridStep > 1)) return Math.round(value);
+      return Math.round(value / layoutGridStep) * layoutGridStep;
+    }
     var SNAP_CANDIDATE_CAP = 200;
     function rectBounds(rect) {
       return {
@@ -7745,6 +8075,14 @@ export const editorChromeBridgeScript: string = `"use strict";
                 iframeY: cy,
                 viewportW: vw,
                 viewportH: vh,
+                // Without a size the host can only draw a 16px cursor dot, so
+                // the element being dragged is invisible once it leaves here.
+                elementRect: {
+                  left: reorderRect.left,
+                  top: reorderRect.top,
+                  width: reorderRect.width,
+                  height: reorderRect.height
+                },
                 pointerOffset: reorderPointerOffset,
                 styleSnapshot: reorderStyleSnapshot
               },
@@ -7757,6 +8095,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             clearReorderReflow2();
             showTransformBadge("Move layer", cx, cy);
           } else {
+            crossScreenClaimedByHost = false;
             var rawTarget = resolveReorderOrFreeTarget2(
               cx,
               cy,
@@ -7783,11 +8122,19 @@ export const editorChromeBridgeScript: string = `"use strict";
           document.removeEventListener(events.move, onReorderMove2, true);
           document.removeEventListener(events.up, onReorderUp2, true);
           document.removeEventListener("pointercancel", onReorderEscape2, true);
+          window.removeEventListener("blur", onReorderEscape2, true);
+          document.removeEventListener(
+            "visibilitychange",
+            onReorderVisibilityChange2,
+            true
+          );
           document.removeEventListener("keydown", onReorderKeyDown2, true);
           document.removeEventListener("keyup", onReorderKeyUp2, true);
           clearActiveDragCancel(onReorderEscape2);
           clearReorderLift2();
           clearReorderReflow2();
+        }, onReorderVisibilityChange2 = function() {
+          if (document.visibilityState === "hidden") onReorderEscape2();
         }, onReorderEscape2 = function() {
           cleanupReorderDrag2();
           hideTransformBadge();
@@ -7820,14 +8167,20 @@ export const editorChromeBridgeScript: string = `"use strict";
           keepCurrentFlowParent = false;
           ev.preventDefault();
         }, onReorderUp2 = function(ev) {
+          if (!ev || !Number.isFinite(ev.clientX) || !Number.isFinite(ev.clientY)) {
+            onReorderEscape2();
+            return;
+          }
           cleanupReorderDrag2();
           hideTransformBadge();
           hideInsertionGuide();
           var vw = window.innerWidth;
           var vh = window.innerHeight;
-          var cx = ev ? ev.clientX : 0;
-          var cy = ev ? ev.clientY : 0;
-          var outsideOnDrop = cx < 0 || cy < 0 || cx > vw || cy > vh;
+          var cx = ev.clientX;
+          var cy = ev.clientY;
+          var outsideOnDrop = cx < 0 || cy < 0 || cx > vw || cy > vh || // Claimed by the host: committing here too would write the node
+          // twice, from two different ideas of where it landed.
+          crossScreenClaimedByHost;
           if (!isGroupDrag) {
             window.parent.postMessage(
               {
@@ -7839,6 +8192,14 @@ export const editorChromeBridgeScript: string = `"use strict";
                 iframeY: cy,
                 viewportW: vw,
                 viewportH: vh,
+                // Without a size the host can only draw a 16px cursor dot, so
+                // the element being dragged is invisible once it leaves here.
+                elementRect: {
+                  left: reorderRect.left,
+                  top: reorderRect.top,
+                  width: reorderRect.width,
+                  height: reorderRect.height
+                },
                 pointerOffset: reorderPointerOffset,
                 styleSnapshot: reorderStyleSnapshot
               },
@@ -7922,7 +8283,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             });
           }
         };
-        var authoredTransformOf = authoredTransformOf2, applyReorderLift = applyReorderLift2, clearReorderLift = clearReorderLift2, reorderMainAxis = reorderMainAxis2, reorderRealChildren = reorderRealChildren2, reorderSlotForTarget = reorderSlotForTarget2, containerIsSimplePacked = containerIsSimplePacked2, reorderMainGap = reorderMainGap2, clearReorderReflow = clearReorderReflow2, resolveReorderOrFreeTarget = resolveReorderOrFreeTarget2, applyReorderSizeGuard = applyReorderSizeGuard2, stabilizeReorderTarget = stabilizeReorderTarget2, applyReorderReflow = applyReorderReflow2, onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderKeyUp = onReorderKeyUp2, onReorderUp = onReorderUp2;
+        var authoredTransformOf = authoredTransformOf2, applyReorderLift = applyReorderLift2, clearReorderLift = clearReorderLift2, reorderMainAxis = reorderMainAxis2, reorderRealChildren = reorderRealChildren2, reorderSlotForTarget = reorderSlotForTarget2, containerIsSimplePacked = containerIsSimplePacked2, reorderMainGap = reorderMainGap2, clearReorderReflow = clearReorderReflow2, resolveReorderOrFreeTarget = resolveReorderOrFreeTarget2, applyReorderSizeGuard = applyReorderSizeGuard2, stabilizeReorderTarget = stabilizeReorderTarget2, applyReorderReflow = applyReorderReflow2, onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, onReorderVisibilityChange = onReorderVisibilityChange2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderKeyUp = onReorderKeyUp2, onReorderUp = onReorderUp2;
         var reorderEl = gestureEl;
         var reorderGroupStartRects = groupEls.map(function(member) {
           return member.getBoundingClientRect();
@@ -7955,6 +8316,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         });
         var reorderSelector = getSelector(reorderEl);
         var reorderSourceId = getSourceId(reorderEl);
+        crossScreenClaimedByHost = false;
         var reorderStyleSnapshot = collectPortableStyleSnapshot(reorderEl);
         var reorderRect = reorderEl.getBoundingClientRect();
         var reorderPointerStart = pointerStartParam || e;
@@ -7976,6 +8338,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         document.addEventListener(events.move, onReorderMove2, true);
         document.addEventListener(events.up, onReorderUp2, true);
         document.addEventListener("pointercancel", onReorderEscape2, true);
+        window.addEventListener("blur", onReorderEscape2, true);
+        document.addEventListener(
+          "visibilitychange",
+          onReorderVisibilityChange2,
+          true
+        );
         document.addEventListener("keydown", onReorderKeyDown2, true);
         document.addEventListener("keyup", onReorderKeyUp2, true);
         setActiveDragCancel(onReorderEscape2);
@@ -8122,8 +8490,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         var appliedDx = nextLeft - originLeft;
         var appliedDy = nextTop - originTop;
         memberStates.forEach(function(state) {
-          state.el.style.left = Math.round(state.originLeft + appliedDx) + "px";
-          state.el.style.top = Math.round(state.originTop + appliedDy) + "px";
+          state.el.style.left = quantizeToLayoutGrid(state.originLeft + appliedDx) + "px";
+          state.el.style.top = quantizeToLayoutGrid(state.originTop + appliedDy) + "px";
         });
         if (!duplicatedForDrag && !isGroupDrag) {
           scheduleCrossScreenDragMove(ev);
@@ -8132,6 +8500,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           currentAutoLayoutTarget = null;
           hideInsertionGuide();
         } else {
+          crossScreenClaimedByHost = false;
           currentAutoLayoutTarget = !duplicatedForDrag && !bridgeSpaceKeyPressed ? autoLayoutInsertionTargetForPoint(
             dragEl,
             ev.clientX,
@@ -8237,7 +8606,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         hideSizeBadge();
         hideConstraintGuides();
         if (!dragEl) return;
-        var outsideOnDrop = ev ? isOutsideIframeViewport(ev.clientX, ev.clientY) : false;
+        var outsideOnDrop = ev ? isOutsideIframeViewport(ev.clientX, ev.clientY) || crossScreenClaimedByHost : false;
         if (ev && !duplicatedForDrag && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
           postCrossScreenDrag("end", dragEl, ev);
         }
@@ -8517,10 +8886,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         var rect = nextRect(ev);
         if (rect.touchesWidth) widthTouched = true;
         if (rect.touchesHeight) heightTouched = true;
-        resizeEl.style.left = Math.round(rect.left) + "px";
-        resizeEl.style.top = Math.round(rect.top) + "px";
-        if (widthTouched) resizeEl.style.width = Math.round(rect.width) + "px";
-        if (heightTouched) resizeEl.style.height = Math.round(rect.height) + "px";
+        resizeEl.style.left = quantizeToLayoutGrid(rect.left) + "px";
+        resizeEl.style.top = quantizeToLayoutGrid(rect.top) + "px";
+        if (widthTouched)
+          resizeEl.style.width = quantizeToLayoutGrid(rect.width) + "px";
+        if (heightTouched)
+          resizeEl.style.height = quantizeToLayoutGrid(rect.height) + "px";
         if (scaleToolEnabled) {
           var kScaleFactor = rect.width / Math.max(1, origin.width);
           if (originBorderWidth > 0) {
@@ -8543,6 +8914,29 @@ export const editorChromeBridgeScript: string = `"use strict";
           Math.round(rect.width) + " x " + Math.round(rect.height),
           ev.clientX,
           ev.clientY
+        );
+        var previewStyles = {
+          position: resizeEl.style.position,
+          left: resizeEl.style.left,
+          top: resizeEl.style.top
+        };
+        if (widthTouched) previewStyles.width = resizeEl.style.width;
+        if (heightTouched) previewStyles.height = resizeEl.style.height;
+        if (scaleToolEnabled && originBorderWidth > 0) {
+          previewStyles.borderWidth = resizeEl.style.borderWidth;
+        }
+        if (scaleToolEnabled && originFontSize > 0) {
+          previewStyles.fontSize = resizeEl.style.fontSize;
+        }
+        window.parent.postMessage(
+          {
+            type: "visual-style-change",
+            phase: "preview",
+            selector: getSelector(resizeEl),
+            styles: previewStyles,
+            payload: getElementInfo(resizeEl)
+          },
+          "*"
         );
         refreshOverlays();
       }
@@ -8569,6 +8963,25 @@ export const editorChromeBridgeScript: string = `"use strict";
           });
           selectedEl = resizeEl;
           positionOverlay(selectionOverlay, selectedEl);
+          var restoredComputed = window.getComputedStyle(resizeEl);
+          window.parent.postMessage(
+            {
+              type: "visual-style-change",
+              phase: "preview",
+              selector: getSelector(resizeEl),
+              styles: {
+                position: restoredComputed.position,
+                left: restoredComputed.left,
+                top: restoredComputed.top,
+                width: restoredComputed.width,
+                height: restoredComputed.height,
+                borderWidth: restoredComputed.borderWidth,
+                fontSize: restoredComputed.fontSize
+              },
+              payload: getElementInfo(resizeEl)
+            },
+            "*"
+          );
         }
         suppressNextShieldClickBriefly();
         refreshOverlays();
@@ -8607,6 +9020,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         window.parent.postMessage(
           {
             type: "visual-style-change",
+            phase: "commit",
             selector: getSelector(resizeEl),
             styles,
             originalStyles: originalInlineStylesForPatch(resizeEl, styles),
@@ -9036,6 +9450,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (idx === -1) return null;
       return candidateKeys[(idx + 1) % candidateKeys.length];
     }
+    function isContainerBackgroundHit(el) {
+      if (!el || el === selectedEl) return false;
+      if (isDocumentRootElement(el)) return false;
+      if (outermostSvgAncestor(el) === el) return false;
+      return Boolean(el.firstElementChild);
+    }
+    var crossScreenClaimedByHost = false;
     function beginPotentialShieldDrag(e) {
       stopNativeInteraction(e);
       if (e.button !== 0) return;
@@ -9043,7 +9464,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var events = dragEventNames(e);
       var hit = elementFromEditorPoint(e.clientX, e.clientY);
       var hitTarget = selectionTargetForHit(hit);
-      if (!hit || hit === document.body || hit === document.documentElement || isBoardRootMarqueeSurface(hitTarget)) {
+      if (!hit || hit === document.body || hit === document.documentElement || isBoardRootMarqueeSurface(hitTarget) || isContainerBackgroundHit(hitTarget)) {
         beginMarqueeSelection(e);
         return;
       }
@@ -9444,6 +9865,20 @@ export const editorChromeBridgeScript: string = `"use strict";
               );
             }
           });
+          return;
+        }
+        var pastedHtml = e.clipboardData ? e.clipboardData.getData("text/html") || "" : "";
+        var pastedText = e.clipboardData ? e.clipboardData.getData("text/plain") || "" : "";
+        if (/figma/i.test(pastedHtml) || /figma/i.test(pastedText)) {
+          window.parent.postMessage(
+            {
+              type: "figma-clipboard-paste",
+              content: "",
+              html: pastedHtml,
+              text: pastedText
+            },
+            "*"
+          );
         }
       },
       true
@@ -9940,6 +10375,11 @@ export const editorChromeBridgeScript: string = `"use strict";
     window.addEventListener("message", function(e) {
       if (e.source !== window.parent) return;
       if (!e.data) return;
+      if (e.data.type === "set-layout-grid-step") {
+        var nextStep = Number(e.data.step);
+        layoutGridStep = Number.isFinite(nextStep) && nextStep >= 1 ? nextStep : 1;
+        return;
+      }
       if (e.data.type === "set-read-only") {
         var nextReadOnly = !!e.data.readOnly;
         if (readOnly === nextReadOnly) return;
@@ -10023,6 +10463,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         );
         applyEditorChromeScale();
         if (selectedEl || hoveredEl) refreshOverlays();
+        else refreshFrameNameLabels();
         return;
       }
       if (e.data.type === "scale-tool-mode") {
@@ -10113,6 +10554,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         statePreviewElement = nextStatePreviewElement;
         return;
       }
+      if (e.data.type === "agent-native:cross-screen-claim") {
+        crossScreenClaimedByHost = Boolean(e.data.claimed);
+        return;
+      }
       if (e.data.type === "agent-native:cancel-active-drag") {
         cancelActiveBridgeDrag();
         return;
@@ -10126,6 +10571,31 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (e.data.type === "clear-selection") {
         if (activeMarqueeSelection) return;
         clearRuntimeSelection();
+        return;
+      }
+      if (e.data.type === "agent-native:measure-selection") {
+        var measureScreenId = typeof e.data.screenId === "string" ? e.data.screenId : "";
+        if (measureScreenId && measureScreenId !== designCanvasScreenId) return;
+        var measureSelector = typeof e.data.selector === "string" ? e.data.selector : "";
+        var measureTarget = null;
+        if (measureSelector) {
+          try {
+            measureTarget = document.querySelector(measureSelector);
+          } catch (_err) {
+            measureTarget = null;
+          }
+        } else {
+          measureTarget = selectedEl;
+        }
+        window.parent.postMessage(
+          {
+            type: "agent-native:selection-measured",
+            correlationId: typeof e.data.correlationId === "string" ? e.data.correlationId : "",
+            screenId: designCanvasScreenId,
+            payload: measureTarget ? getElementInfo(measureTarget) : null
+          },
+          "*"
+        );
         return;
       }
       if (e.data.type === "agent-native:collect-selectable-rects") {
@@ -10563,8 +11033,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         activeNodeHtmlPreview = null;
         replaceRuntimeDocument(
           e.data.content,
-          e.data.forceFullDocument ? "" : e.data.selectedSelector,
-          e.data.forceFullDocument ? [] : e.data.selectorCandidates,
+          e.data.selectedSelector,
+          e.data.selectorCandidates,
           Boolean(e.data.forceFullDocument),
           Boolean(e.data.preserveTextEditingSession)
         );
@@ -10749,6 +11219,35 @@ export const editorChromeBridgeScript: string = `"use strict";
         ]
       });
     }
+    var frameLabelRefreshScheduled = false;
+    function scheduleFrameNameLabels() {
+      if (frameLabelRefreshScheduled) return;
+      frameLabelRefreshScheduled = true;
+      window.requestAnimationFrame(function() {
+        frameLabelRefreshScheduled = false;
+        refreshFrameNameLabels();
+      });
+    }
+    if (typeof MutationObserver !== "undefined" && document.body) {
+      new MutationObserver(function(mutations) {
+        var touchedContent = mutations.some(function(mutation) {
+          var target = mutation.target;
+          return !(target instanceof Element) || !isOverlayElement(target);
+        });
+        if (touchedContent) scheduleFrameNameLabels();
+      }).observe(document.body, {
+        attributes: true,
+        attributeFilter: [
+          "data-agent-native-layer-name",
+          "data-an-primitive",
+          "class",
+          "style"
+        ],
+        childList: true,
+        subtree: true
+      });
+    }
+    refreshFrameNameLabels();
     captureInitialSourceOwnership();
     if (runtimeLayerSnapshotEnabled) scheduleRuntimeLayerSnapshot();
     window.parent.postMessage(

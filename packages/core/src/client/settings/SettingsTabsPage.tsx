@@ -17,7 +17,7 @@ import {
   type ComponentType,
   type ReactNode,
 } from "react";
-import { Link } from "react-router";
+import { Link, useInRouterContext, useLocation } from "react-router";
 
 import { appMountPath, appMountedPath } from "../../client/api-path.js";
 import {
@@ -121,6 +121,11 @@ interface ResolvedSearchEntry extends SettingsSearchEntry {
   haystack: string;
 }
 
+interface SettingsRouterLocation {
+  pathname: string;
+  hash: string;
+}
+
 function normalizeTabId(value?: string | null): string | null {
   let decoded = value?.replace(/^#/, "").trim() ?? "";
   try {
@@ -194,12 +199,14 @@ function resolveTabId(
 function activeTabFromLocation(
   tabs: SettingsTabItem[],
   defaultTab: string,
+  location?: SettingsRouterLocation,
 ): string {
-  if (typeof window === "undefined") return defaultTab;
-  const pathname = appLocalPathname();
+  if (typeof window === "undefined" && !location) return defaultTab;
+  const pathname = appLocalPathname(location?.pathname);
+  const hash = location?.hash ?? window.location.hash;
   const settingsPrefix = "/settings";
   if (pathname === settingsPrefix) {
-    return resolveTabId(tabs, window.location.hash) ?? defaultTab;
+    return resolveTabId(tabs, hash) ?? defaultTab;
   }
   if (pathname.startsWith(`${settingsPrefix}/`)) {
     const segments = pathname
@@ -218,20 +225,21 @@ function activeTabFromLocation(
       if (tabId) return tabId;
     }
   }
-  return resolveTabId(tabs, window.location.hash) ?? defaultTab;
+  return resolveTabId(tabs, hash) ?? defaultTab;
 }
 
-function appLocalPathname(): string {
-  if (typeof window === "undefined") return "/";
-  const pathname = window.location.pathname;
+function appLocalPathname(pathname?: string): string {
+  if (typeof window === "undefined" && !pathname) return "/";
+  const currentPathname = pathname ?? window.location.pathname;
   const mountPath = appMountPath(STANDARD_APP_ROUTES.settings);
   if (
     mountPath &&
-    (pathname === mountPath || pathname.startsWith(`${mountPath}/`))
+    (currentPathname === mountPath ||
+      currentPathname.startsWith(`${mountPath}/`))
   ) {
-    return pathname.slice(mountPath.length) || "/";
+    return currentPathname.slice(mountPath.length) || "/";
   }
-  return pathname;
+  return currentPathname;
 }
 
 function buildSettingsEntryRoute(tabId: string, section?: string): string {
@@ -256,6 +264,7 @@ function updateRouteForTab(tabId: string, section?: string) {
     "",
     `${appMountedPath(route, STANDARD_APP_ROUTES.settings)}${window.location.search}`,
   );
+  window.dispatchEvent(new Event("popstate"));
 }
 
 function isEditableElement(element: Element | null): boolean {
@@ -269,7 +278,7 @@ function isEditableElement(element: Element | null): boolean {
   );
 }
 
-export function SettingsTabsPage({
+function SettingsTabsPageContent({
   general,
   account,
   team,
@@ -291,7 +300,8 @@ export function SettingsTabsPage({
   generalSearchEntries,
   value,
   onValueChange,
-}: SettingsTabsPageProps) {
+  routerLocation,
+}: SettingsTabsPageProps & { routerLocation?: SettingsRouterLocation }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const autoFocusedSearchRef = useRef(false);
@@ -385,7 +395,7 @@ export function SettingsTabsPage({
   };
   const isControlled = value !== undefined;
   const [internalTab, setInternalTab] = useState(() =>
-    activeTabFromLocation(tabs, fallbackTab),
+    activeTabFromLocation(tabs, fallbackTab, routerLocation),
   );
   const activeTab = isControlled ? value : internalTab;
   const [query, setQuery] = useState("");
@@ -411,11 +421,17 @@ export function SettingsTabsPage({
 
   useEffect(() => {
     if (isControlled) return;
-    const syncLocation = () => {
-      const fromPath = activeTabFromLocation(tabs, fallbackTab);
+    const syncLocation = (event?: Event) => {
+      // Native history events carry the live browser URL. Reading the
+      // render-captured router location here would re-canonicalize the same
+      // legacy hash before BrowserRouter has rerendered.
+      const location = event ? undefined : routerLocation;
+      const pathname = location?.pathname ?? window.location.pathname;
+      const hash = location?.hash ?? window.location.hash;
+      const fromPath = activeTabFromLocation(tabs, fallbackTab, location);
       if (fromPath) setInternalTab(fromPath);
-      if (appLocalPathname().startsWith("/settings/")) return;
-      const hashValue = window.location.hash.replace(/^#/, "");
+      if (appLocalPathname(pathname).startsWith("/settings/")) return;
+      const hashValue = hash.replace(/^#/, "");
       const fromHash = resolveTabId(tabs, hashValue);
       if (!fromHash || !hashValue) return;
       const isTabHash = fromHash === hashValue;
@@ -428,18 +444,20 @@ export function SettingsTabsPage({
       window.removeEventListener("hashchange", syncLocation);
       window.removeEventListener("popstate", syncLocation);
     };
-  }, [fallbackTab, isControlled, tabs]);
+  }, [fallbackTab, isControlled, routerLocation, tabs]);
 
   useEffect(() => {
     if (!isControlled) return;
     const syncControlledLocation = () => {
-      const fromPath = appLocalPathname().startsWith("/settings/")
-        ? activeTabFromLocation(tabs, defaultTab)
+      const pathname = routerLocation?.pathname ?? window.location.pathname;
+      const hash = routerLocation?.hash ?? window.location.hash;
+      const fromPath = appLocalPathname(pathname).startsWith("/settings/")
+        ? activeTabFromLocation(tabs, defaultTab, routerLocation)
         : null;
-      const hashValue = window.location.hash.replace(/^#/, "");
+      const hashValue = hash.replace(/^#/, "");
       const fromHash = hashValue ? resolveTabId(tabs, hashValue) : null;
       const next = fromPath ?? fromHash;
-      const key = `${window.location.pathname}${window.location.hash}`;
+      const key = `${pathname}${hash}`;
       if (!next || next === value || controlledHashRef.current === key) {
         controlledHashRef.current = key;
         return;
@@ -454,7 +472,7 @@ export function SettingsTabsPage({
       window.removeEventListener("hashchange", syncControlledLocation);
       window.removeEventListener("popstate", syncControlledLocation);
     };
-  }, [defaultTab, isControlled, onValueChange, tabs, value]);
+  }, [defaultTab, isControlled, onValueChange, routerLocation, tabs, value]);
 
   useEffect(() => {
     if (!enableSearch || autoFocusedSearchRef.current) return;
@@ -555,7 +573,6 @@ export function SettingsTabsPage({
     if (section) {
       updateRouteForTab(entry.tabId, section);
       // Let the inner panels open + scroll to their section.
-      window.dispatchEvent(new Event("popstate"));
       window.dispatchEvent(new Event("hashchange"));
       window.requestAnimationFrame(() => {
         document
@@ -802,5 +819,19 @@ export function SettingsTabsPage({
         </div>
       </div>
     </div>
+  );
+}
+
+function SettingsTabsPageWithRouter(props: SettingsTabsPageProps) {
+  const location = useLocation();
+  return <SettingsTabsPageContent {...props} routerLocation={location} />;
+}
+
+export function SettingsTabsPage(props: SettingsTabsPageProps) {
+  const inRouterContext = useInRouterContext();
+  return inRouterContext ? (
+    <SettingsTabsPageWithRouter {...props} />
+  ) : (
+    <SettingsTabsPageContent {...props} />
   );
 }

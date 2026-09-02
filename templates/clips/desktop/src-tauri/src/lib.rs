@@ -81,6 +81,36 @@ pub fn run() {
             // over focus and neither popover shows.
             present_popover(app);
         }))
+        .on_window_event(|window, event| {
+            // Backstop for the tray's recording mode: the pill window is its
+            // single writer, so the one report it can never deliver is its
+            // own death. Any toolbar teardown restores the plain status item.
+            if window.label() == "toolbar" {
+                match event {
+                    tauri::WindowEvent::Moved(position) => {
+                        // Forward the platform move event directly to the
+                        // toolbar webview. The renderer's Window.onMoved
+                        // subscription can lag native macOS drag events.
+                        let _ = window.emit("clips:toolbar-native-moved", position);
+                    }
+                    tauri::WindowEvent::Destroyed => {
+                        tray::reset_tray_recording(window.app_handle());
+                    }
+                    _ => {}
+                }
+            }
+            // The popover and camera bubble are separate native windows. If
+            // the popover is closed before its webview emits the visibility
+            // event, tear down the bubble from the native lifecycle instead.
+            if window.label() == "popover"
+                && matches!(
+                    event,
+                    tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
+                )
+            {
+                clips::close_bubble_if_idle(window.app_handle());
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             // clips commands
             clips::show_countdown,
@@ -90,6 +120,15 @@ pub fn run() {
             clips::show_finalizing,
             clips::hide_finalizing,
             clips::show_toolbar,
+            clips::toolbar_drag_start,
+            clips::toolbar_drag_move,
+            clips::toolbar_drag_end,
+            clips::toolbar_set_bounds,
+            clips::toolbar_save_position,
+            clips::toolbar_get_dock_preference,
+            clips::toolbar_set_visible,
+            clips::set_toolbar_finishing,
+            tray::tray_recording_status,
             clips::show_bubble,
             clips::set_bubble_capture_excluded,
             clips::hide_overlays,
@@ -119,6 +158,7 @@ pub fn run() {
             clips::complete_voice_dictation,
             clips::paste_last_dictation,
             clips::set_recording_state,
+            clips::release_recording_state,
             clips::set_meeting_active,
             clips::get_active_meeting_id,
             clips::quit_teardown_done,
@@ -150,6 +190,7 @@ pub fn run() {
             native_screen::native_fullscreen_recording_available,
             native_screen::native_fullscreen_take_upload_finished,
             native_screen::native_fullscreen_claim_upload_open,
+            native_screen::native_fullscreen_prefetch_capture_content,
             native_screen::native_fullscreen_recording_warm,
             native_screen::native_fullscreen_recording_begin,
             native_screen::native_fullscreen_recording_stop_and_upload,
@@ -202,10 +243,12 @@ pub fn run() {
             rewind_capture_suspension::rewind_capture_suspension_acquire,
             rewind_capture_suspension::rewind_capture_suspension_release,
             // recording indicator pill
+            recording_indicator::recording_pill_prewarm,
             recording_indicator::recording_pill_show,
             recording_indicator::recording_pill_expand,
             recording_indicator::recording_pill_hide,
             recording_indicator::recording_pill_save_position,
+            recording_indicator::recording_pill_save_expanded_size,
             recording_indicator::recording_pill_set_detached,
             // notifications
             notifications::take_pending_meeting_notification,
@@ -308,6 +351,15 @@ pub fn run() {
                 err
             })?;
 
+            // Warm the native capture snapshot while the hidden popover
+            // webview is starting so the first recording skips that lookup.
+            tauri::async_runtime::spawn(async {
+                if let Err(err) = native_screen::native_fullscreen_prefetch_capture_content().await
+                {
+                    eprintln!("[clips-tray] startup capture prefetch failed: {err}");
+                }
+            });
+
             // clips:// deep-link handler — a web "Open desktop app" click
             // launches or focuses the running tray popover (same as a second
             // launch). macOS registers the scheme via Info.plist at build time;
@@ -360,6 +412,10 @@ pub fn run() {
             // Granola-style adhoc Zoom/Teams detection — shares session
             // credentials with the calendar watcher above.
             adhoc_meetings_watcher::spawn_watcher(app.handle().clone());
+            // Retire a stored notification payload once the frontend reports the
+            // meeting on screen, so a late-mounting overlay cannot hydrate a
+            // question that has already been answered.
+            notifications::watch_meeting_notification_acks(app.handle());
             // Server-controlled desktop capture feature flags — own poll
             // loop, reuses the calendar watcher's session credentials.
             remote_flags::spawn_watcher(app.handle().clone());
@@ -451,6 +507,7 @@ pub fn run() {
                         dlog!("[clips-tray] popover blur, elapsed_ms={}", elapsed_ms);
                         if elapsed_ms >= 1500 {
                             let _ = handle.hide();
+                            clips::close_bubble_if_idle(&app_handle);
                             let _ = app_handle.emit("clips:popover-visible", false);
                         }
                     }

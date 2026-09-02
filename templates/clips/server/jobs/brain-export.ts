@@ -176,7 +176,7 @@ export default function registerBrainExportJob(): void {
   setInterval(() => {
     if (running) return;
     running = true;
-    Promise.allSettled([
+    void Promise.allSettled([
       reapExpiredUploads().catch((error) =>
         console.error("[uploads] lease reaper interval failed:", error),
       ),

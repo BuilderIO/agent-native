@@ -5,6 +5,13 @@ import {
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { type ReviewThread } from "@agent-native/core/client/review";
+import {
+  clampZoomFactor,
+  normalizeWheelDeltaPx,
+  resolveZoomGestureDevice,
+  zoomFactorForWheelDelta,
+  type ZoomGestureDevice,
+} from "@agent-native/core/client/zoom-gesture";
 import type { ReviewComment } from "@agent-native/core/review";
 import { injectDocumentMarkup } from "@agent-native/core/shared";
 import { isLoopbackPreviewAllowed } from "@shared/builder-preview-url";
@@ -484,6 +491,9 @@ interface DesignCanvasProps {
   editMode: boolean;
   interactMode: boolean;
   readOnly?: boolean;
+  /** This screen's layout grid step in content px. 1 (or absent) means no grid,
+   *  which leaves the whole-pixel floor every gesture already lands on. */
+  layoutGridStep?: number;
   scaleMode?: boolean;
   onElementSelect: (info: ElementInfo, intent?: ElementSelectionIntent) => void;
   onElementMarqueeSelect?: (
@@ -497,6 +507,7 @@ interface DesignCanvasProps {
     styles: Record<string, string>,
     info?: ElementInfo,
     metadata?: {
+      phase?: "preview" | "commit";
       originalStyles?: Record<string, string>;
       preserveSelection?: boolean;
     },
@@ -1124,6 +1135,7 @@ export function DesignCanvas({
   editorChromeScaleY = editorChromeScaleX,
   editMode,
   interactMode,
+  layoutGridStep,
   readOnly = false,
   scaleMode = false,
   clearSelectionRequest,
@@ -1239,6 +1251,7 @@ export function DesignCanvas({
   // Queue them here until ready fires (or the iframe finishes loading, as a
   // fallback for older/interact-mode documents that never inject the chrome
   // bridge and thus never post ready) and flush in order.
+  const pinchZoomDeviceRef = useRef<ZoomGestureDevice | null>(null);
   const bridgeReadyRef = useRef(false);
   const [readyIframeDocumentIdentity, setReadyIframeDocumentIdentity] =
     useState<string | null>(null);
@@ -1516,6 +1529,19 @@ export function DesignCanvas({
         .replace("__EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__", "false")
         .replace("__EDITING_SAFETY_ENABLED__", interactMode ? "false" : "true"),
     [interactMode],
+  );
+  // srcdoc is rebuilt per document, so unlike the keyed live-edit bundle above
+  // it can carry the real first-paint value: forwarding that arrives only by
+  // postMessage stays dead until the handshake, and is stranded by a swap.
+  const embeddedGestureBridgeForSrcdoc = useMemo(
+    () =>
+      EMBEDDED_WHEEL_BRIDGE_SCRIPT.replace(
+        "__EMBEDDED_WHEEL_FORWARDING_ENABLED__",
+        isEmbeddedFrame && !interactMode ? "true" : "false",
+      )
+        .replace("__EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__", "false")
+        .replace("__EDITING_SAFETY_ENABLED__", interactMode ? "false" : "true"),
+    [interactMode, isEmbeddedFrame],
   );
   const includeLiveEditEditorChrome = !interactMode && !readOnly;
   const liveEditBridgeScript = useMemo(
@@ -2420,7 +2446,7 @@ export function DesignCanvas({
       ZOOM_BRIDGE_SCRIPT +
       NAV_BRIDGE_SCRIPT +
       LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT +
-      embeddedGestureBridgeForCurrentState +
+      embeddedGestureBridgeForSrcdoc +
       editorChromeBridge +
       imageDiagBridge;
     const frameContent = getEmbeddedFrameDocumentContent({
@@ -2468,7 +2494,7 @@ export function DesignCanvas({
     interactMode,
     isEmbeddedFrame,
     embeddedFrameBackground,
-    embeddedGestureBridgeForCurrentState,
+    embeddedGestureBridgeForSrcdoc,
     iframeRenderContent,
     transparentBackground,
   ]);
@@ -2764,6 +2790,7 @@ export function DesignCanvas({
             styles,
             isElementInfoPayload(e.data.payload) ? e.data.payload : undefined,
             {
+              phase: e.data.phase === "preview" ? "preview" : "commit",
               originalStyles,
               preserveSelection: e.data.preserveSelection === true,
             },
@@ -3008,7 +3035,11 @@ export function DesignCanvas({
       if (e.data.type === "figma-clipboard-paste") {
         const content =
           typeof e.data.content === "string" ? e.data.content : "";
-        if (content) onFigmaClipboardPaste?.({ content });
+        const html = typeof e.data.html === "string" ? e.data.html : "";
+        const text = typeof e.data.text === "string" ? e.data.text : "";
+        if (content || html || text) {
+          onFigmaClipboardPaste?.({ content, html, text });
+        }
         return;
       }
       if (e.data.type === "canvas-image-paste") {
@@ -3147,6 +3178,10 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "pinch-zoom-wheel") {
+        // An embedded frame's zoom belongs to the parent canvas, which already
+        // gets the same gesture as embedded-canvas-wheel. Both bridges are
+        // installed in every document, so without this the two apply twice.
+        if (isEmbeddedFrame) return;
         if (!onZoomChange) return;
         const iframe = iframeRef.current;
         const scroll = scrollContainerRef.current;
@@ -3158,15 +3193,26 @@ export function DesignCanvas({
         // handler above applies to its own wheel deltas/coordinates).
         const rawDeltaY = Number(e.data.deltaY);
         if (!Number.isFinite(rawDeltaY)) return;
-        // Mirror usePinchZoom's algorithm here. We can't reliably re-dispatch
-        // a synthetic WheelEvent to trigger the hook's listener — untrusted
-        // events are inconsistent across browsers — so just compute the
-        // next zoom directly using the same exponential factor + cursor-anchor
-        // math. Clamp range matches the usePinchZoom call above
-        // (DEFAULT_CANVAS_MIN_ZOOM–DEFAULT_CANVAS_MAX_ZOOM).
+        // A synthetic WheelEvent cannot reliably reach usePinchZoom's listener,
+        // so this path computes the factor itself — from the same module, never
+        // re-derived by hand, or the two curves drift apart again.
+        const forwardedMode = Number(e.data.deltaMode);
+        const deltaMode = Number.isFinite(forwardedMode) ? forwardedMode : 0;
+        pinchZoomDeviceRef.current = resolveZoomGestureDevice({
+          deltaY: rawDeltaY,
+          deltaMode,
+          ctrlKey: Boolean(e.data.ctrlKey),
+          metaKey: Boolean(e.data.metaKey),
+          atMs: performance.now(),
+          previous: pinchZoomDeviceRef.current,
+        });
         const currentZoom = zoomRef.current;
-        const clampedDelta = Math.max(-50, Math.min(50, rawDeltaY));
-        const factor = Math.exp(-clampedDelta * 0.01);
+        const factor = clampZoomFactor(
+          zoomFactorForWheelDelta(
+            normalizeWheelDeltaPx(rawDeltaY, deltaMode),
+            pinchZoomDeviceRef.current.pinch,
+          ),
+        );
         const nextZoom = Math.max(
           DEFAULT_CANVAS_MIN_ZOOM,
           Math.min(DEFAULT_CANVAS_MAX_ZOOM, currentZoom * factor),
@@ -3646,6 +3692,27 @@ export function DesignCanvas({
     iframe.addEventListener("load", applyOffset);
     return () => iframe.removeEventListener("load", applyOffset);
   }, [embeddedContentOffsetX, embeddedContentOffsetY]);
+
+  // The screen's own layout grid step, in this document's content px. Pushed
+  // in-place (never baked into srcdoc) so adding or resizing a grid does not
+  // reload the iframe and drop its Alpine state.
+  const layoutGridStepRef = useRef(layoutGridStep);
+  layoutGridStepRef.current = layoutGridStep;
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    function sendLayoutGridStep() {
+      iframe!.contentWindow?.postMessage(
+        { type: "set-layout-grid-step", step: layoutGridStepRef.current ?? 1 },
+        "*",
+      );
+    }
+    sendLayoutGridStep();
+    iframe.addEventListener("load", sendLayoutGridStep);
+    return () => iframe.removeEventListener("load", sendLayoutGridStep);
+    // Only re-run when the step changes; iframe identity is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layoutGridStep]);
 
   // Sync readOnly to the bridge IN-PLACE via postMessage so switching the active
   // surface (board ↔ screen) does not rebuild srcdoc / reload the iframe.
@@ -4157,8 +4224,11 @@ export function DesignCanvas({
           contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
           contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
         }),
-        null,
-        [],
+        // Carry the host's committed selection so the bridge can re-anchor it
+        // after the morph: without it the canvas silently deselects while the
+        // inspector still shows the element.
+        selectedSelectorRef.current,
+        selectedSelectorCandidatesRef.current ?? [],
         {
           forceFullDocument: true,
           // Prop/save echoes are synchronization, not a user command. If a
@@ -4893,7 +4963,7 @@ export function DesignCanvas({
           annotationCaptureBusyRef.current = true;
           setAnnotationCaptureBusy(true);
           onAnnotationSendingChange?.(true);
-          captureAnnotatedScreenshot({
+          void captureAnnotatedScreenshot({
             designId,
             fileId: screenId,
             sourceType:

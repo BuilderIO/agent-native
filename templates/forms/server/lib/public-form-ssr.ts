@@ -14,6 +14,8 @@ import { getMethod, getRequestURL, type H3Event } from "h3";
 import { isConditionalFieldVisible } from "../../shared/conditional.js";
 import { SENSITIVE_QUERY_PARAMS } from "../../shared/page-url.js";
 import {
+  getFormCompletionMode,
+  getFormCompletionRefreshSeconds,
   toPublicFormSettings,
   type FormField,
   type FormSettings,
@@ -113,7 +115,11 @@ function toSafeString(value: unknown): string {
     if (typeof v.value === "string") return v.value;
     return "";
   }
-  return String(value);
+  return typeof value === "string"
+    ? value
+    : value == null
+      ? ""
+      : JSON.stringify(value);
 }
 
 function escapeHtml(value: unknown): string {
@@ -160,9 +166,10 @@ function normalizeOptions(options: unknown): string[] {
 }
 
 /**
- * Validate a form-author-supplied post-submit redirect URL. Returns the
- * value verbatim only if it parses as `http:` or `https:` — falls back to
- * an empty string otherwise (caller treats empty as "no redirect").
+ * Validate a form-author-supplied post-submit redirect URL. Returns a
+ * root-relative path or the value verbatim when it parses as `http:` or
+ * `https:`. Falls back to an empty string otherwise (caller treats empty as
+ * "no redirect").
  *
  * Form publishers control `settings.redirectUrl` and the rendered page
  * assigns it to `window.location.href`. Without scheme validation a
@@ -176,6 +183,7 @@ export function safeRedirectUrl(value: unknown): string {
   // Reject control characters and protocol-relative URLs outright.
   if (/[\x00-\x1f]/.test(trimmed)) return "";
   if (trimmed.startsWith("//")) return "";
+  if (trimmed.startsWith("/")) return trimmed.includes("\\") ? "" : trimmed;
   try {
     const parsed = new URL(trimmed);
     return parsed.protocol === "http:" || parsed.protocol === "https:"
@@ -222,6 +230,9 @@ function renderField(field: FormField): string {
       break;
     case "textarea":
       input = `<textarea name="${id}" class="fi fi-ta" rows="4"${ph || ' placeholder="Type your answer..."'}${req}></textarea>`;
+      break;
+    case "file":
+      input = `<input type="file" name="${id}" class="fi fi-file"${field.accept ? ` accept="${escapeHtml(field.accept)}"` : ""}${field.multiple ? " multiple" : ""}${req}>`;
       break;
     case "date":
       input = `<input type="date" name="${id}" class="fi"${req}>`;
@@ -349,9 +360,13 @@ function renderFormPage(
 ): string {
   const settings: PublicFormSettings = form.settings || {};
   const fields: FormField[] = form.fields || [];
+  const completionMode = getFormCompletionMode(settings);
+  const completionRefreshMilliseconds =
+    getFormCompletionRefreshSeconds(settings.completionRefreshSeconds) * 1000;
   const turnstileSiteKey = process.env.VITE_TURNSTILE_SITE_KEY || "";
   const appBasePath = getAppBasePath();
   const submitPath = `${appBasePath}/api/submit/`;
+  const uploadPath = `${appBasePath}/api/upload/`;
   const faviconPath = `${appBasePath}/favicon.svg`;
   const ogImagePath = `${appBasePath}/api/forms/og/${encodeURIComponent(
     form.slug || form.id,
@@ -429,7 +444,7 @@ function renderFormPage(
 
   <a href="https://agent-native.com" target="_blank" rel="noopener noreferrer" class="powered-badge">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-    Built with Agent Native
+    Built with Agent-Native
   </a>
 </div>
 
@@ -440,9 +455,12 @@ function renderFormPage(
   var FORM_ID = ${JSON.stringify(form.id)};
   var FORM_VERSION = ${JSON.stringify(form.updatedAt || "")};
   var PUBLIC_FORM_API = ${JSON.stringify(`${appBasePath}/api/forms/public/${encodeURIComponent(form.slug || form.id)}`)};
+  var UPLOAD_PATH = ${JSON.stringify(uploadPath)};
+  var COMPLETION_MODE = ${JSON.stringify(completionMode)};
+  var COMPLETION_REFRESH_MS = ${completionRefreshMilliseconds};
   var REDIRECT = ${JSON.stringify(safeRedirectUrl(settings.redirectUrl))};
   var TURNSTILE_KEY = ${JSON.stringify(turnstileSiteKey)};
-  var FIELDS = ${JSON.stringify(fields.map((f) => ({ id: f.id, type: f.type, required: f.required, validation: f.validation, label: f.label, conditional: f.conditional })))};
+  var FIELDS = ${JSON.stringify(fields.map((f) => ({ id: f.id, type: f.type, required: f.required, validation: f.validation, label: f.label, conditional: f.conditional, multiple: f.multiple, accept: f.accept, maxSizeBytes: f.maxSizeBytes, maxFiles: f.maxFiles })))};
   var SENSITIVE_QUERY_PARAMS = ${JSON.stringify(SENSITIVE_QUERY_PARAMS)};
 
   function scrubPageUrl(value) {
@@ -600,6 +618,7 @@ function renderFormPage(
     FIELDS.forEach(function(f) {
       var el = document.querySelector('[data-field-id="' + f.id + '"]');
       if (!el || el.dataset.hidden === "1") return;
+      if (f.type === "file") return;
       if (f.type === "multiselect") {
         var checked = [];
         el.querySelectorAll('input[type="checkbox"]:checked').forEach(function(cb) { checked.push(cb.value); });
@@ -622,12 +641,50 @@ function renderFormPage(
     return data;
   }
 
+  function collectFiles() {
+    var files = {};
+    FIELDS.forEach(function(f) {
+      if (f.type !== "file") return;
+      var el = document.querySelector('[data-field-id="' + f.id + '"]');
+      if (!el || el.dataset.hidden === "1") return;
+      var input = el.querySelector('input[type="file"]');
+      if (input && input.files && input.files.length) {
+        files[f.id] = Array.prototype.slice.call(input.files);
+      }
+    });
+    return files;
+  }
+
+  function acceptsFile(f, file) {
+    if (!f.accept) return true;
+    var mime = (file.type || "").toLowerCase();
+    var name = (file.name || "").toLowerCase();
+    return f.accept.split(",").some(function(raw) {
+      var token = raw.trim().toLowerCase();
+      if (!token || token === "*/*" || token === mime) return true;
+      if (token.slice(-2) === "/*") return mime.indexOf(token.slice(0, -1)) === 0;
+      return token.charAt(0) === "." && name.slice(-token.length) === token;
+    });
+  }
+
   // Validation
-  function validate(data) {
+  function validate(data, filesByField) {
     for (var i = 0; i < FIELDS.length; i++) {
       var f = FIELDS[i];
       var el = document.querySelector('[data-field-id="' + f.id + '"]');
       if (!el || el.dataset.hidden === "1") continue;
+      if (f.type === "file") {
+        var files = filesByField[f.id] || [];
+        if (f.required && files.length === 0) return f.label + " is required";
+        var maxFiles = f.multiple ? (f.maxFiles || 5) : 1;
+        if (files.length > maxFiles) return f.label + " accepts up to " + maxFiles + " file" + (maxFiles === 1 ? "" : "s");
+        var maxBytes = f.maxSizeBytes || 10485760;
+        for (var fileIndex = 0; fileIndex < files.length; fileIndex++) {
+          if (files[fileIndex].size > maxBytes) return files[fileIndex].name + " is larger than the " + Math.round(maxBytes / 1048576) + " MB limit";
+          if (!acceptsFile(f, files[fileIndex])) return files[fileIndex].name + " is not an accepted file type";
+        }
+        continue;
+      }
       if (f.required) {
         var val = data[f.id];
         if (val === undefined || val === null || val === "" || (Array.isArray(val) && val.length === 0)) {
@@ -645,6 +702,42 @@ function renderFormPage(
       }
     }
     return null;
+  }
+
+  function uploadFiles(filesByField) {
+    var uploaded = {};
+    var requests = [];
+    FIELDS.forEach(function(f) {
+      if (f.type !== "file") return;
+      var files = filesByField[f.id] || [];
+      files.forEach(function(file) {
+        var body = new FormData();
+        body.append("fieldId", f.id);
+        body.append("file", file, file.name);
+        requests.push(fetch(UPLOAD_PATH + encodeURIComponent(FORM_ID), {
+          method: "POST",
+          body: body,
+        }).then(function(r) {
+          return r.json().then(function(d) {
+            if (!r.ok) throw new Error(d.error || "Failed to upload file");
+            return d;
+          }, function() {
+            throw new Error("File upload returned an invalid response");
+          });
+        }).then(function(fileValue) {
+          if (!uploaded[f.id]) uploaded[f.id] = [];
+          uploaded[f.id].push(fileValue);
+        }));
+      });
+    });
+    return Promise.all(requests).then(function() {
+      FIELDS.forEach(function(f) {
+        if (f.type === "file" && f.multiple !== true && uploaded[f.id]) {
+          uploaded[f.id] = uploaded[f.id][0];
+        }
+      });
+      return uploaded;
+    });
   }
 
   // Turnstile
@@ -671,27 +764,36 @@ function renderFormPage(
     e.preventDefault();
     if (submitting) return;
     var data = collectData();
-    var err = validate(data);
+    var filesByField = collectFiles();
+    var err = validate(data, filesByField);
     if (err) { showToast(err); return; }
     submitting = true;
     var btn = document.getElementById("submitBtn");
-    btn.textContent = "Submitting...";
+    btn.textContent = "Uploading...";
     btn.disabled = true;
     var hp = (document.getElementById("_hp") || {}).value || "";
     var pageUrl = scrubPageUrl(window.location.href);
 
-    fetch(${JSON.stringify(submitPath)} + FORM_ID, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data: data, captchaToken: captchaToken, _hp: hp, _t: PAGE_LOAD_T, _meta: { pageUrl: pageUrl } }),
+    uploadFiles(filesByField).then(function(uploaded) {
+      Object.keys(uploaded).forEach(function(fieldId) { data[fieldId] = uploaded[fieldId]; });
+      btn.textContent = "Submitting...";
+      return fetch(${JSON.stringify(submitPath)} + FORM_ID, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: data, captchaToken: captchaToken, _hp: hp, _t: PAGE_LOAD_T, _meta: { pageUrl: pageUrl } }),
+      });
     })
     .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
     .then(function(res) {
       if (!res.ok) { throw new Error(res.data.error || "Failed to submit"); }
-      if (REDIRECT) { window.location.href = REDIRECT; return; }
+      if (COMPLETION_MODE === "redirect" && REDIRECT) { window.location.href = REDIRECT; return; }
+      if (COMPLETION_MODE === "refresh") { window.location.reload(); return; }
       document.querySelector(".container").style.display = "none";
       document.getElementById("successView").style.display = "flex";
-      if (html.classList.contains("embedded") && window.parent !== window) {
+      if (COMPLETION_MODE === "message_then_refresh") {
+        window.setTimeout(function() { window.location.reload(); }, COMPLETION_REFRESH_MS);
+      }
+      if ((COMPLETION_MODE === "message" || COMPLETION_MODE === "message_then_refresh") && html.classList.contains("embedded") && window.parent !== window) {
         try { window.parent.postMessage({ type: "agent-native-feedback-submitted" }, "*"); } catch (_) {}
       }
     })

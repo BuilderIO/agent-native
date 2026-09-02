@@ -26,10 +26,10 @@ describe("renderMarkdownToHtml", () => {
     expect(html).not.toContain("<img");
   });
 
-  it("keeps normal links", () => {
+  it("canonicalizes same-site docs links and leaves external ones alone", () => {
     const html = renderMarkdownToHtml("[docs](/docs) [site](https://x.test)");
 
-    expect(html).toContain('<a href="/docs">docs</a>');
+    expect(html).toContain('<a href="/docs/">docs</a>');
     expect(html).toContain('<a href="https://x.test">site</a>');
   });
 
@@ -66,7 +66,7 @@ describe("renderMarkdownToHtml", () => {
 # Company
 
 - Company: Example Co
-- Product: Agent-native workspace for internal teams
+- Product: Agent-Native workspace for internal teams
 \`\`\`
 `);
 

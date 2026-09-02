@@ -5,7 +5,11 @@ export {
   type AgentChatResponse,
 } from "./agent-chat.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
-export { extractOAuthStateAppId } from "./oauth-state.js";
+export {
+  extractOAuthStateAppId,
+  extractOAuthStateProvider,
+} from "./oauth-state.js";
+export { isGoogleProfileImageUrl } from "./google-profile-image.js";
 export {
   SIGN_IN_CONTINUATION_MAX_LENGTH,
   SIGN_IN_CONTINUATION_PARAM,
@@ -111,6 +115,12 @@ export {
   type ChatFirstAppCreationResource,
   type ChatFirstAppCreationVaultAccessMode,
 } from "./chat-first-app-creation.js";
+export { isQaTestEmail } from "./qa-test-email.js";
+export {
+  SYNTHETIC_TRAFFIC_BETA_E2E,
+  SYNTHETIC_TRAFFIC_HEADER,
+  isSyntheticTrafficValue,
+} from "./test-traffic.js";
 export {
   NATIVE_AUTH_COPY,
   resolveNativeAuthCopy,

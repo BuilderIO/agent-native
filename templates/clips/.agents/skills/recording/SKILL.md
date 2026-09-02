@@ -15,7 +15,7 @@ Reach for this skill any time you touch the recorder: the record button, the in-
 
 ## Data model touched
 
-- **`recordings`** — the row gets created as soon as the user presses Record or imports a source. Native/file recordings transition `uploading` → `processing` → `ready` (or `failed`). `videoUrl`, `durationMs`, `videoSizeBytes`, `width`, `height`, `hasAudio`, `hasCamera` are populated as the upload streams in. Loom imports use `import-loom-recording` and create a `ready` row whose `videoUrl` is a Loom embed URL.
+- **`recordings`** — the row gets created as soon as the user presses Record or imports a source. Native/file recordings transition `uploading` → `processing` → `ready` (or `failed`). `videoUrl`, `durationMs`, `videoSizeBytes`, `width`, `height`, `hasAudio`, `hasCamera` are populated as the upload streams in. Loom imports use `import-loom-recording` and become ready with either a Clips-hosted MP4 or a Loom embed when MP4 export is unavailable.
 - **`application_state.record-intent`** — the agent writes this when it wants to start a recording. The UI reads and clears it, then prompts for permission.
 - **`application_state.navigation`** — set to `{ view: "record" }` while the recorder is active.
 
@@ -40,7 +40,7 @@ Some recordings are linked to a meeting — when `meeting_id` is non-null on the
 
 ## Mobile companion lifecycle
 
-The Agent Native mobile app uses the same recording rows and binary upload
+The Agent-Native mobile app uses the same recording rows and binary upload
 routes with native capture primitives:
 
 1. Camera video/import uses `expo-camera` / the system photo picker; meeting
@@ -48,7 +48,7 @@ routes with native capture primitives:
 2. The native file is copied into the documents directory and a typed
    AsyncStorage capture job is written before upload starts.
 3. `create-recording` receives a stable client-generated id,
-   `sourceAppName: "Agent Native Mobile"`, and the container MIME type.
+   `sourceAppName: "Agent-Native Mobile"`, and the container MIME type.
 4. Upload reads at most 3 MiB through an Expo FileHandle and persists the next
    chunk index after every acknowledged POST. The 4 MiB server cap still
    applies.
@@ -122,13 +122,14 @@ segments; never store Loom's signed CDN URLs.
 When Loom exposes a downloadable public MP4, `import-loom-recording` downloads
 it, reuploads the bytes to Clips storage, and creates a ready, playable
 Clips-hosted recording, importing Loom's public transcript when the share page
-exposes one. If Loom does not expose a downloadable MP4, ask the user to download
-the original from Loom and use "Upload video".
+exposes one. If Loom allows public playback but does not expose an MP4, the
+action keeps a ready, embed-backed recording and still imports the transcript
+when available.
 
-Loom imports are embed-backed, not Clips-owned video files. The player renders a
-Loom iframe and the native Clips editor is hidden for those recordings. If the
-user needs Clips-native trimming, exports, frame extraction, or upload-based
-transcription, ask them to upload the original video file instead.
+Embed-backed Loom imports render a Loom iframe and hide the native Clips editor.
+Reuploaded Loom imports support Clips-native trimming, exports, frame extraction,
+and upload-based transcription; ask the user to upload the original video file
+when those capabilities are needed for an embed-backed import.
 
 ## Browser diagnostics and recorder install options
 

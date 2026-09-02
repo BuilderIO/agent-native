@@ -27,9 +27,6 @@ describe("dispatch Tailwind styles", () => {
       '@source "../components/**/*.{js,mjs,ts,tsx}"',
     );
     expect(stylesheet).toContain('@source "../routes/**/*.{js,mjs,ts,tsx}"');
-    expect(stylesheet).toContain(
-      "body:has(.fixed.bottom-3.left-3) [data-dispatch-sidebar-footer]",
-    );
   });
 
   it("imports package source directives from the Dispatch template", () => {
@@ -56,16 +53,16 @@ describe("dispatch Tailwind styles", () => {
 });
 
 describe("dispatch route shells", () => {
-  it("re-exports the index route redirects from the Dispatch template", () => {
-    const indexRoute = fs.readFileSync(
-      path.join(repoRoot, "templates/dispatch/app/routes/_index.tsx"),
+  it("re-exports the private home redirect from the Dispatch template", () => {
+    const homeRoute = fs.readFileSync(
+      path.join(repoRoot, "templates/dispatch/app/routes/home.tsx"),
       "utf-8",
     );
 
-    expect(indexRoute).toContain("loader");
-    expect(indexRoute).toContain("clientLoader");
-    expect(indexRoute).toContain("HydrateFallback");
-    expect(indexRoute).toContain("@agent-native/dispatch/routes/pages/_index");
+    expect(homeRoute).toContain("loader");
+    expect(homeRoute).toContain("clientLoader");
+    expect(homeRoute).toContain("HydrateFallback");
+    expect(homeRoute).toContain("@agent-native/dispatch/routes/pages/_index");
   });
 
   it("re-exports the chat route from the Dispatch template", () => {

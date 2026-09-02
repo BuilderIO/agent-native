@@ -1,0 +1,40 @@
+---
+title: "Forms in a Multi-App Workspace"
+description: "How Forms connects to Dispatch and other apps, and the two real mechanisms other apps use to act on a form or send data into it."
+---
+
+# Forms in a Multi-App Workspace
+
+Forms is one app among many in a [Dispatch](/docs/template-dispatch) workspace. This page covers what that actually means in practice: how the connection works, and concrete ways other apps can act on a form or send data into it. See [Forms](/docs/template-forms) for the overview.
+
+## How Forms connects to Dispatch
+
+Whether this is automatic depends on how Forms and Dispatch were set up together, not on whether either one is hosted or running locally.
+
+### Same workspace: automatic
+
+If Forms and Dispatch were generated or added together into one Agent-Native workspace (via `create` or `add-app`) and deployed as one unit, they already share one `.env`, one `A2A_SECRET`, and one workspace registry. Discovery and authenticated A2A calling both just work, with nothing to set up, whether that workspace is running on your machine or in production. This is the expected setup for a real multi-app product built on Forms.
+
+### Separate deployments: one manual step
+
+If Forms and Dispatch are two independently created Agent-Native projects, they don't share a secret and can't call each other yet. Connecting them takes one manual step on each side: add a `remote-agents/<id>.json` resource with a shared secret, from Settings → Connected Agents, the Agent page's Connections tab, or Dispatch → Agents → Add external agent. See [A2A Protocol](/docs/a2a-protocol) for the full walkthrough.
+
+To check which situation you're in, ask either app's agent "what apps can you see?" If Forms is missing from Dispatch's answer, you're in the second case.
+
+## Integration strategies
+
+**Natural-language delegation through Dispatch.** A sibling app doesn't need a special integration to work with Forms. It can hand Forms' agent a plain-English request, like "how many responses does the beta signup form have," the same way you would in chat, and Forms answers or acts on it directly. This is the real mechanism behind something like a question that arrives in Slack or Mail turning into a real answer from Forms: Dispatch (or the app that received the message) delegates the request to Forms' agent, and Forms handles it like any other prompt.
+
+**Other apps submitting into a form directly.** Forms doesn't need A2A or Dispatch at all for another app to send it data. Any app can send a plain web request to a form's public submit address, the same way an anonymous respondent filling out the public page does. The framework's own feedback button works exactly this way. It sends a submission to a deployed Forms app from inside another app's sidebar, along with which page and which app the feedback came from, and Forms records it as a normal response. This means any app in your workspace can send structured data into a form without an A2A connection at all, just a plain web request.
+
+**Staying decoupled.** Whether Forms is answering a delegated question or receiving a direct submission, it never needs to know the calling app's credentials, and the calling app never needs to know anything about how Forms stores its data. Delegation goes through the agent like any other prompt, and a direct submission goes through the same public address a human respondent would use.
+
+## What's next
+
+- [**Forms**](/docs/template-forms) — the overview and what it replaces
+- [**Features**](/docs/template-forms-features) — every feature area, with setup steps for each
+- [**Talk to the Agent**](/docs/template-forms-agent) — every prompt by task and how the agent sees your screen
+- [**Developer Guide**](/docs/template-forms-developers) — every action and the data model behind these features
+- [**Dispatch**](/docs/template-dispatch) — the workspace control plane these patterns run under
+- [**A2A Protocol**](/docs/a2a-protocol) — how apps discover, authenticate with, and call each other
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — the general pattern of composing first-party apps instead of nesting them

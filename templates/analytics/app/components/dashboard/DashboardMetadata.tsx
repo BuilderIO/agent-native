@@ -33,7 +33,8 @@ export function DashboardMetadata({
   updatedBy,
 }: DashboardMetadataProps) {
   const t = useT();
-  const { formatDate } = useFormatters();
+  const formatters = useFormatters();
+  const formatDate = formatters.formatDate.bind(formatters);
 
   function formatMetadataDate(value: string | null): string {
     if (!value) return t("agents.notTracked");

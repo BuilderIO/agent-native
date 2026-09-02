@@ -1,11 +1,11 @@
 ---
 title: "Systèmes de conception personnalisés"
-description: "Utilisez le système de conception React de votre entreprise dans les applications Agent Native et les expériences Toolkit partagées sans remplacer le comportement d’Agent Native."
+description: "Utilisez le système de conception React de votre entreprise dans les applications Agent-Native et les expériences Toolkit partagées sans remplacer le comportement d’Agent-Native."
 ---
 
 # Systèmes de conception personnalisés
 
-Agent Native peut afficher les écrans propres à l’application et les
+Agent-Native peut afficher les écrans propres à l’application et les
 expériences Toolkit partagées avec les composants React de votre entreprise.
 Enregistrez une seule fois un adaptateur explicite et typé ; les mêmes
 contrôleurs de fonctionnalité continuent de gérer les actions, l’état, les
@@ -36,7 +36,7 @@ encore votre propriété.
 ## Enregistrer un adaptateur
 
 Les adaptateurs client sont des packages npm ordinaires. Importez-en un
-explicitement dans `app/design-system.ts` ; Agent Native n’analyse jamais les
+explicitement dans `app/design-system.ts` ; Agent-Native n’analyse jamais les
 dépendances, ne détecte pas automatiquement une bibliothèque et ne charge pas
 de composants depuis JSON.
 
@@ -100,7 +100,7 @@ export function AppToolkitProvider({
 ```
 
 Les adaptateurs partiels sont pris en charge. Tout composant omis utilise
-l’adaptateur par défaut d’Agent Native. Si un composant personnalisé lève une
+l’adaptateur par défaut d’Agent-Native. Si un composant personnalisé lève une
 erreur lors du rendu, une boundary d’erreur par composant journalise l’échec et
 affiche le composant par défaut pour ce contrôle ; le reste du système
 personnalisé reste actif.
@@ -117,8 +117,8 @@ builds de développement journalisent un avertissement.
 
 `defineTheme` accepte les couleurs CSS standard, notamment hex, `rgb()`, `hsl()`
 et OKLCH. Le plugin Vite de Core les valide et les normalise vers les variables
-sémantiques existantes d’Agent Native. Les couleurs sombres retombent token par
-token sur la palette claire ; Agent Native ne dérive pas automatiquement une
+sémantiques existantes d’Agent-Native. Les couleurs sombres retombent token par
+token sur la palette claire ; Agent-Native ne dérive pas automatiquement une
 palette sombre.
 
 Passez le thème au plugin Vite :
@@ -269,7 +269,7 @@ import { assertDesignSystemConformance } from "@agent-native/toolkit/conformance
 import { DESIGN_SYSTEM_CONTRACT_VERSION } from "@agent-native/toolkit/design-system";
 import { acmeComponents } from "@acme/agent-native-design-system";
 
-describe("Acme Agent Native adapter", () => {
+describe("Acme Agent-Native adapter", () => {
   it("conforms", async () => {
     await assertDesignSystemConformance({
       adapterName: "Acme",
@@ -305,13 +305,13 @@ L’[exemple Chat + Material UI](https://github.com/BuilderIO/agent-native/tree/
 L’`AppToolkitProvider` de l’application garde le `ThemeProvider` MUI au-dessus
 des surfaces Toolkit partagées, tandis que `vite.config.ts` importe cette même
 valeur `theme` pour la génération CSS au moment du build. Les styles Emotion,
-les portails MUI et les tokens Agent Native reposent ainsi sur une seule source
+les portails MUI et les tokens Agent-Native reposent ainsi sur une seule source
 de vérité.
 
 Gardez le fournisseur de thème de l’entreprise au-dessus de
 `AppToolkitProvider` et adaptez les props sémantiques à la frontière du package.
 Mappez `intent`, `emphasis` et `size` vers le vocabulaire propre à votre système
-dans l’adaptateur, pas dans le code de fonctionnalité Agent Native. Pour les
+dans l’adaptateur, pas dans le code de fonctionnalité Agent-Native. Pour les
 overlays, transmettez `portalContainer` à la prop de conteneur ou de portail du
 système de conception et implémentez `initialFocusRef`/`restoreFocusRef` avec
 son gestionnaire du focus.

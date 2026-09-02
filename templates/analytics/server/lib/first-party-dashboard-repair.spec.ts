@@ -60,6 +60,7 @@ import {
 import {
   DOUBLE_SCAN_RECURRING_USERS_BY_TEMPLATE_SQL,
   DOUBLE_SCAN_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
+  DAU_BY_TEMPLATE_SQL,
   FIRST_PARTY_DASHBOARD_ID,
   INTERMEDIATE_RECURRING_USERS_BY_TEMPLATE_SQL,
   LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL,
@@ -356,6 +357,33 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     const panel = JSON.parse(updateCalls[0]![0].config).panels[0];
     expect(panel.sql.match(/FROM analytics_events/g)).toHaveLength(1);
     expect(panel.sql).toContain("MIN(event_date) OVER");
+  });
+
+  it("repairs a wau panel that was persisted with the dau SQL", async () => {
+    const weekly = requiredFirstPartyPanel("wau-over-time");
+    const row = legacyRow({
+      config: JSON.stringify({
+        panels: [
+          {
+            ...weekly,
+            sql: DAU_BY_TEMPLATE_SQL,
+          },
+        ],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      true,
+    );
+
+    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+      [{ config: string }]
+    >;
+    expect(JSON.parse(updateCalls[0]![0].config).panels[0].sql).toBe(
+      weekly.sql,
+    );
   });
 
   it("repairs the deployed materialized one-day retention panel during startup", async () => {

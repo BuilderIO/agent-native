@@ -384,6 +384,19 @@ CREATE INDEX IF NOT EXISTS design_templates_owner_org_updated_idx ON design_temp
 CREATE INDEX IF NOT EXISTS design_template_shares_resource_principal_idx ON design_template_shares (resource_id, principal_type, principal_id);
 CREATE INDEX IF NOT EXISTS design_template_files_template_idx ON design_template_files (template_id, updated_at)`,
     },
+    {
+      version: 24,
+      name: "design-files-design-type-index",
+      sql: `CREATE INDEX IF NOT EXISTS design_files_design_type_idx ON design_files (design_id, file_type);
+CREATE INDEX IF NOT EXISTS designs_normalized_owner_org_updated_idx ON designs (lower(trim(owner_email)), org_id, updated_at)`,
+    },
+    {
+      version: 25,
+      name: "design-version-chat-metadata",
+      sql: `ALTER TABLE design_versions ADD COLUMN IF NOT EXISTS chat_context TEXT;
+ALTER TABLE design_versions ADD COLUMN IF NOT EXISTS file_count INTEGER;
+CREATE INDEX IF NOT EXISTS design_versions_design_created_idx ON design_versions (design_id, created_at)`,
+    },
   ],
   { table: "design_migrations" },
 );

@@ -1,4 +1,7 @@
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { UPLOAD_RETRY_RESUME_FLAG } from "@shared/feature-flags";
+import { isRetryableUploadInterruption } from "@shared/upload-interruption";
 import {
   IconDots,
   IconLock,
@@ -13,13 +16,14 @@ import {
   IconCheck,
   IconAlertTriangle,
   IconExternalLink,
+  IconRefresh,
 } from "@tabler/icons-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 
+import { ClipsAvatar } from "@/components/clips-avatar";
 import { AgentViewCount } from "@/components/player/recording-views-badge";
 import { ViewedByPopover } from "@/components/sharing/viewed-by-popover";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
@@ -35,7 +39,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
 import type { RecordingSummary } from "@/hooks/use-library";
 import { attemptOpenDesktopApp } from "@/lib/capture-install-options";
-import { isStaleRecordingUpload } from "@/lib/recording-status";
+import {
+  hasRecordingBackup,
+  subscribeToRecordingBackupChanges,
+} from "@/lib/recording-backup";
+import {
+  isAtRiskRecordingUpload,
+  isStaleRecordingUpload,
+} from "@/lib/recording-status";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { cn } from "@/lib/utils";
 
@@ -74,6 +85,7 @@ interface RecordingCardProps {
   onCreateFolder?: () => void;
   onArchive?: (rec: RecordingSummary) => void;
   onTrash?: (rec: RecordingSummary) => void;
+  onRetry?: (rec: RecordingSummary) => Promise<void>;
   readOnly?: boolean;
 }
 
@@ -89,12 +101,21 @@ export function RecordingCard({
   onCreateFolder,
   onArchive,
   onTrash,
+  onRetry,
   readOnly = false,
 }: RecordingCardProps) {
   const t = useT();
-  const { formatDate, formatRelativeTime } = useFormatters();
+  const formatters = useFormatters();
+  const uploadRetryEnabled = useFeatureFlag(UPLOAD_RETRY_RESUME_FLAG.key);
+  const formatDate = (date: Date) => formatters.formatDate(date);
+  const formatRelativeTime = (
+    value: number,
+    unit: Parameters<typeof formatters.formatRelativeTime>[1],
+  ) => formatters.formatRelativeTime(value, unit);
   const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [hasBackup, setHasBackup] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
   const pendingTrashRef = useRef(false);
 
   const duration = useMemo(
@@ -116,6 +137,7 @@ export function RecordingCard({
     recording.failureReason,
   );
   const staleUpload = isStaleRecordingUpload(recording);
+  const atRiskUpload = isAtRiskRecordingUpload(recording);
   const displayFailed = recording.status === "failed" || staleUpload;
   const failureReason = staleUpload
     ? (recording.failureReason ??
@@ -126,6 +148,51 @@ export function RecordingCard({
     /native recording|native fullscreen|screencapture|avconvert/i.test(
       recording.failureReason ?? "",
     );
+  const retryableStatus =
+    (recording.status === "failed" &&
+      isRetryableUploadInterruption(recording.failureReason)) ||
+    (recording.status === "uploading" && staleUpload);
+  const canRetry =
+    uploadRetryEnabled &&
+    Boolean(onRetry) &&
+    retryableStatus &&
+    !nativeUploadPaused;
+
+  useEffect(() => {
+    if (!canRetry) {
+      setHasBackup(false);
+      return;
+    }
+    let cancelled = false;
+    const checkForBackup = () => {
+      void hasRecordingBackup(recording.id).then((found) => {
+        if (!cancelled) setHasBackup(found);
+      });
+    };
+    const unsubscribe = subscribeToRecordingBackupChanges(
+      recording.id,
+      checkForBackup,
+    );
+    checkForBackup();
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [canRetry, recording.id]);
+
+  const handleRetry = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!onRetry || isRetrying) return;
+      setIsRetrying(true);
+      try {
+        await onRetry(recording);
+      } finally {
+        setIsRetrying(false);
+      }
+    },
+    [isRetrying, onRetry, recording],
+  );
   const canMove = Boolean(onMove && moveTargets.length > 0);
   const canSelect = Boolean(onToggleSelect) && !readOnly;
   const showActions = Boolean(onShare || onMove || onArchive || onTrash);
@@ -133,6 +200,7 @@ export function RecordingCard({
   const displayTitle = hasDefaultTitle
     ? t("editableTitle.untitled")
     : recording.title;
+  const displayOwnerName = recording.ownerName?.trim() || recording.ownerEmail;
 
   const displayThumbnail = useMemo(() => {
     if (hovered && recording.animatedThumbnailUrl)
@@ -141,9 +209,12 @@ export function RecordingCard({
   }, [hovered, recording.animatedThumbnailUrl, recording.thumbnailUrl]);
 
   const ownerInitials = useMemo(() => {
-    const [local] = recording.ownerEmail.split("@");
-    return (local || "?").slice(0, 2).toUpperCase();
-  }, [recording.ownerEmail]);
+    const words = displayOwnerName.split(/\s+/).filter(Boolean);
+    if (words.length > 1) {
+      return `${words[0]?.[0] ?? ""}${words[words.length - 1]?.[0] ?? ""}`.toUpperCase();
+    }
+    return (words[0] || "?").slice(0, 2).toUpperCase();
+  }, [displayOwnerName]);
 
   const recordingPath = `/r/${recording.id}`;
 
@@ -267,7 +338,25 @@ export function RecordingCard({
               ? "storage"
               : staleUpload
                 ? "failed"
-                : recording.status}
+                : atRiskUpload
+                  ? t("clipsFinalRaw.statusStalled")
+                  : recording.status}
+          </div>
+        )}
+
+        {!displayFailed && !waitingForStorage && atRiskUpload && (
+          <div className="absolute inset-x-2 bottom-2 rounded-md border border-amber-500/30 bg-background/95 p-2 text-start shadow-sm backdrop-blur">
+            <div className="flex items-start gap-2">
+              <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+              <div className="min-w-0 flex-1">
+                <div className="text-[11px] font-medium text-foreground">
+                  {t("clipsFinalRaw.uploadAtRisk")}
+                </div>
+                <div className="line-clamp-2 text-[10px] leading-snug text-muted-foreground">
+                  {t("clipsFinalRaw.uploadAtRiskDetail")}
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -309,6 +398,24 @@ export function RecordingCard({
                     <IconExternalLink className="h-3 w-3" />
                     {t("captureInstall.openDesktopApp")}
                   </button>
+                ) : canRetry && hasBackup ? (
+                  <button
+                    type="button"
+                    onClick={handleRetry}
+                    disabled={isRetrying}
+                    className="pointer-events-auto mt-1.5 inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-foreground hover:bg-accent disabled:opacity-60"
+                  >
+                    <IconRefresh
+                      className={cn("h-3 w-3", isRetrying && "animate-spin")}
+                    />
+                    {isRetrying
+                      ? t("clipsFinalRaw.retrying")
+                      : t("clipsFinalRaw.retry")}
+                  </button>
+                ) : canRetry ? (
+                  <div className="mt-1.5 text-[10px] leading-snug text-muted-foreground">
+                    {t("clipsFinalRaw.retryUnavailableHere")}
+                  </div>
                 ) : null}
               </div>
               {!waitingForStorage && onTrash && (
@@ -340,13 +447,14 @@ export function RecordingCard({
               </div>
             )}
             <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-              <Avatar className="h-4 w-4 shrink-0">
-                <AvatarImage src="" alt={recording.ownerEmail} />
-                <AvatarFallback className="bg-primary/15 text-[8px] text-primary">
-                  {ownerInitials}
-                </AvatarFallback>
-              </Avatar>
-              <span className="min-w-0 truncate">{recording.ownerEmail}</span>
+              <ClipsAvatar
+                email={recording.ownerEmail}
+                alt={displayOwnerName}
+                fallback={ownerInitials}
+                className="h-4 w-4 shrink-0"
+                fallbackClassName="bg-primary/15 text-[8px] text-primary"
+              />
+              <span className="min-w-0 truncate">{displayOwnerName}</span>
               <span aria-hidden>•</span>
               <span className="shrink-0">{relative}</span>
             </div>

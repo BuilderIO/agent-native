@@ -102,7 +102,10 @@ export {
   IDENTITY_SSO_SCOPE,
   IDENTITY_SSO_DESKTOP_COMPLETE_PATH,
 } from "./identity-sso.js";
-export { hasGoogleAuthIdentity } from "./better-auth-instance.js";
+export {
+  ensureGoogleAuthIdentity,
+  hasGoogleAuthIdentity,
+} from "./better-auth-instance.js";
 export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";
 export {
   assertCurrentRequestUserIsOrgAdmin,
@@ -237,6 +240,16 @@ export {
   refreshGlobalMcpManager,
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
+export {
+  AGENT_CHAT_STREAM_PATH,
+  AGENT_CHAT_STREAM_TOKEN_SUFFIX,
+  AGENT_CHAT_STREAM_TOKEN_TTL_SECONDS,
+  createAgentChatStreamToken,
+  isAgentChatStreamingRuntime,
+  readAgentChatStreamBearerToken,
+  verifyAgentChatStreamToken,
+  type AgentChatStreamPrincipal,
+} from "./agent-chat-stream.js";
 export type {
   AgentChatMcpIcon,
   AgentChatMcpOptions,
@@ -562,6 +575,7 @@ export {
   // swapping the resolver and changing nothing else.
   resolveBuilderGatewayCredentials,
   resolveBuilderGatewayCredentialsDetailed,
+  resolveHasBuilderGatewayCredential,
   resolveBuilderCredentialSource,
   resolveBuilderCredential,
   readDeployCredentialEnv,
@@ -571,6 +585,12 @@ export {
   type BuilderCredentialsDetailed,
 } from "./credential-provider.js";
 export {
+  canAuthorizeBuilderApiRequest,
+  hasBuilderApiCredentialCustody,
+  resolveBuilderApiAuthorization,
+} from "./builder-api-auth.js";
+export { BUILDER_ASSETS_WRITE_SCOPE } from "./builder-oauth.js";
+export {
   builderDesignSystemUrl,
   builderProjectBranchUrl,
   buildBuilderDesignSystemIndexFiles,
@@ -578,6 +598,7 @@ export {
   createBuilderDesignSystemProxyFields,
   fetchBuilderDesignSystemDecodeJobStatus,
   fetchBuilderDesignSystemDocs,
+  fetchBuilderDesignSystemRecord,
   getBuilderDesignSystemsBaseUrl,
   hydrateBuilderDesignSystemReference,
   indexBuilderDesignSystem,
@@ -596,6 +617,7 @@ export {
   type BuilderDesignSystemIndexFromSourcesOptions,
   type BuilderDesignSystemIndexOptions,
   type BuilderDesignSystemIndexResult,
+  type BuilderDesignSystemRecord,
   type BuilderDesignSystemStatus,
   type BuilderDesignSystemGitHubFile,
   type BuilderDesignSystemGitHubFileCollection,

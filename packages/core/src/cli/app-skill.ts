@@ -315,7 +315,7 @@ export function normalizeAppSkillManifest(raw: unknown): AppSkillManifest {
     displayName: stringValue(raw.displayName) ?? id,
     description:
       stringValue(raw.description) ??
-      `Agent-native app-backed skill for ${id}.`,
+      `Agent-Native app-backed skill for ${id}.`,
     ...(stringValue(raw.version) ? { version: stringValue(raw.version) } : {}),
     hosted: {
       url: hostedUrl,
@@ -692,7 +692,9 @@ function standardAgentPluginMcpConfig(manifest: AppSkillManifest) {
 }
 
 function pluginName(manifest: AppSkillManifest): string {
-  return `agent-native-${manifest.id}`;
+  return manifest.id === "agent-native"
+    ? manifest.id
+    : `agent-native-${manifest.id}`;
 }
 
 function claudeMarketplaceName(): string {

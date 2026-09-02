@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { callAppBundleIdsForJoinUrl } from "../lib/meeting-call-app";
 import { stopMeetingBeforeTranscriptFlush } from "../lib/meeting-stop";
+import { subscribeAutoStop } from "../lib/silence-events";
 import {
   appendFinalTranscript,
   onFinalTranscript,
@@ -27,20 +28,24 @@ import { normalizeServerUrl } from "../lib/url";
 export interface MeetingTranscriptionPayload {
   meetingId: string;
   joinUrl?: string | null;
-  reason?: "user" | "calendar-auto" | string;
+  reason?: "user" | "calendar-auto" | (string & {});
   scheduledStart?: string | null;
   includeFromMeetingStart?: boolean;
 }
 
 interface MeetingTranscriptionSession {
   meetingId: string;
-  recordingId: string;
+  /** Null until `start-meeting-recording` answers. Live audio starts in
+   *  parallel with that call, so early lines buffer until there is a row to
+   *  save them to — see the flush guard. */
+  recordingId: string | null;
   lines: TranscriptLine[];
   unlisten: Array<() => void>;
   flushTimer: ReturnType<typeof setTimeout> | null;
   stopping: boolean;
   paused: boolean;
   engine: TranscriptionEngine;
+  audioTransitionInFlight: Promise<void> | null;
   /** Offset local live-engine timestamps onto the scheduled meeting timeline. */
   liveTimelineOffsetMs: number;
   historyInFlight: Promise<void> | null;
@@ -84,6 +89,18 @@ interface Props {
   selectedMicLabel: string | null;
 }
 
+const MEETING_START_CANCELLED = Symbol("meeting-start-cancelled");
+
+function unlistenAll(unlisteners: Array<() => void>): void {
+  for (const unlisten of unlisteners) {
+    try {
+      unlisten();
+    } catch {
+      continue;
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -98,7 +115,10 @@ export function useMeetingTranscription({
   const pendingPillInitRef = useRef<{
     meetingId: string;
     initialNotes: string;
+    title?: string;
     preloadedLines?: PillTranscriptLine[];
+    /** The pill is on screen but capture has not attached yet. */
+    starting?: boolean;
   } | null>(null);
 
   const normalizedServerUrl = useMemo(
@@ -119,6 +139,9 @@ export function useMeetingTranscription({
   const flushTranscript = useCallback(async (): Promise<void> => {
     const session = sessionRef.current;
     if (!session) return;
+    // No row yet: lines keep accumulating and the flush that follows the row's
+    // arrival writes all of them. Saving against a null id would 400.
+    if (!session.recordingId) return;
     session.dirtySeq = session.flushSeq + 1;
     if (session.flushInFlight) {
       // A flush is already outstanding — wait for it (and any chained
@@ -183,18 +206,13 @@ export function useMeetingTranscription({
           window.clearTimeout(session.flushTimer);
           session.flushTimer = null;
         }
+        await session.audioTransitionInFlight?.catch(() => {});
         try {
           await stopTranscriptionEngine(session.engine);
         } catch (err) {
           console.warn("[clips-popover] meeting audio stop failed:", err);
         }
-        session.unlisten.splice(0).forEach((unlisten) => {
-          try {
-            unlisten();
-          } catch {
-            // ignore
-          }
-        });
+        unlistenAll(session.unlisten.splice(0));
         await invoke("silence_detector_stop").catch(() => {});
         await stopMeetingBeforeTranscriptFlush({
           // Stamp actualEnd as soon as capture is torn down. Transcript
@@ -273,7 +291,7 @@ export function useMeetingTranscription({
   // Start
   // -------------------------------------------------------------------------
 
-  const startTranscription = useCallback(
+  const runStartTranscription = useCallback(
     async (payload: MeetingTranscriptionPayload) => {
       const meetingId = payload.meetingId;
       if (!meetingId) return;
@@ -299,6 +317,42 @@ export function useMeetingTranscription({
         await stopTranscription("replaced");
       }
 
+      // Put the pill on screen before any of the work behind it — the row
+      // creation, the ScreenCaptureKit query, the engine start. Every one of
+      // those used to run with nothing on screen, which is the whole of the
+      // delay between the click and the note taker appearing.
+      //
+      // It shows as `starting`, not recording: the indicator, the tray state,
+      // and the meeting-active flag still wait for capture to actually attach,
+      // so a failed start never leaves a pill claiming it recorded anything.
+      pendingPillInitRef.current = {
+        meetingId,
+        initialNotes: "",
+        starting: true,
+      };
+      invoke("recording_pill_show", { meetingId, mode: "meeting" }).catch(
+        () => {},
+      );
+      emit("clips:pill-context", {
+        meetingId,
+        mode: "meeting",
+        starting: true,
+      }).catch(() => {});
+      // The pill has taken over the feedback; the dialog has nothing left to
+      // report and used to sit there for the whole startup.
+      emit("meetings:hide-notification", { meetingId }).catch(() => {});
+
+      // Held so a failure downstream can tear the engine back down. Two
+      // variables because startup keeps going after the engine is up: while it
+      // is still coming up only the promise exists, and once it has resolved
+      // the promise is no longer the thing to stop. A failure at any point
+      // after this must close whichever one is live, or the microphone stays
+      // open for a meeting that never started.
+      let engineStarting: Promise<TranscriptionEngine> | null = null;
+      let liveEngine: TranscriptionEngine | null = null;
+      // Held outside the try so the failure path can tell "my session" from
+      // "whatever session is current now", which a newer start may own.
+      let startedSession: MeetingTranscriptionSession | null = null;
       let historyPreparedRef: {
         current: {
           token: string;
@@ -341,33 +395,16 @@ export function useMeetingTranscription({
           });
         }
 
-        const result = await callClipsAction<{
-          meetingId?: string;
-          scheduledEnd?: string | null;
-          recording?: { id?: string | null } | null;
-        }>("start-meeting-recording", { meetingId });
-        const resolvedMeetingId = result.meetingId ?? meetingId;
-        const recordingId = result.recording?.id;
-        if (!recordingId) {
-          throw new Error("Could not create a transcript session.");
-        }
-
-        const parsedScheduledEndMs = result.scheduledEnd
-          ? Date.parse(result.scheduledEnd)
-          : Number.NaN;
-        const scheduledEndMs = Number.isFinite(parsedScheduledEndMs)
-          ? parsedScheduledEndMs
-          : null;
-
         const session: MeetingTranscriptionSession = {
-          meetingId: resolvedMeetingId,
-          recordingId,
+          meetingId,
+          recordingId: null,
           lines: [],
           unlisten: [],
           flushTimer: null,
           stopping: false,
           paused: false,
           engine: "whisper",
+          audioTransitionInFlight: null,
           liveTimelineOffsetMs: 0,
           historyInFlight: null,
           flushInFlight: null,
@@ -375,6 +412,9 @@ export function useMeetingTranscription({
           dirtySeq: 0,
         };
         sessionRef.current = session;
+        startedSession = session;
+        const sessionIsActive = () =>
+          sessionRef.current === session && !session.stopping;
 
         const scheduleFlush = () => {
           if (session.flushTimer) window.clearTimeout(session.flushTimer);
@@ -440,26 +480,74 @@ export function useMeetingTranscription({
               });
           }),
         );
-        addUnlisten(
-          listen("meetings:silence-stop", () => {
-            stopTranscription("silence").catch(() => {});
-          }),
-        );
-        addUnlisten(
-          listen("meetings:sleep-stop", () => {
-            stopTranscription("sleep").catch(() => {});
-          }),
-        );
-        addUnlisten(
-          listen("meetings:call-ended", () => {
-            stopTranscription("call-ended").catch(() => {});
-          }),
-        );
+        // Register every native auto-stop listener before starting audio. The
+        // Tauri listen calls are async; firing the detector first leaves a
+        // small but real window where a native end event can be missed.
+        const autoStopUnlisten = await subscribeAutoStop((reason) => {
+          stopTranscription(reason).catch(() => {});
+        });
+        if (sessionRef.current !== session || session.stopping) {
+          autoStopUnlisten();
+          // Route stale startup through the existing cleanup path so a
+          // replacement cannot leave a microphone or server row behind.
+          throw MEETING_START_CANCELLED;
+        }
+        session.unlisten.push(autoStopUnlisten);
+
+        // Creating the row and starting the audio engine need nothing from each
+        // other — only the flush needs a recording id. Kicking the engine here
+        // takes the network round trip off the critical path; the transcript
+        // listeners above are already attached, so a line spoken during the
+        // overlap is buffered rather than dropped.
+        // Set before capture can produce anything. The final-transcript
+        // listener stamps each event with this offset as it arrives, so an
+        // event that lands while the offset is still 0 is written on the local
+        // clock while its neighbours are written on the meeting's — one
+        // transcript on two timelines. Anchoring here costs the engine's warmup
+        // in accuracy and is what the pre-parallel code did.
+        if (includeFromMeetingStart && payload.scheduledStart) {
+          session.liveTimelineOffsetMs = Math.max(
+            0,
+            Date.now() - Date.parse(payload.scheduledStart),
+          );
+        }
+        const enginePromise = startTranscriptionEngine({
+          mic: { deviceId: selectedMicId, label: selectedMicLabel },
+          // macOS 15+ uses ScreenCaptureKit's independent microphone output.
+          // Rust upgrades only the legacy/failure fallback to bypassed VPIO so
+          // call apps cannot starve Clips of mic buffers or lose call volume.
+          voiceProcessing: false,
+        });
+        engineStarting = enginePromise;
+
+        const result = await callClipsAction<{
+          meetingId?: string;
+          scheduledEnd?: string | null;
+          recording?: { id?: string | null } | null;
+        }>("start-meeting-recording", { meetingId });
+        const resolvedMeetingId = result.meetingId ?? meetingId;
+        const recordingId = result.recording?.id;
+        // The action may materialize a virtual calendar meeting before the
+        // session becomes stale. Preserve the concrete IDs before aborting so
+        // the failure path closes the row it actually created.
+        session.meetingId = resolvedMeetingId;
+        session.recordingId = recordingId ?? null;
+        if (!sessionIsActive()) throw MEETING_START_CANCELLED;
+        if (!recordingId) {
+          throw new Error("Could not create a transcript session.");
+        }
+
+        const parsedScheduledEndMs = result.scheduledEnd
+          ? Date.parse(result.scheduledEnd)
+          : Number.NaN;
+        const scheduledEndMs = Number.isFinite(parsedScheduledEndMs)
+          ? parsedScheduledEndMs
+          : null;
 
         const silenceDetectorConfig = {
           silenceThreshold: 0.05,
           silenceMs: 15 * 60 * 1000,
-          callEndedMs: 2 * 60 * 1000,
+          callEndedMs: 30 * 1000,
           callAppBundleIds: callAppBundleIdsForJoinUrl(payload.joinUrl),
           scheduledEndMs,
           watchSleep: true,
@@ -470,9 +558,10 @@ export function useMeetingTranscription({
         // the engine choice was already made below). Rust prefers one combined
         // SCK stream and uses bypassed VoiceProcessingIO only for legacy/failure
         // fallback, so the transcript stays live without changing call volume.
-        const startAudio = async () => {
+        const startAudio = async (): Promise<TranscriptionEngine> => {
+          const engine = session.engine;
           await restartTranscriptionEngine(
-            session.engine,
+            engine,
             {
               deviceId: selectedMicId,
               label: selectedMicLabel,
@@ -480,6 +569,16 @@ export function useMeetingTranscription({
             true,
             false,
           );
+          return engine;
+        };
+
+        const stopStaleAudioTransition = async () => {
+          if (sessionRef.current !== session) return;
+          await stopTranscriptionEngine(session.engine).catch(() => {});
+          // The detector is global. Do not stop a newer session that took
+          // ownership while the engine stop was in flight.
+          if (sessionRef.current !== session) return;
+          await invoke("silence_detector_stop").catch(() => {});
         };
 
         // Pause/resume state machine — see app.tsx for full explanation.
@@ -491,54 +590,81 @@ export function useMeetingTranscription({
           if (sessionRef.current !== session || session.stopping) return;
           if (desiredPaused === session.paused) return;
           applyingTransition = true;
-          try {
-            if (desiredPaused) {
-              if (session.flushTimer) {
-                window.clearTimeout(session.flushTimer);
-                session.flushTimer = null;
-              }
-              await invoke("silence_detector_stop").catch(() => {});
-              try {
-                await stopTranscriptionEngine(session.engine);
-              } catch (err) {
-                console.warn(
-                  "[clips-popover] meeting audio pause failed; staying live:",
-                  err,
-                );
-                desiredPaused = false;
+          const transition = (async () => {
+            try {
+              if (desiredPaused) {
+                if (session.flushTimer) {
+                  window.clearTimeout(session.flushTimer);
+                  session.flushTimer = null;
+                }
+                await invoke("silence_detector_stop").catch(() => {});
+                if (!sessionIsActive()) return;
+                try {
+                  await stopTranscriptionEngine(session.engine);
+                } catch (err) {
+                  if (!sessionIsActive()) return;
+                  console.warn(
+                    "[clips-popover] meeting audio pause failed; staying live:",
+                    err,
+                  );
+                  desiredPaused = false;
+                  session.paused = false;
+                  await invoke("silence_detector_start", {
+                    config: silenceDetectorConfig,
+                  }).catch(() => {});
+                  if (!sessionIsActive()) await stopStaleAudioTransition();
+                  return;
+                }
+                if (!sessionIsActive()) return;
+                await flushTranscript().catch(() => {});
+                if (!sessionIsActive()) return;
+                session.paused = true;
+              } else {
+                let resumedEngine: TranscriptionEngine;
+                try {
+                  resumedEngine = await startAudio();
+                } catch (err) {
+                  console.warn(
+                    "[clips-popover] meeting audio resume failed; staying paused:",
+                    err,
+                  );
+                  if (!sessionIsActive()) return;
+                  desiredPaused = true;
+                  session.paused = true;
+                  return;
+                }
+                if (!sessionIsActive()) {
+                  // stopTranscription waits for this transition before a
+                  // replacement can claim the global audio engine. Keep the
+                  // concrete engine returned by the resume so a late start
+                  // cannot be orphaned during that handoff.
+                  await stopTranscriptionEngine(resumedEngine).catch(() => {});
+                  await stopStaleAudioTransition();
+                  return;
+                }
                 session.paused = false;
                 await invoke("silence_detector_start", {
                   config: silenceDetectorConfig,
                 }).catch(() => {});
-                return;
+                if (!sessionIsActive()) await stopStaleAudioTransition();
               }
-              await flushTranscript().catch(() => {});
-              session.paused = true;
-            } else {
-              try {
-                await startAudio();
-              } catch (err) {
-                console.warn(
-                  "[clips-popover] meeting audio resume failed; staying paused:",
-                  err,
-                );
-                desiredPaused = true;
-                session.paused = true;
-                return;
-              }
-              session.paused = false;
-              await invoke("silence_detector_start", {
-                config: silenceDetectorConfig,
-              }).catch(() => {});
+            } finally {
+              applyingTransition = false;
             }
+          })();
+          session.audioTransitionInFlight = transition;
+          try {
+            await transition;
           } finally {
-            applyingTransition = false;
-            // Re-check for any desiredPaused change queued while this
-            // transition was in flight — including the two early-return
-            // error-recovery branches above, which otherwise skipped this
-            // reconvergence and could leave a queued pause/resume request
-            // unapplied until another external event happened to fire.
-            void applyAudioState();
+            if (session.audioTransitionInFlight === transition) {
+              session.audioTransitionInFlight = null;
+              // Re-check for any desiredPaused change queued while this
+              // transition was in flight — including the two early-return
+              // error-recovery branches above, which otherwise skipped this
+              // reconvergence and could leave a queued pause/resume request
+              // unapplied until another external event happened to fire.
+              void applyAudioState();
+            }
           }
         };
 
@@ -565,10 +691,11 @@ export function useMeetingTranscription({
         pendingPillInitRef.current = {
           meetingId: resolvedMeetingId,
           initialNotes: "",
+          starting: true,
         };
 
         callClipsAction<{
-          meeting?: { userNotesMd?: string };
+          meeting?: { userNotesMd?: string; title?: string | null };
           transcript?: { segmentsJson?: string | null } | null;
         }>("get-meeting", { id: resolvedMeetingId }, { method: "GET" })
           .then((data) => {
@@ -578,11 +705,28 @@ export function useMeetingTranscription({
             if (pendingPillInitRef.current?.meetingId !== resolvedMeetingId)
               return;
             const initialNotes = data?.meeting?.userNotesMd ?? "";
+            const title = data?.meeting?.title ?? undefined;
+            // Spread rather than rebuild: this ref is what `clips:pill-ready`
+            // replays into a window that mounts later, and only the engine-start
+            // path is allowed to clear `starting`. Rebuilding it here dropped
+            // that flag, so a pill reloaded during startup came up showing a
+            // live meter and transport for capture that had not attached.
             pendingPillInitRef.current = {
+              ...pendingPillInitRef.current,
               meetingId: resolvedMeetingId,
               initialNotes,
+              title,
               preloadedLines: pillTranscriptLines(session.lines),
             };
+            // A pill that mounted before this fetch resolved learns the
+            // meeting title here; same meetingId+mode means the pill applies
+            // it without resetting its session state.
+            emit("clips:pill-context", {
+              meetingId: resolvedMeetingId,
+              mode: "meeting",
+              title,
+              starting: pendingPillInitRef.current.starting,
+            }).catch(() => {});
             emit("clips:meeting-notes-init", {
               meetingId: resolvedMeetingId,
               initialNotes,
@@ -630,36 +774,70 @@ export function useMeetingTranscription({
           })
           .catch(() => {});
 
-        // The local index may need a moment after the fragment fence. Anchor
-        // the live engine where it actually begins, not at the earlier click,
-        // so every stored segment remains on one honest meeting timeline.
-        if (includeFromMeetingStart && payload.scheduledStart) {
-          session.liveTimelineOffsetMs = Math.max(
-            0,
-            Date.now() - Date.parse(payload.scheduledStart),
-          );
+        const startedEngine = await enginePromise;
+        engineStarting = null;
+        liveEngine = startedEngine;
+        // A newer start can have replaced this session while the row creation
+        // and the engine were in flight — `stopTranscription` tore this one
+        // down against `session.engine`, which was still the placeholder,
+        // so the engine that just came up belongs to nobody. Publishing the
+        // tray, indicator, and pill state below would repoint all three at the
+        // meeting the user just left. Every other continuation in this function
+        // guards the same way.
+        if (!sessionIsActive()) {
+          await stopTranscriptionEngine(startedEngine).catch(() => {});
+          liveEngine = null;
+          if (historyPreparedRef.current) {
+            invoke("rewind_meeting_history_cancel", {
+              token: historyPreparedRef.current.token,
+            }).catch(() => {});
+          }
+          // The teardown that replaced this session ran while the row was
+          // still being created, so its own `stop-meeting-recording` either
+          // hit nothing or stopped a row that did not exist yet. Closing the
+          // row here is the only chance left — otherwise the meeting stays
+          // recording server-side with no client attached to it.
+          if (session.recordingId) {
+            await callClipsAction("stop-meeting-recording", {
+              meetingId: session.meetingId,
+            }).catch((err) => {
+              console.warn(
+                "[clips-popover] could not close a superseded meeting row:",
+                err,
+              );
+            });
+          }
+          return;
         }
-        session.engine = await startTranscriptionEngine({
-          mic: { deviceId: selectedMicId, label: selectedMicLabel },
-          // macOS 15+ uses ScreenCaptureKit's independent microphone output.
-          // Rust upgrades only the legacy/failure fallback to bypassed VPIO so
-          // call apps cannot starve Clips of mic buffers or lose call volume.
-          voiceProcessing: false,
-        });
+        session.engine = startedEngine;
+        // Anything captured while the row was still being created has a home
+        // now, so write it before the first idle flush would have.
+        if (session.lines.length) scheduleFlush();
 
-        await invoke("set_recording_state", { active: true }).catch(() => {});
-        await invoke("set_meeting_active", {
-          active: true,
-          meetingId: resolvedMeetingId,
-        }).catch(() => {});
-        await invoke("recording_pill_show", {
-          meetingId: resolvedMeetingId,
-          mode: "meeting",
-        });
+        await Promise.all([
+          invoke("set_recording_state", { active: true }).catch(() => {}),
+          invoke("set_meeting_active", {
+            active: true,
+            meetingId: resolvedMeetingId,
+          }).catch(() => {}),
+          invoke("recording_pill_show", {
+            meetingId: resolvedMeetingId,
+            mode: "meeting",
+          }),
+        ]);
+        if (!sessionIsActive()) throw MEETING_START_CANCELLED;
+        if (pendingPillInitRef.current?.meetingId === resolvedMeetingId) {
+          pendingPillInitRef.current = {
+            ...pendingPillInitRef.current,
+            starting: false,
+          };
+        }
         // Immediate emit covers the reused-window case (pill already mounted).
+        // `starting: false` is what flips the pill from waiting to recording.
         emit("clips:pill-context", {
           meetingId: resolvedMeetingId,
           mode: "meeting",
+          starting: false,
         }).catch(() => {});
         emit("meetings:transcription-started", {
           meetingId: resolvedMeetingId,
@@ -717,9 +895,16 @@ export function useMeetingTranscription({
           session.historyInFlight = historyPromise;
         }
 
+        if (!sessionIsActive()) throw MEETING_START_CANCELLED;
         await invoke("silence_detector_start", {
           config: silenceDetectorConfig,
         }).catch(() => {});
+        if (!sessionIsActive()) {
+          if (sessionRef.current === session) {
+            await invoke("silence_detector_stop").catch(() => {});
+          }
+          throw MEETING_START_CANCELLED;
+        }
 
         if (payload.joinUrl && payload.reason !== "user") {
           emit("meetings:open-join-url", {
@@ -729,28 +914,66 @@ export function useMeetingTranscription({
 
         emit("meetings:hide-notification", { meetingId }).catch(() => {});
       } catch (err) {
+        if (startedSession) {
+          startedSession.stopping = true;
+          unlistenAll(startedSession.unlisten.splice(0));
+        }
+        // The engine can be live even though the start failed: it runs in
+        // parallel with the row creation, and startup continues for a while
+        // after it comes up. Leaving it would hold the microphone for a session
+        // that does not exist. Whichever of the two is live gets stopped —
+        // `liveEngine` once the promise resolved, the promise itself before
+        // that. Checking only the promise let every failure after the engine
+        // was up orphan it.
+        if (liveEngine) {
+          await stopTranscriptionEngine(liveEngine).catch(() => {});
+        } else if (engineStarting) {
+          // coercion-ok: an engine that never started has nothing to tear
+          // down, and null is distinguishable from a started one below. The
+          // start failure itself is already being reported by this catch.
+          const engine = await engineStarting.catch(() => null);
+          if (engine) await stopTranscriptionEngine(engine).catch(() => {});
+        }
         if (historyPreparedRef.current) {
           invoke("rewind_meeting_history_cancel", {
             token: historyPreparedRef.current.token,
           }).catch(() => {});
         }
-        const failedSession = sessionRef.current;
-        sessionRef.current = null;
-        if (failedSession?.meetingId) {
+        // A newer start may have taken over while this one was failing. It owns
+        // the session ref, the pill, and the tray state now, so tearing those
+        // down here would stop a meeting that is recording fine — the same
+        // identity guard `stopTranscription` uses for its shared writes.
+        const superseded =
+          sessionRef.current !== null && sessionRef.current !== startedSession;
+        if (!superseded) {
+          const failedSession = startedSession;
+          sessionRef.current = null;
+          if (failedSession?.meetingId) {
+            await callClipsAction("stop-meeting-recording", {
+              meetingId: failedSession.meetingId,
+            }).catch(() => {});
+          }
+          pendingPillInitRef.current = null;
+          await invoke("recording_pill_hide").catch(() => {});
+          await invoke("set_recording_state", { active: false }).catch(
+            () => {},
+          );
+          await invoke("set_meeting_active", { active: false }).catch(() => {});
+        } else if (startedSession?.meetingId) {
+          // This session's row still needs closing even though the globals
+          // belong to the newer one.
           await callClipsAction("stop-meeting-recording", {
-            meetingId: failedSession.meetingId,
+            meetingId: startedSession.meetingId,
           }).catch(() => {});
         }
-        pendingPillInitRef.current = null;
-        await invoke("recording_pill_hide").catch(() => {});
-        await invoke("set_recording_state", { active: false }).catch(() => {});
-        await invoke("set_meeting_active", { active: false }).catch(() => {});
-        const message =
-          err instanceof Error ? err.message : "Could not start notes.";
-        emit("meetings:transcription-error", {
-          meetingId,
-          error: message,
-        }).catch(() => {});
+        if (err !== MEETING_START_CANCELLED) {
+          const message =
+            err instanceof Error ? err.message : "Could not start notes.";
+          emit("meetings:transcription-error", {
+            meetingId,
+            error: message,
+          }).catch(() => {});
+        }
       }
     },
     [
@@ -760,6 +983,39 @@ export function useMeetingTranscription({
       selectedMicLabel,
       stopTranscription,
     ],
+  );
+
+  /**
+   * One start at a time.
+   *
+   * `sessionRef` is only claimed part-way through the sequence above, so two
+   * starts arriving close together — a reminder click racing the calendar
+   * auto-start, or a double-fired event — both saw no existing session, and
+   * each created a recording row and an audio engine. Only one could own
+   * `sessionRef`; the other's capture ran with nothing left to stop it, and its
+   * row was never closed.
+   *
+   * Serializing is what makes the existing checks mean anything: the second
+   * start now sees the first's session and either adopts it (same meeting) or
+   * replaces it through `stopTranscription`, which is the path that tears the
+   * first one down properly.
+   */
+  const startInFlightRef = useRef<Promise<void> | null>(null);
+  const startTranscription = useCallback(
+    async (payload: MeetingTranscriptionPayload) => {
+      // Chain from the latest queued run, not a snapshot taken before another
+      // caller publishes its own run. This keeps B and C serialized behind A.
+      const run = (startInFlightRef.current ?? Promise.resolve())
+        .catch(() => {})
+        .then(() => runStartTranscription(payload));
+      startInFlightRef.current = run;
+      try {
+        await run;
+      } finally {
+        if (startInFlightRef.current === run) startInFlightRef.current = null;
+      }
+    },
+    [runStartTranscription],
   );
 
   // -------------------------------------------------------------------------
@@ -843,6 +1099,8 @@ export function useMeetingTranscription({
         emit("clips:pill-context", {
           meetingId: pending.meetingId,
           mode: "meeting",
+          title: pending.title,
+          starting: pending.starting === true,
         }).catch(() => {});
         emit("clips:meeting-notes-init", {
           meetingId: pending.meetingId,

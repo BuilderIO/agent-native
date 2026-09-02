@@ -1,4 +1,4 @@
-# Agent Native — Electron Shell
+# Agent-Native — Electron Shell
 
 A minimal Electron chat-first workbench. Each app runs as an independent dev
 server and is embedded in an Electron `<webview>` when opened from the app
@@ -7,7 +7,7 @@ in-flight requests) while it remains mounted.
 
 ```
 ┌────────────────────────────────────────────────────┐
-│  ●  ●  ●   Agent Native                            │  ← macOS title bar
+│  ●  ●  ●   Agent-Native                            │  ← macOS title bar
 ├──────┬─────────────────────────────────────────────┤
 │  rail  │        Chat + contextual app pane         │
 │        │                                             │
@@ -108,7 +108,7 @@ window.electronAPI.platform // "darwin" | "win32" | "linux"
 
 Use **+ New** in the chat-first rail and describe the app you want. Desktop:
 
-1. Creates the app under `~/Agent Native Apps` by default. The path is shown
+1. Creates the app under `~/Agent-Native Apps` by default. The path is shown
    below the prompt and can be edited; Desktop remembers the new location.
 2. Starts a full Agent-Native Code session to scaffold and implement the app.
 3. Adds the app to the app rail immediately.
@@ -208,7 +208,7 @@ window.electronAPI.interApp.on((from, event, data) => {
 
 ## App launch shortcuts
 
-Desktop can register local global shortcuts that show Agent Native, switch to a target app, and optionally pass a view through the existing `/_agent-native/open` bridge.
+Desktop can register local global shortcuts that show Agent-Native, switch to a target app, and optionally pass a view through the existing `/_agent-native/open` bridge.
 
 Shortcuts live in the advanced settings panel under **Customize per app → Keyboard launch shortcuts**. A binding stores:
 
@@ -221,7 +221,7 @@ Shortcuts live in the advanced settings panel under **Customize per app → Keyb
 }
 ```
 
-`toggle` hides Agent Native when the same app is already frontmost; `show` always focuses and switches. External agents can propose a shortcut with a confirmed desktop deep link:
+`toggle` hides Agent-Native when the same app is already frontmost; `show` always focuses and switches. External agents can propose a shortcut with a confirmed desktop deep link:
 
 ```text
 agentnative://shortcuts/upsert?accelerator=Control%2BAlt%2BV&app=mail&view=inbox
@@ -237,14 +237,14 @@ and is stored locally with the desktop settings.
 
 ## Shared sign-in for workspace apps
 
-Desktop presents the parent sign-in surface inline the first time a hosted app
-needs authentication. After that sign-in completes, eligible built-in and
-custom workspace apps receive short-lived app sessions through Dispatch and
-open without another login screen.
+Desktop presents one parent sign-in surface natively in the shell before a
+hosted app needs authentication. After that sign-in completes, eligible
+built-in and custom workspace apps receive short-lived app sessions through
+Dispatch and open without another login screen.
 
 The supported flow is:
 
-1. Open an app while signed out and complete the inline Google-first sign-in
+1. Open Desktop while signed out and complete the native Google-first sign-in
    surface. Password sign-in stays inline; Google and magic-link verification
    may complete in the system browser before returning to Desktop.
 2. Desktop stores the parent session in its persistent identity partition and
@@ -324,9 +324,9 @@ See [electron-builder docs](https://www.electron.build) for platform-specific pa
 
 The `Desktop App Release` workflow keeps stable and Nightly installs separate:
 
-- Production keeps the `Agent Native` name and `com.agentnative.desktop` app ID.
+- Production keeps the `Agent-Native` name and `com.agentnative.desktop` app ID.
   It is released only by dispatching the workflow with `channel: production`.
-- Nightly uses the `Agent Native Nightly` name and
+- Nightly uses the `Agent-Native Nightly` name and
   `com.agentnative.desktop.nightly` app ID. Pushes to `main` publish this lane
   automatically, with prerelease tags, the `agentnative-nightly://` deep-link
   scheme, a separate updater cache, and update metadata under

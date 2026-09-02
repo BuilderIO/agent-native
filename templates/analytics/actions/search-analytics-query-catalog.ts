@@ -9,6 +9,7 @@ import { searchAnalyticsQueryCatalog } from "../server/lib/analytics-query-catal
 
 export default defineAction({
   description:
+    "Prefer a current certified dashboard panel before other matches; a dashboard starred by the requesting user is a weaker relevance signal. " +
     "Search Analytics' existing query knowledge before writing a new query. This is the analytics equivalent of grepping for similar code: one bounded call searches accessible saved dashboard names, chart titles/descriptions/queries, shipped dashboard patterns, and data-dictionary definitions. Use it first for an ordinary metric lookup unless the user supplied an exact source and query. Prefer the highest-trust close match, adapt its saved query only for the requested filters/time window, run one authoritative source query, and stop on success. Do not separately list every dashboard or scan provider catalogs after a strong match.",
   schema: z.object({
     search: z
@@ -16,7 +17,7 @@ export default defineAction({
       .trim()
       .min(2)
       .describe(
-        "Focused metric/entity terms from the user's question, for example 'agent native signups' or 'HubSpot closed won revenue'",
+        "Focused metric/entity terms from the user's question, for example 'agent-native signups' or 'HubSpot closed won revenue'",
       ),
     limit: z
       .number()

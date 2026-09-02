@@ -16,7 +16,10 @@ import {
   CommandMenu,
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
-import { registerFirstRunOnboardingExtension } from "@agent-native/core/client/onboarding";
+import {
+  registerFirstRunOnboardingExtension,
+  type FirstRunOnboardingExtensionProps,
+} from "@agent-native/core/client/onboarding";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -49,9 +52,17 @@ import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
 
+function FirstDeckOnboardingExtension(props: FirstRunOnboardingExtensionProps) {
+  return (
+    <DeckProvider>
+      <FirstDeckOnboardingFlow {...props} />
+    </DeckProvider>
+  );
+}
+
 registerFirstRunOnboardingExtension({
   id: "slides-first-deck",
-  component: FirstDeckOnboardingFlow,
+  component: FirstDeckOnboardingExtension,
 });
 
 configureTracking({
@@ -223,7 +234,10 @@ function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const t = useT();
   const navigate = useNavigate();
-  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  const handleCommandMenuShortcut = useCallback(() => setCmdkOpen(true), []);
+  useCommandMenuShortcut(handleCommandMenuShortcut, {
+    allowContentEditable: true,
+  });
   const location = useLocation();
   const editorCommands = getEditorCommands();
   const editorCommandGroups: Array<{
@@ -320,6 +334,7 @@ function AppContent() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
+  const isMarketingPath = location.pathname === "/";
 
   if (BARE_PREFIXES.some((p) => location.pathname.startsWith(p))) {
     return <Outlet />;
@@ -330,10 +345,11 @@ export default function Root() {
       <AppProviders
         queryClient={queryClient}
         defaultTheme="dark"
+        isPublicPath={isMarketingPath}
         i18n={{ catalog: i18nCatalog }}
         sessionBypass={isShareableContentPath(location.pathname)}
       >
-        <AppContent />
+        {isMarketingPath ? <Outlet /> : <AppContent />}
       </AppProviders>
     </AppToolkitProvider>
   );

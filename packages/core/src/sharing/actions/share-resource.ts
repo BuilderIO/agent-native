@@ -2,6 +2,7 @@ import { and, eq, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { getAppConfig } from "../../app-config/index.js";
 import { getDbExec } from "../../db/client.js";
 import { getAppProductionUrl } from "../../server/app-url.js";
 import {
@@ -12,6 +13,7 @@ import {
 import { sendEmail, isEmailConfigured } from "../../server/email.js";
 import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
+import { track } from "../../tracking/registry.js";
 import { getUserProfile } from "../../user-profile/store.js";
 import { assertWorkspaceUserGroupIds } from "../../workspace-connections/groups.js";
 import { assertAccess, ForbiddenError } from "../access.js";
@@ -348,12 +350,13 @@ export default defineAction({
       beforeExtensionTargets,
     );
 
-    if (
+    const shouldNotify =
       args.notify !== false &&
       args.principalType === "user" &&
       (await isEmailConfigured()) &&
-      !isSyntheticQaEmail(principalId)
-    ) {
+      !isSyntheticQaEmail(principalId);
+    let notified = false;
+    if (shouldNotify) {
       try {
         const titleCol = reg.titleColumn ?? "title";
         const [resource] = await db
@@ -373,7 +376,7 @@ export default defineAction({
           appUrl,
         );
         const appName =
-          process.env.APP_NAME || process.env.VITE_APP_NAME || "Agent Native";
+          process.env.APP_NAME || process.env.VITE_APP_NAME || "Agent-Native"; // config-ok: preserve legacy app-name aliases for existing deployments.
         let brandLogoUrl: string | undefined;
         if (reg.getLogoUrl) {
           try {
@@ -445,31 +448,40 @@ export default defineAction({
             );
           }
         }
-        const subject = `${actor} shared "${resourceTitle}" with you on ${appName}`;
+        const resourceLabel = reg.displayName.toLowerCase();
+        const article = /^[aeiou]/i.test(resourceLabel) ? "an" : "a";
+        const subject = `${senderDisplayName} shared with you: "${resourceTitle}"`;
         const messageParagraph = args.message?.trim()
           ? emailQuote(args.message)
           : null;
+        const roleVerb =
+          args.role === "viewer"
+            ? "view"
+            : args.role === "commenter"
+              ? "comment on"
+              : args.role === "admin"
+                ? "edit and manage access to"
+                : "edit";
         const defaultParagraphs = [
-          `${emailStrong(actor)} has shared the ${reg.displayName} ${emailStrong(resourceTitle)} with you as a ${emailStrong(args.role)}.`,
+          `${emailStrong(senderDisplayName)} (${emailStrong(actor)}) has invited you to ${roleVerb} the following ${resourceLabel}:`,
           ...(messageParagraph ? [messageParagraph] : []),
-          `Use the button below to open it. If prompted, sign in with ${emailStrong(principalId)}.`,
         ];
         const { html, text } = renderEmail({
           brandName,
           brandLogoUrl,
           preheader: subject,
-          heading: `${senderDisplayName} shared "${resourceTitle}" with you`,
+          heading: `${senderDisplayName} shared ${article} ${resourceLabel}`,
           paragraphs: extras?.paragraphs
             ? messageParagraph
               ? [messageParagraph, ...extras.paragraphs]
               : extras.paragraphs
             : defaultParagraphs,
+          resourceBlock: { name: resourceTitle },
           heroHtml,
-          cta: { label: `Open ${reg.displayName}`, url: notificationUrl },
+          cta: { label: "Open", url: notificationUrl },
           secondaryCta: extras?.secondaryCta,
           linkBlock: extras?.linkBlock,
           closingParagraphs: extras?.closingParagraphs,
-          footer: `You received this because ${actor} granted you ${args.role} access.`,
         });
         await sendEmail({
           to: principalId,
@@ -479,12 +491,30 @@ export default defineAction({
           fromName,
           replyTo,
         });
+        notified = true;
       } catch (err) {
         console.error(
           "[share-resource] failed to send share notification:",
           err,
         );
       }
+    }
+
+    if (args.principalType === "user") {
+      const app = getAppConfig().app.slug ?? "unknown";
+      track(
+        "share_invite_sent",
+        {
+          app,
+          template: app,
+          resource_type: args.resourceType,
+          resource_id: args.resourceId,
+          principal_type: args.principalType,
+          role: args.role,
+          notified,
+        },
+        { userId: actor },
+      );
     }
 
     return { id, updated: false };

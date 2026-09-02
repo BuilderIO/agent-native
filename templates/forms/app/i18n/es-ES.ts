@@ -98,6 +98,9 @@ const messages = {
     conditionContains: "contiene",
     conditionValue: "Respuesta",
     conditionValuePlaceholder: "Escribe una respuesta...",
+    allowMultiple: "Permitir varios archivos",
+    accept: "Tipos de archivo aceptados",
+    acceptPlaceholder: "p. ej., image/*, .pdf",
     fieldTypes: {
       text: "Texto corto",
       email: "Correo electrónico",
@@ -110,6 +113,7 @@ const messages = {
       date: "Fecha",
       rating: "Clasificación",
       scale: "Escala",
+      file: "Carga de archivos",
     },
   },
   builder: {
@@ -181,6 +185,7 @@ const messages = {
       dateLabel: "Fecha",
       ratingLabel: "Valoración",
       scaleLabel: "Escala",
+      fileLabel: "Carga de archivos",
       option1: "Opción 1",
       option2: "Opción 2",
       option3: "Opción 3",
@@ -205,6 +210,12 @@ const messages = {
       successMessage: "Mensaje de éxito",
       defaultSuccessMessage: "Gracias! Tu respuesta se ha registrado.",
       redirectUrl: "URL de redirección (opcional)",
+      completionMode: "Después del envío",
+      completionMessage: "Mostrar mensaje hasta actualizar",
+      completionRedirect: "Redirigir a una URL",
+      completionMessageThenRefresh: "Mostrar mensaje y después actualizar",
+      completionRefresh: "Actualizar con un formulario nuevo",
+      completionRefreshSeconds: "Actualizar después de (segundos)",
       anonymousResponses: "Respuestas anónimas",
       anonymousResponsesDescription:
         "No conservar direcciones IP, identidad del remitente ni metadatos de origen.",

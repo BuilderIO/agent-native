@@ -3,6 +3,25 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("agent-native shell surface tokens", () => {
+  it("restores standard markdown list markers", () => {
+    const css = readFileSync(
+      new URL("./agent-conversation.css", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(css).toMatch(
+      /\.agent-conversation-markdown ul:not\(\.contains-task-list\),\s*\.agent-markdown ul:not\(\.contains-task-list\)\s*\{[^}]*list-style-type: disc;/s,
+    );
+    expect(css).toMatch(
+      /\.agent-conversation-markdown ol:not\(\.contains-task-list\),\s*\.agent-markdown ol:not\(\.contains-task-list\)\s*\{[^}]*list-style-type: decimal;/s,
+    );
+    expect(css).toMatch(
+      /\.agent-conversation-markdown ul\.contains-task-list,\s*\.agent-conversation-markdown ol\.contains-task-list,\s*\.agent-markdown ul\.contains-task-list,\s*\.agent-markdown ol\.contains-task-list\s*\{[^}]*list-style-type: none;/s,
+    );
+  });
+
   it("keeps the raised app surface on the semantic background color", () => {
     const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",
@@ -93,10 +112,29 @@ describe("agent-native shell surface tokens", () => {
     });
 
     expect(css).toContain(".agent-running-shimmer");
+    expect(css).toContain(".agent-loading-label");
+    expect(css).toContain("transition: width 220ms var(--ease-out-strong);");
     expect(css).toContain("background-clip: text;");
     expect(css).not.toContain(
       '.agent-tool-call[data-active-tail="true"]::after',
     );
+  });
+
+  it("uses a shared linear whole-surface shimmer for skeletons", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.skeleton-shimmer,[\s\S]*?background-image: linear-gradient\([\s\S]*?animation: skeleton-shimmer 1\.6s linear infinite;/s,
+    );
+    expect(css).toMatch(
+      /@keyframes skeleton-shimmer[\s\S]*?background-position: 150% 0;[\s\S]*?background-position: -50% 0;/s,
+    );
+    expect(css).toContain(
+      "hsl(var(--foreground, var(--ui-foreground)) / 0.043)",
+    );
+    expect(css).not.toContain("skeleton-pulse");
   });
 
   it("uses a surface-independent mask for the scrolled chat fade", () => {
@@ -113,6 +151,23 @@ describe("agent-native shell surface tokens", () => {
     expect(css).toContain("black var(--message-scroller-top-fade-size)");
     expect(source).toContain("message-scroller-viewport--top-fade");
     expect(source).not.toContain("bg-gradient-to-b from-background");
+  });
+
+  it("restores markers for standard markdown lists without affecting task lists", () => {
+    const css = readFileSync(
+      new URL("./agent-conversation.css", import.meta.url),
+      { encoding: "utf8" },
+    );
+
+    expect(css).toMatch(
+      /\.agent-conversation-markdown ul:not\(\.contains-task-list\),\s*\.agent-markdown ul:not\(\.contains-task-list\)\s*\{[^}]*list-style-type: disc;/s,
+    );
+    expect(css).toMatch(
+      /\.agent-conversation-markdown ol:not\(\.contains-task-list\),\s*\.agent-markdown ol:not\(\.contains-task-list\)\s*\{[^}]*list-style-type: decimal;/s,
+    );
+    expect(css).toMatch(
+      /\.agent-conversation-markdown ul\.contains-task-list,[\s\S]*\.agent-markdown ol\.contains-task-list\s*\{[^}]*list-style-type: none;/s,
+    );
   });
 });
 

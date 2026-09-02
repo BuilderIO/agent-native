@@ -6,7 +6,7 @@ import {
 } from "node:crypto";
 
 import type { H3Event } from "h3";
-import { getHeader } from "h3";
+import { getHeader, getRequestIP } from "h3";
 
 import { getSetting } from "../settings/store.js";
 import { applyBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
@@ -14,10 +14,14 @@ import {
   getAuthSecret,
   resolveSignupTrackingIdentity,
 } from "./better-auth-instance.js";
+import { readDeployCredentialEnv } from "./credential-provider.js";
+import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
   getAppBasePath,
   getOrigin,
+  getOAuthStateSigningKey,
   isAllowedOAuthRedirectUri,
+  isConfiguredAppOrigin,
 } from "./google-oauth.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
@@ -25,7 +29,7 @@ const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
 const DEFAULT_BUILDER_API_HOST = "https://api.builder.io";
 const BUILDER_API_REQUEST_TIMEOUT_MS = 30_000;
 const BUILDER_BROWSER_HOST = "agent-native-browser";
-const BUILDER_BROWSER_CLIENT_ID = "Agent Native Browser";
+const BUILDER_BROWSER_CLIENT_ID = "Agent-Native Browser";
 const DISPATCH_APP_CREATION_SETTINGS_KEY = "dispatch-app-creation-settings";
 
 export const BUILDER_CALLBACK_PATH = "/_agent-native/builder/callback";
@@ -39,6 +43,8 @@ export const BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV =
 export const BUILDER_RELAY_TIMESTAMP_HEADER = "x-agent-native-relay-timestamp";
 export const BUILDER_RELAY_FLOW_HEADER = "x-agent-native-relay-flow";
 export const BUILDER_RELAY_SIGNATURE_HEADER = "x-agent-native-relay-signature";
+export const BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV =
+  "AGENT_NATIVE_BUILDER_SSO_SECRET";
 
 const BUILDER_RELAY_PURPOSE = "builder-preview-callback-relay";
 const BUILDER_RELAY_STATE_VERSION = 1;
@@ -78,6 +84,23 @@ export interface BuilderRelayRequestBody {
   credentials: BuilderRelayCredentials;
 }
 
+export class BuilderAccountProvisioningError extends Error {
+  readonly code: string | null;
+
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = "BuilderAccountProvisioningError";
+    this.code = code ?? null;
+  }
+}
+
+export function isBuilderAccountAlreadyExistsError(error: unknown): boolean {
+  return (
+    error instanceof BuilderAccountProvisioningError &&
+    (error.code === "account_incomplete" || error.code === "account_exists")
+  );
+}
+
 function builderRelaySecret(): string {
   const secret = process.env[BUILDER_RELAY_SECRET_ENV]?.trim();
   if (!secret) {
@@ -109,15 +132,25 @@ function safeEqualText(expected: string, actual: string): boolean {
 }
 
 /**
- * Opaque OAuth `state` for Builder connect. Bound to the app auth secret so a
- * pending row cannot be forged from another deployment that shares a database.
+ * Opaque OAuth `state` for Builder connect. Bound to a server-only signing
+ * secret so a pending row cannot be forged from another deployment that shares
+ * a database.
  */
+function builderConnectStateSigningKeys(): string[] {
+  const currentSecret = getOAuthStateSigningKey();
+  const keys = [`builder-connect-state:${currentSecret}`];
+  const legacySecret =
+    readDeployCredentialEnv("BETTER_AUTH_SECRET")?.trim() ||
+    getWorkspaceA2ADerivedSecret("better-auth");
+  if (legacySecret && legacySecret !== currentSecret) {
+    keys.push(`builder-connect-state:${legacySecret}`);
+  }
+  return keys;
+}
+
 export function createBuilderConnectState(): string {
   const stateNonce = randomBytes(32).toString("base64url");
-  const signature = createHmac(
-    "sha256",
-    `builder-connect-state:${getAuthSecret()}`,
-  )
+  const signature = createHmac("sha256", builderConnectStateSigningKeys()[0]!)
     .update(stateNonce)
     .digest("base64url");
   return `${stateNonce}.${signature}`;
@@ -137,13 +170,12 @@ export function isSignedBuilderConnectState(
   ) {
     return false;
   }
-  const expected = createHmac(
-    "sha256",
-    `builder-connect-state:${getAuthSecret()}`,
-  )
-    .update(nonce)
-    .digest("base64url");
-  return safeEqualText(expected, signature);
+  return builderConnectStateSigningKeys().some((key) => {
+    const expected = createHmac("sha256", key)
+      .update(nonce)
+      .digest("base64url");
+    return safeEqualText(expected, signature);
+  });
 }
 
 /**
@@ -157,7 +189,12 @@ export function isBuilderConnectCallbackUrlAllowed(
   candidate: string,
   event: H3Event,
 ): boolean {
-  if (!isAllowedOAuthRedirectUri(candidate, event)) return false;
+  const callbackOrigin = getBuilderConnectCallbackOrigin(event);
+  if (
+    !callbackOrigin ||
+    !isAllowedOAuthRedirectUri(candidate, event, callbackOrigin)
+  )
+    return false;
   let url: URL;
   try {
     url = new URL(candidate);
@@ -183,16 +220,21 @@ export function isBuilderConnectCallbackUrlAllowed(
  * `getAppBasePath()` + `BUILDER_CALLBACK_PATH`. Intentionally ignores any
  * `?redirect_uri=` query override — connect always returns to this app's own
  * callback. Validated with `isBuilderConnectCallbackUrlAllowed` (Railway-safe,
- * no fixed domain allowlist).
+ * no fixed domain allowlist). When state is provided, bind it into the exact
+ * registered callback URI because Builder can omit top-level OAuth state.
  */
 export function resolveBuilderConnectCallbackUrl(
   event: H3Event,
+  state?: string,
 ): string | null {
-  const withBase = `${getOrigin(event)}${getAppBasePath()}${BUILDER_CALLBACK_PATH}`;
+  const stateSuffix = state ? `?state=${encodeURIComponent(state)}` : "";
+  const callbackOrigin = getBuilderConnectCallbackOrigin(event);
+  if (!callbackOrigin) return null;
+  const withBase = `${callbackOrigin}${getAppBasePath()}${BUILDER_CALLBACK_PATH}${stateSuffix}`;
   if (isBuilderConnectCallbackUrlAllowed(withBase, event)) return withBase;
   // Match google-oauth default-redirect behavior when the request is not under
   // APP_BASE_PATH: fall back to the root `/_agent-native/...` callback.
-  const root = `${getOrigin(event)}${BUILDER_CALLBACK_PATH}`;
+  const root = `${callbackOrigin}${BUILDER_CALLBACK_PATH}${stateSuffix}`;
   if (root !== withBase && isBuilderConnectCallbackUrlAllowed(root, event)) {
     return root;
   }
@@ -555,15 +597,13 @@ function escapeHtml(value: string): string {
 }
 
 /**
- * Query-param name carrying the signed CSRF state on the connect→callback
- * round-trip. Prefixed with `_an_` to avoid collisions if Builder ever
- * adds standard OAuth `state` support to cli-auth. Builder preserves
- * the path/query of `redirect_url` verbatim when redirecting back, so
- * we embed `_an_state=…` inside the redirect_url query string at
- * connect time and read it back on the callback.
+ * Query-param name carrying the signed CSRF state on the legacy
+ * connect→callback round-trip. Prefixed with `_an_` to avoid collisions if
+ * Builder ever adds standard OAuth `state` support to cli-auth.
  */
 export const BUILDER_STATE_PARAM = "_an_state";
 export const BUILDER_CONNECT_PARAM = "_an_connect";
+export const BUILDER_CONNECT_STATE_COOKIE = "an_builder_connect_state";
 export const BUILDER_CONNECT_OWNER_COOKIE = "an_builder_connect_owner";
 export const BUILDER_SIGNUP_SOURCE_PARAM = "signupSource";
 export const BUILDER_AGENT_NATIVE_FLOW_PARAM = "agentNativeFlow";
@@ -571,6 +611,58 @@ export const BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM =
   "agentNativeConnectSource";
 export const BUILDER_AGENT_NATIVE_APP_PARAM = "agentNativeApp";
 export const BUILDER_AGENT_NATIVE_TEMPLATE_PARAM = "agentNativeTemplate";
+export const BUILDER_CONNECT_MODE_PARAM = "_an_mode";
+export const BUILDER_AGENT_NATIVE_PROVISION_MODE = "agent-native";
+export const BUILDER_PROVISIONING_TOKEN_PARAM = "_an_provision";
+export const BUILDER_CONNECT_ATTEMPT_PARAM = "_an_connect_attempt";
+
+const BUILDER_CONNECT_STATE_COOKIE_MAX_ENTRIES = 4;
+
+function parseBuilderConnectStateCookie(
+  value: string | null | undefined,
+): string[] | null {
+  if (!value) return [];
+  const states = value.split(",");
+  if (
+    states.length > BUILDER_CONNECT_STATE_COOKIE_MAX_ENTRIES ||
+    states.some((state) => !isSignedBuilderConnectState(state))
+  ) {
+    return null;
+  }
+  return [...new Set(states)];
+}
+
+export function appendBuilderConnectStateCookie(
+  value: string | null | undefined,
+  state: string,
+): string {
+  const states = parseBuilderConnectStateCookie(value) ?? [];
+  return [...states.filter((candidate) => candidate !== state), state]
+    .slice(-BUILDER_CONNECT_STATE_COOKIE_MAX_ENTRIES)
+    .join(",");
+}
+
+export function removeBuilderConnectStateCookie(
+  value: string | null | undefined,
+  state: string,
+): string {
+  return (parseBuilderConnectStateCookie(value) ?? [])
+    .filter((candidate) => candidate !== state)
+    .join(",");
+}
+
+export function resolveBuilderConnectCallbackState(
+  queryState: string | null,
+  cookieState: string | null | undefined,
+): string | null {
+  const cookieStates = parseBuilderConnectStateCookie(cookieState);
+  if (cookieState && !cookieStates) return null;
+  if (queryState !== null) {
+    if (cookieStates?.length && !cookieStates.includes(queryState)) return null;
+    return queryState;
+  }
+  return cookieStates?.length === 1 ? cookieStates[0] : null;
+}
 
 const BUILDER_STATE_TTL_MS = 10 * 60 * 1000;
 const BUILDER_SIGNUP_SOURCE = "agent-native";
@@ -653,6 +745,9 @@ export interface BuilderBrowserStatus {
   configured: boolean;
   builderEnabled: boolean;
   branchProjectIdConfigured: boolean;
+  agentNativeProvisioningEnabled: boolean;
+  /** Fresh session-bound proof for the one-click provisioning route. */
+  agentNativeProvisioningToken?: string;
   branchProjectId?: string;
   /**
    * True when `BUILDER_PRIVATE_KEY` is set at the deployment level. This is a
@@ -667,7 +762,7 @@ export interface BuilderBrowserStatus {
    * in-progress cli-auth callback.
    */
   authError?: { message: string; at: number };
-  connectError?: { message: string; at: number };
+  connectError?: { message: string; at: number; code?: string };
   appHost: string;
   apiHost: string;
   /**
@@ -707,14 +802,14 @@ export interface BrowserConnectionArgs {
   proxyDestination?: string;
 }
 
-type BuilderSignedTokenPurpose = "callback" | "connect";
+type BuilderSignedTokenPurpose = "callback" | "connect" | "provision";
 
 function signingKeyForPurpose(purpose: BuilderSignedTokenPurpose): string {
   // Preserve the original callback-state signing key for any in-flight legacy
   // callbacks; use a separate key domain for connect-entry tokens.
-  return purpose === "callback"
-    ? `builder-csrf:${getAuthSecret()}`
-    : `builder-connect:${getAuthSecret()}`;
+  if (purpose === "callback") return `builder-csrf:${getAuthSecret()}`;
+  if (purpose === "connect") return `builder-connect:${getAuthSecret()}`;
+  return `builder-provision:${getAuthSecret()}`;
 }
 
 function macForParts(
@@ -768,6 +863,76 @@ function verifyEmailBoundBuilderToken(
   const candidate = Buffer.from(mac);
   if (expected.length !== candidate.length) return false;
   return timingSafeEqual(expected, candidate);
+}
+
+const BUILDER_PROVISIONING_TOKEN_TTL_MS = 10 * 60 * 1000;
+
+function provisioningSessionDigest(sessionToken: string): string {
+  return createHash("sha256").update(sessionToken).digest("base64url");
+}
+
+function provisioningMac(
+  nonce: string,
+  emailEncoded: string,
+  sessionDigest: string,
+  timestamp: number,
+): string {
+  return createHmac("sha256", signingKeyForPurpose("provision"))
+    .update(`${nonce}.${emailEncoded}.${sessionDigest}.${timestamp}`)
+    .digest("base64url");
+}
+
+/** Mint a short-lived provisioning proof bound to the current auth session. */
+export function signBuilderProvisioningToken(
+  ownerEmail: string,
+  sessionToken: string,
+): string {
+  const nonce = randomBytes(16).toString("base64url");
+  const emailEncoded = Buffer.from(ownerEmail, "utf8").toString("base64url");
+  const sessionDigest = provisioningSessionDigest(sessionToken);
+  const timestamp = Date.now();
+  const mac = provisioningMac(nonce, emailEncoded, sessionDigest, timestamp);
+  return `${nonce}.${emailEncoded}.${sessionDigest}.${timestamp}.${mac}`;
+}
+
+export function verifyBuilderProvisioningToken(
+  token: string | null | undefined,
+  ownerEmail: string,
+  sessionToken: string | null | undefined,
+): boolean {
+  if (typeof token !== "string" || !sessionToken) return false;
+  const parts = token.split(".");
+  if (parts.length !== 5) return false;
+  const [nonce, emailEncoded, sessionDigest, timestampString, mac] = parts;
+  if (!nonce || !emailEncoded || !sessionDigest || !timestampString || !mac) {
+    return false;
+  }
+
+  let boundEmail: string;
+  try {
+    boundEmail = Buffer.from(emailEncoded, "base64url").toString("utf8");
+    // coercion-ok: malformed proof encoding is an invalid token, never success
+  } catch {
+    return false;
+  }
+  if (boundEmail !== ownerEmail) return false;
+
+  const timestamp = Number(timestampString);
+  if (
+    !Number.isFinite(timestamp) ||
+    Math.abs(Date.now() - timestamp) > BUILDER_PROVISIONING_TOKEN_TTL_MS
+  ) {
+    return false;
+  }
+  if (sessionDigest !== provisioningSessionDigest(sessionToken)) return false;
+
+  const expected = Buffer.from(
+    provisioningMac(nonce, emailEncoded, sessionDigest, timestamp),
+  );
+  const candidate = Buffer.from(mac);
+  return (
+    expected.length === candidate.length && timingSafeEqual(expected, candidate)
+  );
 }
 
 /**
@@ -1056,11 +1221,9 @@ function isBuilderOpenerOriginSafe(value: string | null | undefined): boolean {
 
 /**
  * Build the Builder cli-auth URL for the connect popup. When a signed
- * `state` token is supplied it is embedded inside the `redirect_url`
- * query string so it survives Builder's redirect verbatim — Builder
- * preserves the redirect_url's existing query when appending p-key /
- * api-key / etc., so we don't depend on Builder echoing a top-level
- * `state` parameter (it doesn't).
+ * `state` token is supplied it is embedded inside the `redirect_url` query
+ * string. The connect route also stores it in an HttpOnly cookie because
+ * Builder may strip the callback query while appending its response params.
  *
  * Status responses can surface this URL directly; the legacy
  * `/_agent-native/builder/connect` trampoline still calls this helper for
@@ -1125,6 +1288,7 @@ export function buildBuilderCliAuthUrl(
     "preview_url",
     `${normalizedPreviewOrigin}${appBasePath}`,
   );
+  url.searchParams.set("cli", "true");
   url.searchParams.set("framework", "agent-native");
   applyBuilderConnectTrackingParams(url.searchParams, tracking);
   applyBuilderUtmTrackingParams(url.searchParams, {
@@ -1174,6 +1338,46 @@ function readEventHeader(event: H3Event, name: string): string | undefined {
   }
 }
 
+function getBuilderRequestHost(event: H3Event): string | undefined {
+  const requestHost = firstHeaderValue(readEventHeader(event, "host"));
+  const forwardedHost = firstHeaderValue(
+    readEventHeader(event, "x-forwarded-host"),
+  );
+  // Only the local proxy boundary may replace the request host with a
+  // forwarded Builder preview host. Direct requests keep their own Host so a
+  // caller cannot steer OAuth redirects with an arbitrary forwarded header.
+  if (
+    forwardedHost &&
+    requestHost &&
+    isLoopbackBuilderRequestHost(requestHost)
+  ) {
+    return isLoopbackBuilderProxyPeer(event) ? forwardedHost : undefined;
+  }
+  if (
+    requestHost &&
+    isBuilderCloudRequestHost(requestHost) &&
+    !isConfiguredBuilderRequestHost(event, requestHost)
+  ) {
+    return undefined;
+  }
+  return requestHost;
+}
+
+function isLoopbackBuilderProxyPeer(event: H3Event): boolean {
+  try {
+    const ip = getRequestIP(event, { xForwardedFor: false });
+    return (
+      ip === "127.0.0.1" ||
+      ip === "::1" ||
+      ip === "::ffff:127.0.0.1" ||
+      ip?.startsWith("127.") === true
+    );
+    // coercion-ok: unavailable peer data is not trusted as a proxy.
+  } catch {
+    return false;
+  }
+}
+
 function isTrustedBuilderRequestHost(host: string | undefined): boolean {
   if (!host) return false;
   try {
@@ -1192,11 +1396,54 @@ function isTrustedBuilderRequestHost(host: string | undefined): boolean {
       hostname === "builder.io" ||
       hostname.endsWith(".builder.io") ||
       hostname === "builder.my" ||
-      hostname.endsWith(".builder.my")
+      hostname.endsWith(".builder.my") ||
+      hostname === "builder.cloud" ||
+      hostname.endsWith(".builder.cloud")
     );
   } catch {
     return false;
   }
+}
+
+function isBuilderCloudRequestHost(host: string | undefined): boolean {
+  if (!host) return false;
+  try {
+    const hostname = new URL(`http://${host}`).hostname.toLowerCase();
+    return hostname === "builder.cloud" || hostname.endsWith(".builder.cloud");
+  } catch {
+    // coercion-ok: malformed hosts cannot be trusted as Builder Cloud origins.
+    return false;
+  }
+}
+
+function isConfiguredBuilderRequestHost(event: H3Event, host: string): boolean {
+  const proto =
+    firstHeaderValue(readEventHeader(event, "x-forwarded-proto")) ||
+    (process.env.NODE_ENV === "production" ? "https" : "http");
+  return isConfiguredAppOrigin(`${proto}://${host}`);
+}
+
+function getBuilderConnectCallbackOrigin(event: H3Event): string | null {
+  const requestHost = firstHeaderValue(readEventHeader(event, "host"));
+  const headerHost = getBuilderRequestHost(event);
+  if (isRejectedDirectBuilderCloudHost(requestHost, headerHost)) {
+    return getConfiguredBuilderFallbackOrigin(event);
+  }
+  return isBuilderCloudRequestHost(headerHost)
+    ? getBuilderBrowserOriginForEvent(event)
+    : getOrigin(event, { useForwardedHost: false });
+}
+
+function isRejectedDirectBuilderCloudHost(
+  requestHost: string | undefined,
+  resolvedHost: string | undefined,
+): boolean {
+  return isBuilderCloudRequestHost(requestHost) && requestHost !== resolvedHost;
+}
+
+function getConfiguredBuilderFallbackOrigin(event: H3Event): string | null {
+  const origin = getOrigin(event, { useForwardedHost: false });
+  return isConfiguredAppOrigin(origin) ? origin : null;
 }
 
 function isLoopbackBuilderRequestHost(host: string | undefined): boolean {
@@ -1242,11 +1489,14 @@ function firstPublicBuilderPreviewOriginFromEnv(): string | null {
  * the same deployment that minted the signed connect token.
  */
 export function getBuilderBrowserOriginForEvent(event: H3Event): string {
-  const headerHost = firstHeaderValue(
-    readEventHeader(event, "x-forwarded-host") ||
-      readEventHeader(event, "host"),
-  );
-  if (!isTrustedBuilderRequestHost(headerHost)) return getOrigin(event);
+  const requestHost = firstHeaderValue(readEventHeader(event, "host"));
+  const headerHost = getBuilderRequestHost(event);
+  if (isRejectedDirectBuilderCloudHost(requestHost, headerHost)) {
+    return getConfiguredBuilderFallbackOrigin(event) ?? "";
+  }
+  if (!isTrustedBuilderRequestHost(headerHost)) {
+    return getOrigin(event, { useForwardedHost: false });
+  }
   if (isLoopbackBuilderRequestHost(headerHost)) {
     const publicPreviewOrigin = firstPublicBuilderPreviewOriginFromEnv();
     if (publicPreviewOrigin) return publicPreviewOrigin;
@@ -1306,13 +1556,14 @@ export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
       process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY
     ),
     builderEnabled: isBuilderBranchingEnabled(),
+    agentNativeProvisioningEnabled: isBuilderAccountProvisioningEnabled(),
     branchProjectIdConfigured: !!branchProjectId,
     branchProjectId: branchProjectId || undefined,
     envManaged,
     credentialSource: envManaged ? "env" : undefined,
     appHost: getBuilderAppHost(),
     apiHost: getBuilderApiHost(),
-    connectUrl: getBuilderBrowserConnectUrl(origin),
+    connectUrl: origin ? getBuilderBrowserConnectUrl(origin) : "",
     publicKeyConfigured: !!process.env.BUILDER_PUBLIC_KEY,
     privateKeyConfigured: !!process.env.BUILDER_PRIVATE_KEY,
     userId: process.env.BUILDER_USER_ID || undefined,
@@ -1609,9 +1860,10 @@ function safeOriginFromUrl(value: string | null | undefined): string | null {
 
 export function createBuilderBrowserCallbackPage(
   previewUrl: string,
-  opts: { parentOrigin?: string } = {},
+  opts: { parentOrigin?: string; attemptId?: string } = {},
 ): string {
   const escapedUrl = JSON.stringify(previewUrl);
+  const escapedAttemptId = JSON.stringify(opts.attemptId ?? null);
   const parentOrigin =
     safeOriginFromUrl(opts.parentOrigin) ?? safeOriginFromUrl(previewUrl);
   // postMessage requires a specific target origin for cross-origin opener
@@ -1654,13 +1906,13 @@ export function createBuilderBrowserCallbackPage(
       // mirror the parent-side listener in useBuilderStatus / useBuilderConnectUrl.
       try {
         var bc = new BroadcastChannel("builder-connect:" + window.location.host);
-        bc.postMessage({ type: "builder-connect-success" });
+        bc.postMessage({ type: "builder-connect-success", attemptId: ${escapedAttemptId} || undefined });
         bc.close();
       } catch (e) {}
       try {
         if (window.opener && !window.opener.closed) {
           window.opener.postMessage(
-            { type: "builder-connect-success" },
+            { type: "builder-connect-success", attemptId: ${escapedAttemptId} || undefined },
             ${escapedTargetOrigin},
           );
         }
@@ -1703,9 +1955,13 @@ export function createBuilderBrowserCallbackErrorPage(
     body?: string;
     closeHint?: string;
     parentOrigin?: string;
+    code?: string;
+    attemptId?: string;
   } = {},
 ): string {
   const escapedMessage = JSON.stringify(message);
+  const escapedCode = JSON.stringify(opts.code ?? null);
+  const escapedAttemptId = JSON.stringify(opts.attemptId ?? null);
   const parentOrigin = safeOriginFromUrl(opts.parentOrigin);
   const escapedTargetOrigin = JSON.stringify(parentOrigin ?? "*");
   const title = opts.title ?? "Couldn't save Builder connection";
@@ -1739,6 +1995,7 @@ export function createBuilderBrowserCallbackErrorPage(
     <script>
       try {
         var msg = ${escapedMessage};
+        var code = ${escapedCode};
         document.getElementById("msg").textContent = msg;
         // Notify the parent tab immediately so its polling loop stops
         // without waiting for the next /builder/status tick.
@@ -1751,13 +2008,13 @@ export function createBuilderBrowserCallbackErrorPage(
         // fallback for non-BroadcastChannel environments.
         try {
           var bc = new BroadcastChannel("builder-connect:" + window.location.host);
-          bc.postMessage({ type: "builder-connect-error", message: msg });
+          bc.postMessage({ type: "builder-connect-error", message: msg, code: code || undefined, attemptId: ${escapedAttemptId} || undefined });
           bc.close();
         } catch (e) {}
         if (window.opener && !window.opener.closed) {
           try {
             window.opener.postMessage(
-              { type: "builder-connect-error", message: msg },
+              { type: "builder-connect-error", message: msg, code: code || undefined, attemptId: ${escapedAttemptId} || undefined },
               ${escapedTargetOrigin},
             );
           } catch (e) {}
@@ -1974,6 +2231,157 @@ async function readBuilderApiObject(
     );
   }
   return parsed as Record<string, unknown>;
+}
+
+export function isBuilderAccountProvisioningEnabled(): boolean {
+  const secret = readDeployCredentialEnv(
+    BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV,
+  )?.trim();
+  return Boolean(secret && secret.length >= 32);
+}
+
+function builderAccountProvisioningSecret(): string {
+  const secret = readDeployCredentialEnv(
+    BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV,
+  )?.trim();
+  if (!secret) {
+    throw new Error(
+      `${BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV} is required for Builder account provisioning.`,
+    );
+  }
+  if (secret.length < 32) {
+    throw new Error(
+      `${BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV} must be at least 32 characters long.`,
+    );
+  }
+  return secret;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function stringField(
+  record: Record<string, unknown> | null,
+  key: string,
+): string | null {
+  const value = record?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function booleanField(
+  record: Record<string, unknown> | null,
+  key: string,
+): boolean | null {
+  const value = record?.[key];
+  return typeof value === "boolean" ? value : null;
+}
+
+function parseBuilderAccountProvisioningResponse(
+  parsed: Record<string, unknown>,
+): BuilderRelayCredentials {
+  const envelope = isRecord(parsed.credentials) ? parsed.credentials : parsed;
+  const organization = isRecord(envelope.organization)
+    ? envelope.organization
+    : null;
+  const space = isRecord(envelope.space) ? envelope.space : null;
+  const user = isRecord(envelope.user) ? envelope.user : null;
+  const metadata = space ?? organization;
+  const privateKey =
+    stringField(envelope, "privateKey") ??
+    stringField(space, "privateKey") ??
+    stringField(organization, "privateKey");
+  const publicKey =
+    stringField(envelope, "publicKey") ??
+    stringField(space, "id") ??
+    stringField(organization, "id");
+  if (!privateKey || !publicKey) {
+    throw new Error(
+      "Builder account provisioning returned incomplete credentials.",
+    );
+  }
+
+  const subscription =
+    stringField(envelope, "subscription") ??
+    stringField(metadata, "subscription");
+  const subscriptionName =
+    stringField(envelope, "subscriptionName") ??
+    stringField(metadata, "subscriptionName") ??
+    (subscription?.includes(":level1") ? "free" : null);
+  return {
+    privateKey,
+    publicKey,
+    userId: stringField(envelope, "userId") ?? stringField(user, "id"),
+    orgName:
+      stringField(envelope, "orgName") ??
+      stringField(space, "name") ??
+      stringField(organization, "name"),
+    orgKind:
+      stringField(envelope, "orgKind") ??
+      stringField(space, "kind") ??
+      stringField(organization, "kind"),
+    subscription,
+    subscriptionLevel:
+      stringField(envelope, "subscriptionLevel") ??
+      stringField(metadata, "subscriptionLevel"),
+    subscriptionName,
+    isEnterprise:
+      booleanField(envelope, "isEnterprise") ??
+      (subscription?.includes("enterprise") ? true : null),
+    isFreeAccount:
+      booleanField(envelope, "isFreeAccount") ??
+      (subscriptionName === "free" ? true : null),
+  };
+}
+
+export async function provisionBuilderAccount(input: {
+  email: string;
+  name?: string;
+}): Promise<BuilderRelayCredentials> {
+  const email = input.email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 320) {
+    throw new Error("Builder account provisioning requires a valid email.");
+  }
+  const name =
+    input.name?.trim().slice(0, 120) || email.slice(0, email.indexOf("@"));
+  const timestamp = String(Date.now());
+  const requestId = randomBytes(32).toString("base64url");
+  const signaturePayload = [
+    "agent-native-account-v1",
+    timestamp,
+    requestId,
+    email,
+    name,
+  ].join("\n");
+  const signature = createHmac("sha256", builderAccountProvisioningSecret())
+    .update(signaturePayload)
+    .digest("base64url");
+  const response = await fetchBuilderApi(
+    new URL("/api/v1/accounts/agent-native", getBuilderApiHost()),
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-agent-native-account-version": "agent-native-account-v1",
+        "x-agent-native-account-timestamp": timestamp,
+        "x-agent-native-account-request-id": requestId,
+        "x-agent-native-account-signature": signature,
+      },
+      body: JSON.stringify({ email, name }),
+    },
+    "account provisioning",
+  );
+  const parsed = await readBuilderApiObject(response, "account provisioning");
+  if (!response.ok) {
+    throw new BuilderAccountProvisioningError(
+      builderApiErrorMessage(
+        parsed,
+        `Builder account provisioning failed (${response.status})`,
+      ),
+      typeof parsed.code === "string" ? parsed.code : undefined,
+    );
+  }
+  return parseBuilderAccountProvisioningResponse(parsed);
 }
 
 function builderApiErrorMessage(

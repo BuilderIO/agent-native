@@ -3,6 +3,24 @@
 All notable user-facing changes to Agent-Native Plan are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-08-29
+
+### Improved
+
+- Plan loading states now use an even more subtle whole-surface shine.
+
+## 2026-08-28
+
+### Improved
+
+- Plan loading placeholders now use a softer whole-surface shine.
+
+## 2026-08-22
+
+### Fixed
+
+- The Extensions link now opens the Extensions tab in Settings instead of silently landing on General.
+
 ## 2026-08-19
 
 ### Improved
@@ -49,7 +67,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
-- Clicking the Agent Native logo now toggles the app sidebar.
+- Clicking the Agent-Native logo now toggles the app sidebar.
 
 ## 2026-07-30
 

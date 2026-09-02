@@ -36,10 +36,10 @@ describe("SettingsTabsPage app mount preservation", () => {
     vi.unstubAllEnvs();
   });
 
-  function renderSettings() {
+  function renderSettings(appLocalEntry = "/settings") {
     act(() => {
       root.render(
-        <MemoryRouter initialEntries={["/settings"]}>
+        <MemoryRouter initialEntries={[appLocalEntry]}>
           <SettingsTabsPage
             general={<div>General content</div>}
             account={<div>Account content</div>}
@@ -142,12 +142,28 @@ describe("SettingsTabsPage app mount preservation", () => {
       "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
       JSON.stringify([{ id: "content", path: "/content" }]),
     );
+    // The router strips its basename, so it reports the app-local route while
+    // the browser URL keeps the mount.
     window.history.replaceState(null, "", "/dispatch/settings/agent");
-    renderSettings();
+    renderSettings("/settings/agent");
 
     const selected = navItems().find(
       (node) => node.getAttribute("aria-selected") === "true",
     );
     expect(selected?.textContent).toContain("Agent");
+  });
+
+  it("keeps the mount when a native history event drives the sync", () => {
+    // No router location is available on popstate, so the mount has to come
+    // from the browser pathname.
+    window.history.replaceState(null, "", "/dispatch/settings/agent");
+    renderSettings("/settings/agent");
+
+    act(() => {
+      window.history.replaceState(null, "", "/dispatch/settings/account");
+      window.dispatchEvent(new Event("popstate"));
+    });
+
+    expect(window.location.pathname).toBe("/dispatch/settings/account");
   });
 });

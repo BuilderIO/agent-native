@@ -8,7 +8,6 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
 import {
   delimitUntrustedReference,
   getGenerationCreativeContext,
@@ -42,6 +41,11 @@ import {
 } from "../server/lib/image-processing.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
 import {
+  assertCanDraft,
+  assertCanUseAssets,
+  draftScopeForLibrary,
+} from "../server/lib/library-access.js";
+import {
   normalizePresetReferences,
   PRESET_REFERENCE_ROLE_MAP,
   resolvePresetReferenceFills,
@@ -74,6 +78,7 @@ import {
   serializeAsset,
 } from "./_helpers.js";
 import { readImageModelDefault } from "./_image-model-default.js";
+import { resolveTemplateAccess } from "./_template-access.js";
 import { withToolActivity } from "./_tool-activity.js";
 import { upsertVariantSlot, wasVariantSlotDismissed } from "./variant-slots.js";
 
@@ -84,6 +89,15 @@ const presetReferenceFillSchema = z.object({
   assetIds: z.array(z.string().min(1)).min(1).max(4),
 });
 
+export function assertTemplateMatchesLibrary(
+  template: { libraryId: string | null } | null,
+  libraryId: string,
+) {
+  if (template?.libraryId && template.libraryId !== libraryId) {
+    throw new Error("Template is associated to a different brand kit.");
+  }
+}
+
 const imageGenerationAgentInputSchema = z.object({
   libraryId: z
     .string()
@@ -91,6 +105,7 @@ const imageGenerationAgentInputSchema = z.object({
     .describe("Brand kit/library ID to use for this image."),
   collectionId: z.string().optional(),
   presetId: z.string().optional(),
+  templateId: z.string().optional(),
   sessionId: z.string().optional(),
   prompt: z.string().min(1),
   embeddedText: z.string().optional(),
@@ -121,12 +136,11 @@ export default defineAction({
         "Brand kit/library ID. Pass the refId from a brand-kit @mention, or choose a kit from view-screen/list-libraries.",
       ),
     collectionId: z.string().optional(),
-    presetId: z
+    templateId: z
       .string()
       .optional()
-      .describe(
-        "Generation preset ID (from a @preset mention or list-generation-presets). A preset already defines aspectRatio, imageSize, model, tier, and category. When you set presetId, OMIT those args so the preset's values are used; only pass one of them when the user explicitly asks for a value that differs from the preset.",
-      ),
+      .describe("Template ID from a @template mention or list-templates."),
+    presetId: z.string().optional().describe("Deprecated — use templateId."),
     sessionId: z.string().optional(),
     prompt: z.string().min(1),
     embeddedText: z
@@ -247,7 +261,10 @@ export default defineAction({
       ...input,
       libraryId,
     };
-    await assertAccess("asset-library", args.libraryId, "editor");
+    const draftAccess = await assertCanDraft(args.libraryId);
+    // Inputs answer to the same author rule as reads: another drafter's
+    // candidate must not reach the provider as a reference or a source.
+    const draftScope = await draftScopeForLibrary(args.libraryId, draftAccess);
     const db = getDb();
     const [library] = await db
       .select()
@@ -256,7 +273,11 @@ export default defineAction({
       .limit(1);
     if (!library) throw new Error("Asset library not found.");
     const session = args.sessionId
-      ? await requireGenerationSessionInLibrary(args.sessionId, args.libraryId)
+      ? await requireGenerationSessionInLibrary(
+          args.sessionId,
+          args.libraryId,
+          draftAccess,
+        )
       : null;
     const contextOff = args.contextModeOverride === "off";
     const lineageAssetId = args.sourceAssetId ?? args.subjectAssetId;
@@ -265,6 +286,9 @@ export default defineAction({
           .select({
             id: schema.assets.id,
             libraryId: schema.assets.libraryId,
+            role: schema.assets.role,
+            status: schema.assets.status,
+            generationRunId: schema.assets.generationRunId,
           })
           .from(schema.assets)
           .where(eq(schema.assets.id, lineageAssetId))
@@ -275,6 +299,15 @@ export default defineAction({
       (!lineageAsset || lineageAsset.libraryId !== args.libraryId)
     ) {
       throw new Error("Source asset must belong to this asset library.");
+    }
+    if (lineageAsset) {
+      assertCanUseAssets(
+        draftScope,
+        args.libraryId,
+        draftAccess.role,
+        [lineageAsset],
+        "This generation",
+      );
     }
     const sessionCreativeContext =
       session && !contextOff
@@ -419,8 +452,8 @@ export default defineAction({
           ];
     if (
       session?.presetId &&
-      args.presetId &&
-      args.presetId !== session.presetId
+      (args.templateId ?? args.presetId) &&
+      (args.templateId ?? args.presetId) !== session.presetId
     ) {
       throw new Error("Generation preset does not match this session.");
     }
@@ -431,20 +464,15 @@ export default defineAction({
     ) {
       throw new Error("Collection does not match this session.");
     }
-    const resolvedPresetId = session?.presetId ?? args.presetId ?? undefined;
-    const [preset] = resolvedPresetId
-      ? await db
-          .select()
-          .from(schema.assetGenerationPresets)
-          .where(eq(schema.assetGenerationPresets.id, resolvedPresetId))
-          .limit(1)
-      : [null];
+    const resolvedPresetId =
+      session?.presetId ?? args.templateId ?? args.presetId ?? undefined;
+    const preset = resolvedPresetId
+      ? (await resolveTemplateAccess(resolvedPresetId, "viewer")).resource
+      : null;
     if (resolvedPresetId && !preset) {
-      throw new Error("Generation preset not found.");
+      throw new Error("Template not found.");
     }
-    if (preset && preset.libraryId !== args.libraryId) {
-      throw new Error("Generation preset does not belong to this library.");
-    }
+    assertTemplateMatchesLibrary(preset, args.libraryId);
     if (
       session?.collectionId &&
       preset?.collectionId &&
@@ -486,6 +514,9 @@ export default defineAction({
           id: schema.assets.id,
           libraryId: schema.assets.libraryId,
           mimeType: schema.assets.mimeType,
+          role: schema.assets.role,
+          status: schema.assets.status,
+          generationRunId: schema.assets.generationRunId,
         })
         .from(schema.assets)
         .where(eq(schema.assets.id, args.subjectAssetId))
@@ -496,6 +527,13 @@ export default defineAction({
       if (!subject.mimeType.startsWith("image/")) {
         throw new Error("Subject asset must be an image.");
       }
+      assertCanUseAssets(
+        draftScope,
+        args.libraryId,
+        draftAccess.role,
+        [subject],
+        "This generation",
+      );
     }
     const styleBrief = {
       ...parseJson<StyleBrief>(library.styleBrief, {}),
@@ -671,6 +709,7 @@ export default defineAction({
       const guidanceReferences =
         baseReferenceLimit > 0 || args.referenceAssetIds?.length
           ? await selectReferences({
+              draftScope,
               libraryId: args.libraryId,
               collectionId: resolvedCollectionId,
               categories: resolvedCategories,
@@ -702,6 +741,7 @@ export default defineAction({
       const autoReferences =
         referenceLimit > 0 || args.referenceAssetIds?.length
           ? await selectReferences({
+              draftScope,
               libraryId: args.libraryId,
               collectionId: resolvedCollectionId,
               categories: resolvedCategories,
@@ -1119,6 +1159,9 @@ export default defineAction({
           downloadUrl: serialized.downloadUrl,
         }),
         ...creativeContextProvenance,
+        // Present only when the caller cannot approve: the candidate exists and
+        // is theirs to iterate on, but saving it into the kit needs an editor.
+        ...(draftAccess.canApprove ? {} : { draftPendingApproval: true }),
       };
     } catch (err) {
       const message =
@@ -1434,7 +1477,10 @@ function logSkeletonGeneration(
   if (process.env.NODE_ENV === "test") return;
   const detail = Object.entries(fields)
     .filter(([, value]) => value !== undefined)
-    .map(([key, value]) => `${key}=${value}`)
+    .map(
+      ([key, value]) =>
+        `${key}=${typeof value === "string" ? value : (JSON.stringify(value) ?? "")}`,
+    )
     .join(" ");
   console.info(
     `[assets] preset-skeleton ${event}${detail ? ` ${detail}` : ""}`,

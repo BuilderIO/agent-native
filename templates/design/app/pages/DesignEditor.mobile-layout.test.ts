@@ -32,7 +32,7 @@ describe("Design editor mobile layout", () => {
       "relative hidden h-full min-h-0 shrink-0 flex-col",
     );
     expect(editorSource).toContain(
-      "max-w-[calc(100dvw-57px)] shrink-0 flex-col",
+      "max-w-[calc(100dvw-var(--design-chrome-rail-width))] shrink-0 flex-col",
     );
     expect(editorSource).toContain('aria-label={t("editPanel.properties")}');
     expect(editorSource).toContain(

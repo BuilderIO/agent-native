@@ -22,6 +22,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLocation,
   useNavigate,
 } from "react-router";
 import type { LinksFunction } from "react-router";
@@ -141,7 +142,7 @@ function useThreadDeepLink() {
     handled.current = true;
 
     params.delete("thread");
-    navigate(
+    void navigate(
       {
         pathname: "/chat",
         search: params.toString() ? `?${params.toString()}` : "",
@@ -176,6 +177,12 @@ function ThemeToggleItem() {
 }
 
 function AppContent() {
+  const location = useLocation();
+  if (location.pathname === "/") return <Outlet />;
+  return <PrivateAppContent />;
+}
+
+function PrivateAppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const t = useT();
   const navigate = useNavigate();
@@ -214,10 +221,13 @@ function AppContent() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const location = useLocation();
+  const isMarketingHome = location.pathname === "/";
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        isPublicPath={isMarketingHome}
         toaster={
           <Toaster
             richColors
@@ -227,7 +237,7 @@ export default function Root() {
             mobileOffset={{ bottom: 44, left: 16 }}
           />
         }
-        i18n={{ catalog: i18nCatalog }}
+        i18n={{ catalog: i18nCatalog, persistPreference: !isMarketingHome }}
       >
         <AppContent />
       </AppProviders>

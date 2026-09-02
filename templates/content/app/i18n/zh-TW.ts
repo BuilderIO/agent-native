@@ -576,6 +576,8 @@ const messages = {
       orgCanFindAndView: "您組織中的任何人都可以尋找和檢視",
       orgLinkCanView: "您組織中知道該連結的任何人都可以檢視",
       pageBreadcrumb: "頁面面包屑",
+      pin: "釘選",
+      unpin: "取消釘選",
       printDialogOpened: "列印對話框開啟",
       printDialogOpenedDescription: "選取另存為 PDF 以完成匯出。",
       pulledFromNotion: "從概念中拉出來。",
@@ -691,7 +693,7 @@ const messages = {
       "當此集合描述現有列時建議使用。",
     sourceRole: "來源角色",
     localNoCollection: "本機（無集合）",
-    liveWritesTestCollectionOnly: "即時寫入僅適用於 Agent Native 測試集合。",
+    liveWritesTestCollectionOnly: "即時寫入僅適用於 Agent-Native 測試集合。",
     builderWriteMode: "Builder 寫入模式",
     builderWriteModeUpdated: "已更新 Builder 寫入模式",
     allowPublishUnpublishPerItem: "允許逐項發佈/取消發佈",
@@ -1087,11 +1089,11 @@ const messages = {
   },
   localFiles: {
     interruptedPicker:
-      "上次資料夾選擇器未能完成，因此已在此瀏覽器設定檔中停用。請使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 瀏覽器。",
+      "上次資料夾選擇器未能完成，因此已在此瀏覽器設定檔中停用。請使用 Agent-Native Desktop、Chrome、Edge 或其他 Chromium 瀏覽器。",
     unsupportedElectron:
-      "此處無法使用本機資料夾同步。請使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 瀏覽器。",
+      "此處無法使用本機資料夾同步。請使用 Agent-Native Desktop、Chrome、Edge 或其他 Chromium 瀏覽器。",
     unsupportedBrowser:
-      "此處無法使用本機資料夾同步。請使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 瀏覽器。",
+      "此處無法使用本機資料夾同步。請使用 Agent-Native Desktop、Chrome、Edge 或其他 Chromium 瀏覽器。",
     notSyncedYet: "尚未同步",
     summaryCreated: "已建立 {{count}} 個",
     summaryUpdated: "已更新 {{count}} 個",
@@ -1114,7 +1116,7 @@ const messages = {
     componentPreviewsNeedBridge: "元件預覽需要本機開發橋接。",
     mdxFilesLinked: "MDX 檔案已連結",
     mdxFilesLinkedDescription:
-      "此瀏覽器可以編輯檔案，但 React 元件預覽需要 Agent Native Desktop 或本機開發伺服器。",
+      "此瀏覽器可以編輯檔案，但 React 元件預覽需要 Agent-Native Desktop 或本機開發伺服器。",
     folderAdded: "資料夾已新增",
     folderAddFailed: "資料夾新增失敗",
     writePermissionNotGranted: "未授予寫入權限。",

@@ -140,6 +140,8 @@ const messages = {
     pageTitle: "회의 · Clips",
   },
   recordingPage: {
+    back: "뒤쪽에",
+    done: "완료",
     untitledClip: "제목 없는 클립",
     recordingNotFound: "녹화를 찾을 수 없습니다",
     noAccess: "이 클립에 액세스할 수 없을 수도 있습니다.",
@@ -204,8 +206,6 @@ const messages = {
     retryImport: "가져오기 재시도",
     retryUpload: "업로드 재시도",
     checkAgain: "다시 확인",
-    back: "뒤쪽에",
-    done: "완료",
     edit: "편집",
     aiTools: "AI 도구",
     enhanceRecording: "이 녹음 품질을 향상하세요",
@@ -495,7 +495,9 @@ const messages = {
     agentPrompt:
       "이 Clips 에이전트 컨텍스트 URL을 가져오세요: {{agentContextUrl}}. 말한 내용의 맥락은 transcript.segments를 사용하고, 화면을 보기 위해 recommendedFrames 또는 프레임 API URL을 가져오며, browserDiagnostics가 있으면 수정된 콘솔 로그와 fetch/XHR 요청 메타데이터를 확인하세요.",
     agentTokenDescription:
-      "이 임시 에이전트 URL을 사용하면 클립을 공개하지 않고도 에이전트가 읽을 수 있습니다. 2시간 후 만료됩니다.",
+      "이 클립은 공개 상태가 아니므로 에이전트용 임시 읽기 전용 링크입니다. 2시간 후 만료됩니다.",
+    agentPublicDescription:
+      "에이전트용 읽기 전용 링크입니다. 클립이 공개된 동안 사용할 수 있습니다.",
     agentLinkUnavailable: "에이전트 링크를 만들 수 없습니다.",
     retryAgentLink: "다시 시도",
     gifPreview: "GIF 미리보기",
@@ -519,18 +521,16 @@ const messages = {
     height: "키",
     autoplay: "자동재생",
     startAt: "(초)에 시작",
-    startAtTimestamp: "{{time}}부터 시작",
     embedCode: "임베드 코드",
+    copyEmbedCode: "임베드 코드 복사",
+    more: "더 보기",
     sharePlainTitle: "{{title}} 공유",
   },
   shareUi: {
     owner: "소유자: {{email}}",
-    generalAccess: "일반 액세스",
-    restrictedLinkDescription:
-      "이 링크는 이미 액세스 권한이 있는 사람에게만 작동합니다.",
-    makingPublic: "공개로 전환 중…",
-    makePublicAndCopy: "공개로 전환하고 복사",
     copy: "복사",
+    copied: "복사됨",
+    copyLink: "링크 복사",
     addPeopleByEmail: "이메일로 사람 추가",
     invite: "초대",
     notifyPeople: "사람들에게 알림",
@@ -538,6 +538,18 @@ const messages = {
     ownerRole: "소유자",
     remove: "제거",
     noAccessYet: "아직 액세스 권한이 있는 사람이 없습니다.",
+    whoHasAccess: "액세스 권한이 있는 사람",
+    canAccess: "액세스 가능",
+    onlyYou: "나만",
+    othersCount_one: "{{email}} 외 {{count}}명",
+    othersCount_other: "{{email}} 외 {{count}}명",
+    selectAccess: "액세스 선택",
+    accessOptions: {
+      public: "링크가 있는 모든 사용자가 볼 수 있음",
+      org: "{{orgName}}의 모든 사용자가 볼 수 있음",
+      orgFallback: "조직의 모든 사용자가 볼 수 있음",
+      private: "초대된 사용자만 볼 수 있음",
+    },
     visibility: {
       private: {
         label: "비공개",
@@ -623,6 +635,8 @@ const messages = {
     macSublabel: "범용(Apple Silicon + Intel)",
     windowsSublabel: "64비트 MSI 설치 프로그램",
     downloadFor: "{{platform}}용 다운로드",
+    downloadStarted: "다운로드가 시작되었습니다",
+    downloadAgain: "작동하지 않았나요? 다시 다운로드",
     alsoFor: "{{platform}}에도 사용 가능",
     backToLibrary: "라이브러리로 돌아가기",
     clipsDesktop: "Clips Desktop",
@@ -993,8 +1007,6 @@ const messages = {
     editComment: "댓글 편집",
     commentButton: "댓글",
     composerPlaceholder: "댓글 추가…",
-    mentionSomeone: "멘션하기",
-    addEmoji: "이모지 추가",
   },
   shareMeeting: {
     pageTitle: "회의 노트 · Clips",
@@ -1046,6 +1058,10 @@ const messages = {
       "이 작업은 되돌릴 수 없습니다. 지금까지 녹화한 내용이 영구적으로 삭제됩니다.",
     resume: "재개",
     discardRecording: "녹화 삭제",
+    restart: "녹화 다시 시작",
+    restartShortcut: "다시 시작 (⌥⇧R)",
+    restartQuestion: "새 녹화를 시작할까요?",
+    restartConfirm: "다시 시작",
   },
   countdownOverlay: {
     startsIn: "{{count}} 후 녹화 시작",
@@ -1526,6 +1542,15 @@ const messages = {
       "메뉴 막대에서 Clips를 열어 저장된 업로드를 다시 시도하세요. 다시 녹화할 필요가 없습니다.",
     removeFailedClip: "실패한 클립 제거.",
     remove: "제거",
+    statusStalled: "지연됨",
+    uploadAtRisk: "평소보다 오래 걸리고 있습니다",
+    uploadAtRiskDetail:
+      "이 클립을 저장하려고 계속 시도 중입니다. 몇 분 정도 걸릴 수 있습니다.",
+    retry: "다시 시도",
+    retrying: "다시 시도 중…",
+    retryFailed: "이 업로드를 다시 시도할 수 없습니다.",
+    retryUnavailableHere:
+      "다시 시도는 이 녹화를 만든 기기 또는 브라우저에서만 가능합니다.",
     viewsCount: "조회수 {{count}}회",
     recordingMenu: "녹화 메뉴",
     moveToFolder: "폴더로 이동",
@@ -1538,6 +1563,7 @@ const messages = {
     invite: "초대",
     inviteFailed: "사용자를 초대할 수 없습니다",
     removePersonFailed: "사용자를 제거할 수 없습니다",
+    permissionUpdateFailed: "권한을 업데이트할 수 없습니다",
     passwordProtectedDescription:
       "이 동영상은 보호되어 있습니다. 보려면 비밀번호를 입력하세요.",
     password: "비밀번호",

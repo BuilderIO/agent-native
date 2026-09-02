@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  BuilderConnectPopover,
   useBuilderConnectFlow,
   useBuilderStatus,
 } from "@agent-native/core/client/settings";
@@ -224,13 +225,14 @@ import {
   databaseItemBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
   previewBodyHydrationIsPending,
-  previewBodyHydrationIsTerminalError,
+  previewBodyHydrationTerminalError,
   previewDraftConflictsWithHydratedBody,
   shouldIgnorePreviewEmptyNormalization,
 } from "../body-hydration";
 import {
   builderBodyHydrationMutationMadeProgress,
   builderBodyHydrationPumpKey,
+  builderBodyHydrationRetryDelayMs,
   shouldPumpBuilderBodyHydration,
 } from "../builder-body-hydration-pump";
 import { BuilderBodySyncingNotice } from "../BuilderBodySyncingNotice";
@@ -347,7 +349,7 @@ export type DatabaseFilter = ContentDatabaseFilter;
 export type DatabaseFilterMode = ContentDatabaseFilterMode;
 export type DatabaseColumnCalculation = ContentDatabaseColumnCalculation;
 export type DatabaseRowDensity = ContentDatabaseRowDensity;
-export type ColumnKey = "name" | string;
+export type ColumnKey = "name" | (string & {});
 
 const DEFAULT_NAME_COLUMN_WIDTH = 240;
 const DEFAULT_PROPERTY_COLUMN_WIDTH = 180;
@@ -1035,6 +1037,7 @@ function DatabaseTable({
   const builderContinuationFailureRef = useRef<Map<string, number>>(new Map());
   const refreshSourceInFlightRef = useRef<string | null>(null);
   const hydrationSourceInFlightRef = useRef<string | null>(null);
+  const builderHydrationWakeTimersRef = useRef(new Map<string, number>());
   const workspaceSelectionQueueRef = useRef(createContentSpaceSelectionQueue());
   const builderReviewGenerationRef = useRef(0);
   const builderReviewSessionRef = useRef<BuilderReviewSession | null>(null);
@@ -1350,7 +1353,11 @@ function DatabaseTable({
         onSuccess?: (result: ProcessBuilderBodyHydrationResponse) => void;
         onError?: () => void;
       } = {},
-      request: { documentId?: string; limit?: number } = {},
+      request: {
+        documentId?: string;
+        limit?: number;
+        retryFailed?: boolean;
+      } = {},
     ) => {
       if (
         !acquireDatabaseSourceOperation(hydrationSourceInFlightRef, sourceId)
@@ -1368,14 +1375,29 @@ function DatabaseTable({
             },
             onError: options.onError,
             onSettled: () => {
-              if (
-                !request.documentId &&
-                result &&
-                builderBodyHydrationMutationMadeProgress(result) &&
-                result.remaining > 0
-              ) {
-                pump();
-                return;
+              if (!request.documentId && result && result.remaining > 0) {
+                if (result.ready > 0) {
+                  pump();
+                  return;
+                }
+                const retryDelayMs = builderBodyHydrationRetryDelayMs(result);
+                if (retryDelayMs !== null) {
+                  const existingTimer =
+                    builderHydrationWakeTimersRef.current.get(sourceId);
+                  if (existingTimer !== undefined) {
+                    window.clearTimeout(existingTimer);
+                  }
+                  const timer = window.setTimeout(() => {
+                    builderHydrationWakeTimersRef.current.delete(sourceId);
+                    pump();
+                  }, retryDelayMs);
+                  builderHydrationWakeTimersRef.current.set(sourceId, timer);
+                  return;
+                }
+                if (builderBodyHydrationMutationMadeProgress(result)) {
+                  pump();
+                  return;
+                }
               }
               releaseDatabaseSourceOperation(
                 hydrationSourceInFlightRef,
@@ -1389,6 +1411,16 @@ function DatabaseTable({
       return true;
     },
     [processBuilderBodies.mutate],
+  );
+
+  useEffect(
+    () => () => {
+      for (const timer of builderHydrationWakeTimersRef.current.values()) {
+        window.clearTimeout(timer);
+      }
+      builderHydrationWakeTimersRef.current.clear();
+    },
+    [],
   );
 
   useEffect(() => {
@@ -1634,7 +1666,9 @@ function DatabaseTable({
     if (openWorkspaceFiles(item)) return;
     seedDatabaseItemDocumentCaches(queryClient, item);
     prioritizeBuilderBodyHydrationForItem(item);
-    navigate(databaseItemPagePath(item.document.id, databaseId, document.id));
+    void navigate(
+      databaseItemPagePath(item.document.id, databaseId, document.id),
+    );
   }
 
   function openWorkspaceFiles(item: ContentDatabaseItem) {
@@ -3197,7 +3231,9 @@ function DatabaseTable({
           const targetSourceId = sourceId ?? source?.id;
           if (targetSourceId) runSourceRefresh(targetSourceId);
         }}
-        onHydrateBuilderBodies={(sourceId) => runBuilderHydration(sourceId)}
+        onHydrateBuilderBodies={(sourceId) =>
+          runBuilderHydration(sourceId, {}, { retryFailed: true })
+        }
         onDisconnectSource={(sourceId) =>
           disconnectSource.mutate(
             {
@@ -4474,7 +4510,7 @@ function DatabaseItemPreview({
       item,
       document,
     });
-  const bodyHydrationError = previewBodyHydrationIsTerminalError({
+  const bodyHydrationError = previewBodyHydrationTerminalError({
     item,
     document,
   });
@@ -5377,7 +5413,10 @@ function DatabaseItemPreview({
                     {bodyHydrationError ? (
                       <BuilderBodySyncingNotice
                         title={dbText("builderBodySyncFailedNotice")}
-                        description={dbText("builderBodySyncFailedDescription")}
+                        description={
+                          bodyHydrationError.error ??
+                          dbText("builderBodySyncFailedDescription")
+                        }
                       />
                     ) : null}
                     {editor}
@@ -6571,7 +6610,7 @@ function DatabaseInlineSortControl({
     [sorts],
   );
 
-  function addSortForField(key: "name" | string, label: string) {
+  function addSortForField(key: "name" | (string & {}), label: string) {
     onSortsChange([...sorts, { key, label, direction: "asc" }]);
   }
 
@@ -6700,8 +6739,8 @@ function DatabaseAddFilterButton({
   filters: DatabaseFilter[];
   properties: DocumentProperty[];
   onOpenChange: (open: boolean) => void;
-  onAddFilter: (key: "name" | string, label: string) => void;
-  onAddAdvancedFilter: (key: "name" | string, label: string) => void;
+  onAddFilter: (key: "name" | (string & {}), label: string) => void;
+  onAddAdvancedFilter: (key: "name" | (string & {}), label: string) => void;
 }) {
   const excludedFilterKeys = useMemo(
     () => new Set(filters.filter(isActiveFilter).map((filter) => filter.key)),
@@ -6872,14 +6911,14 @@ function DatabaseAdvancedFilterGroupControl({
     onFiltersChange(nextFilters);
   }
 
-  function addAdvancedRule(key: "name" | string, label: string) {
+  function addAdvancedRule(key: "name" | (string & {}), label: string) {
     onFiltersChange([
       ...filters,
       createDatabaseFilterForField(key, label, properties, true),
     ]);
   }
 
-  function addNestedFilterGroup(key: "name" | string, label: string) {
+  function addNestedFilterGroup(key: "name" | (string & {}), label: string) {
     onFiltersChange([
       ...filters,
       createDatabaseFilterForField(key, label, properties, {
@@ -6891,7 +6930,7 @@ function DatabaseAdvancedFilterGroupControl({
 
   function addNestedFilterRule(
     groupId: string,
-    key: "name" | string,
+    key: "name" | (string & {}),
     label: string,
   ) {
     onFiltersChange([
@@ -7058,7 +7097,7 @@ function DatabaseAdvancedFilterRuleRow({
   onUpdateFilter: (next: Partial<DatabaseFilter>) => void;
   onRemove: () => void;
 }) {
-  function selectField(key: "name" | string, label: string) {
+  function selectField(key: "name" | (string & {}), label: string) {
     onUpdateFilter({
       key,
       label,
@@ -7239,7 +7278,7 @@ function DatabaseAdvancedNestedFilterGroup({
   onUpdateFilter: (index: number, next: Partial<DatabaseFilter>) => void;
   onAddNestedFilterRule: (
     groupId: string,
-    key: "name" | string,
+    key: "name" | (string & {}),
     label: string,
   ) => void;
   onRemoveFilter: (index: number) => void;
@@ -7418,7 +7457,7 @@ function DatabaseInlineFilterControl({
     onFiltersChange(nextFilters);
   }
 
-  function selectField(key: "name" | string, label: string) {
+  function selectField(key: "name" | (string & {}), label: string) {
     updateFilter({
       key,
       label,
@@ -8364,6 +8403,7 @@ function DatabaseSettingsSourcePanel({
         : [{ id: "builder-space", name: dbText("builderSpace") }];
   const builderSpaceLabel = builderSpaces[0]?.name ?? builderOrgName;
   const connect = useBuilderConnectFlow({
+    provisionAccount: true,
     trackingSource: "database_source_panel",
     onConnected: () => {
       void builderStatus.refetch();
@@ -8569,19 +8609,20 @@ function DatabaseSettingsSourcePanel({
             {dbText("connectYourBuilderAccountToBrowseItsSpaces")}
           </div>
           <div>
-            <Button
-              type="button"
-              size="sm"
-              disabled={!canEdit || connect.connecting}
-              onClick={() => connect.start()}
-            >
-              {connect.connecting ? (
-                <Spinner className="mr-1.5 size-3.5" />
-              ) : (
-                <IconExternalLink className="mr-1.5 size-3.5" />
-              )}
-              Connect Builder
-            </Button>
+            <BuilderConnectPopover flow={connect}>
+              <Button
+                type="button"
+                size="sm"
+                disabled={!canEdit || connect.connecting}
+              >
+                {connect.connecting ? (
+                  <Spinner className="mr-1.5 size-3.5" />
+                ) : (
+                  <IconExternalLink className="mr-1.5 size-3.5" />
+                )}
+                Connect Builder
+              </Button>
+            </BuilderConnectPopover>
           </div>
         </div>
       );
@@ -9929,7 +9970,10 @@ function BuilderBodyHydrationCard({
   const summary = source.bodyHydration;
   if (!summary || summary.total === 0) return null;
   const activeCount = summary.pending + summary.hydrating;
-  const needsWork = activeCount > 0 || summary.error > 0;
+  const hasErrors = summary.error > 0;
+  const needsWork = activeCount > 0 || hasErrors;
+  const canResume =
+    activeCount > 0 || (summary.retryableErrors ?? summary.error) > 0;
   const hydratedLabel = dbText("builderBodiesHydrated", {
     hydrated: summary.hydrated,
     total: summary.total,
@@ -9956,7 +10000,7 @@ function BuilderBodyHydrationCard({
             {hydratedLabel}
           </div>
         </div>
-        {needsWork ? (
+        {canResume ? (
           <Button
             type="button"
             size="sm"
@@ -9970,7 +10014,9 @@ function BuilderBodyHydrationCard({
             ) : (
               <IconRefresh className="mr-1 size-3.5" />
             )}
-            {summary.error > 0 ? dbText("retry") : dbText("resume")}
+            {(summary.retryableErrors ?? summary.error) > 0
+              ? dbText("retry")
+              : dbText("resume")}
           </Button>
         ) : null}
       </div>
@@ -12543,7 +12589,7 @@ export interface DatabaseBoardGroup {
   id: string;
   label: string;
   property: DocumentProperty | null;
-  value: DocumentPropertyValue | typeof BOARD_UNGROUPED_VALUE;
+  value: DocumentPropertyValue;
   items: ContentDatabaseItem[];
 }
 
@@ -14908,7 +14954,9 @@ export function calendarDateKey(value: Date | DocumentPropertyValue) {
   if (dateKey) return dateKey;
   if (value === null || value === undefined || value === "") return null;
 
-  const date = new Date(String(value));
+  const date = new Date(
+    typeof value === "string" ? value : (JSON.stringify(value) ?? ""),
+  );
   if (Number.isNaN(date.getTime())) return null;
   return formatCalendarDateKey(date);
 }
@@ -15002,7 +15050,7 @@ function databaseBoardItemGroupValues(
   item: ContentDatabaseItem,
   property: DocumentProperty,
   optionIds: Set<string>,
-): Array<DocumentPropertyValue | typeof BOARD_UNGROUPED_VALUE> {
+): DocumentPropertyValue[] {
   const value =
     item.properties.find(
       (candidate) => candidate.definition.id === property.definition.id,
@@ -15028,14 +15076,14 @@ function databaseBoardItemGroupValues(
 
 function databaseBoardGroupId(
   property: DocumentProperty,
-  value: DocumentPropertyValue | typeof BOARD_UNGROUPED_VALUE,
+  value: DocumentPropertyValue,
 ) {
-  return `${property.definition.id}:${String(value)}`;
+  return `${property.definition.id}:${typeof value === "string" ? value : (JSON.stringify(value) ?? "")}`;
 }
 
 export function boardGroupValueForProperty(
   property: DocumentProperty,
-  value: DocumentPropertyValue | typeof BOARD_UNGROUPED_VALUE,
+  value: DocumentPropertyValue,
 ): DocumentPropertyValue {
   if (value === BOARD_UNGROUPED_VALUE) {
     return property.definition.type === "multi_select" ? [] : null;
@@ -16972,8 +17020,11 @@ function propertyValueText(property: DocumentProperty | null | undefined) {
   ) {
     return (
       property.definition.options.options?.find(
-        (option) => option.id === String(value),
-      )?.name ?? String(value)
+        (option) =>
+          option.id ===
+          (typeof value === "string" ? value : (JSON.stringify(value) ?? "")),
+      )?.name ??
+      (typeof value === "string" ? value : (JSON.stringify(value) ?? ""))
     );
   }
   if (property.definition.type === "checkbox") {
@@ -16997,7 +17048,12 @@ function propertyNumberValue(property: DocumentProperty | null | undefined) {
   const value =
     typeof property.value === "number"
       ? property.value
-      : Number(String(property.value).trim());
+      : Number(
+          (typeof property.value === "string"
+            ? property.value
+            : (JSON.stringify(property.value) ?? "")
+          ).trim(),
+        );
   return Number.isFinite(value) ? value : Number.NaN;
 }
 
@@ -17025,7 +17081,11 @@ function SortMenu({
     onSortsChange(baseSorts);
   }
 
-  function selectSort(index: number, key: "name" | string, label: string) {
+  function selectSort(
+    index: number,
+    key: "name" | (string & {}),
+    label: string,
+  ) {
     updateSort(index, { key, label });
   }
 
@@ -17040,7 +17100,7 @@ function SortMenu({
     onSortsChange([...sorts, defaultDatabaseSort()]);
   }
 
-  function addSortForField(key: "name" | string, label: string) {
+  function addSortForField(key: "name" | (string & {}), label: string) {
     onSortsChange([...sorts, { key, label, direction: "asc" }]);
   }
 
@@ -17218,8 +17278,8 @@ function FilterMenu({
   inlineOpen: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAddFilter: (key: "name" | string, label: string) => void;
-  onAddAdvancedFilter: (key: "name" | string, label: string) => void;
+  onAddFilter: (key: "name" | (string & {}), label: string) => void;
+  onAddAdvancedFilter: (key: "name" | (string & {}), label: string) => void;
 }) {
   const activeFilters = filters.filter(isActiveFilter);
   const active = activeFilters.length > 0 || inlineOpen;

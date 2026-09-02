@@ -14,7 +14,9 @@ import {
   type AuthSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useOrgRole } from "@agent-native/core/client/org";
 import { ShareButton } from "@agent-native/core/client/sharing";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   CreativeContextShareSheet,
   CreativeContextShareTab,
@@ -46,6 +48,7 @@ import {
   IconMail,
   IconPencil,
   IconPlus,
+  IconShieldCheck,
   IconTrash,
   IconUsersGroup,
   IconWorld,
@@ -170,6 +173,7 @@ import { SqlChartCard } from "./SqlChartCard";
 import {
   clampDashboardColumns,
   DEFAULT_DASHBOARD_COLUMNS,
+  type DashboardCertification,
   type SqlDashboardConfig,
   type SqlPanel,
 } from "./types";
@@ -376,7 +380,11 @@ const PanelCell = memo(function PanelCell({
         isDragSource={isDragSource}
         selectedForChat={selectedForChat}
         onSelectForChat={handleSelectForChat}
-        dashboardId={String(dashboardExtensionContext.dashboardId ?? "")}
+        dashboardId={
+          typeof dashboardExtensionContext.dashboardId === "string"
+            ? dashboardExtensionContext.dashboardId
+            : ""
+        }
         filters={vars}
         extensionContext={
           panel.chartType === "extension"
@@ -406,9 +414,10 @@ type FetchedDashboard = {
   archivedAt: string | null;
   hiddenAt: string | null;
   hiddenBy: string | null;
+  orgId: string | null;
   visibility: "private" | "org" | "public";
-  ownerEmail: string | null;
   createdAt: string | null;
+  createdBy: string | null;
   updatedAt: string | null;
   updatedBy: string | null;
 } & ResourceAccess;
@@ -446,6 +455,29 @@ function parseDashboardCatalogMetadata(
   };
 }
 
+function parseDashboardCertification(
+  value: unknown,
+): DashboardCertification | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value as Record<string, unknown>;
+  if (
+    raw.status !== "certified" ||
+    typeof raw.certifiedAt !== "string" ||
+    typeof raw.certifiedBy !== "string" ||
+    typeof raw.certifiedForUpdatedAt !== "string"
+  ) {
+    return undefined;
+  }
+  return {
+    status: "certified",
+    certifiedAt: raw.certifiedAt,
+    certifiedBy: raw.certifiedBy,
+    certifiedForUpdatedAt: raw.certifiedForUpdatedAt,
+  };
+}
+
 async function fetchDashboard(
   id: string,
   options?: { reportScreenshot?: boolean },
@@ -476,6 +508,7 @@ async function fetchDashboard(
       config: {
         name: data.name ?? "Untitled Dashboard",
         description: data.description,
+        certification: parseDashboardCertification(data.certification),
         parentId:
           typeof data.parentId === "string" && data.parentId.trim().length > 0
             ? data.parentId
@@ -490,12 +523,13 @@ async function fetchDashboard(
       archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
       hiddenAt: typeof data.hiddenAt === "string" ? data.hiddenAt : null,
       hiddenBy: typeof data.hiddenBy === "string" ? data.hiddenBy : null,
+      orgId: typeof data.orgId === "string" ? data.orgId : null,
       visibility:
         data.visibility === "org" || data.visibility === "public"
           ? data.visibility
           : "private",
-      ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : null,
       createdAt: typeof data.createdAt === "string" ? data.createdAt : null,
+      createdBy: typeof data.createdBy === "string" ? data.createdBy : null,
       updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
       updatedBy: typeof data.updatedBy === "string" ? data.updatedBy : null,
       role: typeof data.role === "string" ? data.role : undefined,
@@ -570,6 +604,7 @@ function SqlDashboardPageContent({
   session: AuthSession | null;
 }) {
   const t = useT();
+  const { canManageOrg, org } = useOrgRole();
   const [searchParams, setSearchParams] = useSearchParams();
   const { id: routeId } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
@@ -579,12 +614,28 @@ function SqlDashboardPageContent({
   const reportSettingsRequested = searchParams.get("reportSettings") === "1";
 
   const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
+
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(
+      dashboard?.name,
+      "Dashboard",
+    )} — Analytics`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [dashboard?.name]);
+
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
   const [hiddenAt, setHiddenAt] = useState<string | null>(null);
+  const [dashboardOrgId, setDashboardOrgId] = useState<string | null>(null);
   const [dashboardVisibility, setDashboardVisibility] = useState<
     "private" | "org" | "public" | null
   >(null);
-  const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
+  const [dashboardCreatedBy, setDashboardCreatedBy] = useState<string | null>(
+    null,
+  );
   const [dashboardCreatedAt, setDashboardCreatedAt] = useState<string | null>(
     null,
   );
@@ -628,6 +679,16 @@ function SqlDashboardPageContent({
   const revisionRestoreInFlightRef = useRef(false);
   const canEdit = !reportScreenshot && resourceCanEdit(resourceAccess);
   const canManage = !reportScreenshot && resourceCanManage(resourceAccess);
+  const canCertify =
+    !reportScreenshot &&
+    canManageOrg &&
+    Boolean(org?.orgId && dashboardOrgId === org.orgId);
+  const canArchive = canEdit || canManage;
+  const dashboardCertified = Boolean(
+    dashboard?.certification?.status === "certified" &&
+    dashboardUpdatedAt &&
+    dashboard.certification.certifiedForUpdatedAt === dashboardUpdatedAt,
+  );
   useEffect(() => {
     if (dashboardActionsOpen || !openDeleteAfterMenuClose) return;
     const frame = requestAnimationFrame(() => {
@@ -667,6 +728,10 @@ function SqlDashboardPageContent({
   );
   const { mutateAsync: archiveDashboardAction } =
     useActionMutation("archive-dashboard");
+  const {
+    mutateAsync: certifyDashboardAction,
+    isPending: certificationPending,
+  } = useActionMutation("certify-dashboard");
   const { data: dashboardRevisions } = useDashboardRevisions(
     !reportScreenshot && dashboardId ? dashboardId : null,
   );
@@ -736,7 +801,7 @@ function SqlDashboardPageContent({
   const currentUser: CollabUser | undefined =
     !reportScreenshot && session?.email
       ? {
-          name: emailToName(session.email),
+          name: session.name?.trim() || emailToName(session.email),
           email: session.email,
           color: emailToColor(session.email),
         }
@@ -825,7 +890,7 @@ function SqlDashboardPageContent({
     if (!ydoc || !collabSynced) return;
     const ytext = ydoc.getText("content");
     const handler = () => {
-      const raw = ytext.toString();
+      const raw = ytext.toJSON();
       if (!raw) return;
       try {
         const parsed = JSON.parse(raw) as SqlDashboardConfig;
@@ -874,8 +939,9 @@ function SqlDashboardPageContent({
     setDashboard(null);
     setArchivedAt(null);
     setHiddenAt(null);
+    setDashboardOrgId(null);
     setDashboardVisibility(null);
-    setDashboardOwner(null);
+    setDashboardCreatedBy(null);
     setDashboardCreatedAt(null);
     setDashboardUpdatedAt(null);
     setDashboardUpdatedBy(null);
@@ -921,8 +987,9 @@ function SqlDashboardPageContent({
     setDashboard(fetchedConfig);
     setArchivedAt(fetched?.archivedAt ?? null);
     setHiddenAt(fetched?.hiddenAt ?? null);
+    setDashboardOrgId(fetched?.orgId ?? null);
     setDashboardVisibility(fetchedVisibility);
-    setDashboardOwner(fetched?.ownerEmail ?? null);
+    setDashboardCreatedBy(fetched?.createdBy ?? null);
     setDashboardCreatedAt(fetched?.createdAt ?? null);
     setDashboardUpdatedAt(fetched?.updatedAt ?? null);
     setDashboardUpdatedBy(fetched?.updatedBy ?? null);
@@ -1088,13 +1155,13 @@ function SqlDashboardPageContent({
           queryClient.removeQueries({
             queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
           });
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["sql-dashboards-sidebar", dashboardScope],
           });
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["sql-dashboards-palette", dashboardScope],
           });
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
           });
         })
@@ -1140,13 +1207,13 @@ function SqlDashboardPageContent({
       queryClient.removeQueries({
         queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["sql-dashboards-sidebar", dashboardScope],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["sql-dashboards-palette", dashboardScope],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
       });
     },
@@ -1613,19 +1680,19 @@ function SqlDashboardPageContent({
     if (!dashboardId) return;
     if (!canManage) return;
     await deleteDashboardAction({ id: dashboardId });
-    queryClient.invalidateQueries({
+    void queryClient.invalidateQueries({
       queryKey: ["sql-dashboards-sidebar", dashboardScope],
     });
-    queryClient.invalidateQueries({
+    void queryClient.invalidateQueries({
       queryKey: ["sql-dashboards-palette", dashboardScope],
     });
     queryClient.removeQueries({
       queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
     });
-    queryClient.invalidateQueries({
+    void queryClient.invalidateQueries({
       queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
     });
-    navigate("/");
+    void navigate("/home");
   }, [
     dashboardId,
     dashboardScope,
@@ -1633,6 +1700,43 @@ function SqlDashboardPageContent({
     deleteDashboardAction,
     queryClient,
     navigate,
+  ]);
+
+  const handleCertify = useCallback(async () => {
+    if (!dashboardId || !dashboardUpdatedAt || !canCertify || archivedAt)
+      return;
+    try {
+      const result = await certifyDashboardAction({ id: dashboardId });
+      const certification = parseDashboardCertification(
+        result && typeof result === "object"
+          ? (result as { certification?: unknown }).certification
+          : undefined,
+      );
+      if (certification) {
+        setDashboard((current) =>
+          current ? { ...current, certification } : current,
+        );
+      }
+      toast.success(t("sqlDashboard.certificationSaved"));
+      void queryClient.invalidateQueries({
+        queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
+      });
+    } catch (error) {
+      toast.error(
+        t("sqlDashboard.certificationFailed", {
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+  }, [
+    archivedAt,
+    canCertify,
+    certifyDashboardAction,
+    dashboardId,
+    dashboardUpdatedAt,
+    dashboardScope,
+    queryClient,
+    t,
   ]);
 
   const dismissDemoIntro = useCallback(() => {
@@ -1648,58 +1752,60 @@ function SqlDashboardPageContent({
 
   const handleArchive = useCallback(async () => {
     if (!dashboardId) return;
-    if (!canEdit) return;
+    if (!canArchive) return;
     if (archivedAt) return;
     try {
       await archiveDashboardAction({ id: dashboardId, archived: true });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["sql-dashboards-sidebar", dashboardScope],
       });
       queryClient.removeQueries({
         queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
       });
-      toast.success(`Archived "${dashboard?.name ?? "dashboard"}"`);
-      navigate("/");
+      toast.success(
+        t("sqlDashboard.archived", {
+          name: dashboard?.name ?? t("sqlDashboard.dashboardFallback"),
+        }),
+      );
+      void navigate("/home");
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Couldn't archive dashboard",
+        err instanceof Error ? err.message : t("sqlDashboard.archiveFailed"),
       );
     }
   }, [
     dashboardId,
     dashboardScope,
-    canEdit,
+    canArchive,
     archivedAt,
     archiveDashboardAction,
     queryClient,
     navigate,
     dashboard?.name,
+    t,
   ]);
 
   const handleUnhide = useCallback(async () => {
     if (!dashboardId) return;
     try {
-      const result = (await hideDashboardAction({
+      await hideDashboardAction({
         id: dashboardId,
         hidden: false,
-      })) as { ownerEmail?: string | null } | undefined;
+      });
       setHiddenAt(null);
-      if (typeof result?.ownerEmail === "string") {
-        setDashboardOwner(result.ownerEmail);
-      }
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["sql-dashboards-sidebar", dashboardScope],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["sql-dashboards-palette", dashboardScope],
       });
       queryClient.removeQueries({
         queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
       });
       toast.success(`Unhid "${dashboard?.name ?? "dashboard"}"`);
@@ -1762,6 +1868,19 @@ function SqlDashboardPageContent({
             {dashboard.name}
           </span>
         )}
+        {dashboardCertified ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                aria-label={t("sqlDashboard.certifiedForAi")}
+                className="inline-flex shrink-0 items-center text-primary"
+              >
+                <IconShieldCheck className="h-4 w-4" />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{t("sqlDashboard.certifiedForAi")}</TooltipContent>
+          </Tooltip>
+        ) : null}
       </div>
     ) : dashboardId && !loaded ? (
       <DashboardTitleSkeleton />
@@ -1793,7 +1912,7 @@ function SqlDashboardPageContent({
               tabs: [
                 {
                   value: "context",
-                  label: "Context",
+                  label: t("creativeContext.share.tabLabel"),
                   content: (
                     <CreativeContextShareTab
                       resource={{
@@ -1917,9 +2036,26 @@ function SqlDashboardPageContent({
                   <IconHistory className="mr-2 h-3.5 w-3.5" />
                   {t("dashboard.historyTitle")}
                 </DropdownMenuItem>
+                {dashboardUpdatedAt && canCertify && !archivedAt ? (
+                  <DropdownMenuItem
+                    disabled={dashboardCertified || certificationPending}
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      setDashboardActionsOpen(false);
+                      void handleCertify();
+                    }}
+                  >
+                    <IconShieldCheck className="mr-2 h-3.5 w-3.5" />
+                    {t(
+                      dashboardCertified
+                        ? "sqlDashboard.certifiedForAi"
+                        : "sqlDashboard.certifyForAi",
+                    )}
+                  </DropdownMenuItem>
+                ) : null}
               </>
             ) : null}
-            {canEdit && !archivedAt ? (
+            {canArchive && !archivedAt ? (
               <DropdownMenuItem
                 onSelect={(event) => {
                   event.preventDefault();
@@ -1931,7 +2067,7 @@ function SqlDashboardPageContent({
                 {t("sidebar.archive")}
               </DropdownMenuItem>
             ) : null}
-            {canEdit && !archivedAt && canManage ? (
+            {canArchive && !archivedAt && canManage ? (
               <DropdownMenuSeparator />
             ) : null}
             {canManage ? (
@@ -1946,13 +2082,13 @@ function SqlDashboardPageContent({
                 {t("sqlDashboard.deletePermanently")}
               </DropdownMenuItem>
             ) : null}
-            {dashboardId || (canEdit && !archivedAt) || canManage ? (
+            {dashboardId || (canArchive && !archivedAt) || canManage ? (
               <DropdownMenuSeparator />
             ) : null}
             <DropdownMenuLabel className="font-normal">
               <DashboardMetadata
                 createdAt={dashboardCreatedAt}
-                createdBy={dashboardOwner}
+                createdBy={dashboardCreatedBy}
                 updatedAt={dashboardUpdatedAt}
                 updatedBy={dashboardUpdatedBy}
               />

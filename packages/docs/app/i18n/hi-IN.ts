@@ -63,6 +63,7 @@ const hiIN = {
     dialogLabel: "दस्तावेज़ खोजें",
     placeholder: "दस्तावेज़ खोजें...",
     empty: "सभी दस्तावेज़ों में खोजने के लिए टाइप करें",
+    toggleChatSidebar: "चैट साइडबार बदलें",
     loadError: "खोज लोड नहीं हो सकी। फिर से कोशिश करें।",
     retry: "फिर से कोशिश करें",
     noResults: "“{{query}}” के लिए कोई परिणाम नहीं मिला",
@@ -432,24 +433,169 @@ const hiIN = {
     freeAndOpenSource: "100% मुफ़्त • ओपन सोर्स",
     viewAllApps: "सभी ऐप्स देखें",
   },
+  homepage: {
+    hero: {
+      title: "एजेंटिक एप्लिकेशन फ्रेमवर्क",
+      bodyLine1: "सहज UI वाले स्वायत्त एजेंट बनाएं।",
+      bodyLine2: "अपना LLM लाएं। कहीं भी डिप्लॉय करें।",
+      tryAnApp: "कोई ऐप आज़माएं",
+    },
+    install: {
+      copyCommand: "इंस्टॉल कमांड कॉपी करें",
+    },
+    actions: {
+      title: "एक Action हर सतह को चलाता है",
+      bodyLine1: "Actions एक Agent-Native ऐप की बुनियादी इकाइयाँ हैं।",
+      bodyLine2:
+        "कार्यक्षमता एक बार परिभाषित करें, फिर उसे अपने UI, एजेंट चैट, HTTP API, MCP, A2A या CLI से उपयोग करें।",
+      diagramAlt: "एक Action UI, MCP, एजेंट चैट, A2A, HTTP API और CLI को चलाता है",
+    },
+    builtIn: {
+      title: "हर Agent-Native ऐप में पहले से मौजूद",
+      body: "उपयोगकर्ताओं और AI एजेंट्स को साथ काम करने के लिए जो कुछ चाहिए, वह सब एक ही एप्लिकेशन में पहले से जुड़ा है।",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "उपयोगकर्ताओं को ब्राउज़ करने, संपादित करने और काम की समीक्षा करने के लिए जाने-पहचाने स्क्रीन दें।",
+        },
+        agentChat: {
+          title: "अंतर्निहित एजेंट चैट",
+          body: "उपयोगकर्ता ऐप छोड़े बिना काम सौंप सकते हैं, सवाल पूछ सकते हैं और परिणाम देख सकते हैं।",
+        },
+        sharedState: {
+          title: "साझा एप्लिकेशन स्थिति",
+          body: "एजेंट जानता है कि उपयोगकर्ता क्या देख रहे, चुन रहे और संपादित कर रहे हैं।",
+        },
+        sharedSql: {
+          title: "साझा SQL डेटा",
+          body: "उपयोगकर्ता और एजेंट एक ही विश्वसनीय स्रोत को पढ़ते और अपडेट करते हैं।",
+        },
+        skillsMemory: {
+          title: "स्किल्स और मेमोरी",
+          body: "एजेंट्स को दोबारा उपयोग होने वाली विशेषज्ञता और स्थायी संदर्भ दें।",
+        },
+        automations: {
+          title: "ऑटोमेशन",
+          body: "एजेंट का काम शेड्यूल या एप्लिकेशन इवेंट्स पर स्वचालित रूप से चलाएं।",
+        },
+        agentTeams: {
+          title: "एजेंट टीमें",
+          body: "ऐप के भीतर या कई ऐप्स में विशेषज्ञ एजेंट्स को काम सौंपें।",
+        },
+        auth: {
+          title: "प्रमाणीकरण और संगठन",
+          body: "साइन-इन, उपयोगकर्ता खाते और संगठन सदस्यता पहले से शामिल हैं।",
+        },
+        sharing: {
+          title: "साझाकरण और अनुमतियाँ",
+          body: "नियंत्रित करें कि हर संसाधन को कौन देख, टिप्पणी, संपादित या प्रबंधित कर सकता है।",
+        },
+      },
+    },
+    stack: {
+      title: "आपके स्टैक के साथ काम करता है",
+      body: "अपना LLM, डेटाबेस, टूल्स और इंफ्रास्ट्रक्चर लाएं, Agent-Native ओपन सोर्स TypeScript है, इसलिए आपका एप्लिकेशन आपका ही रहता है।",
+      exploreApps: "Agent-Native से बने ऐप्स देखें",
+    },
+    showcase: {
+      title: "Agent-Native से आप क्या बना सकते हैं?",
+      body: "ऐसे एजेंटिक ऐप्स जो आपके काम को समझते हैं, कार्रवाई करते हैं और आपके साथ सहयोग करते हैं। अपना ऐप बनाएं या इन ओपन-सोर्स ऐप्स में से किसी एक को आज़माएं।",
+      browseApps: "ऐप्स देखें",
+      scrollLeft: "ऐप्स बाईं ओर स्क्रॉल करें",
+      scrollRight: "ऐप्स दाईं ओर स्क्रॉल करें",
+    },
+    bottomCta: {
+      title: "अपना पहला Agent-Native ऐप बनाएं",
+      body: "उपयोगकर्ताओं और AI एजेंट्स के लिए एक ही एप्लिकेशन बनाएं। अपना LLM लाएं और कहीं भी डिप्लॉय करें।",
+    },
+    footer: {
+      tagline: "एजेंटिक एप्लिकेशन फ्रेमवर्क।",
+      framework: "फ्रेमवर्क",
+      ecosystem: "इकोसिस्टम",
+      community: "कम्युनिटी",
+      legal: "कानूनी",
+      docs: "दस्तावेज़",
+      download: "डाउनलोड",
+      apps: "ऐप्स",
+      privacyPolicy: "गोपनीयता नीति",
+      saasTerms: "SaaS शर्तें",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "लोकल रूप से नहीं बना रहे हैं?",
+      exploreApp: "पहले एक live ऐप देखें",
+      between: "या",
+      joinWaitlist: "waitlist में शामिल हों",
+      end: "और इसके बजाय browser में बनाएं।",
+    },
+  },
   templatesPage: {
     title: "ओपन-सोर्स, एजेंट-नेटिव ऐप्स आपके स्वामित्व में हैं",
     eyebrow: "एक working app से शुरू करें और agent को इसे evolve करने दें।",
     body: "आप हर चीज़ customize कर सकते हैं।",
+    firstPartyTitle: "Agent-Native द्वारा बनाए गए",
     community: "Blank app चाहिए? Framework guide से scratch से शुरू करें।",
     createYourOwn: "Scratch से शुरू करें",
-    communityTitle: "कम्युनिटी टेम्पलेट",
+    communityTitle: "कम्युनिटी ऐप्स",
     communityDescription:
-      "स्वतंत्र ऐप जिन्हें उनके लेखक बनाए रखते हैं। सार्वजनिक GitHub रिपॉज़िटरी से इंस्टॉल करें या उपलब्ध होने पर होस्ट किया गया संस्करण आज़माएँ।",
-    submitCommunityTemplate: "अपना टेम्पलेट सबमिट करें",
+      "लेखकों द्वारा बनाए गए ऐप्स खोजें। होस्ट किया गया संस्करण उपलब्ध हो तो आज़माएँ या सोर्स कोड देखकर खुद customize करें।",
+    submitCommunityTemplate: "ऐप सबमिट करें",
     communityEmpty:
-      "कम्युनिटी लिस्टिंग खुली हैं। किसी स्पष्ट काम पर केंद्रित Agent-Native ऐप को सार्वजनिक रिपॉज़िटरी में प्रकाशित करके कैटलॉग के लिए सबमिट करें।",
+      "कम्युनिटी लिस्टिंग खुली हैं। किसी स्पष्ट काम पर केंद्रित Agent-Native ऐप प्रकाशित करके कैटलॉग के लिए सबमिट करें।",
     publishGuide: "पब्लिशिंग गाइड पढ़ें",
     communityTrust:
-      "कम्युनिटी टेम्पलेट तृतीय-पक्ष कोड हैं। चलाने से पहले रिपॉज़िटरी, लाइसेंस, डिपेंडेंसी और इंस्टॉल स्क्रिप्ट की समीक्षा करें।",
+      "कम्युनिटी ऐप्स तृतीय-पक्ष कोड हैं। चलाने से पहले सोर्स कोड, लाइसेंस, डिपेंडेंसी और इंस्टॉल स्क्रिप्ट की समीक्षा करें।",
     copyCommunityInstallCommand: "इंस्टॉल कमांड कॉपी करें",
     viewRepository: "रिपॉज़िटरी देखें",
     tryCommunityDemo: "डेमो आज़माएँ",
+    customizeDescription: "आप इस कोड को पूरी तरह customize कर सकते हैं।",
+    customizeOnline: "ऑनलाइन customize करें",
+    customizeLocally: "लोकल customize करें",
+    communityNew: "नया",
+    communityComingSoon: "जल्द आ रहा है",
+    communityGithubStars: "GitHub पर {{count}} स्टार",
+    tryCommunityApp: "ऐप आज़माएँ",
+    viewCommunitySource: "सोर्स कोड देखें",
+    communityEyebrow: "कम्युनिटी ऐप",
+    communityScreenshots: "स्क्रीनशॉट",
+    previousScreenshot: "पिछला स्क्रीनशॉट",
+    nextScreenshot: "अगला स्क्रीनशॉट",
+    communityNoScreenshots: "रिव्यू के बाद स्क्रीनशॉट यहाँ दिखेंगे।",
+    communityScreenshotAlt: "{{name}} स्क्रीनशॉट {{index}}",
+    communityNoHostedVersion:
+      "होस्ट किया गया संस्करण जल्द आ रहा है। सोर्स लिंक से विकास देखें।",
+    communitySubmissionTitle: "कम्युनिटी ऐप शेयर करें",
+    communitySubmissionDescription:
+      "बताएँ कि आपका ऐप कहाँ मिलता है और क्या करता है। लिस्टिंग प्रकाशित करने से पहले हम विवरण की समीक्षा करेंगे।",
+    communitySubmissionName: "ऐप का नाम",
+    communitySubmissionNamePlaceholder: "कस्टमर सपोर्ट हब",
+    communitySubmissionUrl: "ऐप URL",
+    communitySubmissionUrlPlaceholder: "example.com",
+    communitySubmissionDescriptionLabel: "विवरण",
+    communitySubmissionDescriptionPlaceholder:
+      "ऐप क्या करता है और यह किसके लिए है?",
+    communitySubmissionRepository: "GitHub रिपॉज़िटरी (वैकल्पिक)",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
+    communitySubmissionScreenshots: "स्क्रीनशॉट (वैकल्पिक)",
+    communitySubmissionScreenshotsPlaceholder: "यहाँ अधिकतम 5 इमेज ड्रॉप करें",
+    communitySubmissionScreenshotDropHint: "PNG, JPG या WebP। प्रत्येक 1.5 MB तक।",
+    communitySubmissionScreenshotSlot: "स्क्रीनशॉट {{index}}",
+    communitySubmissionScreenshotsAdd: "स्क्रीनशॉट जोड़ें",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 चुने गए",
+    communitySubmissionScreenshotRemove: "स्क्रीनशॉट {{index}} हटाएँ",
+    communitySubmissionSubmit: "ऐप सबमिट करें",
+    communitySubmissionReady:
+      "धन्यवाद। प्रकाशित करने से पहले हम आपके ऐप की समीक्षा करेंगे।",
+    communitySubmissionNameError: "ऐप का नाम दर्ज करें।",
+    communitySubmissionDescriptionError: "छोटा विवरण जोड़ें।",
+    communitySubmissionUrlError: "मान्य ऐप लिंक दर्ज करें, जैसे example.com।",
+    communitySubmissionRepositoryError: "GitHub रिपॉज़िटरी लिंक दर्ज करें।",
+    communitySubmissionScreenshotsError:
+      "PNG, JPG या WebP इमेज इस्तेमाल करें, प्रत्येक 1.5 MB तक और अधिकतम 5 इमेज।",
+    communitySubmissionSubmitError:
+      "अभी सबमिट नहीं हो सका। चिह्नित फ़ील्ड जाँचकर फिर कोशिश करें।",
+    communitySubmissionSubmitting: "सबमिट हो रहा है…",
   },
   buildFromScratch: {
     title: "शुरू से बनाएँ",
@@ -457,7 +603,7 @@ const hiIN = {
       "फ़्रेमवर्क गाइड से शुरू करें या Builder.io के क्लाउड कोडिंग एजेंट के साथ ऑनलाइन बनाएँ.",
     readDocs: "डॉक्स पढ़ें",
     buildOnline: "ऑनलाइन बनाएँ",
-    popoverTitle: "Builder.io के साथ ऑनलाइन बनाएँ",
+    popoverTitle: "Browser में बनाएँ",
     popoverBody:
       "Builder.io क्लाउड में agent-native ऐप शुरू और कस्टमाइज़ कर सकता है — actions, auth, SQL state और agent chat सहित. शुरुआती पहुँच के लिए waitlist में शामिल हों.",
     emailLabel: "ईमेल",
@@ -485,7 +631,7 @@ const hiIN = {
     clips: {
       replaces: "Loom, Granola और Wisprflow को बदलता या बढ़ाता है",
       description:
-        "ब्राउज़र डिबग कैप्चर, कैलेंडर-सिंक किए गए मीटिंग नोट्स और Fn-होल्ड वॉयस डिक्टेशन के साथ स्क्रीन रिकॉर्डिंग - सभी ट्रांसक्राइब्ड, सारांशित और खोजने योग्य, एक एजेंट के साथ जो इसमें से किसी को भी संपादित कर सकता है।",
+        "स्क्रीन, मीटिंग और वॉइस नोट्स रिकॉर्ड करता है, ताकि एजेंट समझ सकें कि क्या हुआ और कार्रवाई करें।",
     },
     plan: {
       replaces: "Codex, Claude Code और coding agents के लिए visual plan mode",
@@ -495,28 +641,28 @@ const hiIN = {
     design: {
       replaces: "Design prototyping tools को बदलता या बढ़ाता है",
       description:
-        "Agent-native HTML प्रोटोटाइपिंग स्टूडियो। Interactive Alpine/Tailwind designs बनाएं, variants compare करें, live controls refine करें और result export करें।",
+        "प्रॉम्प्ट को आपके डिज़ाइन सिस्टम के अनुरूप इंटरैक्टिव डिज़ाइन में बदलता है, जबकि एजेंट फ़ीडबैक से हर स्क्रीन बेहतर बनाता है।",
     },
     content: {
       replaces:
         "MDX, Notion, Google Docs के लिए Obsidian को प्रतिस्थापित या संवर्धित करता है",
       description:
-        "स्थानीय Markdown/MDX फ़ाइलों को Obsidian की तरह संपादित करें, समृद्ध इंटरैक्टिव कस्टम ब्लॉक बनाएं, और ड्राफ्ट, पुनः लिखने और प्रकाशित करने के लिए AI एजेंट का उपयोग करें।",
+        "आपके दस्तावेज़ों पर काम करता है, जबकि एजेंट आपकी शैली में लिखता, इंटरैक्टिव सामग्री बनाता और आपकी साइट पर प्रकाशित करता है।",
     },
     slides: {
       replaces: "Google Slides, Pitch को प्रतिस्थापित या संवर्धित करता है",
       description:
-        "एक प्रॉम्प्ट से पूर्ण प्रस्तुतियाँ तैयार करें। दृश्यात्मक या संवादात्मक रूप से संपादित करें. AI छवि निर्माण, 8 लेआउट और प्रेजेंटेशन मोड अंतर्निहित।",
+        "प्रॉम्प्ट या मौजूदा स्लाइड से ब्रांड के अनुरूप, संपादन योग्य प्रेज़ेंटेशन बनाता है, जिन्हें एजेंट बना, संपादित और बेहतर कर सकता है।",
     },
     analytics: {
       replaces: "Amplitude और FullStory का ओपन-सोर्स विकल्प",
       description:
-        "किसी भी डेटा स्रोत को कनेक्ट करें, किसी भी चार्ट के लिए संकेत दें, पुन: प्रयोज्य डैशबोर्ड बनाएं। एजेंट SQL लिखता है, विज़ुअलाइज़ेशन उत्पन्न करता है, और ऐप विकसित करता है।",
+        "आपका डेटा जोड़ता है, ताकि एजेंट सरल भाषा में सवालों के जवाब दे और नतीजों को चार्ट व डैशबोर्ड में बदले।",
     },
     mail: {
       replaces: "Superhuman, Gmail को प्रतिस्थापित या संवर्धित करता है",
       description:
-        "कीबोर्ड शॉर्टकट, AI ट्राइएज, मल्टी-अकाउंट सपोर्ट और ईमेल ऑटोमेशन के साथ Superhuman-स्टाइल ईमेल क्लाइंट। अपने इनबॉक्स वर्कफ़्लो का स्वामी बनें.",
+        "कीबोर्ड-केंद्रित इनबॉक्स, जहाँ एजेंट मेल को प्राथमिकता देता, जवाब लिखता, थ्रेड का सार बताता और फ़ॉलो-अप करता है।",
     },
     forms: {
       replaces: "Typeform, Google Forms को प्रतिस्थापित या संवर्धित करता है",
@@ -527,12 +673,12 @@ const hiIN = {
       replaces:
         "DAMs, ब्रांड एसेट लाइब्रेरीज़ और AI मीडिया जनरेटर को प्रतिस्थापित या संवर्धित करता है",
       description:
-        "अपलोड, ब्रांड लाइब्रेरी, खोजने योग्य संदर्भ और ऑन-ब्रांड छवि/वीडियो जेनरेशन के लिए डिजिटल एसेट मैनेजर जिसे अन्य ऐप्स A2A के माध्यम से कॉल कर सकते हैं या पिकर के रूप में एम्बेड कर सकते हैं।",
+        "एजेंटों को ब्रांड दिशानिर्देशों, इमेज और वीडियो की साझा लाइब्रेरी देता है, ताकि वे ऐप्स में ब्रांड के अनुरूप मीडिया बना और चुन सकें।",
     },
     calendar: {
       replaces: "Google Calendar, Calendly को प्रतिस्थापित या संवर्धित करता है",
       description:
-        "Google सिंक, उपलब्धता प्रबंधन और एक सार्वजनिक बुकिंग पृष्ठ के साथ पूर्ण कैलेंडर। एजेंट खुले स्लॉट ढूंढता है, ईवेंट बनाता है और आपका शेड्यूल प्रबंधित करता है।",
+        "आपके Google Calendars को साथ लाता है, ताकि एजेंट समय ढूँढे, इवेंट शेड्यूल या रीशेड्यूल करे और बुकिंग संभाले।",
     },
     dispatch: {
       replaces: "आपके एजेंट-मूल ऐप्स के लिए मिशन नियंत्रण",
@@ -1227,7 +1373,7 @@ const hiIN = {
           "Plan mode आपके terminal में text होता है, एक व्यक्ति को दिखता है और approve करते ही गायब हो जाता है। Plans visual हैं — wireframes, diagrams और annotated diffs — साथ ही shareable और persistent भी: agents feature के पूरे lifecycle में इन्हें बनाते, पढ़ते और update करते हैं।",
         question5: "क्या मैं plans को अपने code के साथ देख सकता हूँ?",
         answer5:
-          "हाँ। VS Code extension plans को side panel में खोलता है, और Agent Native Desktop hosted plans को स्थानीय MDX files में mirror करता है।",
+          "हाँ। VS Code extension plans को side panel में खोलता है, और Agent-Native Desktop hosted plans को स्थानीय MDX files में mirror करता है।",
         question6: "क्या Plans मुफ़्त है?",
         answer6:
           "हाँ। मुफ़्त, open source और MIT licensed। Plans में hosted share links मिलते हैं, और आप सब कुछ स्थानीय files में mirror कर सकते हैं।",
@@ -1295,7 +1441,7 @@ const hiIN = {
       s060: "सभी टेम्पलेट देखें",
       s061: "VS Code हैंडऑफ",
       s062: "इससे VS Code साइड पैनल में प्लान लिंक खोलें:",
-      s063: "Agent Native Plans एक्सटेंशन",
+      s063: "Agent-Native Plans एक्सटेंशन",
       s064: "वायरफ्रेम — कंपोनेंट स्लॉट वाला स्केची UI मॉकअप",
       s065: "एनोटेटेड कोड — प्रति-लाइन नोट्स वाली स्रोत फ़ाइल",
       s066: "डायग्राम — फ़्लोचार्ट, सीक्वेंस या आर्किटेक्चर",
@@ -1512,9 +1658,9 @@ const hiIN = {
     },
   },
   downloadPage: {
-    title: "Agent Native डाउनलोड करें",
-    body: "आपके सभी agent-native ऐप एक ही desktop shell में। Production apps built-in हैं, और local development के लिए dev mode toggle है।",
-    openDesktop: "Agent Native खोलें",
+    title: "Agent-Native डाउनलोड करें",
+    body: "meetings, design, presentations, data, scheduling, email और बहुत कुछ के लिए agentic apps आज़माएं — सब एक ही desktop app में।",
+    openDesktop: "Agent-Native खोलें",
     downloadInstaller: "Installer डाउनलोड करें",
     downloadStarted: "डाउनलोड शुरू हो गया",
     downloadAgain: "काम नहीं किया? फिर से डाउनलोड करें",
@@ -1522,27 +1668,33 @@ const hiIN = {
     checkingRelease: "नवीनतम desktop release जांच रहे हैं...",
     retry: "फिर कोशिश करें",
     unavailable: "इस platform के लिए installer उपलब्ध नहीं है",
+    allPlatforms: "सभी प्लेटफ़ॉर्म",
     stable: "स्थिर",
     nightly: "Nightly",
-    switchToNightly: "Nightly builds पर जाएं",
-    switchToStable: "स्थिर builds पर जाएं",
-    runFromSource: "या source से चलाएं",
+    runFromSource: "अपना खुद का बनाएं",
     runFromSourceBody:
-      "आपके platform के लिए अभी installer नहीं है, या CLI पसंद है? npm से नया app scaffold करें और local चलाएं — macOS, Windows और Linux पर काम करता है।",
+      "command line से एक Agent-Native ऐप बनाएं और इसे macOS, Windows या Linux पर स्थानीय रूप से चलाएं।",
     platforms: {
       mac: {
         primary: "Apple Silicon के लिए डाउनलोड करें",
         alternative: "Intel Mac संस्करण",
+        gridPrimary: "Apple Silicon",
+        gridAlternative: "Intel",
       },
       windows: {
         primary: "Windows के लिए डाउनलोड करें",
         alternative: "ARM64",
+        gridPrimary: "x64 इंस्टॉलर",
+        gridAlternative: "Arm64 इंस्टॉलर",
         note: "Windows 10 या उसके बाद।",
       },
       linux: {
         primary: "Linux archive डाउनलोड करें",
         appImage: "AppImage डाउनलोड करें",
         deb: ".deb डाउनलोड करें",
+        gridPrimary: "x86_64",
+        gridAppImage: "Universal",
+        gridDeb: "Debian / Ubuntu",
         note: "Archive FUSE के बिना काम करता है। कुछ distributions पर AppImage को FUSE 2 चाहिए हो सकता है।",
       },
     },
@@ -1945,6 +2097,7 @@ const hiIN = {
     externalAgents: "External Agents (host connect करें)",
     externalAgentsCatalog: "बाहरी एजेंट कैटलॉग",
     mcpApps: "MCP Apps (Inline UIs)",
+    webMcp: "WebMCP (ब्राउज़र टूल्स)",
     crossAppSso: "Cross-app SSO",
     notifications: "सूचनाएँ",
     automationConnectors: "वर्कफ़्लो कनेक्टर",
@@ -2029,8 +2182,9 @@ const hiIN = {
     dispatchDevelopers: "डेवलपर गाइड",
     forms: "फॉर्म",
     formsOverview: "अवलोकन",
-    formsBuildingPublishing: "निर्माण और प्रकाशन",
-    formsResponses: "प्रतिक्रियाएं और इनसाइट्स",
+    formsFeatures: "सुविधाएं",
+    formsAgent: "एजेंट से बात करें",
+    formsIntegrations: "क्रॉस-ऐप उपयोग",
     docsComponents: "Docs Components",
     formsDevelopers: "डेवलपर गाइड",
   },

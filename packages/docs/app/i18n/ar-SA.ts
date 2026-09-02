@@ -63,6 +63,7 @@ const arSA = {
     dialogLabel: "البحث في الوثائق",
     placeholder: "ابحث في الوثائق...",
     empty: "اكتب للبحث في كل الوثائق",
+    toggleChatSidebar: "تبديل الشريط الجانبي للدردشة",
     loadError: "تعذر تحميل البحث. حاول مرة أخرى.",
     retry: "حاول مرة أخرى",
     noResults: "لا توجد نتائج لـ “{{query}}”",
@@ -431,24 +432,170 @@ const arSA = {
     freeAndOpenSource: "مجاني 100% • مفتوح المصدر",
     viewAllApps: "عرض جميع التطبيقات",
   },
+  homepage: {
+    hero: {
+      title: "إطار العمل لتطبيقات الوكلاء",
+      bodyLine1: "أنشئ وكلاء مستقلين بواجهات استخدام بديهية.",
+      bodyLine2: "استخدم LLM الخاص بك. وانشر في أي مكان.",
+      tryAnApp: "جرّب تطبيقًا",
+    },
+    install: {
+      copyCommand: "نسخ أمر التثبيت",
+    },
+    actions: {
+      title: "Action واحد يشغّل كل الواجهات",
+      bodyLine1: "الـ Actions هي وحدات البناء الأساسية لتطبيق Agent-Native.",
+      bodyLine2:
+        "عرّف الوظيفة مرة واحدة، ثم استخدمها من واجهتك أو دردشة الوكيل أو HTTP API أو MCP أو A2A أو CLI.",
+      diagramAlt:
+        "Action واحد يشغّل الواجهة وMCP ودردشة الوكيل وA2A وHTTP API وCLI",
+    },
+    builtIn: {
+      title: "مدمج في كل تطبيق Agent-Native",
+      body: "كل ما يحتاجه المستخدمون ووكلاء الذكاء الاصطناعي للعمل معًا، موصول مسبقًا في تطبيق واحد.",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "امنح المستخدمين شاشات مألوفة للتصفح والتحرير ومراجعة العمل.",
+        },
+        agentChat: {
+          title: "دردشة وكيل مدمجة",
+          body: "دع المستخدمين يوكلون العمل ويطرحون الأسئلة ويراجعون النتائج دون مغادرة التطبيق.",
+        },
+        sharedState: {
+          title: "حالة تطبيق مشتركة",
+          body: "الوكيل يعرف ما يشاهده المستخدمون وما يحددونه وما يحررونه.",
+        },
+        sharedSql: {
+          title: "بيانات SQL مشتركة",
+          body: "المستخدمون والوكلاء يقرأون ويحدّثون المصدر الموثوق نفسه.",
+        },
+        skillsMemory: {
+          title: "المهارات والذاكرة",
+          body: "امنح الوكلاء خبرة قابلة لإعادة الاستخدام وسياقًا دائمًا.",
+        },
+        automations: {
+          title: "الأتمتة",
+          body: "شغّل عمل الوكيل تلقائيًا وفق جداول زمنية أو أحداث التطبيق.",
+        },
+        agentTeams: {
+          title: "فرق الوكلاء",
+          body: "وكّل العمل إلى وكلاء متخصصين داخل التطبيق أو عبر التطبيقات.",
+        },
+        auth: {
+          title: "المصادقة والمؤسسات",
+          body: "تسجيل الدخول وحسابات المستخدمين وعضوية المؤسسات مدمجة مسبقًا.",
+        },
+        sharing: {
+          title: "المشاركة والصلاحيات",
+          body: "تحكّم في من يمكنه عرض كل مورد أو التعليق عليه أو تحريره أو إدارته.",
+        },
+      },
+    },
+    stack: {
+      title: "يعمل مع حزمتك التقنية",
+      body: "أحضر LLM وقاعدة البيانات والأدوات والبنية التحتية الخاصة بك، فـ Agent-Native مفتوح المصدر بلغة TypeScript، ويبقى تطبيقك ملكك.",
+      exploreApps: "استكشف التطبيقات المبنية بـ Agent-Native",
+    },
+    showcase: {
+      title: "ما الذي يمكنك بناؤه باستخدام Agent-Native؟",
+      body: "تطبيقات وكيلة تفهم عملك وتتخذ الإجراءات وتتعاون معك. أنشئ تطبيقك أو جرّب أحد هذه التطبيقات مفتوحة المصدر.",
+      browseApps: "استعرض التطبيقات",
+      scrollLeft: "تمرير التطبيقات إلى اليسار",
+      scrollRight: "تمرير التطبيقات إلى اليمين",
+    },
+    bottomCta: {
+      title: "ابنِ أول تطبيق Agent-Native لك",
+      body: "أنشئ تطبيقًا واحدًا للمستخدمين ووكلاء الذكاء الاصطناعي. استخدم LLM الخاص بك وانشر في أي مكان.",
+    },
+    footer: {
+      tagline: "إطار العمل لتطبيقات الوكلاء.",
+      framework: "الإطار",
+      ecosystem: "المنظومة",
+      community: "المجتمع",
+      legal: "قانوني",
+      docs: "الوثائق",
+      download: "تنزيل",
+      apps: "التطبيقات",
+      privacyPolicy: "سياسة الخصوصية",
+      saasTerms: "شروط SaaS",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "ألا تريد البناء محليًا؟",
+      exploreApp: "استكشف تطبيقًا مباشرًا",
+      between: "أولًا، أو",
+      joinWaitlist: "انضم إلى قائمة الانتظار",
+      end: "للبناء في المتصفح بدلًا من ذلك.",
+    },
+  },
   templatesPage: {
     title: "تطبيقات الوكيل الأصلية مفتوحة المصدر التي تمتلكها",
     eyebrow: "ابدأ من app جاهز ودع الوكيل يطوره.",
     body: "يمكنك تخصيص كل شيء.",
+    firstPartyTitle: "من إنشاء Agent-Native",
     community: "تريد تطبيقا فارغا؟ ابدأ من الصفر مع دليل إطار العمل.",
     createYourOwn: "ابدأ من الصفر",
-    communityTitle: "قوالب المجتمع",
+    communityTitle: "تطبيقات المجتمع",
     communityDescription:
-      "تطبيقات مستقلة يصونها مؤلفوها. ثبّتها من مستودع GitHub عام أو جرّب نسخة مستضافة عندما تكون متاحة.",
-    submitCommunityTemplate: "أرسل قالبك",
+      "اكتشف تطبيقات يديرها مؤلفوها. جرّب النسخة المستضافة عند توفرها، أو راجع المصدر وخصص التطبيق بنفسك.",
+    submitCommunityTemplate: "إرسال تطبيق",
     communityEmpty:
-      "باب الإدراج في المجتمع مفتوح. انشر تطبيق Agent-Native مركّزًا في مستودع عام وأرسله إلى الكتالوج.",
+      "باب الإدراج في المجتمع مفتوح. انشر تطبيق Agent-Native مركّزًا وأرسله إلى الكتالوج.",
     publishGuide: "اقرأ دليل النشر",
     communityTrust:
-      "قوالب المجتمع شيفرة من جهات خارجية. راجع المستودع والترخيص والاعتماديات وبرامج التثبيت قبل تشغيلها.",
+      "تطبيقات المجتمع شيفرة من جهات خارجية. راجع المصدر والترخيص والاعتماديات وبرامج التثبيت قبل تشغيلها.",
     copyCommunityInstallCommand: "نسخ أمر التثبيت",
     viewRepository: "عرض المستودع",
     tryCommunityDemo: "تجربة العرض",
+    customizeDescription: "يمكنك تخصيص هذه الشيفرة بالكامل.",
+    customizeOnline: "تخصيص عبر الإنترنت",
+    customizeLocally: "تخصيص محليًا",
+    communityNew: "جديد",
+    communityComingSoon: "قريبًا",
+    communityGithubStars: "{{count}} نجمة على GitHub",
+    tryCommunityApp: "تجربة التطبيق",
+    viewCommunitySource: "عرض المصدر",
+    communityEyebrow: "تطبيق مجتمعي",
+    communityScreenshots: "لقطات الشاشة",
+    previousScreenshot: "لقطة الشاشة السابقة",
+    nextScreenshot: "لقطة الشاشة التالية",
+    communityNoScreenshots: "ستظهر لقطات الشاشة هنا بعد المراجعة.",
+    communityScreenshotAlt: "لقطة شاشة {{name}} رقم {{index}}",
+    communityNoHostedVersion:
+      "ستتوفر نسخة مستضافة قريبًا. تابع التطوير عبر رابط المصدر.",
+    communitySubmissionTitle: "شارك تطبيقًا مجتمعيًا",
+    communitySubmissionDescription:
+      "أخبرنا أين نجد تطبيقك وماذا يفعل. سنراجع التفاصيل قبل نشر الإدراج.",
+    communitySubmissionName: "اسم التطبيق",
+    communitySubmissionNamePlaceholder: "مركز دعم العملاء",
+    communitySubmissionUrl: "رابط التطبيق",
+    communitySubmissionUrlPlaceholder: "example.com",
+    communitySubmissionDescriptionLabel: "الوصف",
+    communitySubmissionDescriptionPlaceholder:
+      "ماذا يفعل التطبيق ولمن هو مخصص؟",
+    communitySubmissionRepository: "مستودع GitHub (اختياري)",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
+    communitySubmissionScreenshots: "لقطات الشاشة (اختياري)",
+    communitySubmissionScreenshotsPlaceholder: "اسحب حتى 5 صور إلى هنا",
+    communitySubmissionScreenshotDropHint:
+      "PNG أو JPG أو WebP. بحد أقصى 1.5 ميجابايت لكل صورة.",
+    communitySubmissionScreenshotSlot: "لقطة الشاشة {{index}}",
+    communitySubmissionScreenshotsAdd: "إضافة لقطات شاشة",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 محددة",
+    communitySubmissionScreenshotRemove: "إزالة لقطة الشاشة {{index}}",
+    communitySubmissionSubmit: "إرسال التطبيق",
+    communitySubmissionReady: "شكرًا. سنراجع تطبيقك قبل نشره.",
+    communitySubmissionNameError: "أدخل اسم التطبيق.",
+    communitySubmissionDescriptionError: "أضف وصفًا موجزًا.",
+    communitySubmissionUrlError: "أدخل رابط تطبيق صالحًا، مثل example.com.",
+    communitySubmissionRepositoryError: "أدخل رابط مستودع GitHub.",
+    communitySubmissionScreenshotsError:
+      "استخدم صور PNG أو JPG أو WebP بحد أقصى 1.5 ميجابايت لكل صورة، وبحد أقصى 5 صور.",
+    communitySubmissionSubmitError:
+      "تعذر الإرسال الآن. تحقق من الحقول المميزة وحاول مرة أخرى.",
+    communitySubmissionSubmitting: "جارٍ الإرسال…",
   },
   buildFromScratch: {
     title: "ابنِ من الصفر",
@@ -456,7 +603,7 @@ const arSA = {
       "ابدأ بدليل إطار العمل أو ابنِ عبر الإنترنت باستخدام وكيل البرمجة السحابي من Builder.io.",
     readDocs: "اقرأ المستندات",
     buildOnline: "ابنِ عبر الإنترنت",
-    popoverTitle: "ابنِ عبر الإنترنت باستخدام Builder.io",
+    popoverTitle: "أنشئ في المتصفح",
     popoverBody:
       "يمكن لـ Builder.io إنشاء تطبيق agent-native وتخصيصه في السحابة — مع الإجراءات والمصادقة وحالة SQL ودردشة الوكيل. انضم إلى قائمة الانتظار للوصول المبكر.",
     emailLabel: "البريد الإلكتروني",
@@ -485,7 +632,7 @@ const arSA = {
     clips: {
       replaces: "يستبدل أو يعزز Loom وGranola وWisprflow",
       description:
-        "تسجيلات الشاشة مع التقاط تصحيح أخطاء المتصفح، وملاحظات الاجتماع المتزامنة مع التقويم، والإملاء الصوتي مع الاستمرار Fn - كلها مكتوبة وملخصة وقابلة للبحث، مع وكيل يمكنه تحرير أي منها.",
+        "يسجل شاشتك واجتماعاتك وملاحظاتك الصوتية كي يفهم الوكلاء ما حدث ويتخذوا الإجراء المناسب.",
     },
     plan: {
       replaces: "وضع تخطيط مرئي لـ Codex وClaude Code ووكلاء البرمجة",
@@ -495,27 +642,27 @@ const arSA = {
     design: {
       replaces: "يستبدل أو يعزز أدوات نمذجة التصميم",
       description:
-        "استوديو نمذجة HTML agent-native. أنشئ تصاميم Alpine/Tailwind تفاعلية، قارن النسخ، حسّن عناصر التحكم مباشرة، وصدّر النتيجة.",
+        "يحوّل التعليمات إلى تصاميم تفاعلية تتبع نظام التصميم الخاص بك، بينما يحسّن الوكيل كل شاشة بناءً على الملاحظات.",
     },
     content: {
       replaces: "يستبدل أو يزيد Obsidian لـ MDX، Notion، Google Docs",
       description:
-        "قم بتحرير ملفات Markdown/MDX المحلية مثل Obsidian، وقم بإنشاء كتل مخصصة تفاعلية غنية، واستخدم وكيل AI للصياغة وإعادة الكتابة والنشر.",
+        "يعمل على مستنداتك بينما يكتب الوكيل بأسلوبك وينشئ محتوى تفاعليًا وينشره على موقعك.",
     },
     slides: {
       replaces: "يستبدل أو يزيد Google Slides، Pitch",
       description:
-        "إنشاء عروض تقديمية كاملة من موجه. تحرير بصريا أو محادثة. AI إنشاء الصور و8 تخطيطات ووضع العرض التقديمي المدمج.",
+        "ينشئ عروضًا تقديمية قابلة للتعديل ومتوافقة مع علامتك من التعليمات أو الشرائح الحالية، ويمكن للوكيل إنشاءها وتحريرها وتحسينها.",
     },
     analytics: {
       replaces: "البديل مفتوح المصدر لـ Amplitude وFullStory",
       description:
-        "قم بتوصيل أي مصدر بيانات، والمطالبة بأي مخطط، وإنشاء لوحات معلومات قابلة لإعادة الاستخدام. يقوم الوكيل بكتابة SQL وإنشاء تصورات وتطوير التطبيق.",
+        "يربط بياناتك كي يجيب الوكيل عن الأسئلة بلغة بسيطة ويحوّل النتائج إلى مخططات ولوحات معلومات.",
     },
     mail: {
       replaces: "يستبدل أو يزيد Superhuman، Gmail",
       description:
-        "عميل بريد إلكتروني بنمط Superhuman مع اختصارات لوحة المفاتيح، وAI الفرز، ودعم الحسابات المتعددة، وأتمتة البريد الإلكتروني. امتلك سير عمل البريد الوارد الخاص بك.",
+        "صندوق وارد مصمم للعمل بلوحة المفاتيح، حيث يرتب الوكيل البريد حسب الأولوية ويصوغ الردود ويلخص المحادثات ويتابعها.",
     },
     forms: {
       replaces: "يستبدل أو يزيد Typeform، Google Forms",
@@ -526,12 +673,12 @@ const arSA = {
       replaces:
         "يستبدل أو يعزز DAMs ومكتبات أصول العلامة التجارية وAI ومولدات الوسائط",
       description:
-        "مدير الأصول الرقمية للتحميلات ومكتبات العلامات التجارية والمراجع القابلة للبحث وإنشاء الصور/مقاطع الفيديو الخاصة بالعلامة التجارية والتي يمكن للتطبيقات الأخرى الاتصال بها من خلال A2A أو تضمينها كمنتقي.",
+        "يوفر للوكلاء مكتبة مشتركة من إرشادات العلامة والصور ومقاطع الفيديو لإنشاء وسائط متوافقة مع العلامة واختيارها عبر التطبيقات.",
     },
     calendar: {
       replaces: "يستبدل أو يزيد Google Calendar، Calendly",
       description:
-        "تقويم كامل مع مزامنة Google وإدارة التوفر وصفحة حجز عامة. يجد الوكيل فتحات مفتوحة، وينشئ الأحداث، ويدير الجدول الزمني الخاص بك.",
+        "يجمع تقاويم Google الخاصة بك كي يجد الوكيل وقتًا مناسبًا ويجدول الأحداث أو يعيد جدولتها ويدير الحجوزات.",
     },
     dispatch: {
       replaces: "التحكم في المهمة لتطبيقات الوكيل الأصلية",
@@ -1225,7 +1372,7 @@ const arSA = {
       s026: "روابط قابلة للمشاركة",
       s027: "تحصل كل خطة على عنوان URL عام. شارك مع زملائك في الفريق للمراجعة غير المتزامنة والتعليقات والموافقات.",
       s028: "مزامنة ملفات سطح المكتب",
-      s029: "قم بنسخ الخطط المستضافة على ملفات MDX المحلية من Agent Native Desktop دون استنساخ التطبيق أو تشغيل CLI.",
+      s029: "قم بنسخ الخطط المستضافة على ملفات MDX المحلية من Agent-Native Desktop دون استنساخ التطبيق أو تشغيل CLI.",
       s030: "، لذا تظل المراجعة بجوار الرمز.",
       s031: "كيف يعمل",
       s032: "التخطيط للحياة في تطبيق مشترك - يمكنك أنت والوكيل قراءته وتحديثه طوال دورة حياة الميزة.",
@@ -1259,7 +1406,7 @@ const arSA = {
       s060: "عرض كافة القوالب",
       s061: "تسليمات VS Code",
       s062: "افتح روابط الخطة في لوحة جانبية في VS Code باستخدام",
-      s063: "إضافة Agent Native Plans",
+      s063: "إضافة Agent-Native Plans",
       s064: "إطار سلكي — نموذج UI تخطيطي مع أماكن للمكونات",
       s065: "كود مشروح — ملف مصدر مع ملاحظات لكل سطر",
       s066: "مخطط — تدفق أو تسلسل أو بنية",
@@ -1287,7 +1434,7 @@ const arSA = {
           "plan mode نص في الطرفية، يراه شخص واحد ويختفي عند الموافقة عليه. أما Plans فمرئي، ويضم مخططات أولية ورسومًا بيانية وفروقًا مشروحة، وهو قابل للمشاركة ودائم؛ تنشئه الوكلاء وتقرأه وتحدّثه طوال دورة حياة الميزة.",
         question5: "هل يمكنني رؤية الخطط بجانب الكود؟",
         answer5:
-          "نعم. تفتح إضافة VS Code الخطط في لوحة جانبية، ويعكس Agent Native Desktop الخطط المستضافة إلى ملفات MDX محلية.",
+          "نعم. تفتح إضافة VS Code الخطط في لوحة جانبية، ويعكس Agent-Native Desktop الخطط المستضافة إلى ملفات MDX محلية.",
         question6: "هل Plans مجاني؟",
         answer6:
           "نعم، هو مجاني ومفتوح المصدر ومرخص بموجب MIT. يوفر Plans روابط مشاركة مستضافة، ويمكنك عكس كل شيء إلى ملفات محلية.",
@@ -1511,9 +1658,9 @@ const arSA = {
     },
   },
   downloadPage: {
-    title: "تنزيل Agent Native",
-    body: "كل تطبيقاتك agent-native في واجهة سطح مكتب واحدة. تطبيقات الإنتاج مدمجة، مع تبديل وضع التطوير للتطوير المحلي.",
-    openDesktop: "افتح Agent Native",
+    title: "تنزيل Agent-Native",
+    body: "جرّب تطبيقات وكيلية للاجتماعات والتصميم والعروض التقديمية والبيانات والجدولة والبريد الإلكتروني والمزيد، كلها في تطبيق سطح مكتب واحد.",
+    openDesktop: "افتح Agent-Native",
     downloadInstaller: "تنزيل المثبّت",
     downloadStarted: "بدأ التنزيل",
     downloadAgain: "ألم ينجح؟ حاول التنزيل مرة أخرى",
@@ -1521,27 +1668,33 @@ const arSA = {
     checkingRelease: "جارٍ التحقق من أحدث إصدار لسطح المكتب...",
     retry: "إعادة المحاولة",
     unavailable: "المثبّت غير متاح لهذه المنصة",
+    allPlatforms: "جميع المنصات",
     stable: "مستقر",
     nightly: "Nightly",
-    switchToNightly: "التبديل إلى إصدارات Nightly",
-    switchToStable: "التبديل إلى الإصدارات المستقرة",
-    runFromSource: "أو شغّله من المصدر",
+    runFromSource: "أنشئ تطبيقك الخاص",
     runFromSourceBody:
-      "لا يوجد مثبّت لمنصتك بعد، أو تفضّل CLI؟ أنشئ تطبيقًا جديدًا باستخدام npm وشغّله محليًا — يعمل على macOS وWindows وLinux.",
+      "أنشئ تطبيق Agent-Native من سطر الأوامر وشغّله محليًا على macOS أو Windows أو Linux.",
     platforms: {
       mac: {
         primary: "تنزيل لإصدار Apple Silicon",
         alternative: "Mac بمعالج Intel",
+        gridPrimary: "Apple Silicon",
+        gridAlternative: "Intel",
       },
       windows: {
         primary: "تنزيل لإصدار Windows",
         alternative: "ARM64",
+        gridPrimary: "مثبّت x64",
+        gridAlternative: "مثبّت Arm64",
         note: "Windows 10 أو أحدث.",
       },
       linux: {
         primary: "تنزيل أرشيف Linux",
         appImage: "تنزيل AppImage",
         deb: "تنزيل .deb",
+        gridPrimary: "x86_64",
+        gridAppImage: "عام",
+        gridDeb: "Debian / Ubuntu",
         note: "يعمل الأرشيف بدون FUSE. قد يتطلب AppImage إصدار FUSE 2 في بعض التوزيعات.",
       },
     },
@@ -1943,6 +2096,7 @@ const arSA = {
     externalAgents: "External Agents (ربط مضيف)",
     externalAgentsCatalog: "فهرس الوكلاء الخارجيين",
     mcpApps: "MCP Apps (واجهات مضمنة)",
+    webMcp: "WebMCP (أدوات المتصفح)",
     crossAppSso: "SSO عبر التطبيقات",
     notifications: "الإشعارات",
     automationConnectors: "موصلات سير العمل",
@@ -2027,8 +2181,9 @@ const arSA = {
     dispatchDevelopers: "دليل المطور",
     forms: "النماذج",
     formsOverview: "نظرة عامة",
-    formsBuildingPublishing: "الإنشاء والنشر",
-    formsResponses: "الردود والرؤى",
+    formsFeatures: "الميزات",
+    formsAgent: "التحدث مع الوكيل",
+    formsIntegrations: "الاستخدام عبر التطبيقات",
     docsComponents: "Docs Components",
     formsDevelopers: "دليل المطور",
   },

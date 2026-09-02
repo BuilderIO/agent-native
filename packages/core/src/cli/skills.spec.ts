@@ -1197,7 +1197,7 @@ describe("agent-native skills", () => {
         { baseDir: root, runCommand: async () => 0 },
       ),
     ).rejects.toThrow(
-      "Refusing to replace symlinked Agent Native skill folder",
+      "Refusing to replace symlinked Agent-Native skill folder",
     );
 
     expect(fs.lstatSync(skillDir).isSymbolicLink()).toBe(true);
@@ -1652,6 +1652,44 @@ describe("agent-native skills", () => {
     ).toBe("https://assets.agent-native.com/mcp");
   });
 
+  it("installs /an with the Dispatch MCP connector and slash command", async () => {
+    const root = tmpDir();
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "an",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+        "--no-connect",
+      ]),
+      { baseDir: root },
+    );
+
+    expect(result).toMatchObject({
+      id: "agent-native",
+      displayName: "Agent-Native",
+      skillNames: ["an"],
+      mcpUrl: "https://dispatch.agent-native.com/mcp",
+      mcpClients: ["claude-code"],
+    });
+    expect(
+      fs.readFileSync(
+        path.join(root, ".claude", "skills", "an", "SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("`/an slides`");
+    expect(
+      fs.readFileSync(path.join(root, ".claude", "commands", "an.md"), "utf8"),
+    ).toContain("call `open_app` with app `slides`");
+    expect(
+      JSON.parse(fs.readFileSync(path.join(root, ".mcp.json"), "utf8"))
+        .mcpServers["agent-native-dispatch"].url,
+    ).toBe("https://dispatch.agent-native.com/mcp");
+  });
+
   it("installs visual-plan into Claude Code user skills idempotently", async () => {
     const root = tmpDir();
     const home = path.join(root, "home");
@@ -1731,7 +1769,7 @@ describe("agent-native skills", () => {
           ]),
           { baseDir: root, runCommand: async () => 0 },
         ),
-      ).rejects.toThrow(/Cannot write Agent Native skill folder .*visual-plan/);
+      ).rejects.toThrow(/Cannot write Agent-Native skill folder .*visual-plan/);
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
@@ -2062,7 +2100,7 @@ describe("agent-native skills", () => {
     }
   });
 
-  it("offers all Agent Native skills while defaulting the Plan skills", async () => {
+  it("offers all Agent-Native skills while defaulting the Plan skills", async () => {
     const root = tmpDir();
     let context:
       | { initialTargets: string[]; options: { value: string }[] }
@@ -2085,6 +2123,7 @@ describe("agent-native skills", () => {
 
     expect(promptSkills).toHaveBeenCalledTimes(1);
     expect(context?.options.map((o) => o.value)).toEqual([
+      "an",
       "visual-plan",
       "visual-recap",
       "visualize-repo",
@@ -2172,6 +2211,7 @@ describe("agent-native skills", () => {
     });
 
     expect(allContext?.options.map((option) => option.value)).toEqual([
+      "an",
       "visual-plan",
       "visual-recap",
       "visualize-repo",
@@ -2995,7 +3035,7 @@ describe("agent-native skills", () => {
         path.join(root, ".agents", "skills", "agent-native-docs", "SKILL.md"),
         "utf-8",
       ),
-    ).toContain("# Agent Native Docs");
+    ).toContain("# Agent-Native Docs");
     expect(fs.existsSync(path.join(root, "CLAUDE.md"))).toBe(true);
     expect(fs.existsSync(path.join(root, ".claude", "skills"))).toBe(true);
   });

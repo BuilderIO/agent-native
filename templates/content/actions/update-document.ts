@@ -15,10 +15,15 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  documentVersionChatContextFromAction,
+  serializeDocumentVersionChatContext,
+} from "../server/lib/document-version-context.js";
+import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
 import type { DocumentUpdateResponse } from "../shared/api.js";
+import { inspectNfmFidelity } from "../shared/nfm.js";
 import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
@@ -290,6 +295,7 @@ export function isStaleBuilderImageSourceComponentSave(args: {
 export default defineAction({
   description:
     "Update an existing document's title, content, icon, or favorite status.",
+  deferLoading: false,
   publicAgent: {
     expose: true,
     readOnly: false,
@@ -578,6 +584,7 @@ export default defineAction({
             .orderBy(desc(schema.documentVersions.createdAt))
             .limit(1);
           const shouldSnapshot =
+            isAgentCaller ||
             clearsNonEmptyContent ||
             !latestVersion ||
             Date.now() - new Date(latestVersion.createdAt).getTime() >
@@ -590,6 +597,9 @@ export default defineAction({
               documentId: id,
               title: existing.title,
               content: existing.content,
+              chatContext: serializeDocumentVersionChatContext(
+                documentVersionChatContextFromAction(ctx),
+              ),
               createdAt: new Date().toISOString(),
             });
           }
@@ -778,6 +788,7 @@ export default defineAction({
         canManage: canManageRole(access.role),
         createdAt: doc.createdAt,
         updatedAt: doc.updatedAt,
+        contentFidelity: inspectNfmFidelity(doc.content),
         source: serializeDocumentSource(doc),
         softDeletedDatabaseIds,
         ...(creativeContext

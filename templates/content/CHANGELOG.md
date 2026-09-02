@@ -3,6 +3,37 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-08-28
+
+### Fixed
+
+- Delegated Content requests now stay on Content's own actions for every authorized caller, including managed Slack channels.
+
+## 2026-08-26
+
+### Fixed
+
+- Shared pages now show retryable load failures instead of leaving their content indefinitely loading.
+
+## 2026-08-24
+
+### Fixed
+
+- Database columns keep their chosen order across reloads, visibility changes, and newly added fields
+
+## 2026-08-22
+
+### Fixed
+
+- Code and code-tabs blocks inserted from the slash menu no longer get stuck on "Loading…"
+- The sidebar page tree no longer flashes empty for a moment after creating a new page
+
+## 2026-08-18
+
+### Added
+
+- Database exports can be configured and downloaded as CSV
+
 ## 2026-08-14
 
 ### Fixed
@@ -95,7 +126,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
-- The Agent Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
+- The Agent-Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
 
 ## 2026-07-30
 
@@ -270,7 +301,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
-- Local folder selection avoids unsafe embedded pickers, remembers picker attempts that never returned so they cannot cause a crash loop, and continues to support Agent Native Desktop and native folder access in Chrome, Edge, and other Chromium browsers.
+- Local folder selection avoids unsafe embedded pickers, remembers picker attempts that never returned so they cannot cause a crash loop, and continues to support Agent-Native Desktop and native folder access in Chrome, Edge, and other Chromium browsers.
 - Workspace database views now control sidebar workspace navigation, and local folders attach to the correct Files database.
 
 ## 2026-07-17

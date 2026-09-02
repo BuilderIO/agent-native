@@ -33,6 +33,10 @@ import {
   recordAudit,
   resolveLinkedOwner,
 } from "./dispatch-store.js";
+import {
+  projectEnvironmentUrl,
+  requestEnvironmentLane,
+} from "./environment-lane.js";
 import { createRequest, listSecretOptions } from "./vault-store.js";
 import { WORKSPACE_APPS_ACTION_PATH } from "./workspace-app-action-auth.js";
 import {
@@ -58,7 +62,7 @@ const WORKSPACE_APPS_GATEWAY_PATH = "/_workspace/apps";
 const WORKSPACE_APPS_GATEWAY_TIMEOUT_MS = 2_500;
 const WORKSPACE_APP_ACCESS_CONCURRENCY = 8;
 const MAX_PENDING_APPS = 50;
-const PENDING_WORKSPACE_APP_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
+const PENDING_WORKSPACE_APP_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
 const AGENT_CARD_PATH = "/.well-known/agent-card.json";
 const AGENT_CARD_FETCH_TIMEOUT_MS = 1_500;
 const DEFAULT_WORKSPACE_APP_AUDIENCE = "internal";
@@ -460,13 +464,14 @@ function applyWorkspaceAppMetadataOverride(
 // code belongs here; changes to authorship, content trust, or sharing require
 // an explicit auth, origin, or sandbox boundary before this invariant changes.
 function workspaceAppUrl(appPath: string): string | null {
-  const base =
+  const configuredBase =
     process.env.WORKSPACE_GATEWAY_URL ||
     process.env.APP_URL ||
     process.env.URL ||
     process.env.DEPLOY_URL ||
     process.env.BETTER_AUTH_URL ||
     null;
+  const base = configuredBase ? projectEnvironmentUrl(configuredBase) : null;
   if (!base) return null;
   try {
     return new URL(appPath, `${base.replace(/\/$/, "")}/`).toString();
@@ -493,7 +498,7 @@ function workspaceAppLink(
   if (!urlValue) return workspaceAppUrl(appPath);
   if (urlValue.startsWith("/")) return workspaceAppUrl(urlValue) ?? urlValue;
   try {
-    return new URL(urlValue).toString();
+    return projectEnvironmentUrl(new URL(urlValue).toString());
   } catch {
     return urlValue;
   }
@@ -706,6 +711,24 @@ function pendingWorkspaceAppExpiresAt(createdAt: string): string {
   return new Date(createdMs + PENDING_WORKSPACE_APP_TTL_MS).toISOString();
 }
 
+function normalizePendingWorkspaceAppExpiresAt(
+  createdAt: string,
+  expiresAt: string | null,
+): string {
+  const minimumExpiresAt = pendingWorkspaceAppExpiresAt(createdAt);
+  const expiresMs = parseDateMs(expiresAt);
+  const minimumExpiresMs = parseDateMs(minimumExpiresAt);
+  if (
+    expiresAt &&
+    expiresMs !== null &&
+    minimumExpiresMs !== null &&
+    expiresMs >= minimumExpiresMs
+  ) {
+    return expiresAt;
+  }
+  return minimumExpiresAt;
+}
+
 function isPendingWorkspaceAppExpired(
   app: Pick<PendingWorkspaceApp, "createdAt" | "expiresAt">,
 ): boolean {
@@ -809,9 +832,10 @@ function parsePendingWorkspaceApps(value: unknown): PendingWorkspaceApp[] {
           typeof record.updatedAt === "string" && record.updatedAt.trim()
             ? record.updatedAt.trim()
             : now,
-        expiresAt:
-          cleanOptionalString(record.expiresAt) ??
-          pendingWorkspaceAppExpiresAt(createdAt),
+        expiresAt: normalizePendingWorkspaceAppExpiresAt(
+          createdAt,
+          cleanOptionalString(record.expiresAt),
+        ),
       } satisfies PendingWorkspaceApp;
     })
     .filter((app): app is PendingWorkspaceApp => !!app)
@@ -1237,10 +1261,7 @@ async function ensureWorkspaceAppRecords(
         // Never infer ownership from the person who happened to list apps.
         // Legacy manifests without trusted creation metadata remain
         // ownerless until an admin-controlled migration/claim flow exists.
-        const ownerEmail =
-          cleanOptionalText(override?.createdBy) ??
-          cleanOptionalText(app.createdBy) ??
-          "";
+        const ownerEmail = cleanOptionalText(override?.createdBy) ?? "";
         const visibility: WorkspaceAppVisibility =
           override?.visibility === "private"
             ? "private"
@@ -1289,7 +1310,14 @@ async function ensureWorkspaceAppRecords(
 
   return apps.map((app) => {
     const record = records.get(app.id);
-    return record ? { ...app, visibility: record.visibility } : app;
+    const owner = record?.ownerEmail.trim() || null;
+    return record
+      ? {
+          ...app,
+          visibility: record.visibility,
+          owner,
+        }
+      : app;
   });
 }
 
@@ -1461,8 +1489,9 @@ function readWorkspaceAppsFromEnv(): WorkspaceAppSummary[] | null {
 async function readWorkspaceAppsFromGateway(): Promise<
   WorkspaceAppSummary[] | null
 > {
-  const base = process.env.WORKSPACE_GATEWAY_URL;
-  if (!base) return null;
+  const configuredBase = process.env.WORKSPACE_GATEWAY_URL;
+  if (!configuredBase) return null;
+  const base = projectEnvironmentUrl(configuredBase);
 
   let baseUrl: URL;
   try {
@@ -1728,6 +1757,7 @@ async function applyArchivedAndPending(
       workspaceSso: isWorkspaceSsoAppUrl(withMetadata, {
         nodeEnv: process.env.NODE_ENV,
         registryRaw: process.env.IDENTITY_SSO_APP_REGISTRY_JSON,
+        environmentLane: requestEnvironmentLane(),
       }),
       ...(archivedSet.has(app.id) ? { archived: true } : {}),
     };
@@ -2439,7 +2469,7 @@ function buildWorkspaceAppPrompt(input: {
         ? `Dispatch will create workspace resource grants for the selected resources for appId "${appId}". After the app exists, sync workspace resources so the app receives both global and selected shared resources.`
         : "Do not grant any selected-only Dispatch workspace resources unless the user asks later.",
       "",
-      "Agent-native rules (these are the framework's contract — not optional):",
+      "Agent-Native rules (these are the framework's contract — not optional):",
       `- Persist ALL data in SQL via Drizzle. Add tables to apps/${appId}/server/db/schema.ts and migrations to apps/${appId}/server/plugins/db.ts. NEVER use localStorage, sessionStorage, IndexedDB, or in-memory state for anything the user expects to persist — agent and UI must read the same source of truth.`,
       `- Define every create/read/update/delete as an action in apps/${appId}/actions/ using defineAction. The agent calls these as tools and the frontend calls them via useActionQuery / useActionMutation. If you must raw-fetch framework action endpoints, use agentNativePath("/_agent-native/actions/<name>") so mounted apps call the right URL. Don't add /api/* routes for CRUD.`,
       "- Build the UI from shadcn/ui components in app/components/ui/ (Button, Input, Dialog, Popover, Card, etc.) and Tailwind utilities. Don't author bespoke CSS classes in global.css unless you genuinely need a primitive that shadcn doesn't ship.",

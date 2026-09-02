@@ -1,6 +1,7 @@
 import { listFileUploadProviders } from "@agent-native/core/file-upload";
 import {
-  resolveHasBuilderPrivateKey,
+  BUILDER_ASSETS_WRITE_SCOPE,
+  canAuthorizeBuilderApiRequest,
   runWithRequestContext,
 } from "@agent-native/core/server";
 
@@ -51,7 +52,7 @@ export async function hasRequestVideoStorage(
     }
 
     try {
-      return await resolveHasBuilderPrivateKey();
+      return await canAuthorizeBuilderApiRequest(BUILDER_ASSETS_WRITE_SCOPE);
     } catch {
       return false;
     }

@@ -1,0 +1,34 @@
+---
+title: "WebMCP"
+description: "Exposez des actions Agent-Native explicites aux agents du navigateur et utilisez les outils WebMCP dans le chat Agent-Native."
+---
+
+# WebMCP
+
+WebMCP est une API expérimentale du navigateur qui permet aux pages
+d'enregistrer des outils qu'un agent autorisé peut découvrir et exécuter.
+Consultez le [guide WebMCP en anglais](/docs/webmcp) pour l'enregistrement,
+la consommation, les sessions du navigateur et les limites de sécurité.
+Les pages authentifiées enregistrent automatiquement les actions backend éligibles
+depuis le registre d'actions existant. Les actions nécessitant une approbation sont
+exclues et la liste active est vérifiée de nouveau avant l'appel.
+
+## Découverte HTTP et solution de repli avec fetch
+
+Pour les agents qui n'exécutent pas de navigateur, Agent-Native publie aussi un
+document de compatibilité HTTP à l'adresse `GET /.well-known/mcp.json`.
+Il décrit les endpoints d'actions, leurs schémas JSON et précise s'ils sont en
+lecture seule ou nécessitent une authentification. Il s'agit d'une convention
+d'interopérabilité Agent-Native, pas d'un élément de la spécification WebMCP ni
+d'un remplacement de MCP.
+
+Les outils peuvent être appelés avec `fetch` ou `curl` via
+`POST /mcp/tool/:name`. L'authentification, l'autorisation, la validation et
+l'isolation du tenant restent gérées côté serveur. Le document renvoie aussi
+vers `/mcp`, le manifeste WebMCP authentifié et la carte A2A.
+
+Les outils locaux à la page nécessitent toujours un navigateur ouvert compatible
+avec WebMCP. Les pages de ressources peuvent publier leur propre lien JSON.
+Clips le fait avec `agentContextUrl`, qui fournit les URL directes du transcript
+complet et des images JPEG, afin que l'accès HTTP reste possible sans ouvrir le
+lecteur.

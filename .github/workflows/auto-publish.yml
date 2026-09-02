@@ -44,6 +44,7 @@ on:
       - ".github/workflows/auto-publish.yml"
       - "scripts/changeset-publish-sequential.ts"
       - "scripts/create-release-changeset.ts"
+      - "scripts/guard-no-major-changeset.mjs"
       - "scripts/guard-public-packages.ts"
       - "scripts/prebuild-workspace-packages.ts"
   workflow_dispatch:
@@ -66,7 +67,9 @@ on:
 permissions: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Stable preparation and publication must not wait behind, or be replaced
+  # by, the ordinary push-driven nightly lane.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && 'stable-preparation' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[stable-release]') && 'stable-publication' || 'nightly') }}
   cancel-in-progress: false
 
 jobs:
@@ -287,6 +290,56 @@ jobs:
           RELEASE_TYPE: ${{ inputs.releaseType }}
         run: pnpm exec tsx scripts/create-release-changeset.ts "$RELEASE_TYPE"
 
+      - name: Enforce package bump policy
+        run: node scripts/guard-no-major-changeset.mjs
+
+      # A stable merge can race with another PR's pending changeset. Keep
+      # those changesets out of validation and publication so this merge
+      # publishes its already-versioned packages. Public-package changesets
+      # are consumed after that publication because the all-package release
+      # already includes their source changes.
+      - name: Hold pending changesets for stable publication
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          hold="$RUNNER_TEMP/agent-native-pending-changesets"
+          mkdir -p "$hold"
+          shopt -s nullglob
+          pending=()
+          for file in .changeset/*.md; do
+            if [[ "$file" != ".changeset/README.md" ]]; then
+              pending+=("$file")
+            fi
+          done
+          # `changeset status` exits 1 on "packages changed but no changesets",
+          # and it measures "changed" against the WORKING TREE — so any file an
+          # install regenerates makes it fail on a release commit, which has
+          # consumed every changeset by construction. Nothing pending means
+          # nothing to hold; never let a validation command decide whether an
+          # already-versioned release is allowed to publish.
+          if [ ${#pending[@]} -eq 0 ]; then
+            : > "$hold/eligible.txt"
+            echo "No pending changesets to hold."
+            exit 0
+          fi
+          pnpm changeset status --output "$hold/status.json"
+          jq -r '
+            .changesets[]
+            | select(any(.releases[]?.name;
+                . == "@agent-native/core" or
+                . == "@agent-native/creative-context" or
+                . == "@agent-native/dispatch" or
+                . == "@agent-native/pinpoint" or
+                . == "@agent-native/recap-cli" or
+                . == "@agent-native/scheduling" or
+                . == "@agent-native/skills" or
+                . == "@agent-native/toolkit"))
+            | .id + ".md"
+          ' "$hold/status.json" > "$hold/eligible.txt"
+          for file in "${pending[@]}"; do
+            mv "$file" "$hold/"
+          done
+
       - name: Validate changesets
         run: node scripts/check-changeset.mjs
 
@@ -299,7 +352,7 @@ jobs:
 
       - name: Create stable Release PR or publish to npm
         id: changesets
-        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+        uses: changesets/action@3841a0683d3cfa6dae0f9bb335290003010fe3f0 # v1.9.0, compatible with Changesets CLI v2
         with:
           # When changesets/action finds no pending changesets, it runs
           # `publish`. @changesets/cli publishes packages concurrently, which
@@ -312,7 +365,7 @@ jobs:
           # and is required before this workflow can publish stable packages.
           # The custom version script also keeps package CHANGELOG.md files
           # short and archives older sections under changelog/archive/.
-          version-script: pnpm changeset version && pnpm changelog:compact
+          version: pnpm changeset:release-version
           title: "${{ github.event_name == 'workflow_dispatch' && format('chore: release packages ({0}) [stable-release] [skip netlify]', inputs.releaseType) || 'chore: release packages [stable-release] [skip netlify]' }}"
           commit: "${{ github.event_name == 'workflow_dispatch' && format('chore: release packages ({0}) [stable-release] [skip netlify]', inputs.releaseType) || 'chore: release packages [stable-release] [skip netlify]' }}"
         env:
@@ -326,6 +379,77 @@ jobs:
           # publish wrapper uses this only when npm returns 404 for the package
           # name itself; existing packages still publish through OIDC/provenance.
           AGENT_NATIVE_NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Consume concurrent public-package changesets
+        id: consume-stable-changesets
+        if: ${{ github.event_name == 'push' && steps.changesets.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          hold="$RUNNER_TEMP/agent-native-pending-changesets"
+          eligible="$hold/eligible.txt"
+
+          if [ ! -s "$eligible" ]; then
+            echo "No concurrent public-package changesets to consume."
+            exit 0
+          fi
+
+          shopt -s nullglob
+          for file in "$hold"/*.md; do
+            if ! grep -Fqx "$(basename "$file")" "$eligible"; then
+              mv "$file" .changeset/
+            fi
+          done
+
+          git config user.name "builder-io-integration[bot]"
+          git config user.email "builder-io-integration[bot]@users.noreply.github.com"
+          git add -u .changeset
+          if git diff --cached --quiet; then
+            echo "Concurrent changesets were already consumed."
+            exit 0
+          fi
+          git commit -m "chore: consume stable release changesets [skip ci]"
+
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:main; then
+              echo "Consumed concurrent changesets on main."
+              exit 0
+            fi
+            if [ "$attempt" -lt 5 ]; then
+              git fetch origin main:refs/remotes/origin/main --quiet
+              if git merge-base --is-ancestor HEAD origin/main; then
+                while IFS= read -r file; do
+                  if [ -n "$file" ] && git cat-file -e "origin/main:.changeset/$file"; then
+                    echo "::error::Remote main still contains eligible changeset $file after cleanup commit." >&2
+                    exit 1
+                  fi
+                done < "$eligible"
+                echo "Concurrent changesets were consumed by another main update."
+                exit 0
+              fi
+              git rebase origin/main
+              sleep $((attempt * 2))
+            fi
+          done
+
+          echo "::error::Unable to consume concurrent changesets after five attempts."
+          exit 1
+
+      - name: Restore pending changesets
+        if: ${{ always() && github.event_name == 'push' }}
+        run: |
+          set -euo pipefail
+          hold="$RUNNER_TEMP/agent-native-pending-changesets"
+          if [ -d "$hold" ]; then
+            eligible="$hold/eligible.txt"
+            shopt -s nullglob
+            for file in "$hold"/*.md; do
+              if [ "${{ steps.consume-stable-changesets.outcome }}" = "success" ] &&
+                grep -Fqx "$(basename "$file")" "$eligible"; then
+                continue
+              fi
+              mv "$file" .changeset/
+            done
+          fi
 
   # Downstream notification lives in its own job so it can (a) run on a manual
   # redispatch without re-entering build/publish and (b) still run — and say so

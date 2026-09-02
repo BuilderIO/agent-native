@@ -1,17 +1,19 @@
 ---
 title: "शुरुआत करें"
-description: "एक Agent-Native ऐप बनाएं और agent व UI से एक ही action को call करें।"
+description: "chat UI वाला agent बनाएं और agent व UI से एक ही action को call करें।"
 ---
 
 # शुरुआत करें
 
-Agent-Native एक open-source TypeScript framework है, जो ऐसे ऐप बनाने के लिए है
-जो लोगों और AI agents, दोनों को सेवा देते हैं। आप अपने ऐप की functionality एक बार
-[actions](/docs/actions-overview)—typed functions के रूप में define करते हैं, जिन्हें
-आपका React UI code से call करता है और agents tools के रूप में उपयोग करते हैं।
+Agent-Native सहज UI वाले स्वायत्त एजेंट बनाने के लिए एक open-source TypeScript
+framework है। आप हर capability को एक बार [action](/docs/actions-overview)—एक typed
+function के रूप में define करते हैं, जिसे agent tool के रूप में use करता है और UI
+code से call करता है।
 
-इस guide में, आप एक Chat ऐप बनाएंगे और उसके शामिल `hello` action को agent और UI
-से call करेंगे।
+इस guide में, आप chat UI वाला agent बनाएंगे और उसके शामिल `hello` action को agent
+और UI से call करेंगे।
+
+<GettingStartedPaths />
 
 ## आवश्यकताएं
 
@@ -19,9 +21,9 @@ Agent-Native एक open-source TypeScript framework है, जो ऐसे �
 - [pnpm](https://pnpm.io)
 - Agent के लिए LLM connection: Builder.io, Anthropic या OpenAI API key, या local Ollama model
 
-## ऐप बनाएं
+## Agent बनाएं
 
-नई directory में एक Chat ऐप बनाएं:
+नई directory में Chat template से शुरू करें:
 
 ```bash
 npx @agent-native/core@latest create my-app --standalone --template chat
@@ -29,19 +31,19 @@ cd my-app
 pnpm install
 ```
 
-Template में browser ऐप, authentication, durable conversations, live sync,
-application context और `actions/` directory शामिल हैं। इसमें एक छोटा `hello`
-action भी है, जिसे आप इस guide में उपयोग करेंगे।
+Template आपके agent को browser UI, authentication, durable conversations, live
+sync, application context और `actions/` directory देता है। इसमें एक छोटा
+`hello` action भी है, जिसे आप इस guide में उपयोग करेंगे।
 
 ## Development server शुरू करें
 
-ऐप शुरू करें:
+Development server शुरू करें:
 
 ```bash
 pnpm dev
 ```
 
-ऐप `http://localhost:8080` पर खुलेगा। अगर वह अपने आप न खुले, तो browser में उस URL पर जाएं।
+Browser UI `http://localhost:8080` पर खुलेगा। अगर वह अपने आप न खुले, तो browser में उस URL पर जाएं।
 
 <Callout tone="info">
 
@@ -59,7 +61,7 @@ Action एक typed function है, जिसे आपका React UI code स
 tool के रूप में उपयोग कर सकते हैं। Chat template में सरल `hello` action शामिल है,
 ताकि आप अपना action लिखने से पहले इस pattern को आजमा सकें।
 
-ऐप में पूछें:
+Agent panel में पूछें:
 
 > Call the hello action for Alex.
 
@@ -162,17 +164,17 @@ greeting लौटाते हैं क्योंकि वे एक ही
 | [HTTP API](/docs/http-api)              | Script, backend या integration से action call करें।                       |
 | [CLI](/docs/actions-other-surfaces#cli) | Terminal से action चलाएं या test करें।                                    |
 | [MCP](/docs/actions-other-surfaces#mcp) | External AI client को actions को tools के रूप में खोजने और call करने दें। |
-| [A2A](/docs/actions-other-surfaces#a2a) | किसी दूसरे Agent-Native ऐप को इस ऐप से काम करने को कहने दें।              |
+| [A2A](/docs/actions-other-surfaces#a2a) | किसी दूसरे agent को आपके agent को काम सौंपने दें।                         |
 
 हर caller उसी action definition का उपयोग करता है। हर एक के लिए अलग implementation
-की जरूरत नहीं है। यह shared action model Agent-Native का केंद्र है: ऐप बदलने पर
-UI, agents और integrations में behavior, validation और permissions aligned रहते हैं।
+की जरूरत नहीं है। यह shared action model Agent-Native का केंद्र है: नई capabilities
+जोड़ते समय UI, agents और integrations में behavior, validation और permissions aligned रहते हैं।
 
 ## आपने क्या बनाया
 
-आपने Agent-Native ऐप बनाया, उसके `hello` action को agent और React UI से call किया,
-फिर greeting को एक बार बदलकर दोनों को update होते देखा। आगे से लिखा हर action इसी
-pattern का पालन करता है।
+आपने chat UI वाला agent बनाया, उसी `hello` action को agent और React UI से call
+किया, फिर greeting को एक बार बदलकर दोनों को update होते देखा। आगे से लिखा हर
+action इसी pattern का पालन करता है।
 
 ## अगले कदम
 

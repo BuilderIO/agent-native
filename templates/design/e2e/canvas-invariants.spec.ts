@@ -733,6 +733,164 @@ test.describe("drawing fidelity", () => {
     ]);
   });
 
+  test("a shape drawn at a fractional zoom commits whole pixels", async ({
+    page,
+  }) => {
+    const id = await newDesign(page, BLANK_PAGE);
+    await openEditor(page, id);
+    // Zooming off 100% is what makes `clientDelta / zoom` fractional, and a
+    // fractional left/top is what puts 192.1 in the X field.
+    await page.keyboard.press(`${MOD}+-`);
+    await page.waitForTimeout(1200);
+    await drawWith(page, "Rectangle", {
+      left: 37,
+      top: 113,
+      width: 151,
+      height: 97,
+    });
+
+    const style =
+      /data-an-primitive="rectangle"[^>]*?style="([^"]*)"/i.exec(
+        await indexHtml(page, id),
+      )?.[1] ?? "";
+    expect(style, "nothing committed at a zoomed-out scale").not.toBe("");
+    const committed = {
+      left: styleNum(style, "left"),
+      top: styleNum(style, "top"),
+      width: styleNum(style, "width"),
+      height: styleNum(style, "height"),
+    };
+    expect(
+      Object.values(committed).every((value) => Number.isInteger(value)),
+      `a zoomed draw must commit whole pixels; got ${JSON.stringify(committed)}`,
+    ).toBe(true);
+  });
+
+  test("the inspector never shows a fractional X or Y", async ({ page }) => {
+    const id = await newDesign(page, FLOW_PAGE);
+    await openEditor(page, id);
+    // A line-height-driven flow child is where subpixel layout shows up: its
+    // rendered position is genuinely fractional, and the field still has to
+    // read as a coordinate a designer could have typed.
+    await layerRow(page, "Title").click();
+    await page.waitForTimeout(1600);
+
+    const shown = [
+      await inspectorField(page, "X"),
+      await inspectorField(page, "Y"),
+    ];
+    expect(
+      shown.every((value) => value === "" || Number.isInteger(num(value))),
+      `X/Y must read as whole pixels; the inspector showed ${JSON.stringify(shown)}`,
+    ).toBe(true);
+  });
+
+  test("a drag inside a frame with an 8px layout grid lands on multiples of 8", async ({
+    page,
+  }) => {
+    const id = await newDesign(page, INTRO_PAGE);
+    const design = await page.request
+      .get(`${baseURL}/_agent-native/actions/get-design?id=${id}`)
+      .then((r) => r.json());
+    const screenId = (design?.files ?? design?.data?.files)?.[0]?.id;
+    expect(screenId, "no screen id to attach a grid to").toBeTruthy();
+    await postAction(page, "set-layout-grid", {
+      designId: id,
+      screenId,
+      size: 8,
+    });
+
+    await openEditor(page, id);
+    await layerRow(page, "Plain Box").click();
+    await page.waitForTimeout(1600);
+
+    // Drag by an amount that is deliberately NOT a multiple of 8, so landing on
+    // one can only come from the grid.
+    const box = await node(page, "plain-box").boundingBox();
+    expect(box).not.toBeNull();
+    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(
+      box!.x + box!.width / 2 + 37,
+      box!.y + box!.height / 2 + 21,
+      { steps: 12 },
+    );
+    await page.mouse.up();
+    await page.waitForTimeout(2000);
+
+    const style = styleOf(await indexHtml(page, id), "plain-box");
+    const landed = {
+      left: styleNum(style, "left"),
+      top: styleNum(style, "top"),
+    };
+    expect(
+      landed.left % 8 === 0 && landed.top % 8 === 0,
+      `an 8px layout grid must place left/top on multiples of 8; landed at ${JSON.stringify(landed)}`,
+    ).toBe(true);
+  });
+
+  test("a visible layout grid paints over the screen's own opaque background", async ({
+    page,
+  }) => {
+    const id = await newDesign(
+      page,
+      `<!doctype html><html><head><meta charset="utf-8" /></head>
+       <body style="margin:0;width:900px;height:600px;background:#ffffff"></body></html>`,
+    );
+    const design = await page.request
+      .get(`${baseURL}/_agent-native/actions/get-design?id=${id}`)
+      .then((r) => r.json());
+    const screenId = (design?.files ?? design?.data?.files)?.[0]?.id;
+    await postAction(page, "set-layout-grid", {
+      designId: id,
+      screenId,
+      size: 30,
+    });
+    await openEditor(page, id);
+
+    const overlay = page.locator(`[data-layout-grid="${screenId}"]`);
+    await expect(overlay).toHaveCount(1);
+    // A sibling overlay at a fixed z cannot beat the focused frame's z boost,
+    // so an opaque body paints over its own grid.
+    const stacking = await overlay.evaluate((el) => {
+      const card = el.closest("[data-screen-card]");
+      const rect = el.getBoundingClientRect();
+      const mid = {
+        x: Math.round(rect.left + rect.width / 2),
+        y: Math.round(rect.top + rect.height / 2),
+      };
+      const hit = document.elementFromPoint(mid.x, mid.y);
+      return {
+        insideCard: Boolean(card),
+        // Custom properties come back verbatim, so resolve through a probe to
+        // assert what actually paints.
+        lineColor: (() => {
+          const probe = document.createElement("span");
+          probe.style.color = getComputedStyle(el).getPropertyValue(
+            "--design-editor-layout-grid-color",
+          );
+          document.body.append(probe);
+          const resolved = getComputedStyle(probe).color;
+          probe.remove();
+          return resolved;
+        })(),
+        backgroundSize: getComputedStyle(el).backgroundSize,
+        // Nothing opaque from the screen's own content may sit above it.
+        topmostIsAboveOverlay: el.contains(hit) || el === hit,
+      };
+    });
+    expect(
+      stacking.insideCard,
+      "the grid must live inside the frame it belongs to, not beside it",
+    ).toBe(true);
+    // Sampled from Figma: a grid line is #F2F2F2 on white, i.e. black at ~5%.
+    // Anything stronger competes with the content it sits under.
+    expect(stacking.lineColor).toBe("rgba(0, 0, 0, 0.05)");
+    // Two gradients (vertical + horizontal lines), so the computed value
+    // carries one size per layer.
+    expect(stacking.backgroundSize).toBe("30px 30px, 30px 30px");
+  });
+
   test("the same drag at a different zoom produces the same rect", async ({
     page,
   }) => {
@@ -792,7 +950,7 @@ test.describe("drawing fidelity", () => {
     ).toBe(false);
   });
 
-  test("a drawn frame stays unstyled and is shown by selection chrome instead", async ({
+  test("a drawn frame commits a real surface that selection chrome tracks", async ({
     page,
   }) => {
     const id = await newDesign(page, BLANK_PAGE);
@@ -804,9 +962,6 @@ test.describe("drawing fidelity", () => {
       height: 200,
     });
 
-    // A frame commits as unstyled structure on purpose (see the frame branch
-    // in canvas-primitive-insert.ts); baking a tint into the design's real
-    // HTML would be styling pollution. Its bounds come from selection chrome.
     const state = await inFrame(page, "body")
       .first()
       .evaluate(() => {
@@ -830,12 +985,11 @@ test.describe("drawing fidelity", () => {
     expect(state, "no frame rendered in the preview").not.toBeNull();
     expect(
       state!.inlineBackground,
-      "a committed frame must not bake in a fill",
-    ).toBe("");
+      "a committed frame carries the default surface, not the draft tint",
+    ).toBe("rgb(255, 255, 255)");
     expect(
       state!.selectionTracksFrame,
-      "an unstyled frame is only visible via selection chrome, so it must be " +
-        "selected and outlined the moment it is drawn",
+      "a drawn frame must be selected and outlined the moment it is drawn",
     ).toBe(true);
   });
 });

@@ -35,6 +35,14 @@ import type {
 const COMPUTER_MCP_PATH = "/mcp";
 const DEFAULT_LEASE_TTL_MS = 15 * 60 * 1_000;
 
+function stringifyBrowserInput(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return JSON.stringify(value) ?? "";
+}
+
 export type DesktopComputerPermissionMode =
   | "read-only"
   | "ask-before-edit"
@@ -152,7 +160,7 @@ export class DesktopComputerMcpBridge {
     if (!this.url) throw new Error("Desktop computer MCP bridge is not ready.");
     if (!runId.trim()) throw new Error("A run id is required.");
     for (const previous of this.removeCredentials(runId)) {
-      this.stopBrowserContext(previous);
+      void this.stopBrowserContext(previous);
     }
     const bearerToken = this.token();
     const tokenHash = hashToken(bearerToken);
@@ -379,11 +387,14 @@ export class DesktopComputerMcpBridge {
           | { available: false; guidance: string };
         if (
           permissions.screenRecording === "granted" &&
-          this.options.screenObserver
+          this.options.screenObserver &&
+          snapshot.applicationName
         ) {
           try {
             const frame = await this.options.screenObserver.capture(
               context.runId,
+              undefined,
+              snapshot.applicationName,
             );
             const bytes = this.options.screenObserver.take(
               frame.handle,
@@ -409,7 +420,7 @@ export class DesktopComputerMcpBridge {
           screen = {
             available: false,
             guidance:
-              "Enable Agent Native in System Settings > Privacy & Security > Screen Recording to include a desktop image.",
+              "Enable Agent-Native in System Settings > Privacy & Security > Screen Recording to include a desktop image.",
           };
         }
         content.unshift({
@@ -562,7 +573,7 @@ export class DesktopComputerMcpBridge {
       "browser_status",
       {
         description:
-          "Read Agent Native Chrome extension, native-host, and task attachment status.",
+          "Read Agent-Native Chrome extension, native-host, and task attachment status.",
         annotations: { readOnlyHint: true, openWorldHint: false },
       },
       async () => {
@@ -905,7 +916,9 @@ export class DesktopComputerMcpBridge {
     const taskId = envelope.runId;
     if (action.type === "browser.attach") {
       const tabId = Number(input.tabId);
-      const origin = normalizeBrowserOrigin(String(input.origin ?? ""));
+      const origin = normalizeBrowserOrigin(
+        stringifyBrowserInput(input.origin ?? ""),
+      );
       if (!Number.isInteger(tabId) || tabId < 0) {
         throw new Error("browser.attach requires a valid tab id.");
       }
@@ -950,7 +963,7 @@ export class DesktopComputerMcpBridge {
         return bridge.execute(registration, {
           type: "type",
           target: remoteBrowserTarget(target),
-          text: String(input.text ?? "").slice(0, 100_000),
+          text: stringifyBrowserInput(input.text ?? "").slice(0, 100_000),
           replace: input.replace === true,
         });
       case "browser.key":
@@ -962,12 +975,12 @@ export class DesktopComputerMcpBridge {
       case "browser.navigate":
         return bridge.execute(registration, {
           type: "navigate",
-          url: String(input.url ?? ""),
+          url: stringifyBrowserInput(input.url ?? ""),
         });
       case "browser.open-tab":
         return bridge.execute(registration, {
           type: "open-tab",
-          url: String(input.url ?? ""),
+          url: stringifyBrowserInput(input.url ?? ""),
         });
       case "browser.scroll":
         return bridge.execute(registration, {
@@ -983,14 +996,16 @@ export class DesktopComputerMcpBridge {
         registrations.delete(taskId);
         return { stopped: true };
       default:
-        throw new Error(`Unsupported remote browser action: ${action.type}`);
+        throw new Error(
+          `Unsupported remote browser action: ${typeof action.type === "string" ? action.type : (JSON.stringify(action.type) ?? "unknown")}`,
+        );
     }
   }
 
   private assertBrowserContext(): RunContext {
     const context = this.assertMutationContext();
     if (!context.browserRegistration || !this.options.browserBridge) {
-      throw new Error("Agent Native browser control is unavailable.");
+      throw new Error("Agent-Native browser control is unavailable.");
     }
     return context;
   }

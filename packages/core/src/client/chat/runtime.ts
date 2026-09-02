@@ -738,7 +738,7 @@ function isRuntimeEvent(value: unknown): value is AgentChatRuntimeEventBase {
   );
 }
 
-function parseJsonEvent(raw: string): unknown | null {
+function parseJsonEvent(raw: string): unknown {
   const trimmed = raw.trim();
   if (!trimmed || trimmed === "[DONE]") return null;
   try {
@@ -1416,7 +1416,7 @@ export function createAgentNativeChatRuntime(
   return createHttpAgentChatRuntime({
     id: runtimeId,
     kind: "agent-native",
-    label: options.label ?? "Agent Native",
+    label: options.label ?? "Agent-Native",
     description:
       options.description ?? "Agent-Native's built-in chat transport.",
     endpoint: apiUrl,
@@ -1514,7 +1514,7 @@ function toContentPartInput(value: unknown): Record<string, string> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const out: Record<string, string> = {};
   for (const [key, item] of Object.entries(value)) {
-    out[key] = typeof item === "string" ? item : JSON.stringify(item);
+    out[key] = typeof item === "string" ? item : (JSON.stringify(item) ?? "");
   }
   return out;
 }
@@ -1523,9 +1523,19 @@ function toolResultText(value: unknown): string {
   if (typeof value === "string") return value;
   if (value === undefined) return "";
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(value) ?? "";
   } catch {
-    return String(value);
+    if (
+      value === null ||
+      typeof value === "number" ||
+      typeof value === "boolean" ||
+      typeof value === "bigint" ||
+      typeof value === "symbol" ||
+      typeof value === "function"
+    ) {
+      return String(value);
+    }
+    return "[unserializable]";
   }
 }
 

@@ -299,9 +299,7 @@ export function buildAuthenticatedAgentA2ASkills(
   });
 }
 
-export function resolveArtifactBaseUrl(
-  event: any | undefined,
-): string | undefined {
+export function resolveArtifactBaseUrl(event: any): string | undefined {
   // An artifact link is user-facing, so the canonical URL wins; the platform's
   // per-deploy URLs are the fallback, not the other way round (that ordering
   // belongs to self-dispatch, which has to reach *this* deploy).
@@ -703,6 +701,19 @@ export function isSelectedA2AReceiver(
       .replace(/^agent-native-/, "") ?? "";
   const selected = normalize(selectedReceiverApp);
   return selected.length > 0 && selected === normalize(appId);
+}
+
+export function shouldSelectedA2AReceiverOwnObjective(options: {
+  authenticatedCallerEmail: string;
+  enabled: boolean;
+  selectedReceiverApp: string | undefined;
+  appId: string | undefined;
+}): boolean {
+  return (
+    options.authenticatedCallerEmail.trim().length > 0 &&
+    options.enabled &&
+    isSelectedA2AReceiver(options.selectedReceiverApp, options.appId)
+  );
 }
 
 export function buildSelectedA2AReceiverContext(appId: string): string {

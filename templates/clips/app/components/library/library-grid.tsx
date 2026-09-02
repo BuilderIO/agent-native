@@ -3,6 +3,7 @@ import {
   setClientAppState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   IconAlertTriangle,
   IconChevronLeft,
@@ -27,6 +28,7 @@ import {
   type ListRecordingsArgs,
   type RecordingSummary,
 } from "@/hooks/use-library";
+import { retryRecordingUploadFromBackup } from "@/lib/recording-retry";
 import { cn } from "@/lib/utils";
 
 import { BulkActionToolbar, type BulkMoveTarget } from "./bulk-action-toolbar";
@@ -168,6 +170,16 @@ export function LibraryGrid({
   const [isBulkPending, setIsBulkPending] = useState(false);
   const [page, setPage] = useState(1);
   const selectionStateKey = useMemo(() => `selection:${getBrowserTabId()}`, []);
+
+  useEffect(() => {
+    if (!title) return;
+    const nextTitle = `${normalizeDocumentTitle(title, "Clips")} — Clips`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [title]);
 
   useEffect(() => {
     setPage(1);
@@ -358,6 +370,16 @@ export function LibraryGrid({
     }
   };
 
+  const handleRetry = async (rec: RecordingSummary) => {
+    try {
+      await retryRecordingUploadFromBackup(rec.id);
+    } catch (err: any) {
+      toast.error(err?.message ?? t("clipsFinalRaw.retryFailed"));
+    } finally {
+      void refetch();
+    }
+  };
+
   const chips: FilterChip[] = [];
   if (tagFilter) {
     chips.push({
@@ -415,19 +437,19 @@ export function LibraryGrid({
 
       {/* Page header — rendered into the top app bar */}
       <PageHeader>
-        <div className="min-w-0 shrink-0">
+        <div className="min-w-0">
           {title && (
             <h1 className="text-base font-semibold text-foreground truncate">
               {title}
             </h1>
           )}
         </div>
-        <SearchBar
-          side="bottom"
-          className="hidden min-w-52 max-w-xl flex-1 md:block"
-        />
-        <div className="ms-auto flex shrink-0 items-center gap-2">
+        <div className="ms-auto flex min-w-0 items-center gap-2">
           {extraActions}
+          <SearchBar
+            side="bottom"
+            className="hidden min-w-0 max-w-64 flex-1 md:block"
+          />
           <SortMenu value={sort} onChange={setSort} />
         </div>
       </PageHeader>
@@ -445,6 +467,7 @@ export function LibraryGrid({
             "min-h-0 flex-1 overflow-y-auto",
             selected.size > 0 && "pb-20",
           )}
+          aria-busy={isLoading}
         >
           <div className="p-5">
             {isLoading ? (
@@ -495,6 +518,7 @@ export function LibraryGrid({
                     moveTargets={moveTargets}
                     onMove={canMoveSelection ? moveSingle : undefined}
                     isMovePending={moveRecording.isPending}
+                    onRetry={canManageRecordings ? handleRetry : undefined}
                     onCreateFolder={() => {
                       setCreateFolderTarget({ kind: "single", recording: r });
                     }}

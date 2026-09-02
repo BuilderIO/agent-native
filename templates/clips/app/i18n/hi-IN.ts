@@ -140,6 +140,8 @@ const messages = {
     pageTitle: "मीटिंग · Clips",
   },
   recordingPage: {
+    back: "पीछे",
+    done: "हो गया",
     untitledClip: "शीर्षक रहित क्लिप",
     recordingNotFound: "रिकॉर्डिंग नहीं मिली",
     noAccess: "हो सकता है कि आपके पास इस क्लिप तक पहुंच न हो.",
@@ -200,8 +202,6 @@ const messages = {
     retryImport: "आयात का पुनः प्रयास करें",
     retryUpload: "पुनः अपलोड करने का प्रयास करें",
     checkAgain: "फिर जाँचें",
-    back: "पीछे",
-    done: "हो गया",
     edit: "संपादित करें",
     aiTools: "एआई उपकरण",
     enhanceRecording: "इस रिकॉर्डिंग को बेहतर बनाएं",
@@ -489,7 +489,9 @@ const messages = {
     agentPrompt:
       "यह Clips एजेंट संदर्भ URL प्राप्त करें: {{agentContextUrl}}। बोले गए संदर्भ के लिए transcript.segments का उपयोग करें, स्क्रीन देखने के लिए recommendedFrames या फ्रेम API URL प्राप्त करें, और यदि browserDiagnostics मौजूद हो तो संशोधित कंसोल लॉग और fetch/XHR अनुरोध मेटाडेटा जांचें।",
     agentTokenDescription:
-      "यह अस्थायी एजेंट URL क्लिप को सार्वजनिक किए बिना एजेंटों को इसे पढ़ने देता है। यह दो घंटे बाद समाप्त हो जाता है।",
+      "यह क्लिप सार्वजनिक नहीं है, इसलिए एजेंटों के लिए अस्थायी रीड-ओनली लिंक। 2 घंटे में समाप्त।",
+    agentPublicDescription:
+      "एजेंटों के लिए रीड-ओनली लिंक। जब तक क्लिप सार्वजनिक है, काम करता है।",
     agentLinkUnavailable: "एजेंट लिंक नहीं बन सका।",
     retryAgentLink: "फिर से प्रयास करें",
     gifPreview: "GIF पूर्वावलोकन",
@@ -513,18 +515,16 @@ const messages = {
     height: "ऊंचाई",
     autoplay: "स्वत: प्ले",
     startAt: "प्रारंभ करें (सेकंड)",
-    startAtTimestamp: "{{time}} पर शुरू करें",
     embedCode: "एम्बेड कोड",
+    copyEmbedCode: "एम्बेड कोड कॉपी करें",
+    more: "अधिक",
     sharePlainTitle: "{{title}} साझा करें",
   },
   shareUi: {
     owner: "स्वामी: {{email}}",
-    generalAccess: "सामान्य पहुंच",
-    restrictedLinkDescription:
-      "यह लिंक केवल उन लोगों के लिए काम करेगा जिनके पास पहले से पहुंच है।",
-    makingPublic: "सार्वजनिक किया जा रहा है…",
-    makePublicAndCopy: "सार्वजनिक करें और कॉपी करें",
     copy: "कॉपी करें",
+    copied: "कॉपी हो गया",
+    copyLink: "लिंक कॉपी करें",
     addPeopleByEmail: "ईमेल से लोगों को जोड़ें",
     invite: "आमंत्रित करें",
     notifyPeople: "लोगों को सूचित करें",
@@ -532,6 +532,18 @@ const messages = {
     ownerRole: "स्वामी",
     remove: "हटाएं",
     noAccessYet: "अभी किसी के पास पहुंच नहीं है।",
+    whoHasAccess: "किसके पास पहुंच है",
+    canAccess: "पहुंच सकते हैं",
+    onlyYou: "केवल आप",
+    othersCount_one: "{{email}} + {{count}} अन्य",
+    othersCount_other: "{{email}} + {{count}} अन्य",
+    selectAccess: "पहुंच चुनें",
+    accessOptions: {
+      public: "लिंक वाला कोई भी व्यक्ति देख सकता है",
+      org: "{{orgName}} में कोई भी देख सकता है",
+      orgFallback: "आपके संगठन में कोई भी देख सकता है",
+      private: "केवल आमंत्रित लोग देख सकते हैं",
+    },
     visibility: {
       private: {
         label: "निजी",
@@ -615,6 +627,8 @@ const messages = {
     macSublabel: "यूनिवर्सल (Apple Silicon + Intel)",
     windowsSublabel: "64-बिट MSI इंस्टॉलर",
     downloadFor: "{{platform}} के लिए डाउनलोड करें",
+    downloadStarted: "डाउनलोड शुरू हो गया",
+    downloadAgain: "काम नहीं किया? फिर से डाउनलोड करें",
     alsoFor: "{{platform}} के लिए भी उपलब्ध है",
     backToLibrary: "लाइब्रेरी पर वापस जाएँ",
     clipsDesktop: "Clips Desktop",
@@ -984,8 +998,6 @@ const messages = {
     editComment: "टिप्पणी संपादित करें",
     commentButton: "टिप्पणी",
     composerPlaceholder: "टिप्पणी जोड़ें…",
-    mentionSomeone: "किसी का उल्लेख करें",
-    addEmoji: "इमोजी जोड़ें",
   },
   shareMeeting: {
     pageTitle: "मीटिंग नोट्स · Clips",
@@ -1037,6 +1049,10 @@ const messages = {
       "इसे पूर्ववत नहीं किया जा सकता। अब तक की आपकी रिकॉर्डिंग स्थायी रूप से हटा दी जाएगी।",
     resume: "फिर शुरू करें",
     discardRecording: "रिकॉर्डिंग हटाएं",
+    restart: "रिकॉर्डिंग फिर से शुरू करें",
+    restartShortcut: "फिर से शुरू करें (⌥⇧R)",
+    restartQuestion: "क्या नई रिकॉर्डिंग शुरू करें?",
+    restartConfirm: "फिर से शुरू करें",
   },
   countdownOverlay: {
     startsIn: "रिकॉर्डिंग {{count}} में शुरू होगी",
@@ -1513,6 +1529,15 @@ const messages = {
       "इस सहेजे गए अपलोड को फिर आज़माने के लिए मेनू बार से Clips खोलें; दोबारा रिकॉर्ड करने की ज़रूरत नहीं।",
     removeFailedClip: "यह विफल क्लिप हटाएं।",
     remove: "हटाएं",
+    statusStalled: "अटका हुआ",
+    uploadAtRisk: "सामान्य से अधिक समय लग रहा है",
+    uploadAtRiskDetail:
+      "इस क्लिप को सहेजने की कोशिश जारी है। इसमें कुछ मिनट लग सकते हैं।",
+    retry: "पुनः प्रयास करें",
+    retrying: "पुनः प्रयास हो रहा है…",
+    retryFailed: "इस अपलोड को पुनः प्रयास नहीं किया जा सका।",
+    retryUnavailableHere:
+      "पुनः प्रयास केवल उसी डिवाइस या ब्राउज़र पर उपलब्ध है जहां इसे रिकॉर्ड किया गया था।",
     viewsCount: "{{count}} बार देखा गया",
     recordingMenu: "रिकॉर्डिंग मेनू",
     moveToFolder: "फ़ोल्डर में ले जाएं",
@@ -1525,6 +1550,7 @@ const messages = {
     invite: "आमंत्रित करें",
     inviteFailed: "व्यक्ति को आमंत्रित नहीं कर सके",
     removePersonFailed: "व्यक्ति को हटा नहीं सके",
+    permissionUpdateFailed: "अनुमति अपडेट नहीं की जा सकी",
     passwordProtectedDescription:
       "यह वीडियो सुरक्षित है। देखने के लिए पासवर्ड दर्ज करें।",
     password: "पासवर्ड",

@@ -518,6 +518,32 @@ const migrations = [
       await reconcileDefaultFactoryConfigRows();
     },
   },
+  {
+    version: 26,
+    name: "factory-graph-version-chat-context",
+    sql: "ALTER TABLE factory_graph_versions ADD COLUMN chat_context TEXT",
+  },
+  {
+    version: 27,
+    name: "factory-poll-cursors",
+    sql: `
+      CREATE TABLE IF NOT EXISTS factory_poll_cursors (
+        id TEXT PRIMARY KEY,
+        factory_id TEXT NOT NULL,
+        source TEXT NOT NULL,
+        destination_key TEXT NOT NULL,
+        last_slack_ts TEXT,
+        slack_history_cursor TEXT,
+        last_sentry_seen_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS factory_poll_cursors_org_factory_source_dest_idx
+        ON factory_poll_cursors (org_id, factory_id, source, destination_key);
+    `,
+  },
 ];
 
 export const runFactoryMigrations = runMigrations(migrations, {

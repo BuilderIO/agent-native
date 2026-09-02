@@ -61,17 +61,27 @@ async function resolveDocumentAccess(id: string) {
 }
 
 export default defineAction({
-  description: "Get a single document by ID with full content.",
+  description:
+    "Read one access-scoped document by its stable ID, including the full Markdown body and metadata. Use list-documents or search-documents first when the ID is unknown.",
+  deferLoading: false,
+  mcpTool: true,
   schema: z.object({
-    id: z.string().optional().describe("Document ID (required)"),
+    id: z
+      .string()
+      .optional()
+      .describe("Stable document ID returned by a Content discovery action."),
     databaseId: z
       .string()
       .optional()
-      .describe("Exact Database context for membership-local data"),
+      .describe(
+        "Exact database ID when reading membership-local properties for a database item.",
+      ),
     databaseDocumentId: z
       .string()
       .optional()
-      .describe("Backing document ID for the exact Database context"),
+      .describe(
+        "Backing database document ID; only use with databaseId for the exact database context.",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -112,14 +122,13 @@ export default defineAction({
     const propertyDatabase = args.databaseId
       ? await getDatabaseById(args.databaseId)
       : await resolvePropertyDatabaseForDocument(doc);
-    const propertyDatabaseAccess =
-      args.databaseId && propertyDatabase
-        ? await resolveDocumentAccess(propertyDatabase.documentId)
-        : null;
+    const propertyDatabaseAccess = propertyDatabase
+      ? await resolveDocumentAccess(propertyDatabase.documentId)
+      : null;
     if (
       args.databaseId &&
       (!propertyDatabase ||
-        !propertyDatabaseAccess ||
+        (!propertyDatabaseAccess && access.role === "owner") ||
         (propertyDatabase.documentId !== doc.id && !databaseMembership))
     ) {
       throw Object.assign(new Error("Database context not found"), {
@@ -149,6 +158,11 @@ export default defineAction({
     const favoriteIds = userEmail
       ? await favoriteDocumentIds(getDb(), userEmail, [doc.id])
       : new Set<string>();
+    const properties = await listPropertiesForDocument(doc, args.databaseId, {
+      // A share authorizes the exact page and its membership-local fields,
+      // not the private database document that owns those definitions.
+      requireDatabaseAccess: propertyDatabaseAccess !== null,
+    });
 
     return {
       id: doc.id,
@@ -157,7 +171,8 @@ export default defineAction({
         view: "editor",
         params: { documentId: doc.id },
       }),
-      parentId: doc.parentId,
+      parentId:
+        databaseMembership && !propertyDatabaseAccess ? null : doc.parentId,
       title: doc.title,
       content: doc.content,
       description: doc.description,
@@ -175,7 +190,14 @@ export default defineAction({
         ? serializeDatabase(database, doc.description)
         : undefined,
       databaseMembership: databaseMembership
-        ? serializeDatabaseMembership(databaseMembership)
+        ? propertyDatabaseAccess
+          ? serializeDatabaseMembership(databaseMembership)
+          : {
+              databaseId: null,
+              databaseDocumentId: null,
+              databaseTitle: null,
+              position: null,
+            }
         : undefined,
       bodyHydration: bodyHydrationMembership
         ? {
@@ -201,10 +223,18 @@ export default defineAction({
         : undefined,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
-      properties: await listPropertiesForDocument(doc, args.databaseId),
-      contextPath: await getDocumentContextPath(doc, {
-        databaseId: args.databaseId,
-      }),
+      properties: propertyDatabaseAccess
+        ? properties
+        : properties.map((property) => ({
+            ...property,
+            definition: { ...property.definition, databaseId: null },
+          })),
+      contextPath:
+        databaseMembership && !propertyDatabaseAccess
+          ? []
+          : await getDocumentContextPath(doc, {
+              databaseId: args.databaseId,
+            }),
     };
   },
   link: ({ result }) => {

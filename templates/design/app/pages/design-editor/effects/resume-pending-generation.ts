@@ -1,12 +1,15 @@
 import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
 import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import { readCreativeContextState } from "@agent-native/creative-context/client";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import {
   isPendingGenerationStale,
   patchPendingGeneration,
   readPendingGeneration,
+  shouldSkipPendingGenerationResume,
 } from "@/lib/pending-generation";
+import { designPrecedentDirectives } from "@/pages/design-editor/creative-context-precedent";
 import {
   designGenerationDirectives,
   designIntakeQuestionDirectives,
@@ -17,6 +20,10 @@ import {
   loadDesignSystemGenerationContext,
   promptRequestsVariantExploration,
 } from "@/pages/design-editor/generation-prompt-directives";
+import {
+  allIntakeTopicsCovered,
+  loadIntakeContextFromAppState,
+} from "@/pages/design-editor/intake-question-topics";
 import type { DesignData, DesignFile } from "@/pages/design-editor/types";
 
 export interface ResumePendingGenerationArgs {
@@ -61,8 +68,7 @@ export function runResumePendingGeneration({
     setHasPendingGeneration(false);
     return;
   }
-  const templateRefinement = Boolean(pending.templateId && files.length > 0);
-  if (files.length > 0 && !templateRefinement) return;
+  if (shouldSkipPendingGenerationResume(pending, files)) return;
 
   if (isPendingGenerationStale(pending)) {
     markGenerationStale();
@@ -78,7 +84,9 @@ export function runResumePendingGeneration({
   }
 
   const prompt =
-    pending.prompt?.trim() || `Create an initial design for ${design.title}.`;
+    pending.prompt && pending.prompt.trim().length > 0
+      ? pending.prompt
+      : `Create an initial design for ${design.title}.`;
   const uploadedFiles = Array.isArray(pending.files) ? pending.files : [];
   const fileContext = formatUploadedFileContext(uploadedFiles);
   const images = imageAttachmentsFromUploadedFiles(uploadedFiles);
@@ -103,14 +111,21 @@ export function runResumePendingGeneration({
     // asks. Spending the one turn that can see the image on a questionnaire
     // means the turn that writes HTML never sees it.
     const hasReferenceImages = images.length > 0;
-    const shouldSkipQuestions =
+    const explicitSkip =
       pending.skipQuestions === true ||
       shouldExploreVariants ||
       hasReferenceImages;
-    const designSystemContext = await loadDesignSystemGenerationContext(
-      pendingDesignSystemId,
-    );
+    const usesTemplate = Boolean(pending.templateId);
+    const [designSystemContext, intake] = await Promise.all([
+      loadDesignSystemGenerationContext(pendingDesignSystemId),
+      usesTemplate || shouldExploreVariants
+        ? Promise.resolve(null)
+        : loadIntakeContextFromAppState(readCreativeContextState),
+    ]);
     if (cancelled) return;
+    const shouldSkipQuestions =
+      explicitSkip ||
+      (intake ? allIntakeTopicsCovered(intake.coverage) : false);
     const context = [
       sourceContext,
       `Design id: "${id}"`,
@@ -131,15 +146,32 @@ export function runResumePendingGeneration({
         : shouldExploreVariants
           ? designVariantGenerationDirectives(id, pendingDesignSystemId)
           : shouldSkipQuestions
-            ? designGenerationDirectives(
-                id,
-                pendingDesignSystemId,
-                images.length,
-              )
+            ? [
+                ...designGenerationDirectives(
+                  id,
+                  pendingDesignSystemId,
+                  images.length,
+                ),
+                ...(intake?.explicitContext &&
+                intake.precedent.status === "strong"
+                  ? designPrecedentDirectives(
+                      intake.precedent.contextId,
+                      intake.precedent.matches,
+                      id,
+                    )
+                  : []),
+              ]
             : designIntakeQuestionDirectives(
                 id,
                 pendingDesignSystemId,
                 images.length,
+                intake
+                  ? {
+                      coverage: intake.coverage,
+                      contextUnavailable: intake.unavailable,
+                      unavailableReason: intake.unavailableReason,
+                    }
+                  : undefined,
               )),
     ].join("\n");
 
@@ -150,19 +182,13 @@ export function runResumePendingGeneration({
       engine: pending.engine,
       effort: pending.effort,
     };
-    const runTabId = agentSubmit(
-      shouldSkipQuestions
-        ? `Generate design for "${design.title}": ${prompt}`
-        : `Create design: ${prompt}`,
-      context,
-      {
-        model: pending.model,
-        engine: pending.engine,
-        effort: pending.effort,
-        newTab: true,
-        images,
-      },
-    );
+    const runTabId = agentSubmit(prompt, context, {
+      model: pending.model,
+      engine: pending.engine,
+      effort: pending.effort,
+      newTab: true,
+      images,
+    });
     setGenerationChatTabId(runTabId);
     patchPendingGeneration(id, {
       runTabId,

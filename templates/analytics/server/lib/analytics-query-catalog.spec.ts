@@ -4,7 +4,7 @@ import { rankAnalyticsQueryCatalog } from "./analytics-query-catalog";
 import { loadDashboardSeed } from "./dashboard-seeds";
 
 describe("analytics query catalog", () => {
-  it("finds the shipped Agent Native signup chart and returns its source and query", () => {
+  it("finds the shipped Agent-Native signup chart and returns its source and query", () => {
     const config = loadDashboardSeed("agent-native-templates-first-party");
     expect(config).not.toBeNull();
     const results = rankAnalyticsQueryCatalog({
@@ -14,7 +14,7 @@ describe("analytics query catalog", () => {
       dashboards: [
         {
           id: "agent-native-templates-first-party",
-          title: "Agent Native Templates (First-party)",
+          title: "Agent-Native Templates (First-party)",
           description: "Product adoption",
           origin: "dashboard-template",
           config: config!,
@@ -22,14 +22,18 @@ describe("analytics query catalog", () => {
       ],
     });
 
-    expect(results[0]).toMatchObject({
+    const signupResult = results.find(
+      (result) =>
+        result.kind === "dashboard-panel" && result.panelId === "total-signups",
+    );
+    expect(signupResult).toMatchObject({
       kind: "dashboard-panel",
       origin: "dashboard-template",
       dashboardId: "agent-native-templates-first-party",
       panelId: "total-signups",
       source: "first-party",
     });
-    expect(results[0]).toHaveProperty(
+    expect(signupResult).toHaveProperty(
       "query",
       expect.stringContaining("analytics_events"),
     );
@@ -157,6 +161,149 @@ describe("analytics query catalog", () => {
     });
 
     expect(results).toEqual([]);
+  });
+
+  it("boosts only a dashboard certified for its current version", () => {
+    const certification = {
+      status: "certified" as const,
+      certifiedAt: "2026-08-28T00:00:00.000Z",
+      certifiedBy: "admin@example.com",
+      certifiedForUpdatedAt: "v1",
+    };
+    const panel = {
+      id: "signups",
+      title: "Signups",
+      source: "first-party",
+      sql: "SELECT COUNT(*) AS signups FROM analytics_events",
+    };
+    const results = rankAnalyticsQueryCatalog({
+      search: "signups",
+      limit: 2,
+      dictionaryEntries: [],
+      dashboards: [
+        {
+          id: "stale",
+          title: "Stale dashboard",
+          origin: "saved-dashboard",
+          config: {
+            panels: [{ ...panel, title: "Signups (stale copy)" }],
+          },
+          certification,
+          updatedAt: "v2",
+        },
+        {
+          id: "current",
+          title: "Current dashboard",
+          origin: "saved-dashboard",
+          config: { panels: [panel] },
+          certification,
+          updatedAt: "v1",
+          favorite: true,
+        },
+      ],
+    });
+    expect(results[0]).toMatchObject({
+      dashboardId: "current",
+      dashboardCertified: true,
+      favorite: true,
+    });
+    expect(results[1]).toMatchObject({
+      dashboardId: "stale",
+      dashboardCertified: false,
+    });
+  });
+
+  it("requires relevance before applying certification or favorite signals", () => {
+    const certification = {
+      status: "certified" as const,
+      certifiedAt: "2026-08-28T00:00:00.000Z",
+      certifiedBy: "admin@example.com",
+      certifiedForUpdatedAt: "v1",
+    };
+    const results = rankAnalyticsQueryCatalog({
+      search: "revenue",
+      limit: 6,
+      dictionaryEntries: [],
+      dashboards: [
+        {
+          id: "signups",
+          title: "Signups",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "signups",
+                title: "Signups",
+                source: "first-party",
+                sql: "SELECT COUNT(*) AS signups FROM analytics_events",
+              },
+            ],
+          },
+          certification,
+          updatedAt: "v1",
+          favorite: true,
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
+  });
+
+  it("ranks certified dashboards ahead of more relevant ordinary panels", () => {
+    const certification = {
+      status: "certified" as const,
+      certifiedAt: "2026-08-28T00:00:00.000Z",
+      certifiedBy: "admin@example.com",
+      certifiedForUpdatedAt: "v1",
+    };
+    const results = rankAnalyticsQueryCatalog({
+      search: "revenue growth",
+      limit: 6,
+      dictionaryEntries: [],
+      dashboards: [
+        {
+          id: "certified-revenue",
+          title: "Revenue",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "revenue",
+                title: "Revenue",
+                source: "first-party",
+                sql: "SELECT revenue FROM revenue_events",
+              },
+            ],
+          },
+          certification,
+          updatedAt: "v1",
+        },
+        {
+          id: "ordinary-revenue-growth",
+          title: "Revenue Growth",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "revenue-growth",
+                title: "Revenue Growth",
+                source: "first-party",
+                sql: "SELECT revenue, growth FROM revenue_events",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      dashboardId: "certified-revenue",
+      dashboardCertified: true,
+    });
+    expect(results[1]).toMatchObject({
+      dashboardId: "ordinary-revenue-growth",
+      dashboardCertified: false,
+    });
   });
 
   it("surfaces extension panels that have no SQL", () => {

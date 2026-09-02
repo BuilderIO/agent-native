@@ -1,4 +1,5 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { signOut } from "@agent-native/core/client/hooks";
 import {
   isInBuilderFrame,
   oauthRedirectUri,
@@ -156,7 +157,7 @@ export function GoogleConnectBanner({
 
   // Check if credentials are already configured on mount
   useEffect(() => {
-    fetchStatus();
+    void fetchStatus();
   }, [fetchStatus]);
 
   // When auth URL is ready, open it and poll for connection.
@@ -217,7 +218,7 @@ export function GoogleConnectBanner({
       setWantAuthUrl(false);
       if (canOfferOAuthSetup) {
         setShowWizard(true);
-        fetchStatus();
+        void fetchStatus();
       } else {
         setDesktopAuthIssue({
           code: "managed_credentials_unavailable",
@@ -235,22 +236,14 @@ export function GoogleConnectBanner({
       return;
     }
     setShowWizard(true);
-    fetchStatus();
+    void fetchStatus();
   }, [desktopAuthIssue, fetchStatus]);
 
   const allConfigured =
     envStatus.length > 0 && envStatus.every((k) => k.configured);
 
   const handleSignOutForGoogle = useCallback(async () => {
-    try {
-      await fetch(agentNativePath("/_agent-native/auth/logout"), {
-        method: "POST",
-        credentials: "include",
-      });
-    } catch {
-      // Reload below still lands on the auth screen if the local cookie changed.
-    }
-    window.location.reload();
+    await signOut();
   }, []);
 
   // When add-account URL is ready, open it and poll for new account.
@@ -378,7 +371,7 @@ export function GoogleConnectBanner({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   function copyToClipboard(text: string, key: string) {
-    navigator.clipboard.writeText(text);
+    void navigator.clipboard.writeText(text);
     setCopiedKey(key);
     setTimeout(() => setCopiedKey(null), 2000);
   }
@@ -791,7 +784,7 @@ function SetupWizard({
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                !saved && setCurrentStep(i);
+                if (!saved) setCurrentStep(i);
               }
             }}
           >

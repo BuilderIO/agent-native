@@ -1,3 +1,13 @@
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
+}
+
 /**
  * Guards for on-demand `ensureTable()` DDL so the common already-migrated path
  * takes NO `ACCESS EXCLUSIVE` lock on Postgres.
@@ -145,15 +155,15 @@ async function loadSchemaSnapshot(
     const tables = new Set<string>();
     const columns = new Set<string>();
     for (const row of columnData) {
-      const table = String(row.table_name ?? "").toLowerCase();
-      const column = String(row.column_name ?? "").toLowerCase();
+      const table = stringifyValue(row.table_name ?? "").toLowerCase();
+      const column = stringifyValue(row.column_name ?? "").toLowerCase();
       if (!table) continue;
       tables.add(table);
       if (column) columns.add(`${table}.${column}`);
     }
     const indexes = new Set<string>();
     for (const row of indexData) {
-      const name = String(row.indexname ?? "").toLowerCase();
+      const name = stringifyValue(row.indexname ?? "").toLowerCase();
       if (name) indexes.add(name);
     }
     return { tables, columns, indexes };
@@ -613,7 +623,7 @@ export async function ensureIndexExistsConcurrently(
 export function isLockTimeoutError(err: unknown): boolean {
   const anyErr = err as { code?: unknown; message?: unknown } | null;
   if (anyErr?.code === "55P03") return true;
-  const msg = String(anyErr?.message ?? anyErr ?? "");
+  const msg = stringifyValue(anyErr?.message ?? anyErr ?? "");
   return /lock[_ ]?timeout|canceling statement due to lock timeout/i.test(msg);
 }
 

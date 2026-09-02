@@ -1,7 +1,7 @@
 /**
  * The runtime shell the web UI is rendering inside. Used as pass-through
  * feedback metadata so form owners can tell whether a submission came from the
- * Agent Native desktop app (Electron), a Tauri desktop shell (e.g. Clips), or a
+ * Agent-Native desktop app (Electron), a Tauri desktop shell (e.g. Clips), or a
  * plain browser — without surfacing it as a visible form field.
  */
 export type ClientSurface = "web" | "electron" | "tauri";
@@ -11,7 +11,7 @@ interface SurfaceGlobals {
   // the app opts into `withGlobalTauri`, so check both.
   __TAURI_INTERNALS__?: unknown;
   __TAURI__?: unknown;
-  // Exposed by the Agent Native desktop (Electron) preload bridges.
+  // Exposed by the Agent-Native desktop (Electron) preload bridges.
   agentNativeDesktop?: unknown;
   electronAPI?: unknown;
 }

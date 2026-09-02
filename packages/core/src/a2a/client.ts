@@ -4,7 +4,24 @@ import * as jose from "jose";
 
 import { getAppConfig } from "../app-config/index.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
+import { getRequestContext } from "../server/request-context.js";
+import {
+  SYNTHETIC_TRAFFIC_BETA_E2E,
+  SYNTHETIC_TRAFFIC_HEADER,
+} from "../shared/test-traffic.js";
 import { canonicalA2AAudience } from "./audience.js";
+import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
+import type {
+  A2AApprovedAction,
+  A2ACorrelationMetadata,
+  A2ASourceContextReference,
+  A2AReadOnlyActionResult,
+  AgentCard,
+  JsonRpcRequest,
+  JsonRpcResponse,
+  Message,
+  Task,
+} from "./types.js";
 
 /**
  * A workspace serves every app from one gateway on loopback, so sibling A2A
@@ -48,18 +65,6 @@ function workspacePrivateOrigins(): string[] {
   }
   return origins;
 }
-import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
-import type {
-  A2AApprovedAction,
-  A2ACorrelationMetadata,
-  A2ASourceContextReference,
-  A2AReadOnlyActionResult,
-  AgentCard,
-  JsonRpcRequest,
-  JsonRpcResponse,
-  Message,
-  Task,
-} from "./types.js";
 
 const DEFAULT_A2A_POLL_REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_A2A_DISCOVERY_TIMEOUT_MS = 3_000;
@@ -200,11 +205,16 @@ export class A2AClient {
   private endpointCandidates: string[] = [];
   private endpointResolved = false;
   private requestTimeoutMs?: number;
+  private transportHeaders?: Record<string, string>;
 
   constructor(
     baseUrl: string,
     apiKey?: string,
-    options?: { requestTimeoutMs?: number; fallbackApiKeys?: string[] },
+    options?: {
+      requestTimeoutMs?: number;
+      fallbackApiKeys?: string[];
+      transportHeaders?: Record<string, string>;
+    },
   ) {
     const normalized = baseUrl.replace(/\/$/, "");
     const explicitEndpoint = splitExplicitA2AEndpoint(normalized);
@@ -219,11 +229,17 @@ export class A2AClient {
       ...(options?.fallbackApiKeys ?? []),
     ]);
     this.requestTimeoutMs = options?.requestTimeoutMs;
+    this.transportHeaders = {
+      ...(options?.transportHeaders ?? {}),
+      ...(getRequestContext()?.isSyntheticTraffic === true
+        ? { [SYNTHETIC_TRAFFIC_HEADER]: SYNTHETIC_TRAFFIC_BETA_E2E }
+        : {}),
+    };
   }
 
   /**
    * Detect which A2A path the target agent uses.
-   * Agent-native apps use /_agent-native/a2a, external agents may use /a2a.
+   * Agent-Native apps use /_agent-native/a2a, external agents may use /a2a.
    */
   async resolveEndpoint(): Promise<void> {
     await this.ensureEndpointCandidates();
@@ -265,7 +281,10 @@ export class A2AClient {
   }
 
   private headers(apiKey = this.apiKey): Record<string, string> {
-    const h: Record<string, string> = { "Content-Type": "application/json" };
+    const h: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(this.transportHeaders ?? {}),
+    };
     if (apiKey) {
       h["Authorization"] = `Bearer ${apiKey}`;
     }
@@ -1021,6 +1040,8 @@ export async function callAgent(
     apiKeyFallbacks?: string[];
     /** Additional transport metadata. Receivers must not use it as identity. */
     metadata?: Record<string, unknown>;
+    /** Trusted server-side headers to carry across the A2A transport. */
+    transportHeaders?: Record<string, string>;
     contextId?: string;
     userEmail?: string;
     orgDomain?: string;
@@ -1103,6 +1124,7 @@ export async function callAgent(
         .filter((token): token is string => token !== undefined);
       const client = new A2AClient(url, apiKeyAttempts[i], {
         fallbackApiKeys,
+        transportHeaders: opts?.transportHeaders,
       });
       let task: Task;
       if (useAsync) {

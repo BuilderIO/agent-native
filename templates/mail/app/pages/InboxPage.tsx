@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   isInboxScopedAppLabel,
   mailLabelsInclude,
@@ -17,7 +18,13 @@ import {
   FOCUS_COMPOSE_DRAFT_EVENT,
   useComposeState,
 } from "@/hooks/use-compose-state";
-import { useEmails, useMarkRead, useSettings } from "@/hooks/use-emails";
+import {
+  EMPTY_LABELS,
+  useEmails,
+  useLabels,
+  useMarkRead,
+  useSettings,
+} from "@/hooks/use-emails";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -28,6 +35,8 @@ import {
   pinnedTriageLabels,
   augmentSelfSentLabels,
   filterInboxTabEmails,
+  inboxThreadKey,
+  savedFilterThreadIds,
 } from "@/lib/inbox-tabs";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn } from "@/lib/utils";
@@ -215,7 +224,7 @@ function ThreadListSidebar({
                     accountEmail: email.accountEmail,
                   });
                 onNavigateThread(threadKey);
-                navigate(`/${view}/${threadKey}${routeSearchSuffix}`);
+                void navigate(`/${view}/${threadKey}${routeSearchSuffix}`);
               }}
               className={cn(
                 "w-full text-start px-3 h-[38px] flex items-center border-b border-border/10 transition-colors",
@@ -270,10 +279,10 @@ function ThreadListSidebar({
 // using `[]` inline creates a fresh array on every render, which cascades
 // through memos into EmailThread's props and causes re-render storms.
 const EMPTY_ACCOUNTS: { email: string; displayName?: string }[] = [];
-const EMPTY_LABELS: string[] = [];
 const EMPTY_EMAILS: EmailMessage[] = [];
 
 export function InboxPage() {
+  const t = useT();
   const { view = "inbox", threadId: routeThreadId } = useParams<{
     view: string;
     threadId: string;
@@ -318,16 +327,21 @@ export function InboxPage() {
   const compose = useComposeState();
   const navState = useNavigationState();
   const [, setLastArchivedId] = useState<string | null>(null);
-  const { data: settings } = useSettings();
+  const { data: settings, isLoading: settingsLoading } = useSettings();
   const [searchParams] = useSearchParams();
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
+  const activeFilterId = searchParams.get("filter");
   const routeSearchSuffix = searchParams.toString()
     ? `?${searchParams.toString()}`
     : "";
 
   const googleStatus = useGoogleAuthStatus();
   const { activeAccounts } = useAccountFilter();
+  const { data: labelsData } = useLabels(
+    activeAccounts.size > 0 ? [...activeAccounts] : undefined,
+  );
+  const labels = labelsData ?? EMPTY_LABELS;
 
   // Memoize every derived array — the emails memo depends on these, and fresh
   // array refs on every render were cascading into EmailThread as unstable
@@ -341,10 +355,7 @@ export function InboxPage() {
     () => new Set(connectedAccounts.map((a) => a.email.toLowerCase())),
     [connectedAccounts],
   );
-  const userPinnedLabels = useMemo(
-    () => settings?.pinnedLabels ?? EMPTY_LABELS,
-    [settings?.pinnedLabels],
-  );
+  const userPinnedLabels = settings?.pinnedLabels;
   const pinnedLabels = useMemo(
     () => resolvePinnedLabels(userPinnedLabels, isGoogleConnected),
     [isGoogleConnected, userPinnedLabels],
@@ -354,18 +365,72 @@ export function InboxPage() {
     [pinnedLabels],
   );
   const hasNoteToSelf = pinnedLabels.includes("note-to-self");
+  const activeLabelRecord = useMemo(() => {
+    if (!activeLabel) return undefined;
+    const normalizedId = activeLabel.includes("/")
+      ? activeLabel
+          .slice(activeLabel.lastIndexOf("/") + 1)
+          .replace(/_/g, " ")
+          .toLowerCase()
+      : activeLabel.toLowerCase();
+    return labels.find(
+      (label) =>
+        label.id === activeLabel ||
+        label.id === normalizedId ||
+        label.name.toLowerCase() === activeLabel.toLowerCase(),
+    );
+  }, [activeLabel, labels]);
+  const activeLabelIsInboxScoped =
+    !!activeLabel &&
+    activeLabelRecord?.type !== "user" &&
+    isInboxScopedAppLabel(activeLabelRecord?.id ?? activeLabel);
 
   // Always fetch from the URL view (inbox, starred, etc.).
   // Top-bar triage tabs (Important / pinned labels / "Other") are slices of
   // the single inbox query — NOT a separate Gmail `label:` search — so the
   // tab badge count and the list it shows always agree. Non-pinned sidebar
   // labels (and label searches) still hit the server label query.
-  const searchQuery = searchParams.get("q") ?? undefined;
+  const activeSavedFilter = settings?.savedFilters?.find(
+    (filter) => filter.id === activeFilterId,
+  );
+  const savedFilterQueries = useMemo(
+    () => (settings?.savedFilters ?? []).map((filter) => filter.query),
+    [settings?.savedFilters],
+  );
+  const searchQuery =
+    activeSavedFilter?.query ?? searchParams.get("q") ?? undefined;
+  useEffect(() => {
+    if (
+      settingsLoading ||
+      view !== "inbox" ||
+      routeThreadId ||
+      activeLabel ||
+      activeInboxTab ||
+      searchQuery ||
+      userPinnedLabels !== undefined ||
+      !isGoogleConnected
+    )
+      return;
+    void navigate("/inbox?label=important", { replace: true });
+  }, [
+    activeInboxTab,
+    activeLabel,
+    isGoogleConnected,
+    navigate,
+    routeThreadId,
+    searchQuery,
+    settingsLoading,
+    userPinnedLabels,
+    view,
+  ]);
+
   const isPinnedTab =
     !!activeLabel &&
     view === "inbox" &&
     mailLabelsInclude(triageLabels, activeLabel);
-  const clientSliceTab = isPinnedTab && !searchQuery;
+  const mailboxWideLabelTab =
+    view === "inbox" && !!activeLabel && !activeLabelIsInboxScoped;
+  const clientSliceTab = isPinnedTab && !searchQuery && !mailboxWideLabelTab;
   const isOtherTab =
     view === "inbox" &&
     activeInboxTab === OTHER_INBOX_TAB_PARAM &&
@@ -373,6 +438,11 @@ export function InboxPage() {
   const effectiveLabel = clientSliceTab
     ? undefined
     : (activeLabel ?? undefined);
+  const emailView = activeSavedFilter
+    ? "all"
+    : mailboxWideLabelTab
+      ? "all"
+      : view;
   const {
     data: rawEmails,
     isLoading,
@@ -384,7 +454,7 @@ export function InboxPage() {
     fetchNextPage,
     isFetchingNextPage,
     isFetchNextPageError,
-  } = useEmails(view, searchQuery, effectiveLabel);
+  } = useEmails(emailView, searchQuery, effectiveLabel);
   const hasEmailData = rawEmails !== undefined;
   const emailListLoading =
     isLoading ||
@@ -412,11 +482,21 @@ export function InboxPage() {
     // membership rule the badge uses (qualifiesForInboxTab). This is what
     // keeps the tab number equal to the emails listed under it.
     if (clientSliceTab && activeLabel) {
-      return filterInboxTabEmails(filtered, activeLabel, pinnedLabels);
+      return filterInboxTabEmails(
+        filtered,
+        activeLabel,
+        pinnedLabels,
+        savedFilterQueries,
+      );
     }
     // "Other" tab — the inbox remainder, same partition as its badge.
     if (isOtherTab) {
-      return filterInboxTabEmails(filtered, null, pinnedLabels);
+      return filterInboxTabEmails(
+        filtered,
+        null,
+        pinnedLabels,
+        savedFilterQueries,
+      );
     }
 
     if (activeLabel) {
@@ -424,13 +504,13 @@ export function InboxPage() {
       // Gmail labels keep thread membership when any fetched message carries
       // the label, so replies don't disappear just because the latest row
       // differs; inbox-scoped app labels stay a latest-message slice.
-      const isInboxScopedLabel = isInboxScopedAppLabel(activeLabel);
+      const isInboxScopedLabel = activeLabelIsInboxScoped;
       const hasLabel = (e: (typeof filtered)[0]) =>
         mailLabelsInclude(e.labelIds, activeLabel);
       const latestByThread = new Map<string, (typeof filtered)[0]>();
       const labelThreadIds = new Set<string>();
       for (const e of filtered) {
-        const key = e.threadId || e.id;
+        const key = inboxThreadKey(e);
         if (hasLabel(e)) labelThreadIds.add(key);
         const existing = latestByThread.get(key);
         if (!existing || new Date(e.date) > new Date(existing.date)) {
@@ -460,7 +540,14 @@ export function InboxPage() {
           })
           .map(([threadId]) => threadId),
       );
-      return filtered.filter((e) => qualifiedThreadIds.has(e.threadId || e.id));
+      return filtered.filter((e) => qualifiedThreadIds.has(inboxThreadKey(e)));
+    }
+    if (view === "inbox" && !searchQuery && savedFilterQueries.length > 0) {
+      const savedFilterThreads = savedFilterThreadIds(
+        filtered,
+        savedFilterQueries,
+      );
+      return filtered.filter((e) => !savedFilterThreads.has(inboxThreadKey(e)));
     }
     return filtered;
   }, [
@@ -476,6 +563,8 @@ export function InboxPage() {
     isGoogleConnected,
     connectedEmails,
     hasNoteToSelf,
+    activeLabelIsInboxScoped,
+    savedFilterQueries,
   ]);
 
   // Clear multi-selection when switching views or label tabs. Do NOT clear on
@@ -483,11 +572,11 @@ export function InboxPage() {
   // extending the selection, so selection must persist across thread nav.
   useEffect(
     () => setSelectedIds(new Set()),
-    [view, activeLabel, activeInboxTab],
+    [view, activeLabel, activeInboxTab, activeFilterId],
   );
 
   // Sync current navigation state to file (write-only, so agent can read it)
-  const searchQ = searchParams.get("q") ?? undefined;
+  const searchQ = searchQuery;
   useEffect(() => {
     navState.sync({
       view,
@@ -495,6 +584,7 @@ export function InboxPage() {
       focusedEmailId: focusedId ?? undefined,
       search: searchQ,
       label: activeLabel ?? undefined,
+      filter: activeFilterId ?? undefined,
       activeInboxTab: activeInboxTab ?? undefined,
       activeAccounts:
         activeAccounts.size > 0 ? Array.from(activeAccounts) : undefined,
@@ -507,6 +597,7 @@ export function InboxPage() {
     focusedId,
     searchQ,
     activeLabel,
+    activeFilterId,
     activeInboxTab,
     activeAccounts,
     selectedThreadIds,
@@ -522,6 +613,7 @@ export function InboxPage() {
     lastCommandRef.current = key;
 
     const targetView = navCommand.view || view;
+    const targetFilter = navCommand.filter;
     const targetThread = navCommand.threadId;
 
     if (navCommand.composeDraftId && !targetThread) {
@@ -535,25 +627,27 @@ export function InboxPage() {
           detail: { id: navCommand.composeDraftId },
         }),
       );
-      if (view !== "inbox") navigate("/inbox");
+      if (view !== "inbox") void navigate("/inbox");
     } else if (targetView === "draft-queue") {
       const target = navCommand.queuedDraftId
         ? `/draft-queue?id=${encodeURIComponent(navCommand.queuedDraftId)}`
         : "/draft-queue";
-      navigate(target);
+      void navigate(target);
     } else if (targetView === "settings") {
       const target = navCommand.settingsSection
         ? `/settings?section=${encodeURIComponent(navCommand.settingsSection)}`
         : "/settings";
-      navigate(target);
+      void navigate(target);
+    } else if (targetFilter) {
+      void navigate(`/inbox?filter=${encodeURIComponent(targetFilter)}`);
     } else if (targetThread) {
-      navigate(`/${targetView}/${targetThread}`);
+      void navigate(`/${targetView}/${targetThread}`);
     } else if (targetView !== view) {
-      navigate(`/${targetView}`);
+      void navigate(`/${targetView}`);
     }
 
     // Delete the command file so it doesn't re-trigger
-    navState.clearCommand();
+    void navState.clearCommand();
   }, [navCommand, view, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
   // Stable-identity pattern: keep the previous array reference when the
   // content hasn't meaningfully changed. Without this, markThreadRead's
@@ -580,6 +674,27 @@ export function InboxPage() {
     prevThreadsRef.current = rawThreads;
     return rawThreads;
   }, [rawThreads]);
+  const activeSubject = threadId
+    ? threads.find(
+        (thread) =>
+          (thread.latestMessage.threadId || thread.latestMessage.id) ===
+          threadId,
+      )?.latestMessage.subject
+    : undefined;
+
+  useEffect(() => {
+    if (!activeSubject) return;
+    const nextTitle = `${normalizeDocumentTitle(
+      activeSubject,
+      t("mail.routeTitles.emailThread"),
+    )} — Mail`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [activeSubject, t]);
+
   const threadIds = useMemo(
     () => threads.map((t) => t.latestMessage.threadId || t.latestMessage.id),
     [threads],
@@ -678,6 +793,7 @@ export function InboxPage() {
     isError,
     hasThread,
     searchQuery,
+    isSavedFilter: Boolean(activeSavedFilter),
     threadCount: threads.length,
     hasNextPage: Boolean(hasNextPage),
   });

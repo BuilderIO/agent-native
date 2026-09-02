@@ -16,7 +16,14 @@ import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useState } from "react";
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useLocation,
+} from "react-router";
 import type { LinksFunction } from "react-router";
 
 import { Layout as AppLayout } from "@/components/layout/Layout";
@@ -140,19 +147,35 @@ function AssetsCommandMenu({
   );
 }
 
-export default function Root() {
-  const [queryClient] = useState(() => createAgentNativeQueryClient());
+function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
+    <>
+      <DbSyncSetup />
+      <AssetsCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
+      <AppLayout>
+        <Outlet />
+      </AppLayout>
+    </>
+  );
+}
+
+export default function Root() {
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const location = useLocation();
+  const isMarketingPath = location.pathname === "/";
+  return (
     <AppToolkitProvider>
-      <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
-        <DbSyncSetup />
-        <Toaster richColors position="bottom-left" />
-        <AssetsCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
-        <AppLayout>
-          <Outlet />
-        </AppLayout>
+      <AppProviders
+        queryClient={queryClient}
+        isPublicPath={isMarketingPath}
+        toaster={
+          isMarketingPath ? null : <Toaster richColors position="bottom-left" />
+        }
+        i18n={{ catalog: i18nCatalog }}
+      >
+        {isMarketingPath ? <Outlet /> : <AppContent />}
       </AppProviders>
     </AppToolkitProvider>
   );

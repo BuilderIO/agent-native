@@ -1,17 +1,19 @@
 ---
 title: "Erste Schritte"
-description: "Erstellen Sie eine Agent-Native-App und rufen Sie dieselbe Aktion über den Agenten und die UI auf."
+description: "Erstellen Sie einen Agenten mit einer Chat-UI und rufen Sie dieselbe Aktion über den Agenten und die UI auf."
 ---
 
 # Erste Schritte
 
-Agent-Native ist ein Open-Source-TypeScript-Framework zum Erstellen von Apps,
-die sowohl Menschen als auch KI-Agenten dienen. Sie definieren die Funktionalität
-Ihrer App einmal als [Actions](/docs/actions-overview) – typisierte Funktionen,
-die Ihre React-UI aus Code aufruft und Agenten als Tools verwenden.
+Agent-Native ist ein Open-Source-TypeScript-Framework zum Entwickeln autonomer
+Agenten mit intuitiven Benutzeroberflächen. Sie definieren jede Fähigkeit einmal
+als [Aktion](/docs/actions-overview) – eine typisierte Funktion, die der Agent als
+Tool verwendet und die UI aus Code aufruft.
 
-In diesem Leitfaden erstellen Sie eine Chat-App und rufen deren enthaltene
-`hello`-Action über den Agenten und die UI auf.
+In diesem Leitfaden erstellen Sie einen Agenten mit einer Chat-UI und rufen
+dessen enthaltene `hello`-Action über den Agenten und die UI auf.
+
+<GettingStartedPaths />
 
 ## Voraussetzungen
 
@@ -20,9 +22,9 @@ In diesem Leitfaden erstellen Sie eine Chat-App und rufen deren enthaltene
 - Eine LLM-Verbindung für den Agenten: Builder.io, ein Anthropic- oder
   OpenAI-API-Schlüssel oder ein lokales Ollama-Modell
 
-## Eine App erstellen
+## Einen Agenten erstellen
 
-Erstellen Sie in einem neuen Verzeichnis eine Chat-App:
+Beginnen Sie in einem neuen Verzeichnis mit dem Chat-Template:
 
 ```bash
 npx @agent-native/core@latest create my-app --standalone --template chat
@@ -30,20 +32,20 @@ cd my-app
 pnpm install
 ```
 
-Das Template enthält eine Browser-App, Authentifizierung, dauerhafte
+Das Template gibt Ihrem Agenten eine Browser-UI, Authentifizierung, dauerhafte
 Unterhaltungen, Live-Synchronisierung, Anwendungskontext und ein
 `actions/`-Verzeichnis. Außerdem enthält es eine kleine `hello`-Action, die Sie
 in diesem Leitfaden verwenden werden.
 
 ## Den Entwicklungsserver starten
 
-Starten Sie die App:
+Starten Sie den Entwicklungsserver:
 
 ```bash
 pnpm dev
 ```
 
-Die App wird unter `http://localhost:8080` geöffnet. Falls sie nicht
+Die Browser-UI wird unter `http://localhost:8080` geöffnet. Falls sie nicht
 automatisch geöffnet wird, rufen Sie diese URL im Browser auf.
 
 <Callout tone="info">
@@ -64,7 +66,7 @@ kann und die Agenten als Tool verwenden können. Das Chat-Template enthält eine
 einfache `hello`-Action, damit Sie dieses Muster ausprobieren können, bevor Sie
 selbst eine schreiben.
 
-Bitten Sie den Agenten in der App:
+Geben Sie im Agenten-Panel ein:
 
 > Call the hello action for Alex.
 
@@ -172,19 +174,19 @@ Action lässt sich außerdem aufrufen über:
 | [HTTP API](/docs/http-api)              | eine Action aus einem Skript, Backend oder einer Integration aufzurufen.     |
 | [CLI](/docs/actions-other-surfaces#cli) | eine Action über das Terminal auszuführen oder zu testen.                    |
 | [MCP](/docs/actions-other-surfaces#mcp) | einen externen KI-Client Actions als Tools entdecken und aufrufen zu lassen. |
-| [A2A](/docs/actions-other-surfaces#a2a) | eine andere Agent-Native-App diese App um Arbeit bitten zu lassen.           |
+| [A2A](/docs/actions-other-surfaces#a2a) | einen anderen Agenten Arbeit an Ihren delegieren zu lassen.                   |
 
 Jeder Aufrufer verwendet dieselbe Action-Definition. Sie benötigen keine
 separate Implementierung für jeden einzelnen. Dieses gemeinsame Action-Modell
 steht im Zentrum von Agent-Native: Verhalten, Validierung und Berechtigungen
-bleiben in UI, Agenten und Integrationen abgestimmt, wenn sich die App ändert.
+bleiben in UI, Agenten und Integrationen abgestimmt, wenn Sie Fähigkeiten hinzufügen.
 
 ## Was Sie erstellt haben
 
-Sie haben eine Agent-Native-App erstellt, deren `hello`-Action über den Agenten
-und eine React-UI aufgerufen und die Begrüßung einmal geändert, woraufhin sich
-beide aktualisiert haben. Jede Action, die Sie von nun an schreiben, folgt
-demselben Muster.
+Sie haben einen Agenten mit einer Chat-UI erstellt, dieselbe `hello`-Action über
+den Agenten und eine React-UI aufgerufen und die Begrüßung einmal geändert,
+woraufhin sich beide aktualisiert haben. Jede Action, die Sie von nun an
+schreiben, folgt demselben Muster.
 
 ## Nächste Schritte
 

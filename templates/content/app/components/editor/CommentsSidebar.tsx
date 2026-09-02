@@ -1,5 +1,5 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { emailToName } from "@agent-native/core/client/collab";
+import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   InlineMarkdown,
@@ -23,6 +23,11 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import {
+  Avatar as UserAvatar,
+  AvatarFallback as UserAvatarFallback,
+  AvatarImage as UserAvatarImage,
+} from "@/components/ui/avatar";
 import {
   Tooltip,
   TooltipContent,
@@ -93,6 +98,30 @@ function emailToAvatarColor(email: string) {
   }
   const hue = Math.abs(hash) % 360;
   return `hsl(${hue}, 55%, 55%)`;
+}
+
+function CommentAvatar({
+  email,
+  name,
+  className = "h-6 w-6",
+}: {
+  email?: string | null;
+  name?: string | null;
+  className?: string;
+}) {
+  const avatarUrl = useAvatarUrl(email);
+  const label = name ?? email ?? "";
+  return (
+    <UserAvatar className={className} title={label}>
+      {avatarUrl ? <UserAvatarImage src={avatarUrl} alt={label} /> : null}
+      <UserAvatarFallback
+        className="text-[11px] font-medium text-primary-foreground"
+        style={{ backgroundColor: emailToAvatarColor(email ?? "user") }}
+      >
+        {emailToInitial(label)}
+      </UserAvatarFallback>
+    </UserAvatar>
+  );
 }
 
 function formatDate(dateStr: string) {
@@ -367,10 +396,6 @@ export function CommentsSidebar({
     [threads],
   );
 
-  const authorName = currentUserEmail
-    ? emailToName(currentUserEmail)
-    : undefined;
-
   useEffect(() => {
     if (pendingComment) {
       setPendingText("");
@@ -390,7 +415,6 @@ export function CommentsSidebar({
         anchorPrefix: pendingComment?.anchor?.prefix,
         anchorSuffix: pendingComment?.anchor?.suffix,
         anchorStartOffset: pendingComment?.anchor?.startOffset,
-        authorName,
         mentions: mentionsJsonFor(pendingText, pendingMentions),
       },
       {
@@ -424,7 +448,6 @@ export function CommentsSidebar({
         content: replyText.trim(),
         threadId,
         parentId: thread?.comments[0]?.id,
-        authorName,
         mentions: mentionsJsonFor(replyText, replyMentions),
       },
       {
@@ -938,12 +961,10 @@ function ThreadView({
         {thread.comments.map((c) => (
           <div key={c.id} className="mb-3 last:mb-0">
             <div className="flex items-center gap-2 mb-0.5">
-              <div
-                className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-medium text-white shrink-0"
-                style={{ backgroundColor: emailToAvatarColor(c.author_email) }}
-              >
-                {emailToInitial(c.author_name ?? c.author_email)}
-              </div>
+              <CommentAvatar
+                email={c.author_email}
+                name={c.author_name ?? c.author_email}
+              />
               <span className="text-[13px] font-semibold text-foreground">
                 {c.author_name ?? c.author_email.split("@")[0]}
               </span>
@@ -964,16 +985,11 @@ function ThreadView({
           className="flex items-center gap-2 px-3 pb-3 pt-1"
           onClick={(e) => e.stopPropagation()}
         >
-          <div
-            className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-medium text-white shrink-0 opacity-40"
-            style={{
-              backgroundColor: emailToAvatarColor(
-                thread.comments[0]?.author_email ?? "user",
-              ),
-            }}
-          >
-            {emailToInitial(thread.comments[0]?.author_name ?? "user")}
-          </div>
+          <CommentAvatar
+            email={thread.comments[0]?.author_email}
+            name={thread.comments[0]?.author_name ?? "user"}
+            className="h-6 w-6 shrink-0 opacity-40"
+          />
           <div className="flex-1 relative">
             <CommentComposer
               ref={replyInputRef}
@@ -1024,12 +1040,11 @@ function ResolvedThreadView({
         </p>
       )}
       <div className="flex items-center gap-2">
-        <div
-          className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-medium text-white shrink-0 opacity-80"
-          style={{ backgroundColor: emailToAvatarColor(first.author_email) }}
-        >
-          {emailToInitial(first.author_name ?? first.author_email)}
-        </div>
+        <CommentAvatar
+          email={first.author_email}
+          name={first.author_name ?? first.author_email}
+          className="h-5 w-5 shrink-0 opacity-80"
+        />
         <span className="flex-1 truncate text-[13px] text-muted-foreground">
           {renderCommentBody(first.content, first.mentions)}
         </span>

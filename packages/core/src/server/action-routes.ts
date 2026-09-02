@@ -26,9 +26,11 @@ import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
 import {
   readBrowserSessionIdHeader,
   readAnalyticsClientPlatformHeader,
+  readSyntheticTrafficHeader,
   seedAgentRunOwnerContext,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
 import {
   getAllowedCorsOrigin as resolveAllowedCorsOrigin,
@@ -310,6 +312,34 @@ export interface MountActionRoutesOptions {
   actionRouteAuth?: ActionRouteAuthAdapter;
 }
 
+/** Public HTTP discovery metadata for agents that do not run a browser. */
+export interface WebMcpManifestOptions {
+  name: string;
+  description: string;
+  title?: string;
+  version?: string;
+  websiteUrl?: string;
+  icons?: Array<{
+    src: string;
+    mimeType?: string;
+    sizes?: string[];
+    theme?: "light" | "dark";
+  }>;
+}
+
+export interface MountWebMcpActionRoutesOptions extends MountActionRoutesOptions {
+  /** Optional branding included in `/.well-known/mcp.json`. */
+  manifest?: WebMcpManifestOptions;
+}
+
+interface MountActionRoutesInternalOptions extends MountActionRoutesOptions {
+  routePrefix?: string;
+  includeAgentOnly?: boolean;
+  forcePost?: boolean;
+  caller?: "webmcp";
+  allowDelegatedCaller?: boolean;
+}
+
 function normalizeOrgId(value: string | null | undefined): string | undefined {
   return typeof value === "string" && value.trim().length > 0
     ? value.trim()
@@ -387,27 +417,31 @@ async function resolveRequestAuthCapability(
  * Only actions from `autoDiscoverActions` (template actions) are mounted.
  * Built-in actions (resource-*, chat-*, shell, etc.) are NOT passed here.
  */
-export function mountActionRoutes(
+function mountActionRoutesInternal(
   nitroApp: any,
   actions: Record<string, ActionEntry>,
-  options?: MountActionRoutesOptions,
+  options?: MountActionRoutesInternalOptions,
 ) {
   const mounted: string[] = [];
   const app = getH3App(nitroApp);
 
   for (const [name, entry] of Object.entries(actions)) {
     // Skip agent-only actions
-    if (entry.http === false) continue;
+    if (entry.http === false && !options?.includeAgentOnly) continue;
 
-    const method = entry.http?.method ?? "POST";
-    const path = entry.http?.path ?? name;
-    const routePath = `${ROUTE_PREFIX}/${path}`;
+    const http = entry.http || undefined;
+    const method = options?.forcePost ? "POST" : (http?.method ?? "POST");
+    const path = options?.forcePost ? name : (http?.path ?? name);
+    const routePath = `${options?.routePrefix ?? ROUTE_PREFIX}/${path}`;
 
     // These two actions authenticate with a scoped A2A bearer rather than a
     // browser session. Let that verifier see the request before the cookie
     // auth guard rejects it; the action route still fails closed on invalid
     // or missing credentials.
-    if (name === "list-feature-flags" || name === "set-feature-flag") {
+    if (
+      !options?.caller &&
+      (name === "list-feature-flags" || name === "set-feature-flag")
+    ) {
       registerAuthPublicPaths([routePath], app);
     }
 
@@ -505,7 +539,7 @@ export function mountActionRoutes(
         // through, so a live same-origin session cookie can't silently execute
         // the request as the logged-in user.
         let resolvedCaller: ActionRouteResolvedCaller | null = null;
-        {
+        if (options?.allowDelegatedCaller !== false) {
           let caller: ActionRouteResolvedCaller | null;
           try {
             caller = options?.actionRouteAuth?.resolveCaller
@@ -578,6 +612,7 @@ export function mountActionRoutes(
         const timezone = readTimezoneHeader(event);
         const browserSessionId = readBrowserSessionIdHeader(event);
         const clientPlatform = readAnalyticsClientPlatformHeader(event);
+        const isSyntheticTraffic = readSyntheticTrafficHeader(event);
 
         return runWithRequestContext(
           {
@@ -588,6 +623,7 @@ export function mountActionRoutes(
             timezone,
             browserSessionId,
             clientPlatform,
+            ...(isSyntheticTraffic ? { isSyntheticTraffic: true } : {}),
             requestOrigin: getForwardedRequestOrigin(event),
             // Captured here because this is the last layer that still holds
             // the h3 event; everything below reads it off the request store.
@@ -645,11 +681,13 @@ export function mountActionRoutes(
             // userEmail / orgId mirror the request context resolved above (do
             // NOT inject a dev identity — leave undefined when unauthenticated).
             try {
-              const caller = resolvedCaller
-                ? "a2a"
-                : isFrontendActionRequest(event)
-                  ? "frontend"
-                  : "http";
+              const caller =
+                options?.caller ??
+                (resolvedCaller
+                  ? "a2a"
+                  : isFrontendActionRequest(event)
+                    ? "frontend"
+                    : "http");
               const result = await entry.run(params, {
                 userEmail,
                 orgId: orgId ?? null,
@@ -763,11 +801,13 @@ export function mountActionRoutes(
                 method: reqMethod,
                 tags: {
                   action: name,
-                  caller: resolvedCaller
-                    ? "a2a"
-                    : isFrontendActionRequest(event)
-                      ? "frontend"
-                      : "http",
+                  caller:
+                    options?.caller ??
+                    (resolvedCaller
+                      ? "a2a"
+                      : isFrontendActionRequest(event)
+                        ? "frontend"
+                        : "http"),
                   status_code: String(status),
                 },
                 ...(requestId ? { extra: { request_id: requestId } } : {}),
@@ -792,4 +832,141 @@ export function mountActionRoutes(
     console.log(
       `[action-routes] Mounted ${mounted.length} action route(s): ${mounted.join(", ")}`,
     );
+}
+
+export function mountActionRoutes(
+  nitroApp: any,
+  actions: Record<string, ActionEntry>,
+  options?: MountActionRoutesOptions,
+) {
+  mountActionRoutesInternal(nitroApp, actions, options);
+}
+
+function buildWebMcpCompatibilityManifest(
+  event: any,
+  actions: Record<string, ActionEntry>,
+  options?: WebMcpManifestOptions,
+) {
+  const baseUrl = `${getForwardedRequestOrigin(event)}${getConfiguredAppBasePath()}`;
+  const urlFor = (path: string) => `${baseUrl}${path}`;
+  const tools = Object.entries(actions).map(([name, entry]) => {
+    const inputSchema = entry.tool.parameters ?? {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    };
+    return {
+      name,
+      description: entry.tool.description,
+      parameters: inputSchema,
+      inputSchema,
+      endpoint: urlFor(`/mcp/tool/${encodeURIComponent(name)}`),
+      method: "POST" as const,
+      readOnly: entry.readOnly === true,
+      requiresAuth: entry.requiresAuth !== false,
+    };
+  });
+
+  return {
+    schema_version: "v1" as const,
+    protocol: "WebMCP" as const,
+    name: options?.name ?? "Agent",
+    ...(options?.title ? { title: options.title } : {}),
+    description: options?.description ?? "Agent-Native app agent",
+    version: options?.version ?? "1.0.0",
+    ...(options?.websiteUrl ? { website_url: options.websiteUrl } : {}),
+    ...(options?.icons ? { icons: options.icons } : {}),
+    endpoints: {
+      mcp: urlFor("/mcp"),
+      httpTools: urlFor("/mcp/tool"),
+      authenticatedWebMcp: urlFor("/_agent-native/webmcp/manifest"),
+      a2a: urlFor("/.well-known/agent-card.json"),
+    },
+    webmcp: {
+      scope: "page-local" as const,
+      browserRequired: true,
+    },
+    tools,
+  };
+}
+
+export function mountWebMcpActionRoutes(
+  nitroApp: any,
+  actions: Record<string, ActionEntry>,
+  options?: MountWebMcpActionRoutesOptions,
+) {
+  const eligible = Object.fromEntries(
+    Object.entries(actions).filter(
+      ([name, entry]) =>
+        /^[A-Za-z0-9_.-]{1,128}$/.test(name) &&
+        entry.agentTool !== false &&
+        entry.needsApproval === undefined,
+    ),
+  );
+
+  const app = getH3App(nitroApp);
+  const actionRoutePrefixes = ["/_agent-native/webmcp/actions", "/mcp/tool"];
+  const actionRoutePaths = actionRoutePrefixes.flatMap((routePrefix) =>
+    Object.keys(eligible).map(
+      (name) => `${routePrefix}/${encodeURIComponent(name)}`,
+    ),
+  );
+  // These routes own their auth decision: the manifest is public metadata,
+  // while each action handler distinguishes public actions from protected
+  // ones using the same `requiresAuth` contract as normal HTTP actions.
+  registerAuthPublicPaths(
+    ["/_agent-native/webmcp/manifest", ...actionRoutePaths],
+    app,
+  );
+  app.use(
+    "/.well-known/mcp.json",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "GET") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed. Use GET." };
+      }
+      setResponseHeader(event, "Cache-Control", "no-store");
+      setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+      return buildWebMcpCompatibilityManifest(
+        event,
+        eligible,
+        options?.manifest,
+      );
+    }),
+  );
+
+  if (Object.keys(eligible).length === 0) return;
+
+  app.use(
+    "/_agent-native/webmcp/manifest",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "GET") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed. Use GET." };
+      }
+      if (!options?.getOwnerFromEvent) {
+        throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
+      }
+      await options.getOwnerFromEvent(event);
+      setResponseHeader(event, "Cache-Control", "no-store");
+      return Object.entries(eligible).map(([name, entry]) => ({
+        name,
+        description: entry.tool.description,
+        inputSchema: entry.tool.parameters,
+        readOnly: entry.readOnly === true,
+      }));
+    }),
+  );
+
+  for (const routePrefix of actionRoutePrefixes) {
+    mountActionRoutesInternal(nitroApp, eligible, {
+      ...options,
+      routePrefix,
+      includeAgentOnly: true,
+      forcePost: true,
+      caller: "webmcp",
+      actionRouteAuth: undefined,
+      allowDelegatedCaller: false,
+    });
+  }
 }

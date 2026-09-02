@@ -55,7 +55,7 @@ test("share dialog uses editor panel chrome", async ({ page }, testInfo) => {
 
   const tabListBox = await shareOptions.boundingBox();
   expect(tabListBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
-    340,
+    420,
   );
   expect(tabListBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
     42,
@@ -66,6 +66,14 @@ test("share dialog uses editor panel chrome", async ({ page }, testInfo) => {
   expect(sendTabBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
     36,
   );
+
+  const contextTab = page.getByRole("tab", { name: "Context", exact: true });
+  await expect(contextTab).toBeVisible();
+  await contextTab.click();
+  await expect(
+    page.getByRole("region", { name: "Creative context" }),
+  ).toBeVisible();
+  await cdpScreenshot(page, testInfo.outputPath("share-dialog-context.png"));
 
   await sendTab.click();
   await expect(page.getByText("Your agent", { exact: true })).toBeVisible();
@@ -119,6 +127,39 @@ test("share dialog uses editor panel chrome", async ({ page }, testInfo) => {
   await page.keyboard.press("Escape");
 
   await cdpScreenshot(page, testInfo.outputPath("share-dialog-compact.png"));
+});
+
+test("right rail actions row keeps the Share button inside the panel", async ({
+  page,
+}, testInfo) => {
+  const actionsRow = page.locator(
+    '[data-design-chrome-region="right-toolbar-actions"]',
+  );
+  await expect(actionsRow).toBeVisible();
+
+  await expect(
+    page.getByRole("button", { name: "Add to Context" }),
+  ).toHaveCount(0);
+
+  const shareButton = page
+    .getByRole("button", { name: /^share(?: \(.+\))?$/i })
+    .first();
+  await expect(shareButton).toBeVisible();
+
+  const rowBox = await actionsRow.boundingBox();
+  const shareBox = await shareButton.boundingBox();
+  if (!rowBox || !shareBox) throw new Error("missing right rail action boxes");
+
+  expect(shareBox.width).toBeGreaterThan(0);
+  expect(shareBox.x).toBeGreaterThanOrEqual(rowBox.x - 1);
+  expect(shareBox.x + shareBox.width).toBeLessThanOrEqual(
+    rowBox.x + rowBox.width + 1,
+  );
+  expect(
+    await actionsRow.evaluate((node) => node.scrollWidth - node.clientWidth),
+  ).toBeLessThanOrEqual(1);
+
+  await cdpScreenshot(page, testInfo.outputPath("editor-share-toolbar.png"));
 });
 
 test("screen overview adds and targets frames from the unified breakpoint control", async ({

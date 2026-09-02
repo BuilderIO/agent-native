@@ -43,6 +43,7 @@ export interface ComposerTerminalModeControl {
 
 interface ComposerPlusMenuProps {
   onSelectMode?: (mode: ComposerMode) => void;
+  addAttachment?: (file: File) => Promise<unknown>;
   onAttachmentError?: (message: string) => void;
   /**
    * Show the "Create Extension" entry. Extensions are optional and hidden
@@ -241,8 +242,9 @@ function MenuItemHelp({
 }
 
 function UploadOnlyAttachButton({
+  addAttachment,
   onAttachmentError,
-}: Pick<ComposerPlusMenuProps, "onAttachmentError">) {
+}: Pick<ComposerPlusMenuProps, "addAttachment" | "onAttachmentError">) {
   const composerRuntime = useComposerRuntime();
   const t = useComposerRuntimeAdapters().translate!;
   const inputRef = useRef<HTMLInputElement>(null);
@@ -250,7 +252,9 @@ function UploadOnlyAttachButton({
     if (!files || files.length === 0) return;
     try {
       await Promise.all(
-        Array.from(files).map((file) => composerRuntime.addAttachment(file)),
+        Array.from(files).map((file) =>
+          (addAttachment ?? composerRuntime.addAttachment)(file),
+        ),
       );
     } catch (error) {
       onAttachmentError?.(
@@ -301,13 +305,19 @@ function UploadOnlyAttachButton({
 
 export function ComposerPlusMenu({
   onSelectMode,
+  addAttachment,
   onAttachmentError,
   extensionTools = false,
   mode = "full",
   terminalModeControl,
 }: ComposerPlusMenuProps) {
   if (mode === "upload-only") {
-    return <UploadOnlyAttachButton onAttachmentError={onAttachmentError} />;
+    return (
+      <UploadOnlyAttachButton
+        addAttachment={addAttachment}
+        onAttachmentError={onAttachmentError}
+      />
+    );
   }
   if (mode === "terminal" && terminalModeControl) {
     return (
@@ -317,6 +327,7 @@ export function ComposerPlusMenu({
   return (
     <ComposerPlusMenuFull
       onSelectMode={onSelectMode}
+      addAttachment={addAttachment}
       onAttachmentError={onAttachmentError}
       extensionTools={extensionTools}
     />
@@ -392,11 +403,12 @@ function ComposerPlusMenuTerminal({
 
 function ComposerPlusMenuFull({
   onSelectMode,
+  addAttachment,
   onAttachmentError,
   extensionTools,
 }: Pick<
   ComposerPlusMenuProps,
-  "onSelectMode" | "onAttachmentError" | "extensionTools"
+  "addAttachment" | "onSelectMode" | "onAttachmentError" | "extensionTools"
 >) {
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate!;
@@ -417,7 +429,7 @@ function ComposerPlusMenuFull({
   const hasOrg = !!org?.orgId;
   // Composer connections belong to the person asking for them. Organization
   // sharing remains an explicit choice for owners and admins in the dialog.
-  const defaultMcpScope: "user" = "user";
+  const defaultMcpScope = "user" as const;
   const createMcp = resources.useCreateMcpServer!();
   const McpIntegrationDialog = resources.McpIntegrationDialog;
 
@@ -490,7 +502,9 @@ function ComposerPlusMenuFull({
     if (!files || files.length === 0) return;
     try {
       await Promise.all(
-        Array.from(files).map((file) => composerRuntime.addAttachment(file)),
+        Array.from(files).map((file) =>
+          (addAttachment ?? composerRuntime.addAttachment)(file),
+        ),
       );
     } catch (error) {
       onAttachmentError?.(

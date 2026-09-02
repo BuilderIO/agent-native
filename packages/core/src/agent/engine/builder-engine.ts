@@ -31,7 +31,10 @@ import {
   recordBuilderGatewayAuthFailure,
   type BuilderGatewayLane,
 } from "../../server/credential-provider.js";
-import { getRequestUserEmail } from "../../server/request-context.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../../server/request-context.js";
 import { applyBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
 import {
   allowsSamplingParams,
@@ -49,6 +52,7 @@ import {
 } from "./credential-errors.js";
 import {
   classifyTerminalErrorCode,
+  canonicalizeBuilderGatewayErrorCode,
   describeErrorWithCauses,
   isBuilderGatewayInternalErrorMessage,
   isContextOverflowCode,
@@ -56,11 +60,17 @@ import {
   isProviderConnectionErrorMessage,
 } from "./error-detail.js";
 import { FIRST_STREAM_EVENT_TIMEOUT_MS } from "./first-event-timeout.js";
+import { limitProviderTools } from "./limit-provider-tools.js";
 import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
 import {
   splitSystemPromptForCache,
   stablePrefixCacheControl,
 } from "./prompt-cache.js";
+import {
+  createProviderToolNameMap,
+  toEngineToolName,
+  type ProviderToolNameMap,
+} from "./tool-name.js";
 import {
   createStreamedToolInputState,
   engineMessagesToBuilderGatewayAnthropic,
@@ -148,7 +158,7 @@ function mapReasoningEffort(budgetTokens: number): ReasoningEffort {
  * `/app/organizations/Nicholas%20kipchumba%20Space/billing` which Builder's
  * router treats as unknown and silently bounces to `/app/projects`. The
  * Builder CLI-auth callback doesn't expose the org slug/id today, so we route
- * to the org-agnostic subscription page. Agent Native attribution lets Builder
+ * to the org-agnostic subscription page. Agent-Native attribution lets Builder
  * skip generic onboarding for new users who land there from an upgrade CTA.
  */
 async function buildUpgradeUrl(): Promise<string> {
@@ -211,17 +221,19 @@ class BuilderEngine implements AgentEngine {
       this.configuredCredentials ??
       (await resolveBuilderGatewayCredentialsDetailed());
     const ownerEmail = getRequestUserEmail();
+    const orgId = getRequestOrgId() ?? null;
     let oauthAccess: Awaited<
       ReturnType<typeof resolveBuilderOAuthRequestAccess>
     > = null;
     let hasStoredOAuth = false;
     if (ownerEmail) {
-      hasStoredOAuth = await hasBuilderOAuthSession(ownerEmail);
+      hasStoredOAuth = await hasBuilderOAuthSession(ownerEmail, orgId);
       if (hasStoredOAuth) {
         try {
           oauthAccess = await resolveBuilderOAuthRequestAccess({
             ownerEmail,
             requiredScope: BUILDER_OAUTH_SCOPE,
+            orgId,
           });
         } catch {
           // coercion-ok: unusable OAuth custody must not fall back to legacy keys.
@@ -250,7 +262,7 @@ class BuilderEngine implements AgentEngine {
       return;
     }
 
-    // The Builder gateway has an "auto" fallback mode, but Agent Native owns
+    // The Builder gateway has an "auto" fallback mode, but Agent-Native owns
     // model selection. Always send a concrete model so the gateway cannot
     // select an organization-level override or another fallback model.
     const requestedModel = opts.model.trim();
@@ -258,8 +270,13 @@ class BuilderEngine implements AgentEngine {
       requestedModel.length === 0 || requestedModel === "auto"
         ? BUILDER_DEFAULT_MODEL
         : requestedModel;
-    const messages = engineMessagesToBuilderGatewayAnthropic(opts.messages);
-    const tools = engineToolsToAnthropic(opts.tools);
+    const toolNameMap = createProviderToolNameMap(opts.tools, opts.messages);
+    const providerTools = limitProviderTools(opts.tools);
+    const messages = engineMessagesToBuilderGatewayAnthropic(
+      opts.messages,
+      toolNameMap,
+    );
+    const tools = engineToolsToAnthropic(providerTools, toolNameMap);
     const thinkingBudget =
       opts.providerOptions?.anthropic?.thinking?.budgetTokens;
     const reasoningEffort = normalizeReasoningEffortForModel(
@@ -459,6 +476,7 @@ class BuilderEngine implements AgentEngine {
           creditsLane,
           requestShape,
           recordLegacyCredentialFailure: !oauthAccess,
+          oauthScope: oauthAccess?.scope,
         });
         return;
       }
@@ -519,6 +537,7 @@ class BuilderEngine implements AgentEngine {
       }
 
       yield* parseJsonlStream(reader, model, {
+        toolNameMap,
         creditsLane,
         abortSignal: gatewayAbort.signal,
         didGatewayTimeout: gatewayAbort.didTimeout,
@@ -528,6 +547,7 @@ class BuilderEngine implements AgentEngine {
         requestStartedAt: tStart,
         requestShape,
         recordLegacyCredentialFailure: !oauthAccess,
+        oauthScope: oauthAccess?.scope,
       });
     } finally {
       gatewayAbort.cleanup();
@@ -608,6 +628,7 @@ function gatewayErrorStop(
 
 async function recordAuthFailureForCurrentLane(opts: {
   recordLegacyCredentialFailure?: boolean;
+  oauthScope?: "user" | "org";
   status?: number;
   code?: string;
   message?: string;
@@ -621,7 +642,19 @@ async function recordAuthFailureForCurrentLane(opts: {
     return;
   }
   const ownerEmail = getRequestUserEmail();
-  if (ownerEmail) await markBuilderOAuthReconnectRequired(ownerEmail);
+  if (ownerEmail) {
+    if (opts.oauthScope === "org") {
+      await markBuilderOAuthReconnectRequired(
+        ownerEmail,
+        "org",
+        getRequestOrgId(),
+      );
+    } else if (opts.oauthScope === "user") {
+      await markBuilderOAuthReconnectRequired(ownerEmail, "user");
+    } else {
+      await markBuilderOAuthReconnectRequired(ownerEmail);
+    }
+  }
 }
 
 async function* emitHttpError(
@@ -630,6 +663,7 @@ async function* emitHttpError(
     creditsLane: boolean;
     requestShape?: EngineRequestShape;
     recordLegacyCredentialFailure?: boolean;
+    oauthScope?: "user" | "org";
   },
 ): AsyncIterable<EngineEvent> {
   const status = response.status;
@@ -646,8 +680,10 @@ async function* emitHttpError(
       errBody.message = normalizeGatewayErrorText(rawText, status);
     }
   }
-  const code = errBody.code ?? `http_${status}`;
   const message = errBody.message ?? `Builder gateway returned ${status}`;
+  const code =
+    canonicalizeBuilderGatewayErrorCode(errBody.code, message) ??
+    `http_${status}`;
   const stop = (details: GatewayErrorStopDetails): EngineEvent =>
     gatewayErrorStop(details, opts.creditsLane, opts.requestShape);
 
@@ -668,6 +704,7 @@ async function* emitHttpError(
   if (status === 401 || code === "unauthorized") {
     await recordAuthFailureForCurrentLane({
       recordLegacyCredentialFailure: opts.recordLegacyCredentialFailure,
+      oauthScope: opts.oauthScope,
       status,
       code,
       message,
@@ -682,6 +719,7 @@ async function* emitHttpError(
   if (status === 403 && isBuilderCredentialAuthError(message)) {
     await recordAuthFailureForCurrentLane({
       recordLegacyCredentialFailure: opts.recordLegacyCredentialFailure,
+      oauthScope: opts.oauthScope,
       status,
       code,
       message,
@@ -759,6 +797,7 @@ async function* parseJsonlStream(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   model: string,
   captureContext: {
+    toolNameMap?: ProviderToolNameMap;
     abortSignal?: AbortSignal;
     didGatewayTimeout?: () => boolean;
     getGatewayTimeoutMs?: () => number;
@@ -768,6 +807,7 @@ async function* parseJsonlStream(
     creditsLane?: boolean;
     requestShape?: EngineRequestShape;
     recordLegacyCredentialFailure?: boolean;
+    oauthScope?: "user" | "org";
   } = {},
 ): AsyncIterable<EngineEvent> {
   const parts: EngineContentPart[] = [];
@@ -880,7 +920,10 @@ async function* parseJsonlStream(
           const delta: EngineEvent = {
             type: "tool-input-delta",
             id: event.id,
-            name: event.name,
+            name:
+              typeof event.name === "string"
+                ? toEngineToolName(event.name, captureContext.toolNameMap)
+                : event.name,
             text:
               typeof event.argsTextDelta === "string"
                 ? event.argsTextDelta
@@ -902,7 +945,10 @@ async function* parseJsonlStream(
           const call = {
             type: "tool-call" as const,
             id: event.id,
-            name: event.name,
+            name:
+              typeof event.name === "string"
+                ? toEngineToolName(event.name, captureContext.toolNameMap)
+                : event.name,
             input: event.input,
           };
           parts.push(call);
@@ -973,7 +1019,10 @@ async function* parseJsonlStream(
               `Gateway error (no detail; raw event: ${JSON.stringify(event)})`;
             const gatewayRequestId =
               typeof event.requestId === "string" ? event.requestId : undefined;
-            const gatewayErrCode = event.errorCode ?? event.code;
+            const gatewayErrCode = canonicalizeBuilderGatewayErrorCode(
+              event.errorCode ?? event.code,
+              String(errMsg),
+            );
             // The gateway already authenticated this request before streaming,
             // so a bare "Unauthorized" here means the account cannot use this
             // model — not that the connection is broken. Only a message that
@@ -1012,6 +1061,7 @@ async function* parseJsonlStream(
               await recordAuthFailureForCurrentLane({
                 recordLegacyCredentialFailure:
                   captureContext.recordLegacyCredentialFailure,
+                oauthScope: captureContext.oauthScope,
                 code:
                   typeof gatewayErrCode === "string" ? gatewayErrCode : errCode,
                 message: String(errMsg),

@@ -7,6 +7,7 @@ export * from "./desktop-local-code-change.js";
 export * from "./hooks/index.js";
 export * from "./navigation/index.js";
 export * from "./host/index.js";
+export * from "./webmcp.js";
 export * from "./widgets/index.js";
 export * from "./ui/index.js";
 
@@ -55,6 +56,7 @@ export {
   SettingsPanel,
   SettingsTabsPage,
   SecretsSection,
+  BuilderConnectPopover,
   getAgentSettingsSearchTabs,
   openBuilderConnectPopup,
   useAgentSettingsTabs,
@@ -74,6 +76,7 @@ export {
   type SettingsSearchEntry,
   type SettingsTabItem,
   type SettingsTabsPageProps,
+  type BuilderConnectPopoverProps,
 } from "./settings/index.js";
 export {
   DevDatabaseLink,
@@ -137,6 +140,8 @@ export {
   dedupeCollabUsersByEmail,
   type UseCollaborativeDocOptions,
   type UseCollaborativeDocResult,
+  type CollabInitializationErrorCategory,
+  type CollabInitializationState,
   type CollabUser,
 } from "../collab/client.js";
 export { AGENT_CLIENT_ID } from "../collab/agent-identity.js";

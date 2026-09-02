@@ -30,9 +30,9 @@ import {
   availableSizingForElement,
   commitElementMinMax,
   commitElementSizing,
-  cssElementSize,
   horizontalToJustify,
   inferElementSizing,
+  measuredElementSize,
   isContainerElement,
   isParentFlex,
   isParentGrid,
@@ -48,6 +48,11 @@ import { FieldTrailer } from "./field-primitives";
 import { joinCssLayers, splitCssLayers } from "./fill-gradient-helpers";
 import { SectionIconButton } from "./inspector-controls";
 import {
+  INSPECTOR_GRID_ACTION_GUTTER_SPAN,
+  INSPECTOR_GRID_ACTION_PAIR_SPAN,
+  INSPECTOR_GRID_ACTION_SPAN,
+  InspectorGrid,
+  InspectorGridCell,
   PanelSection,
   PropInput,
   PropSelect,
@@ -58,6 +63,7 @@ import { isMixedValue } from "./selection-helpers";
 import type {
   BreakpointOverrideFieldContext,
   MotionKeyframeFieldContext,
+  ApplyLayoutFlowHandler,
   StyleChangeHandler,
   StylesChangeHandler,
 } from "./style-change-types";
@@ -213,11 +219,13 @@ function FlexContainerControls({
   onStyleChange,
   onStylesChange,
   onDisableAutoLayout,
+  onApplyLayoutFlow,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   onDisableAutoLayout?: (nodeId: string) => void;
+  onApplyLayoutFlow?: ApplyLayoutFlowHandler;
 }) {
   const styles = element.computedStyles;
   // The element's CURRENT layout flow as authored in code, read from its own
@@ -354,8 +362,8 @@ function FlexContainerControls({
     clipContent: styles.overflow === "hidden",
     clipContentMixed: isMixedValue(styles.overflow),
     resolvedSize: {
-      horizontal: cssElementSize(element, "horizontal"),
-      vertical: cssElementSize(element, "vertical"),
+      horizontal: measuredElementSize(element, "horizontal"),
+      vertical: measuredElementSize(element, "vertical"),
     },
     mixedSize: {
       horizontal: isMixedValue(styles.width),
@@ -383,6 +391,15 @@ function FlexContainerControls({
             ...styles,
             ...element.inlineStyles,
           });
+          // Children drawn on canvas are absolutely positioned, so the
+          // container styles alone would render no layout at all — only a
+          // selection this editor cannot rewrite falls through to them.
+          if (
+            onApplyLayoutFlow &&
+            onApplyLayoutFlow(nodeId ?? null, patch) !== "unsupported"
+          ) {
+            return;
+          }
           if (onStylesChange) {
             onStylesChange(patch);
             return;
@@ -566,39 +583,41 @@ function FlexChildControls({
   }));
 
   return (
-    <div className="space-y-2">
+    <div className="design-sidebar-property-group">
       <SubsectionLabel>{t("editPanel.layoutContext.child")}</SubsectionLabel>
-      <PropInput
-        label={t("editPanel.labels.flexGrow")}
-        value={styles.flexGrow || ""}
-        onChange={(v) => onStyleChange("flexGrow", v)}
-        placeholder="0"
-      />
-      <PropInput
-        label={t("editPanel.labels.flexShrink")}
-        value={styles.flexShrink || ""}
-        onChange={(v) => onStyleChange("flexShrink", v)}
-        placeholder="1"
-      />
-      <PropInput
-        label={t("editPanel.labels.flexBasis")}
-        value={styles.flexBasis || ""}
-        onChange={(v) => onStyleChange("flexBasis", v)}
-        placeholder="auto"
-        defaultUnit="px"
-      />
-      <PropInput
-        label={t("editPanel.labels.order")}
-        value={styles.order || ""}
-        onChange={(v) => onStyleChange("order", v)}
-        placeholder="0"
-      />
-      <PropSelect
-        label={t("editPanel.labels.alignSelf")}
-        value={optionValue(ALIGN_SELF_OPTIONS, styles.alignSelf, "auto")}
-        onChange={(v) => onStyleChange("alignSelf", v)}
-        options={alignSelfOptions}
-      />
+      <div className="flex flex-col gap-2">
+        <PropInput
+          label={t("editPanel.labels.flexGrow")}
+          value={styles.flexGrow || ""}
+          onChange={(v) => onStyleChange("flexGrow", v)}
+          placeholder="0"
+        />
+        <PropInput
+          label={t("editPanel.labels.flexShrink")}
+          value={styles.flexShrink || ""}
+          onChange={(v) => onStyleChange("flexShrink", v)}
+          placeholder="1"
+        />
+        <PropInput
+          label={t("editPanel.labels.flexBasis")}
+          value={styles.flexBasis || ""}
+          onChange={(v) => onStyleChange("flexBasis", v)}
+          placeholder="auto"
+          defaultUnit="px"
+        />
+        <PropInput
+          label={t("editPanel.labels.order")}
+          value={styles.order || ""}
+          onChange={(v) => onStyleChange("order", v)}
+          placeholder="0"
+        />
+        <PropSelect
+          label={t("editPanel.labels.alignSelf")}
+          value={optionValue(ALIGN_SELF_OPTIONS, styles.alignSelf, "auto")}
+          onChange={(v) => onStyleChange("alignSelf", v)}
+          options={alignSelfOptions}
+        />
+      </div>
     </div>
   );
 }
@@ -618,28 +637,30 @@ function GridChildControls({
   }));
 
   return (
-    <div className="space-y-2">
+    <div className="design-sidebar-property-group">
       <SubsectionLabel>
         {t("editPanel.layoutContext.gridChild")}
       </SubsectionLabel>
-      <PropInput
-        label={t("editPanel.labels.gridColumn")}
-        value={styles.gridColumn || ""}
-        onChange={(v) => onStyleChange("gridColumn", v)}
-        placeholder="auto"
-      />
-      <PropInput
-        label={t("editPanel.labels.gridRow")}
-        value={styles.gridRow || ""}
-        onChange={(v) => onStyleChange("gridRow", v)}
-        placeholder="auto"
-      />
-      <PropSelect
-        label={t("editPanel.labels.alignSelf")}
-        value={optionValue(ALIGN_SELF_OPTIONS, styles.alignSelf, "auto")}
-        onChange={(v) => onStyleChange("alignSelf", v)}
-        options={alignSelfOptions}
-      />
+      <div className="flex flex-col gap-2">
+        <PropInput
+          label={t("editPanel.labels.gridColumn")}
+          value={styles.gridColumn || ""}
+          onChange={(v) => onStyleChange("gridColumn", v)}
+          placeholder="auto"
+        />
+        <PropInput
+          label={t("editPanel.labels.gridRow")}
+          value={styles.gridRow || ""}
+          onChange={(v) => onStyleChange("gridRow", v)}
+          placeholder="auto"
+        />
+        <PropSelect
+          label={t("editPanel.labels.alignSelf")}
+          value={optionValue(ALIGN_SELF_OPTIONS, styles.alignSelf, "auto")}
+          onChange={(v) => onStyleChange("alignSelf", v)}
+          options={alignSelfOptions}
+        />
+      </div>
     </div>
   );
 }
@@ -649,6 +670,7 @@ export function LayoutContextProperties({
   onStyleChange,
   onStylesChange,
   onDisableAutoLayout,
+  onApplyLayoutFlow,
   motionKeyframeContext,
   breakpointOverrideContext,
 }: {
@@ -656,6 +678,7 @@ export function LayoutContextProperties({
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   onDisableAutoLayout?: (nodeId: string) => void;
+  onApplyLayoutFlow?: ApplyLayoutFlowHandler;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
@@ -669,12 +692,12 @@ export function LayoutContextProperties({
   const childControls = (
     <>
       {flexChild ? (
-        <div className="border-t border-border/70 pt-2">
+        <div className="pt-2 shadow-[inset_0_1px_var(--design-editor-control-border)]">
           <FlexChildControls element={element} onStyleChange={onStyleChange} />
         </div>
       ) : null}
       {gridChild ? (
-        <div className="border-t border-border/70 pt-2">
+        <div className="pt-2 shadow-[inset_0_1px_var(--design-editor-control-border)]">
           <GridChildControls element={element} onStyleChange={onStyleChange} />
         </div>
       ) : null}
@@ -690,15 +713,21 @@ export function LayoutContextProperties({
     // hug/fill don't have an independent px value to scale. Match Figma: the
     // toggle is disabled (not hidden) otherwise, so its state/affordance stays
     // visible but inert.
-    const canLockAspect = widthSizing === "fixed" && heightSizing === "fixed";
-    const resolvedWidth = cssElementSize(element, "horizontal");
-    const resolvedHeight = cssElementSize(element, "vertical");
+    const resolvedWidth = measuredElementSize(element, "horizontal");
+    const resolvedHeight = measuredElementSize(element, "vertical");
+    const canLockAspect =
+      widthSizing === "fixed" &&
+      heightSizing === "fixed" &&
+      resolvedWidth != null &&
+      resolvedHeight != null;
 
     const toggleAspectLock = () => {
       if (!canLockAspect) return;
       aspectLock.setLocked(
         !aspectLock.locked,
-        resolvedHeight > 0 ? resolvedWidth / resolvedHeight : undefined,
+        resolvedWidth != null && resolvedHeight != null && resolvedHeight > 0
+          ? resolvedWidth / resolvedHeight
+          : undefined,
       );
     };
 
@@ -755,8 +784,11 @@ export function LayoutContextProperties({
             plus a chain-link aspect-ratio lock at the FAR RIGHT of the row
             (Figma parity — the constrain-proportions link sits after both W
             and H, not between them). */}
-        <div className="grid grid-cols-[1fr_1fr_auto] items-start gap-1.5">
-          <div className="group/field relative min-w-0">
+        <InspectorGrid className="items-start" layout="action-pair">
+          <InspectorGridCell
+            span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
+            className="group/field relative"
+          >
             <SizingField
               axis="W"
               sizingAxis="horizontal"
@@ -787,8 +819,15 @@ export function LayoutContextProperties({
               breakpointOverrideContext={breakpointOverrideContext}
               className="absolute -top-3.5 right-0"
             />
-          </div>
-          <div className="group/field relative min-w-0">
+          </InspectorGridCell>
+          <InspectorGridCell
+            span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
+            ariaHidden
+          />
+          <InspectorGridCell
+            span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
+            className="group/field relative"
+          >
             <SizingField
               axis="H"
               sizingAxis="vertical"
@@ -819,41 +858,50 @@ export function LayoutContextProperties({
               breakpointOverrideContext={breakpointOverrideContext}
               className="absolute -top-3.5 right-0"
             />
-          </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label={
-                  aspectLock.locked
-                    ? t("editPanel.labels.unlockAspectRatio")
-                    : t("editPanel.labels.lockAspectRatio")
-                }
-                aria-pressed={aspectLock.locked}
-                disabled={!canLockAspect}
-                onClick={toggleAspectLock}
-                className={cn(
-                  "mt-0.5 flex size-6 shrink-0 items-center justify-center self-start rounded-md text-muted-foreground transition-colors",
-                  "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
-                  aspectLock.locked &&
-                    "text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
-                  !canLockAspect && "pointer-events-none opacity-40",
-                )}
-              >
-                {aspectLock.locked ? (
-                  <IconLink className="size-3.5" />
-                ) : (
-                  <IconLinkOff className="size-3.5" />
-                )}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {aspectLock.locked
-                ? t("editPanel.labels.unlockAspectRatio")
-                : t("editPanel.labels.lockAspectRatio")}
-            </TooltipContent>
-          </Tooltip>
-        </div>
+          </InspectorGridCell>
+          <InspectorGridCell
+            span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
+            ariaHidden
+          />
+          <InspectorGridCell
+            span={INSPECTOR_GRID_ACTION_SPAN}
+            className="flex items-center justify-center"
+          >
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={
+                    aspectLock.locked
+                      ? t("editPanel.labels.unlockAspectRatio")
+                      : t("editPanel.labels.lockAspectRatio")
+                  }
+                  aria-pressed={aspectLock.locked}
+                  disabled={!canLockAspect}
+                  onClick={toggleAspectLock}
+                  className={cn(
+                    "mt-0.5 flex size-6 shrink-0 items-center justify-center self-start rounded-md text-muted-foreground transition-colors",
+                    "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                    aspectLock.locked &&
+                      "text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
+                    !canLockAspect && "pointer-events-none opacity-40",
+                  )}
+                >
+                  {aspectLock.locked ? (
+                    <IconLink className="size-3.5" />
+                  ) : (
+                    <IconLinkOff className="size-3.5" />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {aspectLock.locked
+                  ? t("editPanel.labels.unlockAspectRatio")
+                  : t("editPanel.labels.lockAspectRatio")}
+              </TooltipContent>
+            </Tooltip>
+          </InspectorGridCell>
+        </InspectorGrid>
         {childControls}
       </PanelSection>
     );
@@ -885,6 +933,7 @@ export function LayoutContextProperties({
         onStyleChange={onStyleChange}
         onStylesChange={onStylesChange}
         onDisableAutoLayout={onDisableAutoLayout}
+        onApplyLayoutFlow={onApplyLayoutFlow}
       />
       {childControls}
     </PanelSection>
@@ -957,13 +1006,19 @@ export function LayoutGuideProperties({
       }
     >
       {active ? (
-        <div className="flex items-center gap-2 rounded-md bg-[var(--design-editor-control-bg)] px-2 py-1.5 !text-[11px] text-muted-foreground">
-          <IconLayoutGrid className="size-3.5 shrink-0" />
-          <span className="min-w-0 flex-1 truncate text-foreground">
-            {"Columns" /* i18n-ignore design inspector label */}
-          </span>
-          <span className="shrink-0 tabular-nums">12</span>
-        </div>
+        <InspectorGrid layout="paint-row">
+          <InspectorGridCell span={20}>
+            <div className="flex h-6 items-center gap-2 rounded-md bg-[var(--design-editor-control-bg)] px-2 !text-[11px] text-muted-foreground">
+              <IconLayoutGrid className="size-3.5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate text-foreground">
+                {"Columns" /* i18n-ignore design inspector label */}
+              </span>
+              <span className="shrink-0 tabular-nums">12</span>
+            </div>
+          </InspectorGridCell>
+          <InspectorGridCell span={4} ariaHidden />
+          <InspectorGridCell span={4} ariaHidden />
+        </InspectorGrid>
       ) : (
         <p className="!text-[11px] text-muted-foreground">
           {"No layout guides" /* i18n-ignore design inspector empty state */}

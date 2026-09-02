@@ -96,7 +96,15 @@ The identity rule is the safety hinge: the link is just `view` + record ids + fi
 
 ## Easy setup {#easy-setup}
 
-Add one remote MCP connector to the host where you want to use Agent-Native.
+Every Agent-Native app exposes one canonical MCP URL:
+
+```text
+https://<your-app>.agent-native.com/mcp
+```
+
+In the app, open **Settings**, search for **MCP**, and copy the **MCP server
+URL**. Paste that URL into the AI host you want to use. The URL is the deployed
+app base URL plus `/mcp`; you do not need to find a developer setting.
 
 For workspace or cross-app work, use Dispatch:
 
@@ -120,16 +128,15 @@ Every hosted app also has a helper page at
 `https://&lt;app&gt;/mcp/connect` with the copyable URL and
 host-specific tabs for Claude, ChatGPT, Cursor, Claude Code, Codex, and Other.
 
-### The in-app Access tab {#access-tab}
+<a id="access-tab"></a>
 
-Apps that mount `AgentTabsPage` also expose this connection flow in the page's
-**Access** tab. It shows the app's MCP URL, an A2A agent card when available,
-and the same client setup instructions used by the full connect page. Use it as
-the in-app starting point for connecting Claude, ChatGPT, Cursor, Claude Code,
-Codex, or another MCP client; the tab links to `/mcp/connect` for the full flow
-and static-token fallback. This is connection setup UI, not a general access
-control console: grants, scope editing, and revocation management are not
-implemented in the tab yet.
+### The in-app MCP setting {#mcp-settings}
+
+Standard app Settings includes an **MCP** tab beside **Integrations**. It shows
+the app's canonical MCP URL, an A2A agent card when available, and the same
+client setup instructions used by the full connect page. Use **Settings → MCP**
+as the in-app starting point, or open `/mcp/connect` directly for the full flow
+and static-token fallback.
 
 ### Claude and ChatGPT OAuth {#oauth}
 
@@ -138,10 +145,14 @@ Claude / Claude Desktop: add a custom connector, paste the MCP URL, click
 and enable the connector in a chat. Claude Code uses the same URL: add it as a
 remote HTTP MCP server, run `/mcp`, then choose **Authenticate**.
 
-ChatGPT: use a workspace where custom MCP connectors or developer-mode apps are
-enabled, create a custom connector/app, paste the same MCP URL, choose OAuth,
-scan/discover tools, sign in with Agent-Native, approve the scopes, and enable
-the connector in a chat.
+ChatGPT: custom MCP apps require a supported ChatGPT web workspace. If you have
+access, open **Settings → Apps → Advanced settings**, enable developer mode when
+required, choose **Create app**, paste the same MCP URL, choose OAuth, scan the
+tools, sign in with Agent-Native, approve the requested scopes, and enable the
+app in a chat. Business, Enterprise, and Edu workspaces support full MCP,
+including write actions; Pro supports read and fetch in developer mode. If
+**Apps** or **Create app** is missing, your plan or workspace policy does not
+allow this setup.
 
 OAuth grants are per host and per user. The host stores the tokens and
 mediates tool/resource calls, so inline MCP App previews never receive raw
@@ -209,7 +220,7 @@ client if the new server is not visible yet.
 
 Use `--client codex` (or `--client claude-code`, `--client claude-code-cli`, `--client cursor`, `--client opencode`, `--client github-copilot`, `--client cowork`, `--client all`) to skip the picker for scripts or one-off installs.
 
-First-party app skills install the instructions and the hosted MCP connector together with the Agent Native CLI:
+First-party app skills install the instructions and the hosted MCP connector together with the Agent-Native CLI:
 
 ```bash
 npx @agent-native/core@latest skills add assets              # alias: image-generation

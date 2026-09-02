@@ -515,14 +515,19 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "template-forms",
           },
           {
-            id: "template-forms-building-publishing",
-            labelKey: "formsBuildingPublishing",
-            slug: "template-forms-building-publishing",
+            id: "template-forms-features",
+            labelKey: "formsFeatures",
+            slug: "template-forms-features",
           },
           {
-            id: "template-forms-responses",
-            labelKey: "formsResponses",
-            slug: "template-forms-responses",
+            id: "template-forms-agent",
+            labelKey: "formsAgent",
+            slug: "template-forms-agent",
+          },
+          {
+            id: "template-forms-integrations",
+            labelKey: "formsIntegrations",
+            slug: "template-forms-integrations",
           },
           {
             id: "template-forms-developers",
@@ -843,6 +848,7 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "agent-web-surfaces",
       },
       { id: "mcp-apps", labelKey: "mcpApps", slug: "mcp-apps" },
+      { id: "webmcp", labelKey: "webMcp", slug: "webmcp" },
       { id: "cross-app-sso", labelKey: "crossAppSso", slug: "cross-app-sso" },
       { id: "notifications", labelKey: "notifications", slug: "notifications" },
       { id: "progress", labelKey: "progress", slug: "progress" },
@@ -894,11 +900,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "toolkit-ui",
         labelKey: "toolkitUiPrimitives",
         slug: "toolkit-ui",
-      },
-      {
-        id: "custom-design-system",
-        labelKey: "customDesignSystem",
-        slug: "custom-design-system",
       },
       {
         id: "toolkit-editors-canvases",
@@ -1054,19 +1055,22 @@ function navLabel(t: Translate, key: keyof typeof enUS.nav): string {
 
 const SHOW_DRAFTS = import.meta.env.VITE_SHOW_DRAFTS === "true";
 
-// Keep the public template catalog after the framework/toolkit guidance so
+// Keep the public template catalog after the framework and toolkit guidance so
 // readers encounter architecture and reusable primitives before app examples.
 const NAV_SECTION_CONFIG_IN_DISPLAY_ORDER = (() => {
   const appsSection = NAV_SECTION_CONFIG.find(
     (section) => section.id === "apps",
   );
-  if (!appsSection) return NAV_SECTION_CONFIG;
+  const toolkitsSection = NAV_SECTION_CONFIG.find(
+    (section) => section.id === "toolkits",
+  );
+  if (!appsSection || !toolkitsSection) return NAV_SECTION_CONFIG;
 
   return NAV_SECTION_CONFIG.flatMap((section) =>
-    section.id === "apps"
+    section.id === "apps" || section.id === "toolkits"
       ? []
-      : section.id === "toolkits"
-        ? [section, appsSection]
+      : section.id === "core-architecture"
+        ? [section, toolkitsSection, appsSection]
         : [section],
   );
 })();

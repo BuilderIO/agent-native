@@ -1,14 +1,17 @@
 import {
   AgentSidebar,
   isAgentChatHomeHandoffActive,
+  isAssistantChatHistoryVersion,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
+  type AssistantChatHistoryConfig,
+  type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router";
 
 import {
@@ -90,6 +93,41 @@ export function Layout({ children }: LayoutProps) {
   const ownsToolbar = routeOwnsToolbar(location.pathname);
   const planDetailRoute = isPlanDetailRoute(location.pathname);
   const chatRoute = pathname === "/chat";
+  const planScope = useMemo(() => {
+    if (!planDetailRoute || pathname.startsWith("/local-plans/")) {
+      return undefined;
+    }
+    const match = pathname.match(/^\/(?:plans|recaps)\/([^/]+)/);
+    return match?.[1] ? { type: "plan" as const, id: match[1] } : undefined;
+  }, [pathname, planDetailRoute]);
+  const planChatHistory = useMemo<
+    AssistantChatHistoryConfig | undefined
+  >(() => {
+    if (!planScope) return undefined;
+    const planId = planScope.id;
+    return {
+      list: {
+        action: "list-plan-versions",
+        args: { planId, limit: 100 },
+        getVersions: (result: unknown) => {
+          const versions =
+            result && typeof result === "object"
+              ? (result as { versions?: unknown }).versions
+              : undefined;
+          return Array.isArray(versions)
+            ? versions.filter(isAssistantChatHistoryVersion)
+            : [];
+        },
+      },
+      restore: {
+        action: "restore-plan-version",
+        args: (version: AssistantChatHistoryVersion) => ({
+          planId,
+          versionId: version.id,
+        }),
+      },
+    };
+  }, [planScope]);
   const { session, isLoading: sessionLoading } = useSession();
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "plans",
@@ -227,6 +265,8 @@ export function Layout({ children }: LayoutProps) {
             chatViewTransitionHandoff={chatHomeHandoffPending}
             storageKey="plans"
             openOnChatRunning={chatHomeHandoffActive}
+            scope={planScope}
+            chatHistory={planChatHistory}
             agentPageHref="/settings/agent"
             emptyStateText={t("agent.emptyState")}
             suggestions={[

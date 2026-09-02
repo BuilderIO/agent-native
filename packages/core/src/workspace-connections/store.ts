@@ -91,6 +91,12 @@ export interface WorkspaceConnectionGrant {
 
 export type SerializedWorkspaceConnectionGrant = WorkspaceConnectionGrant;
 
+function stringValue(value: unknown, fallback = ""): string {
+  if (typeof value === "string") return value;
+  if (value == null) return fallback;
+  return JSON.stringify(value) ?? fallback;
+}
+
 export interface ListWorkspaceConnectionsOptions {
   provider?: string;
   appId?: string;
@@ -333,8 +339,8 @@ function workspaceConnectionGrantsTable(): string {
 }
 
 function isDuplicateColumnError(err: unknown): boolean {
-  const code = String((err as { code?: unknown })?.code ?? "");
-  const message = String((err as { message?: unknown })?.message ?? err)
+  const code = stringValue((err as { code?: unknown })?.code);
+  const message = stringValue((err as { message?: unknown })?.message ?? err)
     .toLowerCase()
     .trim();
   return (
@@ -958,11 +964,12 @@ function sanitizeCredentialRef(
 
 function parseRow(row: Record<string, unknown>): WorkspaceConnection {
   return serializeWorkspaceConnection({
-    id: String(row.id),
-    provider: String(row.provider ?? ""),
-    label: String(row.label ?? ""),
-    accountId: row.account_id == null ? null : String(row.account_id),
-    accountLabel: row.account_label == null ? null : String(row.account_label),
+    id: stringValue(row.id),
+    provider: stringValue(row.provider),
+    label: stringValue(row.label),
+    accountId: row.account_id == null ? null : stringValue(row.account_id),
+    accountLabel:
+      row.account_label == null ? null : stringValue(row.account_label),
     status: normalizeStatus(row.status),
     scopes: normalizeStringArray(safeJsonParse<unknown>(row.scopes_json, [])),
     config: normalizeObject(safeJsonParse<unknown>(row.config_json, {})),
@@ -978,30 +985,30 @@ function parseRow(row: Record<string, unknown>): WorkspaceConnection {
     credentialRefs: normalizeCredentialRefs(
       safeJsonParse<unknown>(row.credential_refs_json, []),
     ),
-    ownerEmail: String(row.owner_email ?? ""),
-    orgId: row.org_id == null ? null : String(row.org_id),
+    ownerEmail: stringValue(row.owner_email),
+    orgId: row.org_id == null ? null : stringValue(row.org_id),
     createdAt: iso(row.created_at) ?? new Date(0).toISOString(),
     updatedAt: iso(row.updated_at) ?? new Date(0).toISOString(),
     lastUsedAt: iso(row.last_used_at),
     lastCheckedAt: iso(row.last_checked_at),
-    lastError: row.last_error == null ? null : String(row.last_error),
+    lastError: row.last_error == null ? null : stringValue(row.last_error),
   });
 }
 
 function parseGrantRow(row: Record<string, unknown>): WorkspaceConnectionGrant {
   return serializeWorkspaceConnectionGrant({
-    id: String(row.id),
-    connectionId: String(row.connection_id ?? ""),
-    provider: String(row.provider ?? ""),
-    appId: String(row.app_id ?? ""),
+    id: stringValue(row.id),
+    connectionId: stringValue(row.connection_id),
+    provider: stringValue(row.provider),
+    appId: stringValue(row.app_id),
     scopes: normalizeStringArray(safeJsonParse<unknown>(row.scopes_json, [])),
     config: normalizeObject(safeJsonParse<unknown>(row.config_json, {})),
     credentialRefs: normalizeCredentialRefs(
       safeJsonParse<unknown>(row.credential_refs_json, []),
     ),
-    grantedByEmail: String(row.granted_by_email ?? ""),
-    ownerEmail: String(row.owner_email ?? ""),
-    orgId: row.org_id == null ? null : String(row.org_id),
+    grantedByEmail: stringValue(row.granted_by_email),
+    ownerEmail: stringValue(row.owner_email),
+    orgId: row.org_id == null ? null : stringValue(row.org_id),
     createdAt: iso(row.created_at) ?? new Date(0).toISOString(),
     updatedAt: iso(row.updated_at) ?? new Date(0).toISOString(),
     lastUsedAt: iso(row.last_used_at),
@@ -1643,9 +1650,7 @@ async function getGrantedConnectionIdsForApp(
   });
   return new Set(
     rows
-      .map((row) =>
-        String((row as Record<string, unknown>).connection_id ?? ""),
-      )
+      .map((row) => stringValue((row as Record<string, unknown>).connection_id))
       .filter(Boolean),
   );
 }
@@ -1697,6 +1702,16 @@ export async function listWorkspaceConnections(
       connection.allowedApps.length === 0 ||
       connection.allowedApps.includes(appId) ||
       grantedConnectionIds.has(connection.id),
+  );
+}
+
+export async function listWorkspaceConnectionsForUser(
+  options: ListWorkspaceConnectionsOptions = {},
+): Promise<SerializedWorkspaceConnection[]> {
+  const connections = await listWorkspaceConnections(options);
+  return filterWorkspaceConnectionsForUser(
+    connections,
+    requireWorkspaceConnectionScope(),
   );
 }
 

@@ -9,6 +9,7 @@ import {
   useReviewComments,
 } from "@agent-native/core/client/review";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { readDesignReviewSummary } from "@shared/review-summary";
 import { IconMessageCircle } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -64,6 +65,19 @@ export default function Present() {
     isFetching,
     refetch,
   } = useActionQuery<DesignData>("get-design", { id: id! });
+
+  useEffect(() => {
+    if (!design) return;
+    const nextTitle = `${normalizeDocumentTitle(
+      design.title,
+      "Untitled design",
+    )} — Design`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [design]);
 
   const files: DesignFile[] = design?.files ?? [];
   const activeFile = files[currentPage] ?? files[0];
@@ -121,7 +135,7 @@ export default function Present() {
           commentMode,
         });
         if (action === "close-comments") setCommentsOpen(false);
-        if (action === "exit-presentation") navigate(`/design/${id}`);
+        if (action === "exit-presentation") void navigate(`/design/${id}`);
         // ReviewCanvasPins owns "defer-to-comment-mode" so it can dismiss an
         // active draft before it exits the tool.
         return;
@@ -149,7 +163,7 @@ export default function Present() {
   }, [handleKeyDown]);
 
   if (!id) {
-    navigate("/");
+    void navigate("/");
     return null;
   }
 

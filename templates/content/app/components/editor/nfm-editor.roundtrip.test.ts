@@ -345,6 +345,36 @@ describe("NFM ⇄ real TipTap editor round-trip", () => {
       expect(editorRoundTrip(nfm)).toBe(nfm);
     });
   }
+
+  it("promotes mixed MDX pipe tables through the live editor schema", () => {
+    const source = L(
+      '<Aside type="note">',
+      "Keep this source.",
+      "</Aside>",
+      "| Component | Responsibility |",
+      "| --- | --- |",
+      "| Content | Preserve structure |",
+      "```mermaid",
+      "flowchart TD",
+      "  Import --> Repair",
+      "```",
+      "Trailing content.",
+    );
+
+    const result = editorRoundTrip(source);
+    expect(result).toContain(
+      '<Aside type="note">\nKeep this source.\n</Aside>',
+    );
+    expect(result).toContain('<table header-row="true">');
+    expect(result).toContain("<td>Component</td>");
+    expect(result).toContain("```mermaid\nflowchart TD");
+    expect(result.endsWith("Trailing content.")).toBe(true);
+  });
+
+  it("keeps an unresolved aligned table byte-exact through the live editor", () => {
+    const source = "| Left | Right |\n| :--- | ---: |\n| A | B |";
+    expect(editorRoundTrip(source)).toBe(source);
+  });
 });
 
 /**

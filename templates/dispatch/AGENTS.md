@@ -7,7 +7,7 @@ vault secrets, messaging routes, MCP/app setup, and agent operations.
 
 Read the relevant skill before deeper work:
 
-- `automations` for event- and schedule-triggered automation rules on
+- `automations` for schedule, webhook, and event-triggered automation rules on
   `/admin/automations`.
 - `recurring-jobs` for scheduled/background job behavior and the scheduler.
 
@@ -31,22 +31,16 @@ Read the relevant skill before deeper work:
   widen app access.
 - Use `view-screen` when the current integration, resource, approval, route, or
   setup item is unclear.
-- Use `import-agent` to normalize safe Claude Markdown or JSON into an
-  `agents/<slug>.md` profile; it skips credentials, hooks, shell, and local env.
-- Use `import-agent-pack` for a Claude Project/Cowork-style folder. It keeps the
-  runnable profile at `agents/<slug>.md` and stores text references, context,
-  and agent-owned skills below `agents/<slug>/`. Use `list-agent-pack` to
-  inspect the files and the shared agent pack UI to edit them.
+- Use `import-agent` or `import-agent-pack` for safe agent profile and pack
+  imports; use `list-agent-pack` to inspect imported files.
 - Use `connect-external-agent` for public HTTP/A2A metadata; authenticate through
   the normal connection flow.
 - Dispatch's primary nav is Overview, Chat, Apps, Agents, and the app rail.
   `/agents` creates/imports reusable profiles, opens per-agent chat, and can
   hand a profile off to app creation; `/admin/agents` manages technical MCP/A2A
   connections; other workspace/operator tools live under `/admin`.
-- Agent profiles and agentic apps are also managed from Factory's top-level
-  Agents tab. Factory embeds the same agent actions and pack editor and reads
-  mounted app metadata through the shared Dispatch database; it does not create
-  a second agent registry.
+- Factory shares Dispatch's agent and mounted-app registry; do not create a
+  second registry or wrapper app.
 - Keep approval and routing behavior explicit. Never silently widen access to
   secrets, apps, integrations, or workspace resources.
 - Curated workspace templates are private app sources. Use
@@ -62,7 +56,7 @@ Read the relevant skill before deeper work:
   Destinations for concrete thread, change-history, and delivery investigations;
   Dispatch does not invent a separate issue tracker when those framework
   surfaces contain the operational evidence.
-- Thread Debug accepts the copied request/run ID from an Agent Native chat
+- Thread Debug accepts the copied request/run ID from an Agent-Native chat
   response as well as a chat thread ID; use the exact source that owns the run.
   Hosted production sources appear only when Dispatch has their
   <APP>_DATABASE_URL connection variables (or an equivalent
@@ -78,18 +72,22 @@ Read the relevant skill before deeper work:
 - For usage investigations, use `list-dispatch-usage-metrics` with the smallest
   useful scope and lookback. Treat `not-captured` and `unavailable` attribution
   as gaps, not zero usage; use `view-screen` on `/admin/metrics` to align with
-  the visible scope and selected user.
+  the visible scope and selected user. For app adoption, use `scope=app` with
+  `appId`; the app owner can inspect their own app, and organization owners or
+  admins can inspect any accessible app. App results are aggregate-only: active
+  means a tracked action, while opens and views are not captured.
 
 ## Application State
 
 - `navigation` exposes current Dispatch view, selected integration/resource,
-  approval, route, or settings panel.
+  approval, route, settings panel, or automation selection.
 - On Thread Debug, `navigation.threadDebugMode`, `sourceId`,
   `inspectSourceId`, `ownerEmail`, `failureStatus`, `range`, `query`, `runId`,
   and `threadId` expose the visible failure or thread filters and selection.
 - On Metrics, `navigation.usageScope` exposes whether the visible usage view is
-  personal or workspace-wide, and `navigation.usageUserEmail` exposes the
-  selected workspace member filter.
+  personal, workspace-wide, or an app, `navigation.usageUserEmail` exposes the
+  selected workspace member filter, and `navigation.usageAppId` exposes the
+  selected app for app adoption metrics.
 - `navigate` moves the UI to setup, vault, integrations, resources, routing,
   approval, and operator surfaces.
 

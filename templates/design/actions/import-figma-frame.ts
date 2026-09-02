@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   buildScreenFilesFromFigmaNodes,
   fetchFigmaNode,
@@ -57,7 +58,7 @@ export default defineAction({
     "Import a Figma frame/component by URL or file key + node id, mapping supported structure to fidelity-aware HTML (position, auto-layout as flexbox, text, fills/gradients, strokes, corner radii, effects) and saving it as a new Design screen. Geometry and paint models HTML/CSS cannot represent faithfully (including masks, vector/boolean geometry, lines/arcs, advanced strokes/text, and transformed image crops) use rendered fallbacks instead of silently importing the wrong visual. Returns a fidelity report of which nodes were exact, approximated, or image-fallback. Requires the saved FIGMA_ACCESS_TOKEN secret.",
   schema: schemaInput,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
-  run: async (args) => {
+  run: async (args, context) => {
     if (args.asNewScreen === false) {
       throw new Error(
         "asNewScreen: false is not supported yet. Omit it or pass true — the imported frame is always saved as a new screen.",
@@ -83,14 +84,16 @@ export default defineAction({
       const nodeId = await resolveTargetNodeId(fileKey, requestedNodeId);
       const rootNode = await fetchFigmaNode(fileKey, nodeId);
 
-      const { files, fidelityEntries } = await buildScreenFilesFromFigmaNodes(
-        fileKey,
-        { [nodeId]: rootNode },
-        {
-          source: () => ({ figmaUrl: args.figmaUrl ?? null }),
-        },
-      );
+      const { files, fidelityEntries, omissionWarnings } =
+        await buildScreenFilesFromFigmaNodes(
+          fileKey,
+          { [nodeId]: rootNode },
+          {
+            source: () => ({ figmaUrl: args.figmaUrl ?? null }),
+          },
+        );
 
+      await snapshotDesignBeforeAgentEdit(designId, context);
       const saved = await saveImportedDesignFiles({
         designId,
         sourceType: "figma-import",
@@ -99,6 +102,7 @@ export default defineAction({
 
       return {
         ...saved,
+        warnings: [...(saved.warnings ?? []), ...omissionWarnings],
         figma: { fileKey, nodeId, nodeName: rootNode.name ?? null },
         fidelityReport: summarizeFidelity(fidelityEntries),
         guidance:

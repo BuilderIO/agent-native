@@ -269,7 +269,7 @@ async function runStandalone(opts: RunMCPStdioOptions): Promise<void> {
         {
           name: appId.charAt(0).toUpperCase() + appId.slice(1),
           appId,
-          description: `Agent-native ${appId} app (standalone MCP)`,
+          description: `Agent-Native ${appId} app (standalone MCP)`,
           actions,
           // No askAgent in standalone — there is no running engine/runtime here.
           // builtin cross-app tools stay on so `list_apps` / `open_app` /
@@ -280,6 +280,7 @@ async function runStandalone(opts: RunMCPStdioOptions): Promise<void> {
         undefined,
         {
           origin,
+          transport: "stdio",
           clientName: "agent-native-mcp-standalone",
           // Compact by default; opt into the full catalog with the env flag.
           fullCatalog: process.env.AGENT_NATIVE_MCP_FULL_CATALOG === "1",

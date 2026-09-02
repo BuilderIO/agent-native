@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   hasSessionCredentials,
+  sessionFailureReason,
   sessionTokenFor,
   shouldRetrySessionExchange,
 } from "./session";
@@ -55,4 +56,39 @@ test("recognizes a per-app token as an authenticated credential", () => {
       delete process.env.BETA_E2E_STORAGE_STATE_FILE;
     else process.env.BETA_E2E_STORAGE_STATE_FILE = previousStorageStateFile;
   }
+});
+
+test("classifies session failures without guessing that a credential expired", () => {
+  assert.match(
+    sessionFailureReason({
+      status: 503,
+      body: '{"error":"Session lookup timed out"}',
+      tokenProvided: true,
+    }),
+    /endpoint was unavailable/,
+  );
+  assert.match(
+    sessionFailureReason({
+      status: 200,
+      body: '{"error":"Not authenticated"}',
+      tokenProvided: true,
+    }),
+    /did not honor/,
+  );
+  assert.match(
+    sessionFailureReason({
+      status: 200,
+      body: "not json",
+      tokenProvided: false,
+    }),
+    /unreadable/,
+  );
+  assert.doesNotMatch(
+    sessionFailureReason({
+      status: 200,
+      body: '{"error":"Not authenticated"}',
+      tokenProvided: true,
+    }),
+    /expire|30 days/i,
+  );
 });

@@ -33,10 +33,13 @@ import {
   describeErrorWithCauses,
 } from "./error-detail.js";
 import { createFirstEventAbortController } from "./first-event-timeout.js";
+import { limitProviderTools } from "./limit-provider-tools.js";
+import { isCustomOpenAiBaseUrl } from "./openai-compatible-endpoint.js";
 import {
   clampThinkingBudgetTokens,
   resolveMaxOutputTokensForEngine,
 } from "./output-tokens.js";
+import { createProviderToolNameMap } from "./tool-name.js";
 import {
   engineToolsToAISDK,
   engineMessagesToAISDK,
@@ -243,7 +246,8 @@ class AISDKEngine implements AgentEngine {
     this.supportedModels = PROVIDER_SUPPORTED_MODELS[provider];
     this.preserveCustomModels =
       provider === "ollama" ||
-      (provider === "openai" && Boolean(config.baseUrl));
+      provider === "openrouter" ||
+      (provider === "openai" && isCustomOpenAiBaseUrl(config.baseUrl));
     this.capabilities = PROVIDER_CAPABILITIES[provider];
     this.apiKey =
       config.apiKey ??
@@ -309,15 +313,18 @@ class AISDKEngine implements AgentEngine {
       return;
     }
 
+    const toolNameMap = createProviderToolNameMap(opts.tools, opts.messages);
+    const providerTools = limitProviderTools(opts.tools);
     const aiSdkTools =
-      opts.tools.length > 0
-        ? engineToolsToAISDK(opts.tools, jsonSchema)
+      providerTools.length > 0
+        ? engineToolsToAISDK(providerTools, jsonSchema, toolNameMap)
         : undefined;
     const messages = engineMessagesToAISDK(opts.messages, {
       // Vision-capable provider translators (anthropic/openai/google/
       // openrouter) map image parts to native blocks; the rest stringify
       // tool-result content arrays, so images degrade to their text notes.
       toolResultImages: this.capabilities.vision,
+      toolNameMap,
     });
 
     // Resolved once so both `maxOutputTokens` (below, in the streamText call)
@@ -394,10 +401,10 @@ class AISDKEngine implements AgentEngine {
         // <model> in /v1/chat/completions. To use function tools, use
         // /v1/responses or set reasoning_effort to 'none'.") — a real prod
         // incident, e.g. Sentry AGENT-NATIVE-BROWSER-94 on gpt-5.6-terra.
-        // `createProviderModel` forces Chat Completions specifically when
-        // `this.baseUrl` is set (many OpenAI-compatible gateways/proxies
-        // don't implement Responses — see that comment). In that exact
-        // combination — forced Chat Completions AND tools present — send
+        // `createProviderModel` forces Chat Completions specifically for a
+        // custom `baseUrl` (many OpenAI-compatible gateways/proxies don't
+        // implement Responses — see that comment). In that exact combination
+        // — forced Chat Completions AND tools present — send
         // `"none"` rather than our resolved effort; Responses-API calls (no
         // baseUrl) are unaffected and keep full effort control.
         //
@@ -406,7 +413,7 @@ class AISDKEngine implements AgentEngine {
         // exactly the same way. Only the explicit "none" clears it — the
         // error text spells this out ("or set reasoning_effort to 'none'").
         const forcedChatCompletionsWithTools =
-          Boolean(this.baseUrl) && aiSdkTools !== undefined;
+          isCustomOpenAiBaseUrl(this.baseUrl) && aiSdkTools !== undefined;
         providerOpts.openai = {
           ...((providerOpts.openai as object) ?? {}),
           reasoningEffort: forcedChatCompletionsWithTools
@@ -481,7 +488,7 @@ class AISDKEngine implements AgentEngine {
           : {}),
         abortSignal: firstEventAbort.signal,
         onStepFinish: (step: any) => {
-          assistantContent = aiSdkStepToAssistantContent(step);
+          assistantContent = aiSdkStepToAssistantContent(step, toolNameMap);
         },
         ...(Object.keys(providerOpts).length > 0
           ? { providerOptions: providerOpts }
@@ -504,7 +511,7 @@ class AISDKEngine implements AgentEngine {
           sawFirstEvent = true;
           firstEventAbort.markFirstEvent();
         }
-        for (const event of aiSdkPartToEngineEvents(part)) {
+        for (const event of aiSdkPartToEngineEvents(part, toolNameMap)) {
           observeStreamedToolInput(toolInputs, event);
           if (
             event.type === "stop" &&
@@ -567,7 +574,15 @@ class AISDKEngine implements AgentEngine {
       }
 
       yield { type: "assistant-content", parts: assistantContent };
-      if (!credentialFailureRecorded) {
+      // Clearing the marker asserts "this credential demonstrably works", so
+      // only a turn that actually completed may do it. A turn that ended in
+      // error proves nothing about the credential, and this ran on every one:
+      // a single unrelated 500 re-admitted a credential a 401 had just pinned,
+      // so the next person's first prompt spent itself rediscovering the same
+      // rejection. `credentialFailureRecorded` only covers the 401 path.
+      const stoppedWithError =
+        bufferedStop?.type === "stop" && bufferedStop.reason === "error";
+      if (!credentialFailureRecorded && !stoppedWithError) {
         await clearProviderCredentialAuthFailure({
           key: PROVIDER_ENV_VARS[this.provider][0],
           value: this.apiKey,
@@ -633,7 +648,7 @@ class AISDKEngine implements AgentEngine {
     // GPT reasoning models get the API OpenAI recommends. If someone points
     // the OpenAI provider at an OpenAI-compatible gateway, keep using Chat
     // Completions because many gateway base URLs do not implement Responses.
-    return this.provider === "openai" && this.baseUrl
+    return this.provider === "openai" && isCustomOpenAiBaseUrl(this.baseUrl)
       ? provider.chat(model)
       : provider(model);
   }

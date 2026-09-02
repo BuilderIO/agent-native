@@ -154,7 +154,7 @@ describe("rich text selection", () => {
 
   it("reports a single inline value and null for mixed selected runs", () => {
     const block = editable(
-      '<span style="color: rgb(96, 159, 248); font-size: 20px">blue</span><span style="color: rgb(239, 68, 68); font-size: 20px">red</span>',
+      '<span style="color: rgb(96, 159, 248); font-size: 20px; font-family: Inter, sans-serif">blue</span><span style="color: rgb(239, 68, 68); font-size: 20px; font-family: Poppins, sans-serif">red</span>',
     );
     const blue = block.firstChild!.firstChild as Text;
     const red = block.lastChild!.firstChild as Text;
@@ -164,6 +164,7 @@ describe("rich text selection", () => {
     expect(blueSnapshot.scope).toBe("selection");
     expect(blueSnapshot.values.color).toBe("rgb(96, 159, 248)");
     expect(blueSnapshot.values.fontSize).toBe("20px");
+    expect(blueSnapshot.values.fontFamily).toBe("Inter, sans-serif");
 
     rangeFor(blue, 0, red, 3);
     const mixed = getInlineTextStyleSnapshot(block);
@@ -171,6 +172,8 @@ describe("rich text selection", () => {
     expect(mixed.values.color).toBeNull();
     expect(mixed.mixed).toContain("color");
     expect(mixed.values.fontSize).toBe("20px");
+    expect(mixed.values.fontFamily).toBeNull();
+    expect(mixed.mixed).toContain("fontFamily");
 
     const savedMixed = window.getSelection()!.getRangeAt(0).cloneRange();
     window.getSelection()!.removeAllRanges();

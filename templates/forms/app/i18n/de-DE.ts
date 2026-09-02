@@ -98,6 +98,9 @@ const messages = {
     conditionContains: "enthält",
     conditionValue: "Antwort",
     conditionValuePlaceholder: "Antwort eingeben...",
+    allowMultiple: "Mehrere Dateien zulassen",
+    accept: "Akzeptierte Dateitypen",
+    acceptPlaceholder: "z. B. image/*, .pdf",
     fieldTypes: {
       text: "Kurzer Text",
       email: "E-Mail",
@@ -110,6 +113,7 @@ const messages = {
       date: "Datum",
       rating: "Bewertung",
       scale: "Skala",
+      file: "Datei-Upload",
     },
   },
   builder: {
@@ -182,6 +186,7 @@ const messages = {
       dateLabel: "Datum",
       ratingLabel: "Bewertung",
       scaleLabel: "Skala",
+      fileLabel: "Datei-Upload",
       option1: "Auswahl 1",
       option2: "Auswahl 2",
       option3: "Auswahl 3",
@@ -204,6 +209,12 @@ const messages = {
       successMessage: "Erfolgsmeldung",
       defaultSuccessMessage: "Danke! Deine Antwort wurde gespeichert.",
       redirectUrl: "Weiterleitungs-URL (optional)",
+      completionMode: "Nach dem Absenden",
+      completionMessage: "Nachricht bis zur Aktualisierung anzeigen",
+      completionRedirect: "Zu einer URL weiterleiten",
+      completionMessageThenRefresh: "Nachricht anzeigen, dann aktualisieren",
+      completionRefresh: "Mit einem neuen Formular aktualisieren",
+      completionRefreshSeconds: "Aktualisieren nach (Sekunden)",
       anonymousResponses: "Anonyme Antworten",
       anonymousResponsesDescription:
         "IP-Adressen, Identität der antwortenden Person und Quellmetadaten nicht speichern.",

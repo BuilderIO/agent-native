@@ -32,7 +32,11 @@ import {
 } from "../db/client.js";
 import { getOrgSetting } from "../settings/org-settings.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
-import { getRequestUserEmail, getRequestOrgId } from "./request-context.js";
+import {
+  getRequestContext,
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "./request-context.js";
 
 const DISPATCH_VAULT_ACCESS_SETTINGS_KEY = "dispatch-vault-access-settings";
 
@@ -194,6 +198,9 @@ const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "OPENROUTER_API_KEY",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
+  // OAuth client ids identify the deployment; user identity remains in scoped tokens.
+  "NOTION_CLIENT_ID",
+  "NOTION_CLIENT_SECRET",
   "GOOGLE_GENERATIVE_AI_API_KEY",
   "GROQ_API_KEY",
   "MISTRAL_API_KEY",
@@ -230,6 +237,10 @@ export function isDeployCredentialFallbackAllowed(): boolean {
 export function canUseDeployCredentialFallbackForRequest(
   key?: string,
 ): boolean {
+  // Synthetic checks must never fall through to a deploy-wide provider key.
+  // If the dedicated test credential is rejected, using the site's shared key
+  // would make a green retry both misleading and billable to real traffic.
+  if (getRequestContext()?.isSyntheticTraffic === true) return false;
   const email = getRequestUserEmail();
   if (!email) return true;
   if (isAppProvidedDeployCredentialKey(key)) return true;
@@ -391,8 +402,8 @@ function readOptionalBuilderBoolean(
   return /^(1|true)$/i.test(value);
 }
 
-export function isBuilderPrivateKey(value: string | null | undefined): boolean {
-  return typeof value === "string" && value.trim().startsWith("bpk-");
+function isBuilderAuthToken(value: string | null | undefined): boolean {
+  return typeof value === "string" && /^(?:bpk|btk)-/.test(value.trim());
 }
 
 async function readBuilderCredentialScope(
@@ -1174,6 +1185,51 @@ export async function resolveBuilderGatewayAuth(): Promise<BuilderGatewayAuth | 
     : null;
 }
 
+/**
+ * Both auth-failure markers below are fingerprinted on the credential VALUE, so
+ * a rotated or corrected credential never matches the old marker and is usable
+ * immediately — the TTL is not what unpins it. The TTL covers only the case
+ * where the SAME value starts working again: a plan upgrade, a re-enabled
+ * gateway, a transient upstream 401.
+ *
+ * Re-admitting on a flat timer means a credential that is simply wrong is
+ * retested on that cadence forever, and each retest is paid for by whichever
+ * user's turn happens to land first — they get a 401 while the next lane serves
+ * everyone after them. That is the whole shape of the recurring "the saved
+ * provider key was rejected" report. Back off per consecutive strike so a dead
+ * credential stops costing a turn every quarter hour, while one that genuinely
+ * recovers is still retried within the day.
+ */
+const AUTH_FAILURE_MAX_TTL_MS = 24 * 60 * 60 * 1000;
+const AUTH_FAILURE_MAX_STRIKES = 8;
+
+function authFailureStrikes(row: Record<string, unknown> | null): number {
+  const raw = row?.strikes;
+  return typeof raw === "number" && Number.isFinite(raw) && raw >= 1
+    ? Math.min(Math.floor(raw), AUTH_FAILURE_MAX_STRIKES)
+    : 1;
+}
+
+function authFailureTtlMs(
+  baseTtlMs: number,
+  row: Record<string, unknown> | null,
+): number {
+  return Math.min(
+    baseTtlMs * 2 ** (authFailureStrikes(row) - 1),
+    AUTH_FAILURE_MAX_TTL_MS,
+  );
+}
+
+/** Next strike count for a marker being (re-)armed on the same fingerprint. */
+async function nextAuthFailureStrikes(settingKey: string): Promise<number> {
+  const { getSetting } = await import("../settings/store.js");
+  const prior = await getSetting(settingKey, { bypassCache: true });
+  return Math.min(
+    authFailureStrikes(prior) + (prior ? 1 : 0),
+    AUTH_FAILURE_MAX_STRIKES,
+  );
+}
+
 const BUILDER_AUTH_FAILURE_SETTING_PREFIX = "builder-auth-failure:";
 /**
  * Stale markers expire so a rejected model or a transient gateway failure
@@ -1227,10 +1283,10 @@ export async function getBuilderCredentialAuthFailure(
     const row = await settings.getSetting(settingKey);
     if (!row) return null;
     const at = typeof row.at === "number" ? row.at : Date.now();
-    if (Date.now() - at > BUILDER_AUTH_FAILURE_TTL_MS) {
-      if (typeof settings.deleteSetting === "function") {
-        await settings.deleteSetting(settingKey).catch(() => {});
-      }
+    // Expired means "usable again", not "never failed": the row stays so the
+    // strike count survives, and a credential that fails on re-admission backs
+    // off further instead of resetting to the base TTL. A success clears it.
+    if (Date.now() - at > authFailureTtlMs(BUILDER_AUTH_FAILURE_TTL_MS, row)) {
       return null;
     }
     return {
@@ -1264,13 +1320,16 @@ export async function recordBuilderCredentialAuthFailure(details?: {
     );
     if (!fingerprint) return;
     const { putSetting } = await import("../settings/store.js");
-    await putSetting(builderAuthFailureSettingKey(fingerprint), {
+    const settingKey = builderAuthFailureSettingKey(fingerprint);
+    const strikes = await nextAuthFailureStrikes(settingKey);
+    await putSetting(settingKey, {
       fingerprint,
       message:
         details?.message ||
         "Builder rejected the connected credentials. Reconnect Builder.io (free tier available).",
       ...(typeof details?.status === "number" && { status: details.status }),
       ...(details?.code && { code: details.code }),
+      strikes,
       at: Date.now(),
       ownerEmail: getRequestUserEmail() ?? null,
       orgId: getRequestOrgId() ?? null,
@@ -1345,10 +1404,9 @@ export async function getProviderCredentialAuthFailure(opts: {
     if (!row) return null;
     if (row.fingerprint !== fingerprint) return null;
     const at = typeof row.at === "number" ? row.at : Date.now();
-    if (Date.now() - at > PROVIDER_AUTH_FAILURE_TTL_MS) {
-      if (typeof settings.deleteSetting === "function") {
-        await settings.deleteSetting(settingKey).catch(() => {});
-      }
+    // See `getBuilderCredentialAuthFailure`: the row outlives its TTL so the
+    // strike count does, and re-admission backs off instead of resetting.
+    if (Date.now() - at > authFailureTtlMs(PROVIDER_AUTH_FAILURE_TTL_MS, row)) {
       return null;
     }
     return {
@@ -1386,12 +1444,15 @@ export async function recordProviderCredentialAuthFailure(opts: {
     const fingerprint = providerCredentialFingerprint(key, value);
     if (!fingerprint) return;
     const { putSetting } = await import("../settings/store.js");
-    await putSetting(providerAuthFailureSettingKey(fingerprint), {
+    const settingKey = providerAuthFailureSettingKey(fingerprint);
+    const strikes = await nextAuthFailureStrikes(settingKey);
+    await putSetting(settingKey, {
       fingerprint,
       key,
       message: opts.message || "The model provider rejected the saved API key.",
       ...(typeof opts.status === "number" && { status: opts.status }),
       ...(opts.code && { code: opts.code }),
+      strikes,
       at: Date.now(),
       ownerEmail: getRequestUserEmail() ?? null,
       orgId: getRequestOrgId() ?? null,
@@ -1500,9 +1561,9 @@ export async function writeBuilderCredentials(
 ): Promise<{ scope: "user" | "org"; scopeId: string }> {
   const privateKey = creds.privateKey.trim();
   const publicKey = creds.publicKey.trim();
-  if (!isBuilderPrivateKey(privateKey)) {
+  if (!isBuilderAuthToken(privateKey)) {
     throw new Error(
-      "Builder returned a credential that is not a Builder private key (expected bpk-...). Restart the Builder connect flow and choose a space that can issue a private key.",
+      "Builder returned an unsupported credential (expected a bpk- private key or btk- personal access token). Restart the Builder connect flow and choose a space that can issue a usable credential.",
     );
   }
   if (!publicKey) {
@@ -1655,21 +1716,23 @@ export async function prefetchSecrets(keys: readonly string[]): Promise<void> {
   const email = getRequestUserEmail();
   if (!email || keys.length === 0) return;
   const { readAppSecrets } = await import("../secrets/storage.js");
-  const orgId =
-    getRequestOrgId() || (await resolveOrgIdForRequestEmail(email)).orgId;
+  const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
+  const orgId = syntheticTraffic
+    ? undefined
+    : getRequestOrgId() || (await resolveOrgIdForRequestEmail(email)).orgId;
   const scopes: Array<{
     scope: "user" | "org" | "workspace";
     scopeId: string;
-  }> = [
-    { scope: "user", scopeId: email },
-    ...(orgId
-      ? ([
-          { scope: "org", scopeId: orgId },
-          { scope: "workspace", scopeId: orgId },
-        ] as const)
-      : []),
-    { scope: "workspace", scopeId: `solo:${email}` },
-  ];
+  }> = [{ scope: "user", scopeId: email }];
+  if (orgId && !syntheticTraffic) {
+    scopes.push(
+      { scope: "org", scopeId: orgId },
+      { scope: "workspace", scopeId: orgId },
+    );
+  }
+  if (!syntheticTraffic) {
+    scopes.push({ scope: "workspace", scopeId: `solo:${email}` });
+  }
   await Promise.all(
     scopes.map((s) => readAppSecrets({ keys, ...s }).catch(() => undefined)),
   );
@@ -1692,44 +1755,73 @@ export async function resolveSecret(key: string): Promise<string | null> {
   return null;
 }
 
+type SecretPairKeys = readonly [string, string];
+type ResolveSecretPairOptions = {
+  allowUserScope?: boolean;
+  preferWorkspaceScope?: boolean;
+};
+
 /**
- * Resolve two related secrets from one scope/source. A complete lower-
- * precedence pair wins over mixing a partial override with another source.
+ * Resolve the first complete pair from the requested aliases. A complete
+ * lower-precedence pair wins over mixing a partial override with another
+ * source, and workspace preference applies across every alias before org.
  */
-export async function resolveSecretPair(
-  keys: readonly [string, string],
+export async function resolveSecretPairs(
+  keyPairs: ReadonlyArray<SecretPairKeys>,
+  options?: ResolveSecretPairOptions,
 ): Promise<[string, string] | null> {
-  const [firstKey, secondKey] = keys;
+  if (keyPairs.length === 0) return null;
+
+  const allowUserScope = options?.allowUserScope ?? true;
+  const preferWorkspaceScope = options?.preferWorkspaceScope ?? false;
   const readPair = async (
+    keys: SecretPairKeys,
     scope: "user" | "org" | "workspace",
     scopeId: string,
   ): Promise<[string, string] | null> => {
     const { readAppSecrets } = await import("../secrets/storage.js");
     const secrets = await readAppSecrets({ keys, scope, scopeId });
+    const [firstKey, secondKey] = keys;
     const first = secrets.get(firstKey)?.value;
     const second = secrets.get(secondKey)?.value;
     return first && second ? [first, second] : null;
   };
-  const readEnvironmentPair = (): [string, string] | null => {
-    if (
-      !canUseDeployCredentialFallbackForRequest(firstKey) ||
-      !canUseDeployCredentialFallbackForRequest(secondKey)
-    ) {
-      return null;
+  const readPairs = async (
+    scope: "user" | "org" | "workspace",
+    scopeId: string,
+  ): Promise<[string, string] | null> => {
+    for (const keys of keyPairs) {
+      const pair = await readPair(keys, scope, scopeId);
+      if (pair) return pair;
     }
-    const first = process.env[firstKey];
-    const second = process.env[secondKey];
-    return first && second ? [first, second] : null;
+    return null;
+  };
+  const readEnvironmentPairs = (): [string, string] | null => {
+    for (const [firstKey, secondKey] of keyPairs) {
+      if (
+        !canUseDeployCredentialFallbackForRequest(firstKey) ||
+        !canUseDeployCredentialFallbackForRequest(secondKey)
+      ) {
+        continue;
+      }
+      const first = process.env[firstKey];
+      const second = process.env[secondKey];
+      if (first && second) return [first, second];
+    }
+    return null;
   };
 
   const email = getRequestUserEmail();
-  if (!email) return readEnvironmentPair();
+  if (!email) return readEnvironmentPairs();
 
   let lookupFailed = false;
   let cause: unknown;
   try {
-    let pair = await readPair("user", email);
-    if (pair) return pair;
+    let pair: [string, string] | null = null;
+    if (allowUserScope) {
+      pair = await readPairs("user", email);
+      if (pair) return pair;
+    }
 
     let orgId: string | null | undefined = getRequestOrgId();
     if (!orgId) {
@@ -1740,37 +1832,59 @@ export async function resolveSecretPair(
     }
 
     if (lookupFailed) {
-      const environmentPair = readEnvironmentPair();
+      const environmentPair = readEnvironmentPairs();
       if (environmentPair) return environmentPair;
       assertCredentialStoreReadable({ lookupFailed, cause });
       return null;
     }
 
     if (orgId) {
-      pair = await readPair("org", orgId);
+      if (preferWorkspaceScope) {
+        pair = await readPairs("workspace", orgId);
+        if (pair) return pair;
+      }
+      pair = await readPairs("org", orgId);
       if (pair) return pair;
-      pair = await readPair("workspace", orgId);
+      if (!preferWorkspaceScope) {
+        pair = await readPairs("workspace", orgId);
+        if (pair) return pair;
+      }
+    }
+
+    if (allowUserScope) {
+      pair = await readPairs("workspace", `solo:${email}`);
       if (pair) return pair;
     }
 
-    pair = await readPair("workspace", `solo:${email}`);
-    if (pair) return pair;
-
     const vaultOrgId = process.env.AGENT_VAULT_ORG_ID?.trim();
     if (vaultOrgId && vaultOrgId !== orgId) {
-      const access = await Promise.all(
-        keys.map((key) => canReadDesignatedVaultFallback(vaultOrgId, key)),
-      );
-      const unavailable = access.find(
-        (result) => result.status === "unavailable",
-      );
-      if (unavailable?.status === "unavailable") {
-        lookupFailed = true;
-        cause = unavailable.cause;
-      } else if (access.every((result) => result.status === "allowed")) {
-        pair = await readPair("org", vaultOrgId);
-        if (pair) return pair;
-        pair = await readPair("workspace", vaultOrgId);
+      const readDesignatedVaultPairs = async (
+        scope: "org" | "workspace",
+      ): Promise<[string, string] | null> => {
+        for (const keys of keyPairs) {
+          const access = await Promise.all(
+            keys.map((key) => canReadDesignatedVaultFallback(vaultOrgId, key)),
+          );
+          const unavailable = access.find(
+            (result) => result.status === "unavailable",
+          );
+          if (unavailable?.status === "unavailable") {
+            lookupFailed = true;
+            cause = unavailable.cause;
+            continue;
+          }
+          if (access.every((result) => result.status === "allowed")) {
+            const pair = await readPair(keys, scope, vaultOrgId);
+            if (pair) return pair;
+          }
+        }
+        return null;
+      };
+      const designatedScopes: Array<"org" | "workspace"> = preferWorkspaceScope
+        ? ["workspace", "org"]
+        : ["org", "workspace"];
+      for (const scope of designatedScopes) {
+        pair = await readDesignatedVaultPairs(scope);
         if (pair) return pair;
       }
     }
@@ -1779,10 +1893,17 @@ export async function resolveSecretPair(
     cause = error;
   }
 
-  const environmentPair = readEnvironmentPair();
+  const environmentPair = readEnvironmentPairs();
   if (environmentPair) return environmentPair;
   assertCredentialStoreReadable({ lookupFailed, cause });
   return null;
+}
+
+export async function resolveSecretPair(
+  keys: SecretPairKeys,
+  options?: ResolveSecretPairOptions,
+): Promise<[string, string] | null> {
+  return resolveSecretPairs([keys], options);
 }
 
 /**
@@ -1796,6 +1917,7 @@ export async function resolveSecretDetailed(
 ): Promise<{ value: string | null; lookupFailed: boolean; cause?: unknown }> {
   const traceLookup = shouldTraceCredentialResolve();
   const email = getRequestUserEmail();
+  const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
   let lookupFailed = false;
   let cause: unknown;
   if (email) {
@@ -1816,6 +1938,10 @@ export async function resolveSecretDetailed(
         }
         return { value: userSecret.value, lookupFailed: false };
       }
+
+      // The beta suite writes one user-scoped credential and must never turn a
+      // rejected or missing test key into a charge against a shared scope.
+      if (syntheticTraffic) return NOT_FOUND;
 
       // Mirrors resolveScopedBuilderCredential: a transient org_members read
       // failure makes getOrgContext report no org, which would otherwise hide

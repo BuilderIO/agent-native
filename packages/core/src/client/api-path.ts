@@ -196,6 +196,14 @@ export function isWorkspaceAppPath(path: string): boolean {
  * Only a prefix that precedes `appLocalRoute` in the current pathname is
  * accepted, so this never promotes an arbitrary leading segment into a mount
  * the way a bare first-segment guess would.
+ *
+ * The route can legitimately repeat the marker in a later segment, because
+ * trailing segments carry user-named values: a secret key called
+ * `settings/token` produces `/settings/integrations/secrets/settings/token`.
+ * Matching the first occurrence keeps the mount at the shortest prefix, so
+ * content inside the route can never masquerade as part of the mount. An app
+ * genuinely mounted at `/settings` is resolved by the configured base path
+ * above, which a workspace deploy always bakes in.
  */
 export function appMountPath(appLocalRoute: string): string {
   const basePath = appBasePath();
@@ -207,7 +215,7 @@ export function appMountPath(appLocalRoute: string): string {
   const marker = normalizeBasePath(appLocalRoute);
   if (!marker) return basePath;
 
-  const index = pathname.lastIndexOf(marker);
+  const index = pathname.indexOf(marker);
   if (index < 0) return basePath;
 
   const boundary = index + marker.length;
@@ -251,4 +259,26 @@ export function appApiPath(path: string): string {
 export function agentNativePath(path: string): string {
   if (!path.startsWith(FRAMEWORK_ROUTE_PREFIX)) return path;
   return appPath(path);
+}
+
+/**
+ * Optional cross-origin response-streaming endpoint. The browser uses the
+ * normal same-origin chat route to mint a short-lived bearer token first.
+ */
+export function agentChatStreamingUrl(): string | undefined {
+  const value = clientEnv()?.VITE_AGENT_NATIVE_AGENT_CHAT_STREAM_URL;
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const candidate = value.trim();
+  const base =
+    typeof window === "undefined"
+      ? "http://agent-native.invalid"
+      : window.location.href;
+  if (!URL.canParse(candidate, base)) {
+    return undefined;
+  }
+  const url = new URL(candidate, base);
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return undefined;
+  }
+  return candidate;
 }

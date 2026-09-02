@@ -2,7 +2,7 @@
   "name": "@agent-native/desktop-app",
   "version": "0.1.150",
   "private": true,
-  "description": "Agent Native desktop app",
+  "description": "Agent-Native desktop app",
   "homepage": "https://agent-native.com",
   "bugs": {
     "url": "https://github.com/BuilderIO/agent-native/issues"
@@ -45,6 +45,7 @@
     "@tanstack/react-query": "5.101.2",
     "electron-log": "5.4.4",
     "electron-updater": "^6.8.3",
+    "node-pty": "^1.1.0",
     "react-router": "^8.3.0",
     "sonner": "^2.0.7",
     "zod": "^4.4.3"
@@ -66,5 +67,5 @@
     "vite": "catalog:",
     "vitest": "^4.1.10"
   },
-  "productName": "Agent Native"
+  "productName": "Agent-Native"
 }

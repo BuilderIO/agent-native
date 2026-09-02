@@ -28,10 +28,10 @@ export function useRestoreDocumentVersion(documentId: string) {
     "restore-document-version",
     {
       onSuccess: () => {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-document-versions", { documentId }],
         });
-        queryClient.invalidateQueries(documentQueryFilter(documentId));
+        void queryClient.invalidateQueries(documentQueryFilter(documentId));
       },
     },
   );

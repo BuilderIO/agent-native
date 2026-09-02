@@ -11,6 +11,7 @@ import {
   resolveOAuthRedirectUri,
   encodeOAuthState,
   decodeOAuthState,
+  ensureGoogleAuthIdentity,
   resolveOAuthOwner,
   createOAuthSession,
   oauthCallbackResponse,
@@ -47,6 +48,37 @@ import {
 } from "../lib/google-auth.js";
 
 const OAUTH_STATE_APP_ID = process.env.APP_NAME || "mail";
+const UNVERIFIED_EMAIL_ACCOUNT_MESSAGE =
+  "This email has an unverified password account. Verify that account before signing in with Google, then try again.";
+
+async function syncGoogleSignInIdentity(email: string): Promise<void> {
+  let client;
+  try {
+    client = await getClient(email);
+  } catch (error) {
+    console.warn("[auth] Google profile client lookup failed:", error);
+    return;
+  }
+  if (!client) return;
+  let profile: any;
+  try {
+    profile = await googleFetch(
+      "https://www.googleapis.com/oauth2/v2/userinfo",
+      client.accessToken,
+    );
+  } catch (error) {
+    console.warn("[auth] Google profile lookup failed:", error);
+    return;
+  }
+  const accountId = typeof profile?.id === "string" ? profile.id.trim() : "";
+  if (!accountId) return;
+  await ensureGoogleAuthIdentity({
+    email,
+    accountId,
+    name: typeof profile.name === "string" ? profile.name : undefined,
+    image: typeof profile.picture === "string" ? profile.picture : undefined,
+  });
+}
 
 function oauthRedirectResponse(url: string) {
   // h3 v2 sendRedirect returns an object the framework shim can stringify as
@@ -80,6 +112,14 @@ function googleOAuthErrorPayload(
   }
 
   const msg = error?.message || "Unknown error";
+  if (
+    /Cannot link Google to an unverified email\/password identity/i.test(msg)
+  ) {
+    return {
+      message: UNVERIFIED_EMAIL_ACCOUNT_MESSAGE,
+      code: "unverified_email_account",
+    };
+  }
   const statusCode = Number(error?.statusCode || error?.status || 0);
   const isPermission =
     error?.oauthErrorCode === "access_denied" ||
@@ -158,7 +198,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       }
     }
     const requestedReturn =
-      typeof q.return === "string" ? safeReturnPath(q.return) : "/";
+      typeof q.return === "string" ? safeReturnPath(q.return) : "/home";
     const returnUrl = requestedReturn !== "/" ? requestedReturn : undefined;
     // Use the named-arg overload — the positional form smuggled `flowId`
     // into the `returnUrl` slot in earlier revisions, which broke desktop
@@ -251,6 +291,9 @@ export const handleGoogleCallback = defineEventHandler(
 
       // 2. Exchange code with Google (template-specific)
       const email = await exchangeCode(code, undefined, redirectUri, owner);
+      const isAddAccount =
+        addAccount || (owner !== undefined && email !== owner);
+      if (!isAddAccount) await syncGoogleSignInIdentity(email);
 
       // 2b. Auto-populate display name in settings if not set
       try {
@@ -297,8 +340,6 @@ export const handleGoogleCallback = defineEventHandler(
       // Fallback: if the authenticated email differs from the session owner,
       // treat it as an add-account regardless of the state flag (guards against
       // state decode failures where addAccount is missing).
-      const isAddAccount =
-        addAccount || (owner !== undefined && email !== owner);
       const { sessionToken } = isAddAccount
         ? { sessionToken: undefined }
         : await createOAuthSession(event, email, {

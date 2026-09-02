@@ -30,6 +30,8 @@ import type { ActionAuditConfig } from "./audit/types.js";
  *   selected actions are attributed as `"tool"`.
  * - `"automation"` — an event-triggered automation dispatched from a stored
  *   workspace trigger with trusted trigger lineage.
+ * - `"webmcp"` — a browser agent invoking an automatically projected action
+ *   through the authenticated page-local WebMCP bridge.
  */
 export type ActionCaller =
   | "tool"
@@ -37,6 +39,7 @@ export type ActionCaller =
   | "frontend"
   | "cli"
   | "mcp"
+  | "webmcp"
   | "a2a"
   | "automation";
 
@@ -618,6 +621,11 @@ interface DefineActionWithSchema<
    *  Only set this for mutating actions that are internally concurrency-safe
    *  and order-independent for same-turn execution. */
   parallelSafe?: boolean;
+  /** If true, a successful call hands control to the user and the turn stops
+   *  there. Without it the loop asks the model for another step, and a
+   *  completion guard sees a turn that legitimately paused as one that failed
+   *  to finish. Set it on anything that puts a question or form on screen. */
+  endsTurn?: boolean;
   /** Set false to exempt a read-only tool from the agent loop's duplicate
    *  read-only call guard (per-turn result cache + "Skipped duplicate..."
    *  repeat detection). Default true (deduped). Use this for volatile/polling
@@ -787,6 +795,9 @@ interface DefineActionWithParams<
   /** If true, the agent may execute this action concurrently with other
    *  read-only or parallel-safe tool calls emitted in the same model turn. */
   parallelSafe?: boolean;
+  /** If true, a successful call hands control to the user and the turn stops
+   *  there. See the schema overload above. */
+  endsTurn?: boolean;
   /** Set false to exempt a read-only tool from the duplicate read-only call
    *  guard. Default true. See the schema overload above. */
   dedupe?: boolean;
@@ -863,6 +874,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly allowInPlanMode?: boolean;
   readonly planMode?: ActionPlanModeConfig<TInput>;
   readonly parallelSafe?: boolean;
+  readonly endsTurn?: boolean;
   readonly dedupe?: boolean;
   readonly toolCallable?: boolean;
   readonly publicAgent?: PublicAgentActionConfig;
@@ -1083,6 +1095,8 @@ export function defineAction(options: any) {
     typeof options.parallelSafe === "boolean"
       ? options.parallelSafe
       : undefined;
+  const endsTurn: boolean | undefined =
+    typeof options.endsTurn === "boolean" ? options.endsTurn : undefined;
   const dedupe: boolean | undefined =
     typeof options.dedupe === "boolean" ? options.dedupe : undefined;
   const publicAgent: PublicAgentActionConfig | undefined =
@@ -1153,6 +1167,7 @@ export function defineAction(options: any) {
       ? { planMode: options.planMode }
       : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
+    ...(typeof endsTurn === "boolean" ? { endsTurn } : {}),
     ...(typeof dedupe === "boolean" ? { dedupe } : {}),
     ...(typeof toolCallable === "boolean" ? { toolCallable } : {}),
     ...(publicAgent ? { publicAgent } : {}),

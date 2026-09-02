@@ -119,7 +119,7 @@ export async function getBrandProfile(input: { profileId?: string }): Promise<{
   versions: BrandDnaVersion[];
 }> {
   const { getDb, schema } = getCreativeContext();
-  let row: any | undefined;
+  let row: any;
   if (input.profileId) {
     row = (await resolveAccess("creative-context-brand", input.profileId))
       ?.resource;

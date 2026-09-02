@@ -86,10 +86,41 @@
   --design-editor-accent-strong-color: var(--design-editor-accent-color);
   --design-editor-accent-contrast-color: #ffffff;
   --design-editor-measure-color: hsl(24 95% 53%);
+  /* Sampled from Figma: #F2F2F2 on white. Identical in both themes and NOT
+     derived from --foreground: this paints over the user's content, so an
+     editor-theme-light line would vanish on a white design. */
+  --design-editor-layout-grid-color: rgb(0 0 0 / 5%);
   --design-editor-panel-bg: hsl(var(--background));
   --design-editor-panel-raised-bg: hsl(var(--secondary));
   --design-editor-control-bg: hsl(var(--muted));
   --design-editor-control-border: hsl(var(--border));
+  --design-baseline-half: 4px;
+  --design-baseline-unit: 8px;
+  --design-icon-size: 16px;
+  --design-control-height: 24px;
+  --design-row-height: 32px;
+  --design-section-height: 40px;
+  --design-action-slot-width: calc(var(--design-baseline-unit) * 4);
+  --design-chrome-rail-width: calc(var(--design-baseline-unit) * 8);
+  --design-grid-columns: 28;
+  --design-inspector-grid-columns: var(--design-grid-columns);
+  --design-inspector-grid-unit: var(--design-baseline-unit);
+  --design-inspector-grid-row: var(--design-control-height);
+  --design-inspector-grid-gap: var(--design-baseline-unit);
+  --design-inspector-section-padding-inline: var(--design-baseline-unit);
+  --design-inspector-section-padding-block: var(--design-baseline-unit);
+  --design-inspector-control-gap: var(--design-baseline-half);
+  --design-inspector-popover-label-width: calc(var(--design-baseline-unit) * 9);
+  --design-inspector-popover-icon-width: calc(var(--design-baseline-unit) * 4);
+  --design-inspector-popover-value-width: calc(var(--design-baseline-unit) * 7);
+  --design-sidebar-font-control: 11px;
+  --design-sidebar-line-control: 16px;
+  --design-sidebar-font-label: 10px;
+  --design-sidebar-line-label: 12px;
+  --design-sidebar-font-context: 13px;
+  --design-sidebar-line-context: 16px;
+  --design-sidebar-font-meta: 9px;
+  --design-sidebar-line-meta: 12px;
   --design-editor-question-option-bg: color-mix(
     in srgb,
     var(--design-editor-control-bg) 58%,
@@ -169,6 +200,10 @@
   --design-editor-accent-strong-color: var(--design-editor-accent-color);
   --design-editor-accent-contrast-color: #ffffff;
   --design-editor-measure-color: hsl(24 95% 53%);
+  /* Sampled from Figma: #F2F2F2 on white. Identical in both themes and NOT
+     derived from --foreground: this paints over the user's content, so an
+     editor-theme-light line would vanish on a white design. */
+  --design-editor-layout-grid-color: rgb(0 0 0 / 5%);
   --design-editor-panel-bg: hsl(0 0% 13%);
   --design-editor-panel-raised-bg: hsl(0 0% 18%);
   --design-editor-control-bg: hsl(0 0% 18%);
@@ -198,17 +233,17 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--border));
+  background: hsl(var(--muted-foreground) / 0.22);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.4);
+  background: hsl(var(--muted-foreground) / 0.34);
 }
 
 .design-inspector-scroll {
   scrollbar-gutter: stable;
   scrollbar-width: thin;
-  scrollbar-color: hsl(var(--border)) transparent;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.22) transparent;
 }
 
 .design-inspector-scroll::-webkit-scrollbar {
@@ -220,12 +255,514 @@
 }
 
 .design-inspector-scroll::-webkit-scrollbar-thumb {
-  background: hsl(var(--border));
+  background: hsl(var(--muted-foreground) / 0.22);
   border-radius: 3px;
 }
 
 .design-inspector-scroll::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.4);
+  background: hsl(var(--muted-foreground) / 0.34);
+}
+
+.design-sidebar {
+  font-size: var(--design-sidebar-font-control);
+  line-height: var(--design-sidebar-line-control);
+}
+
+.design-sidebar-section {
+  box-shadow: inset 0 1px var(--design-editor-control-border);
+}
+
+.design-sidebar-section:first-child {
+  box-shadow: none;
+}
+
+.design-sidebar-section-title,
+.design-sidebar-control-text {
+  font-size: var(--design-sidebar-font-control) !important;
+  line-height: var(--design-sidebar-line-control) !important;
+}
+
+.design-sidebar-section-title {
+  font-weight: 600;
+}
+
+.design-sidebar-field-label {
+  font-size: var(--design-sidebar-font-label) !important;
+  font-weight: 400;
+  line-height: var(--design-sidebar-line-label) !important;
+}
+
+.design-sidebar-context-title {
+  font-size: var(--design-sidebar-font-context) !important;
+  font-weight: 600;
+  line-height: var(--design-sidebar-line-context) !important;
+}
+
+.design-sidebar-meta {
+  font-size: var(--design-sidebar-font-meta) !important;
+  line-height: var(--design-sidebar-line-meta) !important;
+}
+
+.design-sidebar [role="combobox"] > span {
+  line-height: var(--design-sidebar-line-control);
+}
+
+.design-sidebar-property-group {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.design-sidebar-section-content {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--design-inspector-grid-gap);
+  padding-inline: var(--design-inspector-section-padding-inline);
+  padding-block-end: var(--design-inspector-section-padding-block);
+}
+
+.design-sidebar-control-stack {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--design-inspector-control-gap);
+}
+
+.design-inspector-popover-stack {
+  display: grid;
+  min-width: 0;
+  gap: var(--design-inspector-grid-gap);
+}
+
+.design-inspector-grid.design-sidebar-property-grid {
+  grid-auto-rows: auto;
+  row-gap: var(--design-baseline-half);
+}
+
+.design-sidebar-comments {
+  font-size: var(--design-sidebar-font-control);
+  line-height: var(--design-sidebar-line-control);
+}
+
+.design-sidebar-comments .text-sm,
+.design-sidebar-comments .leading-5 {
+  font-size: var(--design-sidebar-font-control);
+  line-height: var(--design-sidebar-line-control);
+}
+
+.design-sidebar-comments .text-xs {
+  font-size: var(--design-sidebar-font-label);
+  line-height: var(--design-sidebar-line-label);
+}
+
+.design-sidebar-comments [data-slot="tabs-list"] {
+  min-height: var(--design-control-height);
+}
+
+.design-sidebar-comments [data-slot="tabs-trigger"] {
+  min-height: var(--design-control-height);
+}
+
+/* Keep workspace-rail typography explicit. Tailwind cannot infer whether an
+   untyped `text-[var(...)]` token is a font size or a color, which previously
+   left these labels at the inherited 16px size and forced them to truncate. */
+.design-workspace-rail-item {
+  font-size: var(--design-sidebar-font-label);
+  line-height: var(--design-sidebar-line-label);
+}
+
+.design-inspector-grid {
+  display: grid;
+  grid-template-columns: repeat(
+    var(--design-inspector-grid-columns),
+    minmax(0, 1fr)
+  );
+  grid-auto-rows: minmax(var(--design-inspector-grid-row), auto);
+  column-gap: 0;
+  row-gap: var(--design-inspector-grid-gap);
+  min-width: 0;
+}
+
+.design-inspector-grid > [data-inspector-grid-cell] {
+  min-width: 0;
+}
+
+.design-inspector-grid-debug-overlay {
+  --design-inspector-debug-column-line: color-mix(
+    in srgb,
+    var(--design-editor-selection-color) 68%,
+    transparent
+  );
+  --design-inspector-debug-center-line: color-mix(
+    in srgb,
+    var(--design-editor-selection-color) 38%,
+    transparent
+  );
+  --design-inspector-debug-row-line: color-mix(
+    in srgb,
+    var(--design-editor-selection-color) 32%,
+    transparent
+  );
+  --design-inspector-debug-major-row-line: color-mix(
+    in srgb,
+    var(--design-editor-selection-color) 52%,
+    transparent
+  );
+  --design-inspector-debug-column-fill: color-mix(
+    in srgb,
+    var(--design-editor-selection-color) 7%,
+    transparent
+  );
+  position: absolute;
+  inset-block: 0;
+  inset-inline: var(--design-inspector-grid-unit);
+  z-index: 70;
+  pointer-events: none;
+  background-image:
+    linear-gradient(
+      to right,
+      var(--design-inspector-debug-column-line) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to right,
+      transparent calc(50% - 0.5px),
+      var(--design-inspector-debug-center-line) calc(50% - 0.5px),
+      var(--design-inspector-debug-center-line) calc(50% + 0.5px),
+      transparent calc(50% + 0.5px)
+    ),
+    linear-gradient(
+      to bottom,
+      var(--design-inspector-debug-row-line) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      var(--design-inspector-debug-major-row-line) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to right,
+      var(--design-inspector-debug-column-fill) 50%,
+      transparent 50%
+    );
+  /* Section separators are 1px, so the content baseline begins one pixel
+     below the outer inspector origin. Keep the debug coordinates honest. */
+  background-position:
+    left 1px,
+    left 1px,
+    left 1px,
+    left 1px,
+    left 1px;
+  background-size:
+    calc(100% / var(--design-inspector-grid-columns)) 100%,
+    calc(100% / var(--design-inspector-grid-columns)) 100%,
+    100% var(--design-inspector-grid-unit),
+    100% var(--design-inspector-grid-row),
+    calc(200% / var(--design-inspector-grid-columns)) 100%;
+  box-shadow: inset -1px 0 var(--design-inspector-debug-column-line);
+}
+
+.design-inspector-grid.design-inspector-pair-fields {
+  grid-auto-rows: auto;
+  row-gap: var(--design-baseline-half);
+}
+
+/* Responsive inspector rows preserve the 8px baseline at every width. Only
+   property tracks flex; inter-field gutters and right-side action rails stay
+   physical 8px multiples instead of stretching with the 28-column fallback. */
+.design-inspector-grid[data-inspector-layout="pair"] {
+  grid-template-columns:
+    minmax(0, 1fr) calc(var(--design-baseline-unit) * 2)
+    minmax(0, 1fr);
+}
+
+.design-inspector-grid[data-inspector-layout="pair"]
+  > [data-inspector-grid-cell]:nth-child(3n + 1) {
+  grid-column: 1 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="pair"]
+  > [data-inspector-grid-cell]:nth-child(3n + 2) {
+  grid-column: 2 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="pair"]
+  > [data-inspector-grid-cell]:nth-child(3n) {
+  grid-column: 3 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="pair-flow"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--design-baseline-unit);
+}
+
+.design-inspector-grid[data-inspector-layout="pair-flow"]
+  > [data-inspector-grid-cell] {
+  grid-column: auto !important;
+}
+
+.design-inspector-grid[data-inspector-layout="action-pair"],
+.design-inspector-grid[data-inspector-layout="label-action-pair"] {
+  grid-template-columns:
+    minmax(0, 1fr) var(--design-baseline-unit)
+    minmax(0, 1fr) var(--design-baseline-unit)
+    var(--design-action-slot-width);
+}
+
+.design-inspector-grid[data-inspector-layout="action-pair"]
+  > [data-inspector-grid-cell]:nth-child(1),
+.design-inspector-grid[data-inspector-layout="label-action-pair"]
+  > [data-inspector-grid-cell]:nth-child(2) {
+  grid-column: 1 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="action-pair"]
+  > [data-inspector-grid-cell]:nth-child(2),
+.design-inspector-grid[data-inspector-layout="label-action-pair"]
+  > [data-inspector-grid-cell]:nth-child(3) {
+  grid-column: 2 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="action-pair"]
+  > [data-inspector-grid-cell]:nth-child(3),
+.design-inspector-grid[data-inspector-layout="label-action-pair"]
+  > [data-inspector-grid-cell]:nth-child(4) {
+  grid-column: 3 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="action-pair"]
+  > [data-inspector-grid-cell]:nth-child(4),
+.design-inspector-grid[data-inspector-layout="label-action-pair"]
+  > [data-inspector-grid-cell]:nth-child(5) {
+  grid-column: 4 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="action-pair"]
+  > [data-inspector-grid-cell]:nth-child(5),
+.design-inspector-grid[data-inspector-layout="label-action-pair"]
+  > [data-inspector-grid-cell]:nth-child(6) {
+  grid-column: 5 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="label-action-pair"]
+  > [data-inspector-grid-cell]:nth-child(1) {
+  grid-column: 1 / -1 !important;
+}
+
+/* Two stacked label/control rows sharing the same action-pair geometry.
+   Appearance uses this shape so Opacity and Corner radius stay on the same
+   field starts as Position/Resizing while the independent-corners action
+   remains centered in the fixed terminal slot. */
+.design-inspector-grid[data-inspector-layout="label-action-rows"] {
+  grid-template-columns:
+    minmax(0, 1fr) var(--design-baseline-unit)
+    minmax(0, 1fr) var(--design-baseline-unit)
+    var(--design-action-slot-width);
+}
+
+.design-inspector-grid[data-inspector-layout="label-action-rows"]
+  > [data-inspector-grid-cell]:nth-child(5n + 1) {
+  grid-column: 1 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="label-action-rows"]
+  > [data-inspector-grid-cell]:nth-child(5n + 2) {
+  grid-column: 2 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="label-action-rows"]
+  > [data-inspector-grid-cell]:nth-child(5n + 3) {
+  grid-column: 3 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="label-action-rows"]
+  > [data-inspector-grid-cell]:nth-child(5n + 4) {
+  grid-column: 4 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="label-action-rows"]
+  > [data-inspector-grid-cell]:nth-child(5n) {
+  grid-column: 5 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="label-action-rows"]
+  > [data-inspector-grid-cell]:nth-child(11) {
+  grid-column: 1 / -1 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="field-action"],
+.design-inspector-grid[data-inspector-layout="label-field-action"] {
+  grid-template-columns:
+    minmax(0, 1fr) var(--design-baseline-unit)
+    var(--design-action-slot-width);
+}
+
+.design-inspector-grid[data-inspector-layout="field-action"]
+  > [data-inspector-grid-cell]:nth-child(1),
+.design-inspector-grid[data-inspector-layout="label-field-action"]
+  > [data-inspector-grid-cell]:nth-child(2) {
+  grid-column: 1 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="field-action"]
+  > [data-inspector-grid-cell]:nth-child(2),
+.design-inspector-grid[data-inspector-layout="label-field-action"]
+  > [data-inspector-grid-cell]:nth-child(3) {
+  grid-column: 3 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="label-field-action"]
+  > [data-inspector-grid-cell]:nth-child(1) {
+  grid-column: 1 / -1 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="header-actions"] {
+  grid-template-columns: minmax(0, 1fr) max-content;
+}
+
+.design-inspector-grid[data-inspector-layout="header-actions"]
+  > [data-inspector-grid-cell]:nth-child(1) {
+  grid-column: 1 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="header-actions"]
+  > [data-inspector-grid-cell]:nth-child(2) {
+  grid-column: 2 !important;
+}
+
+.design-inspector-action-rail {
+  display: grid;
+  width: max-content;
+  grid-auto-flow: column;
+  grid-auto-columns: var(--design-action-slot-width);
+  align-items: center;
+  justify-items: center;
+}
+
+.design-inspector-grid[data-inspector-layout="stroke-details"] {
+  grid-template-columns:
+    minmax(0, 10fr) var(--design-baseline-unit) minmax(0, 9fr)
+    repeat(2, var(--design-action-slot-width));
+}
+
+.design-inspector-popover-field {
+  grid-template-columns: var(--design-inspector-popover-label-width) minmax(
+      0,
+      1fr
+    );
+}
+
+.design-inspector-popover-number {
+  grid-template-columns: var(--design-inspector-popover-icon-width) minmax(
+      0,
+      1fr
+    );
+}
+
+.design-inspector-popover-slider {
+  grid-template-columns: minmax(0, 1fr) var(
+      --design-inspector-popover-value-width
+    );
+}
+
+.design-inspector-grid[data-inspector-layout="stroke-details"]
+  > [data-inspector-grid-cell]:nth-child(1) {
+  grid-column: 1 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="stroke-details"]
+  > [data-inspector-grid-cell]:nth-child(2) {
+  grid-column: 2 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="stroke-details"]
+  > [data-inspector-grid-cell]:nth-child(3) {
+  grid-column: 3 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="stroke-details"]
+  > [data-inspector-grid-cell]:nth-child(4) {
+  grid-column: 4 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="stroke-details"]
+  > [data-inspector-grid-cell]:nth-child(5) {
+  grid-column: 5 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="paint-row"] {
+  grid-template-columns: minmax(0, 1fr) repeat(
+      2,
+      var(--design-action-slot-width)
+    );
+}
+
+.design-inspector-grid[data-inspector-layout="drag-paint-row"] {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr) repeat(
+      2,
+      var(--design-action-slot-width)
+    );
+}
+
+.design-inspector-grid[data-inspector-layout="paint-row"]
+  > [data-inspector-grid-cell]:nth-child(1) {
+  grid-column: 1 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="paint-row"]
+  > [data-inspector-grid-cell]:nth-child(2) {
+  grid-column: 2 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="paint-row"]
+  > [data-inspector-grid-cell]:nth-child(3) {
+  grid-column: 3 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="paint-row"]
+  > [data-inspector-grid-cell]:nth-child(4) {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: calc(var(--design-action-slot-width) * 2);
+  z-index: 1;
+  width: var(--design-baseline-unit);
+}
+
+.design-inspector-grid[data-inspector-layout="drag-paint-row"]
+  > [data-inspector-grid-cell]:nth-child(1) {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  z-index: 1;
+  width: var(--design-control-height);
+}
+
+.design-inspector-grid[data-inspector-layout="drag-paint-row"]
+  > [data-inspector-grid-cell]:nth-child(2) {
+  grid-column: 1 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="drag-paint-row"]
+  > [data-inspector-grid-cell]:nth-child(3) {
+  grid-column: 2 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="drag-paint-row"]
+  > [data-inspector-grid-cell]:nth-child(4) {
+  grid-column: 3 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="drag-paint-row"]
+  > [data-inspector-grid-cell]:nth-child(5) {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: calc(var(--design-action-slot-width) * 2);
+  z-index: 1;
+  width: var(--design-baseline-unit);
 }
 
 .design-editor-not-found-grid {

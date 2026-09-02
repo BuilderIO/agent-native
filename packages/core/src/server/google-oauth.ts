@@ -39,6 +39,14 @@ import {
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
+import {
+  EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS,
+  firstOriginFromEnv,
+  getConfiguredOriginAllowlist,
+  isLoopbackHost,
+  normalizeOrigin,
+  WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS,
+} from "./origin-allowlist.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 // ─── Platform Detection ─────────────────────────────────────────────────────
@@ -87,7 +95,7 @@ function escapeHtml(s: string): string {
 }
 
 /**
- * Detect requests from the Agent Native desktop app specifically.
+ * Detect requests from the Agent-Native desktop app specifically.
  *
  * The desktop app appends `AgentNativeDesktop/<version>` to its user-agent
  * (see `packages/desktop-app/src/main/index.ts`). We check for that marker
@@ -95,7 +103,7 @@ function escapeHtml(s: string): string {
  * Electron-based webviews like Builder.io's Fusion, Slack desktop, Discord,
  * etc. Falsely treating those as "the desktop app" sends users to the
  * `agentnative://oauth-complete` deep-link success page after Google sign-in,
- * where the protocol handler can't fire and the "Open Agent Native" button
+ * where the protocol handler can't fire and the "Open Agent-Native" button
  * does nothing.
  *
  * Kept exported as `isElectron` for backwards compatibility with consumers.
@@ -107,73 +115,6 @@ export function isElectron(event: H3Event): boolean {
 /** Detect requests from a mobile browser (iOS/Android). */
 export function isMobile(event: H3Event): boolean {
   return /iPhone|iPad|iPod|Android/i.test(getHeader(event, "user-agent") || "");
-}
-
-/**
- * Build the static allowlist of origins we trust for `getOrigin`. Reads
- * deployment-known public URLs. Each entry is normalised to
- * `${proto}://${host}` (no path). Duplicates collapse, invalid entries are
- * dropped silently.
- */
-const EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS = [
-  "WORKSPACE_OAUTH_ORIGIN",
-  "VITE_WORKSPACE_OAUTH_ORIGIN",
-  "APP_URL",
-  "VITE_APP_URL",
-  "BETTER_AUTH_URL",
-  "VITE_BETTER_AUTH_URL",
-  "URL",
-  "DEPLOY_URL",
-] as const;
-
-const WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS = [
-  "WORKSPACE_GATEWAY_URL",
-  "VITE_WORKSPACE_GATEWAY_URL",
-] as const;
-
-function normalizeOrigin(raw: string | undefined): string | undefined {
-  if (!raw) return undefined;
-  try {
-    const u = new URL(raw);
-    return `${u.protocol}//${u.host}`;
-  } catch {
-    return undefined;
-  }
-}
-
-function addNormalizedOrigin(
-  out: Set<string>,
-  raw: string | undefined,
-  options: { allowLoopback: boolean },
-): void {
-  const origin = normalizeOrigin(raw);
-  if (!origin) return;
-  if (!options.allowLoopback && isLoopbackOrigin(origin)) return;
-  out.add(origin);
-}
-
-function firstOriginFromEnv(
-  keys: readonly string[],
-  options: { allowLoopback: boolean },
-): string | undefined {
-  for (const key of keys) {
-    const origin = normalizeOrigin(process.env[key]);
-    if (!origin) continue;
-    if (!options.allowLoopback && isLoopbackOrigin(origin)) continue;
-    return origin;
-  }
-  return undefined;
-}
-
-function getConfiguredOriginAllowlist(): Set<string> {
-  const out = new Set<string>();
-  for (const key of EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS) {
-    addNormalizedOrigin(out, process.env[key], { allowLoopback: true });
-  }
-  for (const key of WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS) {
-    addNormalizedOrigin(out, process.env[key], { allowLoopback: false });
-  }
-  return out;
 }
 
 /** Return whether a candidate is one of this deployment's configured origins. */
@@ -191,30 +132,6 @@ function getWorkspaceCallbackOrigin(): string | undefined {
   return firstOriginFromEnv(WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS, {
     allowLoopback: false,
   });
-}
-
-function isLoopbackHost(host: string | undefined): boolean {
-  if (!host) return false;
-  try {
-    const parsed = new URL(`http://${host}`);
-    return (
-      parsed.hostname === "localhost" ||
-      parsed.hostname === "127.0.0.1" ||
-      parsed.hostname === "::1" ||
-      parsed.hostname === "[::1]"
-    );
-  } catch {
-    return false;
-  }
-}
-
-function isLoopbackOrigin(origin: string | undefined): boolean {
-  if (!origin) return false;
-  try {
-    return isLoopbackHost(new URL(origin).host);
-  } catch {
-    return false;
-  }
 }
 
 function isBuilderPreviewHost(host: string | undefined): boolean {
@@ -251,9 +168,14 @@ function isBuilderPreviewHost(host: string | undefined): boolean {
  * The protocol defaults to `https` in production (so a TLS-terminating proxy
  * that drops `x-forwarded-proto` doesn't downgrade us to plain HTTP).
  */
-export function getOrigin(event: H3Event): string {
+export function getOrigin(
+  event: H3Event,
+  options: { useForwardedHost?: boolean } = {},
+): string {
   const headerHost =
-    getHeader(event, "x-forwarded-host") || getHeader(event, "host");
+    options.useForwardedHost === false
+      ? getHeader(event, "host")
+      : getHeader(event, "x-forwarded-host") || getHeader(event, "host");
   const isProd = process.env.NODE_ENV === "production";
   const headerProto =
     getHeader(event, "x-forwarded-proto") || (isProd ? "https" : "http");
@@ -341,10 +263,19 @@ function isRequestUnderAppBasePath(event: H3Event): boolean {
   );
 }
 
-function getDefaultOAuthRedirectUrl(event: H3Event, path: string): string {
+export type OAuthRedirectUriOptions = {
+  /** Allow a known framework callback to bypass an app mount prefix. */
+  allowRootCallback?: boolean;
+};
+
+function getDefaultOAuthRedirectUrl(
+  event: H3Event,
+  path: string,
+  options: OAuthRedirectUriOptions = {},
+): string {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
   if (
-    isWorkspaceOAuthCallbackRelayEnabled() &&
+    (isWorkspaceOAuthCallbackRelayEnabled() || options.allowRootCallback) &&
     isFrameworkOAuthCallbackPath(cleanPath)
   ) {
     return `${getOrigin(event)}${cleanPath}`;
@@ -369,8 +300,9 @@ function getDefaultOAuthRedirectUrl(event: H3Event, path: string): string {
  * as a 400.
  *
  * The intentional shape is exact-prefix:
- *   - Origin must equal `getOrigin(event)` — no Host-header injection
- *     reusing somebody else's registered redirect URI.
+ *   - Origin must equal the resolved request origin — no Host-header injection
+ *     reusing somebody else's registered redirect URI. Callers with a
+ *     separately verified origin may pass it as `expectedOrigin`.
  *   - Path must start with `${appBasePath}/_agent-native/` so we never
  *     hand auth codes to a public marketing or open-redirect endpoint
  *     on the same registered host.
@@ -382,6 +314,8 @@ function getDefaultOAuthRedirectUrl(event: H3Event, path: string): string {
 export function isAllowedOAuthRedirectUri(
   candidate: string,
   event: H3Event,
+  expectedOrigin = getOrigin(event),
+  options: OAuthRedirectUriOptions = {},
 ): boolean {
   if (typeof candidate !== "string" || candidate.length === 0) return false;
   let url: URL;
@@ -391,7 +325,6 @@ export function isAllowedOAuthRedirectUri(
     return false;
   }
   // Must be same origin as our server.
-  const expectedOrigin = getOrigin(event);
   let expectedUrl: URL;
   try {
     expectedUrl = new URL(expectedOrigin);
@@ -409,7 +342,8 @@ export function isAllowedOAuthRedirectUri(
     basePath && isRequestUnderAppBasePath(event)
       ? [
           `${basePath}/_agent-native/`,
-          ...(isWorkspaceOAuthCallbackRelayEnabled() &&
+          ...((isWorkspaceOAuthCallbackRelayEnabled() ||
+            options.allowRootCallback) &&
           isFrameworkOAuthCallbackPath(url.pathname)
             ? ["/_agent-native/"]
             : []),
@@ -438,12 +372,15 @@ export function isAllowedOAuthRedirectUri(
 export function resolveOAuthRedirectUri(
   event: H3Event,
   defaultPath = "/_agent-native/google/callback",
+  options: OAuthRedirectUriOptions = {},
 ): string | null {
   const supplied = getQuery(event).redirect_uri;
   if (typeof supplied === "string" && supplied.length > 0) {
-    return isAllowedOAuthRedirectUri(supplied, event) ? supplied : null;
+    return isAllowedOAuthRedirectUri(supplied, event, getOrigin(event), options)
+      ? supplied
+      : null;
   }
-  return getDefaultOAuthRedirectUrl(event, defaultPath);
+  return getDefaultOAuthRedirectUrl(event, defaultPath, options);
 }
 
 // ─── OAuth State ─────────────────────────────────────────────────────────────
@@ -464,6 +401,8 @@ export interface OAuthStatePayload {
   app?: string;
   /** Optional signed scope for provider-specific OAuth flows. */
   scope?: string;
+  /** Provider id for workspace OAuth callback relaying. */
+  provider?: string;
   /**
    * Same-origin path to redirect to after a successful web-flow sign-in.
    * Threaded through the (HMAC-signed) state so it survives the round trip
@@ -473,6 +412,8 @@ export interface OAuthStatePayload {
    */
   returnUrl?: string;
   flowId?: string;
+  /** Internal provider-resource id targeted by a reconnect flow. */
+  oauthTargetId?: string;
   /** Hash of the client-held verifier binding a desktop exchange to its initiator. */
   desktopVerifierHash?: string;
   /** Hash of the initiating browser binding for a desktop OAuth exchange. */
@@ -508,7 +449,7 @@ let _devStateSigningKey: string | undefined;
  *
  * In production, throws if no usable server secret is set.
  */
-function getStateSigningKey(): string {
+export function getOAuthStateSigningKey(): string {
   const secret =
     process.env.OAUTH_STATE_SECRET ||
     process.env.BETTER_AUTH_SECRET ||
@@ -544,8 +485,11 @@ export interface EncodeOAuthStateOptions {
   addAccount?: boolean;
   app?: string;
   scope?: string;
+  /** Provider id for workspace OAuth callback relaying. */
+  provider?: string;
   returnUrl?: string;
   flowId?: string;
+  oauthTargetId?: string;
   desktopVerifierHash?: string;
   desktopBrowserBindingHash?: string;
   desktopWebview?: boolean;
@@ -628,8 +572,10 @@ export function encodeOAuthState(
   if (opts.addAccount) payload.a = true;
   if (opts.app) payload.app = opts.app;
   if (opts.scope) payload.s = opts.scope;
+  if (opts.provider) payload.p = opts.provider;
   if (opts.returnUrl) payload.r2 = opts.returnUrl;
   if (opts.flowId) payload.f = opts.flowId;
+  if (opts.oauthTargetId) payload.ot = opts.oauthTargetId;
   if (opts.desktopVerifierHash) payload.vh = opts.desktopVerifierHash;
   if (opts.desktopBrowserBindingHash)
     payload.bh = opts.desktopBrowserBindingHash;
@@ -641,7 +587,7 @@ export function encodeOAuthState(
   if (signupAnonymousId) payload.ai = signupAnonymousId;
   const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = crypto
-    .createHmac("sha256", getStateSigningKey())
+    .createHmac("sha256", getOAuthStateSigningKey())
     .update(data)
     .digest("base64url");
   return `${data}.${sig}`;
@@ -649,8 +595,9 @@ export function encodeOAuthState(
 
 /**
  * Decode and verify OAuth state from the callback's state query parameter.
- * Rejects forged or tampered state by checking the HMAC signature.
- * Falls back to the provided URI if decoding or verification fails.
+ * A fallback-shaped payload is returned when state is missing, malformed, or
+ * fails HMAC verification. That payload is untrusted; callers must validate
+ * the fields their flow requires before exchanging a code or redirecting.
  */
 export function decodeOAuthState(
   stateParam: string | undefined,
@@ -664,7 +611,7 @@ export function decodeOAuthState(
       const data = stateParam.slice(0, dotIdx);
       const sig = stateParam.slice(dotIdx + 1);
       const expected = crypto
-        .createHmac("sha256", getStateSigningKey())
+        .createHmac("sha256", getOAuthStateSigningKey())
         .update(data)
         .digest("base64url");
 
@@ -685,12 +632,14 @@ export function decodeOAuthState(
         addAccount: !!parsed.a,
         app: typeof parsed.app === "string" ? parsed.app : undefined,
         scope: typeof parsed.s === "string" ? parsed.s : undefined,
+        provider: typeof parsed.p === "string" ? parsed.p : undefined,
         // Pass returnUrl through as-is — same-origin validation runs at the
         // consumer (oauthCallbackResponse → safeReturnPath). The state is
         // HMAC-signed, but we still validate at consumption as defence in
         // depth in case the signing key ever leaks.
         returnUrl: typeof parsed.r2 === "string" ? parsed.r2 : undefined,
         flowId: parsed.f || undefined,
+        oauthTargetId: typeof parsed.ot === "string" ? parsed.ot : undefined,
         desktopVerifierHash:
           typeof parsed.vh === "string" ? parsed.vh : undefined,
         desktopBrowserBindingHash:
@@ -799,6 +748,7 @@ export async function createOAuthSession(
       await trackSignupEvent({
         authProvider: opts.trackSignup.authProvider,
         origin: "google_oauth",
+        signupMethod: "google",
         authUserId: opts.trackSignup.authUserId,
         email,
         name: opts.trackSignup.name,
@@ -852,7 +802,7 @@ export function oauthCallbackResponse(
     appName?: string;
     desktopWebview?: boolean;
   },
-): Response | string | unknown | Promise<Response | string | unknown> {
+): unknown {
   // The mobile flag is carried inside HMAC-signed OAuth state by native
   // clients. UA detection remains the fallback for ordinary mobile browsers.
   const mobile = opts.mobile || isMobile(event);
@@ -941,7 +891,7 @@ export function oauthCallbackResponse(
   // check, any client whose OAuth state was minted with `desktop=true` (e.g.
   // a stale link, or an upstream that wrongly set `?desktop=1`) would land
   // on the `agentnative://` page where the deep link can't fire and the
-  // "Open Agent Native" button does nothing — surfaces inside Builder.io's
+  // "Open Agent-Native" button does nothing — surfaces inside Builder.io's
   // Fusion webview hit this exact dead-end. Fall through to the web flow
   // for non-Agent-Native-Desktop clients so they get a real redirect.
   if (opts.desktop && isElectron(event)) {
@@ -995,11 +945,11 @@ export function oauthCallbackResponse(
  *  callers pass `error.message` from a token-exchange or userinfo failure,
  *  which can echo upstream provider strings (and historically attacker-
  *  controlled query params via the `error_description` field). */
-export function oauthErrorPage(message: string): Response {
+export function oauthErrorPage(message: string, status = 400): Response {
   const safe = escapeHtml(message);
   return htmlResponse(
     `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connection failed</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;text-align:center"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:14px" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></svg><p style="font-size:16px;margin:0 0 12px 0;color:#ddd">${safe}</p><p style="font-size:13px;color:#888;margin:0"><a href="/" style="color:#888;text-decoration:underline;text-underline-offset:3px">Back to login</a></p></body></html>`,
-    400,
+    status,
   );
 }
 
@@ -1017,7 +967,7 @@ export function oauthDesktopExchangePage(
 // ─── Internal ────────────────────────────────────────────────────────────────
 
 function resolveOAuthAppName(explicit?: string): string {
-  const raw = explicit || getAppConfig().app.name || "Agent Native";
+  const raw = explicit || getAppConfig().app.name || "Agent-Native";
   if (!/^[a-z0-9_-]+$/.test(raw)) return raw;
   return raw
     .split(/[-_]+/)
@@ -1051,18 +1001,19 @@ function desktopSuccessPage(
     const deepLink = buildOAuthCompleteDeepLink(sessionToken, state);
     const deepLinkJson = JSON.stringify(deepLink);
     // Defence in depth: if this page somehow gets served to a UA that isn't
-    // the Agent Native desktop app (server gate bypassed, stale link, etc.),
+    // the Agent-Native desktop app (server gate bypassed, stale link, etc.),
     // skip the `agentnative://` deep link entirely and bounce to the app
     // root. The deep link silently fails outside the desktop app and the
-    // "Open Agent Native" button is a dead end in a generic browser/webview.
+    // "Open Agent-Native" button is a dead end in a generic browser/webview.
     return htmlResponse(
-      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title><style>@keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}.spinner{width:28px;height:28px;border:2px solid #333;border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}.fallback{display:none;flex-direction:column;align-items:center;gap:8px;animation:fadeIn .2s ease-out}.fallback.show{display:flex}</style></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:16px"><p style="font-size:16px;margin:0">${msg}</p><div id="loading" class="spinner"></div><div id="fallback" class="fallback"><a href=${deepLinkJson} style="display:inline-block;padding:10px 24px;background:#fff;color:#000;border-radius:8px;text-decoration:none;font-size:14px;font-weight:500">Open Agent Native</a><p style="font-size:12px;color:#666;margin:0">If the app didn\u2019t open automatically, click the button above.</p></div><script>(function(){var ua=(navigator.userAgent||"");if(ua.indexOf("AgentNativeDesktop")===-1){window.location.replace("/");return}window.location.href=${deepLinkJson};setTimeout(function(){document.getElementById("loading").style.display="none";document.getElementById("fallback").classList.add("show")},3000)})()</script></body></html>`,
+      // guard:allow-raw-color - standalone OAuth completion page has no app stylesheet.
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title><style>@keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}.spinner{width:28px;height:28px;border:2px solid #333;border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}.fallback{display:none;flex-direction:column;align-items:center;gap:8px;animation:fadeIn .2s ease-out}.fallback.show{display:flex}</style></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:16px"><p style="font-size:16px;margin:0">${msg}</p><div id="loading" class="spinner"></div><div id="fallback" class="fallback"><a href=${deepLinkJson} style="display:inline-block;padding:10px 24px;background:#fff;color:#000;border-radius:8px;text-decoration:none;font-size:14px;font-weight:500">Open Agent-Native</a><p style="font-size:12px;color:#666;margin:0">If the app didn\u2019t open automatically, click the button above.</p></div><script>(function(){var ua=(navigator.userAgent||"");if(ua.indexOf("AgentNativeDesktop")===-1){window.location.replace("/");return}window.location.href=${deepLinkJson};setTimeout(function(){document.getElementById("loading").style.display="none";document.getElementById("fallback").classList.add("show")},3000)})()</script></body></html>`,
     );
   }
   return htmlResponse(
     oauthSuccessCloseTabHtml(
       msg,
-      "You can close this tab and return to Agent Native.",
+      "You can close this tab and return to Agent-Native.",
     ),
   );
 }

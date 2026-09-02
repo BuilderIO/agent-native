@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["zh-TW"],
   root: {
     whatsNew: "最新消息",
   },
@@ -982,6 +985,10 @@ const messages = {
     unhideFailed: "無法取消隱藏儀表板",
     addPanel: "新增面板",
     dashboardActions: "儀表板詳細資訊和操作",
+    certifyForAi: "核准 AI 查詢使用",
+    certifiedForAi: "已核准 AI 查詢使用",
+    certificationSaved: "已核准此儀表板供 AI 查詢使用",
+    certificationFailed: "無法核准儀表板：{{message}}",
     details: "Details",
     updated: "已於 {{date}} 更新",
     public: "Public",
@@ -1160,7 +1167,7 @@ const messages = {
   sessions: {
     title: "工作階段",
     description:
-      "檢視 Agent Native Analytics 捕獲的第一方瀏覽器工作階段和回放紀錄。",
+      "檢視 Agent-Native Analytics 捕獲的第一方瀏覽器工作階段和回放紀錄。",
     filters: "篩選器",
     segmentFilters: "區段篩選器",
     sessionPlaylist: "工作階段播放清單",

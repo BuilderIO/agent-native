@@ -68,6 +68,10 @@ is the target: a surface full of information and nearly empty of narration. So
 "make it minimal" is never satisfied by removing data or by burying it behind
 extra clicks, and never blocked by deleting a sentence.
 
+Keep on-screen text and badging minimal: show the shortest label needed for the
+next action, remove decorative or duplicate status chips, and put context in a
+tooltip or progressive disclosure when it is not needed to decide.
+
 Do not add, unless asked:
 
 - A page title that repeats the nav item or route the user just clicked, or a
@@ -137,7 +141,7 @@ yours to apply.
 
 ## Agent-Native UI Rules
 
-- Agent-native apps use React and Vite. The default adapter uses Tailwind CSS,
+- Agent-Native apps use React and Vite. The default adapter uses Tailwind CSS,
   shadcn/ui, and `@tabler/icons-react`, but an app may register a different
   company design system in `app/design-system.ts`.
 - **Use the app's design-system seam for standard UI.** Inspect

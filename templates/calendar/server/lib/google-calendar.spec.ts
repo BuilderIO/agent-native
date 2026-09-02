@@ -1119,6 +1119,32 @@ describe("calendar recurring event updates", () => {
     );
   });
 
+  it("clears Google Meet data when removing a conference", async () => {
+    await updateEvent(
+      "event-1",
+      { accountEmail: "steve@example.com" },
+      {
+        account: {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
+        },
+        removeGoogleMeet: true,
+      },
+    );
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "event-1",
+      { conferenceData: null },
+      {
+        sendUpdates: undefined,
+        conferenceDataVersion: 1,
+        supportsAttachments: undefined,
+      },
+    );
+  });
+
   it("removes selected and later materialized exceptions when deleting this and following", async () => {
     calendarGetEventMock
       .mockResolvedValueOnce({
@@ -1722,6 +1748,38 @@ describe("calendar free/busy", () => {
       }),
     );
   });
+
+  it("marks a calendar omitted by Google as unavailable", async () => {
+    calendarFreeBusyMock.mockResolvedValue({ calendars: {} });
+
+    await expect(
+      getFreeBusy(
+        "2026-05-28T16:00:00Z",
+        "2026-05-28T18:00:00Z",
+        ["secondary@example.com"],
+        "owner@example.com",
+        "America/Los_Angeles",
+        "secondary@example.com",
+      ),
+    ).resolves.toEqual({
+      calendars: {
+        "secondary@example.com": {
+          busy: [],
+          errors: [
+            {
+              reason: "Calendar was omitted from the Google free/busy response",
+            },
+          ],
+        },
+      },
+      errors: [
+        {
+          email: "secondary@example.com",
+          error: "Calendar was omitted from the Google free/busy response",
+        },
+      ],
+    });
+  });
 });
 
 describe("calendar Google OAuth exchange", () => {
@@ -1794,6 +1852,15 @@ describe("calendar Google OAuth exchange", () => {
       "client-id",
       "client-secret",
       "https://app.example.com/_agent-native/google/callback",
+    );
+  });
+
+  it("fails closed when no Google OAuth redirect URI is available", async () => {
+    await expect(getAuthUrl()).rejects.toThrow(
+      "Google OAuth redirect URI is required.",
+    );
+    await expect(exchangeCode("oauth-code")).rejects.toThrow(
+      "Google OAuth redirect URI is required.",
     );
   });
 });

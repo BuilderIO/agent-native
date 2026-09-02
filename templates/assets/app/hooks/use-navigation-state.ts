@@ -40,6 +40,11 @@ function navigationFromPath(pathname: string, search = "") {
       presetId: decodePathParam(preset[2]),
     };
   }
+  const template = pathname.match(/^\/templates\/([^/]+)/);
+  if (template) {
+    return { view: "template", templateId: decodePathParam(template[1]) };
+  }
+  if (pathname === "/templates") return { view: "templates" };
   const brandKitSettings = pathname.match(/^\/brand-kits\/([^/]+)\/settings/);
   if (brandKitSettings) {
     return {
@@ -65,7 +70,7 @@ function navigationFromPath(pathname: string, search = "") {
   if (asset) return { view: "asset", assetId: asset[1] };
   const image = pathname.match(/^\/image\/([^/]+)/);
   if (image) return { view: "asset", assetId: image[1] };
-  if (pathname === "/") {
+  if (pathname === "/" || pathname === "/home") {
     return {
       view: "create",
     };
@@ -129,9 +134,13 @@ function pathFromCommand(command: any): string | null {
     const query = params.toString();
     return `/library/${command.libraryId}${query ? `?${query}` : ""}`;
   }
-  if (command.view === "preset" && command.libraryId && command.presetId) {
-    return `/brand-kits/${encodeURIComponent(command.libraryId)}/presets/${encodeURIComponent(command.presetId)}`;
+  if (command.view === "preset" && command.presetId) {
+    return `/templates/${encodeURIComponent(command.presetId)}`;
   }
+  if (command.view === "template" && command.templateId) {
+    return `/templates/${encodeURIComponent(command.templateId)}`;
+  }
+  if (command.view === "templates") return "/templates";
   if (
     (command.view === "asset" || command.view === "image") &&
     command.assetId
@@ -153,7 +162,7 @@ function pathFromCommand(command: any): string | null {
     if (typeof command.threadId === "string" && command.threadId.trim()) {
       return `/chat/${encodeURIComponent(command.threadId.trim())}`;
     }
-    return "/";
+    return "/home";
   }
   if (command.view === "picker") {
     const params = new URLSearchParams();

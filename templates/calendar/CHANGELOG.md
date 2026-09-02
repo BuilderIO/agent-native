@@ -3,11 +3,84 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-01
+
+### Improved
+
+- Signed-in coworkers now see their own calendar conflicts and booking details are prefilled.
+
+## 2026-08-31
+
+### Improved
+
+- Lower-contrast scrollbars keep desktop surfaces calm
+- Per-app auth pages show a product preview and learn-more link
+
+### Fixed
+
+- Booking link availability aligns with its tabs
+- Calendar no longer shows duplicate agent controls on Home and can remove saved Google Meet links
+
+## 2026-08-29
+
+### Improved
+
+- Calendar now has a public marketing page with a direct path into the app.
+
+## 2026-08-28
+
+### Improved
+
+- Event popovers match Notion Calendar's density: a 284px blurred panel with one 13px type scale, 30px rows, and compact attendee rows
+- Sidebar branding matches the app text color with a tighter mark size.
+- Event creators can choose whether a meeting shows as Free or Busy.
+- Sidebar branding uses a monochrome Agent-Native mark.
+
+### Fixed
+
+- Calendar organizer-note emails now link back to Agent-Native Calendar on the event's local day
+- Calendar shows Google profile photos in the desktop app
+- Fixed Calendar navigation, scheduling permissions, action feedback, and event-note links.
+- Google Calendar connections use the registered callback on mounted apps
+- The Calendar sidebar keeps the settings link compact
+- All-day events stay in the compact top bar in day and week views.
+- The Calendar sidebar keeps the workspace picker compact
+
+## 2026-08-27
+
+### Fixed
+
+- Public booking pages now pause availability when Google Calendar is disconnected or cannot be checked.
+
+## 2026-08-24
+
+### Improved
+
+- Overlapping calendar events now use more of the available width while keeping same-time meetings readable.
+
+## 2026-08-22
+
+### Improved
+
+- Google Calendar can now connect with the shared Google OAuth app in one click
+
+### Fixed
+
+- Booking link visibility controls now respect shared access and keep disabled links hidden when edited.
+- Clicking an out-of-office event's marker no longer creates a new draft event at an unrelated time
+- Opening an event's details now shows its time in your calendar timezone instead of the timezone it was originally created in.
+- Overlapping events now split the available width so each one's edge stays visible instead of being covered by the event on top of it.
+- Public booking pages now offer time slots from the host's weekly schedule even when the host hasn't connected Google Calendar
+
 ## 2026-08-19
 
 ### Improved
 
 - Calendar pages stay fast after periods of inactivity.
+
+### Fixed
+
+- The calendar grid and settings load again for accounts whose saved timezone was stored in a format the calendar no longer understands
 
 ## 2026-08-18
 
@@ -98,7 +171,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
-- The Agent Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
+- The Agent-Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
 
 ## 2026-07-29
 
@@ -142,6 +215,10 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 ### Improved
 
 - Manage agent navigation now uses the connected-nodes icon.
+
+### Fixed
+
+- Calendar views now render, navigate, and create events in the timezone selected in Calendar settings.
 
 ## 2026-07-20
 
@@ -259,7 +336,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 - Connected calendars keep their own color when you customize them.
 - Each connected Google account can now have its own calendar color
 - Events spanning multiple days now show on every day they cover in month view
-- Google Calendar now finishes connecting correctly after signing in through Agent Native Desktop.
+- Google Calendar now finishes connecting correctly after signing in through Agent-Native Desktop.
 
 ### Removed
 

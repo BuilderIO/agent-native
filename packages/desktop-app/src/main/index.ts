@@ -213,6 +213,11 @@ import {
 } from "./code-agent-transcript-ipc.js";
 import { boundedCodeAgentTranscriptEvents } from "./code-agent-transcript-window.js";
 import {
+  isPermanentCodeAgentWorktreeReclaimError,
+  nextCodeAgentWorktreeReclaimAttempt,
+  type CodeAgentWorktreeReclaimOutcome,
+} from "./code-agent-worktree-reclaim.js";
+import {
   CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
   claimCodeAgentWorktreeRun,
   cleanupDueCodeAgentWorktrees,
@@ -330,6 +335,7 @@ initializeDesktopStartup({
   isPackaged: app.isPackaged,
   version: app.getVersion(),
   appDataPath: app.getPath("appData"),
+  defaultUserDataPath: app.getPath("userData"),
   requestedUserDataPath: desktopRequestedUserDataPath(
     app.commandLine.getSwitchValue("user-data-dir"),
     process.argv,
@@ -372,17 +378,44 @@ process.on("uncaughtException", (err: NodeJS.ErrnoException) => {
 
 const IS_DEV = !app.isPackaged;
 
+function desktopRendererEntryPath(): string {
+  return path.join(__dirname, "../renderer/index.html");
+}
+
+function isDesktopRendererEntryUrl(url: string): boolean {
+  if (IS_DEV && process.env["ELECTRON_RENDERER_URL"]) {
+    return url.startsWith(process.env["ELECTRON_RENDERER_URL"]);
+  }
+  try {
+    return (
+      path.resolve(fileURLToPath(new URL(url))) ===
+      path.resolve(desktopRendererEntryPath())
+    );
+    // coercion-ok: malformed navigation URLs are not the renderer entry.
+  } catch {
+    return false;
+  }
+}
+
+function loadDesktopRenderer(window: BrowserWindow): void {
+  if (IS_DEV && process.env["ELECTRON_RENDERER_URL"]) {
+    void window.loadURL(process.env["ELECTRON_RENDERER_URL"]);
+    return;
+  }
+  void window.loadFile(desktopRendererEntryPath());
+}
+
 function isDesktopSsoEnabled(): boolean {
   return AppStore.loadDesktopAppPreferences().desktopSsoEnabled === true;
 }
 
 // ---------- User-Agent marker ----------
 // Tag every request from this Electron app so the server can distinguish
-// Agent Native desktop from other Electron-based webviews (Builder.io's
+// Agent-Native desktop from other Electron-based webviews (Builder.io's
 // Fusion, Slack desktop, Discord, etc.). Without this, any Electron UA
 // would trigger the desktop-only OAuth deep-link page (`agentnative://...`),
 // stranding users in non-Agent-Native Electron contexts on a "Connected!
-// Open Agent Native" screen whose deep link can't fire.
+// Open Agent-Native" screen whose deep link can't fire.
 const desktopSsoCanaryMarker = isDesktopSsoCanaryVersion(app.getVersion())
   ? ` AgentNativeDesktopSsoCanary/${app.getVersion()}`
   : "";
@@ -391,9 +424,13 @@ app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktop/${app.getVe
 // Register before app is ready so macOS associates the scheme with this app.
 
 const DEEP_LINK_PROTOCOL = DESKTOP_DEEP_LINK_PROTOCOL;
+const DESKTOP_DEEP_LINK_PROTOCOLS = new Set([
+  "agentnative",
+  "agentnative-nightly",
+]);
 if (IS_DEV) {
   app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [
-    path.resolve(process.argv[1]),
+    app.getAppPath(),
   ]);
 } else {
   app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
@@ -408,6 +445,30 @@ let desktopIdentityBroker: DesktopIdentityBroker | null = null;
 let desktopWorkspaceApps: AppConfig[] = [];
 let desktopWorkspaceAppsGeneration = 0;
 const desktopWebviewAppIds = new WeakMap<Electron.WebContents, string>();
+const desktopWebviewHealthHandlers = new WeakSet<Electron.WebContents>();
+
+function installDesktopWebviewHealthLogging(
+  contents: Electron.WebContents,
+): void {
+  if (desktopWebviewHealthHandlers.has(contents)) return;
+  desktopWebviewHealthHandlers.add(contents);
+  const appId = () => desktopWebviewAppIds.get(contents) ?? null;
+
+  contents.on("render-process-gone", (_event, details) => {
+    if (details.reason === "clean-exit") return;
+    console.error("[desktop-webview] render process gone", {
+      appId: appId(),
+      reason: details.reason,
+      exitCode: details.exitCode,
+    });
+  });
+  contents.on("unresponsive", () => {
+    console.warn("[desktop-webview] renderer unresponsive", { appId: appId() });
+  });
+  contents.on("responsive", () => {
+    console.info("[desktop-webview] renderer responsive", { appId: appId() });
+  });
+}
 let browserNativeHostManifestPath: string | null = null;
 const pendingOpenRequests: DesktopOpenRequest[] = [];
 
@@ -519,13 +580,32 @@ export interface CodeAgentTranscriptSubscription {
 }
 
 function isDeepLinkArg(arg: string): boolean {
-  return arg.startsWith(`${DEEP_LINK_PROTOCOL}:`);
+  return [...DESKTOP_DEEP_LINK_PROTOCOLS].some((protocol) =>
+    arg.startsWith(`${protocol}:`),
+  );
+}
+
+function isDesktopDeepLinkUrl(url: string): boolean {
+  try {
+    return DESKTOP_DEEP_LINK_PROTOCOLS.has(new URL(url).protocol.slice(0, -1));
+  } catch {
+    // coercion-ok: malformed protocol candidates are not desktop deep links.
+    return false;
+  }
+}
+
+function queueOrHandleDeepLink(url: string): void {
+  if (app.isReady()) {
+    void handleDeepLink(url);
+  } else {
+    pendingDeepLink = url;
+  }
 }
 
 function handleSecondInstance(_event: Electron.Event, argv: string[]): void {
   const deepLink = argv.find(isDeepLinkArg);
   if (deepLink) {
-    void handleDeepLink(deepLink);
+    queueOrHandleDeepLink(deepLink);
   } else {
     focusMainWindow();
   }
@@ -721,6 +801,7 @@ function cacheDesktopWorkspaceApps(
   generation: number,
 ): void {
   if (generation !== desktopWorkspaceAppsGeneration) return;
+  if (result.unavailable) return;
   desktopWorkspaceApps = result.enabled ? result.apps : [];
 }
 
@@ -762,7 +843,11 @@ function getInjectionTargetForAppId(
 
 function resolveDesktopIdentityApp(
   appId: string,
-  options?: { forCleanup?: boolean; appConfigs?: AppConfig[] },
+  options?: {
+    forCleanup?: boolean;
+    allowDisabled?: boolean;
+    appConfigs?: AppConfig[];
+  },
 ): DesktopIdentityApp | null {
   if (!app.isPackaged) return null;
 
@@ -797,6 +882,7 @@ function resolveDesktopIdentityApp(
     if (canonical && !isCanonical) return null;
     if (
       !isDesktopIdentityAppConfigEligible(configured, {
+        allowDisabled: appId === "dispatch" && isCanonical,
         canonical: isCanonical,
       })
     ) {
@@ -862,6 +948,10 @@ function listDesktopIdentityApps(
       }),
     )
     .filter((candidate): candidate is DesktopIdentityApp => candidate !== null);
+}
+
+function resolveDesktopIdentityAuthority(): DesktopIdentityApp | null {
+  return resolveDesktopIdentityApp("dispatch", { allowDisabled: true });
 }
 
 function listDesktopIdentityCleanupApps(): DesktopIdentityApp[] {
@@ -1092,7 +1182,7 @@ async function handleShortcutUpsertDeepLink(parsed: URL) {
     buttons: ["Add Shortcut", "Cancel"],
     defaultId: 0,
     cancelId: 1,
-    message: "Add Agent Native app shortcut?",
+    message: "Add Agent-Native app shortcut?",
     detail: [
       `Shortcut: ${formatDesktopShortcutAccelerator(normalized.accelerator, process.platform)}`,
       `Target: ${appLabel}${view ? ` / ${view}` : ""}`,
@@ -1223,11 +1313,15 @@ function reloadAllWebviews() {
 // macOS: deep links arrive via open-url (both when app is running and on cold launch)
 app.on("open-url", (event, url) => {
   event.preventDefault();
-  if (app.isReady()) {
-    handleDeepLink(url);
-  } else {
-    pendingDeepLink = url;
+  if (isDesktopDeepLinkUrl(url)) {
+    const parsed = new URL(url);
+    console.info("[main] received desktop deep link", {
+      protocol: parsed.protocol,
+      host: parsed.host,
+      ready: app.isReady(),
+    });
   }
+  queueOrHandleDeepLink(url);
 });
 
 // --------------- Run completion / attention notifications ---------------
@@ -1339,7 +1433,7 @@ ipcMain.handle(IPC.IDENTITY_STATUS_GET, async (event) => {
   }
   if (!isDesktopSsoEnabled()) return "idle" satisfies DesktopIdentityStatus;
   const broker = ensureDesktopIdentityBroker();
-  await broker?.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+  await broker?.refreshStatus(resolveDesktopIdentityAuthority());
   return broker?.getStatus() ?? "idle";
 });
 
@@ -1347,7 +1441,7 @@ ipcMain.handle(IPC.IDENTITY_AVAILABILITY_GET, async (event) => {
   if (!isShellIdentityIpc(event) || !isDesktopSsoEnabled()) return false;
   const broker = ensureDesktopIdentityBroker();
   if (!broker) return false;
-  await broker.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+  await broker.refreshStatus(resolveDesktopIdentityAuthority());
   return broker.isAvailable();
 });
 
@@ -1375,7 +1469,7 @@ ipcMain.handle(IPC.IDENTITY_SSO_ENABLED_SET, async (event, enabled) => {
 
   const broker = ensureDesktopIdentityBroker();
   if (broker) {
-    await broker.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+    await broker.refreshStatus(resolveDesktopIdentityAuthority());
     mainWindow?.webContents.send(
       IPC.IDENTITY_STATUS_CHANGED,
       broker.getStatus(),
@@ -1530,7 +1624,7 @@ ipcMain.handle(IPC.IDENTITY_ENVIRONMENT_LANE_GET, async (event) => {
   // persisted Builder session would load production once before switching.
   if (isDesktopSsoEnabled()) {
     const broker = ensureDesktopIdentityBroker();
-    await broker?.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+    await broker?.refreshStatus(resolveDesktopIdentityAuthority());
   }
   return resolveDesktopEnvironmentLaneState();
 });
@@ -1579,10 +1673,15 @@ ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
   const broker = ensureDesktopIdentityBroker();
   if (!broker) return false;
   const status = broker.getStatus();
+  if (status === "signed-in") {
+    const recovered = await broker.retryAppSessionFanout();
+    if (recovered) {
+      mainWindow?.webContents.send(IPC.IDENTITY_STATUS_CHANGED, "signed-in");
+    }
+    return recovered;
+  }
   if (status !== "sign-in-required" && status !== "failed") return false;
-  const identityApp =
-    resolveDesktopIdentityApp(activeAppId) ??
-    resolveDesktopIdentityApp("dispatch");
+  const identityApp = resolveDesktopIdentityAuthority();
   if (!identityApp) return false;
   return broker.signIn(identityApp.id);
 });
@@ -1664,7 +1763,10 @@ function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
     // Parent Google verification runs in the isolated identity window so its
     // browser-bound OAuth state remains in the same cookie partition. Magic
     // links may still complete through the system browser exchange path.
-    resolveApp: resolveDesktopIdentityApp,
+    resolveApp: (appId) =>
+      resolveDesktopIdentityApp(appId, {
+        allowDisabled: appId === "dispatch",
+      }),
     listApps: () => listDesktopIdentityApps(),
     openExternal: (url) => openExternalUrl(url),
     createWindow: (options) => new BrowserWindow(options),
@@ -1753,6 +1855,37 @@ function createWindow(): BrowserWindow {
 
   // Avoid white flash — show window once content is ready
   win.once("ready-to-show", () => win.show());
+  win.webContents.on("will-navigate", (event, url) => {
+    if (IS_DEV || isDesktopRendererEntryUrl(url)) return;
+    let protocol: string;
+    try {
+      protocol = new URL(url).protocol;
+    } catch {
+      return;
+    }
+    if (protocol !== "file:") return;
+    event.preventDefault();
+    loadDesktopRenderer(win);
+  });
+  win.webContents.on(
+    "did-fail-load",
+    (_event, errorCode, _errorDescription, url, isMainFrame) => {
+      if (
+        IS_DEV ||
+        !isMainFrame ||
+        errorCode !== -6 ||
+        isDesktopRendererEntryUrl(url)
+      ) {
+        return;
+      }
+      try {
+        if (new URL(url).protocol !== "file:") return;
+      } catch {
+        return;
+      }
+      loadDesktopRenderer(win);
+    },
+  );
   win.webContents.on("did-finish-load", () => {
     // A reloaded renderer has no status yet, so the dedup cache must not
     // suppress the next send as an unchanged repeat.
@@ -1762,12 +1895,8 @@ function createWindow(): BrowserWindow {
   });
 
   // In dev, load from the Vite dev server; in prod, load built files
-  if (IS_DEV && process.env["ELECTRON_RENDERER_URL"]) {
-    win.loadURL(process.env["ELECTRON_RENDERER_URL"]);
-    // DevTools will be opened for the active webview via Cmd+Shift+I
-  } else {
-    win.loadFile(path.join(__dirname, "../renderer/index.html"));
-  }
+  loadDesktopRenderer(win);
+  // DevTools will be opened for the active webview via Cmd+Shift+I
 
   mainWindow = win;
   // Coming back to the window is the strongest available signal that a tab
@@ -3819,7 +3948,6 @@ function codeAgentEventFilePath(runId: string): string | null {
 
 function listDesktopCodeAgentRuns(goalId?: string): CodeAgentRun[] {
   reconcileInterruptedCodeAgentRuns("list", goalId);
-  reclaimTerminalCodeAgentWorktrees(goalId);
   const runs = desktopCodeBackgroundAgentController.list({
     goalId,
   }) as BackgroundAgentRun[];
@@ -3844,7 +3972,6 @@ function listDesktopCodeAgentRuns(goalId?: string): CodeAgentRun[] {
 
 function readDesktopCodeAgentRun(runId: string): CodeAgentRun | null {
   reconcileInterruptedCodeAgentRun(runId, "read");
-  reclaimTerminalCodeAgentWorktree(readCodeAgentRunRecord(runId));
   const run = desktopCodeBackgroundAgentController.get(
     runId,
   ) as BackgroundAgentRun | null;
@@ -4175,23 +4302,108 @@ function cleanupDueManagedCodeAgentWorktrees(): void {
   }
 }
 
+const CODE_AGENT_WORKTREE_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+let codeAgentWorktreeSweepTimer: ReturnType<typeof setTimeout> | null = null;
+
+function nextCodeAgentWorktreeSweepDelay(): number {
+  const now = Date.now();
+  let delay = CODE_AGENT_WORKTREE_SWEEP_INTERVAL_MS;
+  for (const { record } of listRawCodeAgentRunRecords()) {
+    if (!isTerminalCodeAgentRun(record)) continue;
+    const metadata = isObject(record.metadata) ? record.metadata : undefined;
+    const worktree = isObject(metadata?.worktree)
+      ? metadata.worktree
+      : undefined;
+    const nextAttemptAt = firstStringValue(worktree?.reclaimNextAttemptAt);
+    if (!nextAttemptAt) continue;
+    const dueAt = new Date(nextAttemptAt).getTime();
+    if (Number.isFinite(dueAt)) delay = Math.min(delay, dueAt - now);
+  }
+  return Math.max(1000, delay);
+}
+
+function scheduleCodeAgentWorktreeSweep(): void {
+  if (codeAgentWorktreeSweepTimer) clearTimeout(codeAgentWorktreeSweepTimer);
+  codeAgentWorktreeSweepTimer = setTimeout(() => {
+    codeAgentWorktreeSweepTimer = null;
+    try {
+      reclaimTerminalCodeAgentWorktrees();
+    } finally {
+      scheduleCodeAgentWorktreeSweep();
+    }
+  }, nextCodeAgentWorktreeSweepDelay());
+  codeAgentWorktreeSweepTimer.unref?.();
+}
+
+function scheduleCodeAgentWorktreeReclaimRetry(
+  runId: string,
+  worktree: Record<string, unknown>,
+  updates: Record<string, unknown> = {},
+  error?: string,
+): CodeAgentWorktreeReclaimOutcome {
+  const { attempts, nextAttemptAt } = nextCodeAgentWorktreeReclaimAttempt(
+    new Date(),
+    worktree.reclaimAttempts,
+  );
+  touchCodeAgentRunRecord(runId, {
+    metadata: {
+      worktree: {
+        ...worktree,
+        ...updates,
+        reclaimAttempts: attempts,
+        reclaimNextAttemptAt: nextAttemptAt,
+        ...(error ? { lastCleanupError: error } : {}),
+      },
+    },
+  });
+  scheduleCodeAgentWorktreeSweep();
+  return { status: "retry", error, nextAttemptAt };
+}
+
 function reclaimTerminalCodeAgentWorktree(
   record: Record<string, unknown> | null,
-): void {
-  if (!record || !isTerminalCodeAgentRun(record)) return;
+): CodeAgentWorktreeReclaimOutcome {
+  if (!record || !isTerminalCodeAgentRun(record)) {
+    return { status: "reclaimed" };
+  }
   const metadata = isObject(record.metadata) ? record.metadata : undefined;
   if (metadata?.retainWorktree === true || metadata?.keepWorktree === true) {
-    return;
+    return { status: "reclaimed" };
   }
   const worktree = isObject(metadata?.worktree) ? metadata.worktree : undefined;
   if (!worktree || worktree.retain === true || worktree.keep === true) {
-    return;
+    return { status: "reclaimed" };
+  }
+  if (worktree.state === "recoverable") {
+    return {
+      status: "recoverable",
+      error:
+        firstStringValue(worktree.lastCleanupError) ??
+        "The worktree was kept for recovery.",
+    };
+  }
+  if (worktree.reclaimStatus === "permanently-failed") {
+    return {
+      status: "permanently-failed",
+      error:
+        firstStringValue(worktree.lastCleanupError) ??
+        "The Code Agent worktree could not be reclaimed.",
+    };
+  }
+  const reclaimNextAttemptAt = firstStringValue(worktree.reclaimNextAttemptAt);
+  if (
+    reclaimNextAttemptAt &&
+    new Date(reclaimNextAttemptAt).getTime() > Date.now()
+  ) {
+    return { status: "retry", nextAttemptAt: reclaimNextAttemptAt };
   }
   const sourcePath = firstStringValue(worktree.sourcePath);
   const worktreePath = firstStringValue(worktree.path);
   const branch = firstStringValue(worktree.branch);
   const baseCommit = firstStringValue(worktree.baseCommit);
-  if (!sourcePath || !worktreePath || !branch) return;
+  if (!sourcePath || !worktreePath || !branch) {
+    return { status: "reclaimed" };
+  }
 
   const runId = getRecordString(record, "id");
   const managedId = firstStringValue(worktree.id);
@@ -4213,36 +4425,63 @@ function reclaimTerminalCodeAgentWorktree(
           },
         });
         void startNextQueuedCodeAgentWorktreeRun(released.id);
+        return { status: "reclaimed" };
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (isPermanentCodeAgentWorktreeReclaimError(error)) {
+        touchCodeAgentRunRecord(runId, {
+          metadata: {
+            worktree: {
+              ...worktree,
+              reclaimStatus: "permanently-failed",
+              lastCleanupError: message,
+            },
+          },
+        });
+        console.warn(
+          `[code-agents] Permanently failed to release worktree for run ${runId}:`,
+          message,
+        );
+        return { status: "permanently-failed", error: message };
+      }
       console.warn(
-        `[code-agents] Could not release worktree for run ${runId}:`,
-        error instanceof Error ? error.message : error,
+        `[code-agents] Could not release worktree for run ${runId}; retrying:`,
+        message,
+      );
+      return scheduleCodeAgentWorktreeReclaimRetry(
+        runId,
+        worktree,
+        {},
+        message,
       );
     }
-    return;
+    return { status: "reclaimed" };
   }
 
   // Older runs predate the registry. Keep their worktrees recoverable for the
   // same retention window and only remove them after checking for dirty files.
-  if (!runId) return;
+  if (!runId) return { status: "reclaimed" };
   const cleanupAfter = firstStringValue(worktree.cleanupAfter);
   if (!cleanupAfter) {
+    const nextAttemptAt = new Date(
+      Date.now() + CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
+    ).toISOString();
     touchCodeAgentRunRecord(runId, {
       metadata: {
         worktree: {
           ...worktree,
           policy: "ephemeral",
           state: "cleanup-pending",
-          cleanupAfter: new Date(
-            Date.now() + CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
-          ).toISOString(),
+          cleanupAfter: nextAttemptAt,
         },
       },
     });
-    return;
+    return { status: "retry", nextAttemptAt };
   }
-  if (new Date(cleanupAfter).getTime() > Date.now()) return;
+  if (new Date(cleanupAfter).getTime() > Date.now()) {
+    return { status: "retry", nextAttemptAt: cleanupAfter };
+  }
   if (
     listRawCodeAgentRunRecords().some(({ record: candidate }) => {
       if (candidate === record || !isActiveDesktopCodeAgentRun(candidate))
@@ -4259,7 +4498,7 @@ function reclaimTerminalCodeAgentWorktree(
       );
     })
   ) {
-    return;
+    return scheduleCodeAgentWorktreeReclaimRetry(runId, worktree);
   }
 
   try {
@@ -4274,20 +4513,23 @@ function reclaimTerminalCodeAgentWorktree(
         })
       : true;
     if (hasUncommittedChanges || hasCommittedChanges) {
+      const message = !baseCommit
+        ? "The worktree base could not be verified; it was kept for recovery."
+        : hasCommittedChanges
+          ? "Worktree contains commits after its base; it was kept for recovery."
+          : "Worktree has uncommitted changes; it was kept for recovery.";
       touchCodeAgentRunRecord(runId, {
         metadata: {
           worktree: {
             ...worktree,
             state: "recoverable",
-            lastCleanupError: !baseCommit
-              ? "The worktree base could not be verified; it was kept for recovery."
-              : hasCommittedChanges
-                ? "Worktree contains commits after its base; it was kept for recovery."
-                : "Worktree has uncommitted changes; it was kept for recovery.",
+            reclaimAttempts: undefined,
+            reclaimNextAttemptAt: undefined,
+            lastCleanupError: message,
           },
         },
       });
-      return;
+      return { status: "recoverable", error: message };
     }
     const result = cleanupCodeAgentWorktree({
       sourcePath,
@@ -4295,8 +4537,15 @@ function reclaimTerminalCodeAgentWorktree(
       branch,
     });
     if (!result.worktreeRemoved || !result.branchRemoved) {
+      const message = "Git did not fully remove the worktree and branch.";
       console.warn(
-        `[code-agents] Could not fully reclaim worktree for run ${getRecordString(record, "id") ?? "unknown"}.`,
+        `[code-agents] Could not fully reclaim worktree for run ${getRecordString(record, "id") ?? "unknown"}; retrying.`,
+      );
+      return scheduleCodeAgentWorktreeReclaimRetry(
+        runId,
+        worktree,
+        {},
+        message,
       );
     } else {
       touchCodeAgentRunRecord(runId, {
@@ -4304,15 +4553,38 @@ function reclaimTerminalCodeAgentWorktree(
           worktree: {
             ...worktree,
             state: "removed",
+            reclaimStatus: undefined,
+            reclaimAttempts: undefined,
+            reclaimNextAttemptAt: undefined,
+            lastCleanupError: undefined,
           },
         },
       });
+      return { status: "reclaimed" };
     }
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (isPermanentCodeAgentWorktreeReclaimError(error)) {
+      touchCodeAgentRunRecord(runId, {
+        metadata: {
+          worktree: {
+            ...worktree,
+            reclaimStatus: "permanently-failed",
+            lastCleanupError: message,
+          },
+        },
+      });
+      console.warn(
+        `[code-agents] Permanently failed to reclaim worktree for run ${getRecordString(record, "id") ?? "unknown"}:`,
+        message,
+      );
+      return { status: "permanently-failed", error: message };
+    }
     console.warn(
-      `[code-agents] Could not reclaim worktree for run ${getRecordString(record, "id") ?? "unknown"}:`,
-      error instanceof Error ? error.message : error,
+      `[code-agents] Could not reclaim worktree for run ${getRecordString(record, "id") ?? "unknown"}; retrying:`,
+      message,
     );
+    return scheduleCodeAgentWorktreeReclaimRetry(runId, worktree, {}, message);
   }
 }
 
@@ -5779,12 +6051,8 @@ async function spawnCodeAgentRunner(
   );
   const { command, args } = invocation;
   try {
-    const runMetadata = isObject(runRecord?.metadata) ? runRecord.metadata : {};
-    const isDesktopAppCreation =
-      runMetadata.kind === "desktop-create-app" ||
-      runMetadata.kind === "desktop-local-code-change";
     const mcpEnvironment = await desktopCodeAgentMcpEnvironment(cwd, {
-      includeWorkspaceApps: !isDesktopAppCreation,
+      includeWorkspaceApps: true,
     });
     if (mcpEnvironment.remoteConfig.state === "unavailable") {
       appendCodeAgentStatusEvent(
@@ -6333,7 +6601,7 @@ async function sendDesktopCodeBackgroundAgentFollowUp(
     getCodeAgentGoal(getRecordString(currentRunRecord, "goalId")) ??
     CODE_AGENT_GOALS[0];
   if (goal.surfaceKind === "native") {
-    spawnCodeAgentRunner(input.runId, cwd, input.permissionMode);
+    void spawnCodeAgentRunner(input.runId, cwd, input.permissionMode);
   }
   return {
     ok: true,
@@ -6509,7 +6777,7 @@ async function controlDesktopCodeBackgroundAgentRun(
       source: "desktop",
       command: "resume",
     });
-    spawnCodeAgentRunner(input.runId, cwd);
+    void spawnCodeAgentRunner(input.runId, cwd);
     return {
       ok: true,
       runId: input.runId,
@@ -6957,7 +7225,7 @@ async function createCodeAgentRun(
     });
     const eventFile = appendCodeAgentTranscriptEvent(event);
     if (goal.surfaceKind === "native" && !worktreeRunQueued) {
-      spawnCodeAgentRunner(runId, cwd, permissionMode);
+      void spawnCodeAgentRunner(runId, cwd, permissionMode);
     }
     const generatedTitle = await generateAndPatchRunTitle(runId, prompt);
     return {
@@ -9062,13 +9330,39 @@ const contentFilesChangeTimers = new Map<
   string,
   ReturnType<typeof setTimeout>
 >();
+const contentFilesWatcherRetryTimers = new Map<
+  string,
+  ReturnType<typeof setTimeout>
+>();
+const contentFilesWatcherUnavailable = new Set<string>();
 
 function stopContentFilesWatcher(folderId: string): void {
   const timer = contentFilesChangeTimers.get(folderId);
   if (timer) clearTimeout(timer);
   contentFilesChangeTimers.delete(folderId);
+  const retryTimer = contentFilesWatcherRetryTimers.get(folderId);
+  if (retryTimer) clearTimeout(retryTimer);
+  contentFilesWatcherRetryTimers.delete(folderId);
+  contentFilesWatcherUnavailable.delete(folderId);
   contentFilesWatchers.get(folderId)?.close();
   contentFilesWatchers.delete(folderId);
+}
+
+function scheduleContentFilesWatcherRetry(grant: ContentFilesGrant): void {
+  if (contentFilesWatcherRetryTimers.has(grant.id)) return;
+  const retry = () => {
+    contentFilesWatcherRetryTimers.delete(grant.id);
+    if (!getContentFilesGrant(grant.id)) return;
+    watchContentFilesGrant(grant);
+    if (!contentFilesWatchers.has(grant.id)) {
+      const timer = setTimeout(retry, 1_000);
+      timer.unref?.();
+      contentFilesWatcherRetryTimers.set(grant.id, timer);
+    }
+  };
+  const timer = setTimeout(retry, 1_000);
+  timer.unref?.();
+  contentFilesWatcherRetryTimers.set(grant.id, timer);
 }
 
 function contentFilesChangeRevision(): string {
@@ -9119,21 +9413,34 @@ function watchContentFilesGrant(grant: ContentFilesGrant): void {
         }, 120),
       );
     });
+    const wasUnavailable = contentFilesWatcherUnavailable.delete(grant.id);
     watcher.on("error", () => {
-      if (
-        grant.kind === "temporary" &&
-        !resolveUsableContentFolder(grant.path)
-      ) {
-        stopContentFilesWatcher(grant.id);
+      const missing = !resolveUsableContentFolder(grant.path);
+      stopContentFilesWatcher(grant.id);
+      if (grant.kind === "temporary" && missing) {
         clearContentFilesGrant(grant.id);
         emitContentFilesChange(grant.id, true);
+        return;
       }
+      if (!contentFilesWatcherUnavailable.has(grant.id)) {
+        contentFilesWatcherUnavailable.add(grant.id);
+        emitContentFilesChange(grant.id, missing);
+      }
+      scheduleContentFilesWatcherRetry(grant);
     });
     contentFilesWatchers.set(grant.id, watcher);
+    if (wasUnavailable) emitContentFilesChange(grant.id, false, "attached");
   } catch {
-    if (grant.kind === "temporary" && !resolveUsableContentFolder(grant.path)) {
+    const missing = !resolveUsableContentFolder(grant.path);
+    if (grant.kind === "temporary" && missing) {
       emitContentFilesChange(grant.id, true);
+      return;
     }
+    if (!contentFilesWatcherUnavailable.has(grant.id)) {
+      contentFilesWatcherUnavailable.add(grant.id);
+      emitContentFilesChange(grant.id, missing);
+    }
+    scheduleContentFilesWatcherRetry(grant);
   }
 }
 
@@ -9487,8 +9794,11 @@ export function attachTemporaryContentFilesWorkingCopy(
   for (const folderIds of contentFilesChangeSubscribers.values()) {
     folderIds.add(id);
   }
+  const wasUnavailable = contentFilesWatcherUnavailable.has(id);
   watchContentFilesGrant(grant);
-  emitContentFilesChange(id, false, "attached");
+  if (!wasUnavailable && contentFilesWatchers.has(id)) {
+    emitContentFilesChange(id, false, "attached");
+  }
   return grant;
 }
 
@@ -9706,7 +10016,9 @@ async function contentReadRoot(folder: string): Promise<{
   try {
     await assertUsableContentFolder(contentFolder);
     return { folder: contentFolder, prefix: `${CONTENT_SOURCE_ROOT}/` };
-  } catch {
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code && code !== "ENOENT" && code !== "ENOTDIR") throw error;
     return { folder, prefix: "" };
   }
 }
@@ -9725,7 +10037,9 @@ async function contentWriteRoot(folder: string): Promise<{
   try {
     await assertUsableContentFolder(contentFolder);
     return { folder: contentFolder, prefix: `${CONTENT_SOURCE_ROOT}/` };
-  } catch {
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code && code !== "ENOENT" && code !== "ENOTDIR") throw error;
     return { folder, prefix: "" };
   }
 }
@@ -9740,7 +10054,9 @@ async function collectContentMarkdownFiles(
   let entries: fs.Dirent[];
   try {
     entries = await fs.promises.readdir(folder, { withFileTypes: true });
-  } catch {
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code && code !== "ENOENT" && code !== "ENOTDIR") throw error;
     return files;
   }
 
@@ -10393,6 +10709,7 @@ async function readContentFilesForRequest(
   try {
     const grant = getRequiredContentFilesGrant(request.folderId);
     const root = await contentReadRoot(grant.path);
+    await assertUsableContentFolder(root.folder);
     const identities: Record<string, string> = {};
     const sources = await collectContentMarkdownFiles(
       root.folder,
@@ -11256,7 +11573,7 @@ function ensureCodeAgentLlmProvider(): {
     return {
       ok: false,
       error:
-        "Agent Native could not read the saved code provider keys. Reconnect the provider in Settings.",
+        "Agent-Native could not read the saved code provider keys. Reconnect the provider in Settings.",
     };
   }
   return {
@@ -11639,6 +11956,7 @@ function pushCodeAgentModelOptions(
     engineLabel: string;
     supportedModels: readonly string[];
     configured: boolean;
+    description?: string;
     statusLabel?: string;
     isSubscription?: boolean;
   },
@@ -11649,6 +11967,7 @@ function pushCodeAgentModelOptions(
       engineLabel: options.engineLabel,
       model,
       label: model,
+      ...(options.description ? { description: options.description } : {}),
       configured: options.configured,
       ...(options.statusLabel ? { statusLabel: options.statusLabel } : {}),
       ...(options.isSubscription ? { isSubscription: true } : {}),
@@ -11734,11 +12053,10 @@ function getCodeAgentModelList(input?: unknown): CodeAgentModelListResult {
       }
     }
     if (claude.available) {
-      models.push({
+      pushCodeAgentModelOptions(models, {
         engine: CLAUDE_CLI_ENGINE_NAME,
         engineLabel: "Anthropic",
-        model: ANTHROPIC_MODEL_CONFIG.defaultModel,
-        label: ANTHROPIC_MODEL_CONFIG.defaultModel,
+        supportedModels: ANTHROPIC_MODEL_CONFIG.supportedModels,
         description: "Run locally through your signed-in Claude subscription.",
         configured: claude.authenticated,
         ...(claude.authenticated
@@ -12000,7 +12318,7 @@ function retryCodeAgentRun(input: unknown): CodeAgentRetryRunResult {
   });
   const cwd =
     getRecordString(runRecord, "cwd") ?? resolveCodeAgentsTerminalCwd({});
-  spawnCodeAgentRunner(runId, cwd, permissionMode);
+  void spawnCodeAgentRunner(runId, cwd, permissionMode);
   return {
     ok: true,
     run: readDesktopCodeAgentRun(runId) ?? undefined,
@@ -12242,11 +12560,7 @@ registerCodeAgentsIpc({
   pairRemoteCodeAgentConnector,
 });
 
-const codeAgentWorktreeSweepTimer = setInterval(
-  cleanupDueManagedCodeAgentWorktrees,
-  60 * 60 * 1000,
-);
-codeAgentWorktreeSweepTimer.unref?.();
+scheduleCodeAgentWorktreeSweep();
 
 registerQuickPromptIpc({
   createCodeAgentRun,
@@ -12297,6 +12611,20 @@ function handleDesktopProtocolUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== `${DEEP_LINK_PROTOCOL}:`) return false;
+    const recognizedRoute =
+      parsed.host === "oauth-complete" ||
+      (parsed.host === "open" &&
+        ["app", "goal", "command", "run"].some((key) =>
+          parsed.searchParams.has(key),
+        )) ||
+      (parsed.host === "shortcuts" && parsed.pathname === "/upsert");
+    if (!recognizedRoute) {
+      console.warn("[main] ignored unsupported desktop deep link route", {
+        host: parsed.host,
+        pathname: parsed.pathname,
+      });
+      return false;
+    }
     void handleDeepLink(url);
     return true;
   } catch {
@@ -12668,7 +12996,7 @@ function buildDesktopBuilderCliAuthUrl(callbackUrl: string): string {
   const authUrl = new URL("/cli-auth", getBuilderCliAuthHost());
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("host", "agent-native-desktop");
-  authUrl.searchParams.set("client_id", "Agent Native Desktop");
+  authUrl.searchParams.set("client_id", "Agent-Native Desktop");
   authUrl.searchParams.set("redirect_url", callback.toString());
   authUrl.searchParams.set("preview_url", callback.origin);
   authUrl.searchParams.set("framework", "agent-native");
@@ -12779,7 +13107,7 @@ function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdat
       res.end(
         desktopBuilderCallbackPage(
           "success",
-          "You can close this tab and return to Agent Native Desktop.",
+          "You can close this tab and return to Agent-Native Desktop.",
         ),
       );
       finish({
@@ -13014,7 +13342,7 @@ function openOAuthWindow(
     },
   });
 
-  oauthWin.loadURL(url);
+  void oauthWin.loadURL(url);
 
   // Allow nested popups inside the OAuth window. Builder's /cli-auth uses
   // Firebase, and Firebase signs the user into Google via `window.open()`.
@@ -13080,7 +13408,7 @@ function openOAuthWindow(
       }
       // Detect agentnative:// deep link — handle it and close the popup.
       if (parsed.protocol === `${DEEP_LINK_PROTOCOL}:`) {
-        handleDeepLink(navUrl);
+        void handleDeepLink(navUrl);
         scheduleClose();
       }
     } catch {
@@ -13098,7 +13426,7 @@ function openOAuthWindow(
     (event: Electron.Event, navUrl: string) => {
       if (navUrl.startsWith(`${DEEP_LINK_PROTOCOL}:`)) {
         event.preventDefault();
-        handleDeepLink(navUrl);
+        void handleDeepLink(navUrl);
         scheduleClose();
       }
     },
@@ -13383,7 +13711,20 @@ function handleWindowOpenForContents(
   contents: Electron.WebContents,
   url: string,
 ) {
-  if (handleDesktopProtocolUrl(url)) {
+  const isTrustedShell = Boolean(
+    mainWindow &&
+    !mainWindow.isDestroyed() &&
+    !mainWindow.webContents.isDestroyed() &&
+    contents.id === mainWindow.webContents.id,
+  );
+  if (isTrustedShell && handleDesktopProtocolUrl(url)) {
+    return { action: "deny" as const };
+  }
+
+  if (isDesktopDeepLinkUrl(url)) {
+    console.warn("[main] denied desktop deep link from embedded content", {
+      appId: desktopWebviewAppIds.get(contents) ?? null,
+    });
     return { action: "deny" as const };
   }
 
@@ -13425,11 +13766,17 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
     url: string,
     options: { isMainFrame: boolean },
   ) => {
-    if (mcpOAuthNavigationGate.isActive(contents.id)) return;
-    if (handleDesktopProtocolUrl(url)) {
+    if (isDesktopDeepLinkUrl(url)) {
       event.preventDefault();
+      console.warn(
+        "[main] denied desktop deep-link navigation from embedded content",
+        {
+          appId: desktopWebviewAppIds.get(contents) ?? null,
+        },
+      );
       return;
     }
+    if (mcpOAuthNavigationGate.isActive(contents.id)) return;
     if (openOAuthFromWebviewNavigation(url, contents)) {
       event.preventDefault();
       return;
@@ -13476,6 +13823,7 @@ app.on("web-contents-created", (_event, contents) => {
         installSentryWebContentsInstrumentation(webviewContents, {
           role: "app-webview",
         });
+        installDesktopWebviewHealthLogging(webviewContents);
         installWebviewReloadGuard(webviewContents);
         installWebviewOAuthNavigationHandler(webviewContents);
 
@@ -13487,6 +13835,7 @@ app.on("web-contents-created", (_event, contents) => {
     return;
   }
 
+  installDesktopWebviewHealthLogging(contents);
   installWebviewReloadGuard(contents);
   installWebviewOAuthNavigationHandler(contents);
 
@@ -13656,7 +14005,7 @@ function installApplicationMenu() {
       ...(desktopIdentityBroker && desktopIdentityBroker.getStatus() !== "idle"
         ? [
             {
-              label: "Sign Out of Agent Native",
+              label: "Sign Out of Agent-Native",
               click: () =>
                 void desktopIdentityBroker?.signOut(
                   listDesktopIdentityCleanupApps(),
@@ -13851,7 +14200,7 @@ function configurePermissionHandlers(
   }
 }
 
-app.whenReady().then(async () => {
+void app.whenReady().then(async () => {
   if (isDesktopSsoEnabled()) {
     // Create the optional broker without blocking startup. The first eligible
     // app asks it to refresh status, which keeps a slow identity authority
@@ -13868,8 +14217,9 @@ app.whenReady().then(async () => {
   desktopCodeAgentScheduler.start();
   // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
-    handleDeepLink(pendingDeepLink);
+    const deepLink = pendingDeepLink;
     pendingDeepLink = null;
+    void handleDeepLink(deepLink);
   }
 
   // Webviews now run in per-app persisted partitions (persist:app-<id>), so

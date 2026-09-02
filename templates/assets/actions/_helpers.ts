@@ -3,10 +3,15 @@ import { eq } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { absoluteUrl, parseJson } from "../server/lib/json.js";
+import {
+  assertCanDraftAuthoredBy,
+  type LibraryWriteAccess,
+} from "../server/lib/library-access.js";
 import type {
   AssetLineageSummary,
   GenerationSessionItemSummary,
   GenerationPresetSummary,
+  TemplateSummary,
   GenerationSessionSummary,
   ImageAssetMetadata,
   StyleBrief,
@@ -36,9 +41,18 @@ export async function requireLibraryAccess(id: string, ctx?: AccessCtx) {
   return access;
 }
 
+/**
+ * Resolve a generation session a write is about to attach to.
+ *
+ * Belonging to the kit is not enough: a session is one person's drafting
+ * workspace, and attaching a candidate to it also moves its `activeAssetId`.
+ * So a below-editor caller may only target a session they created. Pass the
+ * access already resolved for this kit to skip a second lookup.
+ */
 export async function requireGenerationSessionInLibrary(
   sessionId: string,
   libraryId: string,
+  access?: LibraryWriteAccess,
 ) {
   const db = getDb();
   const [session] = await db
@@ -49,6 +63,13 @@ export async function requireGenerationSessionInLibrary(
   if (!session) throw new Error("Generation session not found.");
   if (session.libraryId !== libraryId) {
     throw new Error("Generation session does not belong to this library.");
+  }
+  if (!access?.canApprove) {
+    await assertCanDraftAuthoredBy(
+      libraryId,
+      session.createdBy,
+      "A generation session",
+    );
   }
   return session;
 }
@@ -193,6 +214,20 @@ export function serializeGenerationPreset(row: any): GenerationPresetSummary {
     sortOrder: Number(row.sortOrder ?? 0),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+  };
+}
+
+export function serializeTemplate(row: any): TemplateSummary {
+  const preset = serializeGenerationPreset(row);
+  const libraryId = row.libraryId ?? null;
+  return {
+    ...preset,
+    libraryId,
+    scope: libraryId ? "library" : "global",
+    visibility: row.visibility ?? "private",
+    ownerEmail: row.ownerEmail,
+    accessRole: typeof row.accessRole === "string" ? row.accessRole : undefined,
+    libraryTitle: row.libraryTitle ?? null,
   };
 }
 

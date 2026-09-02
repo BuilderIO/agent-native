@@ -1,4 +1,16 @@
-import type { FormField } from "../../shared/types.js";
+import { isAllowedUploadMimeType } from "@agent-native/core/server";
+
+import type { FormField, FormFileValue } from "../../shared/types.js";
+import {
+  acceptsFormFileType,
+  formFileMaxBytes,
+  formFileMaxCount,
+  isFormFileValue,
+  isSafeFormFileUrl,
+  MAX_FORM_FILE_NAME_LENGTH,
+  MAX_FORM_FILE_REFERENCE_FIELD_LENGTH,
+  sanitizeFormFileValue,
+} from "./file-upload-policy.js";
 
 // Field value size limits by type. Keep public submissions bounded even when
 // callers bypass the browser renderer and POST directly to /api/submit/:id.
@@ -29,7 +41,12 @@ function optionToString(raw: unknown): string | null {
     if (typeof option.value === "string") return option.value;
     return "";
   }
-  return String(raw);
+  return typeof raw === "string" ||
+    typeof raw === "number" ||
+    typeof raw === "boolean" ||
+    typeof raw === "bigint"
+    ? String(raw)
+    : JSON.stringify(raw);
 }
 
 function optionList(options: unknown): string[] {
@@ -193,6 +210,99 @@ function validateScale(field: FormField, value: unknown): string | null {
   return null;
 }
 
+function isSafeReferenceText(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= MAX_FORM_FILE_REFERENCE_FIELD_LENGTH &&
+    !/[\x00-\x1f\x7f]/.test(value)
+  );
+}
+
+function validateFileReference(
+  field: FormField,
+  value: unknown,
+): string | null {
+  if (!isFormFileValue(value)) {
+    return `${fieldLabel(field)} must contain a stored file reference`;
+  }
+
+  const allowedKeys = new Set([
+    "url",
+    "name",
+    "type",
+    "size",
+    "id",
+    "provider",
+    "handle",
+  ]);
+  if (Object.keys(value).some((key) => !allowedKeys.has(key))) {
+    return `${fieldLabel(field)} contains unsupported file data`;
+  }
+  if (!isSafeFormFileUrl(value.url)) {
+    return `${fieldLabel(field)} contains an invalid stored file URL`;
+  }
+  if (
+    value.name.length === 0 ||
+    value.name.length > MAX_FORM_FILE_NAME_LENGTH ||
+    /[\x00-\x1f\x7f]/.test(value.name)
+  ) {
+    return `${fieldLabel(field)} contains an invalid file name`;
+  }
+  const type = value.type.split(";", 1)[0]!.trim().toLowerCase();
+  if (
+    !isAllowedUploadMimeType(type) ||
+    !acceptsFormFileType(field, type, value.name)
+  ) {
+    return `${fieldLabel(field)} contains an unsupported file type`;
+  }
+  if (
+    !Number.isSafeInteger(value.size) ||
+    value.size < 0 ||
+    value.size > formFileMaxBytes(field)
+  ) {
+    return `${fieldLabel(field)} contains an oversized file`;
+  }
+  for (const key of ["id", "provider", "handle"] as const) {
+    const optionalValue = value[key];
+    if (optionalValue !== undefined && !isSafeReferenceText(optionalValue)) {
+      return `${fieldLabel(field)} contains invalid file metadata`;
+    }
+  }
+  return null;
+}
+
+function validateFiles(field: FormField, value: unknown): string | null {
+  if (isAbsentSubmissionValue(value)) return null;
+  if (field.multiple === true) {
+    if (!Array.isArray(value)) {
+      return `${fieldLabel(field)} must be a list of files`;
+    }
+    if (value.length > formFileMaxCount(field)) {
+      return `${fieldLabel(field)} accepts at most ${formFileMaxCount(field)} files`;
+    }
+    for (const file of value) {
+      const error = validateFileReference(field, file);
+      if (error) return error;
+    }
+    return null;
+  }
+  if (Array.isArray(value)) {
+    return `${fieldLabel(field)} accepts one file`;
+  }
+  return validateFileReference(field, value);
+}
+
+export function sanitizeSubmissionFieldValue(
+  field: FormField,
+  value: unknown,
+): unknown {
+  if (field.type !== "file") return value;
+  if (field.multiple === true && Array.isArray(value)) {
+    return value.map((file) => sanitizeFormFileValue(file as FormFileValue));
+  }
+  return sanitizeFormFileValue(value as FormFileValue);
+}
+
 export function isEmptySubmissionValue(value: unknown): boolean {
   return (
     value === undefined ||
@@ -235,6 +345,8 @@ export function validateSubmissionField(
       return validateRating(field, value);
     case "scale":
       return validateScale(field, value);
+    case "file":
+      return validateFiles(field, value);
     case "text":
     default:
       return validateText(field, value);

@@ -1,8 +1,13 @@
 import { createAuthPlugin } from "@agent-native/core/server";
 
 export default createAuthPlugin({
+  workspaceAppPublicPaths: ["/"],
   marketing: {
     appName: "Slides",
+    screenshotPath: "/auth-marketing/slides.webp",
+    screenshotWidth: 914,
+    screenshotHeight: 818,
+    learnMoreUrl: "https://agent-native.com/apps/slides",
     tagline:
       "Your AI agent builds, edits, and refines presentations alongside you.",
     features: [

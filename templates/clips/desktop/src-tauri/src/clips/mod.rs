@@ -1,17 +1,19 @@
-use serde::Serialize;
+#[cfg(target_os = "macos")]
+use objc2_foundation::{NSPoint, NSRect, NSSize};
+use serde::{Deserialize, Serialize};
 #[cfg(target_os = "macos")]
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 #[cfg(target_os = "macos")]
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder,
+    AppHandle, Emitter, Listener, Manager, PhysicalPosition, PhysicalSize, WebviewUrl,
+    WebviewWindow, WebviewWindowBuilder,
 };
 
 use crate::dlog;
@@ -22,13 +24,16 @@ use crate::state::{
 use crate::util::{
     build_overlay_url, configure_overlay_behavior, hide_voice_wake_popover, is_recording_active,
     mark_popover_shown, present_interactive_window, raise_to_status_level, set_capture_excluded,
-    set_capture_excluded_always, set_capture_included, tray_monitor_physical_rect,
+    set_capture_excluded_always, set_capture_included, start_topmost_reassert_loop,
+    tray_monitor_physical_rect,
 };
 
 /// Native overlay windows for the recording experience. These render the same
 /// React bundle with a hash route that `main.tsx` uses to pick the component.
 const COUNTDOWN_LABEL: &str = "countdown";
 const TOOLBAR_LABEL: &str = "toolbar";
+/// Supersedes stale toolbar topmost loops after window recreation.
+static TOOLBAR_TOPMOST_GENERATION: AtomicU64 = AtomicU64::new(0);
 // Geometry of the two circular cancel/skip buttons that flank the countdown
 // number. These MUST stay in sync with the CSS in
 // `templates/clips/desktop/src/styles.css` (`.countdown-control` is 64px and
@@ -40,7 +45,14 @@ const COUNTDOWN_CONTROL_HIT_PAD: f64 = 8.0;
 // Guards the single cursor-poll loop that toggles click-through on the
 // countdown overlay so only the button zones are interactive.
 static COUNTDOWN_CONTROL_TRACKING: AtomicBool = AtomicBool::new(false);
+// Set by the recording pill the instant Stop is clicked, before it emits
+// `clips:recorder-stop`. While held, `hide_overlays` / `hide_recording_chrome`
+// skip the toolbar window so the pill can swap to its completion card in
+// place; every other teardown path (cancel, restart, popover lifecycle) still
+// closes it. Cleared when the card is dismissed or the next session starts.
+static TOOLBAR_FINISHING: AtomicBool = AtomicBool::new(false);
 const BUBBLE_LABEL: &str = "bubble";
+const BUBBLE_DESTROYED_EVENT: &str = "clips:bubble-destroyed";
 const PREPARING_LABEL: &str = "preparing";
 const FINALIZING_LABEL: &str = "finalizing";
 const FLOW_BAR_LABEL: &str = "flow-bar";
@@ -66,7 +78,6 @@ const OVERLAY_LABELS: &[&str] = &[
 /// launch — this matches Loom's out-of-the-box behavior.
 const BUBBLE_SIZE_SMALL: u32 = 360;
 const BUBBLE_SIZE_MEDIUM: u32 = 504;
-const POPOVER_SHADOW_GUTTER_LOGICAL: f64 = 24.0;
 const POPOVER_DEFAULT_WIDTH_LOGICAL: f64 = 320.0;
 const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
 const OVERLAY_SHADOW_GUTTER_LOGICAL: f64 = 18.0;
@@ -114,11 +125,6 @@ fn overlay_scale_factor(app: &AppHandle) -> f64 {
 
 fn overlay_shadow_gutter_physical(app: &AppHandle) -> u32 {
     (OVERLAY_SHADOW_GUTTER_LOGICAL * overlay_scale_factor(app)).round() as u32
-}
-
-fn popover_window_size_logical(content_width: f64, content_height: f64) -> (f64, f64) {
-    let gutter = POPOVER_SHADOW_GUTTER_LOGICAL * 2.0;
-    (content_width + gutter, content_height + gutter)
 }
 
 fn bubble_size_for_name(name: &str) -> u32 {
@@ -954,30 +960,368 @@ pub async fn set_recording_display_override(
     Ok(())
 }
 
-/// Vertical recording pill anchored to the left edge. Stop + timer + pause,
-/// with hover-revealed restart/cancel controls matching Loom's left-rail
-/// placement. Draggable, always on top.
+fn toolbar_position_path(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_data_dir().ok()?;
+    if std::fs::create_dir_all(&dir).is_err() {
+        return None;
+    }
+    Some(dir.join("toolbar-pill-position.json"))
+}
+
+#[derive(Debug, Deserialize)]
+struct ToolbarPositionPreference {
+    x: i32,
+    y: i32,
+    #[serde(default)]
+    mode: Option<String>,
+    #[serde(default)]
+    location: Option<String>,
+}
+
+#[derive(Clone, Copy)]
+struct ToolbarDragAnchor {
+    cursor_x: i32,
+    cursor_y: i32,
+    win_x: i32,
+    win_y: i32,
+}
+
+fn toolbar_drag_anchor() -> &'static Mutex<Option<ToolbarDragAnchor>> {
+    static ANCHOR: OnceLock<Mutex<Option<ToolbarDragAnchor>>> = OnceLock::new();
+    ANCHOR.get_or_init(|| Mutex::new(None))
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ToolbarDockPreference {
+    pub mode: String,
+    pub location: Option<String>,
+}
+
+fn normalized_toolbar_dock_preference(
+    saved: Option<&ToolbarPositionPreference>,
+) -> ToolbarDockPreference {
+    let location = saved
+        .and_then(|value| value.location.as_deref())
+        .filter(|value| matches!(*value, "left" | "right" | "top" | "bottom"))
+        .map(str::to_string);
+    let mode = if saved
+        .and_then(|value| value.mode.as_deref())
+        .is_some_and(|value| value == "docked")
+        && location.is_some()
+    {
+        "docked"
+    } else {
+        "floating"
+    }
+    .to_string();
+    ToolbarDockPreference { mode, location }
+}
+
+fn load_toolbar_position(app: &AppHandle) -> Option<ToolbarPositionPreference> {
+    let path = toolbar_position_path(app)?;
+    let bytes = std::fs::read(&path).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+fn save_toolbar_position_file(
+    app: &AppHandle,
+    x: i32,
+    y: i32,
+    mode: &str,
+    location: Option<&str>,
+) -> Result<(), String> {
+    let Some(path) = toolbar_position_path(app) else {
+        return Ok(());
+    };
+    let body = serde_json::to_vec(&serde_json::json!({
+        "x": x,
+        "y": y,
+        "mode": mode,
+        "location": location,
+    }))
+    .map_err(|e| e.to_string())?;
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(&tmp, &body).is_err() {
+        return Ok(());
+    }
+    if std::fs::rename(&tmp, &path).is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    Ok(())
+}
+
+/// Persist the pill's resolved outer position (physical px). The renderer
+/// writes only after a drag settles or after a dock correction completes, so
+/// transient hover geometry never becomes the stored anchor.
+#[tauri::command]
+pub async fn toolbar_save_position(
+    app: AppHandle,
+    x: i32,
+    y: i32,
+    mode: Option<String>,
+    location: Option<String>,
+) -> Result<(), String> {
+    save_toolbar_position_file(
+        &app,
+        x,
+        y,
+        &mode.unwrap_or_else(|| "floating".to_string()),
+        location.as_deref(),
+    )
+}
+
+#[tauri::command]
+pub async fn toolbar_get_dock_preference(app: AppHandle) -> Result<ToolbarDockPreference, String> {
+    Ok(normalized_toolbar_dock_preference(
+        load_toolbar_position(&app).as_ref(),
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn appkit_frame_for_physical_bounds(
+    current_frame: NSRect,
+    current_x: i32,
+    current_y: i32,
+    target_x: i32,
+    target_y: i32,
+    target_width: u32,
+    target_height: u32,
+    scale: f64,
+) -> NSRect {
+    let scale = scale.max(1.0);
+    let width = target_width as f64 / scale;
+    let height = target_height as f64 / scale;
+    let delta_x = (target_x - current_x) as f64 / scale;
+    let delta_y = (target_y - current_y) as f64 / scale;
+    NSRect::new(
+        NSPoint::new(
+            current_frame.origin.x + delta_x,
+            current_frame.origin.y + current_frame.size.height - height - delta_y,
+        ),
+        NSSize::new(width, height),
+    )
+}
+
+/// Apply the recorder window's origin and size as one native frame. A docked
+/// pill changes both values on every confirmation transition; separate Tauri
+/// calls expose an intermediate left-anchored frame on macOS.
+#[tauri::command]
+pub async fn toolbar_set_bounds(
+    app: AppHandle,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(TOOLBAR_LABEL) else {
+        return Ok(());
+    };
+
+    #[cfg(target_os = "macos")]
+    {
+        let current_position = window.outer_position().map_err(|err| err.to_string())?;
+        let scale = window.scale_factor().map_err(|err| err.to_string())?;
+        let win = window.clone();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        win.clone()
+            .run_on_main_thread(move || {
+                let result = (|| -> Result<(), String> {
+                    let ns_window_ptr = win.ns_window().map_err(|err| err.to_string())?;
+                    if ns_window_ptr.is_null() {
+                        return Err("toolbar NSWindow is unavailable".to_string());
+                    }
+                    // SAFETY: Tauri owns this live NSWindow and the closure is
+                    // executing on AppKit's main thread. `setFrame:display:`
+                    // updates origin and size in one transaction.
+                    unsafe {
+                        let obj = ns_window_ptr as *mut objc2::runtime::AnyObject;
+                        let current_frame: NSRect = objc2::msg_send![&*obj, frame];
+                        let target_frame = appkit_frame_for_physical_bounds(
+                            current_frame,
+                            current_position.x,
+                            current_position.y,
+                            x,
+                            y,
+                            width,
+                            height,
+                            scale,
+                        );
+                        let _: () = objc2::msg_send![&*obj, setFrame: target_frame, display: true];
+                    }
+                    Ok(())
+                })();
+                let _ = tx.send(result);
+            })
+            .map_err(|err| err.to_string())?;
+        return rx
+            .await
+            .map_err(|_| "toolbar frame update was cancelled".to_string())?;
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        window
+            .set_size(tauri::Size::Physical(PhysicalSize::new(width, height)))
+            .map_err(|err| err.to_string())?;
+        window
+            .set_position(PhysicalPosition::new(x, y))
+            .map_err(|err| err.to_string())?;
+        Ok(())
+    }
+}
+
+fn toolbar_monitor_for_cursor(
+    window: &WebviewWindow,
+    cursor_x: i32,
+    cursor_y: i32,
+) -> Option<(i32, i32, u32, u32)> {
+    let monitors = window.available_monitors().ok()?;
+    monitors
+        .iter()
+        .find(|monitor| {
+            let position = monitor.position();
+            let size = monitor.size();
+            cursor_x >= position.x
+                && cursor_x < position.x + size.width as i32
+                && cursor_y >= position.y
+                && cursor_y < position.y + size.height as i32
+        })
+        .or_else(|| monitors.first())
+        .map(|monitor| {
+            let position = monitor.position();
+            let size = monitor.size();
+            (position.x, position.y, size.width, size.height)
+        })
+}
+
+/// Start a renderer-owned drag for the recorder pill. Native OS dragging is
+/// intentionally avoided: it can continue moving the window while the
+/// renderer is resizing it for dock transitions, which causes snap-back and
+/// visible jitter at the edge of the screen.
+#[tauri::command]
+pub async fn toolbar_drag_start(app: AppHandle) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(TOOLBAR_LABEL) else {
+        return Ok(());
+    };
+    let (Ok(cursor), Ok(position)) = (window.cursor_position(), window.outer_position()) else {
+        return Ok(());
+    };
+    *toolbar_drag_anchor()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(ToolbarDragAnchor {
+        cursor_x: cursor.x.round() as i32,
+        cursor_y: cursor.y.round() as i32,
+        win_x: position.x,
+        win_y: position.y,
+    });
+    Ok(())
+}
+
+/// Move the recorder pill once per renderer animation frame. The position is
+/// clamped before applying it so the cursor can outrun a screen edge without
+/// making the overlay oscillate between the edge and an off-screen location.
+#[tauri::command]
+pub async fn toolbar_drag_move(app: AppHandle) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(TOOLBAR_LABEL) else {
+        return Ok(());
+    };
+    let Ok(cursor) = window.cursor_position() else {
+        return Ok(());
+    };
+    let anchor = *toolbar_drag_anchor()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let Some(anchor) = anchor else {
+        return Ok(());
+    };
+    let Ok(size) = window.outer_size() else {
+        return Ok(());
+    };
+    let cursor_x = cursor.x.round() as i32;
+    let cursor_y = cursor.y.round() as i32;
+    let target_x = anchor.win_x + cursor_x - anchor.cursor_x;
+    let target_y = anchor.win_y + cursor_y - anchor.cursor_y;
+    let Some((monitor_x, monitor_y, monitor_width, monitor_height)) =
+        toolbar_monitor_for_cursor(&window, cursor_x, cursor_y)
+    else {
+        return Ok(());
+    };
+    let gutter = (16.0 * window.scale_factor().unwrap_or(2.0)).round() as i32;
+    let min_x = monitor_x + gutter;
+    let min_y = monitor_y + gutter;
+    let max_x = (monitor_x + monitor_width as i32 - size.width as i32 - gutter).max(min_x);
+    let max_y = (monitor_y + monitor_height as i32 - size.height as i32 - gutter).max(min_y);
+    let x = target_x.clamp(min_x, max_x);
+    let y = target_y.clamp(min_y, max_y);
+    let _ = window.set_position(PhysicalPosition::new(x, y));
+    Ok(())
+}
+
+/// Finish a renderer-owned recorder drag. Docking is decided by the
+/// renderer after this command completes, using the final native position.
+#[tauri::command]
+pub async fn toolbar_drag_end() -> Result<(), String> {
+    *toolbar_drag_anchor()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = None;
+    Ok(())
+}
+
+/// Hold or release the stop-flow toolbar preservation described on
+/// `TOOLBAR_FINISHING`. The pill sets the hold synchronously before emitting
+/// `clips:recorder-stop` so the recorder's teardown cannot race it.
+#[tauri::command]
+pub async fn set_toolbar_finishing(hold: bool) -> Result<(), String> {
+    TOOLBAR_FINISHING.store(hold, Ordering::SeqCst);
+    Ok(())
+}
+
+/// Horizontal recording pill — dot, timer, level meter, pause, and a white
+/// Stop capsule that grows rightward from an anchored left edge for hover
+/// extras and the inline delete confirm. Draggable, always on top. The
+/// renderer owns exact sizing: it measures its content and resizes this
+/// window around the fixed anchor edge, so the values here only need to fit
+/// the resting pill for first paint.
 #[tauri::command]
 pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     dlog!("[clips-tray] show_toolbar invoked");
+    // A fresh session can never start inside the finishing hold — if a stale
+    // completion card is still open its window gets replaced below anyway.
+    TOOLBAR_FINISHING.store(false, Ordering::SeqCst);
     // Reset the blur guard — spawning an overlay can briefly steal focus
     // from the popover on some macOS versions even with .focused(false).
     mark_popover_shown(&app);
-    let (mx, my, _mw, mh) = tray_monitor_physical_rect(&app);
+    let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
     let scale = overlay_scale_factor(&app);
-    let gutter = overlay_shadow_gutter_physical(&app);
+    // The window is sized to the pill EXACTLY — elevation comes from the
+    // native NSWindow shadow (shadow(true) below), which macOS derives from
+    // the drawn rounded shape. A transparent CSS-shadow apron is never used
+    // here: its invisible margin eats clicks and fights screen-edge docking.
     // CSS is authored in logical px, while this command sizes the native
-    // window in physical px. Keep the visible toolbar large enough for the
-    // fixed 30px circular controls on high-DPI displays.
-    let content_w: u32 = (72.0 * scale).round() as u32;
-    let collapsed_content_h: u32 = (150.0 * scale).round() as u32;
-    let w: u32 = content_w + gutter * 2;
-    let h: u32 = collapsed_content_h + gutter * 2;
-    // Flush-left with a small margin; vertically center the collapsed pill.
-    // The React toolbar temporarily resizes this window while hover/focus
-    // reveals extra controls so transparent pixels don't block clicks.
-    let x: i32 = mx + 48 - gutter as i32;
-    let y: i32 = my + (mh as i32 - collapsed_content_h as i32) / 2 - gutter as i32;
+    // window in physical px.
+    let saved = load_toolbar_position(&app);
+    let preference = normalized_toolbar_dock_preference(saved.as_ref());
+    let vertical = preference.mode == "docked"
+        && matches!(preference.location.as_deref(), Some("left" | "right"));
+    let w: u32 = ((if vertical { 42.0 } else { 150.0 }) * scale).round() as u32;
+    let h: u32 = ((if vertical { 118.0 } else { 42.0 }) * scale).round() as u32;
+    let gutter = (16.0 * scale).round() as i32;
+    // Bottom-center by default; a user-dragged position wins when it still
+    // lands on the tray monitor (clamped so a monitor change can't strand
+    // the pill off-screen).
+    let default_x: i32 = mx + (mw as i32 - w as i32) / 2;
+    let default_y: i32 = my + mh as i32 - h as i32 - (20.0 * scale).round() as i32;
+    let (x, y) = match saved {
+        Some(saved) => (
+            saved
+                .x
+                .clamp(mx + gutter, mx + mw as i32 - w as i32 - gutter),
+            saved
+                .y
+                .clamp(my + gutter, my + mh as i32 - h as i32 - gutter),
+        ),
+        None => (default_x, default_y),
+    };
     dlog!("[clips-tray] toolbar pos=({},{}) size={}x{}", x, y, w, h);
     if let Some(existing) = app.get_webview_window(TOOLBAR_LABEL) {
         let _ = existing.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
@@ -985,7 +1329,7 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
         set_capture_excluded(&existing);
         configure_overlay_behavior(&existing);
         raise_to_status_level(&existing);
-        crate::util::show_without_activation(&existing);
+        start_topmost_reassert_loop(&app, TOOLBAR_LABEL, &TOOLBAR_TOPMOST_GENERATION);
         return Ok(());
     }
     #[allow(unused_mut)]
@@ -996,11 +1340,11 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
         .always_on_top(true)
         .skip_taskbar(true)
         .resizable(false)
-        // IMPORTANT: native window shadow MUST stay off — macOS draws it
-        // based on the rectangular window bounds, not the rounded React
-        // content, so it shows up as a hard-edged black rectangle around
-        // the rounded pill.
-        .shadow(false)
+        // Native elevation: on a transparent window macOS computes the
+        // shadow from the drawn content's alpha, so the capsule gets a
+        // correctly rounded OS shadow with the window sized to the pill
+        // exactly — no transparent CSS-shadow apron eating clicks.
+        .shadow(true)
         .visible(false)
         .focused(false);
     // macOS: without this, the first click on an unfocused window is
@@ -1022,9 +1366,30 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     set_capture_excluded(&win);
     configure_overlay_behavior(&win);
     raise_to_status_level(&win);
-    let _ = win.show();
-    dlog!("[clips-tray] toolbar shown");
+    // Deliberately NOT shown here. The renderer owns visibility through
+    // `toolbar_set_visible` so the window can mount in its disabled state
+    // before capture is live.
+    dlog!("[clips-tray] toolbar created (hidden until renderer is ready)");
 
+    Ok(())
+}
+
+/// Show or hide the recording pill without activating it. Visibility is
+/// driven entirely by the pill renderer: visible while the recorder is
+/// preparing, counting down, or capturing, and while the completion card is
+/// up.
+#[tauri::command]
+pub async fn toolbar_set_visible(app: AppHandle, visible: bool) -> Result<(), String> {
+    let Some(win) = app.get_webview_window(TOOLBAR_LABEL) else {
+        return Ok(());
+    };
+    if visible {
+        raise_to_status_level(&win);
+        start_topmost_reassert_loop(&app, TOOLBAR_LABEL, &TOOLBAR_TOPMOST_GENERATION);
+        crate::util::show_without_activation(&win);
+    } else {
+        let _ = win.hide();
+    }
     Ok(())
 }
 
@@ -1108,6 +1473,10 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
     let app_for_bounds = app.clone();
     let win_for_bounds = win.clone();
     win.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Destroyed) {
+            let _ = app_for_bounds.emit(BUBBLE_DESTROYED_EVENT, ());
+            return;
+        }
         if matches!(
             event,
             tauri::WindowEvent::Moved(_)
@@ -1149,10 +1518,16 @@ pub async fn set_bubble_capture_excluded(app: AppHandle, excluded: bool) -> Resu
 }
 
 fn overlay_labels_to_hide(preserve_finalizing: bool) -> impl Iterator<Item = &'static str> {
-    OVERLAY_LABELS
-        .iter()
-        .copied()
-        .filter(move |label| !preserve_finalizing || *label != FINALIZING_LABEL)
+    let preserve_toolbar = TOOLBAR_FINISHING.load(Ordering::SeqCst);
+    OVERLAY_LABELS.iter().copied().filter(move |label| {
+        if preserve_finalizing && *label == FINALIZING_LABEL {
+            return false;
+        }
+        if preserve_toolbar && *label == TOOLBAR_LABEL {
+            return false;
+        }
+        true
+    })
 }
 
 #[tauri::command]
@@ -1194,7 +1569,10 @@ pub async fn hide_recording_chrome(
     let keep_region_guides = g.always_visible && g.enabled && !g.rects.is_empty();
     // The recording-region border belongs to a single recording (never pinned),
     // so it always tears down here alongside the countdown + toolbar.
-    let mut labels: Vec<&str> = vec![COUNTDOWN_LABEL, TOOLBAR_LABEL, REGION_RECORD_BORDER_LABEL];
+    let mut labels: Vec<&str> = vec![COUNTDOWN_LABEL, REGION_RECORD_BORDER_LABEL];
+    if !TOOLBAR_FINISHING.load(Ordering::SeqCst) {
+        labels.push(TOOLBAR_LABEL);
+    }
     if !keep_region_guides {
         labels.push(REGION_GUIDES_LABEL);
     }
@@ -1237,15 +1615,47 @@ pub async fn hide_recording_chrome(
 /// stable. At that point the bubble webview is freshly spawned, acquires
 /// the camera cleanly, and there's no cross-webview contention because
 /// MediaRecorder doesn't touch the camera after start.
-#[tauri::command]
-pub async fn close_bubble(app: AppHandle) -> Result<(), String> {
+fn close_bubble_window(app: &AppHandle) {
     let _ = app.emit("clips:release-camera", ());
     if let Some(w) = app.get_webview_window(BUBBLE_LABEL) {
-        dlog!("[clips-tray] close_bubble — destroying bubble webview");
+        // Hide first so a slow WebKit teardown cannot leave the last frame
+        // composited on-screen while the window is being destroyed.
+        let _ = w.hide();
+        dlog!("[clips-tray] close_bubble - destroying bubble webview");
         let _ = w.close();
     } else {
-        dlog!("[clips-tray] close_bubble — no bubble window to close");
+        dlog!("[clips-tray] close_bubble - no bubble window to close");
     }
+}
+
+async fn close_bubble_window_and_wait(app: &AppHandle) -> Result<(), String> {
+    let (closed_tx, closed_rx) = tokio::sync::oneshot::channel();
+    let listener = app.once(BUBBLE_DESTROYED_EVENT, move |_| {
+        let _ = closed_tx.send(());
+    });
+    if app.get_webview_window(BUBBLE_LABEL).is_none() {
+        app.unlisten(listener);
+        return Ok(());
+    }
+
+    close_bubble_window(app);
+    closed_rx
+        .await
+        .map_err(|_| "camera bubble destruction acknowledgement was dropped".to_string())
+}
+
+/// Close the camera bubble whenever the popover is no longer visible, except
+/// while recording owns it independently of the popover.
+pub fn close_bubble_if_idle(app: &AppHandle) {
+    if is_recording_active(app) {
+        return;
+    }
+    close_bubble_window(app);
+}
+
+#[tauri::command]
+pub async fn close_bubble(app: AppHandle) -> Result<(), String> {
+    close_bubble_window(&app);
     Ok(())
 }
 
@@ -1284,10 +1694,9 @@ pub async fn resize_popover(app: AppHandle, height: f64, width: Option<f64>) -> 
             .as_ref()
             .map(|monitor| {
                 let scale = monitor.scale_factor().max(1.0);
-                ((monitor.size().height as f64) / scale
-                    - 24.0
-                    - POPOVER_SHADOW_GUTTER_LOGICAL * 2.0)
-                    .clamp(260.0, 820.0)
+                // The window IS the visible panel (native shadow, no apron),
+                // so only the 24px menu-bar margin is reserved.
+                ((monitor.size().height as f64) / scale - 24.0).clamp(260.0, 820.0)
             })
             .unwrap_or(820.0);
         // Same idea as height: a monitor narrower than the requested width
@@ -1297,18 +1706,18 @@ pub async fn resize_popover(app: AppHandle, height: f64, width: Option<f64>) -> 
         let max_logical_width = monitor
             .map(|monitor| {
                 let scale = monitor.scale_factor().max(1.0);
-                ((monitor.size().width as f64) / scale - 16.0 - POPOVER_SHADOW_GUTTER_LOGICAL * 2.0)
-                    .clamp(320.0, 960.0)
+                ((monitor.size().width as f64) / scale - 16.0).clamp(320.0, 960.0)
             })
             .unwrap_or(960.0);
         let clamped = height.clamp(200.0, max_logical_height);
         let width = width
             .unwrap_or(320.0)
             .clamp(320.0, max_logical_width.max(320.0));
-        let (window_width, window_height) = popover_window_size_logical(width, clamped);
+        // The window IS the panel now — elevation is the native NSWindow
+        // shadow on exact bounds, so there is no apron to add here.
+        let (window_width, window_height) = (width, clamped);
         let _ = w.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
-            window_width,
-            window_height,
+            width, clamped,
         )));
         // Re-anchor to the tray icon so the window doesn't drift below the
         // bottom of the monitor after a growth. Pass the size we just asked
@@ -1643,14 +2052,17 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
 
     let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
     let scale = overlay_scale_factor(&app);
-    // Wide + tall enough for a 5-line transcript preview above the pill.
-    let content_w: u32 = (640.0 * scale).round() as u32;
-    let content_h: u32 = (160.0 * scale).round() as u32;
-    let bottom_margin: i32 = (14.0 * scale).round() as i32;
-    let gutter = overlay_shadow_gutter_physical(&app);
-    let w: u32 = content_w + gutter * 2;
-    let h: u32 = content_h + gutter * 2;
-    let x: i32 = (mx + (mw as i32 - content_w as i32) / 2 - gutter as i32).max(mx);
+    // The window is sized to the content EXACTLY — wide + tall enough for a
+    // 5-line transcript preview above the pill. Elevation comes from the
+    // native NSWindow shadow (shadow(true) below), which macOS derives from
+    // the drawn pill/preview alpha. A transparent CSS-shadow apron is never
+    // used here: its invisible margin eats clicks.
+    let w: u32 = (640.0 * scale).round() as u32;
+    let h: u32 = (160.0 * scale).round() as u32;
+    // 32 = the old 14px visible margin + the removed 18px shadow gutter, so
+    // the visible pill keeps its exact on-screen position.
+    let bottom_margin: i32 = (32.0 * scale).round() as i32;
+    let x: i32 = (mx + (mw as i32 - w as i32) / 2).max(mx);
     let y: i32 = (my + mh as i32 - h as i32 - bottom_margin).max(my);
 
     if let Some(existing) = app.get_webview_window(FLOW_BAR_LABEL) {
@@ -1673,7 +2085,11 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
         .always_on_top(true)
         .skip_taskbar(true)
         .resizable(false)
-        .shadow(false)
+        // Native elevation: on a transparent window macOS computes the
+        // shadow from the drawn content's alpha, so the pill and preview
+        // get correctly rounded OS shadows with the window sized to the
+        // content exactly — no transparent CSS-shadow apron eating clicks.
+        .shadow(true)
         .visible(false)
         .focused(false)
         .build()
@@ -1911,13 +2327,14 @@ fn remembered_voice_target_bundle(app: &AppHandle) -> Option<String> {
 mod tests {
     use super::{
         overlay_labels_to_hide, strip_trailing_period_for_messaging, text_insertion_strategy,
-        TextInsertionStrategy, FINALIZING_LABEL,
+        TextInsertionStrategy, BUBBLE_LABEL, FINALIZING_LABEL,
     };
 
     #[test]
     fn overlay_cleanup_can_preserve_finalizing_progress() {
         assert!(!overlay_labels_to_hide(true).any(|label| label == FINALIZING_LABEL));
         assert!(overlay_labels_to_hide(false).any(|label| label == FINALIZING_LABEL));
+        assert!(overlay_labels_to_hide(false).any(|label| label == BUBBLE_LABEL));
     }
 
     #[test]
@@ -1992,8 +2409,32 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     mod macos_only {
-        use super::super::{chunk_graphemes_by_utf16_units, utf8_pasteboard_command};
+        use super::super::{
+            appkit_frame_for_physical_bounds, chunk_graphemes_by_utf16_units,
+            utf8_pasteboard_command,
+        };
+        use objc2_foundation::{NSPoint, NSRect, NSSize};
         use std::ffi::OsStr;
+
+        fn assert_close(actual: f64, expected: f64) {
+            assert!((actual - expected).abs() < 0.001, "{actual} != {expected}");
+        }
+
+        #[test]
+        fn atomic_toolbar_bounds_preserve_the_requested_screen_anchor() {
+            let current = NSRect::new(NSPoint::new(50.0, 300.0), NSSize::new(176.0, 176.0));
+
+            let right_anchored =
+                appkit_frame_for_physical_bounds(current, 100, 200, 368, 200, 84, 352, 2.0);
+            assert_close(
+                right_anchored.origin.x + right_anchored.size.width,
+                current.origin.x + current.size.width,
+            );
+
+            let bottom_anchored =
+                appkit_frame_for_physical_bounds(current, 100, 200, 100, 468, 352, 84, 2.0);
+            assert_close(bottom_anchored.origin.y, current.origin.y);
+        }
 
         #[test]
         fn pasteboard_commands_force_utf8_for_gui_launches() {
@@ -2299,6 +2740,21 @@ pub async fn set_recording_state(app: AppHandle, active: bool) -> Result<(), Str
     }
     crate::tray::rebuild_tray_menu(&app);
     Ok(())
+}
+
+/// Release a recording start flow and clean up a bubble that no recording owns.
+/// Keep the state change and cleanup in one native command so a new start cannot
+/// interleave after the guard is cleared but before the bubble is destroyed.
+#[tauri::command]
+pub async fn release_recording_state(app: AppHandle) -> Result<(), String> {
+    dlog!("[clips-tray] release_recording_state");
+    if let Some(state) = app.try_state::<RecordingActive>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = false;
+        }
+    }
+    crate::tray::rebuild_tray_menu(&app);
+    close_bubble_window_and_wait(&app).await
 }
 
 /// Set from JS when a live meeting recording/transcription session starts or
@@ -2649,11 +3105,10 @@ fn present_popover(app: &AppHandle, window: &WebviewWindow) {
     // recording or voice wake. The content's ResizeObserver will fine-tune the
     // height on the next render, but we need a sensible starting size so
     // `position_popover` can anchor correctly.
-    let (w, h) = popover_window_size_logical(
+    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
         POPOVER_DEFAULT_WIDTH_LOGICAL,
         POPOVER_DEFAULT_HEIGHT_LOGICAL,
-    );
-    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(w, h)));
+    )));
     position_popover(app, window);
     mark_popover_shown(app);
     present_interactive_window(window);
@@ -2686,6 +3141,7 @@ pub fn toggle_popover(app: &AppHandle) {
         window.is_visible().unwrap_or(false) && !voice_woken && !is_pinhole_popover(&window);
     if user_visible {
         let _ = window.hide();
+        close_bubble_if_idle(app);
         let _ = app.emit("clips:popover-visible", false);
         return;
     }
@@ -2755,9 +3211,9 @@ pub fn position_popover_with_size(
 
         // Center the popover horizontally on the icon.
         let mut x = icon_x + icon_w / 2 - (win_size.width as i32) / 2;
-        // Drop the visible panel below the icon with a tiny gap. The native
-        // window itself starts a shadow-gutter earlier so the top shadow has
-        // real transparent pixels to paint into without moving the panel down.
+        // Drop the panel below the icon with a tiny gap. The window IS the
+        // visible panel — its elevation is the native NSWindow shadow, which
+        // paints outside the window bounds, so no shadow-gutter offset here.
         let gap = 6_i32;
         let mut y = icon_y + icon_h + gap;
 
@@ -2777,15 +3233,6 @@ pub fn position_popover_with_size(
                     && icon_cy < mp.y + ms.height as i32
             })
         });
-        let popover_gutter = (POPOVER_SHADOW_GUTTER_LOGICAL
-            * tray_monitor
-                .as_ref()
-                .map(|m| m.scale_factor())
-                .unwrap_or_else(|| monitor.scale_factor())
-                .max(1.0))
-        .round() as i32;
-        y -= popover_gutter;
-
         let (clamp_pos, clamp_size) = tray_monitor
             .map(|m| (*m.position(), *m.size()))
             .unwrap_or((*mon_pos, *mon_size));
@@ -2817,13 +3264,12 @@ pub fn position_popover_with_size(
     let scale = monitor.scale_factor();
     let margin_right = (12.0 * scale) as i32;
     let margin_top = (36.0 * scale) as i32;
-    let popover_gutter = (POPOVER_SHADOW_GUTTER_LOGICAL * scale.max(1.0)).round() as i32;
     let min_x = mon_pos.x + 8;
     let max_x = mon_pos.x + mon_size.width as i32 - win_size.width as i32 - 8;
     let min_y = mon_pos.y + 8;
     let max_y = mon_pos.y + mon_size.height as i32 - win_size.height as i32 - 8;
     let x = (mon_pos.x + mon_size.width as i32 - win_size.width as i32 - margin_right)
         .clamp(min_x, max_x.max(min_x));
-    let y = (mon_pos.y + margin_top - popover_gutter).clamp(min_y, max_y.max(min_y));
+    let y = (mon_pos.y + margin_top).clamp(min_y, max_y.max(min_y));
     let _ = window.set_position(PhysicalPosition::new(x, y));
 }

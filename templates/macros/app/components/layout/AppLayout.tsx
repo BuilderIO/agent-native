@@ -1,10 +1,10 @@
 import { AgentSidebar } from "@agent-native/core/client/agent-chat";
-import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client/ui";
+import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
 import {
   HeaderActionsProvider,
   SidebarFooterActions,
@@ -39,7 +39,7 @@ import { cn } from "@/lib/utils";
 import { Header } from "./Header";
 
 const navItems = [
-  { icon: IconFlame, labelKey: "navigation.entry", href: "/" },
+  { icon: IconFlame, labelKey: "navigation.entry", href: "/home" },
   { icon: IconChartBar, labelKey: "navigation.analytics", href: "/analytics" },
 ];
 
@@ -117,13 +117,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           ? JSON.parse(commandValue)
           : commandValue;
       if (cmd.view === "analytics") {
-        navigate("/analytics");
+        void navigate("/analytics");
       } else if (cmd.view === "settings") {
-        navigate("/settings");
+        void navigate("/settings");
       } else if (cmd.view === "agent") {
-        navigate("/settings/agent");
+        void navigate("/settings/agent");
       } else if (cmd.view === "entry") {
-        navigate("/");
+        void navigate("/home");
       }
       // Clear the command
       fetch(agentNativePath("/_agent-native/application-state/navigate"), {
@@ -251,21 +251,9 @@ function SidebarContent({
       >
         {!collapsed && (
           <div className="flex min-w-0 flex-1 items-center gap-2">
-            <img
-              src={appPath("/agent-native-icon-light.svg")}
-              alt=""
+            <AgentNativeIcon
               aria-hidden="true"
-              width={28}
-              height={16}
-              className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
-            />
-            <img
-              src={appPath("/agent-native-icon-dark.svg")}
-              alt=""
-              aria-hidden="true"
-              width={28}
-              height={16}
-              className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+              className="h-3.5 w-6 shrink-0 text-foreground"
             />
             <span className="font-logo truncate text-sm font-bold tracking-tight text-foreground">
               {t("navigation.brand")}
@@ -279,8 +267,8 @@ function SidebarContent({
           const Icon = item.icon;
           const label = t(item.labelKey);
           const isActive =
-            item.href === "/"
-              ? pathname === "/" || pathname === "/entry"
+            item.href === "/home"
+              ? pathname === "/home" || pathname === "/entry"
               : pathname.startsWith(item.href);
           const link = (
             <Link
@@ -345,7 +333,7 @@ function SidebarContent({
 
       {!collapsed && (
         <>
-          <div className="space-y-2 px-3 py-2">
+          <div className="space-y-2 px-3 py-2 empty:hidden">
             <DevDatabaseLink />
             <OrgSwitcher />
           </div>

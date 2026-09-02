@@ -10,7 +10,7 @@ function normalizeOrigin(value: unknown): string | null {
 }
 
 function ancestorOrigin(): string | null {
-  if (typeof window === "undefined") return null;
+  if (typeof window === "undefined" || window.parent === window) return null;
   const origins = (
     window.location as Location & { ancestorOrigins?: DOMStringList }
   ).ancestorOrigins;
@@ -24,6 +24,14 @@ function isStrictBuilderHost(origin: string | null): boolean {
   if (!origin) return false;
   try {
     const hostname = new URL(origin).hostname.toLowerCase();
+    // The hosted Dispatch shell also lives under Builder's domain; its app
+    // iframe is an ordinary workspace embed, not a visual-editor session.
+    if (
+      hostname === "agent-workspace.builder.io" ||
+      hostname === "beta.agent-workspace.builder.io"
+    ) {
+      return false;
+    }
     return (
       hostname === "builder.io" ||
       hostname.endsWith(".builder.io") ||
@@ -59,18 +67,21 @@ function hasBuilderPreviewParams(): boolean {
   );
 }
 
+let builderFrameDetected = false;
+let builderParentOrigin: string | null = null;
+
 /**
- * For *.builder.io / *.builder.my the parent origin alone is sufficient — those
- * are Builder-owned hosts and any iframe they load is by definition a Builder
- * editor session. For localhost we still require the legacy `?builder.*` query
- * params, because "parent is localhost" can mean anything in dev. The params
- * check existed historically as a belt-and-suspenders signal, but Builder's
- * Interact mode tunnels straight to the iframe URL without appending them, so
- * requiring them everywhere caused `isInBuilderFrame()` to return false for
- * real Builder editor sessions and `HomeChatPanel` submissions silently fell
- * through to `agentNative.submitChat` (which Builder ignores).
+ * For Builder-owned editor hosts the parent origin alone is sufficient. The
+ * hosted Dispatch shell is also under `*.builder.io`, so it is excluded above.
+ * For localhost we still require the legacy `?builder.*` query params, because
+ * "parent is localhost" can mean anything in dev. The params check existed
+ * historically as a belt-and-suspenders signal, but Builder's Interact mode
+ * tunnels straight to the iframe URL without appending them, so requiring them
+ * everywhere caused `isInBuilderFrame()` to return false for real Builder
+ * editor sessions and `HomeChatPanel` submissions silently fell through to
+ * `agentNative.submitChat` (which Builder ignores).
  */
-export function getBuilderParentOrigin(): string | null {
+function detectBuilderParentOrigin(): string | null {
   const frameOrigin = getFrameOrigin();
   if (frameOrigin) {
     if (isStrictBuilderHost(frameOrigin)) return frameOrigin;
@@ -88,14 +99,34 @@ export function getBuilderParentOrigin(): string | null {
   return null;
 }
 
+export function getBuilderParentOrigin(): string | null {
+  const detectedOrigin = detectBuilderParentOrigin();
+  if (detectedOrigin) builderParentOrigin = detectedOrigin;
+  return detectedOrigin ?? builderParentOrigin;
+}
+
+// Capture the initial Builder signal before client-side routing can remove its
+// query markers from a top-level Electron webview.
+if (typeof window !== "undefined") {
+  builderFrameDetected =
+    getBuilderParentOrigin() !== null || hasBuilderPreviewParams();
+}
+
 export function isInBuilderFrame(): boolean {
   if (typeof window === "undefined") return false;
-  if (getBuilderParentOrigin() !== null) return true;
+  if (builderFrameDetected) return true;
 
   // Electron webviews run the preview as a top-level page, so there is no
   // parent frame to inspect. Builder still marks those URLs with builder.*
   // preview params, and sendToBuilderChat will use the console relay.
-  return hasBuilderPreviewParams();
+  builderFrameDetected =
+    getBuilderParentOrigin() !== null || hasBuilderPreviewParams();
+  return builderFrameDetected;
+}
+
+export function _resetBuilderFrameDetectionForTests(): void {
+  builderFrameDetected = false;
+  builderParentOrigin = null;
 }
 
 export function shouldParentFrameOwnAgentPanel(): boolean {

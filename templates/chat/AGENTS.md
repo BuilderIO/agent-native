@@ -1,8 +1,9 @@
 # Chat — Agent Guide
 
-Chat is the minimal chat-first agent-native app. Chat is the primary surface;
-actions carry the real capabilities, and screens exist only where a workflow
-needs durable UI around the conversation.
+Chat is the minimal chat-first agent-native app. The public root is a marketing
+surface; the authenticated chat app starts at `/home`. Actions carry the real
+capabilities, and screens exist only where a workflow needs durable UI around
+the conversation.
 
 ## Skills
 
@@ -39,10 +40,14 @@ the matching skill only when this app actually uses that workflow. The
 - Use `view-screen` or application state when the active page/selection is
   unclear.
 
+For a custom app, keep `server/plugins/config.ts` aligned with the product
+brand. Its `app.name` is used in transactional emails, and its optional
+`app.logoUrl` can point to an absolute HTTPS logo URL.
+
 ## Application State
 
 - `navigation` describes the current view and selected entity ids. The default
-  chat view is `chat` at `/`.
+  chat view is `chat` at `/home`; `/` is the public SSR marketing page.
 - `navigate` moves the UI when the app supports it.
 - `view-screen` is the first tool to call when the user's visible context
   matters.

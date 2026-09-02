@@ -1,5 +1,6 @@
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
 import {
+  BuilderConnectPopover,
   useBuilderConnectFlow,
   useBuilderStatus,
 } from "@agent-native/core/client/settings";
@@ -502,11 +503,11 @@ export function builderSourceLiveWriteControlState(
     showAction: safeTarget,
     actionLabel: enabled ? "Disable" : "Enable",
     description: enabled
-      ? "Enabled for autosave writes to the Agent Native test collection."
+      ? "Enabled for autosave writes to the Agent-Native test collection."
       : safeTarget
-        ? "Off by default. Enable only when you are ready to send autosave writes to the Agent Native test collection."
+        ? "Off by default. Enable only when you are ready to send autosave writes to the Agent-Native test collection."
         : isBuilderSource
-          ? "Unavailable here; live writes are locked to the Agent Native test collection."
+          ? "Unavailable here; live writes are locked to the Agent-Native test collection."
           : "Live writes are not available for this source.",
   };
 }
@@ -702,6 +703,7 @@ function DatabaseSettingsSourcePanel({
         : [{ id: "builder-space", name: dbText("builderSpace") }];
   const builderSpaceLabel = builderSpaces[0]?.name ?? builderOrgName;
   const connect = useBuilderConnectFlow({
+    provisionAccount: true,
     trackingSource: "database_source_panel",
     onConnected: () => {
       void builderStatus.refetch();
@@ -869,19 +871,20 @@ function DatabaseSettingsSourcePanel({
             {dbText("connectYourBuilderAccountToBrowseItsSpaces")}
           </div>
           <div>
-            <Button
-              type="button"
-              size="sm"
-              disabled={!canEdit || connect.connecting}
-              onClick={() => connect.start()}
-            >
-              {connect.connecting ? (
-                <Spinner className="mr-1.5 size-3.5" />
-              ) : (
-                <IconExternalLink className="mr-1.5 size-3.5" />
-              )}
-              Connect Builder
-            </Button>
+            <BuilderConnectPopover flow={connect}>
+              <Button
+                type="button"
+                size="sm"
+                disabled={!canEdit || connect.connecting}
+              >
+                {connect.connecting ? (
+                  <Spinner className="mr-1.5 size-3.5" />
+                ) : (
+                  <IconExternalLink className="mr-1.5 size-3.5" />
+                )}
+                Connect Builder
+              </Button>
+            </BuilderConnectPopover>
           </div>
         </div>
       );

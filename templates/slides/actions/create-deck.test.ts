@@ -32,7 +32,9 @@ const mockTables = vi.hoisted(() => ({
   },
 }));
 
-let existingDeckRow: { id: string; data: string } | undefined = undefined;
+let existingDeckRow:
+  | { id: string; data: string; updatedAt: string }
+  | undefined = undefined;
 let defaultDesignSystemId: string | undefined = undefined;
 let insertedRow: Record<string, unknown> | undefined = undefined;
 let updatedFields: Record<string, unknown> | undefined = undefined;
@@ -60,14 +62,19 @@ const valuesFn = vi.fn(async (row: Record<string, unknown>) => {
 const insertFn = vi.fn(() => ({ values: valuesFn }));
 
 // db.update().set(...).where(...)
-const whereUpdateFn = vi.fn(async () => undefined);
+const whereUpdateFn = vi.fn(async () => ({ rowsAffected: 1 }));
 const setFn = vi.fn((fields: Record<string, unknown>) => {
   updatedFields = fields;
   return { where: whereUpdateFn };
 });
 const updateFn = vi.fn(() => ({ set: setFn }));
 
-const mockDb = { select: selectFn, insert: insertFn, update: updateFn };
+const mockDb = {
+  select: selectFn,
+  insert: insertFn,
+  update: updateFn,
+  transaction: async (run: (tx: typeof mockDb) => Promise<void>) => run(mockDb),
+};
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => mockDb,
@@ -194,6 +201,7 @@ describe("create-deck — aspectRatio", () => {
   it("preserves the existing aspectRatio when bulk-replacing slides without specifying it", async () => {
     existingDeckRow = {
       id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
       data: JSON.stringify({ title: "T", slides: [], aspectRatio: "1:1" }),
     };
     await action.run({
@@ -209,6 +217,7 @@ describe("create-deck — aspectRatio", () => {
   it("overwrites the existing aspectRatio when one is provided on bulk replace", async () => {
     existingDeckRow = {
       id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
       data: JSON.stringify({ title: "T", slides: [], aspectRatio: "16:9" }),
     };
     await action.run({
@@ -250,5 +259,55 @@ describe("create-deck — aspectRatio", () => {
       notes: "Explain the decision behind this slide.",
     });
     expect(data.slides[0].content).toBe("<div>Slide</div>");
+  });
+
+  it("repairs duplicate slide IDs before persisting a deck", async () => {
+    const result = await action.run({
+      title: "T",
+      slides: [
+        { id: "slide-a", content: "<div>First</div>" },
+        { id: "slide-a", content: "<div>Second</div>" },
+      ],
+    });
+    const data = JSON.parse(insertedRow!.data as string);
+    const ids = data.slides.map((slide: { id: string }) => slide.id);
+
+    expect(new Set(ids).size).toBe(2);
+    expect(result.slides.map((slide) => slide.id)).toEqual(ids);
+    expect(data.slides[1].content).toBe("<div>Second</div>");
+  });
+
+  it("rebinds slide-scoped Creative Context labels when repairing IDs", async () => {
+    const label = {
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      kind: "slide",
+      label: "Referenced slide",
+      dataRole: "untrusted-reference" as const,
+      elementId: "slide-a",
+    };
+    const result = await action.run({
+      title: "T",
+      slides: [
+        {
+          id: "slide-a",
+          content: "<div>First</div>",
+          creativeContextReuseLabels: [label],
+        },
+        {
+          id: "slide-a",
+          content: "<div>Second</div>",
+          creativeContextReuseLabels: [label],
+        },
+      ],
+    });
+    const ids = result.slides.map((slide) => slide.id);
+
+    expect(result.slides[0].creativeContextReuseLabels?.[0].elementId).toBe(
+      "slide-a",
+    );
+    expect(result.slides[1].creativeContextReuseLabels?.[0].elementId).toBe(
+      ids[1],
+    );
   });
 });

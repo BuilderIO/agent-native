@@ -92,7 +92,24 @@ describe("appMountPath", () => {
     expect(appMountPath(SETTINGS)).toBe("");
   });
 
-  it("uses the trailing mount when a mount and the route share a name", () => {
+  it("does not let a repeated marker inside the route extend the mount", () => {
+    // A user-named secret key can repeat the marker: focusKey() builds
+    // /settings/integrations/secrets/<key>, so a key called "settings/token"
+    // must not turn the route prefix into the mount.
+    vi.stubGlobal("window", {
+      location: {
+        pathname: "/dispatch/settings/integrations/secrets/settings/token",
+      },
+    });
+
+    expect(appMountPath(SETTINGS)).toBe("/dispatch");
+    expect(appMountedPath("/settings/agent", SETTINGS)).toBe(
+      "/dispatch/settings/agent",
+    );
+  });
+
+  it("leaves an app mounted at /settings to the configured base path", () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/settings");
     vi.stubGlobal("window", { location: { pathname: "/settings/settings" } });
 
     expect(appMountPath(SETTINGS)).toBe("/settings");

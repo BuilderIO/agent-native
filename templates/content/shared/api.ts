@@ -1,4 +1,5 @@
 import type { BlocksFieldIdentity } from "./blocks-field-identity";
+import type { NfmFidelityReport } from "./nfm";
 import type {
   DocumentPropertyOptions,
   DocumentPropertyType,
@@ -46,11 +47,12 @@ export interface Document {
   contextPath?: ContentContextPathEntry[];
   createdAt: string;
   updatedAt: string;
+  contentFidelity?: NfmFidelityReport;
 }
 
 export interface DocumentSourceInfo {
   mode: "database" | "local-files";
-  kind?: "file" | "folder" | string;
+  kind?: "file" | "folder" | (string & {});
   path?: string;
   absolutePath?: string;
   rootName?: string;
@@ -212,6 +214,8 @@ export interface DocumentProperty {
 export interface DocumentPropertiesResponse {
   documentId: string;
   databaseId: string | null;
+  canEditValues?: boolean;
+  canManageSchema?: boolean;
   properties: DocumentProperty[];
 }
 
@@ -271,7 +275,7 @@ export interface ContentDatabase {
 export type ContentDatabaseSortDirection = "asc" | "desc";
 
 export interface ContentDatabaseSort {
-  key: "name" | string;
+  key: "name" | (string & {});
   label: string;
   direction: ContentDatabaseSortDirection;
 }
@@ -291,7 +295,7 @@ export type ContentDatabaseFilterOperator =
   | "is_not_empty";
 
 export interface ContentDatabaseFilter {
-  key: "name" | string;
+  key: "name" | (string & {});
   label: string;
   operator: ContentDatabaseFilterOperator;
   value: string;
@@ -421,10 +425,10 @@ export interface UpdateContentDatabasePersonalViewRequest {
 }
 
 export interface ContentDatabaseMembership {
-  databaseId: string;
-  databaseDocumentId: string;
-  databaseTitle: string;
-  position: number;
+  databaseId: string | null;
+  databaseDocumentId: string | null;
+  databaseTitle: string | null;
+  position: number | null;
   sourceId?: string | null;
   bodyHydration?: ContentDatabaseBodyHydration;
 }
@@ -448,7 +452,21 @@ export interface ContentDatabaseBodyHydration {
   attemptedAt: string | null;
   error: string | null;
   version: string | null;
+  reason?: ContentDatabaseBodyHydrationReason | null;
+  providerStatus?: string | null;
+  attemptCount?: number;
+  retryable?: boolean | null;
 }
+
+export type ContentDatabaseBodyHydrationReason =
+  | "empty_body"
+  | "not_found"
+  | "auth_failed"
+  | "access_denied"
+  | "transient_read_failure"
+  | "malformed_body"
+  | "unsupported_content"
+  | "conversion_failed";
 
 export interface ContentDatabaseBodyHydrationSummary {
   pending: number;
@@ -456,6 +474,7 @@ export interface ContentDatabaseBodyHydrationSummary {
   hydrated: number;
   unavailable?: number;
   error: number;
+  retryableErrors?: number;
   total: number;
 }
 
@@ -799,7 +818,7 @@ export interface ContentDatabaseSource {
     writeMode?: ContentDatabaseSourceWriteMode;
     allowPublicationTransitions?: boolean;
     notes?: string | null;
-    readMode?: "fixture" | "builder-api" | string | null;
+    readMode?: "fixture" | "builder-api" | (string & {}) | null;
     connectionId?: string | null;
     connectionLabel?: string | null;
     truthPolicy?: ContentDatabaseSourceTruthPolicy;
@@ -1478,6 +1497,7 @@ export interface ProcessBuilderBodyHydrationRequest {
   sourceId: string;
   documentId?: string;
   limit?: number;
+  retryFailed?: boolean;
 }
 
 export interface ProcessBuilderBodyHydrationResponse {
@@ -1486,4 +1506,6 @@ export interface ProcessBuilderBodyHydrationResponse {
   succeeded: number;
   failed: number;
   remaining: number;
+  ready: number;
+  nextAttemptAt: string | null;
 }

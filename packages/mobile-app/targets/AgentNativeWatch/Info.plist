@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>NSMicrophoneUsageDescription</key>
-  <string>Allow Agent Native to record an audio note you start on Apple Watch.</string>
+  <string>Allow Agent-Native to record an audio note you start on Apple Watch.</string>
   <key>WKCompanionAppBundleIdentifier</key>
   <string>com.agentnative.mobile</string>
 </dict>

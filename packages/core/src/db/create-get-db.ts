@@ -6,7 +6,7 @@ import type { LibSQLDatabase } from "drizzle-orm/libsql";
 import {
   getDialect,
   getCloudflareD1Binding,
-  getDatabaseUrl,
+  getRuntimeDatabaseUrl,
   getDatabaseAuthToken,
   isLocalSqliteUrl,
   isPgliteUrl,
@@ -521,7 +521,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   function startInit(): Promise<any> {
     if (_dbReady) return _dbReady;
 
-    const url = getDatabaseUrl("file:./data/app.db");
+    const url = getRuntimeDatabaseUrl("file:./data/app.db");
     const dialect = getDialect();
 
     // D1 only if dialect detected it (DATABASE_URL takes priority)
@@ -672,7 +672,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
    */
   function getDb(): LibSQLDatabase<T> {
     if (_db) return _db;
-    startInit();
+    void startInit();
     if (_db) return _db;
 
     return createLazyProxy(_dbReady!, []) as LibSQLDatabase<T>;

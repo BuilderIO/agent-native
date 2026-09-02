@@ -207,7 +207,7 @@ const messages = {
     useBuilder: "使用生成器",
     openDesktopToEditCode: "打开桌面编辑代码",
     codeUnavailableDescription:
-      "Agent Native 桌面应用程序中提供源代码更改和 CLI 访问。",
+      "Agent-Native 桌面应用程序中提供源代码更改和 CLI 访问。",
     downloadDesktop: "下载桌面",
     chatMode: "聊天模式",
     chat: "聊天",
@@ -311,7 +311,7 @@ const messages = {
     subtitleWithFeature:
       '"{{feature}}" creates or modifies source code, which needs Desktop or Builder from this surface.',
     subtitle: "此操作创建或修改源代码，需要此界面的 Desktop 或 Builder。",
-    desktopTitle: "使用Agent Native桌面",
+    desktopTitle: "使用Agent-Native桌面",
     desktopDescription: "在桌面应用程序中打开项目以启用源代码编辑和 CLI 访问。",
     builderAgentTitle: "使用Builder.io代理",
     builderAgentDescription:

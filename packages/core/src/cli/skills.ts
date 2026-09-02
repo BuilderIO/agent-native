@@ -42,6 +42,8 @@ import { PR_VISUAL_RECAP_SETUP, writePrVisualRecapWorkflow } from "./recap.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
 import {
   ASSETS_SKILL_MD,
+  AN_COMMAND_MD,
+  AN_SKILL_MD,
   CANVAS_REFERENCE_MD,
   CONNECTION_REFERENCE_MD,
   CONTENT_SKILL_MD,
@@ -76,6 +78,54 @@ export {
 };
 
 export const BUILT_IN_APP_SKILLS = {
+  "agent-native": {
+    skillName: "an",
+    manifest: normalizeAppSkillManifest({
+      schemaVersion: 1,
+      id: "agent-native",
+      displayName: "Agent-Native",
+      description:
+        "Open and operate granted Agent-Native apps through Dispatch MCP, with inline app surfaces and current browser screen state.",
+      hosted: {
+        url: "https://dispatch.agent-native.com",
+        mcpUrl: "https://dispatch.agent-native.com/mcp",
+      },
+      mcp: {
+        serverName: "agent-native-dispatch",
+        aliases: ["dispatch"],
+      },
+      auth: {
+        mode: "oauth",
+        setup:
+          "Authenticate the Dispatch MCP connector in the host app. The app's embedded browser owns the user's sign-in session; no credentials are stored in the skill.",
+      },
+      surfaces: [
+        {
+          id: "agent-native-app",
+          path: "/",
+          description:
+            "Open a granted Agent-Native app or focused app route inline in a compatible MCP host.",
+        },
+      ],
+      skills: [
+        {
+          path: "skills/an",
+          visibility: "exported",
+          exportAs: "an",
+        },
+      ],
+      hostAdapters: [
+        "codex-plugin",
+        "claude-marketplace",
+        "vercel-skills",
+        "plain-skill",
+        "claude-skill",
+        "chatgpt-mcp",
+        "generic-mcp",
+      ],
+    }),
+    skillMarkdown: AN_SKILL_MD,
+  },
   assets: {
     skillName: "assets",
     manifest: normalizeAppSkillManifest({
@@ -138,7 +188,7 @@ export const BUILT_IN_APP_SKILLS = {
       auth: {
         mode: "oauth",
         setup:
-          "Authenticate with the Content MCP connector in the host app. Local-folder synchronization requires a local Content app, Agent Native Desktop, or trusted local bridge for filesystem access.",
+          "Authenticate with the Content MCP connector in the host app. Local-folder synchronization requires a local Content app, Agent-Native Desktop, or trusted local bridge for filesystem access.",
       },
       surfaces: [
         {
@@ -410,6 +460,11 @@ type ModeAwareAppSkillId = "visual-plans" | "content";
 export const AGENT_NATIVE_SKILL_METADATA_FILE = "agent-native-skill.json";
 
 const BUILT_IN_APP_SKILL_ALIASES = {
+  an: "agent-native",
+  "agent-native": "agent-native",
+  "agent-native-apps": "agent-native",
+  dispatch: "agent-native",
+  "dispatch-mcp": "agent-native",
   assets: "assets",
   asset: "assets",
   "asset-generation": "assets",
@@ -462,6 +517,7 @@ const BUILT_IN_APP_SKILL_ALIASES = {
 } satisfies Record<string, BuiltInAppSkillId>;
 
 const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
+  "agent-native": ["an", "agent-native-apps", "dispatch", "dispatch-mcp"],
   assets: ["images", "image-generation", "agent-native-images"],
   content: [
     "docs",
@@ -760,7 +816,7 @@ export interface RunSkillsOptions {
    */
   publicSkillEntries?: PublicSkillCatalogEntry[];
   /**
-   * Built-in Agent Native skill prompt/list entries to hide for wrapper CLIs.
+   * Built-in Agent-Native skill prompt/list entries to hide for wrapper CLIs.
    * Direct installs by explicit name still work; this only controls discovery.
    */
   hiddenBuiltInSkillTargets?: string[];
@@ -1045,7 +1101,7 @@ function contentModeInstructionBlock(input: {
 Default storage for this installation is Content's SQL database. This repo's
 \`agent-native.json\` declares \`docs/\`, \`blog/\`, \`content/\`, and
 \`resources/\` as local-folder sources with opaque connection ids; it does not
-select a separate application mode. A trusted local Content app or Agent Native
+select a separate application mode. A trusted local Content app or Agent-Native
 Desktop bridge imports those files into their workspace's canonical Files
 database, after which normal Content document actions read and edit the SQL-backed
 pages. Use \`sync-manifest-local-folder-source\` with each root's generated
@@ -1186,7 +1242,7 @@ function writeSkillFolder(
       fs.rmSync(tempDir, { recursive: true, force: true });
     } catch {}
     throw new Error(
-      `Cannot write Agent Native skill folder ${dir}: ${error?.message ?? error}`,
+      `Cannot write Agent-Native skill folder ${dir}: ${error?.message ?? error}`,
       { cause: error },
     );
   }
@@ -1202,7 +1258,7 @@ function assertSkillFolderIsNotSymlink(dir: string): void {
   }
   if (stat.isSymbolicLink()) {
     throw new Error(
-      `Refusing to replace symlinked Agent Native skill folder ${dir}. Update the linked source or remove the symlink before installing.`,
+      `Refusing to replace symlinked Agent-Native skill folder ${dir}. Update the linked source or remove the symlink before installing.`,
     );
   }
 }
@@ -1404,6 +1460,9 @@ function builtInCommandsRootForAgent(
 }
 
 function slashCommandForBuiltInSkill(skillName: string): string | null {
+  if (skillName === "an") {
+    return AN_COMMAND_MD;
+  }
   if (skillName === "visual-plan") {
     return `---
 description: Create an interactive Agent-Native visual plan for the current task.
@@ -2325,6 +2384,11 @@ const PUBLIC_SKILL_TARGET_PREFIX = "public-skills:";
 
 const BUILT_IN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
   {
+    value: "an",
+    label: "an",
+    hint: BUILT_IN_APP_SKILLS["agent-native"].manifest.description,
+  },
+  {
     value: "visual-plan",
     label: "visual-plan",
     hint: "Rich interactive visual plan that turns ordinary text plans into diagrams, file maps, annotated code, questions, and UI/prototype review.",
@@ -2627,7 +2691,7 @@ async function promptForSkills(
   const clack = await import("@clack/prompts");
   const result = await clack.multiselect({
     message:
-      "Which Agent Native skills do you want to install?\n" +
+      "Which Agent-Native skills do you want to install?\n" +
       "  (space toggles, enter confirms)",
     options: context.options,
     initialValues: context.initialTargets,
@@ -3290,7 +3354,7 @@ async function addPlainSkillRepo(
   }
   if (parsed.mcpUrl && !installModeSkillNamesSelected(parsed.plainSkillNames)) {
     throw new Error(
-      "--mcp-url only applies to app-backed Agent Native skills.",
+      "--mcp-url only applies to app-backed Agent-Native skills.",
     );
   }
 
@@ -4097,6 +4161,9 @@ function targetsInstallMcp(
 }
 
 function instructionContentForSkill(skillName: string): string | null {
+  if (skillName === "an") {
+    return "When a user invokes /an or asks to open or operate an Agent-Native app, use the /an skill and Dispatch MCP.";
+  }
   if (skillName === "quick-recap") {
     return "When writing final response status indicators, use the /quick-recap skill always.";
   }
@@ -4199,12 +4266,12 @@ function runSkillsStatusOrUpdate(
   if (beforeCount === 0) {
     const target = parsed.target ? ` for ${parsed.target}` : "";
     const hint = isScaffoldGuidanceTarget(parsed.target)
-      ? `Run this from a generated Agent Native app or workspace root.\n`
+      ? `Run this from a generated Agent-Native app or workspace root.\n`
       : update
         ? `The update command only refreshes skill folders that already exist; it does not do first-time install, MCP registration, or auth. Run "npx @agent-native/core@latest skills add ${parsed.target ?? "visual-plan"}" for one-step setup.\n`
         : `Run "npx @agent-native/core@latest skills add ${parsed.target ?? "visual-plan"}" to install one.\n`;
     process.stdout.write(
-      `No installed Agent Native skill copies found${target}.\n${hint}`,
+      `No installed Agent-Native skill copies found${target}.\n${hint}`,
     );
     return;
   }

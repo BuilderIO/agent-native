@@ -5,7 +5,7 @@ description: "Sicherheitsmodell für agentennative Apps: Eingabevalidierung, SQL
 
 # Sicherheit
 
-Agent-native Apps sind standardmäßig sicher konzipiert. Das Framework bietet automatischen Schutz auf mehreren Ebenen – Sie erhalten sofort Datenisolation auf SQL-Ebene, parametrisierte Abfragen, Eingabevalidierung und Authentifizierung.
+Agent-Native Apps sind standardmäßig sicher konzipiert. Das Framework bietet automatischen Schutz auf mehreren Ebenen – Sie erhalten sofort Datenisolation auf SQL-Ebene, parametrisierte Abfragen, Eingabevalidierung und Authentifizierung.
 
 ## Was Sie kostenlos bekommen und was Sie besitzen {#what-you-own}
 
@@ -354,9 +354,11 @@ Ohne `A2A_SECRET` in der Produktion geben jeder A2A-Endpunkt und der `/_agent-na
 
 ## Eingehender Webhooks {#webhooks}
 
-Eingehende Webhook-Handler (Resend, SendGrid, Slack, Telegram, WhatsApp, Recall.ai, Deepgram, Zoom, Google Docs Pub/Sub) lehnen gefälschte Anfragen standardmäßig in der Produktion ab: Wenn die entsprechende signierende geheime Umgebungsvariable fehlt, gibt der Handler 401 zurück, anstatt sie zu akzeptieren und zu versenden.
+Eingehende Webhook-Handler (Resend, SendGrid, Slack, Telegram, WhatsApp, Recall.ai, Deepgram, Zoom) lehnen gefälschte Anfragen standardmäßig in der Produktion ab: Wenn die entsprechende signierende geheime Umgebungsvariable fehlt, gibt der Handler 401 zurück, anstatt sie zu akzeptieren und zu versenden.
 
 Dies war zuvor eine „Warnen und Akzeptieren“-Haltung – legen Sie das Geheimnis fest, das Ihnen sonst entgehen würde, oder entscheiden Sie sich für das alte Verhalten mit `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` nur für lokale Entwickler. Informationen zu den Signaturgeheimnisvariablen pro Integration finden Sie unter [Messaging](/docs/messaging#env-vars).
+
+Google-Drive-`changes.watch`-Benachrichtigungen durchlaufen dieses allgemeine Adapter-Gate nicht. Sie sind inhaltsleere, undurchsichtige Anfragen. Daher registriert das Framework ein zufälliges Token pro Kanal und prüft die Header `X-Goog-Channel-ID`, `X-Goog-Channel-Token` und `X-Goog-Resource-ID`, bevor Änderungen abgerufen werden. Dies sind direkte Drive-Benachrichtigungen, keine Pub/Sub-Nachrichten, und sie enthalten keine Pub/Sub-OIDC-Bearer-Tokens.
 
 ## Produktionscheckliste {#production-checklist}
 

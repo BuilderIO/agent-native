@@ -5,8 +5,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  AGENT_CHAT_CONTEXT_CHANGED_EVENT,
   cancelAgentChatSubmit,
   listAgentChatContext,
+  removeAgentChatContextItem,
   requestAgentChatThreadOpen,
   requestAgentTaskOpen,
   setAgentChatContextItem,
@@ -207,6 +209,10 @@ async function mountWithCatalog(
       el
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-selected-engine") ?? null,
+    modelOf: () =>
+      el
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-selected-model") ?? null,
     catalogOf: () =>
       el
         .querySelector("[data-testid='assistant-chat']")
@@ -590,6 +596,29 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       await Promise.resolve();
     });
     expect(view.engineOf()).toBe("anthropic");
+    await view.cleanup();
+  });
+
+  it("heals a persisted selection when its provider is hidden as unconfigured", async () => {
+    window.localStorage.setItem(
+      "agent-native:chat-models:selection:catalog-test",
+      JSON.stringify({ model: "z-ai/glm-5.2", engine: "ai-sdk:openrouter" }),
+    );
+    const view = await mountWithCatalog(
+      [
+        ...ANTHROPIC_ENGINES,
+        {
+          name: "ai-sdk:openrouter",
+          label: "OpenRouter",
+          supportedModels: ["z-ai/glm-5.2"],
+          requiredEnvVars: ["OPENROUTER_API_KEY"],
+        },
+      ],
+      ["ANTHROPIC_API_KEY"],
+    );
+
+    expect(view.engineOf()).toBe("anthropic");
+    expect(view.modelOf()).toBe("claude-sonnet-5");
     await view.cleanup();
   });
 
@@ -1163,6 +1192,83 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         ),
       }),
     ]);
+  });
+
+  it("updates resource context in place when only its label changes", async () => {
+    const contextTransitions: string[][] = [];
+    const onContextChanged = (event: Event) => {
+      const items = (event as CustomEvent<{ items: Array<{ key: string }> }>)
+        .detail.items;
+      contextTransitions.push(items.map((item) => item.key));
+    };
+    window.addEventListener(AGENT_CHAT_CONTEXT_CHANGED_EVENT, onContextChanged);
+
+    try {
+      await act(async () => {
+        root.render(
+          <MultiTabAssistantChat
+            storageKey="bridge-test"
+            scope={{ type: "deck", id: "deck-1", label: "This Slide" }}
+          />,
+        );
+        await Promise.resolve();
+      });
+      contextTransitions.length = 0;
+
+      await act(async () => {
+        root.render(
+          <MultiTabAssistantChat
+            storageKey="bridge-test"
+            scope={{
+              type: "deck",
+              id: "deck-1",
+              label: "Current Selection",
+            }}
+          />,
+        );
+        await Promise.resolve();
+      });
+
+      expect(listAgentChatContext()).toEqual([
+        expect.objectContaining({ title: "Current Selection" }),
+      ]);
+      expect(contextTransitions).not.toContainEqual([]);
+    } finally {
+      window.removeEventListener(
+        AGENT_CHAT_CONTEXT_CHANGED_EVENT,
+        onContextChanged,
+      );
+    }
+  });
+
+  it("does not restore a resource context after it is dismissed", async () => {
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{ type: "deck", id: "deck-1", label: "This Slide" }}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    removeAgentChatContextItem("agent-current-resource-context");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{
+            type: "deck",
+            id: "deck-1",
+            label: "Current Selection",
+          }}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(listAgentChatContext()).toEqual([]);
   });
 
   it("passes an app context namespace to the active composer", async () => {

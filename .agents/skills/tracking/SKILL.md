@@ -52,7 +52,7 @@ did. Pass `sessionId` in the meta object to override it — routes that run
 outside a request context, such as `/_agent-native/track`, do exactly that.
 Providers map it to their own session field: `$session_id` for PostHog (which
 joins the event to session replay), `session_id` as a property for Mixpanel and
-Amplitude, a top-level `sessionId` for webhooks and Agent Native Analytics. It
+Amplitude, a top-level `sessionId` for webhooks and Agent-Native Analytics. It
 is absent for callers with no browser — cron, CLI, MCP, A2A.
 
 ### `identify(userId, traits?)`
@@ -99,12 +99,12 @@ Set the env var and the provider auto-registers at startup. No SDK dependencies 
 | PostHog                | `POSTHOG_API_KEY` (required), `POSTHOG_HOST` (optional, defaults to `https://us.i.posthog.com`), `POSTHOG_ERROR_TRACKING=false` (optional opt-out) |
 | Mixpanel               | `MIXPANEL_TOKEN`                                                                                                                                   |
 | Amplitude              | `AMPLITUDE_API_KEY`                                                                                                                                |
-| Agent Native Analytics | `AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` (server), `AGENT_NATIVE_ANALYTICS_ENDPOINT` (optional, defaults to `https://analytics.agent-native.com/track`) |
+| Agent-Native Analytics | `AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` (server), `AGENT_NATIVE_ANALYTICS_ENDPOINT` (optional, defaults to `https://analytics.agent-native.com/track`) |
 | Webhook                | `TRACKING_WEBHOOK_URL` (required), `TRACKING_WEBHOOK_AUTH` (optional, sent as `Authorization` header)                                              |
 
 Multiple providers can be active simultaneously. All receive every event.
 
-Browser-side `trackEvent()` also forwards to Agent Native Analytics when `VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` is present. Use `VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT` to override the default browser endpoint. The built-in Agent Native Analytics sender is quiet on localhost/local dev by default; set `AGENT_NATIVE_ANALYTICS_ALLOW_LOCALHOST=true` only for an intentional local ingestion test.
+Browser-side `trackEvent()` also forwards to Agent-Native Analytics when `VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` is present. Use `VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT` to override the default browser endpoint. The built-in Agent-Native Analytics sender is quiet on localhost/local dev by default; set `AGENT_NATIVE_ANALYTICS_ALLOW_LOCALHOST=true` only for an intentional local ingestion test.
 
 ## Error Capture
 
@@ -156,6 +156,53 @@ string copy and cannot import the module, so a one-sided edit drops the config
 silently in deployed builds. `posthog-config.spec.ts` pins the two outputs
 together.
 
+## MCP Server Events
+
+The MCP server an app exposes reports its own usage. `packages/core/src/mcp/analytics.ts`
+emits one event per protocol request, and the emission points sit in the shared
+server builder (`build-server.ts`), so the HTTP mount and the stdio transport
+report identically.
+
+| Event                  | Fires on                                      |
+| ---------------------- | --------------------------------------------- |
+| `$mcp_initialize`      | the client/server handshake (HTTP mount only) |
+| `$mcp_tools_list`      | `tools/list`                                  |
+| `$mcp_tool_call`       | `tools/call`, success or failure              |
+| `$mcp_resources_list`  | `resources/list`                              |
+| `$mcp_resource_read`   | `resources/read`                              |
+
+Names come from PostHog's MCP analytics vocabulary
+(https://posthog.com/docs/mcp-analytics/events) on purpose, so PostHog's MCP
+dashboards read these events with no mapping layer — but they go through
+`track()` like every other event, so Mixpanel, Amplitude, a webhook, and
+Agent-Native Analytics receive the same ones.
+
+Shared properties: `$mcp_source` (`http` / `stdio`), `$mcp_server_name`,
+`$mcp_server_version`, `$mcp_app_id`, `$mcp_client_name`, `$mcp_client_version`,
+`$mcp_client_user_agent`, `$mcp_vendor_client`, `$mcp_protocol_version`. Per
+event: `$mcp_tool_name`, `$mcp_tool_description`, `$mcp_tool_category`
+(`read` / `write`), `$mcp_listed_tool_names`, `$mcp_duration_ms`,
+`$mcp_is_error`, `$mcp_error_type`, `$mcp_error_message`, `$mcp_resource_name`,
+`$mcp_resource_uri`.
+
+- **A client's own name is only on the wire at `initialize`.** The mount is
+  stateless — one server per request — so no later event can recover it.
+  `$mcp_initialize` carries the `clientInfo` from the handshake; every other
+  event falls back to the 2026-era per-request `_meta` and the HTTP user agent,
+  and `$mcp_vendor_client` buckets both spellings onto one row.
+- **A failed call is reported with its reason, not just `isError`.** The
+  `tools/call` handler renders "unknown tool", "forbidden scope", and a thrown
+  action error as the same shape of error result, so each sets `$mcp_error_type`
+  where it returns rather than having it guessed back out of the response text.
+- **Payloads stay out.** `$mcp_response` is never emitted. `$mcp_parameters` is
+  off by default and redacted when on — tool arguments carry user content.
+
+Off switches: `MCP_ANALYTICS=false` (`observability.mcpEvents`) disables the
+events; `MCP_ANALYTICS_PARAMETERS=true` (`observability.mcpCaptureParameters`)
+opts into arguments. They sit in `observability` with the other capture
+switches, not in `analytics` — they gate every provider, not the first-party
+Agent-Native Analytics sender whose key lives there.
+
 ## Default Baseline Events
 
 Template roots call `configureTracking()` once during app startup. That installs default browser pageview tracking for hosted apps:
@@ -169,7 +216,7 @@ Template roots call `configureTracking()` once during app startup. That installs
 
 ### Visitor identity (`anonymousId` + `sessionId`)
 
-Every browser-side `trackEvent()` POST to the Agent Native Analytics `/track` endpoint includes:
+Every browser-side `trackEvent()` POST to the Agent-Native Analytics `/track` endpoint includes:
 
 - `anonymousId` — persistent per-browser visitor ID stored in `localStorage` under `agent-native.anonymous_id`. Generated once and reused across sessions. Use this for unique-visitor and returning-visitor metrics.
 - `sessionId` — rotating per-visit ID stored in `localStorage` under `agent-native.session_id`, with a 30-minute idle timeout (matches GA4 / Mixpanel defaults). Use this for sessions-per-visitor, pages-per-session, and session-duration metrics.
@@ -227,7 +274,7 @@ Other framework-level baseline events:
 - `signup` from Better Auth user creation, with `auth_provider`, `auth_user_id`, and first-touch referral attribution (`referral_source`, `referrer_user`, `referral_medium`, `referral_campaign`, `utm_*`, `first_touch_path`, `landing_referrer` — see "Referral / viral attribution" above)
 - `builder connect clicked` and `builder connect popup blocked` from browser Connect Builder CTAs
 - `builder connect started`, `builder connect succeeded`, `builder connect failed`, `builder disconnect succeeded`, and `builder disconnect failed` from the Builder connection routes, with LLM connection context when resolvable
-- `$ai_generation` from instrumented agent loops, with PostHog AI Observability fields such as `$ai_trace_id`, `$ai_session_id`, `$ai_model`, `$ai_provider`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_total_cost_usd`, and mirrored Agent Native query fields such as `run_id`, `thread_id`, `cost_cents_x100`, `duration_ms`, `tool_calls`, and `status`. A bounded `tools` array contains names, start offsets, durations, statuses, and coarse error classes only; interrupted tools and failed runs remain visible, and delegated runs include protocol/task/parent-run/parent-turn correlation. Prompt, tool argument, result, and output content is excluded unless `captureToolResults` is opted in (see the `observability` skill), in which case each failed tool call also carries a `error_message` string truncated to 500 characters and already scrubbed of bearer tokens, API keys, and key/value secret patterns.
+- `$ai_generation` from instrumented agent loops, with PostHog AI Observability fields such as `$ai_trace_id`, `$ai_session_id`, `$ai_model`, `$ai_provider`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_total_cost_usd`, and mirrored Agent-Native query fields such as `run_id`, `thread_id`, `cost_cents_x100`, `duration_ms`, `tool_calls`, and `status`. A bounded `tools` array contains names, start offsets, durations, statuses, and coarse error classes only; interrupted tools and failed runs remain visible, and delegated runs include protocol/task/parent-run/parent-turn correlation. Prompt, tool argument, result, and output content is excluded unless `captureToolResults` is opted in (see the `observability` skill), in which case each failed tool call also carries a `error_message` string truncated to 500 characters and already scrubbed of bearer tokens, API keys, and key/value secret patterns.
 
 For new lifecycle events, call `track()` server-side when the server is the source of truth, and `trackEvent()` client-side only for browser interactions.
 
@@ -264,7 +311,7 @@ interface TrackingEvent {
 | File                                      | Purpose                                                                                                             |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `packages/core/src/tracking/registry.ts`  | `track()`, `identify()`, `registerTrackingProvider()`, `flushTracking()`                                            |
-| `packages/core/src/tracking/providers.ts` | Built-in providers (PostHog, Mixpanel, Amplitude, Agent Native Analytics, Webhook) and `registerBuiltinProviders()` |
+| `packages/core/src/tracking/providers.ts` | Built-in providers (PostHog, Mixpanel, Amplitude, Agent-Native Analytics, Webhook) and `registerBuiltinProviders()` |
 | `packages/core/src/tracking/types.ts`     | `TrackingEvent` and `TrackingProvider` interfaces                                                                   |
 | `packages/core/src/tracking/posthog-exception.ts` | `$exception_list` builder + stack-frame parser (isomorphic: server and browser)                             |
 | `packages/core/src/tracking/redaction.ts` | Shared bounding/redaction helpers used by every exception emitter                                                   |

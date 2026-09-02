@@ -1,5 +1,5 @@
 /**
- * Agent-native shared Tailwind v4 stylesheet.
+ * Agent-Native shared Tailwind v4 stylesheet.
  *
  * Templates should import this in their `app/global.css` AFTER `@import "tailwindcss";`:
  *
@@ -539,6 +539,50 @@
   }
 }
 
+/* Whole-surface loading treatment. The muted selectors keep hand-rolled
+   placeholders on the same motion until they migrate to the shared class. */
+.skeleton-shimmer,
+.animate-pulse[class~="bg-muted"],
+.animate-pulse[class*="bg-muted/"],
+.animate-pulse[class~="bg-card"],
+.animate-pulse[class~="bg-border"],
+.animate-pulse[class*="bg-border/"] {
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    hsl(var(--foreground, var(--ui-foreground)) / 0.043) 50%,
+    transparent 70%
+  );
+  background-position: 150% 0;
+  background-repeat: repeat;
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s linear infinite;
+}
+
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-shimmer,
+  .animate-pulse[class~="bg-muted"],
+  .animate-pulse[class*="bg-muted/"],
+  .animate-pulse[class~="bg-card"],
+  .animate-pulse[class~="bg-border"],
+  .animate-pulse[class*="bg-border/"] {
+    animation: none;
+  }
+
+  .animate-pulse {
+    animation: none;
+  }
+}
+
 .route-transition-indicator-bar {
   animation: route-transition-sweep 1.1s ease-in-out infinite;
 }
@@ -566,7 +610,27 @@
 
   * {
     scrollbar-width: thin;
-    scrollbar-color: gray transparent;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.22) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: padding-box;
+    background-color: hsl(var(--muted-foreground) / 0.22);
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.34);
   }
 
   button,
@@ -1084,8 +1148,22 @@
 }
 
 .agent-thinking-indicator__text,
-.agent-running-shimmer {
+.agent-running-shimmer,
+.agent-loading-label {
   display: inline-block;
+}
+
+.agent-loading-label {
+  overflow: hidden;
+  text-align: left;
+  transition: width 220ms var(--ease-out-strong);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-loading-label {
+    transition: none;
+  }
 }
 
 @media (prefers-reduced-motion: no-preference) {

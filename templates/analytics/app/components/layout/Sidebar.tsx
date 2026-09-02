@@ -1,3 +1,4 @@
+import { AgentNativeIcon } from "@agent-native/core/client/ui";
 import {
   IconChartBar,
   IconChevronDown,
@@ -91,7 +92,6 @@ import {
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
-import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import {
   callAction,
@@ -148,7 +148,9 @@ import { useUserPref } from "@/hooks/use-user-pref";
 import { shouldRenderDashboardList } from "@/lib/dashboard-list-loading";
 import { usePopularity, popularityOf } from "@/lib/item-popularity";
 import {
+  DASHBOARD_SESSION_LOADING_SCOPE,
   dashboardCacheScope,
+  preserveScopedDashboardPlaceholder,
   sqlDashboardPrefetchKey,
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
@@ -162,6 +164,8 @@ import { SidebarLoadError } from "./SidebarLoadError";
 const SIDEBAR_PREVIEW_COUNT = 5;
 const ASK_OPEN_KEY = "analytics-sidebar-ask-open";
 const DASHBOARD_SORT_MODE_KEY = "dashboard-sort-mode";
+const DASHBOARD_VISIBILITY_FILTER_KEY =
+  "analytics-sidebar-dashboard-visibility";
 const DASHBOARDS_OPEN_KEY = "analytics-sidebar-dashboards-open";
 const SIDEBAR_COLLAPSE_KEY = "analytics.sidebar.collapsed";
 const SIDEBAR_SKELETON_CLASS =
@@ -228,6 +232,35 @@ function setStoredSortMode(key: string, value: SidebarSortMode): void {
     window.localStorage.setItem(key, value);
   } catch {
     // localStorage unavailable — ignore, sort mode is best-effort.
+  }
+}
+
+export function getStoredVisibilityFilter(
+  key: string,
+): SidebarVisibilityFilter {
+  if (typeof window === "undefined") return "all";
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw === "all" || raw === "private" || raw === "shared") {
+      return raw;
+    }
+  } catch {
+    // coercion-ok: localStorage is optional; in-memory filter state remains authoritative.
+    // localStorage unavailable; visibility filter is best-effort.
+  }
+  return "all";
+}
+
+export function setStoredVisibilityFilter(
+  key: string,
+  value: SidebarVisibilityFilter,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // coercion-ok: localStorage is optional; in-memory filter state remains authoritative.
+    // localStorage unavailable; visibility filter is best-effort.
   }
 }
 
@@ -516,6 +549,7 @@ function SortableRow({
     useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(name);
+  const pendingRenameRef = useRef(false);
   const renameInputRef = useAutoFocusSelect<HTMLInputElement>(isRenaming);
 
   useEffect(() => {
@@ -681,7 +715,7 @@ function SortableRow({
             onChange={(e) => setRenameValue(e.target.value)}
             onBlur={submitRename}
             onKeyDown={(e) => {
-              if (e.key === "Enter") submitRename();
+              if (e.key === "Enter") void submitRename();
               if (e.key === "Escape") {
                 setRenameValue(name);
                 setIsRenaming(false);
@@ -749,11 +783,22 @@ function SortableRow({
                 {t("sidebar.itemActions", { name })}
               </TooltipContent>
             </Tooltip>
-            <DropdownMenuContent side="right" align="start" className="w-44">
+            <DropdownMenuContent
+              side="right"
+              align="start"
+              className="w-44"
+              onCloseAutoFocus={(event) => {
+                if (!pendingRenameRef.current) return;
+                event.preventDefault();
+                pendingRenameRef.current = false;
+                setIsRenaming(true);
+              }}
+            >
               <DropdownMenuItem
                 onSelect={() => {
                   setRenameValue(name);
-                  setIsRenaming(true);
+                  pendingRenameRef.current = true;
+                  setMenuOpen(false);
                 }}
               >
                 <IconPencil className="me-2 h-3.5 w-3.5" />
@@ -1513,8 +1558,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const t = useT();
   const queryClient = useQueryClient();
   const { setTheme } = useTheme();
-  const { auth } = useAuth();
-  const dashboardScope = dashboardCacheScope(auth);
+  const { auth, isLoading: authLoading } = useAuth();
+  const dashboardScope = authLoading
+    ? DASHBOARD_SESSION_LOADING_SCOPE
+    : dashboardCacheScope(auth);
 
   const isAskRoute = location.pathname === "/ask";
   const activeDashboardId = useMemo(() => {
@@ -1536,8 +1583,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       activeDashboardId !== null,
   );
   const [dashShowAll, setDashShowAll] = useState(false);
-  const [dashFilter, setDashFilter] =
-    useState<SidebarVisibilityFilter>("private");
+  const [dashFilter, setDashFilter] = useState<SidebarVisibilityFilter>(() =>
+    getStoredVisibilityFilter(DASHBOARD_VISIBILITY_FILTER_KEY),
+  );
   const [dashboardSortMode, setDashboardSortModeState] =
     useState<SidebarSortMode>(() => getStoredSortMode(DASHBOARD_SORT_MODE_KEY));
   const { data: popularity, isReady: popularityReady } = usePopularity();
@@ -1630,6 +1678,14 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     setDashboardSortModeState(mode);
   }, []);
 
+  const setDashboardVisibilityFilter = useCallback(
+    (value: SidebarVisibilityFilter) => {
+      setStoredVisibilityFilter(DASHBOARD_VISIBILITY_FILTER_KEY, value);
+      setDashFilter(value);
+    },
+    [],
+  );
+
   useEffect(() => {
     if (getStoredBooleanPreference(ASK_OPEN_KEY) === null) {
       setAskOpen(isAskRoute);
@@ -1700,7 +1756,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   } = useQuery({
     queryKey: ["sql-dashboards-sidebar", dashboardScope, dashboardsSync],
     queryFn: () => fetchSqlDashboards(t),
+    enabled: !authLoading,
     staleTime: 30_000,
+    placeholderData: (prev, previousQuery) =>
+      preserveScopedDashboardPlaceholder(prev, previousQuery, dashboardScope),
   });
 
   const {
@@ -1717,7 +1776,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   // Only the active dashboard can display saved views in the sidebar, so avoid
   // issuing one request per dashboard on every sidebar mount.
-  const { views: activeDashboardViews = [] } = useDashboardViews(
+  const { views: activeDashboardViews } = useDashboardViews(
     activeDashboardId ?? undefined,
   );
   const allViewsMap = useMemo<Record<string, DashboardView[]>>(
@@ -1887,8 +1946,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     async (d: SidebarDashboard) => {
       if (d.source === "analysis") {
         await deleteAnalysisMut({ id: d.resourceId ?? d.id });
-        queryClient.invalidateQueries({ queryKey: ["analyses-sidebar"] });
-        queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
+        void queryClient.invalidateQueries({ queryKey: ["analyses-sidebar"] });
+        void queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
         return;
       }
       if (d.source === "static") {
@@ -1913,7 +1972,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         queryClient.removeQueries({
           queryKey: sqlDashboardPrefetchKey(d.id, dashboardScope),
         });
-        queryClient.invalidateQueries({ queryKey: activeKey });
+        void queryClient.invalidateQueries({ queryKey: activeKey });
       } catch (err) {
         restoreQuerySnapshots(queryClient, prevActive);
         throw err;
@@ -1946,7 +2005,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         queryClient.removeQueries({
           queryKey: sqlDashboardPrefetchKey(d.id, dashboardScope),
         });
-        queryClient.invalidateQueries({ queryKey: activeKey });
+        void queryClient.invalidateQueries({ queryKey: activeKey });
         toast.success(t("sidebar.archivedName", { name: d.name }));
       } catch (err) {
         restoreQuerySnapshots(queryClient, prevActive);
@@ -1963,9 +2022,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
       if (d.source === "analysis") {
         await renameAnalysis({ id: d.resourceId ?? d.id, name: trimmed });
-        queryClient.invalidateQueries({ queryKey: ["analyses-sidebar"] });
-        queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({ queryKey: ["analyses-sidebar"] });
+        void queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
+        void queryClient.invalidateQueries({
           queryKey: ["analysis-detail", d.resourceId ?? d.id],
         });
         return;
@@ -1995,8 +2054,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         queryClient.removeQueries({
           queryKey: sqlDashboardPrefetchKey(d.id, dashboardScope),
         });
-        queryClient.invalidateQueries({ queryKey });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({ queryKey });
+        void queryClient.invalidateQueries({
           queryKey: ["sql-dashboards-palette", dashboardScope],
         });
       } catch (err) {
@@ -2016,8 +2075,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           resourceId: d.resourceId ?? d.id,
           visibility,
         } as any);
-        queryClient.invalidateQueries({ queryKey: ["analyses-sidebar"] });
-        queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
+        void queryClient.invalidateQueries({ queryKey: ["analyses-sidebar"] });
+        void queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
         toast.success(
           visibility === "org"
             ? t("sidebar.nameSharedWithOrg", { name: d.name })
@@ -2045,7 +2104,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           resourceId: d.id,
           visibility,
         } as any);
-        queryClient.invalidateQueries({ queryKey });
+        void queryClient.invalidateQueries({ queryKey });
         toast.success(
           visibility === "org"
             ? t("sidebar.nameSharedWithOrg", { name: d.name })
@@ -2291,26 +2350,14 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         </>
       ) : (
         <>
-          <div className="flex h-12 shrink-0 items-center border-b border-border px-4 lg:px-6">
+          <div className="flex h-12 shrink-0 items-center border-b border-border px-4">
             <Link
-              to="/"
+              to="/home"
               className="flex min-w-0 flex-1 items-center gap-2 font-semibold"
             >
-              <img
-                src={appPath("/agent-native-icon-light.svg")}
-                alt=""
+              <AgentNativeIcon
                 aria-hidden="true"
-                width={35}
-                height={20}
-                className="block h-5 w-[35px] shrink-0 object-contain object-center dark:hidden"
-              />
-              <img
-                src={appPath("/agent-native-icon-dark.svg")}
-                alt=""
-                aria-hidden="true"
-                width={35}
-                height={20}
-                className="hidden h-5 w-[35px] shrink-0 object-contain object-center dark:block"
+                className="h-[17px] w-[30px] shrink-0 text-sidebar-foreground"
               />
               <span className="text-lg font-bold tracking-tight">
                 {t("navigation.brand")}
@@ -2318,7 +2365,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             </Link>
           </div>
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden py-2">
-            <nav className="min-h-0 min-w-0 flex flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto px-2 text-sm font-medium lg:px-4">
+            <nav className="min-h-0 min-w-0 flex flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto px-2 text-sm font-medium">
               {/* Ask section */}
               <div className="order-1 group/section min-w-0 space-y-1">
                 <div
@@ -2464,7 +2511,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     sortMode={dashboardSortMode}
                     onSortModeChange={setDashboardSortMode}
                     visibilityFilter={dashFilter}
-                    onVisibilityFilterChange={setDashFilter}
+                    onVisibilityFilterChange={setDashboardVisibilityFilter}
                   />
                   <button
                     type="button"
@@ -2626,7 +2673,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </div>
             </nav>
 
-            <div className="shrink-0 min-w-0 px-2 pt-2 text-sm font-medium lg:px-4">
+            <div className="shrink-0 min-w-0 px-2 pt-2 text-sm font-medium">
               <nav className="flex min-w-0 flex-col gap-1 pb-1">
                 {bottomItems.map((item) => {
                   const Icon = item.icon;

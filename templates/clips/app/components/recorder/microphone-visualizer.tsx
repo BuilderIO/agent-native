@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { LiveWaveform } from "@shared/live-waveform";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -96,7 +97,8 @@ async function getMicrophonePermissionState(): Promise<MicrophonePermissionState
 
 export async function friendlyMicError(err: unknown): Promise<string> {
   const name = (err as { name?: string } | null)?.name ?? "";
-  const message = err instanceof Error ? err.message : String(err ?? "");
+  const message =
+    err instanceof Error ? err.message : typeof err === "string" ? err : "";
   const combined = `${name} ${message}`;
   const permissionState = await getMicrophonePermissionState();
   const blockedByPolicy = isMicrophoneBlockedByPolicy();
@@ -142,13 +144,13 @@ export function MicrophoneVisualizer({
   onSignalChange,
 }: MicrophoneVisualizerProps) {
   const t = useT();
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const runIdRef = useRef(0);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const signalRef = useRef(false);
+  const [level, setLevel] = useState<number | null>(null);
   const lastSignalAtRef = useRef(0);
   const previousDeviceIdRef = useRef(deviceId);
 
@@ -165,49 +167,6 @@ export function MicrophoneVisualizer({
     },
     [onSignalChange],
   );
-
-  const syncCanvasSize = useCallback((canvas: HTMLCanvasElement) => {
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const width = Math.max(1, Math.floor(rect.width * dpr));
-    const height = Math.max(1, Math.floor(rect.height * dpr));
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width;
-      canvas.height = height;
-    }
-    return { width, height, dpr };
-  }, []);
-
-  const drawIdle = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const { width, height, dpr } = syncCanvasSize(canvas);
-    ctx.clearRect(0, 0, width, height);
-
-    ctx.strokeStyle = "rgba(14, 165, 233, 0.24)";
-    ctx.lineWidth = Math.max(1, dpr);
-    ctx.beginPath();
-    ctx.moveTo(0, height / 2);
-    ctx.lineTo(width, height / 2);
-    ctx.stroke();
-
-    ctx.strokeStyle = "rgba(14, 165, 233, 0.42)";
-    ctx.lineWidth = Math.max(1.75, 1.75 * dpr);
-    ctx.beginPath();
-    const points = 72;
-    for (let i = 0; i <= points; i++) {
-      const x = (i / points) * width;
-      const envelope = Math.sin((i / points) * Math.PI);
-      const y =
-        height / 2 +
-        Math.sin((i / points) * Math.PI * 6) * envelope * height * 0.13;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-  }, [syncCanvasSize]);
 
   const stopCurrent = useCallback(
     (emitSignal = true) => {
@@ -234,21 +193,15 @@ export function MicrophoneVisualizer({
       } else {
         signalRef.current = false;
       }
-      drawIdle();
     },
-    [drawIdle, setSignal],
+    [setSignal],
   );
 
   const drawLive = useCallback(
     (analyser: AnalyserNode) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
       const data = new Uint8Array(analyser.fftSize);
 
       const draw = () => {
-        const { width, height, dpr } = syncCanvasSize(canvas);
         analyser.getByteTimeDomainData(data);
 
         let sum = 0;
@@ -265,44 +218,16 @@ export function MicrophoneVisualizer({
           setSignal(false);
         }
 
-        ctx.clearRect(0, 0, width, height);
-        ctx.strokeStyle = "rgba(14, 165, 233, 0.18)";
-        ctx.lineWidth = Math.max(1, dpr);
-        ctx.beginPath();
-        ctx.moveTo(0, height / 2);
-        ctx.lineTo(width, height / 2);
-        ctx.stroke();
-
-        const gradient = ctx.createLinearGradient(0, 0, width, 0);
-        gradient.addColorStop(0, "rgba(14, 165, 233, 0.74)");
-        gradient.addColorStop(0.5, "rgba(34, 211, 238, 1)");
-        gradient.addColorStop(1, "rgba(37, 99, 235, 0.82)");
-        ctx.strokeStyle = gradient;
-        ctx.lineWidth = Math.max(2.25 * dpr, Math.min(6 * dpr, rms * 34 * dpr));
-        ctx.shadowColor = "rgba(14, 165, 233, 0.35)";
-        ctx.shadowBlur = Math.max(4 * dpr, Math.min(12 * dpr, rms * 80 * dpr));
-        ctx.lineJoin = "round";
-        ctx.lineCap = "round";
-        ctx.beginPath();
-        const step = width / Math.max(1, data.length - 1);
-        const gain = Math.min(5.5, 2.6 + rms * 24);
-        for (let i = 0; i < data.length; i++) {
-          const x = i * step;
-          const normalized = ((data[i] - 128) / 128) * gain;
-          const y =
-            height / 2 + Math.max(-1, Math.min(1, normalized)) * height * 0.42;
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-
+        // The analyser is the only part of the meter this app owns; the shape
+        // and the level math are shared with the desktop app so a microphone
+        // reads the same here as it does in the recorder and the meeting pill.
+        setLevel(rms);
         rafRef.current = requestAnimationFrame(draw);
       };
 
       draw();
     },
-    [setSignal, syncCanvasSize],
+    [setSignal],
   );
 
   const stopTest = useCallback(() => {
@@ -415,17 +340,8 @@ export function MicrophoneVisualizer({
       setError(message);
       setStatus("error");
       onStatusChange?.("error", { error: message });
-      drawIdle();
     }
-  }, [
-    deviceId,
-    disabled,
-    drawIdle,
-    drawLive,
-    onStatusChange,
-    setSignal,
-    stopCurrent,
-  ]);
+  }, [deviceId, disabled, drawLive, onStatusChange, setSignal, stopCurrent]);
 
   useEffect(() => {
     if (disabled) {
@@ -433,7 +349,6 @@ export function MicrophoneVisualizer({
       if (status === "live" || status === "starting") {
         stopTest();
       } else {
-        drawIdle();
       }
       return;
     }
@@ -441,14 +356,14 @@ export function MicrophoneVisualizer({
     previousDeviceIdRef.current = deviceId;
     if (status === "live" || status === "starting") {
       void startTest();
-    } else {
-      drawIdle();
     }
-  }, [deviceId, disabled, drawIdle, startTest, status, stopTest]);
+  }, [deviceId, disabled, startTest, status, stopTest]);
 
+  // Idle and error both rest the meter by holding `level` at null, so there is
+  // nothing left to draw on a state change.
   useEffect(() => {
-    if (status === "idle" || status === "error") drawIdle();
-  }, [drawIdle, status]);
+    if (status === "idle" || status === "error") setLevel(null);
+  }, [status]);
 
   useEffect(() => {
     return () => {
@@ -480,11 +395,18 @@ export function MicrophoneVisualizer({
             live && hasSignal ? "border-foreground/35" : "border-border",
           )}
         >
-          <canvas
-            ref={canvasRef}
+          <span
+            role="img"
             aria-label={t("clipsFinalRaw.selectedMicrophoneWaveform")}
-            className="h-full w-full opacity-75"
-          />
+            className="absolute inset-0 flex items-center justify-center"
+          >
+            <LiveWaveform
+              level={live ? level : null}
+              bars={18}
+              barWidth={2}
+              barGap={3}
+            />
+          </span>
           {statusLabel ? (
             <span
               className={cn(

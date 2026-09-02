@@ -63,6 +63,7 @@ const deDE = {
     dialogLabel: "Dokumentation durchsuchen",
     placeholder: "Dokumentation durchsuchen...",
     empty: "Tippe, um die gesamte Dokumentation zu durchsuchen",
+    toggleChatSidebar: "Chat-Seitenleiste umschalten",
     loadError: "Die Suche konnte nicht geladen werden. Erneut versuchen.",
     retry: "Erneut versuchen",
     noResults: 'Keine Ergebnisse für "{{query}}"',
@@ -279,7 +280,7 @@ const deDE = {
     },
     comparison: {
       titleLine1: "Wählen Sie nicht zwischen Apps und Agents.",
-      titleAccent: "Agent-native apps sind beides.",
+      titleAccent: "Agent-Native apps sind beides.",
       columns: {
         saas: "SaaS-Tools",
         agents: "Rohe AI-Agenten",
@@ -434,26 +435,175 @@ const deDE = {
     freeAndOpenSource: "100 % kostenlos • Open Source",
     viewAllApps: "Alle Apps anzeigen",
   },
+  homepage: {
+    hero: {
+      title: "Das Framework für agentische Anwendungen",
+      bodyLine1:
+        "Entwickle autonome Agenten mit intuitiven Benutzeroberflächen.",
+      bodyLine2: "Bring dein eigenes LLM mit. Deploye überall.",
+      tryAnApp: "App ausprobieren",
+    },
+    install: {
+      copyCommand: "Installationsbefehl kopieren",
+    },
+    actions: {
+      title: "Eine Action treibt jede Oberfläche an",
+      bodyLine1: "Actions sind die Bausteine einer Agent-Native App.",
+      bodyLine2:
+        "Definiere Funktionalität einmal und nutze sie dann aus deiner UI, dem Agent-Chat, HTTP API, MCP, A2A oder CLI.",
+      diagramAlt:
+        "Eine Action treibt UI, MCP, Agent-Chat, A2A, HTTP API und CLI an",
+    },
+    builtIn: {
+      title: "In jede Agent-Native App integriert",
+      body: "Alles, was Nutzer und KI-Agenten brauchen, um zusammenzuarbeiten, bereits in einer Anwendung verdrahtet.",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "Gib Nutzern vertraute Bildschirme zum Durchsuchen, Bearbeiten und Prüfen von Arbeit.",
+        },
+        agentChat: {
+          title: "Eingebetteter Agent-Chat",
+          body: "Lass Nutzer Arbeit delegieren, Fragen stellen und Ergebnisse prüfen, ohne die App zu verlassen.",
+        },
+        sharedState: {
+          title: "Geteilter Anwendungsstatus",
+          body: "Der Agent weiß, was Nutzer ansehen, auswählen und bearbeiten.",
+        },
+        sharedSql: {
+          title: "Geteilte SQL-Daten",
+          body: "Nutzer und Agenten lesen und aktualisieren dieselbe Quelle der Wahrheit.",
+        },
+        skillsMemory: {
+          title: "Skills und Gedächtnis",
+          body: "Gib Agenten wiederverwendbares Fachwissen und dauerhaften Kontext.",
+        },
+        automations: {
+          title: "Automatisierungen",
+          body: "Führe Agentenarbeit automatisch nach Zeitplänen oder Anwendungsereignissen aus.",
+        },
+        agentTeams: {
+          title: "Agententeams",
+          body: "Delegiere Arbeit an spezialisierte Agenten innerhalb der App oder über Apps hinweg.",
+        },
+        auth: {
+          title: "Authentifizierung und Organisationen",
+          body: "Anmeldung, Benutzerkonten und Organisationsmitgliedschaft sind eingebaut.",
+        },
+        sharing: {
+          title: "Teilen und Berechtigungen",
+          body: "Kontrolliere, wer jede Ressource ansehen, kommentieren, bearbeiten oder verwalten darf.",
+        },
+      },
+    },
+    stack: {
+      title: "Funktioniert mit deinem Stack",
+      body: "Bring dein LLM, deine Datenbank, Tools und Infrastruktur mit – Agent-Native ist quelloffenes TypeScript, sodass deine Anwendung dir gehört.",
+      exploreApps: "Mit Agent-Native gebaute Apps entdecken",
+    },
+    showcase: {
+      title: "Was kannst du mit Agent-Native bauen?",
+      body: "Agentische Apps, die deine Arbeit verstehen, handeln und mit dir zusammenarbeiten. Baue deine eigene oder teste eine dieser Open-Source-Apps.",
+      browseApps: "Apps durchsuchen",
+      scrollLeft: "Apps nach links scrollen",
+      scrollRight: "Apps nach rechts scrollen",
+    },
+    bottomCta: {
+      title: "Baue deine erste Agent-Native App",
+      body: "Erstelle eine Anwendung für Nutzer und KI-Agenten. Bring dein eigenes LLM mit und deploye überall.",
+    },
+    footer: {
+      tagline: "Das Framework für agentische Anwendungen.",
+      framework: "Framework",
+      ecosystem: "Ökosystem",
+      community: "Community",
+      legal: "Rechtliches",
+      docs: "Docs",
+      download: "Herunterladen",
+      apps: "Apps",
+      privacyPolicy: "Datenschutzerklärung",
+      saasTerms: "SaaS-Bedingungen",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "Sie möchten nicht lokal entwickeln?",
+      exploreApp: "Erkunden Sie zuerst eine Live-App",
+      between: "oder",
+      joinWaitlist: "tragen Sie sich in die Warteliste ein",
+      end: "um stattdessen im Browser zu entwickeln.",
+    },
+  },
   templatesPage: {
-    title: "Open-Source-Agent-native Apps, die Sie besitzen",
+    title: "Open-Source-Agent-Native Apps, die Sie besitzen",
     eyebrow:
       "Starte mit einer funktionierenden App und lass sie vom Agenten weiterentwickeln.",
     body: "Du kannst alles anpassen.",
+    firstPartyTitle: "Von Agent-Native erstellt",
     community:
       "Du möchtest lieber eine leere App? Starte von Grund auf mit dem Framework-Guide.",
     createYourOwn: "Von Grund auf starten",
-    communityTitle: "Community-Vorlagen",
+    communityTitle: "Community-Apps",
     communityDescription:
-      "Unabhängige Apps, die von ihren Autorinnen und Autoren gepflegt werden. Installiere sie aus einem öffentlichen GitHub-Repository oder teste eine gehostete Version, falls verfügbar.",
-    submitCommunityTemplate: "Eigene Vorlage einreichen",
+      "Entdecke Apps, die von ihren Autorinnen und Autoren gepflegt werden. Teste eine gehostete Version oder prüfe den Quellcode und passe ihn selbst an.",
+    submitCommunityTemplate: "App einreichen",
     communityEmpty:
-      "Die Community-Liste ist offen. Veröffentliche eine fokussierte Agent-Native-App in einem öffentlichen Repository und reiche sie für den Katalog ein.",
+      "Die Community-Liste ist offen. Veröffentliche eine fokussierte Agent-Native-App und reiche sie für den Katalog ein.",
     publishGuide: "Veröffentlichungsleitfaden lesen",
     communityTrust:
-      "Community-Vorlagen sind Code von Drittanbietern. Prüfe Repository, Lizenz, Abhängigkeiten und Installationsskripte vor der Ausführung.",
+      "Community-Apps sind Code von Drittanbietern. Prüfe Quellcode, Lizenz, Abhängigkeiten und Installationsskripte vor der Ausführung.",
     copyCommunityInstallCommand: "Installationsbefehl kopieren",
     viewRepository: "Repository ansehen",
     tryCommunityDemo: "Demo testen",
+    customizeDescription: "Du kannst diesen Code vollständig anpassen.",
+    customizeOnline: "Online anpassen",
+    customizeLocally: "Lokal anpassen",
+    communityNew: "Neu",
+    communityComingSoon: "Demnächst",
+    communityGithubStars: "{{count}} GitHub-Sterne",
+    tryCommunityApp: "App testen",
+    viewCommunitySource: "Quellcode ansehen",
+    communityEyebrow: "Community-App",
+    communityScreenshots: "Screenshots",
+    previousScreenshot: "Vorheriger Screenshot",
+    nextScreenshot: "Nächster Screenshot",
+    communityNoScreenshots: "Screenshots erscheinen hier nach der Prüfung.",
+    communityScreenshotAlt: "{{name}} Screenshot {{index}}",
+    communityNoHostedVersion:
+      "Eine gehostete Version folgt bald. Verfolge die Entwicklung über den Quellcode.",
+    communitySubmissionTitle: "Community-App teilen",
+    communitySubmissionDescription:
+      "Zeige uns, wo deine App zu finden ist und was sie macht. Wir prüfen die Angaben vor der Veröffentlichung.",
+    communitySubmissionName: "App-Name",
+    communitySubmissionNamePlaceholder: "Kundensupport-Zentrale",
+    communitySubmissionUrl: "App-URL",
+    communitySubmissionUrlPlaceholder: "example.com",
+    communitySubmissionDescriptionLabel: "Beschreibung",
+    communitySubmissionDescriptionPlaceholder:
+      "Was macht die App und für wen ist sie gedacht?",
+    communitySubmissionRepository: "GitHub-Repository (optional)",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
+    communitySubmissionScreenshots: "Screenshots (optional)",
+    communitySubmissionScreenshotsPlaceholder: "Bis zu 5 Bilder hierher ziehen",
+    communitySubmissionScreenshotDropHint:
+      "PNG, JPG oder WebP. Jeweils maximal 1,5 MB.",
+    communitySubmissionScreenshotSlot: "Screenshot {{index}}",
+    communitySubmissionScreenshotsAdd: "Screenshots hinzufügen",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 ausgewählt",
+    communitySubmissionScreenshotRemove: "Screenshot {{index}} entfernen",
+    communitySubmissionSubmit: "App einreichen",
+    communitySubmissionReady:
+      "Danke. Wir prüfen deine App vor der Veröffentlichung.",
+    communitySubmissionNameError: "Gib einen App-Namen ein.",
+    communitySubmissionDescriptionError: "Füge eine kurze Beschreibung hinzu.",
+    communitySubmissionUrlError:
+      "Gib einen gültigen App-Link ein, z. B. example.com.",
+    communitySubmissionRepositoryError: "Gib einen GitHub-Repository-Link ein.",
+    communitySubmissionScreenshotsError:
+      "Verwende PNG-, JPG- oder WebP-Bilder mit jeweils maximal 1,5 MB und höchstens 5 Bilder.",
+    communitySubmissionSubmitError:
+      "Die Übermittlung ist gerade nicht möglich. Prüfe die markierten Felder und versuche es erneut.",
+    communitySubmissionSubmitting: "Wird gesendet…",
   },
   buildFromScratch: {
     title: "Von Grund auf bauen",
@@ -461,7 +611,7 @@ const deDE = {
       "Starte mit dem Framework-Leitfaden oder baue online mit dem Cloud-Coding-Agenten von Builder.io.",
     readDocs: "Dokumentation lesen",
     buildOnline: "Online bauen",
-    popoverTitle: "Online mit Builder.io bauen",
+    popoverTitle: "Im Browser entwickeln",
     popoverBody:
       "Builder.io kann eine agent-native App in der Cloud starten und anpassen — inklusive Actions, Auth, SQL-Status und Agent-Chat. Trag dich für frühen Zugriff in die Warteliste ein.",
     emailLabel: "E-Mail",
@@ -492,7 +642,7 @@ const deDE = {
     clips: {
       replaces: "Ersetzt oder erweitert Loom, Granola und Wisprflow",
       description:
-        "Bildschirmaufzeichnungen mit Browser-Debug-Erfassung, kalendersynchronisierten Besprechungsnotizen und Fn-gehaltenem Sprachdiktat – alles transkribiert, zusammengefasst und durchsuchbar, mit einem Agenten, der alles bearbeiten kann.",
+        "Zeichnet Bildschirm, Meetings und Sprachnotizen auf, damit Agenten verstehen, was passiert ist, und handeln können.",
     },
     plan: {
       replaces: "Visueller Planmodus für Codex, Claude Code und Coding-Agenten",
@@ -502,43 +652,43 @@ const deDE = {
     design: {
       replaces: "Ersetzt oder erweitert Design-Prototyping-Tools",
       description:
-        "Agent-native HTML-Prototyping-Studio. Erzeuge interaktive Alpine/Tailwind-Designs, vergleiche Varianten, verfeinere Live-Kontrollen und exportiere das Ergebnis.",
+        "Verwandelt Prompts in interaktive Designs, die Ihrem Designsystem folgen, während der Agent jeden Bildschirm mit Feedback verfeinert.",
     },
     content: {
       replaces: "Ersetzt oder erweitert Obsidian für MDX, Notion, Google Docs",
       description:
-        "Bearbeiten Sie lokale Markdown/MDX-Dateien wie Obsidian, generieren Sie umfangreiche interaktive benutzerdefinierte Blöcke und verwenden Sie einen AI-Agenten zum Entwerfen, Umschreiben und Veröffentlichen.",
+        "Arbeitet mit Ihren Dokumenten, während ein Agent in Ihrem Stil schreibt, interaktive Inhalte erstellt und auf Ihrer Website veröffentlicht.",
     },
     slides: {
       replaces: "Ersetzt oder erweitert Google Slides, Pitch",
       description:
-        "Generieren Sie vollständige Präsentationen aus einer Eingabeaufforderung. Bearbeiten Sie visuell oder im Gespräch. AI Bildgenerierung, 8 Layouts und integrierter Präsentationsmodus.",
+        "Erstellt markengerechte, bearbeitbare Präsentationen aus Prompts oder vorhandenen Folien, die ein Agent erstellen, bearbeiten und verfeinern kann.",
     },
     analytics: {
       replaces: "Open-Source-Alternative zu Amplitude und FullStory",
       description:
-        "Verbinden Sie beliebige Datenquellen, fordern Sie beliebige Diagramme an und erstellen Sie wiederverwendbare Dashboards. Der Agent schreibt SQL, generiert Visualisierungen und entwickelt die App weiter.",
+        "Verbindet Ihre Daten, damit ein Agent Fragen in Alltagssprache beantwortet und die Ergebnisse in Diagramme und Dashboards verwandelt.",
     },
     mail: {
       replaces: "Ersetzt oder erweitert Superhuman, Gmail",
       description:
-        "E-Mail-Client im Superhuman-Stil mit Tastaturkürzeln, AI-Triage, Unterstützung für mehrere Konten und E-Mail-Automatisierungen. Besitzen Sie Ihren Posteingangs-Workflow.",
+        "Ein tastaturorientierter Posteingang, in dem ein Agent E-Mails priorisiert, Antworten entwirft, Threads zusammenfasst und nachfasst.",
     },
     forms: {
       replaces: "Ersetzt oder erweitert Typeform, Google Forms",
       description:
-        "Agent-nativer Formularersteller. Generieren Sie Formulare aus einer Eingabeaufforderung, bearbeiten Sie Felder visuell oder im Dialog und senden Sie Übermittlungen an Slack, Discord, Google Sheets oder Webhooks.",
+        "Agent-Nativer Formularersteller. Generieren Sie Formulare aus einer Eingabeaufforderung, bearbeiten Sie Felder visuell oder im Dialog und senden Sie Übermittlungen an Slack, Discord, Google Sheets oder Webhooks.",
     },
     assets: {
       replaces:
         "Ersetzt oder erweitert DAMs, Marken-Asset-Bibliotheken und AI-Mediengeneratoren",
       description:
-        "Digitaler Asset-Manager für Uploads, Markenbibliotheken, durchsuchbare Referenzen und die Generierung von markenbezogenen Bildern/Videos, die andere Apps über A2A aufrufen oder als Auswahl einbetten können.",
+        "Bietet Agenten eine gemeinsame Bibliothek aus Markenrichtlinien, Bildern und Videos, um in Apps markengerechte Medien zu erstellen und auszuwählen.",
     },
     calendar: {
       replaces: "Ersetzt oder erweitert Google Calendar, Calendly",
       description:
-        "Vollständiger Kalender mit Google-Synchronisierung, Verfügbarkeitsverwaltung und einer öffentlichen Buchungsseite. Der Agent findet offene Slots, erstellt Events und verwaltet Ihren Zeitplan.",
+        "Führt Ihre Google-Kalender zusammen, damit ein Agent freie Zeiten findet, Termine plant oder verschiebt und Buchungen verwaltet.",
     },
     dispatch: {
       replaces: "Missionskontrolle für Ihre agentennativen Apps",
@@ -1020,7 +1170,7 @@ const deDE = {
       s008: "Sprechen Sie mit Ihrem Agenten über Slack, Telegram oder einen beliebigen Messenger und er wird an Ihre anderen Apps weitergeleitet. Jobs, Speicher, Genehmigungen und A2A-Delegierung – alles an einem Ort.",
       s009: "Ausprobieren",
       s010: "Was Sie tun können",
-      s011: "Dispatch ist die dem Messenger zugewandte Eingangstür für Ihren gesamten Agent-native-Stack.",
+      s011: "Dispatch ist die dem Messenger zugewandte Eingangstür für Ihren gesamten Agent-Native-Stack.",
       s012: "Bidirektionale Nachrichtenübermittlung mit Thread-Kontext, Block Kit-Antworten und Inline-Genehmigungen. Sprechen Sie von überall.",
       s013: "Dispatch leitet Arbeit über das A2A-Protokoll an Ihre anderen agentennativen Apps weiter. Mail, Folien, Design – alles über einen Chat erreichbar.",
       s014: "Wiederkehrende Jobs",
@@ -1241,7 +1391,7 @@ const deDE = {
           "Der Planmodus ist Text in Ihrem Terminal, für eine Person sichtbar und nach der Freigabe verschwunden. Plans sind visuell — Wireframes, Diagramme, annotierte Diffs —, teilbar und dauerhaft: Agents erstellen, lesen und aktualisieren sie über den gesamten Lebenszyklus eines Features.",
         question5: "Kann ich Pläne neben meinem Code sehen?",
         answer5:
-          "Ja. Die VS Code-Erweiterung öffnet Pläne in einem Seitenbereich, und Agent Native Desktop spiegelt gehostete Pläne in lokale MDX-Dateien.",
+          "Ja. Die VS Code-Erweiterung öffnet Pläne in einem Seitenbereich, und Agent-Native Desktop spiegelt gehostete Pläne in lokale MDX-Dateien.",
         question6: "Ist Plans kostenlos?",
         answer6:
           "Ja. Kostenlos, Open Source und MIT-lizenziert. Plans bietet gehostete Freigabelinks, und Sie können alles in lokale Dateien spiegeln.",
@@ -1275,7 +1425,7 @@ const deDE = {
       s026: "Gemeinsam nutzbare Links",
       s027: "Jeder Plan erhält eine öffentliche URL. Teilen Sie sie mit Teamkollegen für asynchrone Überprüfungen, Kommentare und Genehmigungen.",
       s028: "Desktop-Dateisynchronisierung",
-      s029: "Spiegeln Sie gehostete Pläne in lokale MDX-Dateien von Agent Native Desktop, ohne die App zu klonen oder ein CLI auszuführen.",
+      s029: "Spiegeln Sie gehostete Pläne in lokale MDX-Dateien von Agent-Native Desktop, ohne die App zu klonen oder ein CLI auszuführen.",
       s030: "Daher bleibt die Überprüfung neben dem Code.",
       s031: "Wie es funktioniert",
       s032: "Planen Sie Leben in einer gemeinsamen App – sowohl Sie als auch der Agent können sie während des gesamten Lebenszyklus einer Funktion lesen und aktualisieren.",
@@ -1309,7 +1459,7 @@ const deDE = {
       s060: "Alle Vorlagen anzeigen",
       s061: "VS Code-Übergaben",
       s062: "Öffnen Sie Plan-Links in einem VS Code-Seitenbereich mit der",
-      s063: "Agent Native Plans-Erweiterung",
+      s063: "Agent-Native Plans-Erweiterung",
       s064: "Wireframe — skizzenhaftes UI-Modell mit Komponentenplätzen",
       s065: "Kommentierter Code — Quelldatei mit zeilenweisen Notizen",
       s066: "Diagramm — Ablauf, Sequenz oder Architektur",
@@ -1532,9 +1682,9 @@ const deDE = {
     },
   },
   downloadPage: {
-    title: "Agent Native herunterladen",
-    body: "Alle agent-native Apps in einer Desktop-Shell. Produktions-Apps sind integriert, mit Dev-Modus für lokale Entwicklung.",
-    openDesktop: "Agent Native öffnen",
+    title: "Agent-Native herunterladen",
+    body: "Probieren Sie agentische Apps für Meetings, Design, Präsentationen, Daten, Terminplanung, E-Mail und mehr aus – alles in einer Desktop-App.",
+    openDesktop: "Agent-Native öffnen",
     downloadInstaller: "Installer herunterladen",
     downloadStarted: "Download gestartet",
     downloadAgain: "Hat es nicht funktioniert? Erneut herunterladen",
@@ -1542,27 +1692,33 @@ const deDE = {
     checkingRelease: "Neueste Desktop-Version wird geprüft...",
     retry: "Erneut versuchen",
     unavailable: "Installer für diese Plattform nicht verfügbar",
+    allPlatforms: "Alle Plattformen",
     stable: "Stabil",
     nightly: "Nightly",
-    switchToNightly: "Zu Nightly-Builds wechseln",
-    switchToStable: "Zu stabilen Builds wechseln",
-    runFromSource: "Oder aus dem Quellcode starten",
+    runFromSource: "Bauen Sie Ihr eigenes",
     runFromSourceBody:
-      "Noch kein Installer für Ihre Plattform, oder lieber die CLI? Erstellen Sie mit npm eine neue App und führen Sie sie lokal aus; funktioniert auf macOS, Windows und Linux.",
+      "Erstellen Sie eine Agent-Native-App über die Befehlszeile und führen Sie sie lokal unter macOS, Windows oder Linux aus.",
     platforms: {
       mac: {
         primary: "Für Apple Silicon herunterladen",
         alternative: "Intel-Mac",
+        gridPrimary: "Apple Silicon",
+        gridAlternative: "Intel",
       },
       windows: {
         primary: "Für Windows herunterladen",
         alternative: "ARM64",
+        gridPrimary: "x64-Installer",
+        gridAlternative: "Arm64-Installer",
         note: "Windows 10 oder neuer.",
       },
       linux: {
         primary: "Linux-Archiv herunterladen",
         appImage: "AppImage herunterladen",
         deb: ".deb herunterladen",
+        gridPrimary: "x86_64",
+        gridAppImage: "Universal",
+        gridDeb: "Debian / Ubuntu",
         note: "Das Archiv funktioniert ohne FUSE. AppImage benötigt auf einigen Distributionen eventuell FUSE 2.",
       },
     },
@@ -1968,6 +2124,7 @@ const deDE = {
     externalAgents: "Externe Agents (Host verbinden)",
     externalAgentsCatalog: "Katalog externer Agents",
     mcpApps: "MCP Apps (Inline-UIs)",
+    webMcp: "WebMCP (Browser-Tools)",
     crossAppSso: "Cross-App-SSO",
     notifications: "Benachrichtigungen",
     automationConnectors: "Workflow-Connectors",
@@ -2052,8 +2209,9 @@ const deDE = {
     dispatchDevelopers: "Entwicklerhandbuch",
     forms: "Formulare",
     formsOverview: "Überblick",
-    formsBuildingPublishing: "Erstellen und Veröffentlichen",
-    formsResponses: "Antworten und Erkenntnisse",
+    formsFeatures: "Funktionen",
+    formsAgent: "Mit dem Agent sprechen",
+    formsIntegrations: "Cross-App-Nutzung",
     docsComponents: "Docs Components",
     formsDevelopers: "Entwicklerhandbuch",
   },

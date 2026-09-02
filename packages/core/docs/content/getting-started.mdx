@@ -1,17 +1,19 @@
 ---
 title: "Getting Started"
-description: "Create an Agent-Native app and call the same action from the agent and the UI."
+description: "Create an agent with a chat UI and call the same action from the agent and the UI."
 ---
 
 # Getting Started
 
-Agent-Native is an open-source TypeScript framework for building apps that
-serve both people and AI agents. You define your app's functionality once as
-[actions](/docs/actions-overview)—typed functions that your React UI calls
-from code and agents use as tools.
+Agent-Native is an open-source TypeScript framework for building autonomous
+agents with intuitive UIs. You define each capability once as an
+[action](/docs/actions-overview)—a typed function the agent uses as a tool and
+the UI calls from code.
 
-In this guide, you'll create a Chat app and call its included `hello` action
-from the agent and the UI.
+In this guide, you'll create an agent with a chat UI and call its included
+`hello` action from the agent and the UI.
+
+<GettingStartedPaths />
 
 ## Prerequisites
 
@@ -20,9 +22,9 @@ from the agent and the UI.
 - An LLM connection for the agent: Builder.io, an Anthropic or OpenAI API key,
   or a local Ollama model
 
-## Create an app
+## Create an agent
 
-In a new directory, create a Chat app:
+In a new directory, start from the Chat template:
 
 ```bash
 npx @agent-native/core@latest create my-app --standalone --template chat
@@ -30,20 +32,20 @@ cd my-app
 pnpm install
 ```
 
-The template includes a browser app, authentication, durable conversations,
-live sync, application context, and an `actions/` directory. It also includes a
-small `hello` action that you'll use throughout this guide.
+The template gives your agent a browser UI, authentication, durable
+conversations, live sync, application context, and an `actions/` directory. It
+also includes a small `hello` action that you'll use throughout this guide.
 
 ## Start the development server
 
-Start the app:
+Start the development server:
 
 ```bash
 pnpm dev
 ```
 
-The app opens at `http://localhost:8080`. If it doesn't open automatically,
-visit that URL in your browser.
+The browser UI opens at `http://localhost:8080`. If it doesn't open
+automatically, visit that URL in your browser.
 
 <Callout tone="info">
 
@@ -62,7 +64,7 @@ An action is a typed function that your React UI can call from code and agents
 can use as a tool. The Chat template includes a simple `hello` action so you
 can try the pattern before writing one yourself.
 
-In the app, ask:
+In the agent panel, ask:
 
 > Call the hello action for Alex.
 
@@ -167,18 +169,18 @@ called from:
 | [HTTP API](/docs/http-api)              | Call an action from a script, backend, or integration.        |
 | [CLI](/docs/actions-other-surfaces#cli) | Run or test an action from a terminal.                        |
 | [MCP](/docs/actions-other-surfaces#mcp) | Let an external AI client discover and call actions as tools. |
-| [A2A](/docs/actions-other-surfaces#a2a) | Let another Agent-Native app ask this app to do work.         |
+| [A2A](/docs/actions-other-surfaces#a2a) | Let another agent delegate work to yours.                     |
 
 Every caller uses the same action definition. You do not need a separate
 implementation for each one. This shared action model is central to
 Agent-Native: behavior, validation, and permissions stay aligned across the
-UI, agents, and integrations as the app changes.
+UI, agents, and integrations as you add capabilities.
 
 ## What you built
 
-You created an Agent-Native app, called its `hello` action from the agent and a
-React UI, then changed the greeting once and watched both update. Every action
-you write from here follows that same pattern.
+You created an agent with a chat UI, called the same `hello` action from the
+agent and a React UI, then changed the greeting once and watched both update.
+Every action you write from here follows that same pattern.
 
 ## Next steps
 

@@ -9,11 +9,13 @@ import getAsset from "./get-asset.js";
 import getGenerationRun from "./get-generation-run.js";
 import getGenerationSession from "./get-generation-session.js";
 import getLibrary from "./get-library.js";
+import getTemplate from "./get-template.js";
 import listAssets from "./list-assets.js";
 import listAuditRuns from "./list-audit-runs.js";
 import listGenerationPresets from "./list-generation-presets.js";
 import listGenerationSessions from "./list-generation-sessions.js";
 import listLibraries from "./list-libraries.js";
+import listTemplates from "./list-templates.js";
 
 function screenError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -83,6 +85,14 @@ export default defineAction({
             presets.find((preset: any) => preset.id === nav.presetId) ?? null;
         }
       }
+    }
+    if (nav?.view === "templates") {
+      await readPart("templates", () => listTemplates.run({}, ctx));
+    }
+    if (nav?.view === "template" && nav?.templateId) {
+      await readPart("template", () =>
+        getTemplate.run({ id: nav.templateId }, ctx),
+      );
     }
     if (nav?.assetId) {
       await readPart("asset", () => getAsset.run({ id: nav.assetId }, ctx));

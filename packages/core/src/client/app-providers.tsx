@@ -77,6 +77,7 @@ import {
   applyEmbeddedThemeUpdate,
   parseEmbeddedThemeUpdate,
 } from "./theme.js";
+import { createAgentNativeServerActionWebMcpRegistration } from "./webmcp.js";
 
 export interface AppProvidersProps {
   /** QueryClient instance — create with `createAgentNativeQueryClient()`. */
@@ -172,6 +173,18 @@ function RoutedAppEnhancements() {
   );
 }
 
+function AutomaticWebMcpActionRegistration() {
+  useEffect(() => {
+    const registration = createAgentNativeServerActionWebMcpRegistration();
+    void registration.start().catch(() => {
+      // WebMCP is progressive enhancement. Session expiry or a transient
+      // manifest failure must not prevent the authenticated app from loading.
+    });
+    return () => registration.stop();
+  }, []);
+  return null;
+}
+
 function readDocumentTitleFallback(): string {
   const selectors = [
     'meta[name="application-name"]',
@@ -184,7 +197,7 @@ function readDocumentTitleFallback(): string {
         document.querySelector<HTMLMetaElement>(selector)?.content ?? "",
     )
     .find((title) => isHumanReadableDocumentTitle(title));
-  return normalizeDocumentTitle(metadataTitle, "Agent Native");
+  return normalizeDocumentTitle(metadataTitle, "Agent-Native");
 }
 
 function EmbeddedThemeSync() {
@@ -233,7 +246,7 @@ function DocumentTitleGuard({ fallbackTitle }: { fallbackTitle?: string }) {
   useEffect(() => {
     let lastKnownTitle = normalizeDocumentTitle(
       initialTitleRef.current ?? fallbackTitle ?? readDocumentTitleFallback(),
-      fallbackTitle ?? "Agent Native",
+      fallbackTitle ?? "Agent-Native",
     );
 
     const repairTitle = () => {
@@ -242,7 +255,7 @@ function DocumentTitleGuard({ fallbackTitle }: { fallbackTitle?: string }) {
         lastKnownTitle = currentTitle;
         return;
       }
-      const nextTitle = normalizeDocumentTitle(lastKnownTitle, "Agent Native");
+      const nextTitle = normalizeDocumentTitle(lastKnownTitle, "Agent-Native");
       if (currentTitle !== nextTitle) document.title = nextTitle;
     };
 
@@ -365,6 +378,7 @@ export function AppProviders({
             children
           ) : (
             <FirstRunOnboardingStartupGate>
+              <AutomaticWebMcpActionRegistration />
               {children}
             </FirstRunOnboardingStartupGate>
           )}

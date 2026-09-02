@@ -1,13 +1,15 @@
 ---
 title: "開始使用"
-description: "建立一個 Agent-Native 應用程式，並從代理與 UI 呼叫相同的 action。"
+description: "建立一個具備聊天 UI 的代理，並從代理與 UI 呼叫相同的 action。"
 ---
 
 # 開始使用
 
-Agent-Native 是一個開放原始碼 TypeScript 框架，用於建置同時服務人們與 AI 代理的應用程式。您只要將應用程式功能定義一次，作為 [actions](/docs/actions-overview)——React UI 從程式碼呼叫的具型別函式，代理則將它們當作工具使用。
+Agent-Native 是一個開放原始碼 TypeScript 框架，用於建置配備直覺式 UI 的自主型代理。您只要將每項能力定義一次，作為一個 [action](/docs/actions-overview)——一個由代理當作工具使用、由 UI 從程式碼呼叫的具型別函式。
 
-本指南中，您將建立一個 Chat 應用程式，並從代理和 UI 呼叫其內含的 `hello` action。
+本指南中，您將建立一個具備聊天 UI 的代理，並從代理和 UI 呼叫其內含的 `hello` action。
+
+<GettingStartedPaths />
 
 ## 先決條件
 
@@ -15,9 +17,9 @@ Agent-Native 是一個開放原始碼 TypeScript 框架，用於建置同時服�
 - [pnpm](https://pnpm.io)
 - 供代理使用的 LLM 連線：Builder.io、Anthropic 或 OpenAI API 金鑰，或本機 Ollama 模型
 
-## 建立應用程式
+## 建立代理
 
-在新目錄中建立 Chat 應用程式：
+在新目錄中從 Chat 範本開始：
 
 ```bash
 npx @agent-native/core@latest create my-app --standalone --template chat
@@ -25,17 +27,17 @@ cd my-app
 pnpm install
 ```
 
-範本包含瀏覽器應用程式、驗證、持久對話、即時同步、應用程式上下文和 `actions/` 目錄。它還包含一個小型 `hello` action，您會在本指南中一直使用它。
+範本為代理提供瀏覽器 UI、驗證、持久對話、即時同步、應用程式上下文和 `actions/` 目錄。它還包含一個小型 `hello` action，您會在本指南中一直使用它。
 
 ## 啟動開發伺服器
 
-啟動應用程式：
+啟動開發伺服器：
 
 ```bash
 pnpm dev
 ```
 
-應用程式會在 `http://localhost:8080` 開啟。若未自動開啟，請在瀏覽器中造訪該 URL。
+瀏覽器 UI 會在 `http://localhost:8080` 開啟。若未自動開啟，請在瀏覽器中造訪該 URL。
 
 <Callout tone="info">
 
@@ -49,7 +51,7 @@ pnpm dev
 
 Action 是 React UI 可從程式碼呼叫、代理可作為工具使用的具型別函式。Chat 範本包含一個簡單的 `hello` action，讓您能在自行撰寫 action 前先嘗試這個模式。
 
-在應用程式中輸入：
+在代理面板中輸入：
 
 > Call the hello action for Alex.
 
@@ -147,13 +149,13 @@ return { message: `Welcome, ${name}.` };
 | [HTTP API](/docs/http-api)              | 從指令碼、後端或整合呼叫 action。                      |
 | [CLI](/docs/actions-other-surfaces#cli) | 在終端機中執行或測試 action。                          |
 | [MCP](/docs/actions-other-surfaces#mcp) | 讓外部 AI 用戶端探索並以工具形式呼叫 actions。         |
-| [A2A](/docs/actions-other-surfaces#a2a) | 讓另一個 Agent-Native 應用程式請這個應用程式完成工作。 |
+| [A2A](/docs/actions-other-surfaces#a2a) | 讓另一個代理將工作委派給您的代理。                 |
 
-每個呼叫端都使用相同的 action 定義。您不需要為每個呼叫端建立單獨實作。這個共用 action 模型是 Agent-Native 的核心：隨著應用程式改變，UI、代理與整合的行為、驗證及權限都會維持一致。
+每個呼叫端都使用相同的 action 定義。您不需要為每個呼叫端建立單獨實作。這個共用 action 模型是 Agent-Native 的核心：隨著您新增能力，UI、代理與整合的行為、驗證及權限都會維持一致。
 
 ## 您建立了什麼
 
-您建立了一個 Agent-Native 應用程式，從代理與 React UI 呼叫它的 `hello` action，接著只變更一次問候語，並看見兩者更新。您之後撰寫的每個 action 都會遵循相同模式。
+您建立了一個具備聊天 UI 的代理，從代理與 React UI 呼叫同一個 `hello` action，接著只變更一次問候語，並看見兩者更新。您之後撰寫的每個 action 都會遵循相同模式。
 
 ## 下一步
 

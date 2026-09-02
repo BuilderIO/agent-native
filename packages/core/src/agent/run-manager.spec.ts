@@ -2531,6 +2531,51 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("auto-continues a run that ends during action preparation", async () => {
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-action-preparation-only",
+      "thread-action-preparation-only",
+      async (send) => {
+        send({ type: "text", text: "I will build the design now." });
+        send({
+          type: "activity",
+          label: "Preparing generate-design action",
+          tool: "generate-design",
+          id: "call-generate-design",
+        });
+        send({
+          type: "tool_input_start",
+          tool: "generate-design",
+          id: "call-generate-design",
+        });
+        send({
+          type: "tool_input_delta",
+          tool: "generate-design",
+          id: "call-generate-design",
+          text: '{"files":',
+        });
+        send({ type: "done" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events).toContainEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(events).not.toContainEqual({ type: "done" });
+    expect(run.status).toBe("completed");
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-action-preparation-only",
+      "stream_ended",
+    );
+  });
+
   it("keeps a completed custom UI tool result terminal", async () => {
     const events: AgentChatEvent[] = [];
     const run = startRun(

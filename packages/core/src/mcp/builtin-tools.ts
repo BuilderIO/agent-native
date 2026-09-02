@@ -37,6 +37,7 @@ import type { ActionTool } from "../agent/types.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import { buildDeepLink } from "../server/deep-link.js";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
@@ -88,7 +89,8 @@ function currentAppId(config: MCPConfig): string {
 
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
 const ASK_APP_DEFAULT_INLINE_WAIT_MS = 20_000;
-const ASK_APP_MAX_INLINE_WAIT_MS = 25_000;
+// Leave response headroom for the hosted MCP transport after the inline wait.
+const ASK_APP_MAX_INLINE_WAIT_MS = 20_000;
 const ASK_APP_POLL_INTERVAL_MS = 1_500;
 const ASK_APP_A2A_REQUEST_TIMEOUT_MS = 10_000;
 const ASK_APP_STATUS_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
@@ -197,7 +199,8 @@ function agentNativeA2AEndpoint(urlOrOrigin: string): string {
       return value;
     }
   } catch {
-    // Fall through and append the conventional Agent Native endpoint.
+    // coercion-ok: invalid URL input intentionally uses the conventional endpoint fallback.
+    // Fall through and append the conventional Agent-Native endpoint.
   }
   return `${value}/_agent-native/a2a`;
 }
@@ -451,6 +454,36 @@ async function waitForA2ATask(
   return current;
 }
 
+async function askAppIdempotencyKey(
+  route: AskAppRoute,
+  issuerApp: string,
+  issuerAudience: string,
+  message: string,
+  approvedActions?: A2AApprovedAction[],
+): Promise<string> {
+  const requestId = getRequestContext()?.mcpRequestId;
+  if (!requestId) return `ask-app:${globalThis.crypto.randomUUID()}`;
+
+  const digest = await globalThis.crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(
+      JSON.stringify({
+        requestId,
+        route,
+        issuerApp,
+        issuerAudience,
+        message,
+        approvedActions: approvedActions ?? [],
+      }),
+    ),
+  );
+  let hex = "";
+  for (const byte of new Uint8Array(digest)) {
+    hex += byte.toString(16).padStart(2, "0");
+  }
+  return `ask-app:v1:${hex}`;
+}
+
 async function submitAskAppA2ATask(
   route: AskAppRoute,
   issuerApp: string,
@@ -460,10 +493,19 @@ async function submitAskAppA2ATask(
   approvedActions?: A2AApprovedAction[],
 ): Promise<AskAppTaskResult> {
   const deadline = maxWaitMs > 0 ? Date.now() + maxWaitMs : undefined;
+  const submissionDeadline =
+    deadline ?? Date.now() + ASK_APP_A2A_REQUEST_TIMEOUT_MS;
   const { client, metadata } = await createA2AClientForAskApp(
     route.origin,
     route.requestOrigin,
-    deadline,
+    submissionDeadline,
+  );
+  const idempotencyKey = await askAppIdempotencyKey(
+    route,
+    issuerApp,
+    issuerAudience,
+    message,
+    approvedActions,
   );
   const task = await client.send(
     {
@@ -473,6 +515,8 @@ async function submitAskAppA2ATask(
     {
       async: true,
       metadata,
+      idempotencyKey,
+      deadlineMs: submissionDeadline,
       ...(approvedActions?.length ? { approvedActions } : {}),
     },
   );
@@ -552,7 +596,12 @@ function isTransientAskAppStatusError(err: unknown): boolean {
 function askAppStatusErrorCategory(
   err: unknown,
 ): AskAppStatusErrorCategory | null {
-  const message = err instanceof Error ? err.message : String(err ?? "");
+  const message =
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+        ? err
+        : (JSON.stringify(err ?? "") ?? "");
   const causeCode = askAppStatusErrorCauseCode(err) ?? "";
   const diagnostic = `${message} ${causeCode}`;
   if (/A2A request failed \(429\)/i.test(message)) return "rate_limited";
@@ -952,7 +1001,7 @@ function openAppTool(
       resource: embedApp({
         title: "Open app",
         description: "Render the requested app route inline.",
-        iframeTitle: "Agent Native app",
+        iframeTitle: "Agent-Native app",
         openLabel: "Open app",
       }),
     },
@@ -1191,7 +1240,7 @@ function askAppTool(
         maxWaitMs: {
           type: "number",
           description:
-            "Maximum time to wait inline before returning a taskHandle. Hosted MCP clamps this to 25000ms.",
+            "Maximum time to wait inline before returning a taskHandle. Hosted MCP clamps this to 20000ms.",
         },
         approvedActions: {
           type: "array",

@@ -1,3 +1,4 @@
+import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { InlineMarkdown } from "@agent-native/core/client/markdown";
 import {
@@ -11,6 +12,11 @@ import {
 } from "@tabler/icons-react";
 import { useState, useRef, useEffect } from "react";
 
+import {
+  Avatar as UserAvatar,
+  AvatarFallback as UserAvatarFallback,
+  AvatarImage as UserAvatarImage,
+} from "@/components/ui/avatar";
 import {
   Tooltip,
   TooltipContent,
@@ -39,6 +45,7 @@ interface SlideCommentsPanelProps {
 /** Initials avatar */
 function Avatar({ email, name }: { email: string; name?: string | null }) {
   const color = emailToColor(email);
+  const avatarUrl = useAvatarUrl(email);
   const initials = (name || email)
     .split(/[@.\s]/)
     .filter(Boolean)
@@ -47,13 +54,17 @@ function Avatar({ email, name }: { email: string; name?: string | null }) {
     .join("")
     .slice(0, 2);
   return (
-    <div
-      className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0"
-      style={{ backgroundColor: color }}
-      title={name || email}
-    >
-      {initials}
-    </div>
+    <UserAvatar className="h-5 w-5 shrink-0" title={name || email}>
+      {avatarUrl ? (
+        <UserAvatarImage src={avatarUrl} alt={name || email} />
+      ) : null}
+      <UserAvatarFallback
+        className="text-[9px] font-bold text-primary-foreground"
+        style={{ backgroundColor: color }}
+      >
+        {initials}
+      </UserAvatarFallback>
+    </UserAvatar>
   );
 }
 
@@ -168,7 +179,7 @@ function PendingCommentInput({
           if (error) setError(null);
         }}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void submit();
           if (e.key === "Escape") onCancel();
         }}
         placeholder={t("comments.addCommentPlaceholder")}
@@ -253,7 +264,7 @@ function ReplyInput({
           if (error) setError(null);
         }}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void submit();
           if (e.key === "Escape") onDone();
         }}
         placeholder={t("comments.replyPlaceholder")}

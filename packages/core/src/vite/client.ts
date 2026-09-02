@@ -39,6 +39,7 @@ import {
   resolveRecurringJobsBuildMarker,
 } from "../server/agent-chat/recurring-jobs-runtime.js";
 import { verifyEmbedSessionToken } from "../server/embed-session.js";
+import { resolveAgentNativeBuildId } from "../shared/build-id.js";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_TOKEN_QUERY_PARAM,
@@ -445,7 +446,7 @@ function mirrorReactRouterVirtualInvalidation(
  *
  * `@react-router/dev`'s framework-mode plugin invalidates its virtual modules
  * through `server.moduleGraph` — Vite's deprecated back-compat graph, which
- * proxies only the `client` and `ssr` environments. Agent Native serves SSR
+ * proxies only the `client` and `ssr` environments. Agent-Native serves SSR
  * from Nitro's `nitro` environment, so that invalidation never reaches the
  * `virtual:react-router/server-build` the request path evaluates, and the route
  * table stays frozen at whatever it was when the dev server booted. A new route
@@ -1090,6 +1091,7 @@ const CORE_CLIENT_SUBPATHS = [
   // (and its transitive ~650-700 KB gzip chat stack) onto the critical path.
   "@agent-native/core/client/api-path",
   "@agent-native/core/client/clipboard",
+  "@agent-native/core/client/zoom-gesture",
   "@agent-native/core/blocks",
   "@agent-native/core/blocks/server",
   "@agent-native/core/client/extensions",
@@ -1510,6 +1512,10 @@ function getCoreSourceAliases(
       coreSrc,
       "client/clipboard.ts",
     ),
+    "@agent-native/core/client/zoom-gesture": path.join(
+      coreSrc,
+      "client/zoom-gesture.ts",
+    ),
     "@agent-native/core/blocks": path.join(coreSrc, "client/blocks/index.ts"),
     "@agent-native/core/blocks/server": path.join(
       coreSrc,
@@ -1629,7 +1635,7 @@ function getCoreSourceAliases(
 }
 
 export interface NitroOptions {
-  /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "cloudflare_pages", "cloudflare_module"). Default: "node" */
+  /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "aws_amplify", "cloudflare_pages", "cloudflare_module"). Default: "node" */
   preset?: string;
   /** Source directory for server files. Default: "./server" */
   srcDir?: string;
@@ -1801,7 +1807,7 @@ function fullReloadOnOptimizeDep504(): Plugin {
       let lastReloadAt: number | null = null;
       let reloadHistory: number[] = [];
       server.middlewares.use((req, res, next) => {
-        const originalEnd = res.end;
+        const originalEnd = res.end.bind(res);
         (res as unknown as { end: (...args: unknown[]) => unknown }).end = (
           ...endArgs: unknown[]
         ) => {
@@ -2862,7 +2868,7 @@ function isNitroEnvironmentUnavailable(error: unknown): boolean {
 type NitroModuleNode = {
   id: string | null;
   ssrError?: Error | null;
-  transformResult: unknown | null;
+  transformResult: unknown;
 };
 
 type NitroModuleGraph = {
@@ -3495,6 +3501,73 @@ function nitroPresetMarkerPlugin(
   };
 }
 
+const AUTH_CLIENT_ASSET_PATH = "assets/auth-client.js";
+
+function authClientEntryPath(): string {
+  const sourceEntry = path.resolve(__dirname, "../client/auth/entry.tsx");
+  return fs.existsSync(sourceEntry)
+    ? sourceEntry
+    : path.resolve(__dirname, "../client/auth/entry.js");
+}
+
+function authClientAssetPlugin(): Plugin {
+  const entry = authClientEntryPath();
+  let isBuild = false;
+  let hasReactRouterHmr = false;
+  return {
+    name: "agent-native-auth-client-asset",
+    applyToEnvironment(environment) {
+      return environment.name === "client";
+    },
+    configResolved(config) {
+      isBuild = config.command === "build";
+      hasReactRouterHmr = config.plugins.some((plugin) =>
+        plugin.name?.startsWith("react-router"),
+      );
+    },
+    buildStart() {
+      if (!isBuild) return;
+      this.emitFile({
+        type: "chunk",
+        id: entry,
+        fileName: AUTH_CLIENT_ASSET_PATH,
+      });
+    },
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const pathname = new URL(req.url ?? "/", "http://agent-native.local")
+          .pathname;
+        if (
+          req.method !== "GET" ||
+          !pathname.endsWith(`/${AUTH_CLIENT_ASSET_PATH}`)
+        ) {
+          next();
+          return;
+        }
+
+        void server
+          .transformRequest(entry)
+          .then((result) => {
+            if (!result?.code) {
+              res.statusCode = 500;
+              res.end("Unable to transform the auth client asset.");
+              return;
+            }
+            const authClientCode = hasReactRouterHmr
+              ? `import ${JSON.stringify(
+                  `${server.config.base.replace(/\/+$/, "")}/@id/__x00__virtual:react-router/inject-hmr-runtime`,
+                )};\n${result.code}`
+              : result.code;
+            res.statusCode = 200;
+            res.setHeader("Content-Type", "application/javascript");
+            res.end(authClientCode);
+          })
+          .catch(next);
+      });
+    },
+  };
+}
+
 function createAgentNativePlugins(
   options: ClientConfigOptions | AgentNativeVitePluginOptions,
   {
@@ -3525,6 +3598,7 @@ function createAgentNativePlugins(
     appChangelogRawPlugin(),
     actionTypesPlugin(),
     agentsBundlePlugin({ agentNativeConfig: options.agentNativeConfig }),
+    authClientAssetPlugin(),
     autoReloadOnOptimizeDep(),
     fullReloadOnOptimizeDep504(),
     embedDevFrameHeaders(),
@@ -3667,13 +3741,7 @@ function createAgentNativeConfig(
           deployment: { environment: inferredDeploymentEnvironment },
         }
       : appConfig;
-  const buildId =
-    process.env.DEPLOY_ID?.trim() ||
-    process.env.COMMIT_REF?.trim() ||
-    process.env.VERCEL_GIT_COMMIT_SHA?.trim() ||
-    process.env.CF_PAGES_COMMIT_SHA?.trim() ||
-    process.env.AGENT_NATIVE_BUILD_SHA?.trim() ||
-    "development";
+  const buildId = resolveAgentNativeBuildId(process.env, "development");
   const packageVersions = resolveAgentNativePackageVersions(cwd);
 
   // Preload workspace-root .env into process.env so Nitro server code sees
@@ -3779,6 +3847,16 @@ function createAgentNativeConfig(
       ),
       "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
+      ),
+      "process.env.AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY": JSON.stringify(
+        process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
+          process.env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
+          "",
+      ),
+      "process.env.AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT": JSON.stringify(
+        process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
+          process.env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
+          "",
       ),
       // The release migration owner is configured at build time. Netlify's
       // netlify.toml environment is available to the build but not injected

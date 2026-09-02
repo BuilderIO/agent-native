@@ -7,12 +7,13 @@
  * POSTHOG_API_KEY + POSTHOG_HOST  → PostHog
  * MIXPANEL_TOKEN                  → Mixpanel
  * AMPLITUDE_API_KEY               → Amplitude
- * AGENT_NATIVE_ANALYTICS_PUBLIC_KEY → Agent Native Analytics
+ * AGENT_NATIVE_ANALYTICS_PUBLIC_KEY → Agent-Native Analytics
  *
  * Call `registerBuiltinProviders()` at server startup (done
  * automatically by the core-routes plugin).
  */
 
+import { getAppConfig } from "../app-config/index.js";
 import { reshapeTrackedExceptionProperties } from "./posthog-exception.js";
 import { registerTrackingProvider } from "./registry.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
@@ -75,7 +76,7 @@ function enqueue(
   // invocations never fires that timer, silently dropping every provider's
   // queued events for a request that ends in a crash. Default to flushing
   // synchronously with the response in that environment; a caller (e.g.
-  // Agent Native Analytics' flush-mode override) can still force either way.
+  // Agent-Native Analytics' flush-mode override) can still force either way.
   const flushImmediately = options?.flushImmediately ?? isServerlessRuntime();
   if (flushImmediately || queue.length >= MAX_BATCH_SIZE) {
     void drainQueue();
@@ -182,7 +183,7 @@ function isPostHogAiObservabilityEvent(eventName: string): boolean {
  * PostHog reads an AI event's timestamp as the moment the operation ENDED and
  * recovers its start by subtracting `$ai_latency` (its `operationStartMs`).
  * The framework stamps events when the operation began — which Mixpanel,
- * Amplitude, webhooks and Agent Native Analytics consume verbatim — so the
+ * Amplitude, webhooks and Agent-Native Analytics consume verbatim — so the
  * shift belongs here, in the one backend that reads it that way. Events with no
  * `$ai_latency` (a trace, an exception) are unshifted: there is nothing for
  * PostHog to subtract.
@@ -294,7 +295,7 @@ function createPostHogProvider(
  * backends must not receive. `track()` broadcasts to every configured provider,
  * so a PostHog-only integration (e.g. enabling a survey id) would otherwise
  * start exporting that integration's content — including user-authored text —
- * to Mixpanel, Amplitude, webhooks, and Agent Native Analytics as a side
+ * to Mixpanel, Amplitude, webhooks, and Agent-Native Analytics as a side
  * effect nobody opted into.
  *
  * Returns `false` when PostHog is not configured, so callers can tell "not
@@ -467,7 +468,7 @@ function createWebhookProvider(
   };
 }
 
-// ─── Agent Native Analytics ───────────────────────────────────────────────
+// ─── Agent-Native Analytics ───────────────────────────────────────────────
 
 function createAgentNativeAnalyticsProvider(
   publicKey: string,
@@ -545,19 +546,14 @@ export function registerBuiltinProviders(): void {
     registerTrackingProvider(createAmplitudeProvider(amplitudeKey));
   }
 
-  const agentNativeAnalyticsKey =
-    process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY ||
-    process.env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
-  if (
-    agentNativeAnalyticsKey &&
-    !shouldSkipAgentNativeAnalyticsForLocalhost()
-  ) {
+  const { agentNativePublicKey, agentNativeEndpoint } =
+    getAppConfig().analytics;
+  if (agentNativePublicKey && !shouldSkipAgentNativeAnalyticsForLocalhost()) {
     registerTrackingProvider(
       createAgentNativeAnalyticsProvider(
-        agentNativeAnalyticsKey,
+        agentNativePublicKey,
         (
-          process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT ||
-          AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT
+          agentNativeEndpoint || AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT
         ).replace(/\/+$/, ""),
       ),
     );

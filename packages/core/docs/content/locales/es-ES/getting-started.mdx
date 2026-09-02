@@ -1,18 +1,19 @@
 ---
 title: "Primeros pasos"
-description: "Crea una aplicación de Agent-Native y llama a la misma acción desde el agente y la interfaz de usuario."
+description: "Crea un agente con una interfaz de chat y llama a la misma acción desde el agente y la interfaz de usuario."
 ---
 
 # Primeros pasos
 
-Agent-Native es un framework de TypeScript de código abierto para crear
-aplicaciones que sirven tanto a personas como a agentes de IA. Defines la
-funcionalidad de tu aplicación una vez como [acciones](/docs/actions-overview):
-funciones tipadas que tu interfaz de usuario de React llama desde el código y
-que los agentes usan como herramientas.
+Agent-Native es un framework de TypeScript de código abierto para crear agentes
+autónomos con interfaces intuitivas. Defines cada capacidad una sola vez como
+una [acción](/docs/actions-overview): una función tipada que el agente usa como
+herramienta y que la UI llama desde el código.
 
-En esta guía, crearás una aplicación de Chat y llamarás a su acción `hello`
-incluida desde el agente y la interfaz de usuario.
+En esta guía, crearás un agente con una interfaz de chat y llamarás a su acción
+`hello` incluida desde el agente y la interfaz de usuario.
+
+<GettingStartedPaths />
 
 ## Requisitos previos
 
@@ -21,9 +22,9 @@ incluida desde el agente y la interfaz de usuario.
 - Una conexión de LLM para el agente: Builder.io, una clave de API de Anthropic
   u OpenAI, o un modelo local de Ollama
 
-## Crear una aplicación
+## Crear un agente
 
-En un directorio nuevo, crea una aplicación de Chat:
+En un directorio nuevo, empieza con la plantilla de Chat:
 
 ```bash
 npx @agent-native/core@latest create my-app --standalone --template chat
@@ -31,20 +32,20 @@ cd my-app
 pnpm install
 ```
 
-La plantilla incluye una aplicación de navegador, autenticación, conversaciones
-persistentes, sincronización en tiempo real, contexto de la aplicación y un
-directorio `actions/`. También incluye una pequeña acción `hello` que usarás en
-toda esta guía.
+La plantilla proporciona a tu agente una interfaz de navegador, autenticación,
+conversaciones persistentes, sincronización en tiempo real, contexto de la
+aplicación y un directorio `actions/`. También incluye una pequeña acción
+`hello` que usarás en toda esta guía.
 
 ## Iniciar el servidor de desarrollo
 
-Inicia la aplicación:
+Inicia el servidor de desarrollo:
 
 ```bash
 pnpm dev
 ```
 
-La aplicación se abre en `http://localhost:8080`. Si no se abre
+La interfaz del navegador se abre en `http://localhost:8080`. Si no se abre
 automáticamente, visita esa URL en tu navegador.
 
 <Callout tone="info">
@@ -66,7 +67,7 @@ llamar desde el código y que los agentes pueden utilizar como herramienta. La
 plantilla de Chat incluye una sencilla acción `hello` para que puedas probar este
 patrón antes de escribir una propia.
 
-En la aplicación, pídele al agente:
+En el panel del agente, escribe:
 
 > Call the hello action for Alex.
 
@@ -174,20 +175,20 @@ acción también se puede llamar desde:
 | [HTTP API](/docs/http-api)              | llamar a una acción desde un script, backend o integración.                        |
 | [CLI](/docs/actions-other-surfaces#cli) | ejecutar o probar una acción desde un terminal.                                    |
 | [MCP](/docs/actions-other-surfaces#mcp) | permitir que un cliente de IA externo descubra y llame acciones como herramientas. |
-| [A2A](/docs/actions-other-surfaces#a2a) | permitir que otra aplicación Agent-Native pida trabajo a esta aplicación.          |
+| [A2A](/docs/actions-other-surfaces#a2a) | permitir que otro agente delegue trabajo en el tuyo.                               |
 
 Cada llamador utiliza la misma definición de acción. No necesitas una
 implementación independiente para cada uno. Este modelo de acciones compartidas
 es fundamental en Agent-Native: el comportamiento, la validación y los permisos
 se mantienen alineados en la interfaz de usuario, los agentes y las
-integraciones a medida que cambia la aplicación.
+integraciones a medida que añades capacidades.
 
 ## Lo que has creado
 
-Has creado una aplicación de Agent-Native, llamado a su acción `hello` desde el
-agente y una interfaz de usuario de React, y después has cambiado el saludo una
-vez y visto cómo ambos se actualizaban. Cada acción que escribas a partir de
-ahora seguirá el mismo patrón.
+Has creado un agente con una interfaz de chat, llamado a la misma acción `hello`
+desde el agente y una interfaz de usuario de React, y después has cambiado el
+saludo una vez y visto cómo ambos se actualizaban. Cada acción que escribas a
+partir de ahora seguirá el mismo patrón.
 
 ## Siguientes pasos
 

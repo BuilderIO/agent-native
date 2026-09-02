@@ -176,6 +176,8 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
   }, AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS);
 
   let primaryFailed = false;
+  let shouldThrowReleaseError = false;
+  let releaseErrorToThrow: unknown;
   try {
     await processRecurringJobsWithLease(deps);
   } catch (error) {
@@ -193,9 +195,13 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
         "[recurring-jobs] Scheduler lease release failed:",
         releaseError instanceof Error ? releaseError.message : releaseError,
       );
-      if (!primaryFailed) throw releaseError;
+      if (!primaryFailed) {
+        shouldThrowReleaseError = true;
+        releaseErrorToThrow = releaseError;
+      }
     }
   }
+  if (shouldThrowReleaseError) throw releaseErrorToThrow;
 }
 
 async function processRecurringJobsWithLease(

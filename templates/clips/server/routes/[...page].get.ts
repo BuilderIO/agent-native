@@ -44,7 +44,9 @@ function stripAppBasePath(pathname: string): string {
 }
 
 function clipIdFromPath(pathname: string): string | null {
-  const match = stripAppBasePath(pathname).match(/^\/(?:share|r)\/([^/]+)\/?$/);
+  const match = stripAppBasePath(pathname).match(
+    /^\/(?:share|r|embed)\/([^/]+)\/?$/,
+  );
   if (!match?.[1]) return null;
   try {
     return decodeURIComponent(match[1]);
@@ -54,7 +56,7 @@ function clipIdFromPath(pathname: string): string | null {
 }
 
 function escapeHtmlAttribute(value: string): string {
-  return value.replace(/[&<>\"']/g, (character) => {
+  return value.replace(/[&<>"']/g, (character) => {
     switch (character) {
       case "&":
         return "&amp;";
@@ -62,7 +64,7 @@ function escapeHtmlAttribute(value: string): string {
         return "&lt;";
       case ">":
         return "&gt;";
-      case '\"':
+      case '"':
         return "&quot;";
       case "'":
         return "&#39;";
@@ -74,7 +76,6 @@ function escapeHtmlAttribute(value: string): string {
 
 async function buildClipAgentDiscovery(event: H3Event): Promise<{
   markup: string;
-  noReferrer: boolean;
 } | null> {
   const requestUrl = getRequestURL(event);
   const recordingId = clipIdFromPath(requestUrl.pathname);
@@ -117,11 +118,13 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
     recording.visibility === "public" && !recording.password;
   if (!anonymousAccess && !tokenGrantsAgentAccess) return null;
 
-  const token = tokenGrantsAgentAccess ? suppliedToken : undefined;
+  // Tokenized URLs must never put the access token in a publicly cached SSR
+  // shell. The client registers tools after it has verified access instead.
+  if (tokenGrantsAgentAccess) return null;
+
   const agentContextUrl = buildAgentApiUrls(recording.id, {
     origin: requestUrl.origin,
     basePath: getServerAppBasePath(),
-    token,
   }).contextUrl;
   const discovery = buildAgentDiscoveryPayload({
     recordingId: recording.id,
@@ -133,7 +136,6 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
 
   return {
     markup: `<link rel="alternate" type="application/json" href="${contextHref}" title="Agent-readable clip context"><script type="application/agent-native+json" id="clips-agent-context">${safeJsonForHtml(discovery)}</script>`,
-    noReferrer: tokenGrantsAgentAccess,
   };
 }
 
@@ -151,6 +153,7 @@ function withClipsResponseHeaders(
   event: H3Event,
   response: Response,
 ): Response {
+  setResponseHeader(event, "Referrer-Policy", "no-referrer");
   setResponseHeader(
     event,
     "Permissions-Policy",
@@ -172,10 +175,6 @@ export default defineEventHandler(async (event) => {
 
   const headers = new Headers(response.headers);
   headers.delete("content-length");
-  if (discovery.noReferrer) {
-    headers.set("Referrer-Policy", "no-referrer");
-    setResponseHeader(event, "Referrer-Policy", "no-referrer");
-  }
 
   const html = await response.text();
   const discoveredResponse = new Response(

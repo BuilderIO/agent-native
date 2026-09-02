@@ -4,6 +4,8 @@ import {
   isInAgentEmbed,
   postNavigate,
 } from "@agent-native/core/client/navigation";
+import { DefaultSpinner } from "@agent-native/core/client/ui";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { CalendarEvent } from "@shared/api";
 import {
   IconClock,
@@ -14,10 +16,10 @@ import {
   IconCalendar,
 } from "@tabler/icons-react";
 import { format, parseISO, differenceInMinutes } from "date-fns";
+import { useEffect } from "react";
 import { useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
 import { messagesByLocale } from "@/i18n-data";
 
 type EventPreviewResult = CalendarEvent | { error: string };
@@ -175,20 +177,29 @@ export default function EventPreviewRoute() {
     id ? { id, calendarId } : undefined,
     { enabled: !!id, retry: false },
   );
+  const result = data as EventPreviewResult | undefined;
+  const event = result && !("error" in result) ? result : null;
+
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(
+      event?.title,
+      "Event",
+    )} — Calendar`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [event?.title]);
 
   if (!id) {
     return <ErrorCard message={t("eventPreview.noEventId")} />;
   }
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Spinner className="size-6 text-primary" />
-      </div>
-    );
+    return <DefaultSpinner />;
   }
 
-  const result = data as EventPreviewResult | undefined;
   if (error || !result || "error" in result) {
     return (
       <ErrorCard

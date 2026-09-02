@@ -34,7 +34,48 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Dateien, Agenten oder Ressourcen erwähnen",
   "commands.new": "Entspricht /clear",
   "commands.plan": "Zum schreibgeschützten Planungsmodus wechseln",
-  "aboutAgentNative.title": "Über Agent Native",
+  "onboarding.back": "Zurück",
+  "onboarding.chooseRole": "Wähle deine Rolle",
+  "onboarding.customizeRole": "Wir passen das für dich an.",
+  "onboarding.roleQuestion":
+    "Welche Beschreibung passt am besten zu deiner Rolle?",
+  "onboarding.roleProduct": "Produkt",
+  "onboarding.roleDesign": "Design",
+  "onboarding.roleDeveloper": "Entwicklung",
+  "onboarding.roleMarketing": "Marketing",
+  "onboarding.roleSales": "Vertrieb",
+  "onboarding.roleOps": "Operations",
+  "onboarding.roleIndividual": "Einzelperson",
+  "onboarding.roleOther": "Andere",
+  "onboarding.skipForNow": "Vorerst überspringen",
+  "onboarding.saveRoleError": "Deine Rolle konnte nicht gespeichert werden.",
+  "onboarding.builderActivateCredits": "Builder.io-Gratiscredits aktivieren",
+  "onboarding.builderConnectCredits": "Builder.io-Gratiscredits verbinden",
+  "onboarding.builderActivateDescription":
+    "Erstelle oder verwende dein Builder.io-Konto erneut und aktiviere seine Gratiscredits mit einem Klick.",
+  "onboarding.builderActiveCredits":
+    "In aktiven Builder.io-Gratiscredits enthalten",
+  "onboarding.builderCredits": "In Builder.io-Gratiscredits enthalten",
+  "onboarding.builderActivateTitle": "Gratiscredits aktivieren",
+  "onboarding.builderAccountExistsTitle":
+    "Du hast bereits ein Builder.io-Konto",
+  "onboarding.builderAccountExistsDescription":
+    "Melde dich an, um es zu verbinden.",
+  "onboarding.builderActivationDescription":
+    "Wir erstellen dein Builder.io-Konto automatisch für dich mit einem Klick.",
+  "onboarding.builderCreateAndActivate": "Erstellen und aktivieren",
+  "onboarding.builderConsentPrefix": "Wenn du fortfährst, stimmst du den",
+  "onboarding.builderTerms": "Nutzungsbedingungen",
+  "onboarding.builderPrivacy": "Datenschutzbestimmungen",
+  "onboarding.builderConsentAnd": "und",
+  "onboarding.builderExistingAccount": "Ich habe ein Builder.io-Konto",
+  "onboarding.builderActivating": "Builder.io-Gratiscredits werden aktiviert",
+  "onboarding.builderConnecting": "Builder.io-Gratiscredits werden verbunden",
+  "onboarding.builderProvisioningDescription":
+    "Dein Builder.io-Konto wird erstellt oder wiederverwendet. Das dauert normalerweise ein paar Sekunden.",
+  "onboarding.builderConnectionDescription":
+    "Schließe die Verbindung mit einem Klick im neuen Fenster ab.",
+  "aboutAgentNative.title": "Über Agent-Native",
   "aboutAgentNative.version": "Version",
   "aboutAgentNative.environment": "Umgebung",
   "aboutAgentNative.build": "Build",
@@ -315,7 +356,7 @@ const messages: AgentChatTranslation = {
   "composer.planDescription":
     "Zuerst schreibgeschützte Recherche und Genehmigung",
   "composer.planDesktopRequired":
-    "Öffne Agent Native Desktop, um den Planmodus zu verwenden.",
+    "Öffne Agent-Native Desktop, um den Planmodus zu verwenden.",
   "composer.previewAttachment": "Vorschau {{name}}",
   "composer.reasoning": "Denkaufwand",
   "composer.reasoningEffort.auto": "Auto",

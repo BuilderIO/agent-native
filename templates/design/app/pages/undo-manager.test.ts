@@ -71,14 +71,14 @@ describe("Y.UndoManager undo scoping", () => {
       ytext.delete(0, ytext.length);
       ytext.insert(0, "<h1>Local change</h1>");
     }, LOCAL_EDIT_ORIGIN);
-    expect(ytext.toString()).toBe("<h1>Local change</h1>");
+    expect(ytext.toJSON()).toBe("<h1>Local change</h1>");
 
     // Remote edit arrives after local edit
     ydoc.transact(() => {
       ytext.delete(0, ytext.length);
       ytext.insert(0, "<h1>Remote change after local</h1>");
     }, "remote");
-    expect(ytext.toString()).toBe("<h1>Remote change after local</h1>");
+    expect(ytext.toJSON()).toBe("<h1>Remote change after local</h1>");
 
     // Undo should only revert the local transaction.
     // Because we replaced the full text with remote, undoing the local

@@ -57,7 +57,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "calendar",
     label: "Calendar",
-    hint: "Agent-native Google Calendar — manage events, sync, and public booking",
+    hint: "Agent-Native Google Calendar — manage events, sync, and public booking",
     icon: "CalendarDays",
     color: "#00B5FF",
     colorRgb: "0 181 255",
@@ -95,7 +95,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "slides",
     label: "Slides",
-    hint: "Agent-native Google Slides — generate and edit React presentations",
+    hint: "Agent-Native Google Slides — generate and edit React presentations",
     icon: "GalleryHorizontal",
     color: "#EC4899",
     colorRgb: "236 72 153",
@@ -133,7 +133,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "analytics",
     label: "Analytics",
-    hint: "Agent-native Amplitude/Mixpanel — connect data sources, prompt for charts",
+    hint: "Agent-Native Amplitude/Mixpanel — connect data sources, prompt for charts",
     icon: "BarChart2",
     color: "#F59E0B",
     colorRgb: "245 158 11",
@@ -146,7 +146,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "mail",
     label: "Mail",
-    hint: "Agent-native Superhuman — email client with keyboard shortcuts and AI triage",
+    hint: "Agent-Native Superhuman — email client with keyboard shortcuts and AI triage",
     icon: "Mail",
     color: "#3B82F6",
     colorRgb: "59 130 246",
@@ -170,7 +170,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "forms",
     label: "Forms",
-    hint: "Agent-native form builder — create, edit, and manage forms",
+    hint: "Agent-Native form builder — create, edit, and manage forms",
     icon: "ClipboardList",
     color: "#06B6D4",
     colorRgb: "6 182 212",
@@ -182,7 +182,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "design",
     label: "Design",
-    hint: "Agent-native design tool — create and edit visual designs with agent assistance",
+    hint: "Agent-Native design tool — create and edit visual designs with agent assistance",
     icon: "Brush",
     color: "#F472B6",
     colorRgb: "244 114 182",
@@ -235,7 +235,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "crm",
     label: "CRM",
-    hint: "Agent-native CRM over native SQL, HubSpot, or Salesforce — typed attributes, lists, pipelines, and evidence-grounded signals",
+    hint: "Agent-Native CRM over native SQL, HubSpot, or Salesforce — typed attributes, lists, pipelines, and evidence-grounded signals",
     icon: "Users",
     color: "#2563EB",
     colorRgb: "37 99 235",

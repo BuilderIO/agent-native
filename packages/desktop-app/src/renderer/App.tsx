@@ -16,6 +16,7 @@ import { Toaster, toast } from "sonner";
 
 import type {
   DesktopPrepareLocalCodeChangeResult,
+  DesktopIdentityStatus,
   DesktopWorkspaceAppListResult,
 } from "../../shared/ipc-channels.js";
 import AppSettings, { AddAppDialog } from "./components/AppSettings.js";
@@ -24,6 +25,7 @@ import {
   rememberDesktopIdentityStatus,
 } from "./components/AppWebview.js";
 import CodeAgentsHub from "./components/CodeAgentsHub.js";
+import DesktopIdentityGate from "./components/DesktopIdentityGate.js";
 import WindowControls, {
   CollapsedMacWindowControls,
 } from "./components/WindowControls.js";
@@ -43,6 +45,9 @@ export default function App() {
   const [workspaceAppList, setWorkspaceAppList] =
     useState<DesktopWorkspaceAppListResult>();
   const [loading, setLoading] = useState(true);
+  const [desktopIdentityStatus, setDesktopIdentityStatus] = useState<
+    DesktopIdentityStatus | "checking"
+  >(() => (window.electronAPI?.identity ? "checking" : "idle"));
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState("general");
   const [showAddApp, setShowAddApp] = useState(false);
@@ -69,6 +74,7 @@ export default function App() {
     appId: string;
     path?: string;
     nonce: number;
+    focusNonce?: number;
   }>();
   const [pendingDesktopOpenRequest, setPendingDesktopOpenRequest] =
     useState<DesktopOpenRequest | null>(null);
@@ -78,15 +84,23 @@ export default function App() {
   ] = useState<DesktopShortcutActivationRequest | null>(null);
 
   const refreshWorkspaceAppList = useCallback(async () => {
-    const loader = window.electronAPI?.appConfig?.loadWorkspace;
+    const loader = window.electronAPI?.appConfig
+      ? () => window.electronAPI!.appConfig!.loadWorkspace!()
+      : undefined;
     if (!loader) {
       setWorkspaceAppList(undefined);
       return;
     }
     try {
-      setWorkspaceAppList(await loader());
-    } catch {
-      setWorkspaceAppList({ enabled: false, apps: [] });
+      const result = await loader();
+      if (!result.unavailable) setWorkspaceAppList(result);
+    } catch (error) {
+      // Keep the last usable inventory visible when a refresh is transiently
+      // unavailable. The main process applies the same rule to deep-link
+      // resolution.
+      console.debug("[desktop] workspace app inventory refresh unavailable", {
+        reason: error instanceof Error ? error.message : "unknown error",
+      });
     }
   }, []);
 
@@ -94,7 +108,9 @@ export default function App() {
   // has resolved. A change has to remount webviews — they are already pointed
   // at the previous origin.
   const refreshEnvironmentLane = useCallback(async () => {
-    const getLane = window.electronAPI?.identity?.getEnvironmentLane;
+    const getLane = window.electronAPI?.identity
+      ? () => window.electronAPI!.identity!.getEnvironmentLane()
+      : undefined;
     if (!getLane) return;
     try {
       const state = await getLane();
@@ -128,15 +144,32 @@ export default function App() {
 
   useEffect(() => {
     void refreshWorkspaceAppList();
-    const onStatusChange = window.electronAPI?.identity?.onStatusChange;
-    if (!onStatusChange) return;
-    return onStatusChange((status) => {
+    const identity = window.electronAPI?.identity;
+    if (!identity) {
+      setDesktopIdentityStatus("idle");
+      return;
+    }
+    let mounted = true;
+    const handleStatusChange = (status: DesktopIdentityStatus) => {
+      if (!mounted) return;
+      setDesktopIdentityStatus(status);
       // App is the shell-level subscriber, so sign-out invalidates the
       // renderer cache even while every individual app webview is inactive.
       rememberDesktopIdentityStatus(status);
       void refreshWorkspaceAppList();
       void refreshEnvironmentLane();
-    });
+    };
+    const unsubscribe = identity.onStatusChange(handleStatusChange);
+    void identity
+      .getStatus()
+      .then(handleStatusChange)
+      .catch(() => {
+        if (mounted) setDesktopIdentityStatus("failed");
+      });
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
   }, [refreshWorkspaceAppList, refreshEnvironmentLane]);
 
   const visibleEnabledApps = getDesktopVisibleApps(
@@ -153,7 +186,13 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const onKeydown = window.electronAPI?.shortcuts?.onKeydown;
+    const onKeydown = window.electronAPI?.shortcuts
+      ? (
+          callback: Parameters<
+            typeof window.electronAPI.shortcuts.onKeydown
+          >[0],
+        ) => window.electronAPI!.shortcuts!.onKeydown(callback)
+      : undefined;
     if (!onKeydown) return;
     return onKeydown((input) => {
       if (
@@ -291,14 +330,16 @@ export default function App() {
       if (!targetApp) {
         const configuredApp = apps.find((app) => app.id === appId);
         if (configuredApp && !isDesktopAppVisible(configuredApp)) return false;
-        return !loading;
+        return false;
       }
 
       const path = safeDesktopOpenPath(request.path);
+      const nonce = Date.now();
       setChatFirstAppOpenRequest({
         appId,
-        nonce: Date.now(),
+        nonce,
         ...(path ? { path } : {}),
+        ...("requestId" in request ? { focusNonce: nonce } : {}),
       });
       setShowSettings(false);
       setShowAddApp(false);
@@ -454,10 +495,30 @@ export default function App() {
             />
           </div>
         </div>
+        <DesktopIdentityGate
+          appName="Agent-Native Desktop"
+          status={desktopIdentityStatus}
+          onSignIn={() => window.electronAPI?.identity?.signIn() ?? false}
+          onAuthenticate={(request) =>
+            window.electronAPI?.identity?.authenticate(request) ??
+            Promise.resolve({
+              ok: false,
+              error: "The desktop identity surface is unavailable.",
+            })
+          }
+          onMagicLink={(request) =>
+            window.electronAPI?.identity?.requestMagicLink(request) ??
+            Promise.resolve({
+              ok: false,
+              error: "The desktop identity surface is unavailable.",
+            })
+          }
+        />
       </div>
 
       {showSettings ? (
         <AppSettings
+          key={settingsTab}
           apps={apps}
           initialTab={settingsTab}
           onClose={() => {

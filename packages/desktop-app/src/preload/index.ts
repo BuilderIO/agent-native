@@ -37,6 +37,7 @@ import {
   type CodeAgentProjectListResult,
   type CodeAgentProjectSelectResult,
   type CodeAgentWorktreeListResult,
+  type DesktopTerminalContext,
   type CodeAgentRetryRunRequest,
   type CodeAgentRetryRunResult,
   type CodeAgentRerunRequest,
@@ -65,6 +66,7 @@ import {
   type DesktopAppCreationSettings,
   type DesktopAppCreationSettingsUpdateResult,
   type DesktopAppRuntimeStatus,
+  type DesktopChatOpenAppRequest,
   type DesktopIdentityAuthRequest,
   type DesktopIdentityAuthResult,
   type DesktopIdentityMagicLinkRequest,
@@ -257,8 +259,21 @@ const electronAPI = {
   desktopChat: {
     getApiUrl: (appId: string): Promise<string | null> =>
       ipcRenderer.invoke(IPC.DESKTOP_CHAT_GET_API_URL, appId),
-    getTerminalInfoUrl: (appId: string): Promise<string | null> =>
-      ipcRenderer.invoke(IPC.DESKTOP_CHAT_GET_TERMINAL_INFO_URL, appId),
+    getTerminalInfoUrl: (
+      context?: DesktopTerminalContext | null,
+    ): Promise<string | null> =>
+      ipcRenderer.invoke(IPC.DESKTOP_CHAT_GET_TERMINAL_INFO_URL, context),
+    onOpenApp: (
+      cb: (request: DesktopChatOpenAppRequest) => void,
+    ): (() => void) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        request: DesktopChatOpenAppRequest,
+      ) => cb(request);
+      ipcRenderer.on(IPC.DESKTOP_CHAT_OPEN_APP, handler);
+      return () =>
+        ipcRenderer.removeListener(IPC.DESKTOP_CHAT_OPEN_APP, handler);
+    },
   },
 
   /** Workspace identity commands expose intent and status, never credentials. */
@@ -384,7 +399,7 @@ const electronAPI = {
     download: (): Promise<UpdateStatus> =>
       ipcRenderer.invoke(IPC.UPDATE_DOWNLOAD),
     install: (): void => {
-      ipcRenderer.invoke(IPC.UPDATE_INSTALL);
+      void ipcRenderer.invoke(IPC.UPDATE_INSTALL);
     },
     getStatus: (): Promise<UpdateStatus> =>
       ipcRenderer.invoke(IPC.UPDATE_GET_STATUS),

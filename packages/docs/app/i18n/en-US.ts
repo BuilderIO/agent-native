@@ -80,6 +80,7 @@ const enUS = {
     dialogLabel: "Search documentation",
     placeholder: "Search documentation...",
     empty: "Type to search across all documentation",
+    toggleChatSidebar: "Toggle chat sidebar",
     loadError: "Search couldn't load. Try again.",
     retry: "Try again",
     noResults: 'No results found for "{{query}}"',
@@ -296,7 +297,7 @@ const enUS = {
     },
     comparison: {
       titleLine1: "Don't pick between apps or agents.",
-      titleAccent: "Agent-native apps are both",
+      titleAccent: "Agent-Native apps are both",
       columns: {
         saas: "SaaS Tools",
         agents: "Raw AI Agents",
@@ -432,32 +433,179 @@ const enUS = {
       dashboards: "Dashboards",
     },
   },
+  homepage: {
+    hero: {
+      title: "The agentic application framework",
+      bodyLine1: "Build autonomous agents with intuitive UIs.",
+      bodyLine2: "Bring your own LLM. Deploy anywhere.",
+      tryAnApp: "Try an app",
+    },
+    install: {
+      copyCommand: "Copy install command",
+    },
+    actions: {
+      title: "One Action powers every surface",
+      bodyLine1: "Actions are the building blocks of an Agent-Native app.",
+      bodyLine2:
+        "Define functionality once, then use it from your UI, agent chat, HTTP API, MCP, A2A, or CLI.",
+      diagramAlt:
+        "One Action powers UI, MCP, Agent Chat, A2A, HTTP API, and CLI",
+    },
+    builtIn: {
+      title: "Built into every Agent-Native app",
+      body: "Everything users and AI agents need to work together, already wired into one application.",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "Give users familiar screens for browsing, editing, and reviewing work.",
+        },
+        agentChat: {
+          title: "Embedded agent chat",
+          body: "Let users delegate work, ask questions, and review results without leaving the app.",
+        },
+        sharedState: {
+          title: "Shared application state",
+          body: "The agent knows what users are viewing, selecting, and editing.",
+        },
+        sharedSql: {
+          title: "Shared SQL data",
+          body: "Users and agents read and update the same source of truth.",
+        },
+        skillsMemory: {
+          title: "Skills and memory",
+          body: "Give agents reusable expertise and persistent context.",
+        },
+        automations: {
+          title: "Automations",
+          body: "Run agent work automatically on schedules or application events.",
+        },
+        agentTeams: {
+          title: "Agent teams",
+          body: "Delegate work to specialist agents within the app or across apps.",
+        },
+        auth: {
+          title: "Authentication and organizations",
+          body: "Sign-in, user accounts, and organization membership are built in.",
+        },
+        sharing: {
+          title: "Sharing and permissions",
+          body: "Control who can view, comment, edit, or manage every resource.",
+        },
+      },
+    },
+    stack: {
+      title: "Works with your stack",
+      body: "Bring your LLM, database, tools, and infrastructure, Agent-Native is open source TypeScript, so your application stays yours.",
+      exploreApps: "Explore apps built with Agent-Native",
+    },
+    showcase: {
+      title: "What can you build with Agent-Native?",
+      body: "Agentic apps that understand your work, take action, and collaborate with you. Build your own or try one of these open-source apps.",
+      browseApps: "Browse apps",
+      scrollLeft: "Scroll apps left",
+      scrollRight: "Scroll apps right",
+    },
+    bottomCta: {
+      title: "Build your first Agent-Native app",
+      body: "Create one application for users and AI agents. Bring your own LLM and deploy anywhere.",
+    },
+    footer: {
+      tagline: "The agentic application framework.",
+      framework: "Framework",
+      ecosystem: "Ecosystem",
+      community: "Community",
+      legal: "Legal",
+      docs: "Docs",
+      download: "Download",
+      apps: "Apps",
+      privacyPolicy: "Privacy Policy",
+      saasTerms: "SaaS Terms",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "Not building locally?",
+      exploreApp: "Explore a live app",
+      between: "first, or",
+      joinWaitlist: "join the waitlist",
+      end: "to build in the browser instead.",
+    },
+  },
   templatesPage: {
     title: "Open-source agentic apps you own",
     eyebrow: "Start from a working app and let the agent evolve it.",
     body: "You can customize everything.",
+    firstPartyTitle: "Built by Agent-Native",
     community:
       "Want a blank app instead? Start from scratch with the framework guide.",
     createYourOwn: "Start from scratch",
-    communityTitle: "Community templates",
+    communityTitle: "Community apps",
     communityDescription:
-      "Independent apps maintained by their authors. Install from a public GitHub repository, or try a hosted version when one is available.",
-    submitCommunityTemplate: "Submit your template",
+      "Discover apps maintained by their authors. Try a hosted version when one is available, or inspect the source and customize it yourself.",
+    submitCommunityTemplate: "Submit an app",
     communityEmpty:
-      "Community listings are open. Publish a focused Agent-Native app in a public repository and submit it for the catalog.",
+      "Community listings are open. Publish a focused Agent-Native app and submit it for the catalog.",
     publishGuide: "Read the publishing guide",
     communityTrust:
-      "Community templates are third-party code. Review the repository, license, dependencies, and install scripts before running it.",
+      "Community apps are third-party code. Review the source, license, dependencies, and install scripts before running them.",
     copyCommunityInstallCommand: "Copy install command",
     viewRepository: "View repository",
     tryCommunityDemo: "Try demo",
+    customizeDescription: "You can customize this code completely.",
+    customizeOnline: "Customize online",
+    customizeLocally: "Customize locally",
+    communityNew: "New",
+    communityComingSoon: "Coming soon",
+    communityGithubStars: "{{count}} GitHub stars",
+    tryCommunityApp: "Try app",
+    viewCommunitySource: "View source",
+    communityEyebrow: "Community app",
+    communityScreenshots: "Screenshots",
+    previousScreenshot: "Previous screenshot",
+    nextScreenshot: "Next screenshot",
+    communityNoScreenshots: "Screenshots will appear here after review.",
+    communityScreenshotAlt: "{{name}} screenshot {{index}}",
+    communityNoHostedVersion:
+      "A hosted version is coming soon. Use the source link to follow development.",
+    communitySubmissionTitle: "Share a community app",
+    communitySubmissionDescription:
+      "Tell us where to find your app and what it does. We will review the details before publishing the listing.",
+    communitySubmissionName: "App name",
+    communitySubmissionNamePlaceholder: "Customer Support Hub",
+    communitySubmissionUrl: "App URL",
+    communitySubmissionUrlPlaceholder: "example.com",
+    communitySubmissionDescriptionLabel: "Description",
+    communitySubmissionDescriptionPlaceholder:
+      "What does the app do, and who is it for?",
+    communitySubmissionRepository: "GitHub repository (optional)",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
+    communitySubmissionScreenshots: "Screenshots (optional)",
+    communitySubmissionScreenshotsPlaceholder: "Drop up to 5 images here",
+    communitySubmissionScreenshotDropHint:
+      "PNG, JPG, or WebP. 1.5 MB max each.",
+    communitySubmissionScreenshotSlot: "Screenshot {{index}}",
+    communitySubmissionScreenshotsAdd: "Add screenshots",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 selected",
+    communitySubmissionScreenshotRemove: "Remove screenshot {{index}}",
+    communitySubmissionSubmit: "Submit app",
+    communitySubmissionReady:
+      "Thanks. We will review your app before publishing it.",
+    communitySubmissionNameError: "Enter an app name.",
+    communitySubmissionDescriptionError: "Add a short description.",
+    communitySubmissionUrlError: "Enter a valid app link, such as example.com.",
+    communitySubmissionRepositoryError: "Enter a GitHub repository link.",
+    communitySubmissionScreenshotsError:
+      "Use PNG, JPG, or WebP images up to 1.5 MB each, with up to 5 images.",
+    communitySubmissionSubmitError:
+      "Couldn’t submit right now. Check the highlighted fields and try again.",
+    communitySubmissionSubmitting: "Submitting…",
   },
   buildFromScratch: {
     title: "Build from scratch",
     description: "Use the framework guide or build online with Builder.io.",
     readDocs: "Read the docs",
     buildOnline: "Build online",
-    popoverTitle: "Join the waitlist",
+    popoverTitle: "Build in the browser",
     popoverBody:
       "Rapidly generate agent-native apps in the cloud. Join the waitlist for early access.",
     emailLabel: "Email",
@@ -486,7 +634,7 @@ const enUS = {
     clips: {
       replaces: "Screen clips for humans and agents",
       description:
-        "Screen recordings with browser debug capture, calendar-synced meeting notes, and Fn-hold voice dictation — all transcribed, summarized, and searchable, with an agent that can edit any of it.",
+        "Records your screen, meetings, and voice notes so agents can understand what happened and take action.",
     },
     plan: {
       replaces: "Visual plan mode for Codex, Claude Code, and coding agents",
@@ -496,43 +644,43 @@ const enUS = {
     design: {
       replaces: "Agent-Native Figma",
       description:
-        "Agent-native HTML prototyping studio. Generate interactive Alpine/Tailwind designs, compare variants, refine live tweak controls, and export the result.",
+        "Turns prompts into interactive designs that follow your design system and improve with agent feedback.",
     },
     content: {
       replaces: "Agent-Native Notion/Obsidian",
       description:
-        "Edit local Markdown/MDX files like Obsidian, generate rich interactive custom blocks, and use an AI agent to draft, rewrite, and publish.",
+        "Lets an agent work in your documents to draft in your voice, create interactive content, and publish to your site.",
     },
     slides: {
       replaces: "Agent-Native Google Slides",
       description:
-        "Generate full presentations from a prompt. Edit visually or conversationally. AI image generation, 8 layouts, and presentation mode built in.",
+        "Creates on-brand presentations from prompts or existing slides, which an agent can build, edit, and refine.",
     },
     analytics: {
       replaces: "Open-source alternative to Amplitude and FullStory",
       description:
-        "Connect any data source, prompt for any chart, build reusable dashboards. The agent writes SQL, generates visualizations, and evolves the app.",
+        "Connects your data so an agent can answer questions in plain language and turn results into charts and dashboards.",
     },
     mail: {
       replaces: "Replaces or augments Superhuman, Gmail",
       description:
-        "Superhuman-style email client with keyboard shortcuts, AI triage, multi-account support, and email automations. Own your inbox workflow.",
+        "A keyboard-first inbox where an agent prioritizes mail, drafts replies, summarizes threads, and follows up.",
     },
     forms: {
       replaces: "Replaces or augments Typeform, Google Forms",
       description:
-        "Agent-native form builder. Generate forms from a prompt, edit fields visually or conversationally, and send submissions to Slack, Discord, Google Sheets, or webhooks.",
+        "Agent-Native form builder. Generate forms from a prompt, edit fields visually or conversationally, and send submissions to Slack, Discord, Google Sheets, or webhooks.",
     },
     assets: {
       replaces:
         "Replaces or augments DAMs, brand asset libraries, and AI media generators",
       description:
-        "Digital asset manager for uploads, brand libraries, searchable references, and on-brand image/video generation that other apps can call through A2A or embed as a picker.",
+        "Gives agents shared brand guidelines, images and videos to create and choose on-brand media across apps.",
     },
     calendar: {
       replaces: "Replaces or augments Google Calendar, Calendly",
       description:
-        "Full calendar with Google sync, availability management, and a public booking page. The agent finds open slots, creates events, and manages your schedule.",
+        "Brings your Google Calendars together so an agent can find time, schedule or move events, and manage bookings.",
     },
     dispatch: {
       replaces: "Mission control for your agent-native apps",
@@ -1228,7 +1376,7 @@ const enUS = {
           "Plan mode is text in your terminal, visible to one person, gone when you approve it. Plans are visual — wireframes, diagrams, annotated diffs — shareable, and persistent: agents create, read, and update them across the feature's whole lifecycle.",
         question5: "Can I see plans next to my code?",
         answer5:
-          "Yes. The VS Code extension opens plans in a side panel, and Agent Native Desktop mirrors hosted plans to local MDX files.",
+          "Yes. The VS Code extension opens plans in a side panel, and Agent-Native Desktop mirrors hosted plans to local MDX files.",
         question6: "Is Plans free?",
         answer6:
           "Yes. Free, open source, MIT licensed. Plans get hosted share links, and you can mirror everything to local files.",
@@ -1262,7 +1410,7 @@ const enUS = {
       s026: "Shareable Links",
       s027: "Every plan gets a public URL. Share with teammates for async review, comments, and approvals.",
       s028: "Desktop File Sync",
-      s029: "Mirror hosted plans to local MDX files from Agent Native Desktop without cloning the app or running a CLI.",
+      s029: "Mirror hosted plans to local MDX files from Agent-Native Desktop without cloning the app or running a CLI.",
       s030: ", so review stays beside the code.",
       s031: "How it works",
       s032: "Planning lives in a shared app — both you and the agent can read and update it throughout the lifecycle of a feature.",
@@ -1296,7 +1444,7 @@ const enUS = {
       s060: "View all apps",
       s061: "VS Code Handoffs",
       s062: "Open plan links in a VS Code side panel with the",
-      s063: "Agent Native Plans extension",
+      s063: "Agent-Native Plans extension",
       s064: "Wireframe — sketchy UI mockup with component slots",
       s065: "Annotated code — source file with per-line notes",
       s066: "Diagram — flowchart, sequence, or architecture",
@@ -1514,9 +1662,9 @@ const enUS = {
     },
   },
   downloadPage: {
-    title: "Download Agent Native",
-    body: "All your agent-native apps in one desktop shell. Production apps built-in, with a dev mode toggle for local development.",
-    openDesktop: "Open Agent Native",
+    title: "Download Agent-Native",
+    body: "Try agentic apps for meetings, design, presentations, data, scheduling, email, and more, all in one desktop app.",
+    openDesktop: "Open Agent-Native",
     downloadInstaller: "Download installer",
     downloadStarted: "Download started",
     downloadAgain: "Didn't work? Try downloading again",
@@ -1524,27 +1672,33 @@ const enUS = {
     checkingRelease: "Checking the latest desktop release...",
     retry: "Retry",
     unavailable: "Installer unavailable for this platform",
+    allPlatforms: "All platforms",
     stable: "Stable",
     nightly: "Nightly",
-    switchToNightly: "Switch to Nightly builds",
-    switchToStable: "Switch to stable builds",
-    runFromSource: "Or run from source",
+    runFromSource: "Build your own",
     runFromSourceBody:
-      "No installer for your platform yet, or prefer the CLI? Scaffold a new app with npm and run it locally — works on macOS, Windows, and Linux.",
+      "Create an Agent-Native app from the command line and run it locally on macOS, Windows, or Linux.",
     platforms: {
       mac: {
         primary: "Download for Apple Silicon",
         alternative: "Intel Mac",
+        gridPrimary: "Apple Silicon",
+        gridAlternative: "Intel",
       },
       windows: {
         primary: "Download for Windows",
         alternative: "ARM64",
+        gridPrimary: "x64 installer",
+        gridAlternative: "Arm64 installer",
         note: "Windows 10 or later.",
       },
       linux: {
         primary: "Download Linux archive",
         appImage: "Download AppImage",
         deb: "Download .deb",
+        gridPrimary: "x86_64",
+        gridAppImage: "Universal",
+        gridDeb: "Debian / Ubuntu",
         note: "The archive works without FUSE. AppImage may require FUSE 2 on some distributions.",
       },
     },
@@ -1947,6 +2101,7 @@ const enUS = {
     externalAgents: "External Agents (Connect a Host)",
     externalAgentsCatalog: "External Agents Catalog",
     mcpApps: "MCP Apps (Inline UIs)",
+    webMcp: "WebMCP (Browser Tools)",
     crossAppSso: "Cross-App SSO",
     notifications: "Notifications",
     automationConnectors: "Workflow Connectors",
@@ -2032,8 +2187,9 @@ const enUS = {
     dispatchDevelopers: "Developer Guide",
     forms: "Forms",
     formsOverview: "Overview",
-    formsBuildingPublishing: "Building & Publishing",
-    formsResponses: "Responses & Insights",
+    formsFeatures: "Features",
+    formsAgent: "Talk to the Agent",
+    formsIntegrations: "Cross-App Use",
     formsDevelopers: "Developer Guide",
   },
 };

@@ -402,14 +402,9 @@ interface OpenAiAppBridge {
     scrollToBottom?: boolean;
     mode?: McpAppHostRequestMode;
     requestMode?: McpAppHostRequestMode;
-  }) => unknown | Promise<unknown>;
-  openExternal?: (args: {
-    href: string;
-    redirectUrl?: boolean;
-  }) => unknown | Promise<unknown>;
-  requestDisplayMode?: (args: {
-    mode: McpAppDisplayMode;
-  }) => unknown | Promise<unknown>;
+  }) => unknown;
+  openExternal?: (args: { href: string; redirectUrl?: boolean }) => unknown;
+  requestDisplayMode?: (args: { mode: McpAppDisplayMode }) => unknown;
 }
 
 function readOpenAiBridge(): OpenAiAppBridge | null {
@@ -482,7 +477,7 @@ async function ensureDirectMcpAppInitialized(): Promise<boolean> {
     directMcpAppInit = (async () => {
       const result = await postJsonRpcRequest("ui/initialize", {
         protocolVersion: DIRECT_MCP_APP_PROTOCOL_VERSION,
-        appInfo: { name: "Agent Native App", version: "1.0.0" },
+        appInfo: { name: "Agent-Native App", version: "1.0.0" },
         appCapabilities: {
           availableDisplayModes: ["inline", "fullscreen", "pip"],
         },

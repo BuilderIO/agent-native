@@ -22,7 +22,7 @@ export default defineAction({
         .min(1)
         .optional()
         .describe(
-          "Copied Agent Native request/run ID, usually shown as run-..., to resolve to its owning chat thread.",
+          "Copied Agent-Native request/run ID, usually shown as run-..., to resolve to its owning chat thread.",
         ),
       ownerEmail: z
         .string()

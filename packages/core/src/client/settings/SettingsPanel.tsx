@@ -85,9 +85,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { useT } from "../i18n.js";
+import { useOptionalLocale, useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { TeamPage } from "../org/TeamPage.js";
+import { McpAccessSettings } from "../resources/McpAccessSettings.js";
 import { BuilderConnectCard } from "../setup-connections/BuilderConnectCard.js";
 import { callAction } from "../use-action.js";
 import { useDevMode } from "../use-dev-mode.js";
@@ -102,6 +103,7 @@ import {
 } from "./agent-settings-search.js";
 import { AgentsSection } from "./AgentsSection.js";
 import { AutomationsSection } from "./AutomationsSection.js";
+import { BuilderConnectPopover } from "./BuilderConnectPopover.js";
 import { DemoModeSection } from "./DemoModeSection.js";
 import { ExtensionsSettingsContent } from "./ExtensionsSettingsContent.js";
 import { FileStorageSettingsForm } from "./FileStorageSettingsForm.js";
@@ -520,22 +522,33 @@ function UseBuilderCard({
         {connectUrl || credentialSource !== "env" ? (
           <div className="flex items-center gap-2 mt-2.5">
             {connectUrl && (
-              <Button
-                type="button"
-                intent="neutral"
-                emphasis="ghost"
-                onClick={() =>
-                  builderFlow.start({ trackingSource, trackingFlow })
+              <BuilderConnectPopover
+                flow={builderFlow}
+                onConnect={(provisionAccount) =>
+                  builderFlow.start({
+                    trackingSource,
+                    trackingFlow,
+                    provisionAccount,
+                  })
                 }
-                disabled={builderFlow.connecting}
-                className={cn(pillButtonClass(isPage, "ghost"), "no-underline")}
               >
-                {builderFlow.connecting
-                  ? "Connecting..."
-                  : credentialSource === "env"
-                    ? "Connect account"
-                    : "Reconnect"}
-              </Button>
+                <Button
+                  type="button"
+                  intent="neutral"
+                  emphasis="ghost"
+                  disabled={builderFlow.connecting}
+                  className={cn(
+                    pillButtonClass(isPage, "ghost"),
+                    "no-underline",
+                  )}
+                >
+                  {builderFlow.connecting
+                    ? "Connecting..."
+                    : credentialSource === "env"
+                      ? "Connect account"
+                      : "Reconnect"}
+                </Button>
+              </BuilderConnectPopover>
             )}
             {credentialSource !== "env" ? <DisconnectBuilderButton /> : null}
           </div>
@@ -546,19 +559,29 @@ function UseBuilderCard({
 
   if (compact) {
     return (
-      <Button
-        type="button"
-        intent="primary"
-        emphasis="solid"
-        onClick={() => builderFlow.start({ trackingSource, trackingFlow })}
-        disabled={builderFlow.connecting}
-        className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-wait disabled:opacity-70"
+      <BuilderConnectPopover
+        flow={builderFlow}
+        onConnect={(provisionAccount) =>
+          builderFlow.start({
+            trackingSource,
+            trackingFlow,
+            provisionAccount,
+          })
+        }
       >
-        {builderFlow.connecting ? "Connecting…" : "Connect Builder.io"}
-        {builderFlow.connecting ? (
-          <IconLoader2 size={14} className="animate-spin" />
-        ) : null}
-      </Button>
+        <Button
+          type="button"
+          intent="primary"
+          emphasis="solid"
+          disabled={builderFlow.connecting}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-wait disabled:opacity-70"
+        >
+          {builderFlow.connecting ? "Connecting…" : "Connect Builder.io"}
+          {builderFlow.connecting ? (
+            <IconLoader2 size={14} className="animate-spin" />
+          ) : null}
+        </Button>
+      </BuilderConnectPopover>
     );
   }
 
@@ -611,22 +634,32 @@ function UseBuilderCard({
           )}
         </div>
       </div>
-      <Button
-        type="button"
-        intent="neutral"
-        emphasis="outline"
-        onClick={() => builderFlow.start({ trackingSource, trackingFlow })}
-        disabled={builderFlow.connecting}
-        className={cn(
-          "inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-1.5 font-medium text-foreground hover:bg-accent/40 disabled:cursor-wait disabled:opacity-70",
-          isPage ? "text-sm" : "text-[11px]",
-        )}
+      <BuilderConnectPopover
+        flow={builderFlow}
+        onConnect={(provisionAccount) =>
+          builderFlow.start({
+            trackingSource,
+            trackingFlow,
+            provisionAccount,
+          })
+        }
       >
-        {builderFlow.connecting ? "Connecting…" : "Connect Builder.io"}
-        {builderFlow.connecting ? (
-          <IconLoader2 size={isPage ? 14 : 12} className="animate-spin" />
-        ) : null}
-      </Button>
+        <Button
+          type="button"
+          intent="neutral"
+          emphasis="outline"
+          disabled={builderFlow.connecting}
+          className={cn(
+            "inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-1.5 font-medium text-foreground hover:bg-accent/40 disabled:cursor-wait disabled:opacity-70",
+            isPage ? "text-sm" : "text-[11px]",
+          )}
+        >
+          {builderFlow.connecting ? "Connecting…" : "Connect Builder.io"}
+          {builderFlow.connecting ? (
+            <IconLoader2 size={isPage ? 14 : 12} className="animate-spin" />
+          ) : null}
+        </Button>
+      </BuilderConnectPopover>
     </div>
   );
 }
@@ -1452,7 +1485,7 @@ function LLMSectionInner({
                             if (e.target.value.trim()) setClearBaseUrl(false);
                           }}
                           onKeyDown={(e) => {
-                            if (e.key === "Enter") handleSave();
+                            if (e.key === "Enter") void handleSave();
                           }}
                           placeholder={
                             baseUrlConfigured
@@ -1524,7 +1557,7 @@ function LLMSectionInner({
                       value={apiKey}
                       onChange={(e) => setApiKey(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter") handleSave();
+                        if (e.key === "Enter") void handleSave();
                       }}
                       placeholder={PROVIDER_ENV_PLACEHOLDERS[envVar] ?? "..."}
                       className={cn(textInputClass(isPage), "flex-1")}
@@ -2304,7 +2337,7 @@ function EmailSectionInner({
       vars.push({ key: "RESEND_API_KEY", value: resendKey.trim() });
     if (fromAddr.trim())
       vars.push({ key: "EMAIL_FROM", value: fromAddr.trim() });
-    if (vars.length) save(vars);
+    if (vars.length) void save(vars);
   };
 
   const saveSendgrid = () => {
@@ -2313,7 +2346,7 @@ function EmailSectionInner({
       vars.push({ key: "SENDGRID_API_KEY", value: sendgridKey.trim() });
     if (fromAddr.trim())
       vars.push({ key: "EMAIL_FROM", value: fromAddr.trim() });
-    if (vars.length) save(vars);
+    if (vars.length) void save(vars);
   };
 
   return (
@@ -2905,6 +2938,8 @@ export interface SettingsPanelProps {
 }
 
 export interface AgentSettingsTabsOptions {
+  /** Human-readable app name used in MCP connection instructions. */
+  appName?: string;
   /**
    * Include the shared Extensions management tab. Extensions are an optional
    * app capability and stay hidden unless the host opts in.
@@ -3058,6 +3093,7 @@ function SettingsPanelContent({
   const builderFlow = useBuilderConnectFlow({
     enabled: !builderConnectionOwnedExternally,
     popupUrl: connectUrl,
+    provisionAccount: true,
     trackingSource: "settings_panel_builder_card",
   });
 
@@ -3176,7 +3212,7 @@ function SettingsPanelContent({
                   id={settingsSectionDomId("automations")}
                   icon={<IconBolt size={14} />}
                   title="Automations"
-                  subtitle="Scheduled and event-triggered agent tasks."
+                  subtitle="Scheduled, event-triggered, and webhook-triggered agent tasks."
                   grouped
                   flat
                   open={openSection === "automations"}
@@ -3184,7 +3220,7 @@ function SettingsPanelContent({
                 >
                   <SettingsRow
                     label="Automations"
-                    description="Schedule agent tasks or run them from events."
+                    description="Schedule agent tasks or run them from events and webhooks."
                     control={
                       <a
                         href={appMountedPath(
@@ -3513,7 +3549,7 @@ function SettingsPanelContent({
             id={settingsSectionDomId("automations")}
             icon={<IconBolt size={14} />}
             title="Automations"
-            subtitle="Scheduled and event-triggered agent tasks."
+            subtitle="Scheduled, event-triggered, and webhook-triggered agent tasks."
             flat
             open={openSection === "automations"}
             onToggle={() => toggle("automations")}
@@ -3858,9 +3894,11 @@ export function useAgentSettingsTabs(
 ): SettingsTabItem[] {
   const { isDevMode, canToggle, setDevMode } = useDevMode();
   const { data: org } = useOrg();
+  const locale = useOptionalLocale()?.locale ?? "en-US";
   const canManageOrg =
     !org?.orgId || org.role === "owner" || org.role === "admin";
   const extensionToolsEnabled = areExtensionSettingsEnabled(options);
+  const appName = options.appName;
   const agentAdditionalContent = options.agentAdditionalContent;
   const agentAdditionalTabFactories = options.agentAdditionalTabFactories ?? [];
   const usageAppId = options.usageAppId ?? null;
@@ -3889,9 +3927,15 @@ export function useAgentSettingsTabs(
   );
 
   return useMemo<SettingsTabItem[]>(() => {
-    const searchTabs = getAgentSettingsSearchTabs();
+    const searchTabs = getAgentSettingsSearchTabs(locale);
     const searchTab = (
-      id: "agent" | "integrations" | "usage" | "organization" | "workspace",
+      id:
+        | "agent"
+        | "integrations"
+        | "mcp"
+        | "usage"
+        | "organization"
+        | "workspace",
     ) => {
       const tab = searchTabs.find((candidate) => candidate.id === id);
       if (!tab) throw new Error(`Missing agent workspace tab: ${id}`);
@@ -3899,6 +3943,7 @@ export function useAgentSettingsTabs(
     };
     const agent = searchTab("agent");
     const integrations = searchTab("integrations");
+    const mcp = searchTab("mcp");
     const usage = searchTab("usage");
     const organization = searchTab("organization");
     const workspace = searchTab("workspace");
@@ -3976,6 +4021,12 @@ export function useAgentSettingsTabs(
         icon: IconPlugConnected,
         group: "integrations",
         content: <ConnectionsSettingsContent settingsPanelProps={baseProps} />,
+      },
+      {
+        ...mcp,
+        icon: IconApps,
+        group: "integrations",
+        content: <McpAccessSettings appName={appName} />,
       },
       {
         ...usage,
@@ -4102,8 +4153,10 @@ export function useAgentSettingsTabs(
   }, [
     agentAdditionalContent,
     additionalTabs,
+    appName,
     baseProps,
     extensionToolsEnabled,
+    locale,
     organizationContent,
     usageAppId,
     usageViewAllHref,
