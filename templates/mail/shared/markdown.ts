@@ -117,6 +117,10 @@ function anchorHtml(url: string, label = url): string {
   return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${renderInlineLabel(label)}</a>`;
 }
 
+function plainTextAnchorHtml(url: string): string {
+  return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`;
+}
+
 export function renderInlineMarkdown(markdown: string): string {
   const store = createInlineTokenStore();
   let text = markdown;
@@ -156,6 +160,30 @@ export function renderInlineMarkdown(markdown: string): string {
     .replace(/(^|[\s(])\*([^*\n]+)\*(?=$|[\s).,!?:;])/g, "$1<em>$2</em>");
 
   return store.restore(escaped);
+}
+
+/** Linkify plain-text email bodies without interpreting their other characters as Markdown. */
+export function renderPlainTextLinks(text: string): string {
+  const store = createInlineTokenStore();
+  let linked = text;
+
+  linked = linked.replace(
+    /<((?:https?:\/\/)[^<>\s]+)>/g,
+    (_match, rawUrl: string) => {
+      const { url, trailing } = trimBareUrl(rawUrl);
+      return `${store.put(plainTextAnchorHtml(url))}${trailing}`;
+    },
+  );
+  linked = linked.replace(
+    /(^|[^\w"'=])(https?:\/\/[^\s<]+)/g,
+    (_match, prefix: string, rawUrl: string) => {
+      const { url, trailing } = trimBareUrl(rawUrl);
+      if (!url) return `${prefix}${rawUrl}`;
+      return `${prefix}${store.put(plainTextAnchorHtml(url))}${trailing}`;
+    },
+  );
+
+  return store.restore(escapeHtml(linked));
 }
 
 export function extractMarkdownUrls(markdown: string): string[] {

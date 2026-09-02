@@ -1,6 +1,7 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { AI_FILTER_LABEL, type AiFilterTarget } from "@shared/ai-filter";
+import { renderPlainTextLinks } from "@shared/markdown";
 import type { EmailMessage, MobileActionId } from "@shared/types";
 import {
   IconArchive,
@@ -2225,7 +2226,14 @@ function PlainTextBody({
 
   // Render text with search highlights
   const renderHighlighted = (text: string, globalMatchOffset: number) => {
-    if (!searchTerm) return text || "\u00a0";
+    if (!searchTerm) {
+      if (!text) return "\u00a0";
+      return (
+        <span
+          dangerouslySetInnerHTML={{ __html: renderPlainTextLinks(text) }}
+        />
+      );
+    }
     const q = searchTerm.toLowerCase();
     const lower = text.toLowerCase();
     const nodes: React.ReactNode[] = [];

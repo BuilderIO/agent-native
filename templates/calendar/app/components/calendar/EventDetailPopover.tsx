@@ -2783,7 +2783,7 @@ export function EventDetailPopover({
                   onClick={handleCreateDraft}
                 >
                   {event.attendees?.length
-                    ? t("eventForm.createAndSend")
+                    ? t("eventForm.save")
                     : t("eventForm.createEvent")}
                 </Button>
               )}

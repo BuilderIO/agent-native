@@ -141,4 +141,46 @@ describe("QuestionFormRead handoff state", () => {
     );
     expect(container.textContent).toContain("2/2 answered");
   });
+
+  it("puts a recommended option first and selects it by default", async () => {
+    await act(async () => {
+      root.render(
+        <QuestionFormRead
+          blockId="questions-1"
+          data={{
+            questions: [
+              {
+                id: "direction",
+                title: "Which direction should lead?",
+                mode: "single",
+                allowOther: false,
+                options: [
+                  { id: "secondary", label: "Secondary" },
+                  {
+                    id: "recommended",
+                    label: "Recommended",
+                    recommended: true,
+                  },
+                  { id: "third", label: "Third" },
+                ],
+              },
+            ],
+          }}
+          ctx={{}}
+        />,
+      );
+    });
+
+    const choices = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button[aria-pressed]"),
+    );
+    expect(choices.map((choice) => choice.textContent?.trim())).toEqual([
+      "Recommended Recommended",
+      "Secondary",
+      "Third",
+    ]);
+    expect(
+      choices.map((choice) => choice.getAttribute("aria-pressed")),
+    ).toEqual(["true", "false", "false"]);
+  });
 });

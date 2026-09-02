@@ -53,6 +53,7 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
@@ -416,6 +417,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   // Keep the pinned label order exactly as stored so the settings checkbox can
   // actually turn Important off.
   const userPinnedLabels = settings?.pinnedLabels;
+  const combineInbox = settings?.combineInbox === true;
   const pinnedLabels = useMemo(
     () => resolvePinnedLabels(userPinnedLabels, isGoogleConnected),
     [isGoogleConnected, userPinnedLabels],
@@ -648,9 +650,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   // Tabs to show in the bar: pinned triage filters first, then the inbox
   // remainder as "Other". Without pinned filters, the inbox is just "Inbox".
-  const hasPinnedFilters = pinnedLabels.some(
-    (id) => !collapsibleViews.some((v) => v.id === id),
-  );
+  const hasPinnedFilters =
+    !combineInbox &&
+    pinnedLabels.some((id) => !collapsibleViews.some((v) => v.id === id));
 
   const visibleTabs = useMemo(() => {
     const tabs: {
@@ -695,6 +697,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         });
         continue;
       }
+      if (combineInbox) continue;
       // Check if it's a user label (handle old nested-path IDs like "[superhuman]/ai/pitch")
       const normalizedId = id.includes("/")
         ? id
@@ -766,6 +769,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     activeLabel,
     activeInboxTab,
     activeFilterId,
+    combineInbox,
     hasPinnedFilters,
     t,
   ]);
@@ -945,6 +949,35 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       updateSettings.mutate({ pinnedLabels: next });
     },
     [pinnedLabels, updateSettings],
+  );
+
+  const handleCombinedInboxChange = useCallback(
+    (next: boolean) => {
+      updateSettings.mutate({ combineInbox: next });
+      if (
+        !next ||
+        view !== "inbox" ||
+        (!activeLabel && activeInboxTab !== OTHER_INBOX_TAB_PARAM)
+      ) {
+        return;
+      }
+      const nextParams = new URLSearchParams(location.search);
+      nextParams.delete("label");
+      nextParams.delete("tab");
+      const search = nextParams.toString();
+      void navigate({
+        pathname: "/inbox",
+        search: search ? `?${search}` : "",
+      });
+    },
+    [
+      activeInboxTab,
+      activeLabel,
+      location.search,
+      navigate,
+      updateSettings,
+      view,
+    ],
   );
 
   const saveSearchAsFilter = useCallback(
@@ -1468,11 +1501,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     userLabels={userLabels}
                     labelDisplayNames={labelDisplayNames}
                     pinnedLabels={pinnedLabels}
+                    combinedInbox={combineInbox}
                     savedFilters={savedFilters}
                     labelAliases={labelAliases}
                     search={labelSearch}
                     onSearchChange={setLabelSearch}
                     onToggle={togglePinned}
+                    onCombinedInboxChange={handleCombinedInboxChange}
                     onRemoveFilter={removeSavedFilter}
                     onRename={(id, alias) => {
                       const next = { ...labelAliases };
@@ -2499,11 +2534,13 @@ function TabSettingsPopover({
   userLabels,
   labelDisplayNames,
   pinnedLabels,
+  combinedInbox,
   savedFilters,
   labelAliases,
   search,
   onSearchChange,
   onToggle,
+  onCombinedInboxChange,
   onRemoveFilter,
   onRename,
 }: {
@@ -2511,11 +2548,13 @@ function TabSettingsPopover({
   userLabels: Label[];
   labelDisplayNames: ReadonlyMap<string, string>;
   pinnedLabels: string[];
+  combinedInbox: boolean;
   savedFilters: SavedMailFilter[];
   labelAliases: Record<string, string>;
   search: string;
   onSearchChange: (v: string) => void;
   onToggle: (id: string) => void;
+  onCombinedInboxChange: (checked: boolean) => void;
   onRemoveFilter: (id: string) => void;
   onRename: (id: string, alias: string) => void;
 }) {
@@ -2596,6 +2635,20 @@ function TabSettingsPopover({
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder={t("mail.search.placeholder")}
           className="w-full bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/40 outline-none px-1 py-0.5"
+        />
+      </div>
+
+      <div className="flex items-center justify-between border-b border-border/30 px-3 py-2">
+        <label
+          htmlFor="combined-inbox-toggle"
+          className="text-[13px] text-foreground"
+        >
+          {t("mail.tabSettings.combinedInbox")}
+        </label>
+        <Switch
+          id="combined-inbox-toggle"
+          checked={combinedInbox}
+          onCheckedChange={onCombinedInboxChange}
         />
       </div>
 

@@ -356,6 +356,7 @@ export function InboxPage() {
     [connectedAccounts],
   );
   const userPinnedLabels = settings?.pinnedLabels;
+  const combineInbox = settings?.combineInbox === true;
   const pinnedLabels = useMemo(
     () => resolvePinnedLabels(userPinnedLabels, isGoogleConnected),
     [isGoogleConnected, userPinnedLabels],
@@ -407,6 +408,7 @@ export function InboxPage() {
       activeLabel ||
       activeInboxTab ||
       searchQuery ||
+      combineInbox ||
       userPinnedLabels !== undefined ||
       !isGoogleConnected
     )
@@ -414,6 +416,7 @@ export function InboxPage() {
     void navigate("/inbox?label=important", { replace: true });
   }, [
     activeInboxTab,
+    combineInbox,
     activeLabel,
     isGoogleConnected,
     navigate,
@@ -430,9 +433,11 @@ export function InboxPage() {
     mailLabelsInclude(triageLabels, activeLabel);
   const mailboxWideLabelTab =
     view === "inbox" && !!activeLabel && !activeLabelIsInboxScoped;
-  const clientSliceTab = isPinnedTab && !searchQuery && !mailboxWideLabelTab;
+  const clientSliceTab =
+    !combineInbox && isPinnedTab && !searchQuery && !mailboxWideLabelTab;
   const isOtherTab =
     view === "inbox" &&
+    !combineInbox &&
     activeInboxTab === OTHER_INBOX_TAB_PARAM &&
     !searchQuery;
   const effectiveLabel = clientSliceTab

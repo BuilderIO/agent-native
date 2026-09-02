@@ -6,6 +6,7 @@ import {
   markdownPreviewSnippet,
   normalizeMarkdownHardBreaks,
   renderInlineMarkdown,
+  renderPlainTextLinks,
 } from "./markdown.js";
 
 describe("normalizeMarkdownHardBreaks", () => {
@@ -76,6 +77,18 @@ describe("renderInlineMarkdown", () => {
       '<a href="https://example.com/path" target="_blank" rel="noopener noreferrer">https://example.com/path</a>).',
     );
     expect(html).not.toContain("&gt;");
+  });
+});
+
+describe("renderPlainTextLinks", () => {
+  it("links plain-text urls without interpreting markup", () => {
+    expect(
+      renderPlainTextLinks(
+        "Visit https://example.com/path?a=1&b=2). <https://example.com/next> and <b>.",
+      ),
+    ).toBe(
+      'Visit <a href="https://example.com/path?a=1&amp;b=2" target="_blank" rel="noopener noreferrer">https://example.com/path?a=1&amp;b=2</a>). <a href="https://example.com/next" target="_blank" rel="noopener noreferrer">https://example.com/next</a> and &lt;b&gt;.',
+    );
   });
 });
 

@@ -65,6 +65,12 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain(
       'navigate("/inbox?label=important", { replace: true })',
     );
+    expect(source).toContain(
+      "const combineInbox = settings?.combineInbox === true;",
+    );
+    expect(source).toContain("combineInbox ||");
+    expect(source).toContain("!combineInbox && isPinnedTab");
+    expect(source).toContain("!combineInbox &&\n    activeInboxTab");
   });
 
   it("loads legacy custom-label inbox links from the whole mailbox", () => {
@@ -73,7 +79,7 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain("const mailboxWideLabelTab =");
     expect(source).toContain('activeLabelRecord?.type !== "user"');
     expect(source).toContain(
-      "const clientSliceTab = isPinnedTab && !searchQuery && !mailboxWideLabelTab;",
+      "const clientSliceTab =\n    !combineInbox && isPinnedTab && !searchQuery && !mailboxWideLabelTab;",
     );
     expect(source).toContain(
       'const emailView = activeSavedFilter\n    ? "all"',

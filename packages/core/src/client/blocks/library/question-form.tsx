@@ -75,6 +75,34 @@ type QuestionFormHandoff = {
   total: number;
 };
 
+function recommendedFirst<T extends { recommended?: boolean }>(
+  options: readonly T[],
+): T[] {
+  if (!options.some((option) => option.recommended)) return [...options];
+  return [
+    ...options.filter((option) => option.recommended),
+    ...options.filter((option) => !option.recommended),
+  ];
+}
+
+function defaultQuestionAnswers(
+  questions: readonly QuestionFormQuestion[],
+): QuestionAnswers {
+  const answers: QuestionAnswers = {};
+  for (const question of questions) {
+    if (question.mode === "freeform") continue;
+    const recommended = (question.options ?? [])
+      .filter((option) => option.recommended)
+      .map((option) => option.id);
+    const first = recommended[0];
+    if (!first) continue;
+    answers[question.id] = {
+      selected: question.mode === "single" ? [first] : recommended,
+    };
+  }
+  return answers;
+}
+
 function isAnswered(
   question: QuestionFormQuestion,
   answer?: QuestionAnswer,
@@ -154,8 +182,9 @@ function QuestionView({
   onAnswer: (answer: QuestionAnswer) => void;
 }) {
   const selected = answer?.selected ?? [];
+  const options = recommendedFirst(question.options ?? []);
   const hasVisualOptions = Boolean(
-    question.options?.some((option) => option.wireframe || option.diagram),
+    options.some((option) => option.wireframe || option.diagram),
   );
   return (
     <article className="grid gap-4 sm:grid-cols-[36px_minmax(0,1fr)]">
@@ -188,7 +217,7 @@ function QuestionView({
                 : "grid max-w-4xl gap-3",
             )}
           >
-            {question.options?.map((option) => {
+            {options.map((option) => {
               const isSelected = selected.includes(option.id);
               return (
                 <button
@@ -456,16 +485,20 @@ function QuestionFormReadInner({
   ctx,
 }: BlockReadProps<QuestionFormData>) {
   const questions = data.questions;
-  const [answers, setAnswers] = useState<QuestionAnswers>({});
+  const [answers, setAnswers] = useState<QuestionAnswers>(() =>
+    defaultQuestionAnswers(questions),
+  );
   const [handoff, setHandoff] = useState<QuestionFormHandoff | null>(null);
   const [showQuestionsAfterHandoff, setShowQuestionsAfterHandoff] =
     useState(false);
   const submitCtx = ctx as QuestionFormSubmitCtx;
 
   useEffect(() => {
-    setAnswers({});
+    setAnswers(defaultQuestionAnswers(questions));
     setHandoff(null);
     setShowQuestionsAfterHandoff(false);
+    // Keep answer reset keyed to block identity so rerenders do not clear a form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blockId]);
 
   const setAnswer = (questionId: string, next: QuestionAnswer) => {

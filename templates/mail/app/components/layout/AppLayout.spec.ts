@@ -79,6 +79,25 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain('params.set("filter", filter)');
   });
 
+  it("uses the tab cog to persist and apply the combined inbox preference", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      "const combineInbox = settings?.combineInbox === true;",
+    );
+    expect(source).toContain("updateSettings.mutate({ combineInbox: next });");
+    expect(source).toContain("combinedInbox={combineInbox}");
+    expect(source).toContain(
+      "onCombinedInboxChange={handleCombinedInboxChange}",
+    );
+    expect(source).toContain("!combineInbox &&");
+    expect(source).toContain("if (combineInbox) continue;");
+    expect(source).toContain(
+      '<Switch\n          id="combined-inbox-toggle"\n          checked={combinedInbox}\n          onCheckedChange={onCombinedInboxChange}',
+    );
+    expect(source).toContain('t("mail.tabSettings.combinedInbox")');
+  });
+
   it("routes saved searches through the Gmail query path", () => {
     const source = appLayoutSource();
 

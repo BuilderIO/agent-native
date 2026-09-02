@@ -880,6 +880,43 @@ describe("EventDetailPopover characterization", () => {
     );
   });
 
+  it("labels attendee draft creation Save while still submitting the draft", () => {
+    const onDraftCreate = vi.fn();
+    const event = baseEvent({
+      id: "attendee-draft",
+      source: "local",
+      attendees: [{ email: "guest@example.com" }],
+    });
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          isDraft
+          defaultOpen
+          onDelete={() => undefined}
+          onDraftCreate={onDraftCreate}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const saveButton = findByExactText("button", "eventForm.save");
+    expect(saveButton).toBeTruthy();
+    expect(
+      findByExactText("button", "eventForm.createAndSend"),
+    ).toBeUndefined();
+
+    act(() => {
+      (saveButton as HTMLElement).click();
+    });
+
+    expect(onDraftCreate).toHaveBeenCalledWith("attendee-draft", {
+      title: "Team sync",
+    });
+  });
+
   it("offers series scope before removing Google Meet from a recurring event", async () => {
     const event = baseEvent({
       id: "event-recurring",
