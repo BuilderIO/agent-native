@@ -2,6 +2,8 @@
 import {
   generateTabId,
   AgentChatSurface,
+  buildDynamicAgentSuggestions,
+  type AgentDynamicSuggestionContext,
   isAssistantChatHistoryVersion,
   type AssistantChatHistoryConfig,
   type AssistantChatHistoryVersion,
@@ -136,14 +138,12 @@ import {
   IconArrowUpRight,
   IconArrowsDown,
   IconPencil,
-  IconPlus,
   IconLayoutGrid,
   IconX,
   IconPin,
   IconCode,
   IconArchive,
   IconPhoto,
-  IconRefresh,
   IconChevronDown,
   IconCheck,
   IconDownload,
@@ -244,7 +244,9 @@ import {
 } from "@/components/design/EditPanel";
 import { FigmaHydrationDialog } from "@/components/design/FigmaHydrationDialog";
 import { FigmaPasteImagesNotice } from "@/components/design/FigmaPasteImagesNotice";
+import { FirstRunStart } from "@/components/design/FirstRunStart";
 import { FusionAppBanner } from "@/components/design/FusionAppBanner";
+import { GenerationStatusCard } from "@/components/design/GenerationStatusCard";
 import {
   beginEyedropperPick,
   hasEyeDropperSupport,
@@ -306,6 +308,10 @@ import type {
   RuntimeStructureMoveRequest,
 } from "@/components/design/types";
 import { DEVICE_FRAME_VIEWPORTS } from "@/components/design/types";
+import {
+  designSystemPickerOptions,
+  DesignSystemPickerControl,
+} from "@/components/editor/design-start-pickers";
 import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
@@ -665,6 +671,7 @@ import {
   type UndoRedoOrderKind,
 } from "./design-editor/editor-state";
 import { runAdoptDbFileContent } from "./design-editor/effects/adopt-db-file-content";
+import { focusAgentComposer } from "./design-editor/effects/focus-agent-composer";
 import { runMirrorSelectionToAgentChat } from "./design-editor/effects/mirror-selection-to-agent-chat";
 import { runMotionAutosave } from "./design-editor/effects/motion-autosave";
 import { runObserveCollabText } from "./design-editor/effects/observe-collab-text";
@@ -702,6 +709,7 @@ import {
 } from "./design-editor/history";
 import {
   getBodyInlineStyles,
+  setBodyInlineStyles,
   isAbsoluteCodeLayerNode,
   warnIfPoisonedBoardCoordsNormalized,
 } from "./design-editor/html-layer-positioning";
@@ -814,6 +822,7 @@ import {
   getDesignBottomToolbarMode,
   getSingleScreenCreationTool,
   resolveToolAfterSelection,
+  shouldAskOnNewDesignArrival,
   shouldAutoEnableDrawOverlay,
 } from "./design-editor/tool-state";
 import {
@@ -1154,7 +1163,10 @@ function DesignEditor() {
   const [
     runtimeStructureVerificationRequest,
     setRuntimeStructureVerificationRequest,
-  ] = useState<{ requestId: number; screenIds: string[] } | null>(null);
+  ] = useState<{
+    requestId: number;
+    screenIds: string[];
+  } | null>(null);
   const [
     pendingStructureVerificationStatus,
     setPendingStructureVerificationStatus,
@@ -1422,6 +1434,7 @@ function DesignEditor() {
   const reviewFocusNonceRef = useRef(0);
   const [activeLeftPanel, setActiveLeftPanel] =
     useState<DesignLeftPanel | null>("file");
+  const layersRevealedForFirstCreateRef = useRef(false);
   const [activeCodeFile, setActiveCodeFile] =
     useState<CodeWorkbenchActiveFile | null>(null);
   const initialSearchCommandAppliedForIdRef = useRef<string | null>(null);
@@ -1477,7 +1490,10 @@ function DesignEditor() {
     string[]
   >([]);
   const [createdOverviewLayerSelection, setCreatedOverviewLayerSelection] =
-    useState<{ screenId: string; layerId: string } | null>(null);
+    useState<{
+      screenId: string;
+      layerId: string;
+    } | null>(null);
   const pendingOverviewScreenSelectionRef = useRef<string | null>(null);
   const pendingOverviewLayerSelectionRef = useRef<string | null>(null);
   const lastOverviewSelectedScreenIdsRef = useRef<string[]>([]);
@@ -1531,20 +1547,6 @@ function DesignEditor() {
   );
 
   useEffect(() => {
-    const focusAgentComposer = () => {
-      requestAnimationFrame(() => {
-        const panel = document.querySelector("[data-design-agent-panel]");
-        const prosemirror = panel?.querySelector(
-          ".ProseMirror",
-        ) as HTMLElement | null;
-        if (prosemirror) {
-          prosemirror.focus();
-          return;
-        }
-        const textarea = panel?.querySelector("textarea") as HTMLElement | null;
-        textarea?.focus();
-      });
-    };
     const openAgentPanel = () => {
       setActiveLeftPanel("agent");
       focusAgentComposer();
@@ -2464,10 +2466,8 @@ function DesignEditor() {
   const [figmaHydrationFileIds, setFigmaHydrationFileIds] = useState<string[]>(
     [],
   );
-  const generateBtnRef = useRef<HTMLButtonElement | null>(null);
   const promptAnchorRef = useRef<HTMLElement | null>(null);
   const tweakPromptAnchorRef = useRef<HTMLElement | null>(null);
-  promptAnchorRef.current = generateBtnRef.current;
 
   useEffect(() => {
     viewModeRef.current = viewMode;
@@ -2877,6 +2877,7 @@ function DesignEditor() {
       designAccessRole === "editor" ||
       designAccessRole === "commenter");
   const canRenderAuthenticatedShare = isSignedIn || canEditDesign;
+
   const reviewResult = useReviewComments(
     {
       resourceType: "design",
@@ -3674,10 +3675,7 @@ function DesignEditor() {
 
   useEffect(() => {
     if (!design?.title) return;
-    const nextTitle = `${normalizeDocumentTitle(
-      design.title,
-      "Untitled design",
-    )} — Design`;
+    const nextTitle = `${normalizeDocumentTitle(design.title, "Untitled design")} — Design`;
     const previousTitle = document.title;
     document.title = nextTitle;
     return () => {
@@ -3992,6 +3990,58 @@ function DesignEditor() {
     id,
     migrateBoardObjectsMutation,
     queryClient,
+  ]);
+
+  /**
+   * Generate belongs to an empty design, not to the empty-state placeholder:
+   * drawing anything creates a file, the placeholder disappears, and the
+   * option went with it. It stays until the design actually has something in
+   * it, and hands off to the agent rather than reopening the prompt popover.
+   */
+  const openGenerateInAgent = useCallback(() => {
+    setRetryablePrompt(null);
+    // The agent-panel:open listener above already opens the panel and puts the
+    // caret in the composer; going through it keeps one focus path instead of
+    // a second copy that drifts.
+    window.dispatchEvent(new Event("agent-panel:open"));
+  }, []);
+
+  /**
+   * The New Design button creates the row and lands here, so the "what do you
+   * want" question is asked in the editor — the agent rail holds the ask while
+   * the drawing tools stay on the bottom bar, so either answer is one gesture
+   * away. The flag is stripped on the first ask so a reload does not reopen it.
+   */
+  const arrivedFromNewDesign = initialSearchParams.get("new") === "1";
+  const newDesignAskedRef = useRef(false);
+  useEffect(() => {
+    if (
+      !shouldAskOnNewDesignArrival({
+        arrivedFromNewDesign,
+        alreadyAsked: newDesignAskedRef.current,
+        canEditDesign,
+        embedded,
+        shellMode,
+      })
+    )
+      return;
+    newDesignAskedRef.current = true;
+    openGenerateInAgent();
+    const next = new URLSearchParams(location.search);
+    next.delete("new");
+    const query = next.toString();
+    void navigate(`${location.pathname}${query ? `?${query}` : ""}`, {
+      replace: true,
+    });
+  }, [
+    arrivedFromNewDesign,
+    canEditDesign,
+    embedded,
+    location.pathname,
+    location.search,
+    navigate,
+    openGenerateInAgent,
+    shellMode,
   ]);
 
   const overviewScreens = useMemo(() => {
@@ -8200,14 +8250,17 @@ function DesignEditor() {
     ) =>
       runPrimitiveCreated(
         {
+          activeLeftPanel,
           boardFileId,
           clearPendingOverviewLayerSelectionTimer,
           pendingEmptyTextEditRef,
           pendingOverviewLayerSelectionRef,
           pendingOverviewScreenSelectionRef,
           pendingTextEditNodeIdRef,
+          layersRevealedForFirstCreateRef,
           removeEmptyTextNodeWithRetry,
           setActiveFileId,
+          setActiveLeftPanel,
           setActiveTool,
           setCreatedOverviewLayerSelection,
           setHoveredElement,
@@ -8221,6 +8274,7 @@ function DesignEditor() {
         options,
       ),
     [
+      activeLeftPanel,
       boardFileId,
       clearPendingOverviewLayerSelectionTimer,
       removeEmptyTextNodeWithRetry,
@@ -15614,6 +15668,106 @@ function DesignEditor() {
     return nodes.length > 0 ? nodes : undefined;
   }, [boardFileId, codeLayerModelByFileId, lockedLayerIds, hiddenLayerIds]);
 
+  const designIsEmpty = useMemo(
+    () => overviewScreens.length === 0 && (boardElements?.length ?? 0) === 0,
+    [boardElements, overviewScreens.length],
+  );
+
+  const firstRunTemplatesQuery = useActionQuery(
+    "list-design-templates",
+    // Without this the picker renders every row as the generic placeholder
+    // icon, which is the whole point of choosing a template visually.
+    { includePreview: "true" },
+    { enabled: canEditDesign && designIsEmpty },
+  );
+  const firstRunTemplates = useMemo(
+    () =>
+      (firstRunTemplatesQuery.data?.templates ?? []).map((template) => ({
+        id: template.id,
+        title: template.title,
+        description: template.description,
+        category: template.category,
+        width: template.width,
+        height: template.height,
+        previewHtml: template.previewHtml,
+        designSystemId: template.designSystemId,
+        isBuiltIn: template.isBuiltIn,
+      })),
+    [firstRunTemplatesQuery.data?.templates],
+  );
+  const firstRunDesignSystems = useMemo(
+    () => designSystemPickerOptions(designSystems),
+    [designSystems],
+  );
+  const [applyingTemplateId, setApplyingTemplateId] = useState<string | null>(
+    null,
+  );
+  // A started conversation retires the whole first-run affordance. `designIsEmpty`
+  // alone is not enough: generation can be under way for a while before the
+  // first screen row exists.
+  const [chatMessageCount, setChatMessageCount] = useState(0);
+  const showFirstRunStart = designIsEmpty && chatMessageCount === 0;
+  const applyTemplate = useActionMutation("create-design-from-template");
+  const handleFirstRunTemplate = useCallback(
+    async (templateId: string) => {
+      if (!id || applyingTemplateId) return;
+      setApplyingTemplateId(templateId);
+      try {
+        await applyTemplate.mutateAsync({
+          templateId,
+          targetDesignId: id,
+          ...(selectedPromptDesignSystemId
+            ? { designSystemId: selectedPromptDesignSystemId }
+            : {}),
+        });
+        await queryClient.invalidateQueries({
+          queryKey: ["action", "get-design"],
+        });
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : String(error));
+      } finally {
+        setApplyingTemplateId(null);
+      }
+    },
+    [
+      applyTemplate,
+      applyingTemplateId,
+      id,
+      queryClient,
+      selectedPromptDesignSystemId,
+    ],
+  );
+  const handleFirstRunDesignSystem = useCallback(
+    (designSystemId: string | null) => {
+      setPromptDesignSystemId(designSystemId ?? undefined);
+      persistPromptDesignSystem(designSystemId);
+    },
+    [persistPromptDesignSystem],
+  );
+
+  const designAgentSuggestions = useMemo(
+    () => [
+      t("chat.suggestionLandingPage"),
+      t("chat.suggestionBrandMatch"),
+      t("chat.suggestionMobile"),
+    ],
+    [t],
+  );
+  /**
+   * An empty design has nothing to explain, so the shared builder's generic
+   * "explain what I am looking at" crowds the three creation prompts out of
+   * the chip row on the one screen where creating is the only thing to do.
+   */
+  const designAgentSuggestionConfig = useMemo(
+    () => ({
+      getSuggestions: (context: AgentDynamicSuggestionContext) =>
+        designIsEmpty
+          ? designAgentSuggestions
+          : buildDynamicAgentSuggestions(context),
+    }),
+    [designAgentSuggestions, designIsEmpty],
+  );
+
   const activeLayerPanelNodes = useMemo<LayersPanelNode[]>(() => {
     const activeTree = activeFile?.id
       ? (codeLayerModelByFileId.get(activeFile.id)?.tree ?? activeCodeLayerTree)
@@ -16012,6 +16166,78 @@ function DesignEditor() {
   const selectedScreenLayoutGrid = selectedScreenGeometry
     ? (layoutGrids[selectedScreenGeometry.id] ?? null)
     : null;
+  /**
+   * A screen whose source is a live URL keeps that URL as its authoritative
+   * content; the projection hands back a fetched snapshot that does have a
+   * <body>, so patching it would write a document over the route. Only inline
+   * screens own their markup.
+   */
+  const selectedScreenOwnsItsMarkup = useMemo(() => {
+    const screenId = selectedScreenGeometry?.id;
+    if (!screenId) return false;
+    return externalPreviewUrlForContent(getScreenContent(screenId)) === null;
+  }, [getScreenContent, selectedScreenGeometry]);
+  /**
+   * One patch, one write. Fill/Stroke/Effects emit multi-property changes
+   * (a gradient sets image, size, repeat and position together); applying them
+   * one property at a time recomputes each from the same pre-event projection,
+   * so the last write drops the earlier ones.
+   */
+  /** Screens whose on-screen state came from a preview tick and has not been
+   *  persisted yet, so a commit that computes identical content still saves. */
+  const unsavedPreviewScreenRef = useRef<Set<string>>(new Set());
+  const commitSelectedScreenStyles = useCallback(
+    (patch: Record<string, string>, meta?: StyleChangeMeta) => {
+      const screenId = selectedScreenGeometry?.id;
+      if (!screenId || !canEditDesignRef.current) return;
+      if (!selectedScreenOwnsItsMarkup) return;
+      const previewOnly = meta?.phase === "preview";
+      const content = getProjectionContentForScreen(screenId);
+      const next = setBodyInlineStyles(content, patch);
+      // A URL-backed screen has no <body> to patch.
+      if (next === null) return;
+      if (next === content) {
+        // Preview ticks paint without persisting, and they move the projection
+        // this reads from — so the gesture's final commit computes an identical
+        // document and used to return here, leaving the edit on screen but
+        // never in the file. A commit re-saves the previewed content instead.
+        if (previewOnly || !unsavedPreviewScreenRef.current.has(screenId)) {
+          return;
+        }
+        unsavedPreviewScreenRef.current.delete(screenId);
+        applyFileContentUpdate(screenId, content, {
+          persist: true,
+          recordHistory: true,
+        });
+        return;
+      }
+      // A colour drag emits a preview tick per frame; painting them without
+      // persisting keeps the canvas live without a save per tick, and the
+      // gesture's commit is what lands in history and the file.
+      if (previewOnly) unsavedPreviewScreenRef.current.add(screenId);
+      else unsavedPreviewScreenRef.current.delete(screenId);
+      applyFileContentUpdate(screenId, next, {
+        persist: !previewOnly,
+        recordHistory: !previewOnly,
+      });
+    },
+    [
+      applyFileContentUpdate,
+      getProjectionContentForScreen,
+      selectedScreenGeometry,
+      selectedScreenOwnsItsMarkup,
+    ],
+  );
+  const handleSelectedScreenStyleChange = useCallback(
+    (property: string, value: string, meta?: StyleChangeMeta) =>
+      commitSelectedScreenStyles({ [property]: value }, meta),
+    [commitSelectedScreenStyles],
+  );
+  const handleSelectedScreenStylesChange = useCallback(
+    (styles: Record<string, string>, meta?: StyleChangeMeta) =>
+      commitSelectedScreenStyles(styles, meta),
+    [commitSelectedScreenStyles],
+  );
   /** Design-level canvas background (the surround, not a screen's body). */
   // ── Canvas background, screen geometry, states panel ───────────────────────
   const persistedCanvasBackground = useMemo(
@@ -16137,6 +16363,38 @@ function DesignEditor() {
     codeLayerOwnerByNodeId,
     schedulePendingOverviewLayerSelectionClear,
     selectedLayerIdsState,
+  ]);
+  /**
+   * A selected screen's own <body>, as an inspectable element. The frame's box
+   * comes from the board and its paint from that file's <body>; the document
+   * now fills the frame (see EMBEDDED_FRAME_FIT_STYLE), so painting the body
+   * paints the screen's actual rectangle and the two read as one object.
+   */
+  const selectedScreenElement = useMemo(() => {
+    const screenId = selectedScreenGeometry?.id;
+    if (!screenId || !selectedScreenOwnsItsMarkup) return null;
+    const projection = getCodeLayerProjectionForScreen(screenId);
+    const body = projection?.nodes.find((node) => node.tag === "body");
+    if (!body) return null;
+    const element = elementInfoFromCodeLayerNode(body);
+    // The projection reports authored declarations verbatim, so a `background`
+    // shorthand never reaches the Fill row's `backgroundColor` and the section
+    // renders empty over a painted screen. getBodyInlineStyles resolves through
+    // CSSStyleDeclaration, which expands shorthands; only resolved values are
+    // merged so an absent longhand cannot blank a real one.
+    const resolved = getBodyInlineStyles(
+      getProjectionContentForScreen(screenId),
+    );
+    const computedStyles = { ...element.computedStyles };
+    for (const [property, value] of Object.entries(resolved)) {
+      if (value) computedStyles[property] = value;
+    }
+    return { ...element, computedStyles };
+  }, [
+    getCodeLayerProjectionForScreen,
+    getProjectionContentForScreen,
+    selectedScreenGeometry,
+    selectedScreenOwnsItsMarkup,
   ]);
 
   useEffect(() => {
@@ -19350,6 +19608,15 @@ function DesignEditor() {
       ? handleScreenGeometryChange
       : undefined,
     pageStyles,
+    selectedScreenElement,
+    onSelectedScreenStyleChange: canEditDesign
+      ? handleSelectedScreenStyleChange
+      : undefined,
+    onSelectedScreenStylesChange: canEditDesign
+      ? handleSelectedScreenStylesChange
+      : undefined,
+    viewMode,
+    mode,
     files: documentColorFiles,
     activeTool,
     onCreateScreenFromPreset: canEditDesign
@@ -19558,11 +19825,8 @@ function DesignEditor() {
                     className="min-h-0 flex-1 border-0 bg-transparent shadow-none"
                     storageKey={DESIGN_CHAT_STORAGE_KEY}
                     emptyStateText={t("chat.emptyState")}
-                    suggestions={[
-                      t("chat.suggestionLandingPage"),
-                      t("chat.suggestionBrandMatch"),
-                      t("chat.suggestionMobile"),
-                    ]}
+                    suggestions={designAgentSuggestions}
+                    dynamicSuggestions={designAgentSuggestionConfig}
                     scope={designChatScope}
                     chatHistory={designChatHistory}
                     showScopeBadge={false}
@@ -19570,13 +19834,41 @@ function DesignEditor() {
                     showTabBar={false}
                     browserTabId={browserTabId}
                     onComposerTextChange={handleComposerTextChange}
-                    composerSlot={
-                      detectedFigmaComposerLink ? (
-                        <FigmaLinkComposerBubble
-                          link={detectedFigmaComposerLink}
-                          designId={id}
+                    onMessageCountChange={setChatMessageCount}
+                    // After the suggestions and empty-state only: a template
+                    // and a suggestion are two ways to start, and neither is
+                    // worth offering once the conversation is under way.
+                    emptyStateFooter={
+                      showFirstRunStart ? (
+                        <FirstRunStart
+                          templates={firstRunTemplates}
+                          templatesLoading={firstRunTemplatesQuery.isLoading}
+                          applyingTemplateId={applyingTemplateId}
+                          onPickTemplate={(templateId) => {
+                            void handleFirstRunTemplate(templateId);
+                          }}
                         />
                       ) : null
+                    }
+                    composerSlot={
+                      <>
+                        {showFirstRunStart ? (
+                          <div data-design-system-picker className="px-3 pb-2">
+                            <DesignSystemPickerControl
+                              designSystems={firstRunDesignSystems}
+                              loading={designSystemsLoading}
+                              selectedId={selectedPromptDesignSystemId ?? null}
+                              onChange={handleFirstRunDesignSystem}
+                            />
+                          </div>
+                        ) : null}
+                        {detectedFigmaComposerLink ? (
+                          <FigmaLinkComposerBubble
+                            link={detectedFigmaComposerLink}
+                            designId={id}
+                          />
+                        ) : null}
+                      </>
                     }
                   />
                 ) : (
@@ -19737,7 +20029,11 @@ function DesignEditor() {
           !uiHidden &&
           !responsiveInteractActive &&
           designBottomToolbarMode === "editor" &&
-          activeFile &&
+          // Not gated on activeFile: a new design has no file rows at all, so
+          // waiting for one held the toolbar back on exactly the first load
+          // where a user needs it. The draw tools create the file they write
+          // to, and `design` is enough to know the editor is real.
+          design &&
           !questionFlowActive && (
             <DesignBottomToolbar
               mode={mode}
@@ -20028,7 +20324,15 @@ function DesignEditor() {
             onToggleUi={handleToggleUi}
             onToggleComments={handleToggleComments}
           >
-            {activeFile ? (
+            {designIsEmpty &&
+            (generating || pendingGenerationActive || generationIssue) ? (
+              <GenerationStatusCard
+                generating={generating || pendingGenerationActive}
+                issue={generationIssue}
+                retryablePrompt={retryablePrompt?.prompt ?? null}
+                onRetry={handleRetryGeneration}
+              />
+            ) : viewMode === "overview" || activeFile ? (
               <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
                 {/* Interact's device chrome sits inside the canvas column so
                     the workspace rails stay put — Interact is a different view
@@ -20248,6 +20552,7 @@ function DesignEditor() {
                           canEditDesign ? handleOverviewDropFiles : undefined
                         }
                         boardFileId={boardFileId}
+                        canvasBackground={canvasBackground}
                         boardIsActive={activeFileId === boardFileId}
                         boardFileContent={boardFileContent}
                         boardFrameGeometry={boardFrameGeometry}
@@ -20690,83 +20995,7 @@ function DesignEditor() {
                   />
                 </div>
               </div>
-            ) : (
-              <div className="flex min-h-0 flex-1 items-center justify-center px-8 py-10">
-                <div className="flex w-full max-w-md flex-col items-center text-center">
-                  {generating || pendingGenerationActive ? (
-                    <>
-                      <div className="mb-4 flex size-12 items-center justify-center rounded-xl border border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] shadow-[0_18px_50px_-34px_rgba(0,0,0,0.8)]">
-                        <Spinner className="size-5 text-foreground/40" />
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        {t("designEditor.generating")}
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <div
-                        aria-hidden="true"
-                        className="mb-5 w-full max-w-sm rounded-xl bg-[#f7f8fb] p-3 dark:bg-[#f4f6f8]"
-                      >
-                        <div className="flex h-7 items-center justify-between px-1 pb-2">
-                          <div className="flex gap-1.5">
-                            <span className="size-2 rounded-full bg-slate-950/[0.12]" />
-                            <span className="size-2 rounded-full bg-slate-950/[0.1]" />
-                            <span className="size-2 rounded-full bg-slate-950/[0.08]" />
-                          </div>
-                          <span className="h-2 w-16 rounded bg-slate-950/[0.08]" />
-                        </div>
-                        <div className="space-y-3 pt-4">
-                          <span className="block h-5 w-2/3 rounded bg-slate-950/[0.085]" />
-                          <span className="block h-4 w-1/2 rounded bg-slate-950/[0.07]" />
-                          <div className="grid grid-cols-3 gap-2 pt-2">
-                            <span className="h-12 rounded-md bg-slate-950/[0.07]" />
-                            <span className="h-12 rounded-md bg-slate-950/[0.07]" />
-                            <span className="h-12 rounded-md bg-slate-950/[0.07]" />
-                          </div>
-                          <span className="block h-20 rounded-lg bg-slate-950/[0.07]" />
-                        </div>
-                      </div>
-                      <p className="mb-3 text-sm font-medium text-foreground/85">
-                        {generationIssue ?? t("designEditor.noFiles")}
-                      </p>
-                      {retryablePrompt ? (
-                        <p className="mx-auto mb-4 max-w-sm text-xs italic text-muted-foreground/70">
-                          {`"${retryablePrompt.prompt}"`}
-                        </p>
-                      ) : null}
-                      <div className="flex items-center justify-center gap-2">
-                        {retryablePrompt ? (
-                          <Button
-                            size="sm"
-                            className="h-8 cursor-pointer rounded-md"
-                            onClick={handleRetryGeneration}
-                          >
-                            <IconRefresh className="h-3.5 w-3.5" />
-                            {t("designEditor.tryAgain")}
-                          </Button>
-                        ) : null}
-                        <Button
-                          ref={generateBtnRef}
-                          variant={retryablePrompt ? "ghost" : "outline"}
-                          size="sm"
-                          className="h-8 cursor-pointer rounded-md"
-                          onClick={() => {
-                            setRetryablePrompt(null);
-                            handlePromptOpenChange(true);
-                          }}
-                        >
-                          <IconPlus className="h-3.5 w-3.5" />
-                          {retryablePrompt
-                            ? t("designEditor.newPrompt")
-                            : t("designEditor.generateDesign")}
-                        </Button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
+            ) : null}
           </CanvasContextMenu>
         )}
 

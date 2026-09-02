@@ -997,6 +997,8 @@ function AgentPanelInner({
   apiUrl,
   emptyStateText,
   emptyStateAddon,
+  emptyStateFooter,
+  onMessageCountChange,
   suggestions,
   dynamicSuggestions,
   showHeader = true,
@@ -2388,6 +2390,8 @@ function AgentPanelInner({
                 contentHidden={mode !== "chat"}
                 emptyStateText={emptyStateText}
                 emptyStateAddon={emptyStateAddon}
+                emptyStateFooter={emptyStateFooter}
+                onMessageCountChange={onMessageCountChange}
                 suggestions={suggestions}
                 dynamicSuggestions={dynamicSuggestions}
                 onSwitchToCli={() => switchMode("cli")}
@@ -3130,6 +3134,8 @@ export interface AgentSidebarProps {
   adapterReloadKey?: AssistantChatProps["adapterReloadKey"];
   /** Optional content rendered at the bottom of the chat thread. */
   threadFooterSlot?: AssistantChatProps["threadFooterSlot"];
+  emptyStateFooter?: AssistantChatProps["emptyStateFooter"];
+  onMessageCountChange?: AssistantChatProps["onMessageCountChange"];
   /** Initial sidebar width in pixels. Mount-only; user resize and a saved
    *  localStorage value override this. Default: 380 */
   defaultSidebarWidth?: number;
