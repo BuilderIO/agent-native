@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
+
 import { getDbExec } from "../db/client.js";
 import { notifyWithDelivery } from "../notifications/registry.js";
 import { runWithRequestContext } from "../server/request-context.js";
-import { getSetting, putSetting } from "../settings/store.js";
+import { deleteSettingIfValue, mutateSetting } from "../settings/store.js";
 
 /**
  * Sends one Slack alert when an app's chat stops answering.
@@ -110,6 +112,23 @@ async function alertOwner(): Promise<AlertRecipient | null> {
   return email && orgId ? { owner: email, orgId } : null;
 }
 
+async function releaseAlertClaim(
+  claimId: string,
+  claimExpiresAt: number,
+): Promise<string | null> {
+  try {
+    await deleteSettingIfValue(LAST_ALERT_SETTING_KEY, {
+      claimId,
+      claimExpiresAt,
+    });
+    return null;
+  } catch (error) {
+    const reason = "The Slack alert claim could not be released.";
+    console.error(`[chat-health-alert] ${reason}`, error);
+    return reason;
+  }
+}
+
 export async function checkChatHealthAndAlert(
   now: number = Date.now(),
 ): Promise<ChatHealthAlertOutcome> {
@@ -130,23 +149,38 @@ export async function checkChatHealthAndAlert(
     return { status: "healthy", turns: counts.turns, badRate };
   }
 
-  // A cooldown stamp we could not READ is not a cooldown that is absent:
-  // treating it as absent pages on every sweep for as long as settings stay
-  // unreadable, which is exactly the spam the cooldown exists to prevent.
-  let stored: Record<string, unknown> | null;
+  // Claim the page before awaiting the external send. The claim lasts as long
+  // as the cooldown so overlapping sweeps cannot both send; failed sends
+  // release it below, while a crashed send becomes retryable after the lease.
+  const claimId = randomUUID();
+  const claimExpiresAt = now + COOLDOWN_MS;
+  let claim: Record<string, unknown>;
   try {
-    stored = (await getSetting(LAST_ALERT_SETTING_KEY)) as Record<
-      string,
-      unknown
-    > | null;
+    claim = await mutateSetting(LAST_ALERT_SETTING_KEY, (current) => {
+      const lastPagedAt = Number(current?.at ?? 0);
+      const existingClaimExpiresAt = Number(current?.claimExpiresAt ?? 0);
+      if (
+        (Number.isFinite(lastPagedAt) && now - lastPagedAt < COOLDOWN_MS) ||
+        (Number.isFinite(existingClaimExpiresAt) &&
+          existingClaimExpiresAt > now)
+      ) {
+        return current ?? {};
+      }
+      return { claimId, claimExpiresAt };
+    });
   } catch (error) {
     return { status: "check-failed", reason: String(error) };
   }
-  const lastPagedAt = Number(stored?.at ?? 0);
-  if (Number.isFinite(lastPagedAt) && now - lastPagedAt < COOLDOWN_MS) {
+
+  if (String(claim.claimId ?? "") !== claimId) {
+    const lastPagedAt = Number(claim.at ?? 0);
+    const retryAfterMs =
+      Number.isFinite(lastPagedAt) && now - lastPagedAt < COOLDOWN_MS
+        ? COOLDOWN_MS - (now - lastPagedAt)
+        : Math.max(0, Number(claim.claimExpiresAt ?? 0) - now);
     return {
       status: "cooldown",
-      retryAfterMs: COOLDOWN_MS - (now - lastPagedAt),
+      retryAfterMs,
     };
   }
 
@@ -191,19 +225,39 @@ export async function checkChatHealthAndAlert(
     );
   } catch (error) {
     console.error("[chat-health-alert] Slack delivery failed:", error);
-    return { status: "delivery-failed", reason: String(error) };
+    const releaseReason = await releaseAlertClaim(claimId, claimExpiresAt);
+    return {
+      status: "delivery-failed",
+      reason: releaseReason
+        ? `${String(error)} ${releaseReason}`
+        : String(error),
+    };
   }
 
   if (!delivery.deliveredChannels.includes("slack")) {
     const reason = "Slack health alert was not delivered.";
     console.error(`[chat-health-alert] ${reason}`);
-    return { status: "delivery-failed", reason };
+    const releaseReason = await releaseAlertClaim(claimId, claimExpiresAt);
+    return {
+      status: "delivery-failed",
+      reason: releaseReason ? `${reason} ${releaseReason}` : reason,
+    };
   }
 
-  // Stamp only after Slack confirms delivery, so a failed alert retries on the
-  // next sweep instead of being silenced by its own cooldown.
+  // Finalize only after Slack confirms delivery. The claim id keeps a slow or
+  // expired sender from overwriting a newer claim's cooldown.
   try {
-    await putSetting(LAST_ALERT_SETTING_KEY, { at: now });
+    const finalized = await mutateSetting(LAST_ALERT_SETTING_KEY, (current) =>
+      String(current?.claimId ?? "") === claimId
+        ? { at: now, claimId }
+        : (current ?? {}),
+    );
+    if (String(finalized.claimId ?? "") !== claimId) {
+      const reason =
+        "Slack delivered, but its alert cooldown claim was lost before persistence.";
+      console.error(`[chat-health-alert] ${reason}`);
+      return { status: "persistence-failed", reason };
+    }
   } catch (error) {
     const reason =
       "Slack delivered, but the alert cooldown could not be persisted.";

@@ -23,15 +23,34 @@ vi.mock("../db/client.js", () => ({
 const settings = new Map<string, Record<string, unknown>>();
 let settingsReadThrows = false;
 let settingsWriteThrows = false;
-vi.mock("../settings/store.js", () => ({
-  getSetting: vi.fn(async (key: string) => {
+const mutateSetting = vi.fn(
+  async (
+    key: string,
+    updater: (
+      current: Record<string, unknown> | null,
+    ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+  ) => {
     if (settingsReadThrows) throw new Error("settings unreadable");
-    return settings.get(key) ?? null;
-  }),
-  putSetting: vi.fn(async (key: string, value: Record<string, unknown>) => {
-    if (settingsWriteThrows) throw new Error("settings write failed");
-    settings.set(key, value);
-  }),
+    const current = settings.get(key) ?? null;
+    if (settingsWriteThrows && current?.claimId) {
+      throw new Error("settings write failed");
+    }
+    const next = await updater(current);
+    settings.set(key, next);
+    return next;
+  },
+);
+const deleteSettingIfValue = vi.fn(
+  async (key: string, expected: Record<string, unknown>) => {
+    const current = settings.get(key);
+    if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
+    settings.delete(key);
+    return true;
+  },
+);
+vi.mock("../settings/store.js", () => ({
+  deleteSettingIfValue,
+  mutateSetting,
 }));
 
 const notifyWithDelivery = vi.fn(async () => ({
@@ -57,6 +76,8 @@ beforeEach(() => {
   settingsWriteThrows = false;
   notifyWithDelivery.mockClear();
   execute.mockClear();
+  mutateSetting.mockClear();
+  deleteSettingIfValue.mockClear();
 });
 
 describe("checkChatHealthAndAlert", () => {
@@ -128,6 +149,33 @@ describe("checkChatHealthAndAlert", () => {
     expect(notifyWithDelivery).toHaveBeenCalledTimes(1);
   });
 
+  it("allows only one overlapping sweep to page", async () => {
+    turns(20, 15);
+    let sendStarted!: () => void;
+    let releaseSend!: () => void;
+    const started = new Promise<void>((resolve) => {
+      sendStarted = resolve;
+    });
+    const send = new Promise<void>((resolve) => {
+      releaseSend = resolve;
+    });
+    notifyWithDelivery.mockImplementation(async () => {
+      sendStarted();
+      await send;
+      return { notification: undefined, deliveredChannels: ["slack"] };
+    });
+
+    const first = checkChatHealthAndAlert(NOW);
+    await started;
+    const second = await checkChatHealthAndAlert(NOW);
+    releaseSend();
+    const firstOut = await first;
+
+    expect(second.status).toBe("cooldown");
+    expect(firstOut.status).toBe("alerted");
+    expect(notifyWithDelivery).toHaveBeenCalledTimes(1);
+  });
+
   it("pages again once the cooldown has passed", async () => {
     turns(20, 15);
     await checkChatHealthAndAlert(NOW);
@@ -166,6 +214,7 @@ describe("checkChatHealthAndAlert", () => {
     const out = await checkChatHealthAndAlert(NOW);
     expect(out.status).toBe("delivery-failed");
     expect(settings).toEqual(new Map());
+    expect(deleteSettingIfValue).toHaveBeenCalledTimes(1);
 
     await checkChatHealthAndAlert(NOW + 60_000);
     expect(notifyWithDelivery).toHaveBeenCalledTimes(2);
