@@ -26,7 +26,7 @@ You will not, and will cause your users you authorize not to, use the Services t
 - interfere with or disrupt the integrity or performance of the Services or any Hosted Agent-Native Application, including through denial-of-service attacks, excessive automated requests, or cryptocurrency mining;
 - probe, scan, or test the vulnerability of the Services without our prior written authorization.
 
-2.2 Content and Conduct
+  2.2 Content and Conduct
 
 - host, transmit, or distribute content that is unlawful, defamatory, harassing, or that incites violence or unlawful acts;
 - infringe the intellectual property, privacy, publicity, or other rights of any third party;
@@ -37,7 +37,7 @@ You will not, and will cause your users you authorize not to, use the Services t
 - host, display, distribute, or generate adult, sexual, or sexually suggestive content of any kind, including pornography, nudity, and erotic content, even where such content involves only consenting adults and is otherwise legal;
 - host or distribute child sexual abuse material (CSAM). Such activity will be reported to the appropriate authorities and result in immediate account termination.
 
-2.3 Data and Privacy
+  2.3 Data and Privacy
 
 - collect, store, or process End-User Personal Data without a lawful basis and an appropriate privacy notice;
 - submit or process Prohibited Data in violation of Section 4 of the Agent-Native Hosted Services Terms;
@@ -45,14 +45,14 @@ You will not, and will cause your users you authorize not to, use the Services t
 
 3. Fake and Fraudulent Services
 
-The following are prohibited outright  -  no exceptions for licensing or certification:
+The following are prohibited outright - no exceptions for licensing or certification:
 
 - falsely offering financial services, such as fake crypto-wallets, payment services, banking, lending, or investment offerings;
 - impersonating or falsely representing affiliation with any financial institution, government body, or regulated entity.
 
 4. Regulated and Age-Restricted Services
 
-You may build Hosted Agent-Native Applications offering regulated or age-restricted goods or services  -  such as gambling, financial services, alcohol, tobacco, weapons, or controlled substances  -  only if you hold all licenses, certifications, and approvals required by applicable law. We take you at your word, but we may verify: we may ask you to prove your licensing at any time, and may suspend or take down your Hosted Agent-Native Application immediately if we believe it is operating without the proper licenses, until you provide satisfactory evidence. The burden of proof is on you.
+You may build Hosted Agent-Native Applications offering regulated or age-restricted goods or services - such as gambling, financial services, alcohol, tobacco, weapons, or controlled substances - only if you hold all licenses, certifications, and approvals required by applicable law. We take you at your word, but we may verify: we may ask you to prove your licensing at any time, and may suspend or take down your Hosted Agent-Native Application immediately if we believe it is operating without the proper licenses, until you provide satisfactory evidence. The burden of proof is on you.
 
 5. Enforcement
 
