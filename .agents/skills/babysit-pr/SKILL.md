@@ -47,20 +47,26 @@ merging, except when the user explicitly invokes `/ship-now`.
    `targetThreadId: <this task's threadId>`, and
    `notificationPolicy: failed_runs_only`; update that exact task-scoped
    automation on later ticks. The task-scoped name prevents different
-   invocations from targeting the same record, but it is not an atomic
-   ownership update. Every claim, reschedule, and pause must use one atomic
-   compare-and-set/update-if-current operation, or the host's serialized
-   coordinator, with the observed revision, ETag, or equivalent version plus
-   the expected `targetThreadId` and status. Never use a read followed by an
-   unconditional write. Never use the legacy shared
-   `babysit-pr-<number>` identity for a new invocation. If that legacy watcher
-   or any task-scoped watcher with a different owner is ACTIVE, leave it
-   untouched and continue this invocation in the foreground; do not overwrite,
-   pause, or create any watcher for this PR. This is a terminal foreground-only
-   branch for this invocation, so skip the missing-watcher create or resume path
-   below. Only when no ACTIVE legacy or foreign-owned watcher was found may this
-   invocation create or resume its own task-scoped watcher. Read the exact
-   task-scoped automation before every update and verify its persisted
+   invocations from overwriting the same record, but it does not select one
+   durable babysitter for the PR. Before creating or resuming any task-scoped
+   watcher, acquire the PR-scoped lease `babysit-pr-<number>` through the host's
+   serialized coordinator or an equivalent durable atomic
+   create-if-absent/update-if-current store. The lease must record the owner
+   thread, version, and expiry. Never create a task-scoped watcher before the
+   lease claim succeeds. A failed claim remains foreground-only. An ACTIVE
+   legacy watcher or task-scoped watcher with another owner counts as an
+   existing lease holder: leave it untouched, do not create any watcher for
+   this PR, and continue this invocation in the foreground. This is a terminal
+   foreground-only branch for this invocation, so skip the missing-watcher
+   create or resume path below. Only after the PR-scoped lease claim succeeds
+   and no ACTIVE legacy or foreign-owned watcher was found may this invocation
+   create or resume its own task-scoped watcher. Every claim, reschedule, and
+   pause must use one atomic compare-and-set/update-if-current operation, or the
+   host's serialized coordinator, with the observed revision, ETag, or
+   equivalent version plus the expected `targetThreadId` and status. Never use
+   a read followed by an unconditional write. Never use the legacy shared
+   `babysit-pr-<number>` identity as a new invocation's heartbeat. Read the
+   exact task-scoped automation before every update and verify its persisted
    `targetThreadId` still matches this task. Claim a missing or paused watcher
    only with an atomic create-if-absent or update-if-current operation; a failed
    precondition loses the claim and remains foreground-only. After every
@@ -315,9 +321,11 @@ Before stopping on either condition, reread this task's exact
 `babysit-pr-<number>-<this task's threadId>` heartbeat and capture its current
 version. Pause it only with the same atomic update-if-current or serialized
 coordinator operation, requiring that version and this task's
-`targetThreadId`; otherwise leave it and every other owner's watcher alone. A
-failed precondition is a no-op. Never pause the legacy shared per-PR identity.
-Verify the PR's final state. Never leave a heartbeat owned by this task running
-after completion.
+`targetThreadId` plus the current PR-lease owner/version; otherwise leave it and
+every other owner's watcher alone. A failed precondition is a no-op. After the
+heartbeat pause succeeds, release the PR-scoped lease with the same owner and
+version precondition. Never pause or release the legacy shared per-PR identity
+or another owner's lease. Verify the PR's final state. Never leave a heartbeat
+or lease owned by this task running after completion.
 
 Before stopping OR merging, the unaddressed-comments command above must print **nothing** — re-run it as the final gate. "I replied earlier" is not sufficient; bots may have posted new rounds since.
