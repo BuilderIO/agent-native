@@ -47,6 +47,45 @@ describe("getGithubStarCount", () => {
     expect(await getGithubStarCount()).toBeNull();
   });
 
+  it.each([
+    {
+      name: "Retry-After",
+      headers: () => ({ "retry-after": "120" }),
+    },
+    {
+      name: "X-RateLimit-Reset",
+      headers: () => ({
+        "x-ratelimit-reset": String(Math.floor(Date.now() / 1000) + 120),
+      }),
+    },
+  ])("honors the GitHub $name retry deadline", async ({ headers }) => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() =>
+        Promise.resolve(
+          new Response(null, { status: 429, headers: headers() }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ stargazers_count: 11 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    global.fetch = fetchMock;
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-02T17:00:00.000Z"));
+
+    expect(await getGithubStarCount()).toBeNull();
+    vi.advanceTimersByTime(60_000);
+    expect(await getGithubStarCount()).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(60_001);
+    expect(await getGithubStarCount()).toBe(11);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("serves cached value without refetching within the fresh window", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ stargazers_count: 7 }), {
