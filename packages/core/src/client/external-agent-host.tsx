@@ -1,6 +1,12 @@
 import { Button } from "@agent-native/toolkit/ui/button";
 import { IconMessageCircle } from "@tabler/icons-react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 
 import { getFrameOrigin } from "./frame.js";
 import { useT } from "./i18n.js";
@@ -22,6 +28,7 @@ export interface ExternalAgentHostSignals {
   hostname?: string | null;
   frameOrigin?: string | null;
   referrer?: string | null;
+  isEmbedded?: boolean;
   openAiBridge?: unknown;
   hostInfo?: unknown;
 }
@@ -70,7 +77,7 @@ export function detectExternalAgentHost(
   const hostnames = [
     signals.hostname,
     signals.frameOrigin,
-    signals.referrer,
+    ...(signals.isEmbedded ? [signals.referrer] : []),
   ].map(hostnameFrom);
   if (
     hostnames.some((hostname) =>
@@ -97,6 +104,7 @@ function readExternalAgentHost(hostInfo: unknown): ExternalAgentHost | null {
     hostname: window.location.hostname,
     frameOrigin: getFrameOrigin(),
     referrer: document.referrer,
+    isEmbedded: window.parent !== window,
     openAiBridge: (window as unknown as { openai?: unknown }).openai,
     hostInfo,
   });
@@ -184,6 +192,35 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
   ).filter((element) => !element.hasAttribute("aria-hidden"));
 }
 
+export function isExternalAgentNudgeSurfaceVisible(element: HTMLElement): boolean {
+  if (typeof window === "undefined") return false;
+
+  let current: HTMLElement | null = element;
+  while (current) {
+    if (
+      current.hidden ||
+      current.classList.contains("hidden") ||
+      current.getAttribute("aria-hidden") === "true"
+    ) {
+      return false;
+    }
+
+    const style = window.getComputedStyle(current);
+    if (
+      style.display === "none" ||
+      style.visibility === "hidden" ||
+      style.contentVisibility === "hidden" ||
+      style.opacity === "0"
+    ) {
+      return false;
+    }
+
+    current = current.parentElement;
+  }
+
+  return true;
+}
+
 function dismissedKey(
   host: ExternalAgentHost,
   variant: ExternalAgentNudgeVariant,
@@ -236,6 +273,7 @@ export function ExternalAgentNudge({
   const descriptionId = useId();
   const dismissalReady = dismissal.key === hostDismissalKey;
   const nudgeVisible = Boolean(host && dismissalReady && !dismissal.dismissed);
+  const [surfaceVisible, setSurfaceVisible] = useState(false);
 
   const dismissNudge = useCallback(() => {
     if (!host) return;
@@ -263,7 +301,43 @@ export function ExternalAgentNudge({
   }, [nudgeVisible, restoreFocus]);
 
   useEffect(() => {
-    if (!nudgeVisible) return;
+    if (!nudgeVisible) {
+      setSurfaceVisible(false);
+      return;
+    }
+
+    const nudge = nudgeRef.current;
+    if (!nudge) return;
+
+    const updateVisibility = () => {
+      const nextVisible = isExternalAgentNudgeSurfaceVisible(nudge);
+      setSurfaceVisible((currentVisible) =>
+        currentVisible === nextVisible ? currentVisible : nextVisible,
+      );
+    };
+    updateVisibility();
+
+    const observers: MutationObserver[] = [];
+    let current: HTMLElement | null = nudge;
+    while (current) {
+      const observer = new MutationObserver(updateVisibility);
+      observer.observe(current, {
+        attributes: true,
+        attributeFilter: ["aria-hidden", "class", "hidden", "style"],
+      });
+      observers.push(observer);
+      current = current.parentElement;
+    }
+
+    window.addEventListener("resize", updateVisibility, { passive: true });
+    return () => {
+      for (const observer of observers) observer.disconnect();
+      window.removeEventListener("resize", updateVisibility);
+    };
+  }, [nudgeVisible]);
+
+  useEffect(() => {
+    if (!nudgeVisible || !surfaceVisible) return;
 
     const nudge = nudgeRef.current;
     if (!nudge) return;
@@ -347,9 +421,14 @@ export function ExternalAgentNudge({
       for (const sibling of inertSiblings) {
         if (!previouslyInert.get(sibling)) sibling.removeAttribute("inert");
       }
-      if (wasActive && !nudge.isConnected) restoreFocus();
+      if (
+        wasActive &&
+        (!nudge.isConnected || !isExternalAgentNudgeSurfaceVisible(nudge))
+      ) {
+        restoreFocus();
+      }
     };
-  }, [dismissNudge, nudgeId, nudgeVisible, restoreFocus]);
+  }, [dismissNudge, nudgeId, nudgeVisible, restoreFocus, surfaceVisible]);
 
   useEffect(() => restoreFocus, [restoreFocus]);
 
