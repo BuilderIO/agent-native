@@ -65,6 +65,7 @@ type ParkedRecheck = {
   humanReviewCommentCount: number;
   humanReviewBodyCount: number;
   commentsTruncated: boolean;
+  reviewsTruncated: boolean;
   changesRequested: boolean;
   mergeConflict: boolean;
 };
@@ -92,6 +93,7 @@ function parkedRecheckEvidencePatch(recheck: ParkedRecheck) {
     prBabysitHumanReviewCommentCount: recheck.humanReviewCommentCount,
     prBabysitHumanReviewBodyCount: recheck.humanReviewBodyCount,
     prBabysitCommentsTruncated: recheck.commentsTruncated,
+    prBabysitReviewsTruncated: recheck.reviewsTruncated,
     prBabysitChangesRequested: recheck.changesRequested,
     prBabysitMergeConflict: recheck.mergeConflict,
   };
@@ -122,6 +124,9 @@ function shouldReopenFromRecheck(
       "prBabysitHumanReviewBodyCount",
     ),
     nextHumanReviewBodyCount: recheck?.humanReviewBodyCount,
+    storedReviewsTruncated:
+      metadataBoolean(existingMetadata, "prBabysitReviewsTruncated") === true,
+    nextReviewsTruncated: recheck?.reviewsTruncated === true,
   });
 }
 
@@ -285,6 +290,7 @@ export default defineAction({
             ),
             humanReviewBodyCount: countHumanReviewBodies(evidence.reviews),
             commentsTruncated: evidence.commentsTruncated,
+            reviewsTruncated: evidence.reviewsTruncated,
             changesRequested: hasHumanChangesRequested(evidence.reviews),
             mergeConflict: hasMergeConflict({
               mergeable: summary.mergeable,
@@ -527,15 +533,34 @@ export default defineAction({
         const number = row.pullRequestNumber;
         if (typeof number !== "number" || listedOpenPrNumbers.has(number))
           continue;
-        const existingMetadata = parseTriageMetadata(row.metadataJson);
         const parkedRecheck = parkedRechecks.get(number);
         if (!parkedRecheck) continue;
+        const current = (
+          await tx
+            .select({
+              metadataJson: triageItems.metadataJson,
+              updatedAt: triageItems.updatedAt,
+              sourceUrl: triageItems.sourceUrl,
+              title: triageItems.title,
+            })
+            .from(triageItems)
+            .where(
+              and(eq(triageItems.id, row.id), eq(triageItems.orgId, orgId)),
+            )
+            .limit(1)
+        )[0];
+        if (!current) continue;
+        const currentMetadata = parseTriageMetadata(current.metadataJson);
+        const stillParked = babysitLeavesReviewWindow(
+          metadataString(currentMetadata, "prBabysitState"),
+        );
+        if (!stillParked) continue;
         const reopenParked = shouldReopenFromRecheck(
-          existingMetadata,
+          currentMetadata,
           parkedRecheck,
           true,
         );
-        const metadataWithBabysit = mergeTriageMetadata(row.metadataJson, {
+        const metadataWithBabysit = mergeTriageMetadata(current.metadataJson, {
           ...parkedRecheckEvidencePatch(parkedRecheck),
           ...(reopenParked ? { prBabysitState: "queued" } : {}),
         });
@@ -547,14 +572,20 @@ export default defineAction({
               ? { updatedAt: now, status: "pr_observed" as const }
               : {}),
           })
-          .where(and(eq(triageItems.id, row.id), eq(triageItems.orgId, orgId)));
+          .where(
+            and(
+              eq(triageItems.id, row.id),
+              eq(triageItems.orgId, orgId),
+              eq(triageItems.updatedAt, current.updatedAt),
+            ),
+          );
         if (!reopenParked) continue;
         updated += 1;
         newlyObserved.push({
           itemId: row.id,
           source: "github",
-          sourceUrl: row.sourceUrl ?? "",
-          summary: row.title ?? `PR #${number}`,
+          sourceUrl: current.sourceUrl ?? row.sourceUrl ?? "",
+          summary: current.title ?? row.title ?? `PR #${number}`,
           number,
           added: false,
         });

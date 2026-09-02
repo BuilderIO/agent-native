@@ -94,6 +94,8 @@ export async function recordFactoryAuditIfChanged(
     await recordFactoryAudit(context, identity, input, factoryId);
     return;
   }
+  const itemId = input.itemId;
+  const runId = context.runId;
   const status = input.status ?? "success";
   const summary = boundedText(input.summary, MAX_SUMMARY_LENGTH);
   const action = boundedText(input.action, 120);
@@ -107,7 +109,7 @@ export async function recordFactoryAuditIfChanged(
         .from(factoryAuditEvents)
         .where(
           and(
-            eq(factoryAuditEvents.itemId, input.itemId),
+            eq(factoryAuditEvents.itemId, itemId),
             eq(factoryAuditEvents.action, action),
             eq(factoryAuditEvents.kind, input.kind),
           ),
@@ -119,11 +121,11 @@ export async function recordFactoryAuditIfChanged(
     const resolvedFactoryId = factoryId ?? input.factoryId ?? null;
     await tx.insert(factoryAuditEvents).values({
       id: randomUUID(),
-      automationRunId: context.runId,
+      automationRunId: runId,
       automationThreadId: context.threadId ?? null,
       automationName: context.automation?.triggerName ?? null,
       factoryId: resolvedFactoryId,
-      itemId: input.itemId ?? null,
+      itemId,
       source: input.source ?? null,
       sourceUrl: input.sourceUrl ?? null,
       action,

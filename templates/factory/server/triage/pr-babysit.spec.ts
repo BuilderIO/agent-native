@@ -308,7 +308,37 @@ describe("reconcileBabysitState", () => {
 
     const complete = reconcileBabysitState(baseInput);
     expect(complete.commentsTruncated).toBe(false);
+    expect(complete.reviewsTruncated).toBe(false);
+    expect(complete.humanReviewBodyKeys).toEqual([]);
     expect(complete.isClean).toBe(true);
+  });
+
+  it("is never clean when a human COMMENTED review has a body", () => {
+    const result = reconcileBabysitState({
+      ...baseInput,
+      reviews: [
+        { author: "reviewer", state: "commented", body: "please fix the API" },
+      ],
+    });
+    expect(result.isClean).toBe(false);
+    expect(result.humanReviewBodyKeys).toEqual(["reviewer:please fix the API"]);
+    expect(
+      shouldRequestBabysitWork({
+        mergeable: true,
+        mergeableState: "clean",
+        snapshot: result,
+      }),
+    ).toBe(true);
+  });
+
+  it("is never clean when the review page was truncated", () => {
+    const result = reconcileBabysitState({
+      ...baseInput,
+      reviews: [],
+      reviewsTruncated: true,
+    });
+    expect(result.reviewsTruncated).toBe(true);
+    expect(result.isClean).toBe(false);
   });
 });
 
@@ -352,7 +382,7 @@ describe("babysit work policy", () => {
     ).toBe(true);
   });
 
-  it("changes the durable fingerprint for changes_requested, not extra commented reviews", () => {
+  it("changes the durable fingerprint for review bodies and changes_requested", () => {
     const commented = babysitFingerprint({
       headSha: "sha-1",
       mergeable: true,
@@ -365,10 +395,13 @@ describe("babysit work policy", () => {
         headSha: "sha-1",
         mergeable: true,
         mergeableState: "clean",
-        snapshot: clean,
-        reviewStates: ["commented", "commented"],
+        snapshot: {
+          ...clean,
+          humanReviewBodyKeys: ["reviewer:please fix the API"],
+        },
+        reviewStates: ["commented"],
       }),
-    ).toBe(commented);
+    ).not.toBe(commented);
     expect(
       babysitFingerprint({
         headSha: "sha-1",
@@ -471,8 +504,26 @@ describe("babysit work policy", () => {
         nextHumanReviewCommentCount: 1,
         storedHumanReviewBodyCount: 0,
         nextHumanReviewBodyCount: 1,
+        storedReviewsTruncated: false,
+        nextReviewsTruncated: false,
       }),
     ).toBe(true);
+    expect(
+      shouldReopenParkedBabysit({
+        parked: true,
+        storedMergeConflict: false,
+        nextMergeConflict: false,
+        storedChangesRequested: false,
+        nextChangesRequested: false,
+        storedCommentsTruncated: false,
+        storedHumanReviewCommentCount: 1,
+        nextHumanReviewCommentCount: 1,
+        storedHumanReviewBodyCount: 0,
+        nextHumanReviewBodyCount: 40,
+        storedReviewsTruncated: true,
+        nextReviewsTruncated: true,
+      }),
+    ).toBe(false);
     expect(
       countHumanReviewComments([
         comment({ id: "1", author: "reviewer" }),
@@ -485,6 +536,7 @@ describe("babysit work policy", () => {
         { author: "reviewer", state: "commented", body: "please fix the API" },
         { author: "builderio-bot", state: "commented", body: "looking" },
         { author: "reviewer", state: "pending", body: "draft" },
+        { author: "reviewer", state: "approved", body: "LGTM" },
         { author: "reviewer", state: "commented", body: "   " },
       ]),
     ).toBe(1);

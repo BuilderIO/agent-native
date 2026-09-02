@@ -97,7 +97,7 @@ async function updateBabysitItem(
 
 export default defineAction({
   description:
-    "Watch one pull request using GitHub review and CI evidence and post the hardcoded feedback-fix comment when that evidence needs work. A new commit, pending CI, extra commented reviews, or GitHub finishing mergeability does not post again; new human review feedback, changes_requested, or a real merge conflict can. Waiting and quiet items leave needsReview until that new work appears. Pass inScope true only when this factory's prompt says the pull request should be babysat. inScope false records a skip and removes the item from the review window. Never merges or approves. Use propose-pr-babysit-status for a read-only proposal.",
+    "Watch one pull request using GitHub review and CI evidence and post the hardcoded feedback-fix comment when that evidence needs work. A new commit, pending CI, empty commented reviews, or GitHub finishing mergeability does not post again; new human review comments or review bodies, changes_requested, or a real merge conflict can. Waiting and quiet items leave needsReview until that new work appears. Pass inScope true only when this factory's prompt says the pull request should be babysat. inScope false records a skip and removes the item from the review window. Never merges or approves. Use propose-pr-babysit-status for a read-only proposal.",
   schema: z.object({
     itemId: z.string().min(1),
     factoryId: factoryIdSchema.optional(),
@@ -280,20 +280,14 @@ export default defineAction({
       checks: snapshot.checks,
       checksCoverage: snapshot.checksCoverage,
       commentsTruncated: snapshot.commentsTruncated,
+      reviews: snapshot.reviews,
+      reviewsTruncated: snapshot.reviewsTruncated,
       botAuthors: [...DEFAULT_BABYSIT_BOT_AUTHORS],
     });
-    const unresolvedReviewState = snapshot.reviews.some(
-      (review) =>
-        review.state === "changes_requested" || review.state === "pending",
-    );
-    const signal = {
-      ...proposal,
-      isClean: proposal.isClean && !unresolvedReviewState,
-    };
     const needsBabysit = shouldRequestBabysitWork({
       mergeable: pullRequest.mergeable,
       mergeableState: pullRequest.mergeableState,
-      snapshot: signal,
+      snapshot: proposal,
     });
     const now = new Date();
     const nowIso = now.toISOString();
@@ -302,7 +296,7 @@ export default defineAction({
       headSha: pullRequest.headSha,
       mergeable: pullRequest.mergeable,
       mergeableState: pullRequest.mergeableState,
-      snapshot: signal,
+      snapshot: proposal,
       reviewStates: snapshot.reviews.map((review) => review.state),
     });
     const previousFingerprint = metadataString(
@@ -320,6 +314,7 @@ export default defineAction({
       ),
       prBabysitHumanReviewBodyCount: countHumanReviewBodies(snapshot.reviews),
       prBabysitCommentsTruncated: snapshot.commentsTruncated === true,
+      prBabysitReviewsTruncated: snapshot.reviewsTruncated === true,
       prBabysitChangesRequested: hasHumanChangesRequested(snapshot.reviews),
       prBabysitMergeConflict: mergeConflict,
     };
@@ -328,10 +323,9 @@ export default defineAction({
       headSha: pullRequest.headSha,
       checks: snapshot.checks.length,
       comments: snapshot.comments.length,
-      unresolvedReviewState,
       mergeable: pullRequest.mergeable,
       mergeableState: pullRequest.mergeableState,
-      reviewFeedbackClean: signal.isClean,
+      reviewFeedbackClean: proposal.isClean,
     };
     if (!needsBabysit) {
       if (
