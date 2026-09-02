@@ -5,7 +5,12 @@ let memberRows: Array<Record<string, unknown>> = [];
 let turnQueryThrows = false;
 
 const execute = vi.fn(async ({ sql }: { sql: string }) => {
-  if (sql.includes("org_members")) return { rows: memberRows, rowsAffected: 0 };
+  if (sql.includes("org_members")) {
+    const rows = sql.includes("role IN ('owner', 'admin')")
+      ? memberRows.filter((row) => row.role === "owner" || row.role === "admin")
+      : memberRows;
+    return { rows, rowsAffected: 0 };
+  }
   if (turnQueryThrows) throw new Error("ledger unreadable");
   return { rows: turnRows, rowsAffected: 0 };
 });
@@ -100,6 +105,17 @@ describe("checkChatHealthAndAlert", () => {
         "No single owner/admin organization scope is available for Slack health alerts.",
     });
     expect(notifyWithDelivery).not.toHaveBeenCalled();
+  });
+
+  it("ignores regular members in other organizations", async () => {
+    memberRows = [
+      { org_id: "org-1", email: "a@example.com", role: "owner" },
+      { org_id: "org-2", email: "member@example.com", role: "member" },
+    ];
+    turns(20, 15);
+    const out = await checkChatHealthAndAlert(NOW);
+    expect(out).toMatchObject({ status: "alerted", recipients: 1 });
+    expect(notifyWithDelivery).toHaveBeenCalledTimes(1);
   });
 
   it("pages once per outage, not once per sweep", async () => {
