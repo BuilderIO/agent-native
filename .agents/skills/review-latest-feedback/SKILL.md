@@ -75,10 +75,12 @@ reply** despite an unanswered clarification, restore it to the pending set.
 - **No answer, posted under 4 days ago** → leave it. Post nothing. A second
   message is a nag, not a follow-up.
 - **No answer, posted over 4 days ago** → the question failed. Drop it
-  silently: no reminder, no re-ask, no new reaction. Record it in the recap as
-  `abandoned - no answer in 4 days`. If the bug still matters, carry it forward
-  as an internal investigation with no reporter dependency — dropping the
-  question is not dropping the bug.
+  silently: no reminder, no re-ask, no new reaction. Remove the `👀` and record
+  **Abandoned - no answer in 4 days**, which is a terminal ledger disposition
+  ranking with **Fixed** and **Open - no reply** — an expired thread keeps no
+  eye and owes no reply, in this workflow or a standalone companion run. If the
+  bug still matters, carry it forward as an internal investigation with no
+  reporter dependency — dropping the question is not dropping the bug.
 
 Four days is the retention rule, and it is deliberate. A question nobody
 answered in four days will not be answered on day thirty, and an
@@ -409,7 +411,7 @@ Upvoted items in scope: N (built: N)
 
 | Source / item | Disposition | Replied? | Why and evidence |
 | --- | --- | --- | --- |
-| [Slack thread](...) | Fixed / Shipped / In progress / Asked / Open - no reply / Clustered / Skipped / Abandoned | yes / no | ... |
+| [Slack thread](...) | Fixed / Shipped / In progress / Asked / Open - no reply / Clustered / Skipped / Abandoned - no answer in 4 days | yes / no | ... |
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Unavailable or unverified: ...

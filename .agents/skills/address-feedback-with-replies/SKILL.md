@@ -34,11 +34,9 @@ wanted. The upvote is the authorization — do not wait for a second sign-off.
 It does not transfer ownership: an upvoted Design or Content item still gets
 built, with Sid or Alice named in the recap row so the mapped owner is not
 surprised by a change in their area. Naming them is a courtesy, not a gate.
-Both workflows may record the **Shipped** disposition for an upvoted
-improvement; this standalone workflow must accept and complete that path
-itself. Everything in this file about voice, evidence, and verification
-applies to an upvoted item unchanged. The ledger treats **Shipped** as its
-terminal disposition, just like **Fixed**.
+Either workflow may complete an upvoted improvement and record the terminal
+**Shipped** disposition. Everything in this file about voice, evidence, and
+verification applies to an upvoted item unchanged.
 Even when invoked alone, this workflow asks at most three new clarification
 questions per run across all threads, ranked by which answer would unblock a
 safe fix.
@@ -52,11 +50,13 @@ connector cannot remove reactions, record the exact parent for manual cleanup
 and leave the thread otherwise untouched. New messages must pass the clear-bug
 gate before any external write.
 
-Every clear-bug parent or authorized upvoted improvement that receives `👀`
+Every clear-bug parent or upvoted improvement that receives `👀`
 enters the reply ledger. The reaction is not a reply or completion marker.
 Before finishing, re-read each eye-marked item and verify the invoking identity
 posted **Fixed**, **Shipped**, **In progress**, or **Clarification needed**, or
-recorded **Open - no reply** with a concrete reason. **In progress** requires
+recorded **Open - no reply** or **Abandoned - no answer in 4 days** with a
+concrete reason. An expired question leaves the ledger with its `👀` removed
+and no reply owed. **In progress** requires
 concrete existing ownership or active fixing and must be revisited; a bot
 forward, another person's reply, or `👀` alone does not qualify. Mistaken
 out-of-scope eyes use the cleanup rule above, not a new reply.
@@ -168,6 +168,11 @@ the invoking identity's terminal disposition for the current cursor, but the nex
 `review-latest-feedback` run must re-read every thread it previously asked in
 before scanning newer messages; when this workflow runs on its own, do the same
 and act on the replies first.
+
+That obligation expires after four days, standalone runs included: remove the
+`👀`, post nothing, and record the terminal **Abandoned - no answer in 4 days**.
+An expired thread keeps no eye and owes no reply. Carry the underlying bug
+forward with no reporter dependency.
 
 **In progress** is also an open state. It records that the thread already has
 real ownership or an active fix, so the invoking identity must not ask the
