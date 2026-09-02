@@ -35,7 +35,7 @@ import {
 describe("desktop chat relay target URLs", () => {
   it("uses selected app folders and a stable app-owned fallback", () => {
     const selectedPath = mkdtempSync(path.join("/tmp", "selected-app-"));
-    vi.spyOn(process, "cwd").mockReturnValue("/");
+    vi.spyOn(process, "cwd").mockReturnValue(selectedPath);
     vi.stubEnv("AGENT_NATIVE_PROJECT_ROOT", "/");
     vi.stubEnv("CODE_AGENTS_PROJECT_ROOT", "/");
     vi.stubEnv("INIT_CWD", "/");

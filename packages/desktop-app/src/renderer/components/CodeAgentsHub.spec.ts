@@ -279,7 +279,9 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain(
       'defaultMode={terminalPreferences.enabled ? "cli" : "chat"}',
     );
-    expect(hubSource).toContain("terminal={{");
+    expect(hubSource).toContain(
+      "terminalPreferences.enabled\n                    ? {",
+    );
     expect(hubSource).toContain(
       "!chatFirstAppSelected &&\n    (terminalSessionStarted || hasChatFirstActiveChat)",
     );

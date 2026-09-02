@@ -305,7 +305,7 @@ describe("Claude Code participant", () => {
     const rawMessage =
       "Command failed: claude auth status --json\nNot logged in";
     const execute = vi.fn(async () => {
-      throw new Error(rawMessage);
+      throw Object.assign(new Error(rawMessage), { stderr: "Not logged in" });
     });
 
     const error = await readClaudeCodeSubscriptionStatus({
@@ -317,6 +317,22 @@ describe("Claude Code participant", () => {
       "Claude authentication check failed. Run `claude auth login` and try again.",
     );
     expect((error as ClaudeCodeAuthStatusError).rawMessage).toBe(rawMessage);
+  });
+
+  it("keeps non-auth preflight failures distinct", async () => {
+    const rawMessage =
+      "Command failed: claude auth status --json\nMalformed response";
+    const execute = vi.fn(async () => {
+      throw new Error(rawMessage);
+    });
+
+    const error = await readClaudeCodeSubscriptionStatus({
+      execute: execute as never,
+    }).catch((value: unknown) => value);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(ClaudeCodeAuthStatusError);
+    expect((error as Error).message).toBe(rawMessage);
   });
 
   it("stops a stream that exceeds its configured event bound", async () => {

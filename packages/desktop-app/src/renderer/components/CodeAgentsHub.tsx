@@ -2711,12 +2711,16 @@ export default function CodeAgentsHub({
                 chatEnabled={shouldUseDesktopAppChatShell(tab.path)}
                 toggleScopeId={tab.id}
                 defaultMode={terminalPreferences.enabled ? "cli" : "chat"}
-                terminal={{
-                  agent: terminalPreferences.agent,
-                  theme,
-                  ...(tab.path ? { path: tab.path } : {}),
-                  ...(tab.view ? { view: tab.view } : {}),
-                }}
+                terminal={
+                  terminalPreferences.enabled
+                    ? {
+                        agent: terminalPreferences.agent,
+                        theme,
+                        ...(tab.path ? { path: tab.path } : {}),
+                        ...(tab.view ? { view: tab.view } : {}),
+                      }
+                    : undefined
+                }
                 onLocalCodeChangeStarted={onLocalCodeChangeStarted}
               >
                 <div

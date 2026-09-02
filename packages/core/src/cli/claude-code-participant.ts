@@ -137,6 +137,16 @@ export class ClaudeCodeAuthStatusError extends Error {
   }
 }
 
+function isClaudeUnauthenticatedError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as Record<string, unknown>;
+  return [record.stderr, record.stdout].some(
+    (value) =>
+      typeof value === "string" &&
+      /\b(?:not logged in|not authenticated|unauthenticated)\b/i.test(value),
+  );
+}
+
 export interface ClaudeCodeSubscriptionStatusOptions {
   command?: string;
   env?: NodeJS.ProcessEnv;
@@ -170,9 +180,12 @@ export async function readClaudeCodeSubscriptionStatus(
     };
   } catch (error) {
     if (error instanceof ClaudeCodeAuthStatusError) throw error;
-    throw new ClaudeCodeAuthStatusError(
-      error instanceof Error ? error.message : String(error),
-    );
+    if (isClaudeUnauthenticatedError(error)) {
+      throw new ClaudeCodeAuthStatusError(
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    throw error;
   }
 }
 
