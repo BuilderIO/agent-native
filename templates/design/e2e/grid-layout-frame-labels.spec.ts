@@ -10,7 +10,8 @@ import { designFrame, gotoEditor } from "./helpers";
 /**
  * Grid parity: picking the Grid flow must reflow the frame's children into
  * cells (they are drawn absolutely positioned, so container styles alone
- * render no layout), and every outermost frame carries its name on canvas.
+ * render no layout). Name labels belong to top-level canvas objects only, so a
+ * screen document renders none of them however its frames are nested.
  */
 const GRID_FRAME_HTML = `<!doctype html>
 <html lang="en">
@@ -69,7 +70,9 @@ test.describe("grid layout and frame labels", () => {
       .toBeGreaterThanOrEqual(2);
   });
 
-  test("only the outermost frame shows its name, and the name selects it", async ({
+  // "Has no frame ancestor" is not "is top level": a frame nested in ordinary
+  // wrappers inside a screen satisfied the former and drew a canvas label.
+  test("frames inside a screen render no name labels", async ({
     page,
     request,
     baseURL,
@@ -77,17 +80,15 @@ test.describe("grid layout and frame labels", () => {
     designId = await createGridFrameDesign(request, baseURL, "E2E Frame Label");
     await gotoEditor(page, designId);
 
-    const labels = designFrame(page).locator("[data-agent-native-frame-label]");
-    await expect(labels).toHaveCount(1);
-    await expect(labels.first()).toHaveText("Hero Frame");
-
-    await labels.first().click({ force: true });
+    // Anchoring on the frame itself first: a bare count-of-zero would also
+    // pass against an iframe that had not rendered yet.
     await expect(
-      page
-        .getByRole("tree", { name: "Layers" })
-        .locator('[role="treeitem"][aria-selected="true"]')
-        .first(),
-    ).toContainText("Hero Frame");
+      designFrame(page).locator('[data-agent-native-node-id="gf-frame"]'),
+    ).toBeVisible();
+
+    await expect(
+      designFrame(page).locator("[data-agent-native-frame-label]"),
+    ).toHaveCount(0);
   });
 });
 

@@ -47,6 +47,13 @@ vi.mock("../db/client.js", () => ({
         const row = store.rows.get(String(args[0]));
         return { rows: row ? [{ ...row }] : [], rowsAffected: 0 };
       }
+      if (/^\s*SELECT version FROM _collab_docs/i.test(sql)) {
+        const row = store.rows.get(String(args[0]));
+        return {
+          rows: row ? [{ version: row.version }] : [],
+          rowsAffected: 0,
+        };
+      }
       if (/^\s*SELECT 1 FROM _collab_docs/i.test(sql)) {
         const row = store.rows.get(String(args[0]));
         return { rows: row ? [{ "1": 1 }] : [], rowsAffected: 0 };

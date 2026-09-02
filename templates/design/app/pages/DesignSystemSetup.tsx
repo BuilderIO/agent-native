@@ -426,7 +426,7 @@ export default function DesignSystemSetup() {
       if (!file) return;
       const uploadGeneration = ++designMdUploadGenerationRef.current;
       setDesignMdFiles([]);
-      if (!isDesignMdFile({ name: file.name })) {
+      if (!isMarkdownFile({ name: file.name })) {
         setValidationError(t("designSystemSetup.errors.chooseDesignMd"));
         return;
       }
@@ -1767,8 +1767,19 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
+function uploadedFileBasename(file: Pick<UploadedFile, "name">): string {
+  return file.name.split(/[\\/]/).pop()?.toLowerCase() ?? file.name;
+}
+
+function isMarkdownFile(file: Pick<UploadedFile, "name">): boolean {
+  const name = uploadedFileBasename(file);
+  return name.endsWith(".md") || name.endsWith(".mdx");
+}
+
+// Only the exact name, because this classifies a bulk code-file drop: widening it
+// to any Markdown silently promotes a README into design-system guidance.
 function isDesignMdFile(file: Pick<UploadedFile, "name">): boolean {
-  const name = file.name.split(/[\\/]/).pop()?.toLowerCase() ?? file.name;
+  const name = uploadedFileBasename(file);
   return name === "design.md" || name === "design.mdx";
 }
 

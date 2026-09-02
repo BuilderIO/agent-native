@@ -22,8 +22,7 @@
  *   a plain dashed gray border.
  * - Stroke width: 1px for div-based shapes.
  * - Ellipse: borderRadius "50%" in both paths — no more "oval on commit" jump.
- * - Rect: borderRadius "2px" (small, matches the previous committed value; the
- *   preview used Tailwind `rounded-sm` which resolves to 2px).
+ * - Rect: borderRadius "0px" — square corners, like Figma.
  * - Text: inherits current color by default. Selection/edit chrome owns
  *   outlines so text does not carry a persistent border that double-stacks
  *   with focused states.
@@ -90,8 +89,8 @@ const FRAME_BORDER = `${DEFAULT_STROKE_WIDTH_PX}px dashed ${DEFAULT_STROKE}`;
 /** Very faint fill for frames so the interior is readable. */
 const FRAME_FILL = "hsl(var(--primary) / 0.05)";
 
-/** Small radius matching Tailwind `rounded-sm` (2 px). */
-const RECT_RADIUS = "2px";
+/** Square corners by default; a radius is a user choice, not a house style. */
+const RECT_RADIUS = "0px";
 
 /**
  * Canonical default stroke for vector primitives (line / arrow / pen path).
