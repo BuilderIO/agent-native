@@ -605,8 +605,16 @@ export async function handleUpdateResource(event: any) {
   if (existing.owner === SHARED_OWNER && activeSharedOwner !== SHARED_OWNER) {
     const metadata =
       body.metadata !== undefined ? body.metadata : existing.metadata;
-    const writeOptions =
-      body.metadata !== undefined || typeof existing.metadata === "string"
+    const writeOptions = isLegacyOrganizationWorkspaceResource
+      ? {
+          createdBy: existing.createdBy,
+          visibility: existing.visibility,
+          threadId: existing.threadId,
+          runId: existing.runId,
+          expiresAt: existing.expiresAt,
+          metadata,
+        }
+      : body.metadata !== undefined || typeof existing.metadata === "string"
         ? { metadata }
         : undefined;
     const resource = await resourcePutIfAbsent(

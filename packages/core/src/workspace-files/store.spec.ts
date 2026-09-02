@@ -163,6 +163,11 @@ describe("workspace-files Resources adapter", () => {
         scope: "org",
         scopeId: "org_123",
       }),
+      createdBy: "system",
+      visibility: "agent_scratch",
+      threadId: "thread-1",
+      runId: "run-1",
+      expiresAt: 123,
     };
     mockResourceGetByPath.mockResolvedValue(legacy);
     mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
@@ -177,6 +182,19 @@ describe("workspace-files Resources adapter", () => {
       "text/markdown",
     );
 
+    expect(mockResourcePut).toHaveBeenCalledWith(
+      "__organization__:org_123",
+      "analysis/summary.md",
+      "summary",
+      "text/markdown",
+      expect.objectContaining({
+        createdBy: "system",
+        visibility: "agent_scratch",
+        threadId: "thread-1",
+        runId: "run-1",
+        expiresAt: 123,
+      }),
+    );
     expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith(legacy);
   });
 

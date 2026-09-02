@@ -780,6 +780,11 @@ Legacy webhook.`,
         content: "old",
         mimeType: "text/markdown",
         updatedAt: 1,
+        createdBy: "agent",
+        visibility: "agent_scratch",
+        threadId: "thread-1",
+        runId: "run-1",
+        expiresAt: 123,
         metadata: JSON.stringify({
           source: "workspace-files",
           scope: "org",
@@ -806,6 +811,11 @@ Legacy webhook.`,
         "new",
         "text/markdown",
         {
+          createdBy: "agent",
+          visibility: "agent_scratch",
+          threadId: "thread-1",
+          runId: "run-1",
+          expiresAt: 123,
           metadata: JSON.stringify({
             source: "workspace-files",
             scope: "org",
@@ -862,7 +872,7 @@ Legacy webhook.`,
         "renamed.md",
         "new",
         "text/markdown",
-        undefined,
+        expect.any(Object),
       );
       expect(mockResourceDelete).not.toHaveBeenCalled();
     });

@@ -204,6 +204,12 @@ export async function writeWorkspaceFile(
     scope.scope === "org"
       ? await resourceGetByPath(SHARED_OWNER, path, optionsForScope(scope))
       : null;
+  const legacyOrganizationResource =
+    scope.scope === "org" &&
+    legacy &&
+    isLegacyOrganizationWorkspaceFile(legacy, scope.scopeId)
+      ? legacy
+      : null;
 
   const maxFileBytes = Math.min(
     opts?.maxFileBytes ?? MAX_FILE_BYTES,
@@ -222,19 +228,27 @@ export async function writeWorkspaceFile(
     content,
     contentType,
     {
-      createdBy: "agent",
-      visibility: visibilityForPath(path),
+      createdBy: legacyOrganizationResource?.createdBy ?? "agent",
+      visibility: legacyOrganizationResource
+        ? legacyOrganizationResource.visibility
+        : visibilityForPath(path),
+      ...(legacyOrganizationResource
+        ? {
+            threadId: legacyOrganizationResource.threadId,
+            runId: legacyOrganizationResource.runId,
+            expiresAt: legacyOrganizationResource.expiresAt,
+          }
+        : {}),
       metadata: workspaceFileMetadata(scope),
     },
   );
 
   if (
     scope.scope === "org" &&
-    legacy &&
-    isLegacyOrganizationWorkspaceFile(legacy, scope.scopeId) &&
-    typeof legacy.metadata === "string"
+    legacyOrganizationResource &&
+    typeof legacyOrganizationResource.metadata === "string"
   ) {
-    await resourceDeleteIfCurrent(legacy);
+    await resourceDeleteIfCurrent(legacyOrganizationResource);
   }
 
   return resourceToMeta(resource);
