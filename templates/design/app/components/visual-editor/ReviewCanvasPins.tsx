@@ -1274,7 +1274,7 @@ function DraftComposer({
       <Button
         type="button"
         size="sm"
-        variant="outline"
+        variant={initialAgentMode === "preview" ? "default" : "outline"}
         className="h-8 min-w-0 flex-1 gap-1.5 rounded-e-none"
         disabled={submitting || !value.trim()}
         onClick={() => onSmartSubmit(sendMode)}
@@ -1291,7 +1291,7 @@ function DraftComposer({
           <Button
             type="button"
             size="sm"
-            variant="outline"
+            variant={initialAgentMode === "preview" ? "default" : "outline"}
             className="h-8 shrink-0 rounded-s-none border-s-0 px-2"
             disabled={submitting}
             aria-label={t("designEditor.nodeRewrite.agentModeOptions")}
