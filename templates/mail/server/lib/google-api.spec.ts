@@ -57,6 +57,28 @@ describe("googleFetch quota handling", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("preserves the final 503 error body after read retries are exhausted", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(503, { error: { message: "backend overloaded" } }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const resultPromise = googleFetch(
+      "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+      "gateway-token-c",
+    );
+    const rejection = expect(resultPromise).rejects.toThrow(
+      "Google API error (503): backend overloaded",
+    );
+    await vi.advanceTimersByTimeAsync(7000);
+
+    await rejection;
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
   it("trips cooldown on the first quota response instead of retrying inside the exhausted window", async () => {
     const fetchMock = vi
       .fn()

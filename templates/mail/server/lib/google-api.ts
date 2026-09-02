@@ -347,8 +347,8 @@ export async function googleFetch(
     // 204 No Content — return null
     if (res.status === 204) return null;
 
-    // Parse body early when we might need it for quota-error classification.
-    // Transient 5xx responses have no useful body; retry before parsing them.
+    // Parse the body unless we're immediately retrying a transient response,
+    // so the final provider error still includes Google's useful diagnostics.
     if (
       canRetry &&
       (res.status === 500 || res.status === 502 || res.status === 503) &&
@@ -359,7 +359,7 @@ export async function googleFetch(
       continue;
     }
 
-    const data = res.status !== 503 ? await res.json().catch(() => null) : null;
+    const data = await res.json().catch(() => null);
 
     // 429 or 403-with-quota-reason — do NOT retry immediately. A retry inside
     // the same exhausted quota window just deepens the lockout. Trip the
