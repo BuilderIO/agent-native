@@ -44,6 +44,11 @@ import { MAX_REFERENCE_FILE_BYTES } from "../../../shared/upload-types";
 
 type FirstDeckStep = "prompt" | "references";
 
+type PromptModelSelection = Pick<
+  PromptComposerSubmitOptions,
+  "model" | "engine" | "effort"
+>;
+
 export function FirstDeckOnboardingFlow({
   onComplete,
   onSkip,
@@ -64,7 +69,7 @@ export function FirstDeckOnboardingFlow({
     PromptChatAttachment[]
   >([]);
   const [promptModelSelection, setPromptModelSelection] = useState<
-    Pick<PromptComposerSubmitOptions, "model" | "engine" | "effort"> | undefined
+    PromptModelSelection | undefined
   >();
   const [promptInitialText, setPromptInitialText] = useState<string>();
   const [promptInitialTextKey, setPromptInitialTextKey] = useState<number>();
@@ -210,6 +215,19 @@ export function FirstDeckOnboardingFlow({
       });
     },
     [syncFiles, t, uploadFiles],
+  );
+
+  const handlePromptModelChange = useCallback(
+    (model: string, engine: string) => {
+      setPromptModelSelection((current) => ({ ...current, model, engine }));
+    },
+    [],
+  );
+  const handlePromptEffortChange = useCallback(
+    (effort: NonNullable<PromptModelSelection["effort"]>) => {
+      setPromptModelSelection((current) => ({ ...current, effort }));
+    },
+    [],
   );
 
   const startGeneration = useCallback(
@@ -604,6 +622,15 @@ export function FirstDeckOnboardingFlow({
             draftScope="slides-first-deck"
             initialText={promptInitialText}
             initialTextKey={promptInitialTextKey}
+            selectedModel={promptModelSelection?.model}
+            selectedEngine={promptModelSelection?.engine}
+            selectedEffort={promptModelSelection?.effort}
+            onModelChange={
+              promptModelSelection ? handlePromptModelChange : undefined
+            }
+            onEffortChange={
+              promptModelSelection ? handlePromptEffortChange : undefined
+            }
           />
         </div>
       </main>

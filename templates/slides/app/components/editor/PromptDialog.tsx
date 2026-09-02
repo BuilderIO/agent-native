@@ -467,7 +467,7 @@ export default function PromptPopover({
   >(initialModelSelection);
 
   useEffect(() => {
-    setModelSelection(initialModelSelection);
+    if (initialModelSelection) setModelSelection(initialModelSelection);
   }, [initialModelSelection]);
 
   const handleModelChange = useCallback((model: string, engine: string) => {
@@ -577,8 +577,13 @@ export default function PromptPopover({
       syncFiles(files);
       if (files.length === 0) return;
       if (
-        onBeforeUpload?.(promptText, files, googleDocContext || undefined) ===
-        false
+        onBeforeUpload?.(
+          promptText,
+          files,
+          googleDocContext || undefined,
+          undefined,
+          modelSelection,
+        ) === false
       )
         return;
       void uploadFiles(files).catch((error) => {
@@ -590,7 +595,15 @@ export default function PromptPopover({
         });
       });
     },
-    [googleDocContext, onBeforeUpload, promptText, syncFiles, t, uploadFiles],
+    [
+      googleDocContext,
+      modelSelection,
+      onBeforeUpload,
+      promptText,
+      syncFiles,
+      t,
+      uploadFiles,
+    ],
   );
 
   const handleSubmit = useCallback(
@@ -861,6 +874,7 @@ export default function PromptPopover({
                 onEffortChange={
                   initialModelSelection ? handleEffortChange : undefined
                 }
+                onModelSelectionChange={setModelSelection}
               />
             </div>
 

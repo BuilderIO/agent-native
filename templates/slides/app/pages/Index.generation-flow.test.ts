@@ -152,6 +152,10 @@ describe("new deck generation flow", () => {
     expect(flow).toContain("...modelSelection");
     expect(onboardingSource).toContain("setPromptModelSelection");
     expect(onboardingSource).toContain("modelSelection: promptModelSelection");
+    expect(onboardingSource).toContain(
+      "selectedModel={promptModelSelection?.model}",
+    );
+    expect(onboardingSource).toContain("handlePromptModelChange");
   });
 
   it("routes both prompt submit and prompt skip into the reference step", () => {

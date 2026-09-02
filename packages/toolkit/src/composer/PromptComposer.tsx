@@ -177,6 +177,10 @@ export interface PromptComposerProps {
   onTextChange?: (text: string) => void;
   /** Called whenever attached files change, before the composer is submitted. */
   onAttachmentsChange?: (files: PromptComposerFile[]) => void;
+  /** Called whenever the composer resolves a model, engine, or effort choice. */
+  onModelSelectionChange?: (
+    selection: Pick<PromptComposerSubmitOptions, "model" | "engine" | "effort">,
+  ) => void;
   /**
    * Override the Builder.io connect action in the model picker. When provided,
    * clicking "Connect Builder.io" calls this instead of opening a browser popup.
@@ -547,6 +551,7 @@ function PromptComposerInner({
   modelStatusChecksEnabled,
   onTextChange,
   onAttachmentsChange,
+  onModelSelectionChange,
   onConnectProvider,
   onConnectLocalRuntime,
   composerRef,
@@ -592,6 +597,13 @@ function PromptComposerInner({
   const composerEffort = showModelSelector
     ? (selectedEffort ?? models.selectedEffort)
     : undefined;
+  useEffect(() => {
+    onModelSelectionChange?.({
+      model: composerModel,
+      engine: composerEngine,
+      effort: composerEffort,
+    });
+  }, [composerEffort, composerEngine, composerModel, onModelSelectionChange]);
   const composerModelGroups = showModelSelector
     ? (availableModels ?? models.availableModels)
     : undefined;
