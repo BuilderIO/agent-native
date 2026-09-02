@@ -116,6 +116,18 @@ vi.mock("./remote-execution.js", () => ({
   getRemoteAutomationStatus: getRemoteAutomationStatusMock,
 }));
 
+const recordAutomationSchedulerHealthMock = vi.hoisted(() =>
+  vi.fn(async () => undefined),
+);
+
+vi.mock("./scheduler-health.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./scheduler-health.js")>();
+  return {
+    ...actual,
+    recordAutomationSchedulerHealth: recordAutomationSchedulerHealthMock,
+  };
+});
+
 vi.mock("../integrations/adapters/index.js", () => ({
   getDefaultAdapter: () => ({
     formatAgentResponse: (text: string) => ({ text, platformContext: {} }),
@@ -491,6 +503,41 @@ Process the feedback.`,
     expect(resourcePutMock).toHaveBeenCalled();
     expect(resourcePutMock.mock.calls[0]?.[1]).toBe(
       "jobs/factories/demo-factory/factory-slack-feedback.md",
+    );
+  });
+
+  it("records scheduler health under the owner org for a recovered Factory job without orgId", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-recovered-factory-job-no-org",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/demo-factory/factory-slack-feedback.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+runAs: creator
+---
+
+Process the feedback.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+      appId: "factory",
+    });
+
+    expect(resourcePutMock).toHaveBeenCalled();
+    expect(recordAutomationSchedulerHealthMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "factory",
+        orgId: "org-1",
+      }),
     );
   });
 

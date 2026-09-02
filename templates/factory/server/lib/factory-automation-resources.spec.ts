@@ -106,6 +106,21 @@ describe("listFactoryAutomationDefinitions", () => {
     ).resolves.toEqual([]);
   });
 
+  it("excludes a job whose declared orgId does not match its owner", async () => {
+    const resource = {
+      id: "resource-mismatched-org",
+      owner: "__organization__:org-1",
+      path: "jobs/factories/demo-factory/factory-slack-feedback.md",
+      content: "---\nenabled: true\norgId: org-2\n---\nObserve Slack.\n",
+      updatedAt: 1,
+    };
+    resourceListContentMock.mockResolvedValue([resource]);
+
+    await expect(
+      listFactoryAutomationDefinitions("org-1", "demo-factory"),
+    ).resolves.toEqual([]);
+  });
+
   it("finds a slim job by resource id", async () => {
     const resource = {
       id: "resource-slim",

@@ -24,6 +24,7 @@ import {
   jobBelongsToApp,
   parseJobResource,
   patchJobFrontmatterFields,
+  recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
 } from "./frontmatter.js";
 import {
@@ -270,7 +271,11 @@ async function processRecurringJobsWithLease(
       ) {
         continue;
       }
-      healthOrgIds.add(meta.orgId ?? null);
+      healthOrgIds.add(
+        recoveredFactoryOwnerOrgId(meta, resource.path, resource.owner) ??
+          meta.orgId ??
+          null,
+      );
 
       // A host-targeted run is reconciled from the durable relay command. It
       // must never fall back to this scheduler after the laptop disconnects.

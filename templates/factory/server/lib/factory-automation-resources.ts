@@ -1,5 +1,6 @@
 import {
   parseJobResource,
+  recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
 } from "@agent-native/core/jobs/frontmatter";
 import {
@@ -22,21 +23,12 @@ export type FactoryAutomationDefinition = {
   body: string;
 };
 
-const FACTORY_APP_ID = "factory";
-
 function jobBelongsToFactory(path: string, factoryId: string): boolean {
   const nested = path.match(/^jobs\/factories\/([^/]+)\//);
   if (nested) return nested[1] === factoryId;
   return (
     factoryId === DEFAULT_FACTORY_ID && isLegacyFactoryAutomationPath(path)
   );
-}
-
-/** Path is membership; an explicit other-app owner still stays out. Missing appId is a recovered Factory job. */
-function isFactoryAppOwned(meta: JobFrontmatter): boolean {
-  const appId = meta.appId?.trim();
-  if (appId) return appId === FACTORY_APP_ID;
-  return true;
 }
 
 function resourceFromContentProjection(row: {
@@ -98,7 +90,11 @@ export async function listFactoryAutomationDefinitions(
         body,
       };
     })
-    .filter(({ meta }) => isFactoryAppOwned(meta))
+    .filter(
+      ({ resource, meta }) =>
+        recoveredFactoryOwnerOrgId(meta, resource.path, resource.owner) !==
+        null,
+    )
     .sort((a, b) => a.resource.path.localeCompare(b.resource.path));
 }
 
