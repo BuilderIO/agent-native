@@ -114,19 +114,12 @@ export function createDrizzleConfig(
     sqliteFile = "./data/app.db",
   } = opts;
 
-  if (opts.dialect) {
-    (
-      globalThis as typeof globalThis & {
-        __agentNativeDrizzleKitDialect?: DrizzleKitDialect;
-      }
-    ).__agentNativeDrizzleKitDialect = opts.dialect;
-  }
-
   // Mirror getDatabaseUrl / getDatabaseAuthToken from @agent-native/core (db/client)
   // without importing — drizzle-kit configs should stay side-effect-free.
   const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
+  const explicitUrl = opts.url?.trim();
   const resolvedUrl =
-    opts.url?.trim() ||
+    explicitUrl ||
     (appName && process.env[`${appName}_DATABASE_URL`]) ||
     process.env.DATABASE_URL ||
     "";
@@ -194,6 +187,21 @@ export function createDrizzleConfig(
         ? "turso"
         : "sqlite";
   const dialect = opts.dialect ?? detectedDialect;
+
+  // `db/schema` reads this at import time to pick pgTable over sqliteTable, and
+  // drizzle-kit imports the schema after this config. Steering the dialect or
+  // the URL here without steering the schema too generates migrations from the
+  // wrong table builders: a Postgres `url` with no DATABASE_URL leaves
+  // getDialect() on its sqlite fallthrough, writing SQLite DDL into a
+  // postgresql journal. With neither option, schema resolves the same
+  // environment we do, so leave it alone.
+  if (opts.dialect || explicitUrl) {
+    (
+      globalThis as typeof globalThis & {
+        __agentNativeDrizzleKitDialect?: DrizzleKitDialect;
+      }
+    ).__agentNativeDrizzleKitDialect = dialect;
+  }
   const useResolvedUrl =
     resolvedUrl &&
     ((dialect === "postgresql" && (resolvedIsPostgres || resolvedIsPglite)) ||

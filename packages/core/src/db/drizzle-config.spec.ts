@@ -1,9 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+type DialectGlobal = typeof globalThis & {
+  __agentNativeDrizzleKitDialect?: "postgresql" | "sqlite" | "turso";
+};
+
+/** What `db/schema` reads at import time to pick pgTable over sqliteTable. */
+function schemaDialect() {
+  return (globalThis as DialectGlobal).__agentNativeDrizzleKitDialect;
+}
+
 describe("createDrizzleConfig", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.resetModules();
+    delete (globalThis as DialectGlobal).__agentNativeDrizzleKitDialect;
   });
 
   it("configures drizzle-kit to use the PGlite Postgres driver for pglite URLs", async () => {
@@ -92,6 +102,29 @@ describe("createDrizzleConfig", () => {
     expect(createDrizzleConfig({ url: "libsql://db.turso.io" })).toMatchObject({
       dialect: "turso",
     });
+  });
+
+  // drizzle-kit imports the schema after this config, so a url that steers the
+  // config dialect has to steer the schema too. Otherwise `db:generate` builds
+  // tables with one dialect's helpers and writes them into the other's journal.
+  it("aligns the schema dialect with an explicit url", async () => {
+    vi.stubEnv("DATABASE_URL", "");
+
+    const { createDrizzleConfig } = await import("./drizzle-config.js");
+
+    createDrizzleConfig({ url: "postgres://direct.neon.tech/app" });
+
+    expect(schemaDialect()).toBe("postgresql");
+  });
+
+  it("leaves the schema dialect alone when no option steers it", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://pooler.neon.tech/app");
+
+    const { createDrizzleConfig } = await import("./drizzle-config.js");
+
+    createDrizzleConfig();
+
+    expect(schemaDialect()).toBeUndefined();
   });
 
   it("refuses drizzle-kit push against a Neon url passed as an option", async () => {
