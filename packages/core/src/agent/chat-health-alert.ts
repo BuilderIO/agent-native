@@ -81,15 +81,18 @@ async function countRecentTurns(since: number): Promise<TurnCounts> {
   };
 }
 
-/** Use one owner/admin so a shared Slack webhook gets one alert, not duplicates. */
+/** Use one owner/admin only when the app has an unambiguous org scope. */
 async function alertOwner(): Promise<string | null> {
   const { rows } = await getDbExec().execute({
-    sql: `SELECT email FROM org_members
+    sql: `SELECT org_id, email FROM org_members
           WHERE role IN ('owner', 'admin')
-          ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END, email
-          LIMIT 1`,
+          ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END, email`,
     args: [],
   });
+  const orgIds = new Set(
+    rows.map((row) => String((row as Record<string, unknown>).org_id ?? "")),
+  );
+  if (orgIds.size !== 1 || orgIds.has("")) return null;
   const email = String(
     (rows[0] as Record<string, unknown> | undefined)?.email ?? "",
   );
@@ -145,7 +148,8 @@ export async function checkChatHealthAndAlert(
   if (!owner) {
     return {
       status: "delivery-failed",
-      reason: "No owner or admin is configured for Slack health alerts.",
+      reason:
+        "No single owner/admin organization scope is available for Slack health alerts.",
     };
   }
 

@@ -45,7 +45,7 @@ function turns(total: number, bad: number) {
 
 beforeEach(() => {
   turnRows = [];
-  memberRows = [{ email: "owner@example.com" }];
+  memberRows = [{ org_id: "org-1", email: "owner@example.com" }];
   turnQueryThrows = false;
   settings.clear();
   settingsReadThrows = false;
@@ -70,7 +70,10 @@ describe("checkChatHealthAndAlert", () => {
   });
 
   it("pages Slack once when the app stops answering", async () => {
-    memberRows = [{ email: "a@example.com" }, { email: "b@example.com" }];
+    memberRows = [
+      { org_id: "org-1", email: "a@example.com" },
+      { org_id: "org-1", email: "b@example.com" },
+    ];
     turns(20, 15);
     const out = await checkChatHealthAndAlert(NOW);
     expect(out).toMatchObject({ status: "alerted", turns: 20, recipients: 1 });
@@ -82,6 +85,21 @@ describe("checkChatHealthAndAlert", () => {
     expect(notifyWithDelivery.mock.calls[0][1]).toEqual({
       owner: "a@example.com",
     });
+  });
+
+  it("fails closed when owner scope spans multiple organizations", async () => {
+    memberRows = [
+      { org_id: "org-1", email: "a@example.com" },
+      { org_id: "org-2", email: "b@example.com" },
+    ];
+    turns(20, 15);
+    const out = await checkChatHealthAndAlert(NOW);
+    expect(out).toEqual({
+      status: "delivery-failed",
+      reason:
+        "No single owner/admin organization scope is available for Slack health alerts.",
+    });
+    expect(notifyWithDelivery).not.toHaveBeenCalled();
   });
 
   it("pages once per outage, not once per sweep", async () => {
