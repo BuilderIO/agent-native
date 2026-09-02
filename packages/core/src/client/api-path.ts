@@ -197,13 +197,14 @@ export function isWorkspaceAppPath(path: string): boolean {
  * accepted, so this never promotes an arbitrary leading segment into a mount
  * the way a bare first-segment guess would.
  *
- * The route can legitimately repeat the marker in a later segment, because
- * trailing segments carry user-named values: a secret key called
- * `settings/token` produces `/settings/integrations/secrets/settings/token`.
- * Matching the first occurrence keeps the mount at the shortest prefix, so
- * content inside the route can never masquerade as part of the mount. An app
- * genuinely mounted at `/settings` is resolved by the configured base path
- * above, which a workspace deploy always bakes in.
+ * The earliest whole-segment match wins. The route can legitimately repeat the
+ * marker in a later segment, because trailing segments carry user-named values:
+ * a secret key called `settings/token` produces
+ * `/settings/integrations/secrets/settings/token`. Taking the earliest match
+ * pins the mount to the shortest prefix, so content inside the route can never
+ * masquerade as part of the mount. A partial match is skipped rather than
+ * treated as a miss, so a mount whose own name starts with the route name
+ * (`/settingsfoo/settings/agent`) still resolves.
  */
 export function appMountPath(appLocalRoute: string): string {
   const basePath = appBasePath();
@@ -215,15 +216,20 @@ export function appMountPath(appLocalRoute: string): string {
   const marker = normalizeBasePath(appLocalRoute);
   if (!marker) return basePath;
 
-  const index = pathname.indexOf(marker);
-  if (index < 0) return basePath;
-
-  const boundary = index + marker.length;
-  if (boundary !== pathname.length && pathname[boundary] !== "/") {
-    return basePath;
+  // A match always starts at a segment boundary because the marker starts with
+  // "/", so only the trailing edge needs checking.
+  for (
+    let index = pathname.indexOf(marker);
+    index >= 0;
+    index = pathname.indexOf(marker, index + 1)
+  ) {
+    const boundary = index + marker.length;
+    if (boundary === pathname.length || pathname[boundary] === "/") {
+      return normalizeBasePath(pathname.slice(0, index));
+    }
   }
 
-  return normalizeBasePath(pathname.slice(0, index));
+  return basePath;
 }
 
 /**

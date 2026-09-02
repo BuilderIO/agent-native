@@ -63,6 +63,17 @@ describe("appMountPath", () => {
     );
   });
 
+  it("resolves a mount whose own name starts with the route name", () => {
+    vi.stubGlobal("window", {
+      location: { pathname: "/settingsfoo/settings/agent" },
+    });
+
+    expect(appMountPath(SETTINGS)).toBe("/settingsfoo");
+    expect(appMountedPath("/settings/account", SETTINGS)).toBe(
+      "/settingsfoo/settings/account",
+    );
+  });
+
   it("does not treat a partial segment match as a mount boundary", () => {
     vi.stubGlobal("window", {
       location: { pathname: "/dispatch/settings-archive" },
