@@ -66,7 +66,7 @@ const LIBRARY_RECORDINGS: Array<{
   },
   {
     title: "Record browser workflows with Clips",
-    thumbnail: "/clips/1J2KR4ryo2Wg.jpg",
+    thumbnail: "/clips/growth-plan.jpg",
     duration: "2:41",
     relative: "1 week ago",
     visibility: "private",
@@ -76,7 +76,7 @@ const LIBRARY_RECORDINGS: Array<{
   },
   {
     title: "Weekly sync walkthrough",
-    thumbnail: "/clips/B0AgxdvzuZ7H.jpg",
+    thumbnail: "/clips/data-sources.jpg",
     duration: "8:05",
     relative: "1 week ago",
     visibility: "org",
@@ -86,7 +86,7 @@ const LIBRARY_RECORDINGS: Array<{
   },
   {
     title: "Onboarding checklist review",
-    thumbnail: "/clips/U1f0uKYYKGF2.jpg",
+    thumbnail: "/clips/meeting-report.jpg",
     duration: "4:37",
     relative: "2 weeks ago",
     visibility: "private",
@@ -96,7 +96,7 @@ const LIBRARY_RECORDINGS: Array<{
   },
   {
     title: "Demo for the design team",
-    thumbnail: "/clips/1J2KR4ryo2Wg.jpg",
+    thumbnail: "/clips/slide-four.jpg",
     duration: "6:20",
     relative: "3 weeks ago",
     visibility: "public",
