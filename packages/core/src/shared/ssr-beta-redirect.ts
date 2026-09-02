@@ -129,7 +129,22 @@ export function getSsrBetaRedirectScriptBody(
 
   if (typeof window.fetch !== 'function') return;
 
-  window.fetch(${safeJsonForHtml(sessionPath)}, {
+  var sessionProbePath = ${safeJsonForHtml(sessionPath)};
+  var appConfig = window.__AGENT_NATIVE_CONFIG__;
+  if (
+    sessionProbePath === '/_agent-native/auth/session' &&
+    appConfig &&
+    appConfig.workspaceRuntime === true
+  ) {
+    var mountSegment = currentUrl.pathname.split('/').find(function (segment) {
+      return segment;
+    });
+    if (mountSegment && mountSegment !== '_agent-native' && mountSegment !== 'api') {
+      sessionProbePath = '/' + mountSegment + sessionProbePath;
+    }
+  }
+
+  window.fetch(sessionProbePath, {
     credentials: 'same-origin',
     cache: 'no-store',
     headers: { 'Accept': 'application/json' }

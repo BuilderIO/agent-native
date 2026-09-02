@@ -36,6 +36,7 @@ function runScript({
   session = { email: "employee@builder.io" },
   sessionResponseOk = true,
   sessionPath = "/_agent-native/auth/session",
+  workspaceRuntime = false,
   sessionProbe,
 }: {
   href: string | { current: string };
@@ -46,6 +47,7 @@ function runScript({
   session?: Record<string, unknown> | null;
   sessionResponseOk?: boolean;
   sessionPath?: string;
+  workspaceRuntime?: boolean;
   sessionProbe?: Promise<Record<string, unknown> | null>;
 }) {
   const result = {
@@ -76,6 +78,9 @@ function runScript({
     navigator: { userAgent },
     parent: null as unknown,
     sessionStorage,
+    __AGENT_NATIVE_CONFIG__: workspaceRuntime
+      ? { workspaceRuntime: true }
+      : undefined,
   } as Record<string, unknown>;
   window.parent = embedded ? {} : window;
 
@@ -127,6 +132,21 @@ describe("getSsrBetaRedirectScript", () => {
 
     expect(result.redirectedTo).toBe(
       "https://beta.agent-workspace.builder.io/inbox",
+    );
+  });
+
+  it("derives a workspace mount for the SSR probe in the browser", async () => {
+    const result = await runScript({
+      href: "https://agent-workspace.builder.io/plan/inbox",
+      localStorage: createStorage({
+        [BETA_REDIRECT_STORAGE_KEY]: String(Date.now() + 60_000),
+      }),
+      workspaceRuntime: true,
+    });
+
+    expect(result.fetched).toEqual(["/plan/_agent-native/auth/session"]);
+    expect(result.redirectedTo).toBe(
+      "https://beta.agent-workspace.builder.io/plan/inbox",
     );
   });
 
