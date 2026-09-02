@@ -2632,6 +2632,23 @@ describe("mountWebMcpActionRoutes", () => {
           requiresAuth: false,
           readOnly: true,
         } as any,
+        "vetoed-docs": {
+          tool: {
+            description: "Never expose these docs",
+            parameters: { type: "object" },
+          },
+          run: vi.fn(),
+          http: false,
+          requiresAuth: false,
+          readOnly: true,
+          agentTool: true,
+          mcpTool: false,
+          publicAgent: {
+            expose: true,
+            readOnly: true,
+            requiresAuth: false,
+          },
+        } as any,
       },
       { getOwnerFromEvent },
     );
@@ -2645,6 +2662,9 @@ describe("mountWebMcpActionRoutes", () => {
     const guessedPrivateRoute = mounted.find(
       ({ path }) => path === "/_agent-native/webmcp/actions/private-docs",
     );
+    const vetoedRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/vetoed-docs",
+    );
 
     await expect(
       manifestRoute?.handler({ _method: "GET", _headers: {} }),
@@ -2657,6 +2677,7 @@ describe("mountWebMcpActionRoutes", () => {
       },
     ]);
     expect(getOwnerFromEvent).toHaveBeenCalledTimes(1);
+    expect(vetoedRoute).toBeUndefined();
 
     await expect(
       invocationRoute?.handler({

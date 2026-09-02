@@ -9,7 +9,11 @@ import {
 } from "h3";
 
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
-import { isActionContractError, isAgentActionStopError } from "../action.js";
+import {
+  isActionContractError,
+  isActionExposedToExternalAgents,
+  isAgentActionStopError,
+} from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { isTransientDatabaseError } from "../db/client.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
@@ -912,6 +916,7 @@ export function mountWebMcpActionRoutes(
     Object.entries(actions).filter(
       ([name, entry]) =>
         /^[A-Za-z0-9_.-]{1,128}$/.test(name) &&
+        isActionExposedToExternalAgents(entry) &&
         entry.agentTool !== false &&
         entry.needsApproval === undefined,
     ),
