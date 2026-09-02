@@ -64,6 +64,10 @@ describe("Docs SSR cache key wrapper", () => {
     expect(docsNetlifyConfig).toContain('publish = "packages/docs/dist"');
   });
 
+  it("keeps mutable CMS-backed SSR content on a short public cache", () => {
+    expect(docsNetlifyConfig).toContain('AGENT_NATIVE_SSR_CACHE = "30s"');
+  });
+
   it("applies the deployment-wide SSR cache override to static pages", () => {
     const netlifyHeaders = renderNetlifyHeaders({
       AGENT_NATIVE_SSR_CACHE: "5m",
