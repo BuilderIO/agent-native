@@ -54,6 +54,10 @@ describe("docs agent web generation", () => {
       expect(paths).toContain("/legal/takedown/");
       expect(paths).toContain("/legal/dmca/");
       expect(paths).toContain("/legal/law-enforcement/");
+      expect(paths).toContain("/es-es/legal/");
+      expect(paths).toContain("/es-es/terms/");
+      expect(paths).toContain("/es-es/privacy/");
+      expect(paths).toContain("/es-es/legal/acceptable-use/");
       expect(paths).toContain("/apps/calendar/");
     },
     AGENT_WEB_GENERATION_TIMEOUT_MS,
@@ -88,6 +92,17 @@ describe("docs agent web generation", () => {
       expect(page?.markdown?.length).toBeGreaterThan(500);
       expect(page?.markdownPath).toBeUndefined();
     }
+  });
+
+  it("localizes legal links in localized Markdown mirrors", () => {
+    const privacy = pages.find((page) => page.path === "/es-es/privacy/");
+    const terms = pages.find((page) => page.path === "/es-es/terms/");
+
+    expect(privacy?.markdown).toContain(
+      "# Agent-Native Privacy Policy\n\nUpdated September 2, 2026",
+    );
+    expect(terms?.markdown).toContain("/es-es/legal/acceptable-use/");
+    expect(terms?.markdown).not.toContain("](/legal/acceptable-use)");
   });
 
   it("omits redirected slugs, including stale translations of renamed docs", () => {

@@ -1,1 +1,1 @@
-export { default } from "./terms";
+export { LocalizedTermsPage as default } from "./terms";

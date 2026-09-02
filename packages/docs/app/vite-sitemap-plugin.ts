@@ -21,6 +21,7 @@ import {
 } from "../lib/docs-source";
 import { communityApps } from "./components/community-apps";
 import {
+  DOCS_LOCALES,
   docsMarkdownPathForSlug,
   docsPathForSlug,
   localizeDocsMarkdownLinks,
@@ -313,6 +314,68 @@ function buildDocsSitePages(rootDir: string): DocsSitePage[] {
     ),
   }));
 
+  const legalHubMarkdown = [
+    `# ${enUS.legal.resources.title}`,
+    "",
+    enUS.legal.resources.intro,
+    "",
+    `## ${enUS.legal.resources.agentNative.title}`,
+    "",
+    enUS.legal.resources.agentNative.body,
+    "",
+    `- [${enUS.legal.resources.agentNative.terms}](${sitePathForLocale("/terms")})`,
+    `- [${enUS.legal.resources.agentNative.privacy}](${sitePathForLocale("/privacy")})`,
+    "",
+    `## ${enUS.legal.resources.builder.title}`,
+    "",
+    enUS.legal.resources.builder.body,
+    "",
+    ...LEGAL_POLICY_METADATA.slice(2).map(
+      ({ key, slug }) =>
+        "- [" +
+        enUS.legal.resources.links[key] +
+        "](" +
+        sitePathForLocale("/legal/" + slug) +
+        ")",
+    ),
+    "",
+    `## ${enUS.legal.resources.notIncluded.title}`,
+    "",
+    enUS.legal.resources.notIncluded.body,
+    "",
+  ].join("\n");
+  const legalLastmod = gitLastmod(
+    path.resolve(rootDir, "app/routes/legal.tsx"),
+  );
+  const localizedLegalPages = DOCS_LOCALES.filter(
+    (locale) => locale !== DEFAULT_LOCALE,
+  ).flatMap((locale) => [
+    {
+      path: sitePathForLocale("/legal", locale),
+      title: enUS.legal.resources.title,
+      description: enUS.legal.resources.intro,
+      markdown: localizeDocsMarkdownLinks(legalHubMarkdown, locale),
+      lastmod: legalLastmod,
+    },
+    ...LEGAL_POLICY_METADATA.map((policy) => ({
+      path: sitePathForLocale(
+        policy.key === "terms" || policy.key === "privacy"
+          ? `/${policy.slug}`
+          : `/legal/${policy.slug}`,
+        locale,
+      ),
+      title: policy.title,
+      description: policy.description,
+      markdown: localizeDocsMarkdownLinks(
+        legalPolicyMarkdown(policy.filename),
+        locale,
+      ),
+      lastmod: gitLastmod(
+        path.resolve(rootDir, "app/legal-policies", policy.filename),
+      ),
+    })),
+  ]);
+
   return sortPages([
     {
       path: "/",
@@ -382,37 +445,8 @@ Agent-Native is an open source framework for building apps where AI agents and U
       path: sitePathForLocale("/legal"),
       title: enUS.legal.resources.title,
       description: enUS.legal.resources.intro,
-      markdown: [
-        `# ${enUS.legal.resources.title}`,
-        "",
-        enUS.legal.resources.intro,
-        "",
-        `## ${enUS.legal.resources.agentNative.title}`,
-        "",
-        enUS.legal.resources.agentNative.body,
-        "",
-        `- [${enUS.legal.resources.agentNative.terms}](${sitePathForLocale("/terms")})`,
-        `- [${enUS.legal.resources.agentNative.privacy}](${sitePathForLocale("/privacy")})`,
-        "",
-        `## ${enUS.legal.resources.builder.title}`,
-        "",
-        enUS.legal.resources.builder.body,
-        "",
-        ...LEGAL_POLICY_METADATA.slice(2).map(
-          ({ key, slug }) =>
-            "- [" +
-            enUS.legal.resources.links[key] +
-            "](" +
-            sitePathForLocale("/legal/" + slug) +
-            ")",
-        ),
-        "",
-        `## ${enUS.legal.resources.notIncluded.title}`,
-        "",
-        enUS.legal.resources.notIncluded.body,
-        "",
-      ].join("\n"),
-      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/legal.tsx")),
+      markdown: legalHubMarkdown,
+      lastmod: legalLastmod,
     },
     {
       path: sitePathForLocale("/privacy"),
@@ -437,6 +471,7 @@ Agent-Native is an open source framework for building apps where AI agents and U
         path.resolve(rootDir, "app/legal-policies", policy.filename),
       ),
     })),
+    ...localizedLegalPages,
     {
       path: sitePathForLocale("/apps"),
       title: "Agent-Native Apps",

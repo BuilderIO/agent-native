@@ -69,6 +69,14 @@ The docs site may load Google Analytics or Google Tag Manager when configured by
 
 You can control cookies through browser settings. Disabling necessary cookies may prevent sign-in or other features from working.
 
+## Agent-Native Clips Chrome Extension {#clips-chrome-extension}
+
+The Agent-Native Clips Chrome extension helps you start browser-based recordings and, when enabled, attach browser diagnostics to a clip. It may collect the selected capture source, camera and microphone media you choose to include, the active tab title and URL, and authentication state needed to connect the extension to hosted Clips.
+
+Developer logs are optional. When enabled, the extension may collect redacted console messages, JavaScript exceptions, and fetch/XHR metadata such as method, URL, status, timing, and failure details from the selected tab while a recording is active. The extension is not designed to collect request bodies, response bodies, cookies, or authorization headers.
+
+For Chrome Web Store disclosures, use this section as the extension privacy-policy anchor.
+
 ## Your Rights
 
 You may be able to correct account information and notification preferences through the Service. You can opt out of non-essential marketing communications using the unsubscribe link in a message.
@@ -108,5 +116,4 @@ We may update this Privacy Policy by posting a revised version on this page. Whe
 ## Contact Us
 
 For questions or privacy requests, contact privacy@builder.io.
-
 
