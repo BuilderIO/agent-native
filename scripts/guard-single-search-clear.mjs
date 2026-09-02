@@ -12,6 +12,12 @@
  * still needs it. That makes the pairing the invariant worth checking: a
  * search input whose wrapper renders a clear button must carry the class, and
  * a field carrying the class must actually render one.
+ *
+ * Known boundary: a field whose type is a variable (`type={inputType}`) is
+ * invisible to a text scan. That is a deliberate limit, not an oversight - the
+ * alternative is rendering every candidate, and the failure mode is only the
+ * pre-existing duplicate rather than a new defect. Every literal spelling that
+ * survives `oxfmt` is covered.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -29,6 +35,9 @@ const EXCLUDED_PATH =
   /(^|\/)(node_modules|dist|build|\.next|\.nuxt|\.output|\.cache|\.turbo|\.netlify|\.vercel|\.wrangler|\.react-router|\.generated|coverage|corpus|\.tmp[^/]*)(\/|$)/;
 
 const OPT_IN_CLASS = "search-field-owns-clear";
+// `oxfmt` rewrites `type='search'` to `type="search"` but keeps the braces on
+// `type={"search"}`, so both bare and braced literals reach the repo.
+const SEARCH_TYPE_RE = /type=(?:["']search["']|\{\s*["']search["']\s*\})/;
 // A clear control belonging to this field: an icon button whose accessible
 // name says "clear", rendered inside the same relative wrapper.
 const CLEAR_CONTROL_RE =
@@ -75,12 +84,12 @@ function main() {
   for (const root of SOURCE_ROOTS) {
     for (const absolutePath of walk(path.join(REPO_ROOT, root))) {
       const source = readFileSync(absolutePath, "utf8");
-      if (!source.includes('type="search"')) continue;
+      if (!SEARCH_TYPE_RE.test(source)) continue;
       const lines = source.split("\n");
       const file = path.relative(REPO_ROOT, absolutePath).replaceAll("\\", "/");
 
       for (const [index, line] of lines.entries()) {
-        if (!line.includes('type="search"')) continue;
+        if (!SEARCH_TYPE_RE.test(line)) continue;
         checked += 1;
         const element = elementAround(lines, index);
         if (ALLOW_PRAGMA.test(lines[element.start - 1] ?? "")) continue;
