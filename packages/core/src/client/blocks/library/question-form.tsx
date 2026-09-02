@@ -492,14 +492,15 @@ function QuestionFormReadInner({
   const [showQuestionsAfterHandoff, setShowQuestionsAfterHandoff] =
     useState(false);
   const submitCtx = ctx as QuestionFormSubmitCtx;
+  const questionsFingerprint = JSON.stringify(questions);
 
   useEffect(() => {
     setAnswers(defaultQuestionAnswers(questions));
     setHandoff(null);
     setShowQuestionsAfterHandoff(false);
-    // Keep answer reset keyed to block identity so rerenders do not clear a form.
+    // Keep answer reset keyed to block and question identity so rerenders do not clear a form.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blockId]);
+  }, [blockId, questionsFingerprint]);
 
   const setAnswer = (questionId: string, next: QuestionAnswer) => {
     setHandoff(null);

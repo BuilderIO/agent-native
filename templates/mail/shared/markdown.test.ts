@@ -5,6 +5,7 @@ import {
   extractMarkdownUrls,
   markdownPreviewSnippet,
   normalizeMarkdownHardBreaks,
+  findPlainTextLinkRanges,
   renderInlineMarkdown,
   renderPlainTextLinks,
 } from "./markdown.js";
@@ -81,6 +82,27 @@ describe("renderInlineMarkdown", () => {
 });
 
 describe("renderPlainTextLinks", () => {
+  it("finds bare and angle-bracket urls", () => {
+    expect(
+      findPlainTextLinkRanges(
+        "Go https://example.com and <https://builder.io>.",
+      ),
+    ).toEqual([
+      {
+        start: 3,
+        end: 22,
+        url: "https://example.com",
+        trailing: "",
+      },
+      {
+        start: 27,
+        end: 47,
+        url: "https://builder.io",
+        trailing: "",
+      },
+    ]);
+  });
+
   it("links plain-text urls without interpreting markup", () => {
     expect(
       renderPlainTextLinks(

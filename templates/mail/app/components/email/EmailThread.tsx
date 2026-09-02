@@ -1,7 +1,10 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { AI_FILTER_LABEL, type AiFilterTarget } from "@shared/ai-filter";
-import { renderPlainTextLinks } from "@shared/markdown";
+import {
+  findPlainTextLinkRanges,
+  renderPlainTextLinks,
+} from "@shared/markdown";
 import type { EmailMessage, MobileActionId } from "@shared/types";
 import {
   IconArchive,
@@ -2235,33 +2238,81 @@ function PlainTextBody({
       );
     }
     const q = searchTerm.toLowerCase();
-    const lower = text.toLowerCase();
-    const nodes: React.ReactNode[] = [];
-    let matchCount = globalMatchOffset;
-    let idx = 0;
-    let pos = lower.indexOf(q);
-    while (pos !== -1) {
-      if (pos > idx) nodes.push(text.slice(idx, pos));
-      const isActive = matchCount === activeLocalIdx;
-      nodes.push(
-        <mark
-          key={`${pos}-${matchCount}`}
-          data-search={matchCount}
-          className={
-            isActive
-              ? "bg-amber-400 text-black rounded-[2px]"
-              : "bg-yellow-200/25 text-inherit rounded-[2px]"
-          }
-        >
-          {text.slice(pos, pos + searchTerm.length)}
-        </mark>,
-      );
-      matchCount++;
-      idx = pos + searchTerm.length;
-      pos = lower.indexOf(q, idx);
+    const renderSearchText = (segment: string, offset: number) => {
+      const lower = segment.toLowerCase();
+      const nodes: React.ReactNode[] = [];
+      let matchCount = offset;
+      let idx = 0;
+      let pos = lower.indexOf(q);
+      while (pos !== -1) {
+        if (pos > idx) nodes.push(segment.slice(idx, pos));
+        const isActive = matchCount === activeLocalIdx;
+        nodes.push(
+          <mark
+            key={`${pos}-${matchCount}`}
+            data-search={matchCount}
+            className={
+              isActive
+                ? "bg-amber-400 text-black rounded-[2px]"
+                : "bg-yellow-200/25 text-inherit rounded-[2px]"
+            }
+          >
+            {segment.slice(pos, pos + searchTerm.length)}
+          </mark>,
+        );
+        matchCount++;
+        idx = pos + searchTerm.length;
+        pos = lower.indexOf(q, idx);
+      }
+      if (idx < segment.length) nodes.push(segment.slice(idx));
+      return {
+        nodes: nodes.length > 0 ? nodes : [segment],
+        count: matchCount - offset,
+      };
+    };
+
+    const ranges = findPlainTextLinkRanges(text);
+    if (ranges.length === 0) {
+      return renderSearchText(text || "\u00a0", globalMatchOffset).nodes;
     }
-    if (idx < text.length) nodes.push(text.slice(idx));
-    return nodes.length > 0 ? nodes : text || "\u00a0";
+
+    const nodes: React.ReactNode[] = [];
+    let cursor = 0;
+    let matchOffset = globalMatchOffset;
+    ranges.forEach((range, rangeIndex) => {
+      if (range.start > cursor) {
+        const rendered = renderSearchText(
+          text.slice(cursor, range.start),
+          matchOffset,
+        );
+        nodes.push(...rendered.nodes);
+        matchOffset += rendered.count;
+      }
+
+      const renderedUrl = renderSearchText(range.url, matchOffset);
+      matchOffset += renderedUrl.count;
+      nodes.push(
+        <a
+          key={`url-${range.start}-${rangeIndex}`}
+          href={range.url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {renderedUrl.nodes}
+        </a>,
+      );
+      if (range.trailing) {
+        const renderedTrailing = renderSearchText(range.trailing, matchOffset);
+        nodes.push(...renderedTrailing.nodes);
+        matchOffset += renderedTrailing.count;
+      }
+      cursor = range.end;
+    });
+
+    if (cursor < text.length) {
+      nodes.push(...renderSearchText(text.slice(cursor), matchOffset).nodes);
+    }
+    return nodes;
   };
 
   // Count matches in lines above the current one so we can track global match index per line

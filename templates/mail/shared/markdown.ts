@@ -102,6 +102,45 @@ function trimBareUrl(rawUrl: string): { url: string; trailing: string } {
   return { url, trailing };
 }
 
+export type PlainTextLinkRange = {
+  start: number;
+  end: number;
+  url: string;
+  trailing: string;
+};
+
+export function findPlainTextLinkRanges(text: string): PlainTextLinkRange[] {
+  const ranges: PlainTextLinkRange[] = [];
+  const pattern =
+    /<((?:https?:\/\/)[^<>\s]+)>|(^|[^\w"'=])(https?:\/\/[^\s<]+)/g;
+
+  for (const match of text.matchAll(pattern)) {
+    const matchStart = match.index ?? 0;
+    const angledUrl = match[1];
+    if (angledUrl) {
+      const { url, trailing } = trimBareUrl(angledUrl);
+      if (url) {
+        ranges.push({
+          start: matchStart,
+          end: matchStart + match[0].length,
+          url,
+          trailing,
+        });
+      }
+      continue;
+    }
+
+    const prefix = match[2] ?? "";
+    const rawUrl = match[3] ?? "";
+    const { url } = trimBareUrl(rawUrl);
+    if (!url) continue;
+    const start = matchStart + prefix.length;
+    ranges.push({ start, end: start + url.length, url, trailing: "" });
+  }
+
+  return ranges;
+}
+
 function renderInlineLabel(label: string): string {
   const store = createInlineTokenStore();
   const text = label.replace(/`([^`]+)`/g, (_match, code: string) =>
@@ -164,26 +203,18 @@ export function renderInlineMarkdown(markdown: string): string {
 
 /** Linkify plain-text email bodies without interpreting their other characters as Markdown. */
 export function renderPlainTextLinks(text: string): string {
-  const store = createInlineTokenStore();
-  let linked = text;
+  const ranges = findPlainTextLinkRanges(text);
+  if (ranges.length === 0) return escapeHtml(text);
 
-  linked = linked.replace(
-    /<((?:https?:\/\/)[^<>\s]+)>/g,
-    (_match, rawUrl: string) => {
-      const { url, trailing } = trimBareUrl(rawUrl);
-      return `${store.put(plainTextAnchorHtml(url))}${trailing}`;
-    },
-  );
-  linked = linked.replace(
-    /(^|[^\w"'=])(https?:\/\/[^\s<]+)/g,
-    (_match, prefix: string, rawUrl: string) => {
-      const { url, trailing } = trimBareUrl(rawUrl);
-      if (!url) return `${prefix}${rawUrl}`;
-      return `${prefix}${store.put(plainTextAnchorHtml(url))}${trailing}`;
-    },
-  );
-
-  return store.restore(escapeHtml(linked));
+  let html = "";
+  let cursor = 0;
+  for (const range of ranges) {
+    html += escapeHtml(text.slice(cursor, range.start));
+    html += plainTextAnchorHtml(range.url);
+    html += escapeHtml(range.trailing);
+    cursor = range.end;
+  }
+  return `${html}${escapeHtml(text.slice(cursor))}`;
 }
 
 export function extractMarkdownUrls(markdown: string): string[] {

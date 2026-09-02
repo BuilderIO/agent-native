@@ -183,4 +183,57 @@ describe("QuestionFormRead handoff state", () => {
       choices.map((choice) => choice.getAttribute("aria-pressed")),
     ).toEqual(["true", "false", "false"]);
   });
+
+  it("resets answers when question content changes within the same block", async () => {
+    const firstData: QuestionFormData = {
+      questions: [
+        {
+          id: "direction",
+          title: "Which direction should lead?",
+          mode: "single",
+          options: [
+            { id: "first", label: "First", recommended: true },
+            { id: "second", label: "Second" },
+          ],
+        },
+      ],
+    };
+    const nextData: QuestionFormData = {
+      questions: [
+        {
+          id: "direction",
+          title: "Which direction should lead?",
+          mode: "single",
+          options: [
+            { id: "next", label: "Next", recommended: true },
+            { id: "second", label: "Second" },
+          ],
+        },
+      ],
+    };
+
+    await act(async () => {
+      root.render(
+        <QuestionFormRead blockId="questions-1" data={firstData} ctx={{}} />,
+      );
+    });
+    click(buttonContaining(container, "Second"));
+
+    await act(async () => {
+      root.render(
+        <QuestionFormRead blockId="questions-1" data={nextData} ctx={{}} />,
+      );
+    });
+
+    const choices = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button[aria-pressed]"),
+    );
+    expect(choices.map((choice) => choice.textContent?.trim())).toEqual([
+      "Next Recommended",
+      "Second",
+    ]);
+    expect(
+      choices.map((choice) => choice.getAttribute("aria-pressed")),
+    ).toEqual(["true", "false"]);
+  });
 });
