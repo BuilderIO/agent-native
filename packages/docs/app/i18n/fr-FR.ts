@@ -1761,7 +1761,7 @@ const frFR = {
       eyebrow: "Ressources juridiques",
       title: "Ressources juridiques pour Agent-Native",
       intro:
-        "Politiques juridiques autonomes d’Agent-Native pour les applications et services hébergés opérés par Builder.io.",
+        "Politiques juridiques autonomes d’Agent-Native pour les applications et services hébergés.",
       agentNative: {
         title: "Politiques Agent-Native",
         body: "Ces pages adaptent le cadre de politiques commun au projet open source et aux exemples hébergés d’Agent-Native.",

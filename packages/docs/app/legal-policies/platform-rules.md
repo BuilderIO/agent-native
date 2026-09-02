@@ -2,9 +2,9 @@
 
 Updated September 2, 2026
 
-> This standalone Agent-Native policy is based on Builder.io's policy revision dated August 19, 2026. It applies only to hosted Agent-Native services operated by Builder.io. The MIT-licensed framework, forks, and self-hosted deployments are outside its scope. The English version controls.
+> This standalone Agent-Native policy applies only to hosted Agent-Native services operated under the Agent-Native name. The MIT-licensed framework, forks, and self-hosted deployments are outside its scope. The English version controls.
 
-These plain-English rules describe the same safety expectations as the Acceptable Use Policy for Builder-operated hosted Agent-Native services.
+These plain-English rules describe the same safety expectations as the Acceptable Use Policy for hosted Agent-Native services.
 
 These Platform Rules explain what is and isn't allowed for applications, sites, and content you build, host, or deploy on Agent-Native hosted infrastructure. They keep Agent-Native safe and trustworthy while giving you room to build. If we determine that a Hosted Agent-Native Application breaks these rules, we may remove or block it, suspend access, or take other action as described in the Acceptable Use Policy and Agent-Native Hosted Services Terms.
 
@@ -42,7 +42,7 @@ Don't collect, store, or process your users' personal data without a lawful basi
 
 8. Reporting and Appeals
 
-To report a violation, email abuse@builder.io with the affected URL or project ID and a description of the issue. If you believe an action against your app was taken in error, email abuse@builder.io with the subject 'Appeal' and include supporting context (such as evidence of licensing).
+To report a violation, use the reporting or contact method published on the Agent-Native Site with the affected URL or project ID and a description of the issue. If you believe an action against your app was taken in error, use that method with the subject 'Appeal' and include supporting context (such as evidence of licensing).
 
 9. Enforcement
 

@@ -2,17 +2,17 @@
 
 Updated September 2, 2026
 
-> This standalone Agent-Native policy is based on Builder.io's policy revision dated August 19, 2026. It applies only to hosted Agent-Native services operated by Builder.io. The MIT-licensed framework, forks, and self-hosted deployments are outside its scope. The English version controls.
+> This standalone Agent-Native policy applies only to hosted Agent-Native services operated under the Agent-Native name. The MIT-licensed framework, forks, and self-hosted deployments are outside its scope. The English version controls.
 
-Builder.io, Inc. is the operator of the hosted services covered by this policy. This policy is the standalone privacy notice for those services.
+This policy is the standalone privacy notice for hosted Agent-Native services. The operator of those services is referred to as "we," "us," or "our" in this policy.
 
 ## Scope
 
-Builder.io, Inc. ("Builder", "we", or "us") operates some Agent-Native hosted applications, hosted examples, demos, browser extensions, and related services. Agent-Native is also an open-source framework under the MIT License.
+We operate some Agent-Native hosted applications, hosted examples, demos, browser extensions, and related services. Agent-Native is also an open-source framework under the MIT License.
 
-This Privacy Policy applies only to personal information processed by Builder when Builder operates an Agent-Native hosted service or the Agent-Native docs site where this policy is posted. It does not apply to the framework source code, forks, customized apps, private deployments, self-hosted versions, or services operated by someone else. Operators of those deployments are responsible for their own data practices and privacy notices.
+This Privacy Policy applies only to personal information processed by us when we operate an Agent-Native hosted service or the Agent-Native docs site where this policy is posted. It does not apply to the framework source code, forks, customized apps, private deployments, self-hosted versions, or services operated by someone else. Operators of those deployments are responsible for their own data practices and privacy notices.
 
-By using a Builder-operated hosted Agent-Native service, you acknowledge the data practices described in this policy. The Service is not directed to children under 18.
+By using a hosted Agent-Native service, you acknowledge the data practices described in this policy. The Service is not directed to children under 18.
 
 ## Information We Collect and Sources of Information
 
@@ -52,8 +52,8 @@ We commit to maintain and use deidentified information in deidentified form only
 
 We disclose personal information only as needed for the hosted Service and legal obligations, including to:
 
-- **Affiliated companies** that help Builder operate the Service.
-- **Service providers** that provide cloud infrastructure, storage, authentication, email, observability, AI, transcription, security, or related services. These providers may use information only as directed by Builder or as permitted or required by law. A current list of subprocessors is available from Builder at privacy@builder.io.
+- **Affiliated companies** that help us operate the Service.
+- **Service providers** that provide cloud infrastructure, storage, authentication, email, observability, AI, transcription, security, or related services. These providers may use information only as directed by us or as permitted or required by law. A current list of subprocessors is available through the contact method published on the Agent-Native Site.
 - **Connected providers** when you direct a hosted application to send data to or receive data from an integration. That provider's own terms and privacy practices also apply.
 - **Other parties for legal or security purposes** to enforce policies, protect users and the Service, respond to legal process, or investigate abuse.
 - **Parties involved in a corporate transaction**, subject to notice and applicable law.
@@ -81,9 +81,9 @@ For Chrome Web Store disclosures, use this section as the extension privacy-poli
 
 You may be able to correct account information and notification preferences through the Service. You can opt out of non-essential marketing communications using the unsubscribe link in a message.
 
-Depending on your location and the role Builder has for the data, you may have rights to access, delete, correct, object to, restrict, or receive your personal information, withdraw consent, or appeal a decision. If Builder processes information on behalf of your organization, direct the request to that organization first.
+Depending on your location and the role we have for the data, you may have rights to access, delete, correct, object to, restrict, or receive your personal information, withdraw consent, or appeal a decision. If we process information on behalf of your organization, direct the request to that organization first.
 
-For requests about Builder's own data practices, contact privacy@builder.io. We will verify requests as required by applicable law and will not discriminate against you for exercising a privacy right.
+For requests about our data practices, use the contact method published on the Agent-Native Site. We will verify requests as required by applicable law and will not discriminate against you for exercising a privacy right.
 
 ## Data Retention
 
@@ -91,15 +91,15 @@ We retain personal information for as long as necessary to provide the Service, 
 
 ## Sensitive Information
 
-Please do not provide sensitive information unless you are authorized to do so and the hosted application is appropriate for it. If an organization provides sensitive information to Builder, Builder relies on that organization to provide required notices, consent, and rights.
+Please do not provide sensitive information unless you are authorized to do so and the hosted application is appropriate for it. If an organization provides sensitive information to us, we rely on that organization to provide required notices, consent, and rights.
 
 ## Security
 
-Builder uses reasonable administrative, technical, and organizational safeguards designed to protect personal information. No online service can guarantee perfect security. Avoid including secrets or sensitive information in recordings or prompts unless you intend to share that information with the hosted application.
+We use reasonable administrative, technical, and organizational safeguards designed to protect personal information. No online service can guarantee perfect security. Avoid including secrets or sensitive information in recordings or prompts unless you intend to share that information with the hosted application.
 
 ## Children's Privacy
 
-Builder does not knowingly collect or solicit personal information from anyone under 18. If we learn that we collected information from a person under 18, we will delete it promptly where required by law. Contact privacy@builder.io if you believe we may have information from or about someone under 18.
+We do not knowingly collect or solicit personal information from anyone under 18. If we learn that we collected information from a person under 18, we will delete it promptly where required by law. Use the contact method published on the Agent-Native Site if you believe we may have information from or about someone under 18.
 
 ## Third Parties
 
@@ -107,7 +107,7 @@ When you use a third-party website, application, service, integration, or featur
 
 ## International Data Transfers
 
-Personal information may be stored and processed in the United States and other countries where Builder and its service providers operate. Where required, Builder uses applicable legal mechanisms for international transfers, including Standard Contractual Clauses and the UK International Data Transfer Addendum.
+Personal information may be stored and processed in the United States and other countries where we and our service providers operate. Where required, we use applicable legal mechanisms for international transfers, including Standard Contractual Clauses and the UK International Data Transfer Addendum.
 
 ## Changes to This Policy
 
@@ -115,5 +115,4 @@ We may update this Privacy Policy by posting a revised version on this page. Whe
 
 ## Contact Us
 
-For questions or privacy requests, contact privacy@builder.io.
-
+For questions or privacy requests, use the contact method published on the Agent-Native Site.

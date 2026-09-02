@@ -1762,7 +1762,7 @@ const deDE = {
       eyebrow: "Rechtliche Ressourcen",
       title: "Rechtliche Ressourcen für Agent-Native",
       intro:
-        "Eigenständige rechtliche Richtlinien von Agent-Native für von Builder.io betriebene gehostete Anwendungen und Dienste.",
+        "Eigenständige rechtliche Richtlinien von Agent-Native für gehostete Anwendungen und Dienste.",
       agentNative: {
         title: "Agent-Native-Richtlinien",
         body: "Diese Seiten passen den gemeinsamen Richtlinienrahmen an das Open-Source-Projekt und die gehosteten Beispiele von Agent-Native an.",

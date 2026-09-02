@@ -1752,7 +1752,7 @@ const jaJP = {
       eyebrow: "法務リソース",
       title: "Agent-Native の法務リソース",
       intro:
-        "Builder.io が運営する Agent-Native のホスト型アプリケーションとサービスに適用される独立した法務ポリシーです。",
+        "Agent-Native のホスト型アプリケーションとサービスに適用される独立した法務ポリシーです。",
       agentNative: {
         title: "Agent-Native のポリシー",
         body: "これらのページは、共通のポリシーを Agent-Native のオープンソースプロジェクトとホスト型サンプル向けに調整したものです。",

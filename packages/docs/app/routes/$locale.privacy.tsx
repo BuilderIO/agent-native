@@ -1,1 +1,1 @@
-export { LocalizedPrivacyPage as default } from "./privacy";
+export { default } from "./privacy";

@@ -4,7 +4,7 @@ export const LEGAL_POLICY_METADATA = [
     slug: "terms",
     title: "Agent-Native Hosted Services Terms",
     description:
-      "Standalone terms for Builder-operated Agent-Native hosted applications, hosted examples, demos, and related services.",
+      "Standalone terms for Agent-Native hosted applications, hosted examples, demos, and related services.",
     filename: "terms.md",
   },
   {
@@ -12,7 +12,7 @@ export const LEGAL_POLICY_METADATA = [
     slug: "privacy",
     title: "Agent-Native Privacy Policy",
     description:
-      "Standalone privacy policy for Builder-operated Agent-Native hosted applications and related services.",
+      "Standalone privacy policy for Agent-Native hosted applications and related services.",
     filename: "privacy.md",
   },
   {
@@ -20,7 +20,7 @@ export const LEGAL_POLICY_METADATA = [
     slug: "acceptable-use",
     title: "Acceptable Use Policy",
     description:
-      "Rules for safe and lawful use of Builder-operated Agent-Native hosted services.",
+      "Rules for safe and lawful use of Agent-Native hosted services.",
     filename: "acceptable-use.md",
   },
   {
@@ -28,7 +28,7 @@ export const LEGAL_POLICY_METADATA = [
     slug: "ai-terms",
     title: "AI Terms",
     description:
-      "Terms for AI features in Builder-operated Agent-Native hosted services.",
+      "Terms for AI features in Agent-Native hosted services.",
     filename: "ai-terms.md",
   },
   {
@@ -44,7 +44,7 @@ export const LEGAL_POLICY_METADATA = [
     slug: "takedown",
     title: "Suspension, Takedown & Data-Handling Policy",
     description:
-      "How Builder handles suspension, takedown, appeals, and hosted application data.",
+      "How the Service operator handles suspension, takedown, appeals, and hosted application data.",
     filename: "takedown.md",
   },
   {
@@ -52,7 +52,7 @@ export const LEGAL_POLICY_METADATA = [
     slug: "dmca",
     title: "DMCA Policy",
     description:
-      "How Builder responds to copyright infringement notices for hosted Agent-Native content.",
+      "How the Service operator responds to copyright infringement notices for hosted Agent-Native content.",
     filename: "dmca.md",
   },
   {
@@ -60,7 +60,7 @@ export const LEGAL_POLICY_METADATA = [
     slug: "law-enforcement",
     title: "Law Enforcement Request Policy",
     description:
-      "How Builder responds to government requests for hosted Agent-Native information.",
+      "How the Service operator responds to government requests for hosted Agent-Native information.",
     filename: "law-enforcement.md",
   },
 ] as const;

@@ -1718,8 +1718,7 @@ const zhCN = {
     resources: {
       eyebrow: "法律资源",
       title: "Agent-Native 法律资源",
-      intro:
-        "适用于 Builder.io 运营的 Agent-Native 托管应用和服务的独立法律政策。",
+      intro: "适用于 Agent-Native 托管应用和服务的独立法律政策。",
       agentNative: {
         title: "Agent-Native 政策",
         body: "这些页面将通用政策框架调整为适用于 Agent-Native 开源项目和托管示例的版本。",

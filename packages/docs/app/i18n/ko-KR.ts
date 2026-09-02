@@ -1743,7 +1743,7 @@ const koKR = {
       eyebrow: "법률 리소스",
       title: "Agent-Native 법률 리소스",
       intro:
-        "Builder.io가 운영하는 Agent-Native 호스팅 애플리케이션과 서비스에 적용되는 독립적인 법률 정책입니다.",
+        "Agent-Native 호스팅 애플리케이션과 서비스에 적용되는 독립적인 법률 정책입니다.",
       agentNative: {
         title: "Agent-Native 정책",
         body: "이 페이지들은 공통 정책 체계를 Agent-Native 오픈 소스 프로젝트와 호스팅 예제에 맞게 조정합니다.",

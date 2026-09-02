@@ -1761,7 +1761,7 @@ const esES = {
       eyebrow: "Recursos legales",
       title: "Recursos legales de Agent-Native",
       intro:
-        "Políticas legales independientes de Agent-Native para aplicaciones y servicios alojados operados por Builder.io.",
+        "Políticas legales independientes de Agent-Native para aplicaciones y servicios alojados.",
       agentNative: {
         title: "Políticas de Agent-Native",
         body: "Estas páginas adaptan el marco de políticas compartido al proyecto de código abierto y a los ejemplos alojados de Agent-Native.",

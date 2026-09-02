@@ -1718,8 +1718,7 @@ const messages = {
     resources: {
       eyebrow: "法律資源",
       title: "Agent-Native 法律資源",
-      intro:
-        "適用於 Builder.io 營運之 Agent-Native 代管應用程式與服務的獨立法律政策。",
+      intro: "適用於 Agent-Native 代管應用程式與服務的獨立法律政策。",
       agentNative: {
         title: "Agent-Native 政策",
         body: "這些頁面將通用政策框架調整為適用於 Agent-Native 開放原始碼專案和託管範例的版本。",

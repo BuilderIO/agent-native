@@ -1753,7 +1753,7 @@ const ptBR = {
       eyebrow: "Recursos jurídicos",
       title: "Recursos jurídicos do Agent-Native",
       intro:
-        "Políticas jurídicas independentes do Agent-Native para aplicações e serviços hospedados operados pela Builder.io.",
+        "Políticas jurídicas independentes do Agent-Native para aplicações e serviços hospedados.",
       agentNative: {
         title: "Políticas do Agent-Native",
         body: "Estas páginas adaptam o conjunto de políticas compartilhado ao projeto open source e aos exemplos hospedados do Agent-Native.",

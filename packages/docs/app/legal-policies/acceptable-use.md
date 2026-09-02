@@ -2,17 +2,17 @@
 
 Updated September 2, 2026
 
-> This standalone Agent-Native policy is based on Builder.io's policy revision dated August 19, 2026. It applies only to hosted Agent-Native services operated by Builder.io. The MIT-licensed framework, forks, and self-hosted deployments are outside its scope. The English version controls.
+> This standalone Agent-Native policy applies only to hosted Agent-Native services operated under the Agent-Native name. The MIT-licensed framework, forks, and self-hosted deployments are outside its scope. The English version controls.
 
 This policy governs hosted services only. It does not restrict use of the MIT-licensed Agent-Native source code.
 
-This Acceptable Use Policy ("AUP") describes activities prohibited when using Agent-Native hosted services operated by Builder.io, including hosted applications, APIs, databases, and other hosted properties. It is incorporated into the Agent-Native Hosted Services Terms. Builder may update it from time to time. The current version is available at [agent-native.com/legal/acceptable-use](/legal/acceptable-use).
+This Acceptable Use Policy ("AUP") describes activities prohibited when using Agent-Native hosted services, including hosted applications, APIs, databases, and other hosted properties. It is incorporated into the Agent-Native Hosted Services Terms. We may update it from time to time. The current version is available at [agent-native.com/legal/acceptable-use](/legal/acceptable-use).
 
 1. Your Responsibility
 
 1.1. You are responsible for your use of the Services, for any Hosted Agent-Native Application you operate, and for the acts and omissions of your users you authorize and anyone you allow to use your account. You must ensure that your Hosted Agent-Native Applications and their content comply with this AUP, the Platform Rules, and all applicable laws.
 
-1.2. You must not use the Services in any way that violates applicable law, infringes the rights of others, or that could harm Builder, the Services, other customers, or the public.
+1.2. You must not use the Services in any way that violates applicable law, infringes the rights of others, or that could harm the Services, other users, or the public.
 
 2. Prohibited Activities
 
@@ -24,7 +24,7 @@ You will not, and will cause your users you authorize not to, use the Services t
 - create, upload, host, distribute, or link to malware, ransomware, spyware, or other malicious code through the Services or any Hosted Agent-Native Application;
 - conduct phishing, credential harvesting, spoofing, or any activity designed to deceive users into disclosing sensitive information through the Services or any Hosted Agent-Native Application;
 - interfere with or disrupt the integrity or performance of the Services or any Hosted Agent-Native Application, including through denial-of-service attacks, excessive automated requests, or cryptocurrency mining;
-- probe, scan, or test the vulnerability of the Services without Builder's prior written authorization.
+- probe, scan, or test the vulnerability of the Services without our prior written authorization.
 
 2.2 Content and Conduct
 
@@ -52,12 +52,12 @@ The following are prohibited outright  -  no exceptions for licensing or certifi
 
 4. Regulated and Age-Restricted Services
 
-You may build Hosted Agent-Native Applications offering regulated or age-restricted goods or services  -  such as gambling, financial services, alcohol, tobacco, weapons, or controlled substances  -  only if you hold all licenses, certifications, and approvals required by applicable law. Builder takes you at your word, but we may verify: we may ask you to prove your licensing at any time, and may suspend or take down your Hosted Agent-Native Application immediately if we believe it is operating without the proper licenses, until you provide satisfactory evidence. The burden of proof is on you.
+You may build Hosted Agent-Native Applications offering regulated or age-restricted goods or services  -  such as gambling, financial services, alcohol, tobacco, weapons, or controlled substances  -  only if you hold all licenses, certifications, and approvals required by applicable law. We take you at your word, but we may verify: we may ask you to prove your licensing at any time, and may suspend or take down your Hosted Agent-Native Application immediately if we believe it is operating without the proper licenses, until you provide satisfactory evidence. The burden of proof is on you.
 
 5. Enforcement
 
-5.1. Builder may investigate any suspected violation of this AUP and may take any action we deem appropriate, including removing content, disabling or suspending Hosted Agent-Native Applications, or terminating accounts.
+5.1. We may investigate any suspected violation of this AUP and may take any action we deem appropriate, including removing content, disabling or suspending Hosted Agent-Native Applications, or terminating accounts.
 
 5.2. Enforcement actions are described in the [Suspension, Takedown and Data-Handling Policy](/legal/takedown).
 
-5.3. To report a violation, email abuse@builder.io.
+5.3. To report a violation, use the reporting or contact method published on the Agent-Native Site.

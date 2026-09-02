@@ -1742,7 +1742,7 @@ const enUS = {
       eyebrow: "Legal resources",
       title: "Legal resources for Agent-Native",
       intro:
-        "Standalone Agent-Native legal policies for Builder-operated hosted applications and services.",
+        "Standalone Agent-Native legal policies for hosted applications and services.",
       agentNative: {
         title: "Agent-Native policies",
         body: "These pages adapt the shared policy framework to Agent-Native's open-source project and hosted examples.",

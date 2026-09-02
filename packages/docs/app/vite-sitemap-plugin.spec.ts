@@ -105,6 +105,17 @@ describe("docs agent web generation", () => {
     expect(terms?.markdown).not.toContain("](/legal/acceptable-use)");
   });
 
+  it("keeps public legal Markdown mirrors free of commercial branding", () => {
+    const legalPages = pages.filter((page) =>
+      /\/(?:legal(?:\/|$)|privacy\/|terms\/)/.test(page.path),
+    );
+
+    expect(legalPages.length).toBeGreaterThan(0);
+    for (const page of legalPages) {
+      expect(page.markdown).not.toMatch(/builder(?:\.io)?/i);
+    }
+  });
+
   it("omits redirected slugs, including stale translations of renamed docs", () => {
     const redirected = pages.filter((page) =>
       /\/docs\/(database|actions|server|client|routing)\/$/.test(page.path),

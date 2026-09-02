@@ -196,11 +196,12 @@ type DocsSitePage = AgentWebPage & { docSlug?: string; draft?: boolean };
 
 function buildDocsSitePages(rootDir: string): DocsSitePage[] {
   const docsDir = path.resolve(rootDir, "../core/docs/content");
+  const legalPolicyPath = (filename: string) =>
+    path.resolve(rootDir, "app/legal-policies", filename);
   const legalPolicyMarkdown = (filename: string) =>
-    fs.readFileSync(
-      path.resolve(rootDir, "app/legal-policies", filename),
-      "utf8",
-    );
+    fs.readFileSync(legalPolicyPath(filename), "utf8");
+  const legalPolicyLastmod = (filename: string) =>
+    gitLastmod(legalPolicyPath(filename));
   const templateCardPath = path.resolve(
     rootDir,
     "app/components/TemplateCard.tsx",
@@ -370,9 +371,7 @@ function buildDocsSitePages(rootDir: string): DocsSitePage[] {
         legalPolicyMarkdown(policy.filename),
         locale,
       ),
-      lastmod: gitLastmod(
-        path.resolve(rootDir, "app/legal-policies", policy.filename),
-      ),
+      lastmod: legalPolicyLastmod(policy.filename),
     })),
   ]);
 
@@ -453,23 +452,21 @@ Agent-Native is an open source framework for building apps where AI agents and U
       title: LEGAL_POLICY_METADATA[1].title,
       description: LEGAL_POLICY_METADATA[1].description,
       markdown: legalPolicyMarkdown(LEGAL_POLICY_METADATA[1].filename),
-      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/privacy.tsx")),
+      lastmod: legalPolicyLastmod(LEGAL_POLICY_METADATA[1].filename),
     },
     {
       path: sitePathForLocale("/terms"),
       title: LEGAL_POLICY_METADATA[0].title,
       description: LEGAL_POLICY_METADATA[0].description,
       markdown: legalPolicyMarkdown(LEGAL_POLICY_METADATA[0].filename),
-      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/terms.tsx")),
+      lastmod: legalPolicyLastmod(LEGAL_POLICY_METADATA[0].filename),
     },
     ...LEGAL_POLICY_METADATA.slice(2).map((policy) => ({
       path: sitePathForLocale("/legal/" + policy.slug),
       title: policy.title,
       description: policy.description,
       markdown: legalPolicyMarkdown(policy.filename),
-      lastmod: gitLastmod(
-        path.resolve(rootDir, "app/legal-policies", policy.filename),
-      ),
+      lastmod: legalPolicyLastmod(policy.filename),
     })),
     ...localizedLegalPages,
     {
