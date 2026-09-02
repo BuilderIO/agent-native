@@ -1,7 +1,7 @@
 import {
-  parseJobFrontmatter,
+  parseJobResource,
   type JobFrontmatter,
-} from "@agent-native/core/jobs";
+} from "@agent-native/core/jobs/frontmatter";
 import {
   organizationResourceOwner,
   resourceGetByPath,
@@ -75,7 +75,7 @@ export async function listFactoryAutomationDefinitions(
     .filter((resource): resource is Resource => resource !== null)
     .filter((resource) => jobBelongsToFactory(resource.path, factoryId))
     .map((resource) => {
-      const { meta, body } = parseJobFrontmatter(resource.content);
+      const { meta, body } = parseJobResource(resource.content);
       return {
         name: factoryAutomationRunHistoryKey(resource.path),
         resource,
