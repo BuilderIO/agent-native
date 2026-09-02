@@ -27,6 +27,7 @@ export type ClipsShareMetaRecording = {
   trashedAt?: string | null;
   sourceAppName?: string | null;
   videoUrl?: string | null;
+  isLoomEmbedBacked?: boolean;
 };
 
 const SOCIAL_FRAME_AT_MS = 350;
@@ -138,7 +139,11 @@ export function resolveClipsSocialImageUrl(options: {
   }
 
   if (!canUseSocialImage(recording)) return undefined;
-  if (!origin || isLoomEmbedBackedRecording(recording)) {
+  if (
+    !origin ||
+    recording.isLoomEmbedBacked === true ||
+    isLoomEmbedBackedRecording(recording)
+  ) {
     return AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE;
   }
 

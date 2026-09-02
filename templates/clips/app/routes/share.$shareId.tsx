@@ -132,8 +132,7 @@ type SharePageMetaRecording = {
   hasPassword: boolean;
   archivedAt: string | null;
   trashedAt: string | null;
-  sourceAppName: string | null;
-  videoUrl: string | null;
+  isLoomEmbedBacked: boolean;
 };
 
 type SharePageLoaderData = {
@@ -281,8 +280,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     hasPassword: Boolean(rec.password),
     archivedAt: rec.archivedAt,
     trashedAt: rec.trashedAt,
-    sourceAppName: rec.sourceAppName,
-    videoUrl: rec.videoUrl,
+    isLoomEmbedBacked: isLoomEmbedBackedRecording(rec),
   };
   const canExposeAnonymousAgentContext =
     rec.visibility === "public" &&
