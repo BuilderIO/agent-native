@@ -86,8 +86,9 @@ export function isLegacySharedResourceVisibleToOrganization(
   let metadata: unknown;
   try {
     metadata = JSON.parse(resource.metadata);
-  } catch {
-    return false;
+  } catch (error) {
+    if (error instanceof SyntaxError) return false;
+    throw error;
   }
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
     return true;
