@@ -53,6 +53,7 @@ describe("AuthPage", () => {
     expect(onboardingHtml).toContain("aspect-ratio: 914 / 818");
     expect(onboardingHtml).toContain("width: 100%");
     expect(onboardingHtml).toContain("filter: blur(5px)");
+    expect(onboardingHtml).toContain("opacity: 0.8");
     expect(onboardingHtml).toContain("left: -140px");
   });
 

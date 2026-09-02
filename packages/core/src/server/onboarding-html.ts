@@ -2225,6 +2225,7 @@ ${embeddedAuthCss}
   }
   .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot {
     filter: blur(5px);
+    opacity: 0.8;
   }
   .auth-marketing-home.has-product-screenshot .form-panel .card {
     position: relative;
