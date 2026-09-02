@@ -132,6 +132,7 @@ type SharePageMetaRecording = {
   hasPassword: boolean;
   archivedAt: string | null;
   trashedAt: string | null;
+  isLoomEmbedBacked: boolean;
 };
 
 type SharePageLoaderData = {
@@ -222,6 +223,8 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       expiresAt: schema.recordings.expiresAt,
       archivedAt: schema.recordings.archivedAt,
       trashedAt: schema.recordings.trashedAt,
+      sourceAppName: schema.recordings.sourceAppName,
+      videoUrl: schema.recordings.videoUrl,
     })
     .from(schema.recordings)
     .where(eq(schema.recordings.id, id))
@@ -277,6 +280,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     hasPassword: Boolean(rec.password),
     archivedAt: rec.archivedAt,
     trashedAt: rec.trashedAt,
+    isLoomEmbedBacked: isLoomEmbedBackedRecording(rec),
   };
   const canExposeAnonymousAgentContext =
     rec.visibility === "public" &&
