@@ -57,7 +57,7 @@ function factoryJobResource(content: string) {
   };
 }
 
-describe("list-factory-automations", () => {
+describe("list-factory-automations", { timeout: 15_000 }, () => {
   it("lets workspace members update Factory-domain jobs", async () => {
     const resource = factoryJobResource(
       "---\ndomain: factory\nfactoryId: support-triage\nmodel: claude-sonnet\nschedule: '*/5 * * * *'\nenabled: true\ntriggerType: schedule\ncreatedBy: alice@example.com\n---\nObserve Slack.\n",

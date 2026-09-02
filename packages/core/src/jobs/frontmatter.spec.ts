@@ -115,6 +115,29 @@ Observe Slack.`;
     expect(patched).toContain("Observe Slack.");
   });
 
+  it("patches execution fields on CRLF job resources without rewriting the rest", () => {
+    const content = [
+      "---",
+      "enabled: true",
+      "triggerType: schedule",
+      "domain: factory",
+      "factoryId: demo-factory",
+      "---",
+      "",
+      "Observe Slack.",
+    ].join("\r\n");
+    const patched = patchJobFrontmatterFields(content, {
+      lastStatus: "running",
+      lastRun: "2026-09-01T21:45:00.000Z",
+    });
+    expect(patched.startsWith("---\r\n")).toBe(true);
+    expect(patched).toContain("triggerType: schedule");
+    expect(patched).toContain("domain: factory");
+    expect(patched).toContain("factoryId: demo-factory");
+    expect(patched).toContain("lastStatus: running");
+    expect(patched).toContain('lastRun: "2026-09-01T21:45:00.000Z"');
+  });
+
   it("does not serialize webhook automation credentials into resource content", () => {
     const meta: JobFrontmatter = {
       schedule: "",

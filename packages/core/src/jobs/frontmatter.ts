@@ -577,30 +577,37 @@ function setOrRemoveFrontmatterField(
   key: string,
   serialized: string | undefined,
 ): string {
-  if (!content.startsWith("---\n")) {
+  const newline = content.startsWith("---\r\n")
+    ? "\r\n"
+    : content.startsWith("---\n")
+      ? "\n"
+      : null;
+  if (!newline) {
     throw new Error(
       "Job resource is missing frontmatter; cannot patch execution fields.",
     );
   }
-  const end = content.indexOf("\n---", 4);
+  const opener = `---${newline}`;
+  const closer = `${newline}---`;
+  const end = content.indexOf(closer, opener.length);
   if (end === -1) {
     throw new Error(
       "Job resource is missing frontmatter; cannot patch execution fields.",
     );
   }
-  const frontmatter = content.slice(4, end);
-  const pattern = new RegExp(`^${key}:.*\\n?`, "m");
+  const frontmatter = content.slice(opener.length, end);
+  const pattern = new RegExp(`^${key}:.*(?:\\r?\\n)?`, "m");
   if (serialized === undefined) {
     if (!pattern.test(frontmatter)) return content;
     const nextFrontmatter = frontmatter.replace(pattern, "").trimEnd();
     return nextFrontmatter
-      ? `---\n${nextFrontmatter}${content.slice(end)}`
+      ? `${opener}${nextFrontmatter}${content.slice(end)}`
       : content;
   }
   if (pattern.test(frontmatter)) {
-    return `---\n${frontmatter.replace(pattern, `${key}: ${serialized}\n`)}${content.slice(end)}`;
+    return `${opener}${frontmatter.replace(pattern, `${key}: ${serialized}${newline}`)}${content.slice(end)}`;
   }
-  return `${content.slice(0, end)}\n${key}: ${serialized}${content.slice(end)}`;
+  return `${content.slice(0, end)}${newline}${key}: ${serialized}${content.slice(end)}`;
 }
 
 /**

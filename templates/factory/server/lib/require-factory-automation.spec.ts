@@ -1,10 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const listAutomationDefinitionsMock = vi.hoisted(() => vi.fn());
+const findFactoryAutomationDefinitionMock = vi.hoisted(() => vi.fn());
 const getDbMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@agent-native/core/triggers", () => ({
-  listAutomationDefinitions: listAutomationDefinitionsMock,
+vi.mock("./factory-automation-resources.js", () => ({
+  findFactoryAutomationDefinition: findFactoryAutomationDefinitionMock,
+  factoryIdFromAutomationName: (name: string) => {
+    const nested = name.match(/^factories\/([^/]+)\//);
+    if (nested?.[1]) return nested[1];
+    if (/^factory-[^/]+$/.test(name)) return "product-feedback";
+    return null;
+  },
 }));
 
 vi.mock("../db/index.js", () => ({
@@ -61,29 +67,28 @@ describe("requireFactoryAutomation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.WORKSPACE_OWNER_EMAIL = "deploy-owner@example.com";
-    listAutomationDefinitionsMock.mockResolvedValue([
+    findFactoryAutomationDefinitionMock.mockResolvedValue(
       nestedJob("factory-slack-feedback"),
-    ]);
+    );
     getDbMock.mockReturnValue(factoryLookupDb(true));
   });
 
   it("accepts a blank Slack job by source frontmatter", async () => {
-    listAutomationDefinitionsMock.mockResolvedValue([
-      {
-        name: `factories/${factoryId}/factory-slack-custom`,
-        resource: {
-          id: "resource-factory-slack-custom",
-          path: `jobs/factories/${factoryId}/factory-slack-custom.md`,
-          content: "---\ndomain: factory\nsource: slack\n---\n",
-        },
-        meta: {
-          domain: "factory",
-          orgId: "org-1",
-          runAs: "creator" as const,
-          createdBy: teammateEmail,
-        },
+    findFactoryAutomationDefinitionMock.mockResolvedValue({
+      name: `factories/${factoryId}/factory-slack-custom`,
+      body: "",
+      resource: {
+        id: "resource-factory-slack-custom",
+        path: `jobs/factories/${factoryId}/factory-slack-custom.md`,
+        content: "---\ndomain: factory\nsource: slack\n---\n",
       },
-    ]);
+      meta: {
+        domain: "factory",
+        orgId: "org-1",
+        runAs: "creator" as const,
+        createdBy: teammateEmail,
+      },
+    });
     await expect(
       requireFactoryAutomation(
         {
@@ -117,7 +122,9 @@ describe("requireFactoryAutomation", () => {
       "factory-pr-governance",
       "factory-pr-babysit",
     ] as const) {
-      listAutomationDefinitionsMock.mockResolvedValue([nestedJob(leafName)]);
+      findFactoryAutomationDefinitionMock.mockResolvedValue(
+        nestedJob(leafName),
+      );
       await expect(
         requireFactoryAutomation(
           governedContext(leafName),
@@ -144,9 +151,9 @@ describe("requireFactoryAutomation", () => {
   });
 
   it("rejects a nested name that is not a Factory source automation", async () => {
-    listAutomationDefinitionsMock.mockResolvedValue([
+    findFactoryAutomationDefinitionMock.mockResolvedValue(
       nestedJob("not-a-factory-job"),
-    ]);
+    );
     await expect(
       requireFactoryAutomation(
         {
@@ -166,9 +173,9 @@ describe("requireFactoryAutomation", () => {
   });
 
   it("rejects PR babysit from Slack/Sentry source polling", async () => {
-    listAutomationDefinitionsMock.mockResolvedValue([
+    findFactoryAutomationDefinitionMock.mockResolvedValue(
       nestedJob("factory-pr-babysit"),
-    ]);
+    );
 
     await expect(
       requireFactoryAutomation(
@@ -196,9 +203,9 @@ describe("requireFactoryAutomation", () => {
   });
 
   it("rejects a governed job with no createdBy", async () => {
-    listAutomationDefinitionsMock.mockResolvedValue([
+    findFactoryAutomationDefinitionMock.mockResolvedValue(
       nestedJob("factory-slack-feedback", ""),
-    ]);
+    );
 
     await expect(
       requireFactoryAutomation(
@@ -238,24 +245,53 @@ describe("requireFactoryAutomation", () => {
     ).rejects.toThrow("Factory not found.");
   });
 
+  it("accepts a factory-folder job that lost domain and triggerType", async () => {
+    findFactoryAutomationDefinitionMock.mockResolvedValue({
+      name: `factories/${factoryId}/factory-slack-feedback`,
+      body: "Observe Slack.",
+      resource: {
+        id: "resource-slim",
+        path: `jobs/factories/${factoryId}/factory-slack-feedback.md`,
+        content: "---\nenabled: true\ncreatedBy: teammate@example.com\n---\n",
+      },
+      meta: {
+        createdBy: teammateEmail,
+      },
+    });
+
+    await expect(
+      requireFactoryAutomation(
+        {
+          caller: "automation",
+          automation: {
+            triggerId: "resource-slim",
+            triggerName: `factories/${factoryId}/factory-slack-feedback`,
+          },
+        },
+        { userEmail: teammateEmail, orgId: "org-1" },
+        "sourcePolling",
+        factoryId,
+      ),
+    ).resolves.toBeUndefined();
+  });
+
   it("accepts the virtual default Factory when no definition row exists", async () => {
     getDbMock.mockReturnValue(factoryLookupDb(false));
-    listAutomationDefinitionsMock.mockResolvedValue([
-      {
-        name: "factory-slack-feedback",
-        resource: {
-          id: "resource-default",
-          path: "jobs/factory-slack-feedback.md",
-          content: "---\ndomain: factory\n---\n",
-        },
-        meta: {
-          domain: "factory",
-          orgId: "org-1",
-          runAs: "creator",
-          createdBy: teammateEmail,
-        },
+    findFactoryAutomationDefinitionMock.mockResolvedValue({
+      name: "factory-slack-feedback",
+      body: "",
+      resource: {
+        id: "resource-default",
+        path: "jobs/factory-slack-feedback.md",
+        content: "---\ndomain: factory\n---\n",
       },
-    ]);
+      meta: {
+        domain: "factory",
+        orgId: "org-1",
+        runAs: "creator",
+        createdBy: teammateEmail,
+      },
+    });
 
     await expect(
       requireFactoryAutomation(

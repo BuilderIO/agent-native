@@ -23,12 +23,28 @@ export type FactoryAutomationDefinition = {
   body: string;
 };
 
+const FACTORY_APP_ID = "factory";
+
 function jobBelongsToFactory(path: string, factoryId: string): boolean {
   const nested = path.match(/^jobs\/factories\/([^/]+)\//);
   if (nested) return nested[1] === factoryId;
   return (
     factoryId === DEFAULT_FACTORY_ID && isLegacyFactoryAutomationPath(path)
   );
+}
+
+/** Path is membership; an explicit other-app owner still stays out. Missing appId is a recovered Factory job. */
+function isFactoryAppOwned(meta: JobFrontmatter): boolean {
+  const appId = meta.appId?.trim();
+  if (appId) return appId === FACTORY_APP_ID;
+  return true;
+}
+
+export function factoryIdFromAutomationName(name: string): string | null {
+  const nested = name.match(/^factories\/([^/]+)\//);
+  if (nested?.[1]) return nested[1];
+  if (/^factory-[^/]+$/.test(name)) return DEFAULT_FACTORY_ID;
+  return null;
 }
 
 /**
@@ -67,5 +83,17 @@ export async function listFactoryAutomationDefinitions(
         body,
       };
     })
+    .filter(({ meta }) => isFactoryAppOwned(meta))
     .sort((a, b) => a.resource.path.localeCompare(b.resource.path));
+}
+
+export async function findFactoryAutomationDefinition(
+  orgId: string,
+  factoryId: string,
+  automationId: string,
+): Promise<FactoryAutomationDefinition | null> {
+  const definitions = await listFactoryAutomationDefinitions(orgId, factoryId);
+  return (
+    definitions.find((entry) => entry.resource.id === automationId) ?? null
+  );
 }

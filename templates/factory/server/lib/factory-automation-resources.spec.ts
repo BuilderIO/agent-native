@@ -9,7 +9,11 @@ vi.mock("@agent-native/core/resources", () => ({
   resourceGetByPath: resourceGetByPathMock,
 }));
 
-import { listFactoryAutomationDefinitions } from "./factory-automation-resources.js";
+import {
+  factoryIdFromAutomationName,
+  findFactoryAutomationDefinition,
+  listFactoryAutomationDefinitions,
+} from "./factory-automation-resources.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -93,6 +97,57 @@ describe("listFactoryAutomationDefinitions", () => {
     ]);
   });
 
+  it("excludes a job that declares a different app owner", async () => {
+    const resource = {
+      id: "resource-calendar",
+      owner: "__organization__:org-1",
+      path: "jobs/factories/demo-factory/calendar-digest.md",
+      content: "---\nenabled: true\nappId: calendar\n---\nSend the digest.\n",
+      updatedAt: 1,
+    };
+    resourceListMock.mockResolvedValue([resource]);
+    resourceGetByPathMock.mockResolvedValue(resource);
+
+    await expect(
+      listFactoryAutomationDefinitions("org-1", "demo-factory"),
+    ).resolves.toEqual([]);
+  });
+
+  it("finds a slim job by resource id", async () => {
+    const resource = {
+      id: "resource-slim",
+      owner: "__organization__:org-1",
+      path: "jobs/factories/demo-factory/factory-slack-feedback.md",
+      content: "---\nenabled: true\n---\nObserve Slack.\n",
+      updatedAt: 1,
+    };
+    resourceListMock.mockResolvedValue([resource]);
+    resourceGetByPathMock.mockResolvedValue(resource);
+
+    await expect(
+      findFactoryAutomationDefinition("org-1", "demo-factory", "resource-slim"),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        name: "factories/demo-factory/factory-slack-feedback",
+      }),
+    );
+  });
+});
+
+describe("factoryIdFromAutomationName", () => {
+  it("reads nested and default-factory names", () => {
+    expect(
+      factoryIdFromAutomationName(
+        "factories/demo-factory/factory-slack-feedback",
+      ),
+    ).toBe("demo-factory");
+    expect(factoryIdFromAutomationName("factory-pr-babysit")).toBe(
+      "product-feedback",
+    );
+  });
+});
+
+describe("listFactoryAutomationDefinitions isolation", () => {
   it("does not attribute another factory's nested job to this factory", async () => {
     const resource = {
       id: "resource-other",
