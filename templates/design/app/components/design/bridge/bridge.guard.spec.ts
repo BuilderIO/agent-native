@@ -6097,6 +6097,117 @@ it(
   },
 );
 
+it(
+  "editor chrome bridge un-nests an absolute child dropped outside its clipped frame onto the screen",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      #frame {
+        position: absolute; left: 40px; top: 40px;
+        width: 200px; height: 160px; background: #f4f4f8;
+        overflow: hidden;
+      }
+      #child {
+        position: absolute; left: 20px; top: 20px;
+        width: 60px; height: 40px; background: #6366f1;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="frame" data-an-primitive="frame" data-agent-native-node-id="frame">
+      <div id="child" data-agent-native-node-id="child">Child</div>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      // Child center is at (90, 80). Drop on empty screen to the right of
+      // the frame (frame right edge is 240).
+      await page.mouse.click(90, 80);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && window.getComputedStyle(overlay).display === "block";
+      });
+
+      await page.mouse.move(90, 80);
+      await page.mouse.down();
+      await page.mouse.move(100, 90, { steps: 4 });
+      const midDragVisible = await page.evaluate(() => {
+        const child = document.querySelector<HTMLElement>("#child")!;
+        const rect = child.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+      await page.mouse.move(320, 80, { steps: 8 });
+      const pastEdgeVisible = await page.evaluate(() => {
+        const child = document.querySelector<HTMLElement>("#child")!;
+        const frame = document.querySelector<HTMLElement>("#frame")!;
+        const childRect = child.getBoundingClientRect();
+        const frameRect = frame.getBoundingClientRect();
+        return {
+          width: childRect.width,
+          height: childRect.height,
+          pastFrame: childRect.left >= frameRect.right - 1,
+        };
+      });
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+
+      const result = await page.evaluate(() => {
+        const child = document.querySelector<HTMLElement>("#child")!;
+        return {
+          parentTag: child.parentElement?.tagName.toLowerCase() ?? null,
+          parentId: child.parentElement?.id ?? null,
+          position: window.getComputedStyle(child).position,
+        };
+      });
+
+      expect(midDragVisible).toBe(true);
+      expect(pastEdgeVisible.width).toBeGreaterThan(0);
+      expect(pastEdgeVisible.height).toBeGreaterThan(0);
+      expect(pastEdgeVisible.pastFrame).toBe(true);
+      expect(result.parentTag).toBe("body");
+      expect(result.parentId).not.toBe("frame");
+      expect(result.position).toBe("absolute");
+
+      const sibling = await page.evaluate(() => {
+        const frame = document.querySelector("#frame");
+        const child = document.querySelector("#child");
+        return frame?.nextElementSibling === child;
+      });
+      expect(sibling).toBe(true);
+
+      const messages = await readBridgeMessages(page);
+      const structureMessage = messages.find(
+        (m) => m.type === "visual-structure-change",
+      ) as { dropMode?: string; placement?: string } | undefined;
+      expect(structureMessage).toBeTruthy();
+      expect(structureMessage?.dropMode).toBe("absolute-container");
+      expect(structureMessage?.placement).toBe("after");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 // ── Multi-select group move (Figma parity) ──────────────────────────────────
 //
 // Dragging any member of a 2+ selection moves the WHOLE group: same delta per

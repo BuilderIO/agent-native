@@ -128,13 +128,25 @@ export function designFrame(page: Page, screenId?: string): FrameLocator {
 async function selectableNodeByText(
   page: Page,
   text: string,
+  screenId?: string,
 ): Promise<Locator> {
-  const candidates = designFrame(page).locator("[data-agent-native-node-id]", {
+  // A multi-screen design has one iframe per screen, so `.last()` reads the
+  // wrong document. Breakpoint frames stamp their own preview id, so scope
+  // only when that screen really owns an iframe.
+  const scopedFrameCount = screenId
+    ? await page
+        .locator(
+          `${DESIGN_PREVIEW_IFRAME_SELECTOR}[data-screen-iframe-id="${screenId.replace(/"/g, '\\"')}"]`,
+        )
+        .count()
+    : 0;
+  const frame = designFrame(page, scopedFrameCount > 0 ? screenId : undefined);
+  const candidates = frame.locator("[data-agent-native-node-id]", {
     hasText: text,
   });
-  const fallback = designFrame(page).getByText(text, { exact: false }).first();
+  const fallback = frame.getByText(text, { exact: false }).first();
   const count = await candidates.count();
-  if (count === 0) return fallback;
+  if (count === 0) return scrolledIntoView(fallback);
 
   let bestIndex = 0;
   let bestArea = Number.POSITIVE_INFINITY;
@@ -148,7 +160,17 @@ async function selectableNodeByText(
       bestArea = area;
     }
   }
-  return candidates.nth(bestIndex);
+  return scrolledIntoView(candidates.nth(bestIndex));
+}
+
+/**
+ * A screen card is taller than the browser viewport, so anything low in the
+ * fixture sits below the fold with a real bounding box. Clicking those page
+ * coordinates lands outside the window and selects nothing at all.
+ */
+async function scrolledIntoView(locator: Locator): Promise<Locator> {
+  await locator.scrollIntoViewIfNeeded().catch(() => {});
+  return locator;
 }
 
 /** Open the editor for a design and wait for the toolbar + iframe to be ready. */
@@ -171,17 +193,6 @@ async function waitForDesignBridgeReady(page: Page): Promise<void> {
     .first()
     .isVisible()
     .catch(() => false);
-  if (!overviewChromeVisible) {
-    const editShield = designFrame(page).locator(
-      '[data-agent-native-edit-overlay="shield"]',
-    );
-    // Edit mode installs the pointer shield; Interact mode intentionally does
-    // not. If a shield exists, wait for it, but don't confuse the persistent
-    // toolbar Interact button with overview screen-card chrome.
-    if ((await editShield.count()) > 0) {
-      await expect(editShield).toBeVisible({ timeout: 10_000 });
-    }
-  }
   // Wait for the iframe bridge to stamp at least one selectable node.
   await expect
     .poll(
@@ -225,33 +236,59 @@ async function waitForDesignBridgeReady(page: Page): Promise<void> {
   }
 }
 
+/**
+ * Put the canvas in the state where elements can be selected and edited.
+ *
+ * Editing only exists in the screen overview. Focusing one screen — from the
+ * sidebar row or a card's own button — swaps in the responsive interactive
+ * preview, which mounts no editor chrome, no pointer shield, and no tool
+ * buttons, so there is no way back to editing except returning here.
+ */
 export async function enterDirectMode(
+  page: Page,
+  _options?: { screenId?: string },
+): Promise<void> {
+  const allScreens = page
+    .locator("aside")
+    .first()
+    .getByRole("button", { name: "All screens" });
+  if (
+    (await allScreens.count()) > 0 &&
+    (await allScreens.getAttribute("aria-current")) !== "page"
+  ) {
+    await allScreens.click();
+    await expect(allScreens).toHaveAttribute("aria-current", "page");
+  }
+  await waitForDesignBridgeReady(page);
+  // Selection is this helper's whole promise, and the shield is what turns a
+  // click into one. Without it every caller fails much later, somewhere else.
+  await expect(
+    designFrame(page, _options?.screenId)
+      .locator('[data-agent-native-edit-overlay="shield"]')
+      .first(),
+  ).toBeAttached({ timeout: 15_000 });
+}
+
+/**
+ * The responsive interactive preview for a single screen: the app runs for
+ * real, so nothing here is selectable. Use `enterDirectMode` to edit.
+ */
+export async function enterInteractView(
   page: Page,
   options?: { screenId?: string },
 ): Promise<void> {
-  const fullView = page.getByRole("button", { name: "Interact", exact: true });
-  const fullViewVisible = await fullView
-    .first()
-    .waitFor({ state: "visible", timeout: 5_000 })
-    .then(() => true)
-    .catch(() => false);
-  if (fullViewVisible) {
-    const targetFullView = options?.screenId
-      ? page
-          .locator(
-            `[data-screen-shell][data-frame-id="${options.screenId.replace(/"/g, '\\"')}"]`,
-          )
-          .getByRole("button", { name: "Interact", exact: true })
-      : fullView.last();
-    await expect(targetFullView).toHaveCount(1);
-    await targetFullView.click();
-    // The top toolbar's Interact mode button intentionally remains visible
-    // (and becomes pressed) in direct mode. The old assertion expected every
-    // button named "Interact" to disappear, which now mistakes that persistent
-    // mode control for an overview card. The overview screen shells are the
-    // stable boundary that actually unmounts when the transition succeeds.
-    await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
-  }
+  const fullView = options?.screenId
+    ? page
+        .locator(
+          `[data-screen-shell][data-frame-id="${options.screenId.replace(/"/g, '\\"')}"]`,
+        )
+        .locator("[data-frame-full-view]")
+    : page.locator("[data-frame-full-view]").last();
+  await expect(fullView).toHaveCount(1);
+  await fullView.click();
+  // The overview screen shells are the boundary that actually unmounts; the
+  // toolbar's own Interact button stays mounted and merely becomes pressed.
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
   await expect
     .poll(
       async () =>
@@ -264,7 +301,6 @@ export async function enterDirectMode(
       { timeout: 10_000 },
     )
     .toBeGreaterThan(600);
-  await waitForDesignBridgeReady(page);
 }
 
 /** Start capturing bridge postMessages on the parent window. */
@@ -321,7 +357,7 @@ export async function selectByText(
   await enterDirectMode(page, options);
   await installBridge(page);
   await page.evaluate(() => ((window as any).__bridge = []));
-  const target = await selectableNodeByText(page, text);
+  const target = await selectableNodeByText(page, text, options?.screenId);
   await target.waitFor({ state: "visible", timeout: 8_000 });
   const box = await target.boundingBox();
   if (!box) throw new Error(`no bounding box for "${text}"`);
@@ -331,7 +367,7 @@ export async function selectByText(
     sel = await waitForBridge(page, "element-select", 2_000);
   } catch {
     await page.evaluate(() => ((window as any).__bridge = []));
-    await dispatchShieldClickByText(page, text);
+    await dispatchShieldClickByText(page, text, options?.screenId);
     sel = await waitForBridge(page, "element-select");
   }
   const payload = sel?.payload ?? sel;
@@ -342,8 +378,9 @@ export async function selectByText(
 async function dispatchShieldClickByText(
   page: Page,
   text: string,
+  screenId?: string,
 ): Promise<void> {
-  const target = await selectableNodeByText(page, text);
+  const target = await selectableNodeByText(page, text, screenId);
   await target.waitFor({ state: "visible", timeout: 8_000 });
   const rect = await target.boundingBox();
   if (!rect) throw new Error(`unable to dispatch selection for "${text}"`);

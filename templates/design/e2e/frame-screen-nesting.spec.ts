@@ -244,11 +244,12 @@ test("the live board uses the light canvas theme token", async ({ page }) => {
   });
 
   await expect(page.locator("html")).toHaveClass(/light/);
-  await expect(
-    page.locator(
-      "[data-board-surface-layer] iframe[data-design-preview-iframe]",
-    ),
-  ).toHaveCSS("background-color", "rgb(235, 235, 235)");
+  // The wrapper paints the board; the document inside it is transparent so a
+  // colour-picker tick does not rebuild the iframe srcdoc.
+  await expect(page.locator("[data-board-surface-layer]")).toHaveCSS(
+    "background-color",
+    "rgb(235, 235, 235)",
+  );
 });
 
 test("the development interaction trace exposes a dump", async ({ page }) => {
