@@ -389,4 +389,13 @@ describe("getSsrBetaRedirectScript", () => {
     expect(script).toContain("/_agent-native/auth/session");
     expect(script).not.toContain("document.cookie");
   });
+
+  it("escapes a session probe path before embedding it in HTML", () => {
+    const script = getSsrBetaRedirectScript(
+      "/</script><script>window.__injected=1</script>/_agent-native/auth/session",
+    );
+
+    expect(script).toContain("\\u003c/script\\u003e\\u003cscript\\u003e");
+    expect(script).not.toContain("</script><script>window.__injected=1");
+  });
 });

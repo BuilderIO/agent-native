@@ -118,6 +118,20 @@ describe("injectBetaOptOutPersistence", () => {
     expect(html).toContain("/plan/_agent-native/auth/session");
   });
 
+  it("escapes a request-derived session probe path in the inline script", () => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+
+    const html = injectBetaOptOutPersistence(
+      "<html><head></head><body>Sign in</body></html>",
+      "/<script>alert(1)/login",
+    );
+
+    expect(html).toContain("\\u003cscript\\u003ealert(1)");
+    expect(html).not.toContain("<script>alert(1)");
+  });
+
   it("keeps the existing onboarding switcher instead of injecting a second one", () => {
     const html = injectBetaOptOutPersistence(`
       <html><head></head><body>

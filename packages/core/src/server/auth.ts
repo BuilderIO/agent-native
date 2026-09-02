@@ -785,9 +785,7 @@ function betterAuthCallbackURL(
 export function getConfiguredLoginHtml(event: H3Event): string | null {
   const config = _authGuardConfig;
   if (!config) return null;
-  const url = event.node?.req?.url ?? event.path ?? "/";
-  const queryStart = url.indexOf("?");
-  const rawPath = queryStart >= 0 ? url.slice(0, queryStart) : url;
+  const { rawPath } = getRequestPathAndSearch(event);
   const loginHtml =
     config.getLoginHtml?.(event, rawPath) ?? config.loginHtml ?? null;
   return loginHtml

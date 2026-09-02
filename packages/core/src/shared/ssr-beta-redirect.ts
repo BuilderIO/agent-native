@@ -1,3 +1,4 @@
+import { safeJsonForHtml } from "./agent-readable-resource.js";
 import {
   BETA_FORCE_QUERY_PARAM,
   BETA_FORCE_SESSION_STORAGE_KEY,
@@ -128,7 +129,7 @@ export function getSsrBetaRedirectScriptBody(
 
   if (typeof window.fetch !== 'function') return;
 
-  window.fetch(${JSON.stringify(sessionPath)}, {
+  window.fetch(${safeJsonForHtml(sessionPath)}, {
     credentials: 'same-origin',
     cache: 'no-store',
     headers: { 'Accept': 'application/json' }
