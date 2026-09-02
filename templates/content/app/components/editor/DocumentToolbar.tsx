@@ -479,7 +479,6 @@ interface DocumentToolbarProps {
   isFavorite?: boolean;
   onToggleFavorite?: (isFavorite: boolean) => void;
   utilityPanel: "info" | "comments" | null;
-  commentsHistoryOpen?: boolean;
   onUtilityPanelChange: (panel: "info" | "comments" | null) => void;
   showCommentsControl?: boolean;
   databaseExportContext?: DatabaseExportContext | null;
@@ -509,7 +508,6 @@ export function DocumentToolbar({
   isFavorite = false,
   onToggleFavorite,
   utilityPanel,
-  commentsHistoryOpen = false,
   onUtilityPanelChange,
   showCommentsControl = true,
   databaseExportContext,
@@ -986,20 +984,21 @@ export function DocumentToolbar({
             </>
           )}
 
-          {showCommentsControl && !commentsHistoryOpen ? (
+          {showCommentsControl ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
                   className={cn(
                     "flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    commentsHistoryOpen && "bg-accent text-accent-foreground",
+                    utilityPanel === "comments" &&
+                      "bg-accent text-accent-foreground",
                   )}
                   aria-label={t("comments.title")}
-                  aria-pressed={commentsHistoryOpen}
+                  aria-pressed={utilityPanel === "comments"}
                   onClick={() =>
                     onUtilityPanelChange(
-                      commentsHistoryOpen ? null : "comments",
+                      utilityPanel === "comments" ? null : "comments",
                     )
                   }
                 >
@@ -1017,7 +1016,7 @@ export function DocumentToolbar({
                   <button
                     className={cn(
                       "flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground",
-                      utilityPanel && "bg-accent text-foreground",
+                      utilityPanel === "info" && "bg-accent text-foreground",
                     )}
                     aria-label={t("editor.toolbar.morePageActions")}
                   >

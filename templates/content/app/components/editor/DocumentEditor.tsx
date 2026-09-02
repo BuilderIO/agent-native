@@ -21,8 +21,6 @@ import {
   IconDatabase,
   IconFileText,
   IconLoader2,
-  IconMessageCircle,
-  IconMessageCircleOff,
   IconX,
 } from "@tabler/icons-react";
 import { IconLock } from "@tabler/icons-react";
@@ -1921,7 +1919,6 @@ function DocumentEditorBody({
   const [lastUtilityPanel, setLastUtilityPanel] =
     useState<Exclude<DocumentUtilityPanel, null>>("comments");
   const [commentsBrowseOpen, setCommentsBrowseOpen] = useState(false);
-  const [showCommentIndicators, setShowCommentIndicators] = useState(true);
   const activeThreadId = hoveredThreadId ?? selectedThreadId;
   const { data: threads, isLoading: commentsLoading } = useComments(
     !isLocalFileDocument ? documentId : null,
@@ -2303,28 +2300,10 @@ function DocumentEditorBody({
           >
             {utilityPanelTitle}
           </h2>
-          {panel === "comments" ? (
-            <button
-              type="button"
-              className="ms-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              aria-pressed={showCommentIndicators}
-              aria-label={t("comments.title")}
-              onClick={() => setShowCommentIndicators((visible) => !visible)}
-            >
-              {showCommentIndicators ? (
-                <IconMessageCircle size={16} />
-              ) : (
-                <IconMessageCircleOff size={16} />
-              )}
-            </button>
-          ) : null}
           {hasUtilityRailSpace || inSheet ? (
             <button
               type="button"
-              className={cn(
-                "flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                panel !== "comments" && "ms-auto",
-              )}
+              className="ms-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               aria-label={t("editor.toolbar.closeUtilityPanel")}
               onClick={() => handleUtilityPanelChange(null)}
             >
@@ -2427,7 +2406,6 @@ function DocumentEditorBody({
             isFavorite={document.isFavorite}
             onToggleFavorite={handleToggleFavorite}
             utilityPanel={utilityPanel}
-            commentsHistoryOpen={showCommentsHistoryDrawer}
             onUtilityPanelChange={handleUtilityPanelChange}
             showCommentsControl={canComment && !isLocalFileDocument}
             onOpenBreadcrumbItem={handleOpenToolbarBreadcrumb}
@@ -2747,7 +2725,6 @@ function DocumentEditorBody({
                                 ? activateCommentThread
                                 : undefined
                             }
-                            showCommentIndicators={showCommentIndicators}
                             onJoinTitle={joinFirstBodyBlockToTitle}
                             notionPageLinks={notionPageLinks}
                             onOpenNotionPageLink={handleOpenNotionPageLink}
@@ -2808,31 +2785,6 @@ function DocumentEditorBody({
                     style={{ transform: `translateX(${commentLaneOffset}px)` }}
                   >
                     <div className="relative min-h-full translate-x-8">
-                      <div className="absolute end-2 top-2 z-20 flex items-center rounded-md bg-background/90 shadow-sm ring-1 ring-border/50 backdrop-blur-sm">
-                        <button
-                          type="button"
-                          className="flex size-8 items-center justify-center rounded-s-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          aria-pressed={showCommentIndicators}
-                          aria-label={t("comments.title")}
-                          onClick={() =>
-                            setShowCommentIndicators((visible) => !visible)
-                          }
-                        >
-                          {showCommentIndicators ? (
-                            <IconMessageCircle size={16} />
-                          ) : (
-                            <IconMessageCircleOff size={16} />
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          className="flex size-8 items-center justify-center rounded-e-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          aria-label={t("editor.toolbar.closeUtilityPanel")}
-                          onClick={() => handleUtilityPanelChange(null)}
-                        >
-                          <IconX size={16} />
-                        </button>
-                      </div>
                       {renderCommentsSidebar()}
                     </div>
                   </aside>

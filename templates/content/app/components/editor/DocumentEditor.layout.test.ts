@@ -430,15 +430,21 @@ describe("document editor layout", () => {
     expect(source).toContain("editor.toolbar.copyPageLink");
     expect(source).toContain("editor.toolbar.info");
     expect(source).toContain("comments.title");
-    expect(source).toContain("showCommentsControl && !commentsHistoryOpen");
-    expect(editorSource).toContain(
-      "commentsHistoryOpen={showCommentsHistoryDrawer}",
-    );
+    expect(source).toContain("showCommentsControl ?");
+    expect(editorSource).not.toContain("commentsHistoryOpen=");
     expect(source).toContain("onSelect={() => void handleCopyPageLink()}");
     expect(source).toContain('utilityPanel === "info" ? null : "info"');
-    expect(source).toContain('commentsHistoryOpen ? null : "comments"');
+    expect(source).toContain('utilityPanel === "comments" ? null : "comments"');
     expect(source).not.toContain('aria-pressed={utilityPanel === "info"}');
-    expect(source).toContain("aria-pressed={commentsHistoryOpen}");
+    expect(source).toContain('aria-pressed={utilityPanel === "comments"}');
+    expect(source).toContain(
+      'utilityPanel === "info" && "bg-accent text-foreground"',
+    );
+    expect(editorSource).not.toContain("setShowCommentIndicators");
+    expect(editorSource).not.toContain("showCommentIndicators=");
+    expect(editorSource).not.toContain(
+      "absolute end-2 top-2 z-20 flex items-center",
+    );
     expect(source).toContain("setDeleteDialogOpen(true)");
     expect(source).toContain("text-destructive focus:text-destructive");
     expect(source).toContain("<IconTrash");
