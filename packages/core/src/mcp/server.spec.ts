@@ -30,12 +30,11 @@ const builtinToolMocks = vi.hoisted(() => ({
 }));
 
 const actionChangeMocks = vi.hoisted(() => ({
-  notifyInBackground: vi.fn(),
+  writeMarker: vi.fn(async () => {}),
 }));
 
-vi.mock("../server/action-change.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../server/action-change.js")>()),
-  notifyActionChangeInBackground: actionChangeMocks.notifyInBackground,
+vi.mock("../server/action-change-marker-write.js", () => ({
+  writeActionChangeMarker: actionChangeMocks.writeMarker,
 }));
 
 const approvalStoreMocks = vi.hoisted(() => {
@@ -800,7 +799,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       });
       expect(first.requestState).toEqual(expect.any(String));
       expect(run).not.toHaveBeenCalled();
-      expect(actionChangeMocks.notifyInBackground).not.toHaveBeenCalled();
+      expect(actionChangeMocks.writeMarker).not.toHaveBeenCalled();
 
       const approved = await client.callTool({
         name: "publish-draft",
@@ -815,7 +814,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       } as any);
       expect(approved.isError).not.toBe(true);
       expect(run).toHaveBeenCalledTimes(1);
-      expect(actionChangeMocks.notifyInBackground).toHaveBeenCalledOnce();
+      expect(actionChangeMocks.writeMarker).toHaveBeenCalledOnce();
 
       const replay = await client.callTool({
         name: "publish-draft",
@@ -830,7 +829,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       } as any);
       expect(replay.isError).toBe(true);
       expect(run).toHaveBeenCalledTimes(1);
-      expect(actionChangeMocks.notifyInBackground).toHaveBeenCalledOnce();
+      expect(actionChangeMocks.writeMarker).toHaveBeenCalledOnce();
     } finally {
       await client.close();
     }
@@ -2924,7 +2923,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it("publishes one scoped action change after a successful mutating direct MCP call", async () => {
-    actionChangeMocks.notifyInBackground.mockClear();
+    actionChangeMocks.writeMarker.mockClear();
     resolveOrgIdForEmailMock.mockResolvedValue("org-from-email");
     const mutatingConfig = {
       ...config,
@@ -2954,8 +2953,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     expect(out.error).toBeUndefined();
-    expect(actionChangeMocks.notifyInBackground).toHaveBeenCalledOnce();
-    expect(actionChangeMocks.notifyInBackground).toHaveBeenCalledWith({
+    expect(actionChangeMocks.writeMarker).toHaveBeenCalledOnce();
+    expect(actionChangeMocks.writeMarker).toHaveBeenCalledWith({
       actionName: "update-thing",
       owner: "oauth@example.com",
       orgId: "org-from-email",
@@ -2963,7 +2962,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it("does not publish action changes for read-only or errored direct MCP calls", async () => {
-    actionChangeMocks.notifyInBackground.mockClear();
+    actionChangeMocks.writeMarker.mockClear();
 
     const readOnly = await callWeb(
       {
@@ -3012,11 +3011,43 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(errored.error).toBeUndefined();
     expect(errored.result.isError).toBe(true);
-    expect(actionChangeMocks.notifyInBackground).not.toHaveBeenCalled();
+
+    const emptyEmbedConfig = {
+      ...config,
+      actions: {
+        "empty-embed-update": {
+          tool: { description: "Update a thing in an inline app" },
+          readOnly: false,
+          run: async () => undefined,
+          mcpApp: {
+            resource: {
+              title: "Empty update",
+              html: "<!doctype html><html><body>Empty update</body></html>",
+            },
+          },
+        },
+      },
+    };
+    const emptyEmbed = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 3041,
+        method: "tools/call",
+        params: { name: "empty-embed-update", arguments: {} },
+      },
+      {
+        headers: await firstPartyMcpAuthHeaders(),
+        config: emptyEmbedConfig,
+      },
+    );
+
+    expect(emptyEmbed.error).toBeUndefined();
+    expect(emptyEmbed.result.isError).toBe(true);
+    expect(actionChangeMocks.writeMarker).not.toHaveBeenCalled();
   });
 
   it("does not publish action changes for unknown, forbidden, or per-call read-only tools", async () => {
-    actionChangeMocks.notifyInBackground.mockClear();
+    actionChangeMocks.writeMarker.mockClear();
     const mutatingConfig = {
       ...config,
       actions: {
@@ -3087,12 +3118,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
     );
     expect(perCallRead.error).toBeUndefined();
-    expect(actionChangeMocks.notifyInBackground).not.toHaveBeenCalled();
+    expect(actionChangeMocks.writeMarker).not.toHaveBeenCalled();
   });
 
   it("keeps a successful MCP mutation successful when refresh publication fails", async () => {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
-    actionChangeMocks.notifyInBackground.mockImplementationOnce(() => {
+    actionChangeMocks.writeMarker.mockImplementationOnce(() => {
       throw new Error("refresh unavailable");
     });
     const mutatingConfig = {
@@ -3125,7 +3156,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     expect(out.result.isError).not.toBe(true);
     expect(warning).toHaveBeenCalledWith(
-      "Could not notify the action-change poller after an MCP tool call",
+      "Could not write the action-change marker after an MCP tool call",
       expect.any(Error),
     );
     warning.mockRestore();

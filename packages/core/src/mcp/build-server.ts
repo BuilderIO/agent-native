@@ -26,6 +26,7 @@ import type {
   Tool,
 } from "@modelcontextprotocol/server";
 
+import { actionCallIsReadOnly } from "../action-call-classification.js";
 import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
@@ -39,10 +40,7 @@ import {
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
-import {
-  actionCallIsReadOnly,
-  notifyActionChangeInBackground,
-} from "../server/action-change.js";
+import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
   buildDeepLink,
@@ -2300,20 +2298,6 @@ export async function createMCPServerForRequest(
             !!mcpResult.raw &&
             typeof mcpResult.raw === "object" &&
             (mcpResult.raw as Record<string, unknown>).isError === true;
-          if (!mcpResultIsError && !actionCallIsReadOnly(entry, args, false)) {
-            try {
-              notifyActionChangeInBackground({
-                actionName: name,
-                owner: getRequestUserEmail() ?? undefined,
-                orgId: getRequestOrgId() ?? undefined,
-              });
-            } catch (error) {
-              console.warn(
-                "Could not notify the action-change poller after an MCP tool call",
-                error,
-              );
-            }
-          }
           // Render path: only treat the result as an inline embed when the kill
           // switch is on. When off, `mcpAppResource` is null so every embed
           // branch below degrades to the plain deep-link artifacts the tool would
@@ -2396,7 +2380,7 @@ export async function createMCPServerForRequest(
               });
           const content: any[] = [{ type: "text", text }];
           if (block) content.push(block);
-          return {
+          const response = {
             content,
             ...(mcpResultIsError || embedProducedNothing
               ? { isError: true }
@@ -2406,6 +2390,29 @@ export async function createMCPServerForRequest(
               ? { _meta: responseMeta }
               : {}),
           };
+          if (
+            response.isError !== true &&
+            !actionCallIsReadOnly(entry, args, false)
+          ) {
+            try {
+              void writeActionChangeMarker({
+                actionName: name,
+                owner: getRequestUserEmail() ?? undefined,
+                orgId: getRequestOrgId() ?? undefined,
+              }).catch((error: unknown) => {
+                console.warn(
+                  "Could not write the action-change marker after an MCP tool call",
+                  error,
+                );
+              });
+            } catch (error) {
+              console.warn(
+                "Could not write the action-change marker after an MCP tool call",
+                error,
+              );
+            }
+          }
+          return response;
         } catch (err: any) {
           // Same contract the in-app agent gets: the message the action wrote,
           // plus the code it chose. `action_failed` is `fail()`'s stand-in for

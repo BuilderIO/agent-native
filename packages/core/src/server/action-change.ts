@@ -1,13 +1,12 @@
 import {
-  ACTION_CHANGE_MARKER_KEY,
-  actionChangeMarkerSession,
-  actionChangeMarkerValue,
-  type ActionChangeTarget,
-} from "../action-change-marker.js";
-import type { ActionPlanModeConfig } from "../action.js";
-import { appStatePut } from "../application-state/store.js";
+  actionChangeTarget,
+  type NotifyActionChangeOptions,
+  writeActionChangeMarker,
+} from "./action-change-marker-write.js";
 import { recordChange } from "./poll.js";
-import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
+
+export { actionCallIsReadOnly } from "../action-call-classification.js";
+export type { NotifyActionChangeOptions } from "./action-change-marker-write.js";
 
 /**
  * Whether THIS invocation should announce a change.
@@ -24,42 +23,6 @@ import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
  * tools would also open them to read-only A2A peers and to the agent's
  * read-result cache, where it would be false.
  */
-export function actionCallIsReadOnly(
-  entry: { readOnly?: boolean; planMode?: ActionPlanModeConfig<any> },
-  params: unknown,
-  fallback: boolean,
-): boolean {
-  const effect = entry.planMode?.effect;
-  if (typeof effect === "function") {
-    try {
-      return effect(params) === "read";
-    } catch {
-      // A predicate that throws says nothing; fall through to the flag.
-    }
-  }
-  if (typeof entry.readOnly === "boolean") return entry.readOnly;
-  return fallback;
-}
-
-export interface NotifyActionChangeOptions {
-  actionName: string;
-  owner?: string;
-  orgId?: string;
-  requestSource?: string;
-}
-
-function actionChangeTarget(
-  options: NotifyActionChangeOptions,
-): ActionChangeTarget {
-  const owner = options.owner ?? getRequestUserEmail() ?? undefined;
-  return {
-    actionName: options.actionName,
-    owner,
-    orgId: owner ? undefined : (options.orgId ?? getRequestOrgId()),
-    requestSource: options.requestSource,
-  };
-}
-
 function recordActionChange(
   options: NotifyActionChangeOptions,
 ): NotifyActionChangeOptions {
@@ -78,23 +41,6 @@ function recordActionChange(
     ...(target.orgId ? { orgId: target.orgId } : {}),
     ...(target.requestSource ? { requestSource: target.requestSource } : {}),
   };
-}
-
-export async function writeActionChangeMarker(
-  options: NotifyActionChangeOptions,
-): Promise<void> {
-  const target = actionChangeTarget(options);
-  const sessionId = actionChangeMarkerSession(target);
-  if (!sessionId) return;
-  await appStatePut(
-    sessionId,
-    ACTION_CHANGE_MARKER_KEY,
-    {
-      ...actionChangeMarkerValue(target),
-      nonce: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    },
-    { requestSource: options.requestSource ?? "agent" },
-  );
 }
 
 export async function notifyActionChange(
