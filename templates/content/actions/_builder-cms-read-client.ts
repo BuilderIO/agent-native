@@ -572,6 +572,30 @@ async function postBuilderMcp(args: {
         : "The Builder MCP tool rejected the request.";
     throw new Error(`Builder MCP request failed: ${message}`);
   }
+  const toolResult =
+    json.result &&
+    typeof json.result === "object" &&
+    !Array.isArray(json.result)
+      ? (json.result as Record<string, unknown>)
+      : null;
+  if (toolResult?.isError === true) {
+    const content = Array.isArray(toolResult.content)
+      ? toolResult.content
+          .filter(
+            (part): part is { type: string; text: string } =>
+              !!part &&
+              typeof part === "object" &&
+              (part as Record<string, unknown>).type === "text" &&
+              typeof (part as Record<string, unknown>).text === "string",
+          )
+          .map((part) => part.text.trim())
+          .filter(Boolean)
+          .join("\n")
+      : "";
+    throw new Error(
+      `Builder MCP tool failed: ${content || "The tool rejected the request."}`,
+    );
+  }
   return {
     json,
     sessionId: response.headers.get("mcp-session-id"),
@@ -854,20 +878,15 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
   fetchImpl: FetchLike;
   privateKey: string;
   endpoint: string;
+  source: BuilderRequestAuthorization["source"];
 }): Promise<BuilderCmsReadResult> {
   const fetchedAt = new Date().toISOString();
   const endpoint = args.endpoint;
   const requestedLimit = readLimit(args.limit);
-  const limit = Math.min(requestedLimit, BUILDER_CMS_PAGE_SIZE);
   const startOffset =
     typeof args.offset === "number" && Number.isFinite(args.offset)
       ? Math.max(0, Math.floor(args.offset))
       : 0;
-  if (startOffset > 0) {
-    throw new Error(
-      "Builder Publish MCP does not support offset pagination for content reads.",
-    );
-  }
   const connection = await initializeBuilderMcp({
     endpoint,
     privateKey: args.privateKey,
@@ -878,39 +897,68 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
     : args.includeBodies
       ? `${builderCmsListEntryFields(args.fieldPaths)},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`
       : builderCmsListEntryFields(args.fieldPaths);
-  const contentResult = await postBuilderMcp({
-    endpoint,
-    privateKey: args.privateKey,
-    fetchImpl: args.fetchImpl,
-    connection,
-    payload: {
-      jsonrpc: "2.0",
-      id: "content-0",
-      method: "tools/call",
-      params: {
-        name: "browse_model_content",
-        arguments: {
-          modelName: args.model,
-          limit,
-          ...(fields ? { fields } : {}),
+  const contentEntries: BuilderCmsSourceEntry[] = [];
+  const seenIds = new Set<string>();
+  let pagesRead = 0;
+  let hasMore = false;
+  let offset = startOffset;
+  while (contentEntries.length < requestedLimit) {
+    const pageLimit = Math.min(
+      BUILDER_CMS_PAGE_SIZE,
+      requestedLimit - contentEntries.length,
+    );
+    const contentResult = await postBuilderMcp({
+      endpoint,
+      privateKey: args.privateKey,
+      fetchImpl: args.fetchImpl,
+      connection,
+      payload: {
+        jsonrpc: "2.0",
+        id: `content-${offset}`,
+        method: "tools/call",
+        params: {
+          name:
+            args.source === "oauth"
+              ? "browse_model_content"
+              : "get_builder_content",
+          arguments: {
+            modelName: args.model,
+            limit: pageLimit,
+            ...(offset > 0 ? { offset } : {}),
+            ...(args.source === "legacy"
+              ? { enrich: args.rawData !== true }
+              : {}),
+            ...(fields ? { fields } : {}),
+          },
         },
       },
-    },
-  });
-  const contentJson = parseBuilderMcpToolJson(contentResult.json.result);
-  if (!contentJson) {
-    throw new Error("Builder MCP browse returned malformed tool content.");
-  }
-  const contentEntries = builderMcpEntriesFromToolResponse(
-    contentJson,
-    args.model,
-  );
-  const totalCount = builderMcpTotalCount(contentJson);
-  const partial = totalCount !== null && totalCount > contentEntries.length;
-  if (partial) {
-    throw new Error(
-      `Builder MCP browse returned ${contentEntries.length} of ${totalCount} entries, but this provider does not support safe continuation reads.`,
+    });
+    const contentJson = parseBuilderMcpToolJson(contentResult.json.result);
+    if (!contentJson) {
+      throw new Error("Builder MCP browse returned malformed tool content.");
+    }
+    const pageEntries = builderMcpEntriesFromToolResponse(
+      contentJson,
+      args.model,
     );
+    const appended = appendUniqueBuilderEntries(
+      contentEntries,
+      seenIds,
+      pageEntries,
+    );
+    pagesRead += 1;
+    offset += pageEntries.length;
+    const totalCount = builderMcpTotalCount(contentJson);
+    hasMore =
+      totalCount !== null
+        ? startOffset + contentEntries.length < totalCount
+        : pageEntries.length >= pageLimit;
+    if (hasMore && appended === 0) {
+      throw new Error(
+        "Builder MCP pagination returned no new entries before the source was complete.",
+      );
+    }
+    if (!hasMore || (args.maxPages && pagesRead >= args.maxPages)) break;
   }
 
   return {
@@ -922,10 +970,10 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       requestedLimit,
       pageSize: BUILDER_CMS_PAGE_SIZE,
       startOffset,
-      nextOffset: contentEntries.length,
-      fetchedEntryCount: contentEntries.length,
-      hasMore: false,
-      partial: false,
+      nextOffset: startOffset + contentEntries.length,
+      fetchedEntryCount: startOffset + contentEntries.length,
+      hasMore,
+      partial: hasMore,
       readMode: "mcp",
     },
   };
@@ -1358,6 +1406,11 @@ export async function listBuilderCmsModels(
       },
     });
     const modelsJson = parseBuilderMcpToolJson(modelsResult.json.result);
+    if (!modelsJson) {
+      throw new Error(
+        "Builder MCP model discovery returned malformed tool content.",
+      );
+    }
     return {
       state: "live",
       models: builderMcpModelsFromToolResponse(modelsJson),
@@ -1495,6 +1548,7 @@ export async function readBuilderCmsContentEntries(args: {
           fetchImpl,
           privateKey,
           endpoint: builderMcpEndpoint(authorization?.source),
+          source: authorization?.source ?? "legacy",
         }),
         args.fieldPaths,
         args.rawData,

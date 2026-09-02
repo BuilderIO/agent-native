@@ -275,6 +275,16 @@ describe("resolveBuilderRequestAuthorization", () => {
     expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
   });
 
+  it("does not fall back to a legacy key when general OAuth custody exists without a Publish grant", async () => {
+    hasBuilderOAuthSessionMock.mockResolvedValue(true);
+    resolveBuilderCredentialMock.mockResolvedValue("legacy-key");
+
+    await expect(
+      resolveBuilderRequestAuthorization({ oauthResource: "publish" }),
+    ).rejects.toThrow(/Publish access is not connected/);
+    expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
+  });
+
   it("rejects a personal Publish grant instead of consuming or bypassing it", async () => {
     getRequestOrgIdMock.mockReturnValue("org-1");
     listRemoteServersMock.mockImplementation(async (scope) =>

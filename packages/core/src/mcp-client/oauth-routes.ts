@@ -55,7 +55,10 @@ import {
 export function resolveTrustedMcpOAuthAuthorizationScope(
   serverUrl: URL,
 ): string | undefined {
-  return serverUrl.href === "https://mcp.builder.io/mcp/publish"
+  return serverUrl.origin === "https://mcp.builder.io" &&
+    serverUrl.pathname.replace(/\/+$/, "") === "/mcp/publish" &&
+    !serverUrl.search &&
+    !serverUrl.hash
     ? "mcp:publish:read"
     : undefined;
 }

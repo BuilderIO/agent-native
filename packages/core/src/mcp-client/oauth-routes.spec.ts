@@ -41,6 +41,11 @@ describe("trusted MCP OAuth authorization scopes", () => {
     ).toBe("mcp:publish:read");
     expect(
       resolveTrustedMcpOAuthAuthorizationScope(
+        new URL("https://mcp.builder.io/mcp/publish/"),
+      ),
+    ).toBe("mcp:publish:read");
+    expect(
+      resolveTrustedMcpOAuthAuthorizationScope(
         new URL("https://mcp.builder.io/mcp/fusion"),
       ),
     ).toBeUndefined();

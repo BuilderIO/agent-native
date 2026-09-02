@@ -51,6 +51,17 @@ export const BUILDER_PUBLISH_MCP_RESOURCE =
   "https://mcp.builder.io/mcp/publish";
 const BUILDER_PUBLISH_MCP_ISSUER = "https://mcp.builder.io";
 
+function isBuilderPublishResource(value: string): boolean {
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  return (
+    url.origin === BUILDER_PUBLISH_MCP_ISSUER &&
+    url.pathname.replace(/\/+$/, "") === "/mcp/publish" &&
+    !url.search &&
+    !url.hash
+  );
+}
+
 export interface BuilderRequestAuthorization {
   token: string;
   authorization: string;
@@ -70,10 +81,7 @@ async function resolveBuilderPublishAuthorization(
     const server = (
       await listRemoteServers(candidate.scope, candidate.scopeId)
     ).find((entry) => {
-      return (
-        URL.canParse(entry.url) &&
-        new URL(entry.url).href === new URL(BUILDER_PUBLISH_MCP_RESOURCE).href
-      );
+      return isBuilderPublishResource(entry.url);
     });
     if (!server) continue;
     if (!server.oauthSecretKey) {
@@ -102,9 +110,7 @@ async function resolveBuilderPublishAuthorization(
       credentials?.tokens.issuer === BUILDER_PUBLISH_MCP_ISSUER &&
       authorizationServers.includes(BUILDER_PUBLISH_MCP_ISSUER);
     const resourceBound =
-      typeof resource === "string" &&
-      URL.canParse(resource) &&
-      new URL(resource).href === new URL(BUILDER_PUBLISH_MCP_RESOURCE).href;
+      typeof resource === "string" && isBuilderPublishResource(resource);
     if (
       !credentials ||
       !issuerBound ||
@@ -138,9 +144,7 @@ async function resolveBuilderPublishAuthorization(
   }
   if (ownerEmail) {
     const personalServer = (await listRemoteServers("user", ownerEmail)).find(
-      (entry) =>
-        URL.canParse(entry.url) &&
-        new URL(entry.url).href === new URL(BUILDER_PUBLISH_MCP_RESOURCE).href,
+      (entry) => isBuilderPublishResource(entry.url),
     );
     if (personalServer) {
       throw new Error(
@@ -171,6 +175,11 @@ export async function resolveBuilderRequestAuthorization(
       resolveBuilderPublishAuthorization(ownerEmail, orgId),
     );
     if (publishAuthorization) return publishAuthorization;
+    if (ownerEmail && (await readOAuthCustody(ownerEmail, orgId))) {
+      throw new Error(
+        "Builder Publish access is not connected for this workspace. Connect Builder.io Publish in Settings to grant mcp:publish:read.",
+      );
+    }
   }
 
   if (

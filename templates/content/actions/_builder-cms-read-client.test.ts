@@ -455,6 +455,44 @@ describe("Builder CMS read client", () => {
     });
   });
 
+  it("rejects malformed Builder model discovery instead of reporting a live empty catalog", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
+    );
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+          headers: { "mcp-session-id": "session-1" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: { content: [{ type: "text", text: "not json" }] },
+          }),
+          { status: 200 },
+        ),
+      );
+
+    await expect(
+      listBuilderCmsModels({
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "error",
+      models: [],
+      message: "Builder MCP model discovery returned malformed tool content.",
+    });
+  });
+
   it("returns Builder model fields for a selected model", async () => {
     resolveBuilderCredentialMock.mockImplementation(async (key) =>
       key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
@@ -965,7 +1003,7 @@ describe("Builder CMS read client", () => {
     }
   });
 
-  it("uses the current Builder browse tool without legacy search fallback", async () => {
+  it("preserves the offset-capable legacy Builder content tool", async () => {
     resolveBuilderCredentialMock.mockImplementation(async (key) =>
       key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
     );
@@ -1016,11 +1054,13 @@ describe("Builder CMS read client", () => {
       String((fetchImpl.mock.calls[2]?.[1] as RequestInit).body),
     );
     expect(browseBody.params).toMatchObject({
-      name: "browse_model_content",
-      arguments: { modelName: "agent-native-blog-article-test" },
+      name: "get_builder_content",
+      arguments: {
+        modelName: "agent-native-blog-article-test",
+        enrich: true,
+      },
     });
     expect(browseBody.params.arguments).not.toHaveProperty("offset");
-    expect(browseBody.params.arguments).not.toHaveProperty("enrich");
   });
 
   it("caps Builder MCP browse reads at the provider page limit", async () => {
@@ -1091,7 +1131,7 @@ describe("Builder CMS read client", () => {
     });
   });
 
-  it("fails loudly when Builder MCP browse results are truncated", async () => {
+  it("continues Builder Publish MCP reads beyond the first 100 entries", async () => {
     resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "oauth-access-token",
@@ -1119,7 +1159,37 @@ describe("Builder CMS read client", () => {
               content: [
                 {
                   type: "text",
-                  text: JSON.stringify({ content: [], totalCount: 101 }),
+                  text: JSON.stringify({
+                    content: Array.from({ length: 100 }, (_, index) => ({
+                      id: `builder-entry-${index + 1}`,
+                      data: { title: `Builder entry ${index + 1}` },
+                    })),
+                    totalCount: 101,
+                  }),
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    content: [
+                      {
+                        id: "builder-entry-101",
+                        data: { title: "Builder entry 101" },
+                      },
+                    ],
+                    totalCount: 101,
+                  }),
                 },
               ],
             },
@@ -1128,17 +1198,21 @@ describe("Builder CMS read client", () => {
         ),
       );
 
-    await expect(
-      readBuilderCmsContentEntries({
-        model: "agent-native-blog-article-test",
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-      }),
-    ).resolves.toMatchObject({
-      state: "error",
-      entries: [],
-      message:
-        "Builder MCP browse returned 0 of 101 entries, but this provider does not support safe continuation reads.",
+    const result = await readBuilderCmsContentEntries({
+      model: "agent-native-blog-article-test",
+      limit: 10_000,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
     });
+
+    expect(result).toMatchObject({
+      state: "live",
+      progress: { fetchedEntryCount: 101, hasMore: false, partial: false },
+    });
+    expect(result.entries).toHaveLength(101);
+    const secondPageBody = JSON.parse(
+      String((fetchImpl.mock.calls[3]?.[1] as RequestInit).body),
+    );
+    expect(secondPageBody.params.arguments.offset).toBe(100);
   });
 
   it("rejects malformed Builder MCP tool content instead of accepting an empty source", async () => {
@@ -1222,6 +1296,50 @@ describe("Builder CMS read client", () => {
       state: "error",
       entries: [],
       message: "Builder MCP request failed: limit must be at most 100",
+    });
+  });
+
+  it("surfaces Builder MCP tool-level errors instead of returning an empty read", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "oauth-access-token",
+      authorization: "Bearer oauth-access-token",
+      source: "oauth",
+    });
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+          headers: { "mcp-session-id": "session-1" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: {
+              isError: true,
+              content: [{ type: "text", text: "model access denied" }],
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "agent-native-blog-article-test",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "error",
+      entries: [],
+      message: "Builder MCP tool failed: model access denied",
     });
   });
 
@@ -1959,11 +2077,39 @@ describe("Builder CMS read client", () => {
     });
   });
 
-  it("rejects unsupported MCP offset continuation instead of replaying page one", async () => {
+  it("preserves legacy MCP offset continuation", async () => {
     resolveBuilderCredentialMock.mockImplementation(async (key) =>
       key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
     );
-    const fetchImpl = vi.fn();
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+          headers: { "mcp-session-id": "session-1" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({ content: [], totalCount: 500 }),
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        ),
+      );
 
     await expect(
       readBuilderCmsContentEntries({
@@ -1972,13 +2118,14 @@ describe("Builder CMS read client", () => {
         offset: 500,
         fetchImpl: fetchImpl as unknown as typeof fetch,
       }),
-    ).resolves.toMatchObject({
-      state: "error",
-      entries: [],
-      message:
-        "Builder Publish MCP does not support offset pagination for content reads.",
+    ).resolves.toMatchObject({ state: "live", entries: [] });
+    const body = JSON.parse(
+      String((fetchImpl.mock.calls[2]?.[1] as RequestInit).body),
+    );
+    expect(body.params).toMatchObject({
+      name: "get_builder_content",
+      arguments: { offset: 500 },
     });
-    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("falls back to the 2024 MCP protocol when 2025 initialize is rejected", async () => {
