@@ -58,11 +58,10 @@ Read the relevant skill before deeper work:
   reveals.
 - For images, use `generate-image-api` with provenance; show results as
   `![alt](url)`.
-- Prefer an exposed direct action for a bounded operation in the current app.
-  Use `view-screen` first when selection or current context matters, use the
-  smallest action, and read back the result. Use `call-agent` or `ask_app` when
-  direct actions are unavailable, the task needs cross-app or multi-step
-  specialist reasoning, or direct execution fails and needs recovery.
+- Prefer exposed direct actions for bounded current-app work. Use `view-screen`
+  first when selection or context matters, use the smallest action, and read
+  back. Use `call-agent` or `ask_app` only when direct actions are unavailable,
+  cross-app/multi-step reasoning is needed, or direct execution needs recovery.
 - For data requests, read `analytics-data-for-decks` and delegate via Analytics
   over A2A; do not write SQL or call providers directly.
 - When the user names no reference deck or design system, call

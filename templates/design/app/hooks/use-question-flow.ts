@@ -4,6 +4,7 @@ import {
   type GuidedQuestionAnswers,
 } from "@agent-native/core/client/agent-chat";
 import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
 import { useCallback } from "react";
 
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
@@ -186,7 +187,9 @@ export function useQuestionFlow(
       // real destination thread.
       const tabId = sendToDesignAgentChat({
         message,
-        context: [briefContext, context].filter(Boolean).join("\n\n"),
+        context: [briefContext, context, DESIGN_MUTATION_REQUIRED_DIRECTIVE]
+          .filter(Boolean)
+          .join("\n\n"),
         submit: true,
         newTab: true,
         ...(brief?.images?.length ? { images: brief.images } : {}),
