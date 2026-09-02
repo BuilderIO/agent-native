@@ -181,6 +181,7 @@ const enUS = {
     otherCalendars: "Other Calendars",
     otherCalendarsDescription:
       "Add a teammate's calendar or subscribe to a public calendar URL",
+    overlayCalendarUnavailable: "Couldn't load {{email}}'s calendar right now",
     previousYear: "Previous year",
     showCalendar: "Show calendar",
   },
@@ -616,6 +617,20 @@ const enUS = {
     requiredHostsDescription:
       "You are included automatically. Add teammates who must also be free.",
     removeHost: "Remove {{email}}",
+    overlayHostsLabel: "From your calendar",
+    overlayHostsPlaceholder: "Select people you've added to your calendar",
+    overlayHostsEmpty: "No one found.",
+    noOverlayPeopleYet: "You haven't added any peers to your calendar yet.",
+    addOverlayPersonCta: "Add a peer's calendar",
+    addOtherEmail: "Add another email",
+    overlayHostsHint:
+      "People from your calendar get working-hours-aware scheduling. Other emails are only checked for conflicts.",
+    showTimeZones: "Show time zones",
+    hideTimeZones: "Hide time zones",
+    youLabel: "You",
+    hostLabel: "Host",
+    addTimeZone: "Add time zone",
+    removeTimeZone: "Remove {{timezone}}",
     saveAvailability: "Save Availability",
     saved: "Saved",
     selectDate: "Select a Date",
@@ -9971,6 +9986,178 @@ function applyTranslatedCalendarOverrides(
   }
 }
 
+const translatedBookingHostAvailability = {
+  "es-ES": {
+    bookingLinks: {
+      overlayHostsLabel: "Desde tu calendario",
+      overlayHostsPlaceholder:
+        "Selecciona personas que hayas añadido a tu calendario",
+      overlayHostsEmpty: "No se encontró a nadie.",
+      noOverlayPeopleYet:
+        "Aún no has añadido a ningún compañero a tu calendario.",
+      addOverlayPersonCta: "Añadir el calendario de un compañero",
+      addOtherEmail: "Añadir otro correo",
+      overlayHostsHint:
+        "Las personas de tu calendario obtienen una programación que respeta su horario laboral. Otros correos solo se verifican por conflictos.",
+      showTimeZones: "Mostrar zonas horarias",
+      hideTimeZones: "Ocultar zonas horarias",
+      youLabel: "Tú",
+      hostLabel: "Anfitrión",
+      addTimeZone: "Añadir zona horaria",
+      removeTimeZone: "Eliminar {{timezone}}",
+    },
+  },
+  "fr-FR": {
+    bookingLinks: {
+      overlayHostsLabel: "Depuis votre calendrier",
+      overlayHostsPlaceholder:
+        "Sélectionnez des personnes ajoutées à votre calendrier",
+      overlayHostsEmpty: "Aucun résultat.",
+      noOverlayPeopleYet:
+        "Vous n'avez pas encore ajouté de collègues à votre calendrier.",
+      addOverlayPersonCta: "Ajouter le calendrier d'un collègue",
+      addOtherEmail: "Ajouter un autre e-mail",
+      overlayHostsHint:
+        "Les personnes de votre calendrier bénéficient d'une planification tenant compte de leurs horaires. Les autres e-mails ne sont vérifiés que pour les conflits.",
+      showTimeZones: "Afficher les fuseaux horaires",
+      hideTimeZones: "Masquer les fuseaux horaires",
+      youLabel: "Vous",
+      hostLabel: "Hôte",
+      addTimeZone: "Ajouter un fuseau horaire",
+      removeTimeZone: "Supprimer {{timezone}}",
+    },
+  },
+  "de-DE": {
+    bookingLinks: {
+      overlayHostsLabel: "Aus deinem Kalender",
+      overlayHostsPlaceholder:
+        "Wähle Personen aus, die du zu deinem Kalender hinzugefügt hast",
+      overlayHostsEmpty: "Niemand gefunden.",
+      noOverlayPeopleYet:
+        "Du hast deinem Kalender noch keine Kolleg:innen hinzugefügt.",
+      addOverlayPersonCta: "Kalender einer Kollegin/eines Kollegen hinzufügen",
+      addOtherEmail: "Weitere E-Mail hinzufügen",
+      overlayHostsHint:
+        "Personen aus deinem Kalender erhalten eine Terminplanung, die ihre Arbeitszeiten berücksichtigt. Andere E-Mails werden nur auf Konflikte geprüft.",
+      showTimeZones: "Zeitzonen anzeigen",
+      hideTimeZones: "Zeitzonen ausblenden",
+      youLabel: "Du",
+      hostLabel: "Gastgeber",
+      addTimeZone: "Zeitzone hinzufügen",
+      removeTimeZone: "{{timezone}} entfernen",
+    },
+  },
+  "pt-BR": {
+    bookingLinks: {
+      overlayHostsLabel: "Do seu calendário",
+      overlayHostsPlaceholder:
+        "Selecione pessoas que você adicionou ao seu calendário",
+      overlayHostsEmpty: "Ninguém encontrado.",
+      noOverlayPeopleYet: "Você ainda não adicionou colegas ao seu calendário.",
+      addOverlayPersonCta: "Adicionar o calendário de um colega",
+      addOtherEmail: "Adicionar outro e-mail",
+      overlayHostsHint:
+        "Pessoas do seu calendário recebem agendamento que respeita o horário de trabalho delas. Outros e-mails são verificados apenas quanto a conflitos.",
+      showTimeZones: "Mostrar fusos horários",
+      hideTimeZones: "Ocultar fusos horários",
+      youLabel: "Você",
+      hostLabel: "Anfitrião",
+      addTimeZone: "Adicionar fuso horário",
+      removeTimeZone: "Remover {{timezone}}",
+    },
+  },
+  "zh-CN": {
+    bookingLinks: {
+      overlayHostsLabel: "来自你的日历",
+      overlayHostsPlaceholder: "选择你已添加到日历中的人",
+      overlayHostsEmpty: "未找到任何人。",
+      noOverlayPeopleYet: "你还没有向日历添加任何同事。",
+      addOverlayPersonCta: "添加同事的日历",
+      addOtherEmail: "添加其他邮箱",
+      overlayHostsHint:
+        "来自你日历的联系人会按照他们的工作时间安排日程。其他邮箱仅用于检查冲突。",
+      showTimeZones: "显示时区",
+      hideTimeZones: "隐藏时区",
+      youLabel: "你",
+      hostLabel: "主持人",
+      addTimeZone: "添加时区",
+      removeTimeZone: "移除 {{timezone}}",
+    },
+  },
+  "ja-JP": {
+    bookingLinks: {
+      overlayHostsLabel: "カレンダーから",
+      overlayHostsPlaceholder: "カレンダーに追加した人を選択",
+      overlayHostsEmpty: "見つかりませんでした。",
+      noOverlayPeopleYet: "まだカレンダーに同僚を追加していません。",
+      addOverlayPersonCta: "同僚のカレンダーを追加",
+      addOtherEmail: "別のメールアドレスを追加",
+      overlayHostsHint:
+        "カレンダーに登録された人には勤務時間を考慮したスケジュールが適用されます。それ以外のメールアドレスは競合の確認のみに使用されます。",
+      showTimeZones: "タイムゾーンを表示",
+      hideTimeZones: "タイムゾーンを非表示",
+      youLabel: "あなた",
+      hostLabel: "ホスト",
+      addTimeZone: "タイムゾーンを追加",
+      removeTimeZone: "{{timezone}} を削除",
+    },
+  },
+  "ko-KR": {
+    bookingLinks: {
+      overlayHostsLabel: "캘린더에서 가져오기",
+      overlayHostsPlaceholder: "캘린더에 추가한 사람을 선택하세요",
+      overlayHostsEmpty: "찾을 수 없습니다.",
+      noOverlayPeopleYet: "아직 캘린더에 동료를 추가하지 않았습니다.",
+      addOverlayPersonCta: "동료의 캘린더 추가",
+      addOtherEmail: "다른 이메일 추가",
+      overlayHostsHint:
+        "캘린더에 있는 사람은 근무 시간을 반영한 일정이 적용됩니다. 다른 이메일은 일정 충돌만 확인합니다.",
+      showTimeZones: "시간대 표시",
+      hideTimeZones: "시간대 숨기기",
+      youLabel: "나",
+      hostLabel: "호스트",
+      addTimeZone: "시간대 추가",
+      removeTimeZone: "{{timezone}} 제거",
+    },
+  },
+  "hi-IN": {
+    bookingLinks: {
+      overlayHostsLabel: "आपके कैलेंडर से",
+      overlayHostsPlaceholder: "उन लोगों को चुनें जिन्हें आपने अपने कैलेंडर में जोड़ा है",
+      overlayHostsEmpty: "कोई नहीं मिला।",
+      noOverlayPeopleYet: "आपने अभी तक अपने कैलेंडर में कोई सहकर्मी नहीं जोड़ा है।",
+      addOverlayPersonCta: "किसी सहकर्मी का कैलेंडर जोड़ें",
+      addOtherEmail: "एक और ईमेल जोड़ें",
+      overlayHostsHint:
+        "आपके कैलेंडर के लोगों के लिए scheduling उनके काम के घंटों को ध्यान में रखती है। अन्य ईमेल केवल conflicts के लिए जाँचे जाते हैं।",
+      showTimeZones: "समय क्षेत्र दिखाएं",
+      hideTimeZones: "समय क्षेत्र छिपाएं",
+      youLabel: "आप",
+      hostLabel: "होस्ट",
+      addTimeZone: "समय क्षेत्र जोड़ें",
+      removeTimeZone: "{{timezone}} हटाएं",
+    },
+  },
+  "ar-SA": {
+    bookingLinks: {
+      overlayHostsLabel: "من تقويمك",
+      overlayHostsPlaceholder: "اختر الأشخاص الذين أضفتهم إلى تقويمك",
+      overlayHostsEmpty: "لم يتم العثور على أحد.",
+      noOverlayPeopleYet: "لم تقم بإضافة أي زملاء إلى تقويمك بعد.",
+      addOverlayPersonCta: "إضافة تقويم زميل",
+      addOtherEmail: "إضافة بريد إلكتروني آخر",
+      overlayHostsHint:
+        "يحصل الأشخاص من تقويمك على جدولة تراعي ساعات عملهم. يتم التحقق من رسائل البريد الإلكتروني الأخرى بحثًا عن التعارضات فقط.",
+      showTimeZones: "إظهار المناطق الزمنية",
+      hideTimeZones: "إخفاء المناطق الزمنية",
+      youLabel: "أنت",
+      hostLabel: "المضيف",
+      addTimeZone: "إضافة منطقة زمنية",
+      removeTimeZone: "إزالة {{timezone}}",
+    },
+  },
+} satisfies Partial<Record<LocaleCode, PartialMessages>>;
+
 applyTranslatedCalendarOverrides(translatedCalendarExtras);
 applyTranslatedCalendarOverrides(translatedCalendarDebtTranslations);
 applyTranslatedCalendarOverrides(translatedCalendarInlineEditorLabels);
@@ -9978,4 +10165,5 @@ applyTranslatedCalendarOverrides(translatedCalendarRemainingRaw);
 applyTranslatedCalendarOverrides(translatedCalendarRawBurnDown);
 applyTranslatedCalendarOverrides(translatedCalendarExactCleanup);
 applyTranslatedCalendarOverrides(translatedCalendarAvailabilityFix);
+applyTranslatedCalendarOverrides(translatedBookingHostAvailability);
 applyTranslatedCalendarOverrides(translatedCalendarNotificationSettings);

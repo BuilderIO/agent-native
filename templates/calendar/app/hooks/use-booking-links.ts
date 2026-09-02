@@ -124,6 +124,14 @@ export function useUpdateBookingLink() {
       void queryClient.invalidateQueries({
         queryKey: LIST_KEY,
       });
+      // The editor's time-zone preview reads this same link through the
+      // public endpoint (to see peer enrichment as a visitor would). That
+      // query isn't part of LIST_KEY, so without this it keeps showing
+      // pre-save hosts/display names after editing co-hosts here, even
+      // though the preview's slots already reflect the new draft.
+      void queryClient.invalidateQueries({
+        queryKey: ["public-booking-link"],
+      });
     },
   });
 }

@@ -10,6 +10,7 @@ import {
   type QueryKey,
 } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
+import { useMemo } from "react";
 
 import { dateTimeInTimezoneToIso } from "@/lib/event-form-utils";
 import {
@@ -287,6 +288,56 @@ export function useEvents(
     gcTime: 30 * 60 * 1000,
     placeholderData: keepPreviousData,
   });
+}
+
+type OverlaySourceCoverage = {
+  source: "overlay";
+  id: string;
+  status: "ok" | "error";
+  error?: { code: string; message: string; retryable: boolean };
+};
+
+type OverlayStatusResult = {
+  sourceCoverage: Array<
+    OverlaySourceCoverage | { source: string; id: string; status: string }
+  >;
+};
+
+/**
+ * Per-person read status for the "Other Calendars" sidebar list. Uses the
+ * same list-events action in its inventory format (which already tracks
+ * per-overlay-email status) with `sources: ["overlays"]` and a single-day
+ * range so it stays cheap - it never reads the caller's own Google events,
+ * ICS feeds, or bookings.
+ */
+export function useOverlayCalendarStatus(overlayEmails: string[]) {
+  const today = new Date().toISOString().slice(0, 10);
+  const query = useActionQuery<OverlayStatusResult>(
+    "list-events",
+    {
+      from: today,
+      to: today,
+      sources: ["overlays"],
+      overlayEmails,
+      format: "inventory",
+    },
+    {
+      enabled: overlayEmails.length > 0,
+      retry: false,
+      staleTime: 5 * 60_000,
+    },
+  );
+  const statusByEmail = useMemo(() => {
+    const coverage = query.data?.sourceCoverage ?? [];
+    return new Map(
+      coverage
+        .filter(
+          (entry): entry is OverlaySourceCoverage => entry.source === "overlay",
+        )
+        .map((entry) => [entry.id.toLowerCase(), entry]),
+    );
+  }, [query.data]);
+  return statusByEmail;
 }
 
 /**

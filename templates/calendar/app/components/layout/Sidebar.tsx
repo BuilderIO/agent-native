@@ -24,6 +24,7 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconSearch,
+  IconAlertTriangle,
 } from "@tabler/icons-react";
 import {
   startOfMonth,
@@ -62,6 +63,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useOverlayCalendarStatus } from "@/hooks/use-events";
 import {
   useExternalCalendars,
   useRemoveExternalCalendar,
@@ -655,6 +657,11 @@ export function Sidebar({
   const overlayPeople = Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [];
   const removePerson = useRemoveOverlayPerson();
   const updatePersonColor = useUpdateOverlayPersonColor();
+  const overlayEmails = useMemo(
+    () => overlayPeople.map((person) => person.email),
+    [overlayPeople],
+  );
+  const overlayStatusByEmail = useOverlayCalendarStatus(overlayEmails);
   const { data: rawExternalCalendars } = useExternalCalendars();
   const externalCalendars = Array.isArray(rawExternalCalendars)
     ? rawExternalCalendars
@@ -988,6 +995,32 @@ export function Sidebar({
                               >
                                 {person.name || person.email}
                               </span>
+                              {overlayStatusByEmail?.get(
+                                person.email.toLowerCase(),
+                              )?.status === "error" && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span
+                                      tabIndex={0}
+                                      className="inline-flex shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                      aria-label={t(
+                                        "sidebar.overlayCalendarUnavailable",
+                                        { email: person.name || person.email },
+                                      )}
+                                    >
+                                      <IconAlertTriangle
+                                        className="h-3 w-3 text-muted-foreground/60"
+                                        aria-hidden="true"
+                                      />
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right">
+                                    {t("sidebar.overlayCalendarUnavailable", {
+                                      email: person.name || person.email,
+                                    })}
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
                               <div className="flex items-center">
                                 <Tooltip>
                                   <TooltipTrigger asChild>
