@@ -1212,6 +1212,9 @@ export default function Index() {
         const pdfReference = uploaded.find((file) =>
           file.originalName.toLowerCase().endsWith(".pdf"),
         );
+        const docxReference = uploaded.find((file) =>
+          file.originalName.toLowerCase().endsWith(".docx"),
+        );
         let importedReference: ImportedReference | null = null;
         let generationFiles = uploaded;
         if (pptxReference) {
@@ -1243,7 +1246,20 @@ export default function Index() {
             source: "pptx",
           };
           generationFiles = uploaded.filter((file) => file !== pptxReference);
-        } else if (pdfReference) {
+        } else if (pdfReference || docxReference) {
+          const documentReference = pdfReference ?? docxReference;
+          const documentFormat = pdfReference ? "pdf" : "docx";
+          const documentSaveError =
+            documentFormat === "pdf"
+              ? "The PDF reference deck could not be saved."
+              : "The DOCX reference deck could not be saved.";
+          const documentImportError =
+            documentFormat === "pdf"
+              ? "The PDF reference deck could not be imported."
+              : "The DOCX reference deck could not be imported.";
+          if (!documentReference) {
+            throw new Error(documentImportError);
+          }
           const referenceDeck = createDeck(undefined, {
             noDefaultSlides: true,
           });
@@ -1251,18 +1267,15 @@ export default function Index() {
           if (!persisted.persisted) {
             deleteDeck(referenceDeck.id);
             throw new Error(
-              describeDeckPersistenceFailure(
-                persisted,
-                "The PDF reference deck could not be saved.",
-              ),
+              describeDeckPersistenceFailure(persisted, documentSaveError),
             );
           }
           try {
             const imported = (await callAction(
               "import-file",
               {
-                filePath: pdfReference.path,
-                format: "pdf",
+                filePath: documentReference.path,
+                format: documentFormat,
                 deckId: referenceDeck.id,
                 importIntoDeck: true,
               },
@@ -1271,15 +1284,20 @@ export default function Index() {
               imported?: unknown;
               deckId?: unknown;
               pageCount?: unknown;
+              slideCount?: unknown;
               title?: unknown;
             };
+            const importedSlideCount =
+              documentFormat === "pdf"
+                ? imported.pageCount
+                : imported.slideCount;
             if (
               imported.imported !== true ||
               imported.deckId !== referenceDeck.id ||
-              typeof imported.pageCount !== "number" ||
-              imported.pageCount < 1
+              typeof importedSlideCount !== "number" ||
+              importedSlideCount < 1
             ) {
-              throw new Error("The PDF reference deck could not be imported.");
+              throw new Error(documentImportError);
             }
             importedReference = {
               id: referenceDeck.id,
@@ -1287,9 +1305,11 @@ export default function Index() {
                 typeof imported.title === "string" && imported.title
                   ? imported.title
                   : t("home.importedReferenceDeck"),
-              source: "pdf",
+              source: documentFormat,
             };
-            generationFiles = uploaded.filter((file) => file !== pdfReference);
+            generationFiles = uploaded.filter(
+              (file) => file !== documentReference,
+            );
           } catch (error) {
             deleteDeck(referenceDeck.id);
             throw error;

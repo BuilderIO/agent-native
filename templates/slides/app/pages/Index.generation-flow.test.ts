@@ -8,6 +8,13 @@ const source = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "Index.tsx"),
   "utf8",
 );
+const onboardingSource = readFileSync(
+  path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../components/onboarding/FirstDeckOnboardingFlow.tsx",
+  ),
+  "utf8",
+);
 const flow = source.slice(
   source.indexOf("const handleCreateDeckWithPrompt"),
   source.indexOf("const handlePromptSubmit"),
@@ -169,6 +176,9 @@ describe("new deck generation flow", () => {
     // Whitespace-tolerant: passing the extended import timeout wraps the call
     // across lines, and this asserts the call exists, not how it is formatted.
     expect(referenceImportFlow).toMatch(/callAction\(\s*"import-pptx"/);
+    expect(referenceImportFlow).toContain(
+      "timeoutMs: IMPORT_ACTION_TIMEOUT_MS",
+    );
     expect(referenceImportFlow).toContain("importedReference = {");
     expect(referenceImportFlow).toContain('source: "pptx"');
     expect(referenceImportFlow).toContain("setPendingDeck((current) =>");
@@ -183,16 +193,36 @@ describe("new deck generation flow", () => {
     );
 
     expect(referenceImportFlow).toMatch(/callAction\(\s*"import-file"/);
-    expect(referenceImportFlow).toContain('format: "pdf"');
+    expect(referenceImportFlow).toContain(
+      'const documentFormat = pdfReference ? "pdf" : "docx"',
+    );
     expect(referenceImportFlow).toContain("importIntoDeck: true");
     expect(referenceImportFlow).toContain("setSelectedReferenceDeckId");
-    expect(referenceImportFlow).toContain(
-      "generationFiles = uploaded.filter((file) => file !== pdfReference)",
+    expect(referenceImportFlow).toMatch(
+      /generationFiles = uploaded\.filter\(\s*\(file\) => file !== documentReference,/,
     );
     expect(referenceImportFlow).not.toContain("handleCreateDeckWithPrompt(");
     expect(referenceImportFlow).toContain(
       "The PDF reference deck could not be imported.",
     );
+  });
+
+  it("imports an uploaded DOCX into a reusable reference deck", () => {
+    const referenceImportFlow = source.slice(
+      source.indexOf("const handleReferenceImport"),
+      source.indexOf("const handleReferenceSkip"),
+    );
+
+    expect(referenceImportFlow).toContain("const docxReference =");
+    expect(referenceImportFlow).toContain("format: documentFormat");
+    expect(referenceImportFlow).toContain("slideCount?: unknown;");
+    expect(referenceImportFlow).toContain("source: documentFormat");
+    expect(referenceImportFlow).toContain(
+      "timeoutMs: IMPORT_ACTION_TIMEOUT_MS",
+    );
+    expect(onboardingSource).toContain("const docxReference =");
+    expect(onboardingSource).toContain("format: documentFormat");
+    expect(onboardingSource).toContain("source: documentFormat");
   });
 
   it("imports a pasted Google Slides URL before selecting the reference deck", () => {
