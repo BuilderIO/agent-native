@@ -445,15 +445,15 @@ const enUS = {
     },
     actions: {
       title: "One Action powers every surface",
-      bodyLine1: "Actions are the building blocks of an Agent-Native app.",
+      bodyLine1: "Actions define what your agent can do.",
       bodyLine2:
-        "Define functionality once, then use it from your UI, agent chat, HTTP API, MCP, A2A, or CLI.",
+        "Define each capability once, then use it from the agent, UI, HTTP API, MCP, A2A, or CLI.",
       diagramAlt:
         "One Action powers UI, MCP, Agent Chat, A2A, HTTP API, and CLI",
     },
     builtIn: {
-      title: "Built into every Agent-Native app",
-      body: "Everything users and AI agents need to work together, already wired into one application.",
+      title: "Everything your agent needs",
+      body: "UI, context, data, permissions, and infrastructure, already wired together.",
       pillars: {
         reactUi: {
           title: "React UI",
@@ -461,7 +461,7 @@ const enUS = {
         },
         agentChat: {
           title: "Embedded agent chat",
-          body: "Let users delegate work, ask questions, and review results without leaving the app.",
+          body: "Let users delegate work, ask questions, and review results in the same UI.",
         },
         sharedState: {
           title: "Shared application state",
@@ -477,11 +477,11 @@ const enUS = {
         },
         automations: {
           title: "Automations",
-          body: "Run agent work automatically on schedules or application events.",
+          body: "Run agent work automatically on schedules or events.",
         },
         agentTeams: {
           title: "Agent teams",
-          body: "Delegate work to specialist agents within the app or across apps.",
+          body: "Delegate work to specialist agents in the same workspace or across connected agents.",
         },
         auth: {
           title: "Authentication and organizations",
@@ -495,19 +495,19 @@ const enUS = {
     },
     stack: {
       title: "Works with your stack",
-      body: "Bring your LLM, database, tools, and infrastructure, Agent-Native is open source TypeScript, so your application stays yours.",
+      body: "Bring your LLM, database, tools, and infrastructure. Agent-Native is open-source TypeScript, so everything you build stays yours.",
       exploreApps: "Explore apps built with Agent-Native",
     },
     showcase: {
       title: "What can you build with Agent-Native?",
-      body: "Agentic apps that understand your work, take action, and collaborate with you. Build your own or try one of these open-source apps.",
+      body: "Build agents with UIs for meetings, design, presentations, data, and more. Start from one of these open-source apps or build your own.",
       browseApps: "Browse apps",
       scrollLeft: "Scroll apps left",
       scrollRight: "Scroll apps right",
     },
     bottomCta: {
-      title: "Build your first Agent-Native app",
-      body: "Create one application for users and AI agents. Bring your own LLM and deploy anywhere.",
+      title: "Build your first agent with a UI",
+      body: "The agent and UI share the same capabilities. Bring your own LLM and deploy anywhere.",
     },
     footer: {
       tagline: "The agentic application framework.",

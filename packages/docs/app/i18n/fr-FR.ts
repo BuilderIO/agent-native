@@ -447,15 +447,15 @@ const frFR = {
     },
     actions: {
       title: "Une action alimente chaque surface",
-      bodyLine1: "Les actions sont les briques de base d'une app Agent-Native.",
+      bodyLine1: "Les actions définissent ce que votre agent peut faire.",
       bodyLine2:
-        "Définissez une fonctionnalité une fois, puis utilisez-la depuis votre UI, le chat de l'agent, HTTP API, MCP, A2A ou CLI.",
+        "Définissez chaque capacité une fois, puis utilisez-la depuis l'agent, l'UI, HTTP API, MCP, A2A ou CLI.",
       diagramAlt:
         "Une action alimente l'UI, MCP, le chat de l'agent, A2A, HTTP API et CLI",
     },
     builtIn: {
-      title: "Intégré dans chaque app Agent-Native",
-      body: "Tout ce dont les utilisateurs et les agents IA ont besoin pour travailler ensemble, déjà intégré dans une seule application.",
+      title: "Tout ce dont votre agent a besoin",
+      body: "UI, contexte, données, autorisations et infrastructure, déjà connectés entre eux.",
       pillars: {
         reactUi: {
           title: "UI React",
@@ -463,7 +463,7 @@ const frFR = {
         },
         agentChat: {
           title: "Chat agent intégré",
-          body: "Laissez les utilisateurs déléguer du travail, poser des questions et revoir les résultats sans quitter l'app.",
+          body: "Laissez les utilisateurs déléguer du travail, poser des questions et revoir les résultats dans la même UI.",
         },
         sharedState: {
           title: "État d'application partagé",
@@ -479,11 +479,11 @@ const frFR = {
         },
         automations: {
           title: "Automatisations",
-          body: "Exécutez le travail de l'agent automatiquement selon des horaires ou des événements de l'application.",
+          body: "Exécutez le travail de l'agent automatiquement selon des horaires ou des événements.",
         },
         agentTeams: {
           title: "Équipes d'agents",
-          body: "Déléguez le travail à des agents spécialisés au sein de l'app ou entre apps.",
+          body: "Déléguez le travail à des agents spécialisés dans le même espace de travail ou entre agents connectés.",
         },
         auth: {
           title: "Authentification et organisations",
@@ -497,19 +497,19 @@ const frFR = {
     },
     stack: {
       title: "Fonctionne avec votre stack",
-      body: "Apportez votre LLM, base de données, outils et infrastructure ; Agent-Native est du TypeScript open source, donc votre application reste la vôtre.",
+      body: "Apportez votre LLM, base de données, outils et infrastructure. Agent-Native est du TypeScript open source, donc tout ce que vous construisez reste à vous.",
       exploreApps: "Explorer les apps créées avec Agent-Native",
     },
     showcase: {
       title: "Que pouvez-vous construire avec Agent-Native ?",
-      body: "Des apps agentiques qui comprennent votre travail, passent à l’action et collaborent avec vous. Créez la vôtre ou essayez l’une de ces apps open source.",
+      body: "Créez des agents avec des UI pour les réunions, le design, les présentations, les données et plus encore. Partez de l'une de ces apps open source ou créez la vôtre.",
       browseApps: "Parcourir les apps",
       scrollLeft: "Défiler les apps vers la gauche",
       scrollRight: "Défiler les apps vers la droite",
     },
     bottomCta: {
-      title: "Construisez votre première app Agent-Native",
-      body: "Créez une seule application pour les utilisateurs et les agents IA. Apportez votre propre LLM et déployez où vous voulez.",
+      title: "Créez votre premier agent avec une UI",
+      body: "L’agent et l’UI partagent les mêmes capacités. Apportez votre propre LLM et déployez où vous voulez.",
     },
     footer: {
       tagline: "Le framework des applications agentic.",
