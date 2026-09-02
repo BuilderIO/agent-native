@@ -144,7 +144,11 @@ import {
   type BookingAvailabilityPreview,
 } from "@/hooks/use-bookings";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
-import { useHostSchedulingStatus } from "@/hooks/use-host-scheduling-status";
+import {
+  useHostSchedulingStatus,
+  useRequestOverlayReciprocation,
+  type HostSchedulingStatus,
+} from "@/hooks/use-host-scheduling-status";
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { usePublicBookingLink } from "@/hooks/use-public-data";
 import { useSettings } from "@/hooks/use-settings";
@@ -576,15 +580,36 @@ function BookingHostsEditor({
     () => hostEmailsKey.split(",").filter(Boolean),
     [hostEmailsKey],
   );
-  const { data: schedulingStatuses } = useHostSchedulingStatus(
-    hostEmailsForStatus,
-  );
+  const { data: schedulingStatuses } =
+    useHostSchedulingStatus(hostEmailsForStatus);
   const schedulingStatusByEmail = new Map(
     (schedulingStatuses ?? []).map((entry) => [
       entry.email.toLowerCase(),
       entry.status,
     ]),
   );
+  const requestReciprocation = useRequestOverlayReciprocation();
+
+  function sendOverlayRequest(host: BookingHost) {
+    const name = host.displayName || host.email;
+    requestReciprocation.mutate(
+      { peerEmail: host.email },
+      {
+        onSuccess: (result) => {
+          if (result.sent) {
+            toast.success(t("bookingLinks.overlayAccessRequestSent", { name }));
+          } else {
+            toast.info(
+              t("bookingLinks.overlayAccessRequestCooldown", { name }),
+            );
+          }
+        },
+        onError: () => {
+          toast.error(t("bookingLinks.overlayAccessRequestFailed", { name }));
+        },
+      },
+    );
+  }
 
   function addHost(email: string, displayName?: string) {
     const normalized = normalizeHostEmail(email);
@@ -658,6 +683,7 @@ function BookingHostsEditor({
     icon: typeof IconCircleCheck;
     className: string;
     label: string;
+    status: HostSchedulingStatus;
   } | null {
     const normalized = normalizeHostEmail(host.email);
     const status = normalized
@@ -669,6 +695,7 @@ function BookingHostsEditor({
         icon: IconCircleCheck,
         className: "text-emerald-500",
         label: t("bookingLinks.hostStatusActive", { name }),
+        status,
       };
     }
     if (status === "awaiting-reciprocal-overlay") {
@@ -676,6 +703,7 @@ function BookingHostsEditor({
         icon: IconAlertTriangle,
         className: "text-amber-500",
         label: t("bookingLinks.hostStatusAwaitingReciprocal", { name }),
+        status,
       };
     }
     if (status === "missing-schedule") {
@@ -683,6 +711,7 @@ function BookingHostsEditor({
         icon: IconAlertTriangle,
         className: "text-amber-500",
         label: t("bookingLinks.hostStatusMissingSchedule", { name }),
+        status,
       };
     }
     return null;
@@ -713,7 +742,17 @@ function BookingHostsEditor({
               />
             </TooltipTrigger>
             <TooltipContent className="max-w-64">
-              {statusHint.label}
+              <p>{statusHint.label}</p>
+              {statusHint.status === "awaiting-reciprocal-overlay" && (
+                <button
+                  type="button"
+                  onClick={() => sendOverlayRequest(host)}
+                  disabled={requestReciprocation.isPending}
+                  className="mt-1.5 font-medium text-primary underline-offset-2 hover:underline disabled:opacity-60"
+                >
+                  {t("bookingLinks.requestOverlayAccess")}
+                </button>
+              )}
             </TooltipContent>
           </Tooltip>
         )}

@@ -590,6 +590,10 @@ const messages = {
       "{{name}} 尚未將你新增回他們的行事曆，因此僅會檢查空閒/忙碌狀態，而非其工作時間。",
     hostStatusMissingSchedule:
       "{{name}} 尚未儲存工作時間，因此僅會檢查空閒/忙碌狀態。",
+    requestOverlayAccess: "傳送請求",
+    overlayAccessRequestSent: "已傳送請求給 {{name}}",
+    overlayAccessRequestCooldown: "最近已經請求過 {{name}}，請明天再試一次",
+    overlayAccessRequestFailed: "無法傳送請求給 {{name}}",
     showTimeZones: "顯示時區",
     hideTimeZones: "隱藏時區",
     youLabel: "你",

@@ -95,6 +95,15 @@ zone (never their raw schedule) so the booker can reveal a "Show time zones"
 grid comparing every host's local time for the same slots, in addition to
 their own browser time zone shown by default.
 
+An owner whose overlaid host hasn't reciprocated yet can nudge them: the
+"awaiting-reciprocal-overlay" status tooltip in `BookingHostsEditor` offers a
+"Send request" action wired to the `request-overlay-reciprocation` action
+(`server/lib/overlay-nudge.ts`). It emails the peer asking them to add the
+owner back to their own overlay, never mutates the owner's overlay list
+itself, and is rate-limited to one email per (owner, peer) pair every 24
+hours via a `calendar-overlay-nudges` setting on the owner. This only reduces
+friction toward satisfying the two-way check above — it does not weaken it.
+
 Management sharing is separate from public booking access:
 
 - Use framework sharing actions / the share dialog to grant management access to

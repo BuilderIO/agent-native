@@ -630,6 +630,11 @@ const enUS = {
       "{{name}} hasn't added you back to their calendar yet, so only their free/busy is checked, not their working hours.",
     hostStatusMissingSchedule:
       "{{name}} hasn't saved working hours yet, so only their free/busy is checked.",
+    requestOverlayAccess: "Send request",
+    overlayAccessRequestSent: "Request sent to {{name}}",
+    overlayAccessRequestCooldown:
+      "Already asked {{name}} recently — try again tomorrow",
+    overlayAccessRequestFailed: "Couldn't send the request to {{name}}",
     showTimeZones: "Show time zones",
     hideTimeZones: "Hide time zones",
     youLabel: "You",
@@ -10262,3 +10267,91 @@ const translatedHostSchedulingStatus = {
 } satisfies Partial<Record<LocaleCode, PartialMessages>>;
 
 applyTranslatedCalendarOverrides(translatedHostSchedulingStatus);
+
+const translatedOverlayNudge = {
+  "es-ES": {
+    bookingLinks: {
+      requestOverlayAccess: "Enviar solicitud",
+      overlayAccessRequestSent: "Solicitud enviada a {{name}}",
+      overlayAccessRequestCooldown:
+        "Ya le has preguntado a {{name}} hace poco — inténtalo de nuevo mañana",
+      overlayAccessRequestFailed: "No se pudo enviar la solicitud a {{name}}",
+    },
+  },
+  "fr-FR": {
+    bookingLinks: {
+      requestOverlayAccess: "Envoyer une demande",
+      overlayAccessRequestSent: "Demande envoyée à {{name}}",
+      overlayAccessRequestCooldown:
+        "Vous avez déjà demandé à {{name}} récemment — réessayez demain",
+      overlayAccessRequestFailed: "Impossible d'envoyer la demande à {{name}}",
+    },
+  },
+  "de-DE": {
+    bookingLinks: {
+      requestOverlayAccess: "Anfrage senden",
+      overlayAccessRequestSent: "Anfrage an {{name}} gesendet",
+      overlayAccessRequestCooldown:
+        "{{name}} wurde bereits vor Kurzem gefragt — versuche es morgen erneut",
+      overlayAccessRequestFailed:
+        "Anfrage an {{name}} konnte nicht gesendet werden",
+    },
+  },
+  "pt-BR": {
+    bookingLinks: {
+      requestOverlayAccess: "Enviar solicitação",
+      overlayAccessRequestSent: "Solicitação enviada para {{name}}",
+      overlayAccessRequestCooldown:
+        "Você já pediu a {{name}} recentemente — tente novamente amanhã",
+      overlayAccessRequestFailed:
+        "Não foi possível enviar a solicitação para {{name}}",
+    },
+  },
+  "zh-CN": {
+    bookingLinks: {
+      requestOverlayAccess: "发送请求",
+      overlayAccessRequestSent: "已向 {{name}} 发送请求",
+      overlayAccessRequestCooldown: "最近已经请求过 {{name}}，请明天再试",
+      overlayAccessRequestFailed: "无法向 {{name}} 发送请求",
+    },
+  },
+  "ja-JP": {
+    bookingLinks: {
+      requestOverlayAccess: "リクエストを送信",
+      overlayAccessRequestSent: "{{name}} にリクエストを送信しました",
+      overlayAccessRequestCooldown:
+        "最近すでに {{name}} にリクエストを送信しました。明日もう一度お試しください",
+      overlayAccessRequestFailed:
+        "{{name}} へのリクエストを送信できませんでした",
+    },
+  },
+  "ko-KR": {
+    bookingLinks: {
+      requestOverlayAccess: "요청 보내기",
+      overlayAccessRequestSent: "{{name}}님에게 요청을 보냈습니다",
+      overlayAccessRequestCooldown:
+        "최근에 이미 {{name}}님에게 요청했습니다. 내일 다시 시도해 주세요",
+      overlayAccessRequestFailed: "{{name}}님에게 요청을 보낼 수 없습니다",
+    },
+  },
+  "hi-IN": {
+    bookingLinks: {
+      requestOverlayAccess: "अनुरोध भेजें",
+      overlayAccessRequestSent: "{{name}} को अनुरोध भेजा गया",
+      overlayAccessRequestCooldown:
+        "हाल ही में {{name}} से पहले ही पूछा जा चुका है — कल फिर से प्रयास करें",
+      overlayAccessRequestFailed: "{{name}} को अनुरोध नहीं भेजा जा सका",
+    },
+  },
+  "ar-SA": {
+    bookingLinks: {
+      requestOverlayAccess: "إرسال طلب",
+      overlayAccessRequestSent: "تم إرسال الطلب إلى {{name}}",
+      overlayAccessRequestCooldown:
+        "لقد طلبت من {{name}} بالفعل مؤخرًا — حاول مرة أخرى غدًا",
+      overlayAccessRequestFailed: "تعذر إرسال الطلب إلى {{name}}",
+    },
+  },
+} satisfies Partial<Record<LocaleCode, PartialMessages>>;
+
+applyTranslatedCalendarOverrides(translatedOverlayNudge);

@@ -14,6 +14,7 @@ import {
   renderBookingReceivedEmail,
 } from "./booking-emails.js";
 import { renderEventGuestNote } from "./event-guest-notifications.js";
+import { renderOverlayAccessRequestEmail } from "./overlay-nudge.js";
 
 /** Obviously-fake sample data — these render in a preview pane, never send. */
 const SAMPLE_TITLE = "Intro call";
@@ -33,6 +34,8 @@ export const CALENDAR_BOOKING_CANCELLED_HOST_EMAIL_ID =
 export const CALENDAR_EVENT_UPDATE_NOTE_EMAIL_ID = "calendar.event-update-note";
 export const CALENDAR_EVENT_CANCELLATION_NOTE_EMAIL_ID =
   "calendar.event-cancellation-note";
+export const CALENDAR_OVERLAY_ACCESS_REQUEST_EMAIL_ID =
+  "calendar.overlay-access-request";
 
 let registered = false;
 
@@ -163,6 +166,22 @@ export function registerCalendarEmails(): void {
         when: SAMPLE_WHEN,
         kind: "cancellation",
         appliesTo: "all events in the series",
+      }),
+  });
+
+  defineTransactionalEmail({
+    id: CALENDAR_OVERLAY_ACCESS_REQUEST_EMAIL_ID,
+    name: "Overlay access request",
+    trigger:
+      "The owner clicks 'Send request' next to a booking-link host who hasn't reciprocally added them to their own calendar overlay, subject to a 24-hour cooldown per (owner, peer) pair.",
+    recipientLabel: "Overlaid peer",
+    recipient: "The email address the owner added to their calendar overlay.",
+    senderLabel: "Default, reply-to owner",
+    sender: "The configured EMAIL_FROM, with reply-to set to the owner.",
+    preview: () =>
+      renderOverlayAccessRequestEmail({
+        ownerEmail: SAMPLE_HOST,
+        calendarUrl: "https://example.com/calendar",
       }),
   });
 }
