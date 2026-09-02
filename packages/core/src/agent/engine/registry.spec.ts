@@ -2694,6 +2694,59 @@ describe("AgentEngine registry", () => {
       expect(batched).toBeDefined();
     });
 
+    it("does not read provider secrets when Builder already resolves", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
+        if (key === "BUILDER_PRIVATE_KEY") return { key, value: "p-key" };
+        if (key === "BUILDER_PUBLIC_KEY") return { key, value: "space" };
+        return null;
+      });
+      const readAppSecrets = vi.fn(readAppSecretsFromSingles(readAppSecret));
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret,
+        readAppSecrets,
+      }));
+
+      const { registerAgentEngine, detectEngineFromUserSecrets } =
+        await import("./registry.js");
+
+      registerAgentEngine({
+        name: "builder",
+        label: "Builder",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        create: vi.fn() as any,
+      });
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: vi.fn() as any,
+      });
+
+      const detected = await detectEngineFromUserSecrets();
+
+      // Builder resolves from the first registry entry without touching a
+      // provider key, so the batched prefetch must not run ahead of it and put
+      // extra scope reads on this continuously polled path.
+      expect(detected?.name).toBe("builder");
+      const providerRead = readAppSecrets.mock.calls.find(([args]: any) =>
+        args.keys.includes("OPENAI_API_KEY"),
+      );
+      expect(providerRead).toBeUndefined();
+    });
+
     it("resolveEngine still honors a stored BYOK provider when Builder is not connected", async () => {
       vi.doMock("../../settings/store.js", () => ({
         getSetting: vi.fn().mockResolvedValue({
