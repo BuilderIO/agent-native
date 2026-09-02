@@ -124,7 +124,10 @@ describe("runtime diagnostics", () => {
     vi.stubEnv("DATABASE_URL", "");
     vi.stubEnv("DATABASE_URL_UNPOOLED", "");
     vi.stubEnv("NETLIFY_DATABASE_URL", "");
-    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv(
+      "NETLIFY_DATABASE_URL_UNPOOLED",
+      "postgres://netlify-direct.example/db",
+    );
     mockGetAppConfig.mockReturnValue({
       runtime: { databaseUrlUnpooled: "postgres://configured.example/db" },
     });
@@ -132,6 +135,9 @@ describe("runtime diagnostics", () => {
     mockIsLocalDatabase.mockReturnValue(false);
 
     expect(getEffectiveDatabaseEnvStatus("DATABASE_URL_UNPOOLED")).toBe(true);
+    expect(getEffectiveDatabaseEnvStatus("NETLIFY_DATABASE_URL_UNPOOLED")).toBe(
+      false,
+    );
     expect(getEffectiveDatabaseEnvStatus("DATABASE_URL")).toBe(false);
   });
 

@@ -138,13 +138,20 @@ function databaseUrlSource(): string {
   if (appName && envValue(`${appName}_DATABASE_URL`)) {
     return `${appName}_DATABASE_URL`;
   }
+  const configuredUnpooled = getAppConfig().runtime.databaseUrlUnpooled;
+  if (configuredUnpooled) {
+    if (envValue("NETLIFY_DATABASE_URL_UNPOOLED") === configuredUnpooled) {
+      return "NETLIFY_DATABASE_URL_UNPOOLED";
+    }
+    if (envValue("DATABASE_URL_UNPOOLED") === configuredUnpooled) {
+      return "DATABASE_URL_UNPOOLED";
+    }
+    return "DATABASE_URL_UNPOOLED";
+  }
   if (envValue("NETLIFY_DATABASE_URL_UNPOOLED")) {
     return "NETLIFY_DATABASE_URL_UNPOOLED";
   }
   if (envValue("DATABASE_URL_UNPOOLED")) return "DATABASE_URL_UNPOOLED";
-  if (getAppConfig().runtime.databaseUrlUnpooled) {
-    return "DATABASE_URL_UNPOOLED";
-  }
   if (envValue("DATABASE_URL")) return "DATABASE_URL";
   if (envValue("NETLIFY_DATABASE_URL")) return "NETLIFY_DATABASE_URL";
   return "default";
