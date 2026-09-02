@@ -14,10 +14,11 @@ metadata:
 
 # Review Latest Feedback
 
-Four phases, in order. Phase 0 is not optional and is not last.
+Four phases, in order. Phase 0 comes before any investigation, not after.
 
-0. **Answer the people who answered you.** Older open questions first.
-1. **Scan and classify** the bounded window, newest to oldest.
+0. **Claim** every item you intend to tackle with `👀`, before investigating
+   any of it.
+1. **Answer the people who answered you.** Older open questions first.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply**, under a hard question budget, then recap.
 
@@ -25,7 +26,38 @@ The sweep's output is fixes. Slack replies are a side effect of having
 something worth saying, never the unit of work. A run that fixes two bugs and
 posts three messages beats a run that posts thirty.
 
-## Phase 0: answer the people who answered you
+## Phase 0: claim what you are taking
+
+Other agents and people work this channel at the same time. An unclaimed
+report is one somebody else is about to start investigating, so the eye is a
+lock, not a bookmark — and a lock is worthless if you take it after the work.
+
+Scan the window newest to oldest and classify from **parent-level evidence
+only**: the message text, its attachments, and its existing reactions. That is
+enough to tell a clear bug from a preference, and it is cheap. Do not open
+full threads, read code, or investigate yet.
+
+Then add `👀` from the invoking identity to every item you intend to tackle,
+and read the reactions back. Do this in one pass, before Phase 1 and before
+any deep read. A run that identifies seven actionable reports and claims one
+of them has left six for a peer to duplicate.
+
+Claim generously and correct cheaply. If a deeper read later shows an item is
+out of scope or already owned, remove the eye — an eye you retract costs
+nothing, while an hour of duplicated investigation costs two agents. If the
+reaction write or read-back fails, record that item as unavailable and stop
+working it; never proceed on an unverified claim.
+
+**The eye means "I have this," not "I owe you a message."** It is a claim and
+an investigation marker with no reply obligation — that coupling is what
+produced 23 questions in a single hour. Items still get a recap row whether or
+not they get a Slack reply.
+
+Do not claim what you will not work: no preferences, product ideas, copy or
+layout suggestions, praise, status updates, merge or review requests, bot
+forwards, or duplicates. The classification rules are below.
+
+## Phase 1: answer the people who answered you
 
 Every question you ask creates an obligation to come back for the answer.
 Discharge it before reading anything new.
@@ -50,7 +82,21 @@ Read each matching parent and reaction. An eye-only clear bug or authorized
 upvoted improvement is durable work even when it has no reply; keep it in the
 worklist until it has a terminal disposition.
 
-For each hit, read its full thread and identify the latest disposition from
+For each hit, read its full thread. The test for "answered" is mechanical:
+**is the last message in the thread from someone other than you?** If yes,
+someone replied to your question and that thread is answered. Do not judge
+this from the search snippet, from the reaction, or from whether the reply
+looks complete — open the thread and look at who wrote last.
+
+Enumerate the full answered set **before** starting any other work, and write
+the count into the recap's `Answered since last run` field. Running the search
+is not the same as working its results: a run that searches, finds eight
+answered threads, and then spends itself on newer reports has skipped the
+phase entirely while appearing to satisfy it. If the count is greater than
+zero and none of those threads appear in your dispositions, the run is not
+finished.
+
+Then identify the latest disposition from
 this workflow or its companion. Keep every unanswered **Clarification needed**
 question in the pending-question set until it is answered, explicitly
 resolved, or aged out at four days. **Fixed**, **Shipped**, and **In progress**
@@ -67,11 +113,16 @@ Never add a thread whose latest reply is **Fixed**, **Shipped**, or **In progres
 to the pending-question set. If an older thread was recorded **Open - no
 reply** despite an unanswered clarification, restore it to the pending set.
 
-- **Someone answered** → that is now the highest-priority item in the run.
-  Rebuild the evidence and attempt the fix. Use a **Fixed** reply only after
-  all four verification bars pass; otherwise keep the clarification open or
-  ask one remaining specific question. Do not ask a follow-up before trying
-  the fix.
+- **Someone answered** → that is now the highest-priority item in the run,
+  ahead of every newer report. They spent effort answering you; the evidence
+  you said you were blocked on now exists. Rebuild it and attempt the fix. Use
+  a **Fixed** reply only after all four verification bars pass; otherwise keep
+  the clarification open or ask one remaining specific question. Do not ask a
+  follow-up before trying the fix.
+  If the answer says the issue is already resolved, fixed elsewhere, or not
+  ours — a linked PR, "this is fixed now", "not a Clips issue" — that is also
+  an answer. Close the thread with the matching terminal disposition instead
+  of leaving it open; it costs one recap row and no Slack message.
 - **No answer, posted under 4 days ago** → leave it. Post nothing. A second
   message is a nag, not a follow-up.
 - **No answer, posted over 4 days ago** → the question failed. Drop it
@@ -129,7 +180,11 @@ also the only signal a reporter has that they are talking to a bot, so a reply
 that ships without it is both undiscoverable here and a small lie in the
 channel. Never omit it.
 
-## Phase 1: scan and classify
+## Classification rules
+
+Phase 0 applies these from parent-level evidence to decide what to claim.
+Phase 2 re-applies them once the full thread is read, and retracts an eye that
+no longer holds.
 
 Use the workspace's product feedback channel; here that is
 `#product-agent-native-feedback` (`C0ATH3CCZT4`) unless the invocation names
@@ -189,12 +244,8 @@ bug, using **Shipped** or **Open - no reply** as its terminal disposition.
 This is the required eye-reaction procedure for upvoted improvements, not an
 optional reminder.
 
-Add `👀` from the invoking identity to each clear bug or upvoted improvement as
-it enters scope, and read the reaction back. **The eye means "I have this," not
-"I owe you a message."** It is an
-investigation marker with no reply obligation - that coupling is what produced
-23 questions in a single hour. If an earlier run eyed something out of scope,
-remove the reaction; do not post a compensating message.
+Phase 0 already claimed these with `👀`. If an earlier run eyed something out
+of scope, remove the reaction; do not post a compensating message.
 
 Run an unbounded reaction search across identities as well:
 
