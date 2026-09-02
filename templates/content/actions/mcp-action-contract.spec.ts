@@ -9,6 +9,7 @@ import deleteContentDatabase from "./delete-content-database.js";
 import describeContentDatabase from "./describe-content-database.js";
 import editDocument from "./edit-document.js";
 import getContentDatabase from "./get-content-database.js";
+import { resolveContentDatabaseReadLimit } from "./get-content-database.js";
 import getDocument from "./get-document.js";
 import listComments from "./list-comments.js";
 import listContentDatabases from "./list-content-databases.js";
@@ -122,6 +123,15 @@ describe("Content action-owned agent catalogs", () => {
     expect(upsertDatabaseItemByKey.tool.description).toContain(
       "expectedRowRevision null only to assert the key is absent",
     );
+  });
+
+  it("bounds agent reads without truncating the unpaginated frontend", () => {
+    expect(resolveContentDatabaseReadLimit(undefined, "mcp")).toBe(100);
+    expect(resolveContentDatabaseReadLimit(undefined, "tool")).toBe(100);
+    expect(resolveContentDatabaseReadLimit(undefined, "frontend")).toBe(
+      undefined,
+    );
+    expect(resolveContentDatabaseReadLimit(25, "frontend")).toBe(25);
   });
 
   it("keeps the existing Content starter surface action-owned", () => {
