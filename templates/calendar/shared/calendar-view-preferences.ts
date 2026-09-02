@@ -29,6 +29,8 @@ export interface CalendarViewPreferences {
   accountColorModes: Record<CalendarColorSourceKey, CalendarColorMode>;
   /** Per-account fixed color, used when that account's mode is "single" */
   accountColors: Record<CalendarColorSourceKey, string>;
+  /** Agent-Native visibility overrides for Google calendar sources. */
+  googleCalendarVisibility: Record<string, boolean>;
 }
 
 export const DEFAULT_CALENDAR_VIEW_PREFERENCES: CalendarViewPreferences = {
@@ -37,6 +39,7 @@ export const DEFAULT_CALENDAR_VIEW_PREFERENCES: CalendarViewPreferences = {
   singleColor: CALENDAR_COLORS[0],
   accountColorModes: {},
   accountColors: {},
+  googleCalendarVisibility: {},
 };
 
 export function isValidCalendarColorMode(
@@ -71,6 +74,15 @@ function normalizeColorRecord(
   return out;
 }
 
+function normalizeBooleanRecord(input: unknown): Record<string, boolean> {
+  const out: Record<string, boolean> = {};
+  if (!input || typeof input !== "object") return out;
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (typeof value === "boolean") out[key] = value;
+  }
+  return out;
+}
+
 /**
  * Returns a stable default color for an account that hasn't picked one yet,
  * cycling through the shared palette by the account's position in `keys` so
@@ -91,6 +103,7 @@ export function normalizeCalendarViewPreferences(
     ...DEFAULT_CALENDAR_VIEW_PREFERENCES,
     accountColorModes: {},
     accountColors: {},
+    googleCalendarVisibility: {},
   };
   if (!input || typeof input !== "object") return next;
 
@@ -105,6 +118,9 @@ export function normalizeCalendarViewPreferences(
   }
   next.accountColorModes = normalizeColorModeRecord(input.accountColorModes);
   next.accountColors = normalizeColorRecord(input.accountColors);
+  next.googleCalendarVisibility = normalizeBooleanRecord(
+    input.googleCalendarVisibility,
+  );
   return next;
 }
 
@@ -117,8 +133,19 @@ export function calendarViewPreferencesEqual(
     a.colorMode === b.colorMode &&
     a.singleColor === b.singleColor &&
     recordsEqual(a.accountColorModes, b.accountColorModes) &&
-    recordsEqual(a.accountColors, b.accountColors)
+    recordsEqual(a.accountColors, b.accountColors) &&
+    booleanRecordsEqual(a.googleCalendarVisibility, b.googleCalendarVisibility)
   );
+}
+
+function booleanRecordsEqual(
+  a: Record<string, boolean>,
+  b: Record<string, boolean>,
+): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  return aKeys.every((key) => a[key] === b[key]);
 }
 
 function recordsEqual(

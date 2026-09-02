@@ -380,9 +380,10 @@ function WorkspaceAppOpenActions({
       name={app.name}
       href={href}
       showNewTabOption
-      onOpen={() =>
-        openDirectly ? navigateToWorkspaceApp(href) : navigate(appRoute)
-      }
+      onOpen={() => {
+        if (!openDirectly || navigateToWorkspaceApp(href)) return;
+        void navigate(appRoute);
+      }}
       menuItems={
         onTogglePinned
           ? [
