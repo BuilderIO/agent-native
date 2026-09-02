@@ -119,11 +119,11 @@ describe("MCP integration catalog", () => {
       availability: "provider-setup",
       verification: "restricted",
       supportsOrganizationScope: true,
+      docsUrl: "https://docs.getdbt.com/docs/dbt-cloud-apis/mcp-server",
       setupNoteKey: "mcpIntegrations.catalog.dbt.setupNote",
       headerPlaceholder:
         "Authorization: Token <DBT_SERVICE_TOKEN>\nx-dbt-prod-environment-id: <DBT_PROD_ENVIRONMENT_ID>",
     });
-    expect(dbt.docsUrl).toBeUndefined();
     expect(createMcpIntegrationFormDefaults(dbt)).toEqual({
       name: "dbt",
       url: "https://<dbt-host>/api/ai/v1/mcp/",
