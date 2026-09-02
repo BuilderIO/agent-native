@@ -1759,6 +1759,51 @@ describe("AgentEngine registry", () => {
       );
     });
 
+    it("batch-loads candidate provider keys once per scope before the per-engine sweep", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => ({}),
+        getRequestUserEmail: () => "dana@example.com",
+        getRequestOrgId: () => "dana_org",
+      }));
+      const readAppSecret = vi.fn(async () => null);
+      const readAppSecrets = vi.fn(readAppSecretsFromSingles(readAppSecret));
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret,
+        readAppSecrets,
+      }));
+
+      const { registerAgentEngine, detectEngineFromUserSecrets } =
+        await import("./registry.js");
+      registerAgentEngine({
+        name: "anthropic",
+        label: "Anthropic",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: vi.fn() as any,
+      });
+
+      expect(await detectEngineFromUserSecrets()).toBeNull();
+      // One batched read per identity scope carries the whole candidate key
+      // set, instead of a point read per (key, scope).
+      expect(readAppSecrets).toHaveBeenCalledWith(
+        expect.objectContaining({
+          keys: ["ANTHROPIC_API_KEY"],
+          scope: "user",
+          scopeId: "dana@example.com",
+        }),
+      );
+      expect(readAppSecrets).toHaveBeenCalledWith(
+        expect.objectContaining({
+          keys: ["ANTHROPIC_API_KEY"],
+          scope: "org",
+          scopeId: "dana_org",
+        }),
+      );
+    });
+
     it("picks the Builder engine when the user has Builder keys in app_secrets", async () => {
       vi.doMock("../../server/request-context.js", () => ({
         getRequestContext: () => undefined,
@@ -2710,9 +2755,20 @@ describe("AgentEngine registry", () => {
         readAppSecret,
         readAppSecrets,
       }));
+      vi.stubEnv("AGENT_ENGINE_PREFER_BYO_KEY", undefined);
 
-      const { registerAgentEngine, detectEngineFromUserSecrets } =
-        await import("./registry.js");
+      const {
+        registerAgentEngine,
+        unregisterAgentEngine,
+        listAgentEngines,
+        detectEngineFromUserSecrets,
+      } = await import("./registry.js");
+
+      // A reused Vitest worker can retain registered engines from another
+      // package suite; this test is specifically about Builder's priority.
+      for (const entry of listAgentEngines()) {
+        unregisterAgentEngine(entry.name);
+      }
 
       registerAgentEngine({
         name: "builder",

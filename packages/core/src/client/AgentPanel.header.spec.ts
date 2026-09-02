@@ -20,6 +20,7 @@ import {
   resolveAgentPanelChatSurface,
   shouldDefaultAgentChatSurfacePageNewChatButton,
   shouldHandleAgentSidebarToggle,
+  shouldHandleAgentPanelChatShortcut,
   shouldShowAgentPanelFullViewAction,
   shouldShowAgentPanelPageNewChatButton,
   shouldShowAgentPanelChatTabBar,
@@ -420,6 +421,19 @@ describe("AgentPanel shortcut hints", () => {
       widenChat: "^⇧\\",
     });
   });
+
+  it("does not capture chat focus inside editable controls", () => {
+    const input = document.createElement("input");
+    const editor = document.createElement("div");
+    editor.contentEditable = "true";
+    const nested = document.createElement("span");
+    editor.appendChild(nested);
+
+    expect(shouldHandleAgentPanelChatShortcut(input)).toBe(false);
+    expect(shouldHandleAgentPanelChatShortcut(editor)).toBe(false);
+    expect(shouldHandleAgentPanelChatShortcut(nested)).toBe(false);
+    expect(shouldHandleAgentPanelChatShortcut(document.body)).toBe(true);
+  });
 });
 
 describe("AgentSidebar toggle routing", () => {
@@ -546,6 +560,20 @@ describe("AgentPanel header overflow actions", () => {
     expect(source).toContain(
       ".agent-sidebar-panel[data-agent-sidebar-per-app-chat='true'] .agent-sidebar-chat-header[data-agent-sidebar-chat-header]{opacity:1;pointer-events:auto;transition:none;}",
     );
+  });
+
+  it("keeps host CLI tabs mounted while chat is active", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain('(mode === "cli" || Boolean(renderCliTab))');
+    expect(source).toContain('active: mode === "cli" && id === activeCliTab');
+    expect(source).toContain("const [mountedCliTabs, setMountedCliTabs]");
+    expect(source).toContain(
+      "cliTabs.filter((id) => mountedCliTabs.includes(id))",
+    );
+    expect(source).toContain("previousDefaultModeRef.current === defaultMode");
   });
 });
 

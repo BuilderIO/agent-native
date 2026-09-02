@@ -9,7 +9,10 @@ import {
   renderNetlifyHeaders,
   writeNetlifyHeaders,
 } from "../lib/netlify-headers";
-import { applyDocsSsrCacheKeyHeaders } from "../lib/ssr-cache";
+import {
+  applyCommunityAppSsrCacheHeaders,
+  applyDocsSsrCacheKeyHeaders,
+} from "../lib/ssr-cache";
 
 const docsNetlifyConfig = readFileSync(
   new URL("../netlify.toml", import.meta.url),
@@ -36,6 +39,16 @@ describe("Docs SSR cache key wrapper", () => {
     applyDocsSsrCacheKeyHeaders(headers);
 
     expect(headers.get("netlify-vary")).toBe("query=_routes|index");
+  });
+
+  it("shortens only mutable community app routes", () => {
+    const communityHeaders = new Headers();
+    applyCommunityAppSsrCacheHeaders(communityHeaders, "/es-es/apps/");
+    expect(communityHeaders.get("cache-control")).toContain("max-age=30");
+
+    const staticHeaders = new Headers();
+    applyCommunityAppSsrCacheHeaders(staticHeaders, "/docs/getting-started/");
+    expect(staticHeaders.get("cache-control")).toBeNull();
   });
 
   it("keeps prerendered public pages on core's default SWR cache policy", () => {

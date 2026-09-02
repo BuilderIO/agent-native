@@ -109,6 +109,7 @@ describe("resolveBuilderApiAuthorization", () => {
     getBuilderOAuthSessionMock.mockResolvedValue({
       accessToken: "<OAUTH_TOKEN_EXAMPLE>",
       scopes: ["builder:ai:invoke"],
+      scope: "user",
     });
     resolveBuilderCredentialMock.mockResolvedValue("bpk-legacy");
 
@@ -225,6 +226,7 @@ describe("resolveBuilderRequestAuthorization", () => {
       token: "publish-oauth-token",
       authorization: "Bearer publish-oauth-token",
       source: "oauth",
+      oauthScope: "org",
     });
     expect(hasBuilderOAuthSessionMock).not.toHaveBeenCalled();
     expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
@@ -357,6 +359,7 @@ describe("resolveBuilderRequestAuthorization", () => {
     getBuilderOAuthSessionMock.mockResolvedValue({
       accessToken: "<OAUTH_TOKEN_EXAMPLE>",
       scopes: ["builder:ai:invoke"],
+      scope: "user",
     });
 
     await expect(
@@ -371,6 +374,7 @@ describe("resolveBuilderRequestAuthorization", () => {
       token: "<OAUTH_TOKEN_EXAMPLE>",
       authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
       source: "oauth",
+      oauthScope: "user",
     });
     expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
   });

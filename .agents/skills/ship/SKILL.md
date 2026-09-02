@@ -342,11 +342,16 @@ branch, stay on it.
    tree, `origin/main` drift, queued checks, or a timer tick is not a safe
    slice and must not produce a commit or push.
 
-6. **Babysit immediately**: run `/babysit-pr <number>` and follow that skill’s
-   tick loop exactly. Treat `babysit-pr` as the source of truth for how to watch
-   the PR. Its Step 0 checks the current nonignored branch snapshot and
-   publishes only actionable work, then checks mergeability, every unaddressed
-   review comment by reply state, and CI.
+6. **Babysit immediately and durably**: run `/babysit-pr <number>` and follow
+   that skill’s tick loop exactly. Before yielding after PR creation, confirm
+   that its durable heartbeat is active and targets this task. Treat
+   `babysit-pr` as the source of truth for how to watch the PR. Its Step 0
+   checks the current nonignored branch snapshot and publishes only actionable
+   work, then checks mergeability, every unaddressed review comment by reply
+   state, and CI.
+   If the heartbeat cannot be created or updated, stay in the foreground
+   babysit loop and report the exact failure; never end the ship task after
+   opening the PR without an active watcher.
    Keep going until the PR is either merged/closed or the user explicitly tells
    you to stop.
 

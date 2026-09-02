@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentNativeClientAction } from "./host-bridge.js";
 import {
@@ -8,6 +8,10 @@ import {
   createAgentNativeWebMcpRegistration,
   createAgentNativeServerActionWebMcpRegistration,
 } from "./webmcp.js";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 function documentWithModelContext(modelContext: Record<string, unknown>) {
   return { modelContext } as unknown as Document;
@@ -167,6 +171,49 @@ describe("WebMCP client", () => {
 });
 
 describe("automatic server action WebMCP registration", () => {
+  it("prefixes server action routes at a configured app mount", async () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/docs");
+    const modelContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              name: "get-order",
+              description: "Read an order",
+              inputSchema: { type: "object" },
+            },
+          ]),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "order-1" })));
+
+    const registration = createAgentNativeServerActionWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      fetch: fetchMock,
+    });
+    await registration.start();
+    const tool = modelContext.registerTool.mock.calls[0]?.[0];
+    await expect(tool?.execute({})).resolves.toBe('{"id":"order-1"}');
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/docs/_agent-native/webmcp/manifest",
+      expect.any(Object),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/docs/_agent-native/webmcp/actions/get-order",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
   it("derives tools from the authenticated manifest and invokes the shared route", async () => {
     const registrations: Array<{ tool: Record<string, any>; options: any }> =
       [];
@@ -184,6 +231,7 @@ describe("automatic server action WebMCP registration", () => {
           JSON.stringify([
             {
               name: "get-order",
+              title: "Read order",
               description: "Read an order",
               inputSchema: {
                 type: "object",
@@ -216,6 +264,7 @@ describe("automatic server action WebMCP registration", () => {
 
     expect(registrations[0]?.tool).toMatchObject({
       name: "get-order",
+      title: "Read order",
       description: "Read an order",
       annotations: { readOnlyHint: true },
     });
@@ -316,6 +365,7 @@ describe("WebMCP registration", () => {
     expect(registration.registered).toBe(1);
     expect(registrations[0].tool).toMatchObject({
       name: "select-order",
+      title: "Select order",
       inputSchema: { type: "object" },
       annotations: { readOnlyHint: true },
     });

@@ -12,6 +12,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   density: "comfortable",
   previewPane: "right",
   sendAndArchive: false,
+  combineInbox: false,
   undoSendDelay: 5,
   tracking: { opens: false, clicks: false },
 };

@@ -439,14 +439,14 @@ const zhCN = {
     },
     actions: {
       title: "一个 Action 驱动所有能力面",
-      bodyLine1: "Action 是 Agent-Native 应用的基础构建块。",
+      bodyLine1: "Action 定义你的 agent 能做什么。",
       bodyLine2:
-        "只需定义一次功能，即可在 UI、agent 对话、HTTP API、MCP、A2A 或 CLI 中使用。",
+        "只需定义一次每项能力，即可在 agent、UI、HTTP API、MCP、A2A 或 CLI 中使用。",
       diagramAlt: "一个 Action 驱动 UI、MCP、Agent 对话、A2A、HTTP API 和 CLI",
     },
     builtIn: {
-      title: "每个 Agent-Native 应用都内置这些能力",
-      body: "用户和 AI agent 协同工作所需的一切，已经集成到同一个应用中。",
+      title: "你的 agent 所需的一切",
+      body: "UI、上下文、数据、权限和基础设施都已连接在一起。",
       pillars: {
         reactUi: {
           title: "React UI",
@@ -454,7 +454,7 @@ const zhCN = {
         },
         agentChat: {
           title: "内嵌 agent 对话",
-          body: "让用户无需离开应用即可委派工作、提问和查看结果。",
+          body: "让用户在同一个 UI 中委派工作、提问和查看结果。",
         },
         sharedState: {
           title: "共享的应用状态",
@@ -470,11 +470,11 @@ const zhCN = {
         },
         automations: {
           title: "自动化",
-          body: "按计划或应用事件自动运行 agent 工作。",
+          body: "按计划或事件自动运行 agent 工作。",
         },
         agentTeams: {
           title: "Agent 团队",
-          body: "在应用内部或跨应用把工作委派给专业 agent。",
+          body: "在同一个工作区或相互连接的 agent 之间，把工作委派给专业 agent。",
         },
         auth: {
           title: "身份认证与组织",
@@ -488,19 +488,19 @@ const zhCN = {
     },
     stack: {
       title: "适配你的技术栈",
-      body: "带上你自己的 LLM、数据库、工具和基础设施，Agent-Native 是开源的 TypeScript，你的应用始终归你所有。",
+      body: "带上你自己的 LLM、数据库、工具和基础设施。Agent-Native 是开源的 TypeScript，因此你构建的一切始终归你所有。",
       exploreApps: "探索用 Agent-Native 构建的应用",
     },
     showcase: {
       title: "你能用 Agent-Native 构建什么？",
-      body: "理解你的工作、采取行动并与你协作的智能体应用。构建你自己的应用，或试用这些开源应用中的一个。",
+      body: "为会议、设计、演示文稿、数据等工作构建带 UI 的 agent。从这些开源应用之一开始，或构建你自己的 agent。",
       browseApps: "浏览应用",
       scrollLeft: "向左滚动应用",
       scrollRight: "向右滚动应用",
     },
     bottomCta: {
-      title: "构建你的第一个 Agent-Native 应用",
-      body: "为用户和 AI agent 打造同一个应用。使用你自己的 LLM，随处部署。",
+      title: "构建你的第一个带 UI 的 agent",
+      body: "Agent 和 UI 共享相同的能力。使用你自己的 LLM，并随处部署。",
     },
     footer: {
       tagline: "面向 agentic 应用的框架。",
@@ -512,7 +512,8 @@ const zhCN = {
       download: "下载",
       apps: "应用",
       privacyPolicy: "隐私政策",
-      saasTerms: "SaaS 条款",
+      saasTerms: "托管服务条款",
+      legalResources: "法律资源",
     },
   },
   gettingStarted: {
@@ -864,8 +865,11 @@ const zhCN = {
       s004: "口授",
       s005: "能看到+听到",
       s006: "所有模板",
-      s007: "Loom 的开源替代方案",
-      s008: "将 Clips 链接粘贴到代理中，即使其模型无法摄取原始视频或音频，它也可以听到文字记录、读取摘要并查看带时间戳的帧。",
+      s007Primary: "AI 能看懂、听懂的",
+      s007Secondary: "屏幕录制。",
+      s008: "捕获浏览器调试日志、获取文字记录并使用内置听写。100% 免费、开源且可自定义。",
+      s063: "获取个性化建议",
+      s064: "将此提示粘贴到 Claude、ChatGPT 或 Cursor 中，看看 Clips 会如何改变你的工作流程。",
       s009: "试试看",
       s010: "你能做什么",
       s011: "记录、转录和调试 — 一个应用程序、一个库，无需订阅堆栈。",
@@ -1714,6 +1718,34 @@ const zhCN = {
   },
   legal: {
     lastUpdated: "上次更新：{{date}}",
+    resources: {
+      eyebrow: "法律资源",
+      title: "Agent-Native 法律资源",
+      intro: "适用于 Agent-Native 托管应用和服务的独立法律政策。",
+      agentNative: {
+        title: "Agent-Native 政策",
+        body: "这些页面将通用政策框架调整为适用于 Agent-Native 开源项目和托管示例的版本。",
+        terms: "Agent-Native 服务条款",
+        privacy: "Agent-Native 隐私政策",
+      },
+      builder: {
+        title: "托管服务的其他政策",
+        body: "这些本地副本涵盖可接受使用、AI 功能、平台规则、暂停和下架、版权以及执法请求。英文版本具有控制效力。",
+      },
+      links: {
+        terms: "SaaS 服务协议",
+        privacy: "隐私政策",
+        acceptableUse: "可接受使用政策",
+        aiTerms: "AI 条款",
+        platformRules: "平台规则",
+        takedown: "暂停、下架和数据处理政策",
+        lawEnforcement: "执法机关请求政策",
+      },
+      notIncluded: {
+        title: "不包含商业条款",
+        body: "Agent-Native 没有付费计划或企业合同。不包含企业 SLA、支持条款、DPA、安全附录、专业服务条款和费用等商业材料。",
+      },
+    },
     privacy: {
       eyebrow: "隐私政策",
       title: "Agent-Native 托管应用程序",
@@ -1736,6 +1768,7 @@ const zhCN = {
       sections: {
         scope: "适用范围",
         information: "我们收集的信息",
+        cookies: "Cookie 和分析",
         clipsExtension: "Agent-Native Clips Chrome 扩展",
         use: "我们如何使用信息",
         sharing: "共享和第三方",
@@ -1749,6 +1782,8 @@ const zhCN = {
           "Agent-Native 是开源的，源代码可在 MIT 许可证下获得。本政策仅适用于 Builder.io 为 Agent-Native 用户运营的托管应用程序和服务。它不适用于其他人对代码的使用，包括分叉、自定义模板、私有部署或自托管版本。如果您操作自己的部署，则您应对自己的数据实践和隐私政策负责。",
         scope2Prefix: "本政策旨在补充 Builder.io 更广泛的政策",
         scope2Suffix: "对于 Agent-Native 托管应用程序行为。",
+        cookies:
+          "Agent-Native 文档网站和托管应用程序可能使用必要的 Cookie 来进行身份验证和安全保护、保存语言或主题等偏好设置，以及运行已配置的分析技术。如果部署进行了配置，文档网站可能会加载 Google Analytics 或 Google Tag Manager；托管服务也可能使用第一方分析来衡量可靠性和功能使用情况。我们不会将托管应用程序内容用于第三方广告。你可以在浏览器设置中管理 Cookie，但禁用必要 Cookie 可能会导致无法登录或使用其他功能。",
         clips1:
           "Agent-Native Clips Chrome extension 可帮助您开始基于浏览器的录制，并在启用后将浏览器诊断附加到剪辑。它可能会收集所选的捕获源、您选择包含的摄像头和麦克风媒体、活动选项卡标题和 URL，以及将扩展程序连接到托管 Clips 所需的身份验证状态。",
         clips2:
@@ -1891,6 +1926,8 @@ const zhCN = {
         scope2Middle: "和 Agent-Native",
         scope2Suffix:
           "如果您代表公司或组织使用托管 Agent-Native 应用程序，则表示您有权接受该组织的这些条款。",
+        scope3:
+          "Agent-Native 没有付费计划或付费托管订阅。除非另行签署书面协议，Builder.io 的商业条款（例如订单表、费用、企业支持、服务级别和数据处理附录）不属于本服务的一部分。",
         hostedService:
           "Builder.io 可以提供托管的 Agent-Native 应用程序、模板、演示、共享工作区、浏览器扩展和相关代理工作流程。随着产品的发展，托管服务可能会更新、限制、暂停或终止。",
         accounts1:
@@ -2005,6 +2042,11 @@ const zhCN = {
     actionsAgentTools: "生产环境 Agent 访问权限",
     publicAgentWeb: "公共 Agent Web",
     database: "数据库",
+    databaseNeon: "Neon Postgres",
+    databaseSupabase: "Supabase Postgres",
+    databaseTurso: "libSQL / Turso",
+    databaseD1: "Cloudflare D1",
+    databasePostgres: "Plain Postgres",
     internationalization: "国际化",
     localFileMode: "本地文件模式",
     fileUploads: "文件上传",

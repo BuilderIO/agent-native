@@ -132,6 +132,8 @@ export default createAgentChatPlugin({
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: {
     connectorCatalog: INITIAL_TOOL_NAMES,
+    instructions:
+      "For deck edits, call view-screen first when the active deck or slide ID is unknown. Use get-deck to read the target, update-slide for one-slide edits, and patch-deck for deck-wide or multi-slide changes. Read back with get-deck after writing.",
   },
   durableBackgroundRuns: true,
   runSoftTimeoutMs: SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
@@ -180,6 +182,7 @@ When the active Slides editor is already showing the deck you just changed, do n
 For source-faithful PDF slides, keep whatever the import produced — positioned text boxes and images for a page that carried them, the page image for one that did not — and style around it with restrained design-system chrome such as a frame, edge treatment, caption, or safe overlay; never replace an imported slide with a retyped approximation of its text. For PPTX slides, preserve the imported positioned HTML and every uploaded source image. The patch-deck and update-slide actions enforce these preservation rules by default; pass preserveSource=false only when the user explicitly requests a rewrite of that slide.
 
 If the deck has designSystemId, call get-design-system before writing and follow its exact agentContext tokens, assets, and custom instructions. If the user asks for on-brand styling and no design system is linked, call get-workspace-defaults, link its usable design system with patch-deck, then call get-design-system. Do not improvise a generic Builder-like palette when configured Builder.io design-system context is available.
+When adding slides to an existing deck, first read get-deck and match the established visual treatment - background, foreground, typography, spacing, and component language - unless the user explicitly asks to change the theme. Never default continuation slides to a new white or dark theme.
 
 Layout-fit workflow is strict. When the user asks to fix overflow, first call view-screen and inspect the deck-wide layout-fit section. If it says measurements are unknown, do not claim the deck fits. Call get-layout-overflows when you need the structured per-slide results. Read each affected slide with get-deck slideId=<id> (full HTML is returned for a targeted read), then make one bounded structural repair pass with one patch-slide operation per affected slide in a single patch-deck call. Writes return before browser measurement, so continue independent edits while layoutFit.status=pending. At the verification point, call get-layout-overflows once and use only measurements whose contentHash and layoutFitRevision match the current persisted slides. Wait for the repair action result and verify the persisted HTML with get-deck slideId=<id> compact=true before saying it is fixed. If a fresh measurement still reports overflow, make at most one focused follow-up repair based on that measurement; never loop, repeatedly re-measure, or claim success after a chat response alone.
 

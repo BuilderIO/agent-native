@@ -1,3 +1,4 @@
+import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import {
   callAction,
   deleteClientAppState,
@@ -232,8 +233,16 @@ type SubmitAgent = (
     referenceImagePaths?: string[];
     images?: string[];
     attachments?: ReadonlyArray<unknown>;
+    model?: PromptComposerSubmitOptions["model"];
+    engine?: PromptComposerSubmitOptions["engine"];
+    effort?: PromptComposerSubmitOptions["effort"];
   },
 ) => void;
+
+type PromptModelSelection = Pick<
+  PromptComposerSubmitOptions,
+  "model" | "engine" | "effort"
+>;
 
 export interface StartDeckGenerationOptions {
   session: unknown;
@@ -241,6 +250,7 @@ export interface StartDeckGenerationOptions {
   files: UploadedFile[];
   retryFiles?: UploadedFile[];
   attachments?: ReadonlyArray<unknown>;
+  modelSelection?: PromptModelSelection;
   referenceSelection?: NewDeckReferenceSelection;
   selectedDesignSystemId?: string | null;
   selectedReferenceDeckId?: string | null;
@@ -309,6 +319,7 @@ export async function startDeckGeneration({
   files,
   retryFiles = [],
   attachments,
+  modelSelection,
   referenceSelection = {},
   selectedDesignSystemId,
   selectedReferenceDeckId,
@@ -531,6 +542,7 @@ export async function startDeckGeneration({
     openSidebar: true,
     ...getUploadedImageAgentOptions(filesForGeneration),
     attachments,
+    ...modelSelection,
   });
   return "started";
 }

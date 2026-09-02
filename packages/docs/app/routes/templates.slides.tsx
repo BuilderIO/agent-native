@@ -2,6 +2,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { IconCheck } from "@tabler/icons-react";
 
 import { BuilderImage } from "../components/builder-image";
+import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
 import {
@@ -154,7 +155,7 @@ export default function SlidesTemplate() {
         description={<p className="m-0">{t("templateLanding.slides.s007")}</p>}
         headingAction={
           <a
-            href="https://slides.agent-native.com"
+            href={firstPartyAppUrl("https://slides.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
             className="primary-button"

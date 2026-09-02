@@ -305,6 +305,15 @@ export function factoryAutomationJobPath(
   return `jobs/factories/${factoryId}/${automationName}.md`;
 }
 
+export function factoryAutomationJobPrefix(factoryId: string): string {
+  return `jobs/factories/${factoryId}/`;
+}
+
+/** Same key `listAutomationRuns` / `deleteAutomationRuns` use for a job path. */
+export function factoryAutomationRunHistoryKey(path: string): string {
+  return path.replace(/^jobs\//, "").replace(/\.md$/, "");
+}
+
 export function legacyFactoryAutomationJobPath(automationName: string): string {
   return `jobs/${automationName}.md`;
 }

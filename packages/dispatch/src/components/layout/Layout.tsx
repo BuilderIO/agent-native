@@ -1516,8 +1516,7 @@ export function Layout({
           ? workspaceAppDirectHref(registration, "/")
           : null;
       if (directHref && shouldOpenWorkspaceAppInTopWindow()) {
-        navigateToWorkspaceApp(directHref);
-        return;
+        if (navigateToWorkspaceApp(directHref)) return;
       }
       void navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)));
     },

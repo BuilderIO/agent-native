@@ -16,7 +16,11 @@ describe("resourceListContentByOwnersAndPrefixes", () => {
     executeMock.mockImplementation(
       async (input: string | { sql: string; args?: unknown[] }) => {
         const sql = typeof input === "string" ? input : input.sql;
-        if (sql.includes("SELECT id, path, owner, content FROM resources")) {
+        if (
+          sql.includes(
+            "SELECT id, path, owner, content, metadata FROM resources",
+          )
+        ) {
           return {
             rows: [
               {
@@ -72,5 +76,132 @@ describe("resourceListContentByOwnersAndPrefixes", () => {
       ),
     ).rejects.toThrow("connection reset");
     expect(executeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps legacy organization files inside their tagged organization", async () => {
+    const {
+      isLegacyOrganizationWorkspaceFile,
+      isLegacySharedResourceVisibleToOrganization,
+    } = await import("./store.js");
+
+    const resource = {
+      owner: "__shared__",
+      metadata: JSON.stringify({
+        source: "workspace-files",
+        scope: "org",
+        scopeId: "org-a",
+      }),
+    };
+
+    expect(isLegacySharedResourceVisibleToOrganization(resource, "org-a")).toBe(
+      true,
+    );
+    expect(isLegacySharedResourceVisibleToOrganization(resource, "org-b")).toBe(
+      false,
+    );
+    expect(isLegacyOrganizationWorkspaceFile(resource, "org-a")).toBe(true);
+    expect(isLegacyOrganizationWorkspaceFile(resource, "org-b")).toBe(false);
+    expect(
+      isLegacySharedResourceVisibleToOrganization(
+        { owner: "__shared__", metadata: null },
+        "org-b",
+      ),
+    ).toBe(true);
+    expect(
+      isLegacySharedResourceVisibleToOrganization(
+        { owner: "__shared__", metadata: "not-json" },
+        "org-b",
+      ),
+    ).toBe(true);
+    expect(
+      isLegacySharedResourceVisibleToOrganization(
+        {
+          owner: "__shared__",
+          metadata: JSON.stringify({
+            source: "workspace-files",
+            scope: "org",
+          }),
+        },
+        "org-b",
+      ),
+    ).toBe(true);
+    expect(
+      isLegacyOrganizationWorkspaceFile(
+        { owner: "__shared__", metadata: "not-json" },
+        "org-b",
+      ),
+    ).toBe(false);
+  });
+
+  it("filters legacy organization rows with an explicit discovery organization", async () => {
+    executeMock.mockImplementation(
+      async (input: string | { sql: string; args?: unknown[] }) => {
+        const sql = typeof input === "string" ? input : input.sql;
+        if (
+          sql.includes(
+            "SELECT id, path, owner, content, metadata FROM resources",
+          )
+        ) {
+          return {
+            rows: [
+              {
+                id: "same-org",
+                path: "remote-agents/same.json",
+                owner: "__shared__",
+                content: "same",
+                metadata: JSON.stringify({
+                  source: "workspace-files",
+                  scope: "org",
+                  scopeId: "org-a",
+                }),
+              },
+              {
+                id: "other-org",
+                path: "remote-agents/other.json",
+                owner: "__shared__",
+                content: "other",
+                metadata: JSON.stringify({
+                  source: "workspace-files",
+                  scope: "org",
+                  scopeId: "org-b",
+                }),
+              },
+              {
+                id: "shared-default",
+                path: "remote-agents/default.json",
+                owner: "__shared__",
+                content: "default",
+                metadata: "not-json",
+              },
+            ],
+            rowsAffected: 0,
+          };
+        }
+        return { rows: [], rowsAffected: 0 };
+      },
+    );
+
+    const { resourceListContentByOwnersAndPrefixes } =
+      await import("./store.js");
+    await expect(
+      resourceListContentByOwnersAndPrefixes(
+        ["__shared__"],
+        ["remote-agents/"],
+        { orgId: "org-a" },
+      ),
+    ).resolves.toEqual([
+      {
+        id: "same-org",
+        path: "remote-agents/same.json",
+        owner: "__shared__",
+        content: "same",
+      },
+      {
+        id: "shared-default",
+        path: "remote-agents/default.json",
+        owner: "__shared__",
+        content: "default",
+      },
+    ]);
   });
 });

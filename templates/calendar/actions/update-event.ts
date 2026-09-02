@@ -18,7 +18,7 @@ import {
   cliBoolean,
   googleColorIdInput,
   normalizeAttendees,
-  normalizeGoogleEventId,
+  normalizeWritableGoogleEventId,
   normalizeRecurrence,
   reminderMethodInput,
   reminderMinutesInput,
@@ -215,7 +215,7 @@ export default defineAction({
       );
     }
 
-    const googleEventId = normalizeGoogleEventId(args.id);
+    const googleEventId = normalizeWritableGoogleEventId(args.id);
     const accountEmail = await resolveOwnedAccountEmail(
       args.accountEmail,
       ownerEmail,

@@ -30,6 +30,7 @@ afterEach(() => {
 
 const chatHandleMocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
+  implementPlan: vi.fn(() => false),
   prefillMessage: vi.fn(),
   setComposerContextItem: vi.fn(),
   removeComposerContextItem: vi.fn(),
@@ -42,6 +43,7 @@ const chatHandleMocks = vi.hoisted(() => ({
 
 const assistantChatMockState = vi.hoisted(() => ({
   onThreadRestoreNotFound: undefined as (() => void) | undefined,
+  onSlashCommand: undefined as ((command: string) => void) | undefined,
 }));
 
 const threadMocks = vi.hoisted(() => ({
@@ -244,11 +246,14 @@ vi.mock("./AssistantChat.js", async () => {
         contextScope?: ChatThreadScope | null;
         contextNamespace?: string;
         onThreadRestoreNotFound?: () => void;
+        onSlashCommand?: (command: string) => void;
       };
       assistantChatMockState.onThreadRestoreNotFound =
         props.onThreadRestoreNotFound;
+      assistantChatMockState.onSlashCommand = props.onSlashCommand;
       React.useImperativeHandle(ref, () => ({
         sendMessage: chatHandleMocks.sendMessage,
+        implementPlan: chatHandleMocks.implementPlan,
         prefillMessage: chatHandleMocks.prefillMessage,
         setComposerContextItem: chatHandleMocks.setComposerContextItem,
         removeComposerContextItem: chatHandleMocks.removeComposerContextItem,
@@ -286,6 +291,7 @@ vi.mock("./AssistantChat.js", async () => {
 
 function resetThreadMocks() {
   assistantChatMockState.onThreadRestoreNotFound = undefined;
+  assistantChatMockState.onSlashCommand = undefined;
   threadMocks.activeThreadId = "thread-1";
   threadMocks.threads = [
     {
@@ -712,6 +718,17 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       undefined,
       { requestMode: "plan" },
     );
+  });
+
+  it("implements the latest plan when /act is selected", () => {
+    chatHandleMocks.implementPlan.mockImplementationOnce(() => true);
+
+    act(() => {
+      assistantChatMockState.onSlashCommand?.("act");
+    });
+
+    expect(chatHandleMocks.implementPlan).toHaveBeenCalledOnce();
+    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
   });
 
   it("reuses a known-new empty active chat for opted-in foreground sends", () => {

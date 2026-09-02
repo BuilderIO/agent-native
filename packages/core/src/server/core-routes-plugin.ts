@@ -175,6 +175,7 @@ import {
   verifyBuilderConnectTokenAndGetOwner,
   signBuilderProvisioningToken,
   verifyBuilderProvisioningToken,
+  withBuilderConnectTrackingParams,
   type BuilderConnectTrackingParams,
   type BuilderRelayCredentials,
   type BuilderPreviewRelayState,
@@ -250,6 +251,7 @@ import {
   hasRequestContext,
   runWithRequestContext,
 } from "./request-context.js";
+import { isSameOriginRequest } from "./request-origin.js";
 import {
   findUnsupportedScopedKeyNames,
   saveKeyValuesToScopedSecrets,
@@ -2503,11 +2505,13 @@ export function createCoreRoutesPlugin(
         // member's status poller and the UI would show "not connected" forever
         // even though the chat actually resolves the org-shared credential.
         let orgId: string | null = null;
+        let orgRole: string | null = null;
         if (!ownerContext.anonymous) {
           try {
             const { getOrgContext } = await import("../org/context.js");
             const orgCtx = await getOrgContext(event);
             orgId = orgCtx.orgId ?? null;
+            orgRole = orgCtx.role ?? null;
           } catch {
             /* org module not present in this template — keep userEmail-only */
           }
@@ -2592,6 +2596,10 @@ export function createCoreRoutesPlugin(
                     ...requestStatus,
                     configured: true,
                     credentialSource: "user" as const,
+                    canDisconnect:
+                      requestAuthorization.oauthScope === "user" ||
+                      (requestAuthorization.oauthScope === "org" &&
+                        (orgRole === "owner" || orgRole === "admin")),
                     privateKeyConfigured: keyStatus.privateKeyConfigured,
                     publicKeyConfigured: keyStatus.publicKeyConfigured,
                     keyLookupFailed: keyStatus.keyLookupFailed,
@@ -2617,6 +2625,7 @@ export function createCoreRoutesPlugin(
                   ...requestStatus,
                   configured: false,
                   credentialSource: "user" as const,
+                  canDisconnect: false,
                   privateKeyConfigured: false,
                   publicKeyConfigured: false,
                   connectError: {
@@ -2661,6 +2670,7 @@ export function createCoreRoutesPlugin(
                   isEnterprise: undefined,
                   isFreeAccount: undefined,
                   credentialSource: credentialSource ?? undefined,
+                  canDisconnect: false,
                   // Surface durable credential rejection separately from
                   // one-shot OAuth callback failures. The reconnect UI keeps
                   // polling through authError while the user chooses a new
@@ -2717,6 +2727,10 @@ export function createCoreRoutesPlugin(
                   isFreeAccount:
                     creds.isFreeAccount ?? envStatus.isFreeAccount ?? undefined,
                   credentialSource: credentialSource ?? undefined,
+                  canDisconnect:
+                    credentialSource === "user" ||
+                    (credentialSource === "org" &&
+                      (orgRole === "owner" || orgRole === "admin")),
                 });
               }
             } catch {
@@ -3136,7 +3150,10 @@ export function createCoreRoutesPlugin(
               state,
             });
             oauthFlow = started.pending;
-            authorizationUrl = started.authorizationUrl;
+            authorizationUrl = withBuilderConnectTrackingParams(
+              started.authorizationUrl,
+              connectTracking,
+            );
             await putSetting(`builder-connect-pending:${state}`, {
               ownerEmail,
               orgId: connectOrgId,
@@ -3840,15 +3857,20 @@ export function createCoreRoutesPlugin(
       );
 
       // POST /_agent-native/builder/disconnect — remove this user's OAuth
-      // custody. Legacy BUILDER_* secrets are cleared at user scope when OAuth
-      // was present, so an admin disconnect cannot delete the org-wide keys.
-      // A legacy-only disconnect still uses the owner/admin org write gate.
+      // custody. Legacy BUILDER_* secrets are cleared only at their resolved
+      // scope, so an admin disconnect cannot accidentally delete org-wide keys
+      // for a user-scoped connection. Workspace and env-managed connections
+      // are not disconnectable from this endpoint.
       getH3App(nitroApp).use(
         `${P}/builder/disconnect`,
         defineEventHandler(async (event: H3Event) => {
           if (getMethod(event) !== "POST") {
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
+          }
+          if (!isSameOriginRequest(event)) {
+            setResponseStatus(event, 403);
+            return { error: "Cross-origin request rejected" };
           }
           const session = await getSession(event).catch(() => null);
           if (!session?.email) {
@@ -3857,8 +3879,10 @@ export function createCoreRoutesPlugin(
           }
 
           try {
-            const { deleteBuilderCredentials } =
-              await import("./credential-provider.js");
+            const {
+              deleteBuilderCredentials,
+              resolveBuilderCredentialsDetailed,
+            } = await import("./credential-provider.js");
             let orgId: string | null = null;
             let role: string | null = null;
             try {
@@ -3883,6 +3907,38 @@ export function createCoreRoutesPlugin(
                 return { error: deny };
               }
             }
+            let legacyDeleteOptions:
+              | { orgId?: string | null; role?: string | null }
+              | undefined;
+            if (!oauthScope) {
+              const legacySource = (
+                await resolveBuilderCredentialsDetailed({
+                  userEmail: session.email,
+                  orgId,
+                })
+              ).source;
+              if (legacySource === "workspace") {
+                setResponseStatus(event, 409);
+                return {
+                  error:
+                    "This Builder connection is managed by the workspace and cannot be disconnected here.",
+                };
+              }
+              if (legacySource === "env" || !legacySource) {
+                setResponseStatus(event, 409);
+                return {
+                  error: "No disconnectable Builder connection was found.",
+                };
+              }
+              if (legacySource === "org") {
+                const { deny } = await resolveBuilderOrgMutation(event);
+                if (deny) {
+                  setResponseStatus(event, 403);
+                  return { error: deny };
+                }
+                legacyDeleteOptions = { orgId, role };
+              }
+            }
             const oauthResult = oauthScope
               ? await deleteBuilderOAuthSession(
                   session.email,
@@ -3892,7 +3948,7 @@ export function createCoreRoutesPlugin(
               : { localDeleted: false, remoteRevoked: false };
             await deleteBuilderCredentials(
               session.email,
-              oauthScope ? undefined : { orgId, role },
+              oauthScope ? undefined : legacyDeleteOptions,
             );
             await trackBuilderLifecycle(
               event,
@@ -3926,7 +3982,7 @@ export function createCoreRoutesPlugin(
             return {
               ok: false,
               error:
-                "Could not remove Builder credentials — your connection is unchanged. Please retry.",
+                "Could not fully remove Builder credentials. Please retry.",
               cause: err instanceof Error ? err.message : String(err),
             };
           }

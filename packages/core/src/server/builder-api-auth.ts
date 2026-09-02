@@ -66,6 +66,7 @@ export interface BuilderRequestAuthorization {
   token: string;
   authorization: string;
   source: "oauth" | "legacy";
+  oauthScope?: RemoteMcpScope;
   legacyCredentialKey?: BuilderLegacyCredentialKey;
 }
 
@@ -140,6 +141,7 @@ async function resolveBuilderPublishAuthorization(
       token: match[1],
       authorization: `Bearer ${match[1]}`,
       source: "oauth",
+      oauthScope: candidate.scope,
     };
   }
   if (ownerEmail) {
@@ -219,6 +221,7 @@ export async function resolveBuilderRequestAuthorization(
       token: session.accessToken,
       authorization: `Bearer ${session.accessToken}`,
       source: "oauth",
+      oauthScope: session.scope,
     };
   }
 

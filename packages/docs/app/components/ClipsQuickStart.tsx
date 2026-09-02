@@ -10,6 +10,7 @@ import {
 } from "@tabler/icons-react";
 import { useState } from "react";
 
+import { firstPartyAppUrl } from "./deployment-links";
 import { trackEvent } from "./TemplateCard";
 
 type RecordingMode = "screen+camera" | "screen" | "camera";
@@ -21,7 +22,9 @@ export function ClipsQuickStart() {
   const [surface, setSurface] = useState<CaptureSource>("browser");
   const [microphoneEnabled, setMicrophoneEnabled] = useState(true);
   const tq = (key: string) => t(`templateLanding.clips.quickStart.${key}`);
-  const recordUrl = new URL("https://clips.agent-native.com/record");
+  const recordUrl = new URL(
+    firstPartyAppUrl("https://clips.agent-native.com/record"),
+  );
   recordUrl.searchParams.set("mode", mode);
   if (mode !== "camera") recordUrl.searchParams.set("surface", surface);
 
