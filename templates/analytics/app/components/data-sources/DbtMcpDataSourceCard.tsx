@@ -50,11 +50,11 @@ export function DbtMcpDataSourceCard({
 }) {
   const t = useT();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [dialogMode, setDialogMode] = useState<"connect" | "manage">("connect");
   const serversQuery = useMcpServers();
   const createServer = useCreateMcpServer();
   const reconnectServer = useReconnectMcpServer();
   const connected = status?.configured === true;
+  const notConfigured = status?.configured === false && status.available;
   const hasError =
     !isLoading &&
     (status?.configured === null || status?.available === false || !status);
@@ -62,7 +62,10 @@ export function DbtMcpDataSourceCard({
     ? [
         ...(serversQuery.data?.org ?? []),
         ...(serversQuery.data?.user ?? []),
-      ].find((server) => server.id === status.serverId)
+      ].find(
+        (server) =>
+          server.id === status.serverId || server.mergedId === status.serverId,
+      )
     : undefined;
   const errorMessage = reconnectServer.error
     ? reconnectServer.error instanceof Error && reconnectServer.error.message
@@ -74,24 +77,16 @@ export function DbtMcpDataSourceCard({
         ? formatMcpServersLoadError(status.error)
         : null;
 
-  const openDialog = (mode: "connect" | "manage") => {
-    setDialogMode(mode);
-    setDialogOpen(true);
-  };
-
   const handlePrimaryAction = () => {
-    if (hasError) {
-      if (dbtServer) {
-        reconnectServer.mutate(
-          { id: dbtServer.id, scope: dbtServer.scope },
-          { onSuccess: onSaved },
-        );
-      } else {
-        openDialog("connect");
-      }
+    if (notConfigured) {
+      setDialogOpen(true);
       return;
     }
-    openDialog(connected ? "manage" : "connect");
+    if (!dbtServer) return;
+    reconnectServer.mutate(
+      { id: dbtServer.id, scope: dbtServer.scope },
+      { onSuccess: onSaved },
+    );
   };
 
   return (
@@ -115,12 +110,12 @@ export function DbtMcpDataSourceCard({
                 />
               ) : null}
             </div>
-            <div className="min-w-0">
-              <CardTitle className="text-sm font-medium">dbt</CardTitle>
-              <p className="mt-0.5 text-xs text-muted-foreground">
+            <CardTitle className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium">
+              <span>dbt</span>
+              <span className="text-xs font-normal text-muted-foreground">
                 {t("dataSources.dbtSharedIdentity")}
-              </p>
-            </div>
+              </span>
+            </CardTitle>
           </div>
 
           <div className="flex items-center justify-between gap-3 sm:justify-end">
@@ -150,17 +145,17 @@ export function DbtMcpDataSourceCard({
                 size="sm"
                 variant={connected ? "outline" : "default"}
                 onClick={handlePrimaryAction}
-                disabled={reconnectServer.isPending}
+                disabled={
+                  reconnectServer.isPending || (!notConfigured && !dbtServer)
+                }
                 className="text-xs"
               >
                 {reconnectServer.isPending ? (
                   <IconLoader2 className="size-3.5 animate-spin" />
-                ) : hasError ? (
-                  t("dataSources.reconnect")
-                ) : connected ? (
-                  t("dataSources.manage")
-                ) : (
+                ) : notConfigured ? (
                   t("dataSources.connect")
+                ) : (
+                  t("dataSources.reconnect")
                 )}
               </Button>
             ) : null}
@@ -193,8 +188,7 @@ export function DbtMcpDataSourceCard({
         <McpIntegrationDialog
           open={dialogOpen}
           onOpenChange={setDialogOpen}
-          initialIntegrationId={dialogMode === "manage" ? "dbt" : null}
-          connectIntegrationId={dialogMode === "connect" ? "dbt" : null}
+          connectIntegrationId="dbt"
           defaultScope="org"
           canCreateOrgMcp
           hasOrg
