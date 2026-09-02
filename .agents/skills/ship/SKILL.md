@@ -347,15 +347,16 @@ branch, stay on it.
    that the task-scoped durable heartbeat
    `babysit-pr-<number>-<this task's threadId>` is active and targets this task,
    following the babysit ownership check, successful PR-scoped lease claim, and
-   atomic conditional-update or serialized-coordinator requirement. An ACTIVE
-   legacy per-PR heartbeat or task-scoped heartbeat targeting another task is
-   owned by that task: do not overwrite, pause, or duplicate it; keep this ship
-   invocation in the foreground while the existing owner continues. Never
-   create the task-scoped heartbeat until the PR-scoped lease is held. Treat
-   `babysit-pr` as the source of truth for how to watch the PR. Its Step 0 checks
-   the current nonignored branch snapshot and publishes only actionable work,
-   then checks mergeability, every unaddressed review comment by reply state,
-   and CI.
+   atomic conditional-update or serialized-coordinator requirement. The lease
+   is the remote `agent-native-babysit-lock-<number>` ref described by
+   `/babysit-pr`; never create the task-scoped heartbeat until that lease is
+   held. An ACTIVE legacy per-PR heartbeat or task-scoped heartbeat targeting
+   another task is owned by that task: do not overwrite, pause, or duplicate it;
+   keep this ship invocation in the foreground while the existing owner
+   continues. Treat `babysit-pr` as the source of truth for how to watch the PR.
+   Its Step 0 checks the current nonignored branch snapshot and publishes only
+   actionable work, then checks mergeability, every unaddressed review comment
+   by reply state, and CI.
    If the heartbeat cannot be created or updated, stay in the foreground
    babysit loop and report the exact failure; never end the ship task after
    opening the PR without an active watcher.
