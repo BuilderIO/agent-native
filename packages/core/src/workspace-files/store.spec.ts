@@ -276,6 +276,31 @@ describe("workspace-files Resources adapter", () => {
     );
   });
 
+  it("removes a legacy row when deleting an organization override", async () => {
+    const current = {
+      ...resource("scratch/tmp.md"),
+      owner: "__organization__:org_123",
+    };
+    const legacy = {
+      ...resource("scratch/tmp.md"),
+      owner: "__shared__",
+    };
+    mockResourceGetByPath
+      .mockResolvedValueOnce(current)
+      .mockResolvedValueOnce(legacy);
+    mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+    mockResourceDeleteByPath.mockResolvedValue(true);
+
+    await expect(
+      deleteWorkspaceFile(
+        { scope: "org", scopeId: "org_123" },
+        "scratch/tmp.md",
+      ),
+    ).resolves.toBe(true);
+
+    expect(mockResourceDelete).toHaveBeenCalledWith(legacy.id);
+  });
+
   it("rejects organization deletes from non-admin members", async () => {
     mockGetOrgRoleForEmail.mockResolvedValue("member");
 

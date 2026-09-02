@@ -352,7 +352,20 @@ export async function deleteWorkspaceFile(
   await assertCanMutateWorkspaceFile(scope);
 
   const resolved = await resolveResourceForScope(scope, path);
-  return resolved ? resourceDeleteByPath(resolved.owner, path) : false;
+  if (!resolved) return false;
+
+  const deleted = await resourceDeleteByPath(resolved.owner, path);
+  if (deleted && scope.scope === "org" && resolved.owner !== SHARED_OWNER) {
+    const legacy = await resourceGetByPath(
+      SHARED_OWNER,
+      path,
+      optionsForScope(scope),
+    );
+    if (legacy && isLegacyOrganizationWorkspaceFile(legacy, scope.scopeId)) {
+      await resourceDelete(legacy.id);
+    }
+  }
+  return deleted;
 }
 
 /**
