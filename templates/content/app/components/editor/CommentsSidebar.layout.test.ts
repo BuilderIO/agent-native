@@ -207,10 +207,19 @@ describe("comments sidebar layout", () => {
     });
 
     expect(source).toContain(
-      "transition-[transform,box-shadow] duration-200 ease-[var(--ease-out-strong)]",
+      "transition-transform duration-[260ms] ease-[var(--ease-drawer)]",
     );
     expect(source).toContain('? "-translate-x-2 shadow-lg"');
     expect(source).toContain(': "hover:-translate-x-2 hover:shadow-lg"');
+  });
+
+  it("keeps multiline comment highlights padded as one forgiving target", () => {
+    const styles = readFileSync("app/global.css", { encoding: "utf8" });
+
+    expect(styles).toContain("padding-block: 0.2em");
+    expect(styles).toContain("padding-inline: 0.15em");
+    expect(styles).toContain("margin-inline: -0.15em");
+    expect(styles).toContain("box-decoration-break: clone");
   });
 
   it("captures inline comment activation at the document state boundary", () => {

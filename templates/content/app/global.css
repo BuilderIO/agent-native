@@ -2387,6 +2387,9 @@ audio.media-block__content {
   background-color: hsl(45 93% 47% / 0.14);
   border-bottom: 1px solid hsl(45 93% 40% / 0.5);
   border-radius: 2px;
+  padding-block: 0.2em;
+  padding-inline: 0.15em;
+  margin-inline: -0.15em;
   cursor: pointer;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;

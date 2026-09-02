@@ -1057,7 +1057,7 @@ function ThreadView({
     <div
       ref={cardRef}
       data-thread-card={thread.threadId}
-      className={`group/thread mx-2 mr-4 cursor-pointer rounded-lg bg-popover shadow-md ring-1 ring-border/50 transition-[transform,box-shadow] duration-200 ease-[var(--ease-out-strong)] ${
+      className={`group/thread mx-2 mr-4 cursor-pointer rounded-lg bg-popover shadow-md ring-1 ring-border/50 transition-transform duration-[260ms] ease-[var(--ease-drawer)] ${
         isActive
           ? "-translate-x-2 shadow-lg"
           : "hover:-translate-x-2 hover:shadow-lg"
