@@ -1363,6 +1363,7 @@ function DraftComposer({
           onSubmit(target);
         }}
         submittingTarget={commentSubmitting ? resolutionTarget : null}
+        showCommentAction={initialAgentMode !== "preview"}
         showAgentAction={showAgentAction}
         agentAction={agentAction}
         placeholder={t("review.placeholder")}

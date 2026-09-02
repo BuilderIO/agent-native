@@ -59,6 +59,7 @@ vi.mock("@agent-native/core/client/review", () => ({
     value: string;
     onChange: (value: string) => void;
     onSubmit: (target: "human" | "agent") => void;
+    showCommentAction?: boolean;
     showAgentAction?: boolean;
     commentLabel?: string;
     contextLabel?: string;
@@ -76,13 +77,15 @@ vi.mock("@agent-native/core/client/review", () => ({
         data-review-test-question
         onClick={() => props.onChange("What is this section for?")}
       />
-      <button
-        type="button"
-        data-review-test-submit
-        onClick={() => props.onSubmit("human")}
-      >
-        {props.commentLabel}
-      </button>
+      {props.showCommentAction !== false ? (
+        <button
+          type="button"
+          data-review-test-submit
+          onClick={() => props.onSubmit("human")}
+        >
+          {props.commentLabel}
+        </button>
+      ) : null}
       {props.showAgentAction
         ? (props.agentAction ?? (
             <button type="button" data-review-test-agent-action />
@@ -498,7 +501,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     });
   });
 
-  it("opens a pre-anchored regenerate draft without creating a review comment", async () => {
+  it("opens a dedicated Edit with AI draft without creating a review comment", async () => {
     const onClose = vi.fn();
     const iframe = document.createElement("iframe");
     iframe.setAttribute("data-design-preview-iframe", "");
@@ -563,7 +566,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     expect(document.body.textContent).toContain(
       "designEditor.nodeRewrite.willPreview",
     );
-    expect(document.body.textContent).toContain("review.commentMode");
+    expect(document.body.textContent).not.toContain("review.commentMode");
     expect(document.body.textContent).not.toContain("review.clickToPin");
     await act(async () => send?.click());
 
@@ -745,5 +748,6 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     expect(document.body.textContent).toContain(
       "designEditor.nodeRewrite.modeRegenerate",
     );
+    expect(document.querySelector("[data-review-test-submit]")).toBeNull();
   });
 });

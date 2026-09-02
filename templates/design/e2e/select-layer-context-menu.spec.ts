@@ -275,6 +275,13 @@ test("Select layer on a non-active overview screen routes selection to that exac
     ).toBeVisible();
     const editPrompt = page.getByRole("textbox", { name: "Leave feedback…" });
     await expect(editPrompt).toBeVisible();
+    await expect(editPrompt).toBeFocused();
+    await expect(
+      page.getByRole("button", { name: "Comment", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Edit with AI", exact: true }),
+    ).toBeVisible();
     const editPopover = page
       .locator("[data-review-popover]")
       .filter({ has: editPrompt })
