@@ -256,7 +256,7 @@ export function renderBookingOgImageSvg(input: BookingOgImageInput): string {
   </defs>
   <rect width="${WIDTH}" height="${HEIGHT}" fill="${BG}"/>
   <g transform="translate(80 86)">
-    <g transform="scale(0.62)">
+    <g transform="translate(0 14) scale(0.62)">
       ${LOGO_MARK}
     </g>
     <text x="90" y="31" font-family="${FONT_FAMILY}" font-size="28" font-weight="800" fill="${FG}">Agent-Native</text>
