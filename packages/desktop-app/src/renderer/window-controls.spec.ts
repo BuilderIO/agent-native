@@ -33,9 +33,7 @@ describe("chat-first macOS window controls", () => {
     expect(shellCss).toContain(".collapsed-mac-window-controls::before {");
     expect(shellCss).toContain("opacity: 0;");
     expect(shellCss).toContain("transition: opacity var(--ease-collapse);");
-    expect(shellCss).toContain(
-      ".collapsed-mac-window-controls:hover::before,",
-    );
+    expect(shellCss).toContain(".collapsed-mac-window-controls:hover::before,");
     expect(shellCss).toContain(
       ".collapsed-mac-window-controls:hover .win-btn--maximize,",
     );
