@@ -89,7 +89,10 @@ import {
   watchLinkedLocalSource,
   writeDocumentToLinkedLocalSource,
 } from "@/lib/local-content-source-files";
-import { isDatabaseChoicePending } from "@/lib/optimistic-document";
+import {
+  isDatabaseChoicePending,
+  isDocumentCreationPending,
+} from "@/lib/optimistic-document";
 import { cn } from "@/lib/utils";
 
 import {
@@ -922,6 +925,8 @@ function DocumentEditorBody({
   // All SQL-backed readers subscribe for presence. Only editors bind the body
   // to Yjs; viewers render canonical SQL so missing collab state cannot hide it.
   const collabEnabled = !isLocalFileDocument;
+  const collabDocumentId =
+    collabEnabled && !isDocumentCreationPending(document) ? documentId : null;
   const {
     ydoc,
     awareness,
@@ -931,7 +936,7 @@ function DocumentEditorBody({
     agentActive,
     agentPresent,
   } = useCollaborativeDoc({
-    docId: collabEnabled ? documentId : "",
+    docId: collabDocumentId,
     requestSource: TAB_ID,
     user: currentUser,
   });

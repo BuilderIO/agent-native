@@ -178,21 +178,21 @@ export const links = () => [
 ];
 
 export const meta = () => [
-  { title: "Agent-Native — Framework for Agent-Native Apps" },
+  { title: "Agent-Native — The Agentic Application Framework" },
   {
     name: "description",
     content:
-      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with cloneable SaaS apps.",
+      "Build autonomous agents with intuitive UIs. Define each capability once for the agent, UI, APIs, and integrations. Open-source TypeScript.",
   },
   ...defaultSocialImageMeta(),
   {
     property: "og:title",
-    content: "Agent-Native — Framework for Agent-Native Apps",
+    content: "Agent-Native — The Agentic Application Framework",
   },
   {
     property: "og:description",
     content:
-      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with cloneable SaaS apps.",
+      "Build autonomous agents with intuitive UIs. Define each capability once for the agent, UI, APIs, and integrations. Open-source TypeScript.",
   },
   { property: "og:type", content: "website" },
   { property: "og:url", content: SITE_URL },

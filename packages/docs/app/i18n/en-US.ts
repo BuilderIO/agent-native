@@ -445,15 +445,15 @@ const enUS = {
     },
     actions: {
       title: "One Action powers every surface",
-      bodyLine1: "Actions are the building blocks of an Agent-Native app.",
+      bodyLine1: "Actions define what your agent can do.",
       bodyLine2:
-        "Define functionality once, then use it from your UI, agent chat, HTTP API, MCP, A2A, or CLI.",
+        "Define each capability once, then use it from the agent, UI, HTTP API, MCP, A2A, or CLI.",
       diagramAlt:
         "One Action powers UI, MCP, Agent Chat, A2A, HTTP API, and CLI",
     },
     builtIn: {
-      title: "Built into every Agent-Native app",
-      body: "Everything users and AI agents need to work together, already wired into one application.",
+      title: "Everything your agent needs",
+      body: "UI, context, data, permissions, and infrastructure, already wired together.",
       pillars: {
         reactUi: {
           title: "React UI",
@@ -461,7 +461,7 @@ const enUS = {
         },
         agentChat: {
           title: "Embedded agent chat",
-          body: "Let users delegate work, ask questions, and review results without leaving the app.",
+          body: "Let users delegate work, ask questions, and review results in the same UI.",
         },
         sharedState: {
           title: "Shared application state",
@@ -477,11 +477,11 @@ const enUS = {
         },
         automations: {
           title: "Automations",
-          body: "Run agent work automatically on schedules or application events.",
+          body: "Run agent work automatically on schedules or events.",
         },
         agentTeams: {
           title: "Agent teams",
-          body: "Delegate work to specialist agents within the app or across apps.",
+          body: "Delegate work to specialist agents in the same workspace or across connected agents.",
         },
         auth: {
           title: "Authentication and organizations",
@@ -495,19 +495,19 @@ const enUS = {
     },
     stack: {
       title: "Works with your stack",
-      body: "Bring your LLM, database, tools, and infrastructure, Agent-Native is open source TypeScript, so your application stays yours.",
+      body: "Bring your LLM, database, tools, and infrastructure. Agent-Native is open-source TypeScript, so everything you build stays yours.",
       exploreApps: "Explore apps built with Agent-Native",
     },
     showcase: {
       title: "What can you build with Agent-Native?",
-      body: "Agentic apps that understand your work, take action, and collaborate with you. Build your own or try one of these open-source apps.",
+      body: "Build agents with UIs for meetings, design, presentations, data, and more. Start from one of these open-source apps or build your own.",
       browseApps: "Browse apps",
       scrollLeft: "Scroll apps left",
       scrollRight: "Scroll apps right",
     },
     bottomCta: {
-      title: "Build your first Agent-Native app",
-      body: "Create one application for users and AI agents. Bring your own LLM and deploy anywhere.",
+      title: "Build your first agent with a UI",
+      body: "The agent and UI share the same capabilities. Bring your own LLM and deploy anywhere.",
     },
     footer: {
       tagline: "The agentic application framework.",
@@ -519,7 +519,8 @@ const enUS = {
       download: "Download",
       apps: "Apps",
       privacyPolicy: "Privacy Policy",
-      saasTerms: "SaaS Terms",
+      saasTerms: "Hosted Terms",
+      legalResources: "Legal resources",
     },
   },
   gettingStarted: {
@@ -893,9 +894,12 @@ const enUS = {
       s004: "Dictate",
       s005: "Can See + Hear",
       s006: "All Apps",
-      s007: "Screen recordings your AI can actually watch",
-      s008: "Record your screen. Share with people to save a meeting. Share with AI to put it straight to work.",
+      s007Primary: "Screen recordings your",
+      s007Secondary: "AI can see and hear.",
+      s008: "Capture browser debug logs, get transcripts, and use built-in dictation. 100% free, open-source, and customizable.",
       s009: "Try it",
+      s063: "Get a personalized recommendation",
+      s064: "Paste this prompt into Claude, ChatGPT, or Cursor to see how Clips could impact your workflow.",
       s010: "What you can do",
       s011: "Record, transcribe, and debug — one app, one library, without the subscription stack.",
       s012: "One-Click Screen Recording",
@@ -1737,6 +1741,35 @@ const enUS = {
   },
   legal: {
     lastUpdated: "Last updated: {{date}}",
+    resources: {
+      eyebrow: "Legal resources",
+      title: "Legal resources for Agent-Native",
+      intro:
+        "Standalone Agent-Native legal policies for hosted applications and services.",
+      agentNative: {
+        title: "Agent-Native policies",
+        body: "These pages adapt the shared policy framework to Agent-Native's open-source project and hosted examples.",
+        terms: "Agent-Native Terms of Service",
+        privacy: "Agent-Native Privacy Policy",
+      },
+      builder: {
+        title: "Additional hosted-service policies",
+        body: "These local copies cover acceptable use, AI features, platform rules, suspension and takedown, copyright, and law-enforcement requests. The English version controls.",
+      },
+      links: {
+        terms: "SaaS Services Agreement",
+        privacy: "Privacy Policy",
+        acceptableUse: "Acceptable Use Policy",
+        aiTerms: "AI Terms",
+        platformRules: "Platform Rules",
+        takedown: "Suspension, Takedown & Data-Handling Policy",
+        lawEnforcement: "Law Enforcement Request Policy",
+      },
+      notIncluded: {
+        title: "Commercial terms not included",
+        body: "Agent-Native has no paid plans or enterprise contract. Commercial materials such as enterprise SLAs, support terms, DPAs, security addenda, professional-services terms, and fees are not included.",
+      },
+    },
     privacy: {
       eyebrow: "Privacy Policy",
       title: "Agent-Native hosted applications",
@@ -1759,6 +1792,7 @@ const enUS = {
       sections: {
         scope: "Scope",
         information: "Information we collect",
+        cookies: "Cookies and analytics",
         clipsExtension: "Agent-Native Clips Chrome extension",
         use: "How we use information",
         sharing: "Sharing and third parties",
@@ -1773,6 +1807,8 @@ const enUS = {
         scope2Prefix:
           "This policy is intended to supplement Builder.io's broader",
         scope2Suffix: "for Agent-Native hosted application behavior.",
+        cookies:
+          "The Agent-Native docs site and hosted applications may use necessary cookies for authentication and security, preference storage such as locale or theme, and configured analytics technologies. The docs site may load Google Analytics or Google Tag Manager when configured by the deployment, and the hosted service may use first-party analytics to measure reliability and feature usage. We do not use hosted application content for third-party advertising. You can control cookies through your browser settings, although disabling necessary cookies may prevent sign-in or other features.",
         clips1:
           "The Agent-Native Clips Chrome extension helps you start browser-based recordings and, when enabled, attach browser diagnostics to a clip. It may collect the selected capture source, camera and microphone media you choose to include, the active tab title and URL, and authentication state needed to connect the extension to hosted Clips.",
         clips2:
@@ -1916,6 +1952,8 @@ const enUS = {
         scope2Middle: "and the Agent-Native",
         scope2Suffix:
           "If you use a hosted Agent-Native app on behalf of a company or organization, you represent that you have authority to accept these terms for that organization.",
+        scope3:
+          "Agent-Native has no paid plans or paid hosted subscriptions. Builder.io commercial terms such as order forms, fees, enterprise support, service levels, and data-processing addenda are not part of this offering unless separately agreed in writing.",
         hostedService:
           "Builder.io may provide hosted Agent-Native applications, apps, demos, shared workspaces, browser extensions, and related agent workflows. The hosted service may be updated, limited, suspended, or discontinued as the product evolves.",
         accounts1:

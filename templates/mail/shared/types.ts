@@ -131,6 +131,8 @@ export type UserSettings = {
   density: "compact" | "comfortable" | "spacious";
   previewPane: "right" | "bottom" | "off";
   sendAndArchive: boolean;
+  /** Show the whole inbox instead of splitting it into pinned triage tabs. */
+  combineInbox: boolean;
   undoSendDelay: number;
   pinnedLabels?: string[];
   savedFilters?: SavedMailFilter[];

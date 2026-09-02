@@ -6056,6 +6056,7 @@ function DatabaseTableView({
         columns={dataGridColumns}
         getRowId={(item) => item.id}
         columnWidths={columnWidths}
+        horizontalOverflowAffordance="edges"
         contentClassName="min-w-[720px]"
         scrollContainerProps={{
           "data-database-scroll-surface": "table",
