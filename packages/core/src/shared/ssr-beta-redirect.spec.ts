@@ -262,6 +262,38 @@ describe("getSsrBetaRedirectScript", () => {
     expect(localStorage.getItem(BETA_REDIRECT_STORAGE_KEY)).toBeNull();
   });
 
+  it("invalidates the production marker after beta sign-out before returning", async () => {
+    const productionStorage = createStorage({
+      [BETA_REDIRECT_STORAGE_KEY]: String(Date.now() + 60_000),
+    });
+    const betaStorage = createStorage();
+
+    const redirected = await runScript({
+      href: "https://plan.agent-native.com/inbox",
+      localStorage: productionStorage,
+    });
+    expect(redirected.redirectedTo).toBe(
+      "https://beta.plan.agent-native.com/inbox",
+    );
+    expect(productionStorage.getItem(BETA_REDIRECT_STORAGE_KEY)).not.toBeNull();
+
+    const betaSignOut = await runScript({
+      href: "https://beta.plan.agent-native.com/inbox",
+      localStorage: betaStorage,
+    });
+    expect(betaSignOut.redirectedTo).toBeNull();
+    expect(betaSignOut.fetched).toEqual([]);
+
+    const returned = await runScript({
+      href: "https://plan.agent-native.com/inbox",
+      localStorage: productionStorage,
+      session: { error: "Not authenticated" },
+    });
+    expect(returned.redirectedTo).toBeNull();
+    expect(returned.fetched).toEqual(["/_agent-native/auth/session"]);
+    expect(productionStorage.getItem(BETA_REDIRECT_STORAGE_KEY)).toBeNull();
+  });
+
   it("clears a marker when the current session belongs to a non-Builder user", async () => {
     const localStorage = createStorage({
       [BETA_REDIRECT_STORAGE_KEY]: String(Date.now() + 60_000),
