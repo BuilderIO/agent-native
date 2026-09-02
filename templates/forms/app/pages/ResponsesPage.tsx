@@ -14,6 +14,8 @@ import { format } from "date-fns";
 import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router";
 
+import { CommunityPromotionCell } from "@/components/CommunityPromotionCell";
+import { ResponseValue } from "@/components/ResponseValue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -115,6 +117,7 @@ export function ResponsesPage() {
     [data?.fields, form?.fields],
   );
   const total = data?.total ?? 0;
+  const isCommunitySubmissionForm = form?.slug === "community-app-submission";
 
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("_submitted");
@@ -137,6 +140,7 @@ export function ResponsesPage() {
     (hasSubmitterEmail ? 224 : 0) +
     (hasPageUrl ? 256 : 0) +
     (hasClientSurface ? 160 : 0) +
+    (isCommunitySubmissionForm ? 168 : 0) +
     Math.max(fields.length, 1) * 320;
 
   function toggleSort(key: SortKey) {
@@ -386,6 +390,7 @@ export function ResponsesPage() {
                 {hasSubmitterEmail ? <col className="w-56" /> : null}
                 {hasPageUrl ? <col className="w-64" /> : null}
                 {hasClientSurface ? <col className="w-40" /> : null}
+                {isCommunitySubmissionForm ? <col className="w-40" /> : null}
                 {fields.map((f, index) => (
                   <col
                     key={f.id}
@@ -430,6 +435,14 @@ export function ResponsesPage() {
                       dir={sortDir}
                       onClick={() => toggleSort("_source")}
                     />
+                  ) : null}
+                  {isCommunitySubmissionForm ? (
+                    <th
+                      scope="col"
+                      className="min-w-40 px-4 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+                    >
+                      {t("responses.communityReview")}
+                    </th>
                   ) : null}
                   {fields.map((f) => (
                     <SortableHeader
@@ -513,6 +526,11 @@ export function ResponsesPage() {
                         })()}
                       </td>
                     ) : null}
+                    {isCommunitySubmissionForm ? (
+                      <td className="px-4 py-3 align-top">
+                        <CommunityPromotionCell response={response} />
+                      </td>
+                    ) : null}
                     {fields.map((f) => {
                       const val = response.data[f.id];
                       const display =
@@ -525,7 +543,7 @@ export function ResponsesPage() {
                           className="min-w-48 px-4 py-3 align-top text-xs leading-5 whitespace-pre-wrap break-words"
                           title={display}
                         >
-                          {display}
+                          <ResponseValue value={val} />
                         </td>
                       );
                     })}

@@ -12,6 +12,7 @@ import {
 import {
   DEFAULT_LOCALE,
   isLocaleCode,
+  normalizeLocaleCode,
 } from "../../core/src/localization/shared";
 import { createAgentWebVitePlugin } from "../../core/src/vite/agent-web-plugin";
 import { docsBodyToMarkdownMirror } from "../lib/docs-markdown-export";
@@ -159,6 +160,8 @@ export function buildSitemapPaths(rootDir: string): string[] {
  *   `<meta http-equiv="refresh">` 200 page;
  * - draft docs, hidden by `VITE_SHOW_DRAFTS` — including every translation of a
  *   canonically-draft slug, matching `loadDocRespectingDraftVisibility`.
+ * - the community catalog, which is read from Builder at request time so new
+ *   published listings do not get frozen into the prerendered HTML.
  *
  * Redirected and draft paths keep falling through to the SSR function, which
  * still answers 301/404. Published docs stay prerendered because the Netlify
@@ -173,9 +176,23 @@ export function buildPrerenderPaths(): string[] {
   return pages
     .filter(
       (page) =>
-        !draftSlugs.has(page.docSlug) && !isRedirectedDocsPath(page.path),
+        !draftSlugs.has(page.docSlug) &&
+        !isRedirectedDocsPath(page.path) &&
+        !isDynamicCommunityPath(page.path),
     )
     .map((page) => page.path);
+}
+
+export function isDynamicCommunityPath(pagePath: string): boolean {
+  const segments = pagePath.split("/").filter(Boolean);
+  const pathWithoutLocale = normalizeLocaleCode(segments[0])
+    ? `/${segments.slice(1).join("/")}`
+    : pagePath;
+  return (
+    pathWithoutLocale === "/apps" ||
+    pathWithoutLocale === "/apps/" ||
+    pathWithoutLocale.startsWith("/apps/community/")
+  );
 }
 
 export function buildAgentWebPages(rootDir: string): AgentWebPage[] {

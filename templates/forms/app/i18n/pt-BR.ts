@@ -411,6 +411,13 @@ const messages = {
     page: "Page",
     source: "Fonte",
     sortBy: "Sort by {{label}}",
+    communityReview: "Revisar",
+    communityPublish: "Publicar no site",
+    communityPublishing: "Publicando...",
+    communityPublished: "Publicado",
+    communityView: "Ver no site",
+    communityNeedsCheck: "Verifique o Builder antes de tentar novamente",
+    communityPromotionFailed: "Não foi possível publicar este envio.",
   },
 };
 
