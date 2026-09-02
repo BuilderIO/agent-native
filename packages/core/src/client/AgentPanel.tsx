@@ -172,6 +172,20 @@ export function shouldHandleAgentSidebarToggle(
   return typeof detail.scopeId === "string" && detail.scopeId === toggleScopeId;
 }
 
+export function shouldHandleAgentPanelChatShortcut(
+  target: EventTarget | null,
+): boolean {
+  const element = target as HTMLElement | null;
+  if (!element) return true;
+  return !(
+    element.tagName === "INPUT" ||
+    element.tagName === "TEXTAREA" ||
+    element.tagName === "SELECT" ||
+    element.isContentEditable ||
+    element.closest?.("[contenteditable]")
+  );
+}
+
 function postPerAppChatSidebarStateToEmbeddedFrames(open: boolean): void {
   const message = buildAppChatSidebarStateMessage(open);
   for (const frame of document.querySelectorAll("iframe")) {
@@ -3780,6 +3794,7 @@ export function AgentSidebar({
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "i") {
+        if (!shouldHandleAgentPanelChatShortcut(e.target)) return;
         e.preventDefault();
         let selectionText = "";
         try {
