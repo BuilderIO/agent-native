@@ -437,14 +437,14 @@ const messages = {
     },
     actions: {
       title: "一個 Action 驅動所有能力面",
-      bodyLine1: "Action 是 Agent-Native 應用的基礎構建區塊。",
+      bodyLine1: "Action 定義你的 agent 能做什麼。",
       bodyLine2:
-        "只需定義一次功能，即可在 UI、agent 對話、HTTP API、MCP、A2A 或 CLI 中使用。",
+        "只需定義一次每項能力，即可在 agent、UI、HTTP API、MCP、A2A 或 CLI 中使用。",
       diagramAlt: "一個 Action 驅動 UI、MCP、Agent 對話、A2A、HTTP API 和 CLI",
     },
     builtIn: {
-      title: "每個 Agent-Native 應用都內建這些能力",
-      body: "使用者和 AI agent 協同工作所需的一切，已經整合到同一個應用中。",
+      title: "你的 agent 所需的一切",
+      body: "UI、脈絡、資料、權限和基礎設施都已連接在一起。",
       pillars: {
         reactUi: {
           title: "React UI",
@@ -452,7 +452,7 @@ const messages = {
         },
         agentChat: {
           title: "內嵌 agent 對話",
-          body: "讓使用者不必離開應用即可委派工作、提問和查看結果。",
+          body: "讓使用者在同一個 UI 中委派工作、提問和查看結果。",
         },
         sharedState: {
           title: "共用的應用狀態",
@@ -468,11 +468,11 @@ const messages = {
         },
         automations: {
           title: "自動化",
-          body: "按排程或應用事件自動執行 agent 工作。",
+          body: "按排程或事件自動執行 agent 工作。",
         },
         agentTeams: {
           title: "Agent 團隊",
-          body: "在應用內部或跨應用把工作委派給專業 agent。",
+          body: "在同一個工作區或相互連接的 agent 之間，把工作委派給專業 agent。",
         },
         auth: {
           title: "身分驗證與組織",
@@ -486,19 +486,19 @@ const messages = {
     },
     stack: {
       title: "適配你的技術堆疊",
-      body: "帶上你自己的 LLM、資料庫、工具和基礎設施，Agent-Native 是開放原始碼的 TypeScript，你的應用始終歸你所有。",
+      body: "帶上你自己的 LLM、資料庫、工具和基礎設施。Agent-Native 是開放原始碼的 TypeScript，因此你打造的一切始終歸你所有。",
       exploreApps: "探索用 Agent-Native 打造的應用",
     },
     showcase: {
       title: "你能用 Agent-Native 打造什麼？",
-      body: "能理解你的工作、採取行動並與你協作的智慧代理應用。打造自己的應用，或試用其中一個開源應用。",
+      body: "為會議、設計、簡報、資料等工作打造配備 UI 的 agent。從其中一個開源應用開始，或打造你自己的 agent。",
       browseApps: "瀏覽應用",
       scrollLeft: "向左捲動應用",
       scrollRight: "向右捲動應用",
     },
     bottomCta: {
-      title: "打造你的第一個 Agent-Native 應用",
-      body: "為使用者和 AI agent 打造同一個應用。使用你自己的 LLM，隨處部署。",
+      title: "打造你的第一個配備 UI 的 agent",
+      body: "Agent 和 UI 共享相同的能力。使用你自己的 LLM，並隨處部署。",
     },
     footer: {
       tagline: "面向 agentic 應用的框架。",
@@ -510,7 +510,8 @@ const messages = {
       download: "下載",
       apps: "應用",
       privacyPolicy: "隱私權政策",
-      saasTerms: "SaaS 條款",
+      saasTerms: "代管服務條款",
+      legalResources: "法律資源",
     },
   },
   gettingStarted: {
@@ -1717,6 +1718,34 @@ const messages = {
   },
   legal: {
     lastUpdated: "上次更新：{{date}}",
+    resources: {
+      eyebrow: "法律資源",
+      title: "Agent-Native 法律資源",
+      intro: "適用於 Agent-Native 代管應用程式與服務的獨立法律政策。",
+      agentNative: {
+        title: "Agent-Native 政策",
+        body: "這些頁面將通用政策框架調整為適用於 Agent-Native 開放原始碼專案和託管範例的版本。",
+        terms: "Agent-Native 服務條款",
+        privacy: "Agent-Native 隱私權政策",
+      },
+      builder: {
+        title: "代管服務的其他政策",
+        body: "這些本地副本涵蓋可接受使用、AI 功能、平台規則、暫停與下架、著作權及執法請求。英文版本具有控制效力。",
+      },
+      links: {
+        terms: "SaaS 服務協議",
+        privacy: "隱私權政策",
+        acceptableUse: "可接受使用政策",
+        aiTerms: "AI 條款",
+        platformRules: "平台規則",
+        takedown: "暫停、下架和資料處理政策",
+        lawEnforcement: "執法機關請求政策",
+      },
+      notIncluded: {
+        title: "不包含商業條款",
+        body: "Agent-Native 沒有付費方案或企業合約。不包含企業 SLA、支援條款、DPA、安全附錄、專業服務條款及費用等商業資料。",
+      },
+    },
     privacy: {
       eyebrow: "隱私政策",
       title: "Agent-Native 託管應用程式",
@@ -1739,6 +1768,7 @@ const messages = {
       sections: {
         scope: "適用範圍",
         information: "我們收集的資訊",
+        cookies: "Cookie 和分析",
         clipsExtension: "Agent-Native Clips Chrome 擴充功能",
         use: "我們如何使用資訊",
         sharing: "共用和第三方",
@@ -1752,6 +1782,8 @@ const messages = {
           "Agent-Native 是開放原始碼的，來源程式碼可在 MIT 授權證下獲得。本政策僅適用於 Builder.io 為 Agent-Native 使用者運營的託管應用程式和服務。它不適用於其他人對程式碼的使用，包括分叉、自訂範本、私人部署或自託管版本。如果您操作自己的部署，則您應對自己的資料實踐和隱私政策負責。",
         scope2Prefix: "本政策旨在補充 Builder.io 更廣泛的政策",
         scope2Suffix: "對於 Agent-Native 託管應用程式行為。",
+        cookies:
+          "Agent-Native 文件網站和託管應用程式可能會使用必要的 Cookie 來進行驗證與安全防護、儲存語言或主題等偏好設定，以及執行已設定的分析技術。如果部署已進行設定，文件網站可能會載入 Google Analytics 或 Google Tag Manager；託管服務也可能使用第一方分析來衡量可靠性和功能使用情況。我們不會將託管應用程式內容用於第三方廣告。您可以在瀏覽器設定中管理 Cookie，但停用必要 Cookie 可能會導致無法登入或使用其他功能。",
         clips1:
           "Agent-Native Clips Chrome extension 可幫助您開始基於瀏覽器的錄製，並在啟用後將瀏覽器診斷附加到剪輯。它可能會收集所選的捕獲來源、您選取包含的攝影機和麥克風媒體、活動分頁標題和 URL，以及將擴充功能連線到託管 Clips 所需的驗證狀態。",
         clips2:
@@ -1894,6 +1926,8 @@ const messages = {
         scope2Middle: "和 Agent-Native",
         scope2Suffix:
           "如果您代表公司或組織使用託管 Agent-Native 應用程式，則表示您有權接受該組織的這些條款。",
+        scope3:
+          "Agent-Native 沒有付費方案或付費託管訂閱。除非另行簽署書面協議，Builder.io 的商業條款（例如訂單表、費用、企業支援、服務級別和資料處理附錄）不屬於本服務的一部分。",
         hostedService:
           "Builder.io 可以提供託管的 Agent-Native 應用程式、範本、示範、共用工作區、瀏覽器擴充功能和相關代理工作流程。隨著產品的發展，託管服務可能會更新、限制、暫停或終止。",
         accounts1:

@@ -393,6 +393,13 @@ const messages = {
     page: "Page",
     source: "소스",
     sortBy: "Sort by {{label}}",
+    communityReview: "검토",
+    communityPublish: "사이트에 게시",
+    communityPublishing: "게시 중...",
+    communityPublished: "게시됨",
+    communityView: "사이트에서 보기",
+    communityNeedsCheck: "다시 시도하기 전에 Builder를 확인하세요",
+    communityPromotionFailed: "이 제출을 게시하지 못했습니다.",
   },
 };
 

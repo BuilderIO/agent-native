@@ -75,6 +75,10 @@ function footerColumns(
           label: t("homepage.footer.saasTerms"),
           href: localizedPath("/terms"),
         },
+        {
+          label: t("homepage.footer.legalResources"),
+          href: localizedPath("/legal"),
+        },
       ],
     },
   ];
