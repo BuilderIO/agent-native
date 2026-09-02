@@ -359,7 +359,15 @@ export async function googleFetch(
       continue;
     }
 
-    const data = await res.json().catch(() => null);
+    const rawBody = await res.text();
+    let data: any;
+    if (rawBody) {
+      try {
+        data = JSON.parse(rawBody);
+      } catch {
+        data = undefined;
+      }
+    }
 
     // 429 or 403-with-quota-reason — do NOT retry immediately. A retry inside
     // the same exhausted quota window just deepens the lockout. Trip the
