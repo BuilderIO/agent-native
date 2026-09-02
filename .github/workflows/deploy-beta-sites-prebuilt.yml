@@ -147,7 +147,11 @@ jobs:
     needs: [resolve-source, discover-sites]
     strategy:
       fail-fast: false
-      max-parallel: 8
+      # Each beta build can run release migrations against the shared production
+      # database. Keep those migrations from opening a connection burst.
+      # ponytail: one global beta build at a time; split migration into a single
+      # preflight job if fleet duration becomes a problem.
+      max-parallel: 1
       matrix: ${{ fromJSON(needs.discover-sites.outputs.matrix) }}
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:

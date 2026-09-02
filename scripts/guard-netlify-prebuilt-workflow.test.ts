@@ -207,6 +207,10 @@ describe("production Netlify site concurrency guard", () => {
       ".github/workflows/deploy-beta-sites-prebuilt.yml",
     );
     assert.equal(beta.concurrency, undefined);
+    assert.equal(
+      ((beta.jobs as Workflow).deploy as Workflow).strategy?.["max-parallel"],
+      1,
+    );
     const reusable = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
     );

@@ -613,6 +613,14 @@ for (const [path, target, buildContext] of [
       `${path} deploy job must explicitly select the reusable workflow child queue`,
     );
   }
+  if (
+    path === betaPath &&
+    asRecord(deployJob?.strategy)?.["max-parallel"] !== 1
+  ) {
+    issues.push(
+      `${path} must serialize beta builds because release migrations share database capacity`,
+    );
+  }
 }
 
 if (issues.length) {
