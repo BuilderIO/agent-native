@@ -14,8 +14,8 @@ permissions:
   actions: read
 
 # Do not add a shared workflow concurrency group here. GitHub retains only one
-# pending run per group. Each source-SHA run waits for its first-parent beta
-# run instead, so every main push remains in the publish order.
+# pending run per group. Each push run waits for the prior push's beta run
+# instead, so every main push remains in the publish order.
 
 jobs:
   resolve-source:
@@ -32,14 +32,9 @@ jobs:
             const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
             async function waitForPredecessor(sourceSha) {
-              if (!/^[0-9a-f]{40}$/i.test(sourceSha)) return;
-              const commit = await github.rest.repos.getCommit({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: sourceSha,
-              });
-              const predecessorSha = commit.data.parents[0]?.sha;
-              if (!predecessorSha) return;
+              if (context.eventName !== 'push') return;
+              const predecessorSha = context.payload.before;
+              if (!/^[0-9a-f]{40}$/i.test(predecessorSha ?? '')) return;
 
               try {
                 await github.rest.repos.getContent({
@@ -59,32 +54,43 @@ jobs:
               }
 
               const completionDeadline = Date.now() + 110 * 60_000;
+              let predecessorRunId;
               while (Date.now() < completionDeadline) {
-                const runs = await github.rest.actions.listWorkflowRuns({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  workflow_id: 'deploy-beta-sites-prebuilt.yml',
-                  head_sha: predecessorSha,
-                  per_page: 10,
-                });
-                const predecessor = runs.data.workflow_runs.find(
-                  (run) =>
-                    run.head_sha.toLowerCase() === predecessorSha.toLowerCase() &&
-                    run.event === 'push',
-                );
-                if (!predecessor) {
-                  core.info(`Waiting for beta run for predecessor ${predecessorSha}.`);
-                  await sleep(10_000);
-                  continue;
-                }
-                if (predecessor.status === 'completed') {
-                  core.info(
-                    `Predecessor beta run ${predecessor.id} completed with ${predecessor.conclusion ?? 'no conclusion'}.`,
+                if (!predecessorRunId) {
+                  const runs = await github.rest.actions.listWorkflowRuns({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    workflow_id: 'deploy-beta-sites-prebuilt.yml',
+                    head_sha: predecessorSha,
+                    per_page: 10,
+                  });
+                  const predecessor = runs.data.workflow_runs.find(
+                    (run) =>
+                      run.head_sha.toLowerCase() === predecessorSha.toLowerCase() &&
+                      run.event === 'push',
                   );
-                  return;
+                  if (predecessor) predecessorRunId = predecessor.id;
                 }
-                core.info(`Waiting for predecessor beta run ${predecessor.id} (${predecessor.status}).`);
-                await sleep(10_000);
+
+                if (predecessorRunId) {
+                  const predecessor = await github.rest.actions.getWorkflowRun({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    run_id: predecessorRunId,
+                  });
+                  if (predecessor.data.status === 'completed') {
+                    core.info(
+                      `Predecessor beta run ${predecessorRunId} completed with ${predecessor.data.conclusion ?? 'no conclusion'}.`,
+                    );
+                    return;
+                  }
+                  core.info(
+                    `Waiting for predecessor beta run ${predecessorRunId} (${predecessor.data.status}).`,
+                  );
+                } else {
+                  core.info(`Waiting for beta run for predecessor ${predecessorSha}.`);
+                }
+                await sleep(30_000);
               }
 
               core.setFailed(
