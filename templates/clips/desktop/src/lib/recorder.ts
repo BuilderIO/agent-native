@@ -71,6 +71,7 @@ import {
   buildDesktopDisplayMediaOptions,
   getAudioStreamWithFallback,
   getCameraStreamWithFallback,
+  shouldRequestSystemAudio,
 } from "./media-capture-constraints";
 import { planNativeFullscreenWarmOverlap } from "./native-recording-warm";
 import {
@@ -3264,7 +3265,11 @@ async function startNativeFullscreenRecording(
   // clock and the toolbar-enable behind the real recording start.
   let startedAt = 0;
   let nativeTranscriptFailureSaved = false;
-  const wantsSystemAudio = params.systemAudioOn !== false;
+  const wantsSystemAudio = shouldRequestSystemAudio(
+    true,
+    params.micOn,
+    params.systemAudioOn,
+  );
   const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
   const canTranscribeLocally =
     shouldStartLocalRecordingTranscription(wantsAudio);
@@ -4301,7 +4306,11 @@ async function startRecordingInner(
   // Vetted before anything is acquired so an ended display share cannot strand
   // a capture-suspension lease behind it.
   const restartHandoff = resolveRestartHandoff(params, wantsScreen, wantsAudio);
-  const wantsSystemAudio = wantsScreen && params.systemAudioOn !== false;
+  const wantsSystemAudio = shouldRequestSystemAudio(
+    wantsScreen,
+    params.micOn,
+    params.systemAudioOn,
+  );
   const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
   const canTranscribeLocally =
     shouldStartLocalRecordingTranscription(wantsAudio);
