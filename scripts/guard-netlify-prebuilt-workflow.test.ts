@@ -202,6 +202,20 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
+  it("keeps automatic beta runs independent and source-keyed", () => {
+    const beta = readWorkflow(
+      ".github/workflows/deploy-beta-sites-prebuilt.yml",
+    );
+    assert.equal(beta.concurrency, undefined);
+    const reusable = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /inputs\.source_ref/,
+    );
+  });
+
   it("rejects the dead workflow_call event check", () => {
     const mutated = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",

@@ -109,13 +109,15 @@ concurrency:
   # manager, and promotion jobs. A called workflow gets a distinct child queue
   # because the fleet caller already owns the shared per-site lock.
   group: >-
-    ${{ inputs.caller == 'fleet'
+    ${{ inputs.target == 'beta'
+        && format('netlify-prebuilt-beta-{0}-{1}', inputs.source_ref || github.sha, inputs.site)
+        || inputs.caller == 'fleet'
         && format('netlify-prebuilt-child-{0}-{1}', inputs.target, inputs.site)
         || inputs.target == 'production'
         && format('agent-native-production-site-{0}', inputs.site)
         || format('netlify-prebuilt-{0}-{1}', inputs.target, inputs.site) }}
-  # Beta deploys are source-SHA pinned. Queue every merged SHA instead of
-  # cancelling one before its site receives an artifact.
+  # Beta groups include the source revision. A workflow-level shared group has
+  # only one pending slot in GitHub Actions and would silently drop main pushes.
   cancel-in-progress: false
 
 jobs:
@@ -168,8 +170,8 @@ jobs:
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          # Beta sites are dedicated production sites whose source branch is
-          # beta. Production sites continue to build from main.
+          # Beta and production sites both build from the exact source revision
+          # selected by their publisher.
           ref: ${{ steps.source.outputs.source_ref }}
           fetch-depth: 1
 
