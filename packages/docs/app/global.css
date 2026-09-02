@@ -2108,9 +2108,12 @@ html.dark .shiki span {
   font-weight: 500;
 }
 
+/* Matches the header's GitHub/Ask AI buttons, whose border token lives inside
+   .builder-brand-tokens and so is unreadable from page content. */
 .template-hero-actions .secondary-button {
   min-height: 40px;
   padding: 0 16px;
+  border-color: color-mix(in srgb, var(--fg) 33%, transparent);
 }
 
 .secondary-button:hover {
