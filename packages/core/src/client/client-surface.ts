@@ -20,7 +20,7 @@ interface SurfaceGlobals {
  * Best-effort, side-effect-free detection of the current client surface.
  * Returns "web" during SSR and in any plain browser.
  *
- * Electron detection accepts the standard User-Agent token, the
+ * Electron detection accepts known native-client User-Agent markers, the
  * `AgentNativeDesktop` marker, or the preload globals exposed by our shell.
  */
 export function getClientSurface(): ClientSurface {
@@ -29,8 +29,7 @@ export function getClientSurface(): ClientSurface {
   if (w.__TAURI_INTERNALS__ || w.__TAURI__) return "tauri";
   const ua = typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
   if (
-    /AgentNativeDesktop/i.test(ua) ||
-    /\bElectron\b/i.test(ua) ||
+    /\b(?:AgentNativeDesktop|ChatGPT|Claude|Codex)\b/i.test(ua) ||
     w.agentNativeDesktop ||
     w.electronAPI
   ) {

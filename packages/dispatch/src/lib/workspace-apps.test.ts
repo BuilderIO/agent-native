@@ -117,8 +117,14 @@ describe("navigateToWorkspaceApp", () => {
     expect(shouldOpenWorkspaceAppInTopWindow()).toBe(false);
   });
 
-  it("uses the top window in native desktop hosts", () => {
+  it("keeps unrelated Electron webviews inline", () => {
     setUserAgent("Mozilla/5.0 Electron/38.0");
+
+    expect(shouldOpenWorkspaceAppInTopWindow()).toBe(false);
+  });
+
+  it("uses the top window in known native desktop hosts", () => {
+    setUserAgent("Mozilla/5.0 Electron/38.0 ChatGPT/1.0");
 
     expect(shouldOpenWorkspaceAppInTopWindow()).toBe(true);
   });
