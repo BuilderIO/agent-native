@@ -29,13 +29,17 @@ describe("chat-first macOS window controls", () => {
     );
   });
 
-  it("keeps the green control hidden until red or yellow hover", () => {
+  it("keeps the green control available while moving across the hover gap", () => {
     expect(shellCss).toContain(".collapsed-mac-window-controls::before {");
     expect(shellCss).toContain("opacity: 0;");
     expect(shellCss).toContain("transition: opacity var(--ease-collapse);");
-    expect(shellCss).toContain(".collapsed-mac-window-controls:has(");
-    expect(shellCss).toContain(".win-btn--close:hover");
-    expect(shellCss).toContain(".win-btn--minimize:hover");
+    expect(shellCss).toContain(
+      ".collapsed-mac-window-controls:hover::before,",
+    );
+    expect(shellCss).toContain(
+      ".collapsed-mac-window-controls:hover .win-btn--maximize,",
+    );
+    expect(shellCss).not.toContain(".collapsed-mac-window-controls:has(");
     expect(shellCss).toContain(
       ".collapsed-mac-window-controls .win-btn--maximize {",
     );
