@@ -9,15 +9,50 @@
 
 import {
   canWriteLocalWorkspaceResourcePath,
+  isLegacyOrganizationWorkspaceFile,
+  resourceDelete,
   resourceDeleteByPath,
+  resourceGetByPath,
   SHARED_OWNER,
+  sharedResourceOwner,
   WORKSPACE_OWNER,
 } from "../../resources/store.js";
 import {
   getAmbientUserEmail,
+  getRequestOrgId,
   getRequestUserEmail,
 } from "../../server/request-context.js";
 import { parseArgs, fail } from "../utils.js";
+
+async function deleteSharedResource(resourcePath: string): Promise<boolean> {
+  const orgId = getRequestOrgId() ?? null;
+  const owner = sharedResourceOwner(orgId);
+  if (owner === SHARED_OWNER) {
+    return resourceDeleteByPath(owner, resourcePath);
+  }
+
+  const options = { orgId };
+  const organizationResource = await resourceGetByPath(
+    owner,
+    resourcePath,
+    options,
+  );
+  if (organizationResource) {
+    const deleted = await resourceDeleteByPath(owner, resourcePath);
+    if (!deleted) return false;
+
+    const legacy = await resourceGetByPath(SHARED_OWNER, resourcePath, options);
+    if (legacy && isLegacyOrganizationWorkspaceFile(legacy, orgId)) {
+      await resourceDelete(legacy.id);
+    }
+    return true;
+  }
+
+  const legacy = await resourceGetByPath(SHARED_OWNER, resourcePath, options);
+  return legacy && isLegacyOrganizationWorkspaceFile(legacy, orgId)
+    ? resourceDeleteByPath(SHARED_OWNER, resourcePath)
+    : false;
+}
 
 export default async function resourceDeleteScript(
   args: string[],
@@ -48,11 +83,11 @@ Options:
       );
     }
   }
-  let owner: string;
+  let deleted: boolean;
   if (scope === "shared") {
-    owner = SHARED_OWNER;
+    deleted = await deleteSharedResource(resourcePath);
   } else if (scope === "workspace") {
-    owner = WORKSPACE_OWNER;
+    deleted = await resourceDeleteByPath(WORKSPACE_OWNER, resourcePath);
   } else {
     const personalOwner = getRequestUserEmail() ?? getAmbientUserEmail();
     if (!personalOwner) {
@@ -60,10 +95,9 @@ Options:
         "resource-delete --scope=personal requires an authenticated user (request context or AGENT_USER_EMAIL env var).",
       );
     }
-    owner = personalOwner;
+    deleted = await resourceDeleteByPath(personalOwner, resourcePath);
   }
 
-  const deleted = await resourceDeleteByPath(owner, resourcePath);
   if (deleted) {
     console.log(`Deleted resource: ${resourcePath}`);
   } else {
