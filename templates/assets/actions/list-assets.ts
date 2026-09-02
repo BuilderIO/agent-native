@@ -18,7 +18,7 @@ import {
 import {
   buildAssetLineage,
   requireLibrary,
-  serializeAsset,
+  serializeAssetListItem,
 } from "./_helpers.js";
 
 export default defineAction({
@@ -99,7 +99,29 @@ export default defineAction({
     const candidateRunIdSet = new Set(candidateRunIds ?? []);
     const [rows, lineageRows] = await Promise.all([
       db
-        .select()
+        .select({
+          id: schema.assets.id,
+          libraryId: schema.assets.libraryId,
+          collectionId: schema.assets.collectionId,
+          folderId: schema.assets.folderId,
+          mediaType: schema.assets.mediaType,
+          role: schema.assets.role,
+          status: schema.assets.status,
+          title: schema.assets.title,
+          description: schema.assets.description,
+          altText: schema.assets.altText,
+          prompt: schema.assets.prompt,
+          model: schema.assets.model,
+          aspectRatio: schema.assets.aspectRatio,
+          mimeType: schema.assets.mimeType,
+          width: schema.assets.width,
+          height: schema.assets.height,
+          durationSeconds: schema.assets.durationSeconds,
+          objectKey: schema.assets.objectKey,
+          thumbnailObjectKey: schema.assets.thumbnailObjectKey,
+          generationRunId: schema.assets.generationRunId,
+          metadata: schema.assets.metadata,
+        })
         .from(schema.assets)
         .where(and(...filters))
         .orderBy(desc(schema.assets.createdAt)),
@@ -148,7 +170,7 @@ export default defineAction({
       })
       .filter((asset) => assetMatchesSearch(asset, normalizedQuery, category))
       .map((asset) => ({
-        ...serializeAsset(asset, lineageById.get(asset.id) ?? null),
+        ...serializeAssetListItem(asset, lineageById.get(asset.id) ?? null),
         libraryTitle: libraryTitleById.get(asset.libraryId) ?? null,
       }));
     return { count: assets.length, assets };
