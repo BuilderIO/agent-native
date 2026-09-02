@@ -46,7 +46,7 @@ const LIBRARY_RECORDINGS: Array<{
 }> = [
   {
     title: "Introducing Agent-Native Clips",
-    thumbnail: "/clips/B0AgxdvzuZ7H.jpg",
+    thumbnail: "/clips/build-your-own.jpg",
     duration: "1:58",
     relative: "2 days ago",
     visibility: "public",
