@@ -6,6 +6,7 @@ import {
   acquireBlockFieldSaveController,
   activeControllerCount,
   blockFieldSaveImplRef,
+  flushBlockFieldSaveControllersForDocument,
   peekBlockFieldSaveController,
   releaseBlockFieldSaveController,
 } from "./blockFieldSaveRegistry";
@@ -230,6 +231,35 @@ describe("blockFieldSaveRegistry", () => {
     // Unblock k1 so the test leaves no dangling promise.
     resolveK1();
     await k1Flush;
+  });
+
+  it("flushes only the requested document's additional fields", async () => {
+    const saved: string[] = [];
+    for (const key of ["doc-a:notes", "doc-a:draft", "doc-b:notes"]) {
+      blockFieldSaveImplRef(key).current = (value) => {
+        saved.push(`${key}=${value}`);
+        return Promise.resolve();
+      };
+      const controller = acquireBlockFieldSaveController(key, factoryFor(key));
+      controller.change("pending");
+    }
+
+    await flushBlockFieldSaveControllersForDocument("doc-a");
+
+    expect(saved).toEqual(["doc-a:notes=pending", "doc-a:draft=pending"]);
+    expect(peekBlockFieldSaveController("doc-b:notes")?.lastSaved).toBe("");
+  });
+
+  it("fails when an additional field remains dirty after its save rejects", async () => {
+    const key = "doc:notes";
+    blockFieldSaveImplRef(key).current = () =>
+      Promise.reject(new Error("save failed"));
+    const controller = acquireBlockFieldSaveController(key, factoryFor(key));
+    controller.change("pending");
+
+    await expect(
+      flushBlockFieldSaveControllersForDocument("doc"),
+    ).rejects.toThrow("could not be saved");
   });
 });
 

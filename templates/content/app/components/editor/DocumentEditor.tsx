@@ -92,6 +92,7 @@ import {
 import { isDatabaseChoicePending } from "@/lib/optimistic-document";
 import { cn } from "@/lib/utils";
 
+import { flushBlockFieldSaveControllersForDocument } from "./blockFieldSaveRegistry";
 import {
   documentBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
@@ -659,6 +660,23 @@ function DocumentEditorBody({
   const pushDocumentToNotion = usePushDocumentToNotion(documentId);
   const [localTitle, setLocalTitle] = useState("");
   const [localContent, setLocalContent] = useState("");
+  const [additionalBlockContents, setAdditionalBlockContents] = useState<
+    Record<string, string>
+  >({});
+  const handleAdditionalBlockContentChange = useCallback(
+    (propertyId: string, content: string) => {
+      setAdditionalBlockContents((current) =>
+        current[propertyId] === content
+          ? current
+          : { ...current, [propertyId]: content },
+      );
+    },
+    [],
+  );
+
+  useEffect(() => {
+    setAdditionalBlockContents({});
+  }, [documentId]);
 
   useEffect(() => {
     const nextTitle = `${normalizeDocumentTitle(
@@ -1754,6 +1772,7 @@ function DocumentEditorBody({
               updates.content = content;
             }
             try {
+              await flushBlockFieldSaveControllersForDocument(documentId);
               if (Object.keys(updates).length > 0) {
                 const saved = await persistDocumentUpdatesRef.current(updates);
                 if (isDocumentUpdateConflict(saved)) {
@@ -2159,6 +2178,8 @@ function DocumentEditorBody({
       {utilityPanel === "info" ? (
         <DocumentInfoPanel
           document={document}
+          documentContent={exportContent}
+          additionalBlockContents={additionalBlockContents}
           databaseId={databaseId}
           databaseDocumentId={databaseDocumentId}
           canEdit={editorCanEdit}
@@ -2581,6 +2602,9 @@ function DocumentEditorBody({
                             }
                             canEdit={editorCanEdit}
                             primaryEditor={primaryEditor}
+                            onAdditionalContentChange={
+                              handleAdditionalBlockContentChange
+                            }
                           />
                         );
                       }

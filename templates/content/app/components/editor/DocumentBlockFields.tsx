@@ -52,6 +52,7 @@ interface DocumentBlockFieldsProps {
    * when there are multiple Blocks fields.
    */
   primaryEditor: ReactNode;
+  onAdditionalContentChange?: (propertyId: string, content: string) => void;
 }
 
 function isBlocksFieldRevisionConflict(error: unknown): boolean {
@@ -269,6 +270,7 @@ export function DocumentBlockFields({
   databaseDocumentId,
   canEdit,
   primaryEditor,
+  onAdditionalContentChange,
 }: DocumentBlockFieldsProps) {
   const t = useT();
   const query = useDocumentProperties(documentId, databaseId);
@@ -347,6 +349,7 @@ export function DocumentBlockFields({
               databaseDocumentId={databaseDocumentId ?? documentId}
               property={state.field}
               canEdit={canEditFields}
+              onContentChange={onAdditionalContentChange}
             />
           </div>
         );
@@ -365,6 +368,7 @@ export function DocumentBlockFields({
           canEdit={canEditFields}
           blockFields={state.fields}
           primaryEditor={primaryEditor}
+          onAdditionalContentChange={onAdditionalContentChange}
           t={t}
         />
       );
@@ -378,6 +382,7 @@ function MultiBlockFields({
   canEdit,
   blockFields,
   primaryEditor,
+  onAdditionalContentChange,
   t,
 }: {
   documentId: string;
@@ -386,6 +391,7 @@ function MultiBlockFields({
   canEdit: boolean;
   blockFields: DocumentProperty[];
   primaryEditor: ReactNode;
+  onAdditionalContentChange?: (propertyId: string, content: string) => void;
   t: ReturnType<typeof useT>;
 }) {
   const reorder = useReorderDocumentProperty(
@@ -559,6 +565,7 @@ function MultiBlockFields({
                   databaseDocumentId={databaseDocumentId}
                   property={property}
                   canEdit={canEdit}
+                  onContentChange={onAdditionalContentChange}
                 />
               )}
             </BlockFieldShell>
@@ -919,11 +926,13 @@ function AdditionalBlockEditor({
   databaseDocumentId,
   property,
   canEdit,
+  onContentChange,
 }: {
   documentId: string;
   databaseDocumentId: string;
   property: DocumentProperty;
   canEdit: boolean;
+  onContentChange?: (propertyId: string, content: string) => void;
 }) {
   const t = useT();
   const setProperty = useSetDocumentProperty(
@@ -944,6 +953,10 @@ function AdditionalBlockEditor({
       onRevisionConflict: () =>
         toast.error(t("editor.blocksFieldRevisionConflict")),
     });
+
+  useEffect(() => {
+    onContentChange?.(propertyId, content);
+  }, [content, onContentChange, propertyId]);
 
   return (
     <VisualEditor
