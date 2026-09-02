@@ -178,6 +178,12 @@ export function McpAccessSettings({
       }
     : null;
   const guide = guides.find((item) => item.id === activeGuide);
+  const selectGuide = (guideId: string) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("guide", guideId);
+    window.history.pushState(window.history.state, "", url);
+    setActiveGuide(guideId);
+  };
 
   return (
     <AgentTabFrame
@@ -234,7 +240,7 @@ export function McpAccessSettings({
                         ? `mcp-guide-panel-${item.id}`
                         : undefined
                     }
-                    onClick={() => setActiveGuide(item.id)}
+                    onClick={() => selectGuide(item.id)}
                     className={cn(
                       "shrink-0 cursor-pointer rounded-md px-2.5 py-1.5 text-xs font-medium",
                       item.id === activeGuide

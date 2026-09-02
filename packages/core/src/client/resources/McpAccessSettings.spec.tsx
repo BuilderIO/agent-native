@@ -140,6 +140,47 @@ describe("McpAccessSettings localization", () => {
     ).toBe("true");
   });
 
+  it("keeps a selected guide in the URL and restores it on navigation", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/settings/mcp?guide=grok&section=access",
+    );
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <McpAccessSettings appName="Content" />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("#mcp-guide-tab-cursor")
+        ?.click();
+    });
+    expect(new URLSearchParams(window.location.search).get("guide")).toBe(
+      "cursor",
+    );
+    expect(new URLSearchParams(window.location.search).get("section")).toBe(
+      "access",
+    );
+
+    await act(async () => {
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(
+      container
+        .querySelector("#mcp-guide-tab-cursor")
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
   it("renders the default guide without a browser during SSR", () => {
     const browserWindow = window;
     vi.stubGlobal("window", undefined);
