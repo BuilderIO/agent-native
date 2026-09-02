@@ -388,6 +388,7 @@
 }
 
 .an-rich-md-prose p.is-editor-empty:first-child::before,
+.an-rich-md-prose p.is-empty::before,
 .an-rich-md-prose h1.is-empty::before,
 .an-rich-md-prose h2.is-empty::before,
 .an-rich-md-prose h3.is-empty::before,
