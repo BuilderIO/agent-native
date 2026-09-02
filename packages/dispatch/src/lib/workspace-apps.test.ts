@@ -8,6 +8,15 @@ import {
   workspaceAppEmbedTarget,
 } from "./workspace-apps";
 
+const defaultUserAgent = navigator.userAgent;
+
+function setUserAgent(userAgent: string) {
+  Object.defineProperty(navigator, "userAgent", {
+    configurable: true,
+    value: userAgent,
+  });
+}
+
 function setAncestorOrigin(origin: string | null) {
   Object.defineProperty(window.location, "ancestorOrigins", {
     configurable: true,
@@ -88,6 +97,7 @@ describe("navigateToWorkspaceApp", () => {
   afterEach(() => {
     window.history.replaceState({}, "", "/");
     setAncestorOrigin(null);
+    setUserAgent(defaultUserAgent);
     Object.defineProperty(window, "parent", {
       configurable: true,
       value: window,
@@ -105,6 +115,12 @@ describe("navigateToWorkspaceApp", () => {
     });
 
     expect(shouldOpenWorkspaceAppInTopWindow()).toBe(false);
+  });
+
+  it("uses the top window in native desktop hosts", () => {
+    setUserAgent("Mozilla/5.0 Electron/38.0");
+
+    expect(shouldOpenWorkspaceAppInTopWindow()).toBe(true);
   });
 
   it("keeps the hosted Dispatch shell inline", () => {

@@ -55,6 +55,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 const frameState = vi.hoisted(() => ({ inBuilderFrame: false }));
 
 vi.mock("@agent-native/core/client/host", () => ({
+  getClientSurface: () => "web",
   isInBuilderFrame: () => frameState.inBuilderFrame,
 }));
 

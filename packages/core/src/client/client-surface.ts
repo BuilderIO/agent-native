@@ -20,9 +20,8 @@ interface SurfaceGlobals {
  * Best-effort, side-effect-free detection of the current client surface.
  * Returns "web" during SSR and in any plain browser.
  *
- * Electron detection keys off the `AgentNativeDesktop` User-Agent token that the
- * desktop shell appends app-wide (see `app.userAgentFallback`), plus the preload
- * globals, so it stays specific to our app rather than every Electron webview.
+ * Electron detection accepts the standard User-Agent token, the
+ * `AgentNativeDesktop` marker, or the preload globals exposed by our shell.
  */
 export function getClientSurface(): ClientSurface {
   if (typeof window === "undefined") return "web";
