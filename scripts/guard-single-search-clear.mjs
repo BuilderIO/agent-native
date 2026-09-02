@@ -20,9 +20,11 @@
  * survives `oxfmt` is covered.
  */
 
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { GUARD_EXIT_COULD_NOT_RUN } from "./lib/changed-lines.mjs";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -48,11 +50,17 @@ const ALLOW_PRAGMA = /guard:allow-duplicate-search-clear\b/;
 const WRAPPER_LOOKAHEAD_LINES = 18;
 
 function walk(directory, files = []) {
+  // A directory this guard cannot read is not a directory with no violations.
+  // Swallowing the error here would report OK after inspecting nothing, which
+  // is the exact failure this guard exists to prevent.
   let entries;
   try {
     entries = readdirSync(directory, { withFileTypes: true });
-  } catch {
-    return files;
+  } catch (error) {
+    console.error(
+      `guard-single-search-clear: cannot read ${path.relative(REPO_ROOT, directory) || directory} - ${error.message}`,
+    );
+    process.exit(GUARD_EXIT_COULD_NOT_RUN);
   }
   for (const entry of entries) {
     const absolutePath = path.join(directory, entry.name);
@@ -82,7 +90,14 @@ function main() {
   let checked = 0;
 
   for (const root of SOURCE_ROOTS) {
-    for (const absolutePath of walk(path.join(REPO_ROOT, root))) {
+    const absoluteRoot = path.join(REPO_ROOT, root);
+    if (!existsSync(absoluteRoot)) {
+      console.error(
+        `guard-single-search-clear: source root ${root} is missing; the scan would silently cover less than the repo.`,
+      );
+      process.exit(GUARD_EXIT_COULD_NOT_RUN);
+    }
+    for (const absolutePath of walk(absoluteRoot)) {
       const source = readFileSync(absolutePath, "utf8");
       if (!SEARCH_TYPE_RE.test(source)) continue;
       const lines = source.split("\n");
