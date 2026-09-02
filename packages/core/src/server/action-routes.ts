@@ -334,6 +334,10 @@ export interface WebMcpManifestOptions {
 export interface MountWebMcpActionRoutesOptions extends MountActionRoutesOptions {
   /** Optional branding included in `/.well-known/mcp.json`. */
   manifest?: WebMcpManifestOptions;
+  /** Resolve the owner context so anonymous template identities stay scoped. */
+  getOwnerContextFromEvent?: (
+    event: any,
+  ) => AgentRunOwnerContext | Promise<AgentRunOwnerContext>;
 }
 
 interface MountActionRoutesInternalOptions extends MountActionRoutesOptions {
@@ -342,6 +346,7 @@ interface MountActionRoutesInternalOptions extends MountActionRoutesOptions {
   forcePost?: boolean;
   caller?: "webmcp";
   allowDelegatedCaller?: boolean;
+  getOwnerContextFromEvent?: MountWebMcpActionRoutesOptions["getOwnerContextFromEvent"];
 }
 
 function normalizeOrgId(value: string | null | undefined): string | undefined {
@@ -580,7 +585,43 @@ function mountActionRoutesInternal(
             resolvedCaller = caller;
           }
         }
-        if (!resolvedCaller && options?.getOwnerFromEvent) {
+        let ownerContextResolved = false;
+        if (
+          !resolvedCaller &&
+          options?.caller === "webmcp" &&
+          options?.getOwnerContextFromEvent
+        ) {
+          ownerContextResolved = true;
+          try {
+            const ownerContext = await options.getOwnerContextFromEvent(event);
+            if (ownerContext.anonymous && !isPublicWebMcpAction(entry)) {
+              throw createError({
+                statusCode: 401,
+                statusMessage: "Unauthorized",
+              });
+            }
+            if (!ownerContext.anonymous) {
+              userEmail = ownerContext.owner;
+              userName = ownerContext.name;
+            }
+          } catch (error) {
+            if (
+              entry.requiresAuth === false &&
+              isAuthResolutionFailure(error) &&
+              isPublicWebMcpAction(entry)
+            ) {
+              userEmail = undefined;
+              userName = undefined;
+            } else {
+              throw error;
+            }
+          }
+        }
+        if (
+          !resolvedCaller &&
+          !ownerContextResolved &&
+          options?.getOwnerFromEvent
+        ) {
           try {
             userEmail = await options.getOwnerFromEvent(event);
             userName = options?.getUserNameFromEvent
@@ -966,7 +1007,14 @@ export function mountWebMcpActionRoutes(
         return { error: "Method not allowed. Use GET." };
       }
       let authenticated = false;
-      if (options?.getOwnerFromEvent) {
+      if (options?.getOwnerContextFromEvent) {
+        try {
+          const ownerContext = await options.getOwnerContextFromEvent(event);
+          authenticated = !ownerContext.anonymous;
+        } catch (error) {
+          if (!isAuthResolutionFailure(error)) throw error;
+        }
+      } else if (options?.getOwnerFromEvent) {
         try {
           await options.getOwnerFromEvent(event);
           authenticated = true;

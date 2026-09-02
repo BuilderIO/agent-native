@@ -2696,4 +2696,73 @@ describe("mountWebMcpActionRoutes", () => {
     ).rejects.toMatchObject({ statusCode: 401 });
     expect(privateRun).not.toHaveBeenCalled();
   });
+
+  it("does not treat a synthetic anonymous owner as authenticated", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const publicRun = vi.fn(async (_args, context) => ({
+      userEmail: context.userEmail,
+    }));
+    const mutationRun = vi.fn();
+    const getOwnerContextFromEvent = vi.fn(async () => ({
+      owner: "public-owner",
+      anonymous: true,
+    }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        "search-docs": {
+          tool: { description: "Search public docs", parameters: {} },
+          run: publicRun,
+          http: false,
+          requiresAuth: false,
+          readOnly: true,
+          publicAgent: {
+            expose: true,
+            readOnly: true,
+            requiresAuth: false,
+          },
+        } as any,
+        "mutate-docs": {
+          tool: { description: "Mutate docs", parameters: {} },
+          run: mutationRun,
+          http: false,
+          readOnly: false,
+        } as any,
+      },
+      { getOwnerContextFromEvent },
+    );
+
+    const manifestRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/manifest",
+    );
+    const mutationRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/mutate-docs",
+    );
+
+    await expect(
+      manifestRoute?.handler({ _method: "GET", _headers: {} }),
+    ).resolves.toEqual([
+      {
+        name: "search-docs",
+        description: "Search public docs",
+        inputSchema: {},
+        readOnly: true,
+      },
+    ]);
+    await expect(
+      mutationRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(mutationRun).not.toHaveBeenCalled();
+  });
 });
