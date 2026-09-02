@@ -295,7 +295,7 @@ export default function ClipsTemplate() {
       {/* Try with AI */}
       <section
         id="try-with-ai"
-        className="scroll-mt-24 border-t border-[var(--docs-border)]"
+        className="template-section-flush scroll-mt-24 border-t border-[var(--docs-border)]"
       >
         <div className="flex flex-col border-x border-[var(--docs-border)] lg:flex-row lg:items-stretch">
           <div className="flex flex-1 items-center px-6 pb-8 sm:px-10 order-2 lg:order-1 lg:w-2/3 lg:flex-none lg:border-e lg:border-[var(--docs-border)] lg:px-8 lg:py-8">

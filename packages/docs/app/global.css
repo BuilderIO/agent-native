@@ -347,6 +347,12 @@ body {
   .template-detail-page > section:not(:first-child) {
     padding-block: 3rem;
   }
+
+  /* Sections whose own border box must meet the section rule, so the vertical
+     borders are not left floating inside this padding. */
+  .template-detail-page > section.template-section-flush {
+    padding-block: 0;
+  }
 }
 
 ::selection {
