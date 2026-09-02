@@ -158,6 +158,26 @@ const FOCUSABLE_SELECTOR = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
 
+const activeExternalAgentNudgeIds = new Set<string>();
+let activeExternalAgentNudgeId: string | null = null;
+
+function registerExternalAgentNudge(id: string): () => void {
+  activeExternalAgentNudgeIds.add(id);
+  activeExternalAgentNudgeId = id;
+
+  return () => {
+    if (!activeExternalAgentNudgeIds.delete(id)) return;
+    if (activeExternalAgentNudgeId === id) {
+      activeExternalAgentNudgeId =
+        [...activeExternalAgentNudgeIds].pop() ?? null;
+    }
+  };
+}
+
+function isActiveExternalAgentNudge(id: string): boolean {
+  return activeExternalAgentNudgeId === id;
+}
+
 function getFocusableElements(container: HTMLElement): HTMLElement[] {
   return Array.from(
     container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
@@ -204,16 +224,24 @@ export function ExternalAgentNudge({
 }) {
   const t = useT();
   const host = useExternalAgentHost();
-  const [dismissed, setDismissed] = useState(false);
+  const nudgeId = useId();
+  const hostDismissalKey = host ? dismissedKey(host, variant) : null;
+  const [dismissal, setDismissal] = useState(() => ({
+    key: hostDismissalKey,
+    dismissed: host ? wasDismissed(host, variant) : false,
+  }));
   const nudgeRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   const titleId = useId();
   const descriptionId = useId();
+  const dismissalReady = dismissal.key === hostDismissalKey;
+  const nudgeVisible = Boolean(host && dismissalReady && !dismissal.dismissed);
 
   const dismissNudge = useCallback(() => {
     if (!host) return;
+    const key = dismissedKey(host, variant);
     rememberDismissal(host, variant);
-    setDismissed(true);
+    setDismissal({ key, dismissed: true });
   }, [host, variant]);
 
   const restoreFocus = useCallback(() => {
@@ -223,21 +251,27 @@ export function ExternalAgentNudge({
   }, []);
 
   useEffect(() => {
-    setDismissed(host ? wasDismissed(host, variant) : false);
-  }, [host, variant]);
+    setDismissal({
+      key: hostDismissalKey,
+      dismissed: host ? wasDismissed(host, variant) : false,
+    });
+  }, [host, hostDismissalKey, variant]);
 
   useEffect(() => {
-    if (host && !dismissed) return;
+    if (nudgeVisible) return;
     restoreFocus();
-  }, [dismissed, host, restoreFocus]);
+  }, [nudgeVisible, restoreFocus]);
 
   useEffect(() => {
-    if (!host || dismissed) return;
+    if (!nudgeVisible) return;
 
     const nudge = nudgeRef.current;
     if (!nudge) return;
 
+    const unregister = registerExternalAgentNudge(nudgeId);
+
     if (
+      isActiveExternalAgentNudge(nudgeId) &&
       !previouslyFocusedRef.current &&
       document.activeElement instanceof HTMLElement &&
       !nudge.contains(document.activeElement)
@@ -246,6 +280,7 @@ export function ExternalAgentNudge({
     }
 
     const focusFirst = () => {
+      if (!isActiveExternalAgentNudge(nudgeId)) return;
       const firstFocusable = getFocusableElements(nudge)[0];
       (firstFocusable ?? nudge).focus();
     };
@@ -253,12 +288,14 @@ export function ExternalAgentNudge({
     focusFirst();
 
     const handleFocusIn = (event: FocusEvent) => {
+      if (!isActiveExternalAgentNudge(nudgeId)) return;
       if (event.target instanceof Node && !nudge.contains(event.target)) {
         focusFirst();
       }
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (!isActiveExternalAgentNudge(nudgeId)) return;
       if (event.key === "Escape") {
         event.preventDefault();
         dismissNudge();
@@ -303,18 +340,20 @@ export function ExternalAgentNudge({
     }
 
     return () => {
+      const wasActive = isActiveExternalAgentNudge(nudgeId);
+      unregister();
       document.removeEventListener("focusin", handleFocusIn);
       document.removeEventListener("keydown", handleKeyDown, true);
       for (const sibling of inertSiblings) {
         if (!previouslyInert.get(sibling)) sibling.removeAttribute("inert");
       }
-      if (!nudge.isConnected) restoreFocus();
+      if (wasActive && !nudge.isConnected) restoreFocus();
     };
-  }, [dismissed, dismissNudge, host, restoreFocus]);
+  }, [dismissNudge, nudgeId, nudgeVisible, restoreFocus]);
 
   useEffect(() => restoreFocus, [restoreFocus]);
 
-  if (!host || dismissed) return null;
+  if (!host || !nudgeVisible) return null;
 
   const title = t(
     variant === "sidebar"

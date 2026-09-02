@@ -1,6 +1,5 @@
 import {
   SIDEBAR_STATE_CHANGE_EVENT,
-  ExternalAgentNudge,
   sendToAgentChat,
   setAgentChatContextItem,
   useAgentEngineConfigured,
@@ -8497,7 +8496,6 @@ function CreatePlanDialog({
               onSubmit={submit}
             />
           </div>
-          <ExternalAgentNudge variant="prompt" />
           <div className="flex flex-wrap gap-2">
             {CREATE_PLAN_PROMPTS.map((preset) => (
               <Button

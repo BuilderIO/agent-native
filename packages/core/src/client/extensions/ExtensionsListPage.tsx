@@ -26,7 +26,6 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { PromptComposer } from "../composer/index.js";
-import { ExternalAgentNudge } from "../external-agent-host.js";
 import { useT } from "../i18n.js";
 import { cn } from "../utils.js";
 import {
@@ -240,7 +239,6 @@ export function ExtensionsListPage({
                 draftScope="extensions:create-popover"
                 onSubmit={handleCreate}
               />
-              <ExternalAgentNudge variant="prompt" />
             </PopoverContent>
           </Popover>
           <DropdownMenu>

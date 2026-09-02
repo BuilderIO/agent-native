@@ -1,7 +1,4 @@
-import {
-  ExternalAgentNudge,
-  useSendToAgentChat,
-} from "@agent-native/core/client/agent-chat";
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
   appApiPath,
   agentNativePath,
@@ -1630,7 +1627,6 @@ function AddDataSourceCTA() {
           draftScope="analytics:add-data-source"
           onSubmit={handleSubmit}
         />
-        <ExternalAgentNudge variant="prompt" />
       </PopoverContent>
     </Popover>
   );

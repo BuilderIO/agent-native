@@ -1,4 +1,3 @@
-import { ExternalAgentNudge } from "@agent-native/core/client/agent-chat";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import {
   PromptComposer,
@@ -399,7 +398,6 @@ export function AddSlidePopover({
           onSourceContextChange={setGoogleDocContext}
         />
       </div>
-      <ExternalAgentNudge variant="prompt" />
     </div>,
     document.body,
   );

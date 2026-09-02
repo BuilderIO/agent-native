@@ -229,7 +229,7 @@ function updateSnapshotFromInitialize(result: unknown): void {
   updateSnapshot({
     context: result.hostContext,
     capabilities: result.hostCapabilities,
-    version: result.hostInfo ?? result.protocolVersion,
+    version: result.protocolVersion,
     hostInfo: result.hostInfo,
   });
 }

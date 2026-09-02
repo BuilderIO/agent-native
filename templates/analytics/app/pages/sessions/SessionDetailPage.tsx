@@ -1,6 +1,5 @@
 import {
   AgentToggleButton,
-  ExternalAgentNudge,
   useSendToAgentChat,
 } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
@@ -438,7 +437,6 @@ function AskSessionPopover({
           draftScope={`analytics:session-replay:${recording.id}`}
           onSubmit={handleSubmit}
         />
-        <ExternalAgentNudge variant="prompt" />
       </PopoverContent>
     </Popover>
   );

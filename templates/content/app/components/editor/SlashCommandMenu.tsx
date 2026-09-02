@@ -1,7 +1,4 @@
-import {
-  ExternalAgentNudge,
-  useSendToAgentChat,
-} from "@agent-native/core/client/agent-chat";
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
 import type { CreateInlineDatabaseResponse } from "@shared/api";
@@ -1346,7 +1343,6 @@ export function SlashCommandMenu({
               draftScope={`content:generate:${documentId ?? "document"}`}
               onSubmit={submitGeneratePrompt}
             />
-            <ExternalAgentNudge variant="prompt" />
           </PopoverContent>
         </Popover>
       )}

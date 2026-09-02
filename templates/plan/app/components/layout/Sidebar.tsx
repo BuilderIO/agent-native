@@ -1,6 +1,5 @@
 import {
   navigateWithAgentChatViewTransition,
-  ExternalAgentNudge,
   sendToAgentChat,
   useChatThreads,
   useSendToAgentChat,
@@ -525,7 +524,6 @@ function BrandingCustomizePopover() {
             draftScope="plans:customize-branding"
             onSubmit={handleSubmit}
           />
-          <ExternalAgentNudge variant="prompt" />
         </PopoverContent>
       </Popover>
     </>

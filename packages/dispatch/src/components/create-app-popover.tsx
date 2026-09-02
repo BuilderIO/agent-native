@@ -1,7 +1,4 @@
-import {
-  ExternalAgentNudge,
-  sendToAgentChat,
-} from "@agent-native/core/client/agent-chat";
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useDevMode } from "@agent-native/core/client/agent-chat";
 import {
   agentNativePath,
@@ -677,7 +674,6 @@ export function CreateAppPopover({
         className="relative w-[calc(100vw-2rem)] rounded-xl p-3 shadow-xl sm:w-[460px]"
       >
         <CreateAppFlow onClose={() => setOpen(false)} onCreated={onCreated} />
-        <ExternalAgentNudge variant="prompt" />
       </PopoverContent>
     </Popover>
   );

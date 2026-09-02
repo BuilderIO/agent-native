@@ -8,7 +8,6 @@ import {
   PopoverTrigger,
 } from "./components/ui/popover.js";
 import { PromptComposer } from "./composer/index.js";
-import { ExternalAgentNudge } from "./external-agent-host.js";
 import { useT } from "./i18n.js";
 
 export interface AgentAskPopoverProps {
@@ -90,7 +89,6 @@ export function AgentAskPopover({
           voiceEnabled={false}
           onSubmit={handleSubmit}
         />
-        <ExternalAgentNudge variant="prompt" />
       </PopoverContent>
     </Popover>
   );

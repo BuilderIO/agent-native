@@ -41,7 +41,6 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { PromptComposer } from "../composer/index.js";
-import { ExternalAgentNudge } from "../external-agent-host.js";
 import { useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { useUploadResource } from "../uploads/use-upload-resource.js";
@@ -902,7 +901,6 @@ The result should be a reusable agent profile, not a one-off task response.`,
                 draftScope="resources:create-skill"
                 onSubmit={(text) => submitSkill(text)}
               />
-              <ExternalAgentNudge variant="prompt" />
             </div>
           )}
 
@@ -977,7 +975,6 @@ The result should be a reusable agent profile, not a one-off task response.`,
                 draftScope="resources:create-job"
                 onSubmit={(text) => submitJob(text)}
               />
-              <ExternalAgentNudge variant="prompt" />
             </div>
           )}
 
@@ -1038,7 +1035,6 @@ The result should be a reusable agent profile, not a one-off task response.`,
                 draftScope="resources:create-agent"
                 onSubmit={(text) => submitAgentPrompt(text)}
               />
-              <ExternalAgentNudge variant="prompt" />
             </div>
           )}
 

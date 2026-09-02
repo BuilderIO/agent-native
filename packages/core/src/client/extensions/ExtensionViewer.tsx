@@ -35,7 +35,6 @@ import {
 } from "../components/ui/tooltip.js";
 import { PromptComposer } from "../composer/index.js";
 import { isEmbedMcpChatBridgeActive } from "../embed-auth.js";
-import { ExternalAgentNudge } from "../external-agent-host.js";
 import { useT } from "../i18n.js";
 import { ShareButton } from "../sharing/ShareButton.js";
 import {
@@ -451,7 +450,6 @@ function EditToolPopover({
           draftScope={`extensions:edit:${extension.id}`}
           onSubmit={handleSubmit}
         />
-        <ExternalAgentNudge variant="prompt" />
       </PopoverContent>
     </Popover>
   );

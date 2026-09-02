@@ -287,6 +287,10 @@ describe("MCP app host client helpers", () => {
     });
     await flushHostLifecycleTurn();
 
+    expect(getMcpAppHostContext()).toMatchObject({
+      version: "2026-01-26",
+    });
+
     calls = getJsonRpcCalls(parent);
     expect(calls).toEqual(
       expect.arrayContaining([

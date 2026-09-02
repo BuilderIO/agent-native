@@ -1,4 +1,3 @@
-import { ExternalAgentNudge } from "@agent-native/core/client/agent-chat";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import {
   PromptComposer,
@@ -1032,7 +1031,6 @@ export default function PromptPopover({
             </div>
           )}
         </div>
-        <ExternalAgentNudge variant="prompt" />
       </div>
     </>
   );

@@ -1,7 +1,4 @@
-import {
-  ExternalAgentNudge,
-  useSendToAgentChat,
-} from "@agent-native/core/client/agent-chat";
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconPlus } from "@tabler/icons-react";
@@ -87,7 +84,6 @@ export function NewDashboardDialog({
           draftScope="analytics:new-dashboard"
           onSubmit={handleSubmit}
         />
-        <ExternalAgentNudge variant="prompt" />
       </PopoverContent>
     </Popover>
   );
