@@ -697,15 +697,19 @@ function TrayPopover() {
 
 const CLIPS_MOCK_CSS = [
   // Shell
-  ".clips-mock { position: relative; width: 100%; overflow: hidden; background: #0c0c0c; container-type: size; }",
+  // Horizontal padding keeps the window off the container edges; overflow stays
+  // visible so the tray popover can hang above the window's top edge.
+  // Padding reserves room for the popover to hang above the window's top edge
+  // and for the window's shadow, while the box itself stays clipped.
+  ".clips-mock { position: relative; width: 100%; padding: 46px 28px 28px; overflow: hidden; }",
   ".clips-mock, .clips-mock * { box-sizing: border-box; }",
-  // The popover is a fixed 340x408 panel. Shrink it rather than let the
-  // "Start recording" CTA clip out of frame in a short hero.
-  "@container (max-height: 500px) { .clips-mock .clips-mock-popover { transform: scale(0.82); transform-origin: top right; } }",
-  "@container (max-height: 400px) { .clips-mock .clips-mock-popover { transform: scale(0.66); transform-origin: top right; } }",
+  ".clips-mock-frame { position: relative; height: 100%; }",
+  // The popover is a fixed 340x408 panel. Shrink it on narrow screens, where
+  // the mock is shorter, rather than let the "Start recording" CTA clip out.
+  "@media (max-width: 640px) { .clips-mock .clips-mock-popover { transform: scale(0.72); transform-origin: top right; } }",
 
   // Faux app window
-  ".clips-mock .library-window { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; background: #212121; color: #e6e6e6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }",
+  ".clips-mock .library-window { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; background: #212121; color: #e6e6e6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.18); }",
   ".clips-mock .library-window-topbar { flex-shrink: 0; display: flex; align-items: center; gap: 6px; padding: 10px 12px; background: #181818; border-bottom: 1px solid #2c2c2c; }",
   ".clips-mock .library-window-topbar span { width: 11px; height: 11px; border-radius: 999px; background: #4d4d4d; }",
   ".clips-mock .library-window-body { flex: 1; min-height: 0; display: flex; }",
@@ -757,7 +761,7 @@ const CLIPS_MOCK_CSS = [
 
   // Tray popover — values mirror templates/clips/desktop/src/styles.css, with
   // the dark palette pinned so the art does not follow the visitor's theme.
-  ".clips-mock .clips-mock-popover { --brand: #f5f5f5; --brand-hover: #e5e5e5; --brand-ring: rgba(245, 245, 245, 0.28); --bg: #212121; --surface: #262626; --surface-hover: #2e2e2e; --surface-strong: #3d3d3d; --fg: #f5f5f5; --fg-muted: #a3a3a3; --fg-subtle: #737373; --border: #3d3d3d; --border-strong: #4d4d4d; --radius: 12px; --radius-sm: 8px; --radius-pill: 999px; --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4); --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3); position: absolute; top: 26px; right: 24px; width: 340px; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size: 13px; line-height: 1.4; color: var(--fg); box-shadow: var(--shadow-md); }",
+  ".clips-mock .clips-mock-popover { --brand: #f5f5f5; --brand-hover: #e5e5e5; --brand-ring: rgba(245, 245, 245, 0.28); --bg: #212121; --surface: #262626; --surface-hover: #2e2e2e; --surface-strong: #3d3d3d; --fg: #f5f5f5; --fg-muted: #a3a3a3; --fg-subtle: #737373; --border: #3d3d3d; --border-strong: #4d4d4d; --radius: 12px; --radius-sm: 8px; --radius-pill: 999px; --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4); --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3); position: absolute; top: -34px; right: 40px; width: 340px; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size: 13px; line-height: 1.4; color: var(--fg); box-shadow: 0 32px 64px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.3); }",
   ".clips-mock .app { margin: 0; padding: 14px; display: flex; flex-direction: column; gap: 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; }",
   ".clips-mock .app-recorder { gap: 0; padding: 0; overflow: hidden; }",
   ".clips-mock .app-recorder > .bottom-row { flex: 0 0 auto; padding: 7px 14px 10px; border-top: 1px solid var(--border); background: var(--bg); }",
@@ -793,6 +797,33 @@ const CLIPS_MOCK_CSS = [
   ".clips-mock .bottom-btn { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; background: transparent; border-radius: var(--radius-sm); color: var(--fg-muted); }",
   ".clips-mock .bottom-icon { position: relative; display: inline-flex; align-items: center; justify-content: center; color: var(--fg-muted); }",
   ".clips-mock .bottom-label { font-size: 11px; font-weight: 500; }",
+
+  // Hover behavior, mirroring the real stylesheet's transitions. The mock is
+  // decorative, so these exist purely to make it feel like live UI.
+  ".clips-mock .icon-button, .clips-mock .mode-toggle > span, .clips-mock .toggle, .clips-mock .bottom-btn, .clips-mock .bottom-icon, .clips-mock .primary, .clips-mock .row, .clips-mock .library-nav-item, .clips-mock .library-icon-btn, .clips-mock .library-search, .clips-mock .library-new-recording, .clips-mock .library-import { transition: background 120ms, color 120ms, border-color 120ms, box-shadow 120ms, transform 80ms; }",
+  ".clips-mock .icon-button:hover { background: var(--surface-hover); color: var(--fg); }",
+  ".clips-mock .mode-toggle > span:hover { color: var(--fg); }",
+  ".clips-mock .row:hover { background: var(--surface-hover); border-color: var(--border-strong); }",
+  ".clips-mock .toggle-on:hover { background: #15803d; }",
+  ".clips-mock .toggle-off:hover { color: var(--fg); }",
+  ".clips-mock .primary:hover { background: var(--brand-hover); }",
+  ".clips-mock .primary:active { transform: translateY(1px); }",
+  ".clips-mock .bottom-btn:hover { background: var(--surface-hover); color: var(--fg); }",
+  ".clips-mock .bottom-btn:hover .bottom-icon { color: var(--fg); }",
+  ".clips-mock .readiness-summary:hover { color: var(--fg); }",
+
+  // Library hover behavior, mirroring templates/clips/app RecordingCard.
+  ".clips-mock .library-card { transition: border-color 140ms, box-shadow 140ms, transform 140ms; }",
+  ".clips-mock .library-card:hover { border-color: #5a5a5a; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35); transform: translateY(-2px); }",
+  ".clips-mock .library-card-thumb img { transition: transform 240ms, filter 240ms; }",
+  ".clips-mock .library-card:hover .library-card-thumb img { transform: scale(1.03); }",
+  ".clips-mock .library-card-thumb-overlay { transition: background 160ms; }",
+  ".clips-mock .library-card:hover .library-card-thumb-overlay { background: rgba(0, 0, 0, 0.32); }",
+  ".clips-mock .library-nav-item:hover { background: rgba(255, 255, 255, 0.06); color: #f2f2f2; }",
+  ".clips-mock .library-icon-btn:hover { background: rgba(255, 255, 255, 0.08); color: #e6e6e6; }",
+  ".clips-mock .library-search:hover { border-color: #4d4d4d; }",
+  ".clips-mock .library-new-recording:hover { background: #ffffff; }",
+  ".clips-mock .library-import:hover { background: rgba(255, 255, 255, 0.05); color: #e6e6e6; }",
 ].join("\n");
 
 export function ClipsLibraryMock({
@@ -805,7 +836,7 @@ export function ClipsLibraryMock({
   return (
     <div className={`clips-mock ${className}`} role="img" aria-label={label}>
       <style>{CLIPS_MOCK_CSS}</style>
-      <div aria-hidden="true">
+      <div className="clips-mock-frame" aria-hidden="true">
         <LibraryWindow />
         <TrayPopover />
       </div>

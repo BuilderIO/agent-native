@@ -262,7 +262,7 @@ export default function ClipsTemplate() {
         media={
           <ClipsLibraryMock
             label={t("templateLanding.clips.s001")}
-            className="h-[360px] sm:h-[440px] lg:h-[536px]"
+            className="h-[460px] sm:h-[600px] lg:h-[700px]"
           />
         }
       />
