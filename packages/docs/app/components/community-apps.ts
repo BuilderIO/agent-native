@@ -24,6 +24,7 @@ export const communityApps: CommunityApp[] = [
       "/community/nomad/nomad-03.jpg",
       "/community/nomad/nomad-05.jpg",
     ],
+    demoUrl: "https://nomad.galite.ai",
     sourceUrl: "https://github.com/BuilderIO/agent-native/pull/2454",
     sourceLabel: "Draft PR #2454",
     status: "new",

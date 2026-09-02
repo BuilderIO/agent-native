@@ -6,6 +6,7 @@ import {
 import type { CalendarEvent, UpdateEventScope } from "@shared/api";
 import {
   useQueryClient,
+  useQuery,
   keepPreviousData,
   type QueryKey,
 } from "@tanstack/react-query";
@@ -13,6 +14,10 @@ import { nanoid } from "nanoid";
 import { useMemo } from "react";
 
 import { dateTimeInTimezoneToIso } from "@/lib/event-form-utils";
+import {
+  isSharedCalendarDemo,
+  SHARED_CALENDAR_DEMO_EVENTS,
+} from "@/lib/shared-calendar-demo";
 import {
   buildWorkingLocationProperties,
   getWorkingLocationEditableLabel,
@@ -83,12 +88,16 @@ function buildEventsParams(
   from?: string,
   to?: string,
   overlayEmails?: string[],
-): Record<string, string> {
-  const params: Record<string, string> = {};
+  calendarSourceKeys?: string[],
+): Record<string, string | string[]> {
+  const params: Record<string, string | string[]> = {};
   if (from) params.from = from;
   if (to) params.to = to;
   if (overlayEmails && overlayEmails.length > 0) {
     params.overlayEmails = overlayEmails.join(",");
+  }
+  if (calendarSourceKeys && calendarSourceKeys.length > 0) {
+    params.calendarSourceKeys = calendarSourceKeys;
   }
   return params;
 }
@@ -103,8 +112,12 @@ function getListEventsParams(
   return params as Record<string, string>;
 }
 
-function getEventQueryKey(id: string) {
-  return ["action", "get-event", { id }] as const;
+function getEventQueryKey(id: string, calendarSourceKey?: string) {
+  return [
+    "action",
+    "get-event",
+    calendarSourceKey ? { id, calendarSourceKey } : { id },
+  ] as const;
 }
 
 export function getOptimisticTitleIsGenerated(
@@ -279,15 +292,31 @@ export function useEvents(
   from?: string,
   to?: string,
   overlayEmails?: string[],
+  calendarSourceKeys?: string[],
 ) {
-  const params = buildEventsParams(from, to, overlayEmails);
-
-  return useActionQuery<CalendarEvent[]>("list-events", params, {
+  const params = buildEventsParams(from, to, overlayEmails, calendarSourceKeys);
+  const demo = isSharedCalendarDemo();
+  const live = useActionQuery<CalendarEvent[]>("list-events", params, {
+    enabled: !demo,
     retry: false,
     staleTime: 30_000,
     gcTime: 30 * 60 * 1000,
     placeholderData: keepPreviousData,
   });
+  const fixture = useQuery({
+    queryKey: ["shared-calendar-demo-events", params],
+    queryFn: async () => {
+      const selected = new Set(calendarSourceKeys ?? []);
+      return SHARED_CALENDAR_DEMO_EVENTS.filter((event) => {
+        if (!event.calendarSourceKey) return true;
+        return selected.size === 0 || selected.has(event.calendarSourceKey);
+      });
+    },
+    enabled: demo,
+    staleTime: Infinity,
+  });
+
+  return demo ? fixture : live;
 }
 
 type OverlaySourceCoverage = {
@@ -351,8 +380,10 @@ export function prefetchEvents(
   from: string,
   to: string,
   overlayEmails?: string[],
+  calendarSourceKeys?: string[],
 ) {
-  const params = buildEventsParams(from, to, overlayEmails);
+  if (isSharedCalendarDemo()) return;
+  const params = buildEventsParams(from, to, overlayEmails, calendarSourceKeys);
   return queryClient.prefetchQuery({
     queryKey: ["action", "list-events", params],
     queryFn: () =>
@@ -362,8 +393,12 @@ export function prefetchEvents(
   });
 }
 
-export function useEvent(id: string) {
-  return useActionQuery<CalendarEvent>("get-event", { id }, { enabled: !!id });
+export function useEvent(id: string, calendarSourceKey?: string) {
+  return useActionQuery<CalendarEvent>(
+    "get-event",
+    calendarSourceKey ? { id, calendarSourceKey } : { id },
+    { enabled: !!id },
+  );
 }
 
 export function useCreateEvent() {

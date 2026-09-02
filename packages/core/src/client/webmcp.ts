@@ -1,3 +1,4 @@
+import { agentNativeToolTitle } from "../shared/agent-mcp-metadata.js";
 import { agentNativePath } from "./api-path.js";
 import type {
   AgentNativeClientAction,
@@ -479,6 +480,7 @@ export interface AgentNativeWebMcpRegistration {
 
 interface AgentNativeServerActionManifest {
   name: string;
+  title?: string;
   description: string;
   inputSchema?: Record<string, unknown>;
   readOnly?: boolean;
@@ -512,6 +514,7 @@ export function createAgentNativeServerActionWebMcpRegistration(options?: {
       }
       return manifest.map((action) => ({
         name: action.name,
+        title: agentNativeToolTitle(action.name, action.title),
         description: action.description,
         ...(action.inputSchema ? { schema: action.inputSchema } : {}),
         ...(action.readOnly ? { readOnly: true } : {}),
@@ -592,7 +595,10 @@ function sensitiveAction(action: AgentNativeClientAction): boolean {
 function actionManifest(
   action: AgentNativeClientAction,
 ): AgentNativeWebMcpActionManifest {
-  const manifest = { ...action };
+  const manifest = {
+    ...action,
+    title: agentNativeToolTitle(action.name, action.title),
+  };
   delete (manifest as Partial<AgentNativeClientAction>).run;
   return manifest;
 }
@@ -745,7 +751,7 @@ export function createAgentNativeWebMcpRegistration(
         await modelContext.registerTool(
           {
             name: action.name,
-            ...(action.title ? { title: action.title } : {}),
+            title: agentNativeToolTitle(action.name, action.title),
             description: action.description,
             inputSchema,
             annotations: {

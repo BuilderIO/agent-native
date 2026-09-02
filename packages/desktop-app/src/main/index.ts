@@ -273,7 +273,6 @@ import {
   desktopRequestedUserDataPath,
   initializeDesktopStartup,
   resolveDesktopSsoBrokerStatePath,
-  runDesktopStartupStep,
 } from "./desktop-startup.js";
 import {
   HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT,
@@ -441,6 +440,8 @@ let mainWindow: BrowserWindow | null = null;
 let desktopDesignPreviewManager: DesktopDesignPreviewManager | null = null;
 let desktopComputerMcpBridge: DesktopComputerMcpBridge | null = null;
 let desktopBrowserControlBridge: BrowserControlLoopbackBridge | null = null;
+let desktopComputerMcpBridgeInitialization: Promise<void> | null = null;
+let restoreDesktopComputerMcpBridgeAfterUpdate = false;
 let desktopIdentityBroker: DesktopIdentityBroker | null = null;
 let desktopWorkspaceApps: AppConfig[] = [];
 let desktopWorkspaceAppsGeneration = 0;
@@ -1391,10 +1392,22 @@ app.on("browser-window-focus", () => {
 // update-ready notification. `checkForAppUpdates`/`getCurrentUpdateStatus`
 // (imported above) are also used by the application menu below.
 async function closeDesktopComputerMcpBridge(): Promise<void> {
+  const initialization = desktopComputerMcpBridgeInitialization;
+  if (initialization) {
+    try {
+      await initialization;
+    } catch (error) {
+      console.warn(
+        "[computer-control] bridge initialization failed before close:",
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
   const computerBridge = desktopComputerMcpBridge;
   const browserBridge = desktopBrowserControlBridge;
   desktopComputerMcpBridge = null;
   desktopBrowserControlBridge = null;
+  browserNativeHostManifestPath = null;
 
   const closePromises: Promise<void>[] = [];
   if (computerBridge) closePromises.push(computerBridge.close());
@@ -1408,11 +1421,19 @@ registerUpdatesIpc({
   refreshApplicationMenu,
   focusMainWindow,
   prepareForUpdate: async () => {
+    restoreDesktopComputerMcpBridgeAfterUpdate = Boolean(
+      desktopComputerMcpBridge ||
+      desktopBrowserControlBridge ||
+      desktopComputerMcpBridgeInitialization,
+    );
     await closeDesktopComputerMcpBridge();
     await disposeMultiFrontierAppIntegration();
   },
   restoreAfterUpdateFailure: async () => {
-    await initializeDesktopComputerMcpBridge();
+    if (restoreDesktopComputerMcpBridgeAfterUpdate) {
+      restoreDesktopComputerMcpBridgeAfterUpdate = false;
+      await ensureDesktopComputerMcpBridge();
+    }
     if (multiFrontierDisposePromise) {
       initializeMultiFrontierAppIntegrationForRuntime();
     }
@@ -2475,6 +2496,8 @@ const REMOTE_CONNECTOR_MAX_BACKOFF_MS = 60_000;
 
 let remoteConnectorEnabled = false;
 let remoteConnectorProcess: ChildProcess | null = null;
+let remoteConnectorStartPromise: Promise<CodeAgentRemoteConnectorStatus> | null =
+  null;
 let remoteConnectorRestartTimer: NodeJS.Timeout | null = null;
 let remoteConnectorRestartCount = 0;
 let remoteConnectorStartedAt: string | undefined;
@@ -3634,7 +3657,20 @@ function resolveRemoteConnectorCliInvocation(): {
   };
 }
 
-function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
+async function startRemoteCodeAgentConnector(): Promise<CodeAgentRemoteConnectorStatus> {
+  if (remoteConnectorStartPromise) return remoteConnectorStartPromise;
+  const startPromise = startRemoteCodeAgentConnectorInternal();
+  remoteConnectorStartPromise = startPromise;
+  try {
+    return await startPromise;
+  } finally {
+    if (remoteConnectorStartPromise === startPromise) {
+      remoteConnectorStartPromise = null;
+    }
+  }
+}
+
+async function startRemoteCodeAgentConnectorInternal(): Promise<CodeAgentRemoteConnectorStatus> {
   if (!remoteConnectorEnabled || appIsQuitting)
     return getRemoteConnectorStatus();
   if (remoteConnectorProcess && !remoteConnectorProcess.killed) {
@@ -3658,6 +3694,10 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
   const invocation = resolveRemoteConnectorCliInvocation();
   const args = [...invocation.args, "code", "serve", "--relay-url", relayUrl];
   try {
+    await ensureDesktopComputerMcpBridge();
+    if (!remoteConnectorEnabled || appIsQuitting) {
+      return getRemoteConnectorStatus();
+    }
     const computerEnv = remoteConnectorComputerEnv();
     const child = spawn(invocation.command, args, {
       cwd: invocation.cwd,
@@ -3720,13 +3760,13 @@ function scheduleRemoteConnectorRestart(): void {
   remoteConnectorRestartTimer = setTimeout(() => {
     remoteConnectorRestartTimer = null;
     remoteConnectorNextRestartAt = undefined;
-    startRemoteCodeAgentConnector();
+    void startRemoteCodeAgentConnector();
   }, delay);
 }
 
-function setRemoteConnectorEnabled(
+async function setRemoteConnectorEnabled(
   enabled: boolean,
-): CodeAgentRemoteConnectorControlResult {
+): Promise<CodeAgentRemoteConnectorControlResult> {
   remoteConnectorEnabled = enabled;
   try {
     AppStore.saveRemoteConnectorSettings({ enabled });
@@ -3751,7 +3791,7 @@ function setRemoteConnectorEnabled(
     return { ok: true, status: getRemoteConnectorStatus() };
   }
   remoteConnectorRestartCount = 0;
-  return { ok: true, status: startRemoteCodeAgentConnector() };
+  return { ok: true, status: await startRemoteCodeAgentConnector() };
 }
 
 function parseRemoteConnectorPairRequest(
@@ -3907,7 +3947,7 @@ async function pairRemoteCodeAgentConnector(
 
     return {
       ok: true,
-      status: startRemoteCodeAgentConnector(),
+      status: await startRemoteCodeAgentConnector(),
       deviceId,
       message: "Remote control paired.",
     };
@@ -3948,6 +3988,8 @@ function codeAgentEventFilePath(runId: string): string | null {
 
 function listDesktopCodeAgentRuns(goalId?: string): CodeAgentRun[] {
   reconcileInterruptedCodeAgentRuns("list", goalId);
+  resumeQueuedCodeAgentWorktreeRuns();
+  ensureCodeAgentWorktreeSweepScheduled();
   const runs = desktopCodeBackgroundAgentController.list({
     goalId,
   }) as BackgroundAgentRun[];
@@ -4110,6 +4152,18 @@ function isQueuedCodeAgentWorktreeRun(
     (getRecordString(record, "status") === "queued" ||
       getRecordString(record, "phase") === "queued"),
   );
+}
+
+function resumeQueuedCodeAgentWorktreeRuns(): void {
+  const worktreeIds = new Set<string>();
+  for (const { record } of listRawCodeAgentRunRecords()) {
+    if (!isQueuedCodeAgentWorktreeRun(record)) continue;
+    const worktreeId = codeAgentWorktreeIdFromRunRecord(record);
+    if (worktreeId) worktreeIds.add(worktreeId);
+  }
+  for (const worktreeId of worktreeIds) {
+    void startNextQueuedCodeAgentWorktreeRun(worktreeId);
+  }
 }
 
 function reconcileManagedCodeAgentWorktreeLeases(): void {
@@ -4333,6 +4387,10 @@ function scheduleCodeAgentWorktreeSweep(): void {
     }
   }, nextCodeAgentWorktreeSweepDelay());
   codeAgentWorktreeSweepTimer.unref?.();
+}
+
+function ensureCodeAgentWorktreeSweepScheduled(): void {
+  if (!codeAgentWorktreeSweepTimer) scheduleCodeAgentWorktreeSweep();
 }
 
 function scheduleCodeAgentWorktreeReclaimRetry(
@@ -4595,18 +4653,6 @@ function reclaimTerminalCodeAgentWorktrees(goalId?: string): void {
   cleanupDueManagedCodeAgentWorktrees();
 }
 
-function resumeQueuedCodeAgentWorktreeRuns(): void {
-  const worktreeIds = new Set<string>();
-  for (const { record } of listRawCodeAgentRunRecords()) {
-    if (!isQueuedCodeAgentWorktreeRun(record)) continue;
-    const worktreeId = codeAgentWorktreeIdFromRunRecord(record);
-    if (worktreeId) worktreeIds.add(worktreeId);
-  }
-  for (const worktreeId of worktreeIds) {
-    void startNextQueuedCodeAgentWorktreeRun(worktreeId);
-  }
-}
-
 function reconcileInterruptedCodeAgentRuns(
   reason: "startup" | "list" | "read" | "follow-up" | "shutdown",
   goalId?: string,
@@ -4761,14 +4807,6 @@ function backgroundRunToDesktopRun(record: BackgroundAgentRun): CodeAgentRun {
     artifactRoot: record.artifactRoot,
     cwd: record.cwd,
   };
-  const worktree = isObject(metadata.worktree) ? metadata.worktree : undefined;
-  const worktreePath = firstStringValue(worktree?.path);
-  if (worktree && worktreePath && !fs.existsSync(worktreePath)) {
-    metadata.worktree = {
-      ...worktree,
-      state: "recoverable",
-    };
-  }
   if (record.permissionMode) metadata.permissionMode = record.permissionMode;
   const activeProcess = activeCodeAgentProcesses.get(record.id);
   if (activeProcess) {
@@ -5615,8 +5653,11 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
   if (process.platform !== "darwin" || desktopComputerMcpBridge) return;
   const helperPath = desktopComputerHelperPath();
   if (!fs.existsSync(helperPath)) {
-    console.warn("[computer-control] bundled macOS helper is unavailable.");
-    return;
+    const error = new Error(
+      "The bundled macOS computer-control helper is unavailable.",
+    );
+    console.warn("[computer-control]", error.message);
+    throw error;
   }
   const helper = new SwiftDesktopHelperClient(helperPath);
   const broker = new ComputerControlBroker({
@@ -5665,6 +5706,8 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
       "[browser-control] Chrome native host installation failed:",
       error instanceof Error ? error.message : "unknown error",
     );
+    broker.close();
+    throw error;
   }
   const bridge = new DesktopComputerMcpBridge({
     broker,
@@ -5720,7 +5763,23 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
       "[computer-control] authenticated loopback bridge could not start:",
       error instanceof Error ? error.message : "unknown error",
     );
+    throw error;
   }
+}
+
+function ensureDesktopComputerMcpBridge(): Promise<void> {
+  if (process.platform !== "darwin" || desktopComputerMcpBridge) {
+    return Promise.resolve();
+  }
+  const initialization =
+    desktopComputerMcpBridgeInitialization ??
+    (desktopComputerMcpBridgeInitialization =
+      initializeDesktopComputerMcpBridge());
+  return initialization.finally(() => {
+    if (desktopComputerMcpBridgeInitialization === initialization) {
+      desktopComputerMcpBridgeInitialization = null;
+    }
+  });
 }
 
 function desktopComputerChildEnv(
@@ -6051,6 +6110,12 @@ async function spawnCodeAgentRunner(
   );
   const { command, args } = invocation;
   try {
+    await ensureDesktopComputerMcpBridge().catch((error) => {
+      console.warn(
+        "[computer-control] bridge unavailable for code-agent run:",
+        error instanceof Error ? error.message : error,
+      );
+    });
     const mcpEnvironment = await desktopCodeAgentMcpEnvironment(cwd, {
       includeWorkspaceApps: true,
     });
@@ -7262,8 +7327,19 @@ async function createCodeAgentRun(
 }
 
 function listCodeAgentWorktrees(input?: unknown): CodeAgentWorktreeListResult {
-  const cwd = typeof input === "string" ? input : undefined;
-  const sourcePath = resolveCodeAgentsTerminalCwd({ cwd });
+  const requestedPath = typeof input === "string" ? input : undefined;
+  const sourcePath = requestedPath
+    ? resolveUsableDirectory(requestedPath)
+    : defaultCodeAgentProjectPath(readCodeAgentProjectsState());
+  ensureCodeAgentWorktreeSweepScheduled();
+  if (!sourcePath) {
+    return {
+      status: "unavailable",
+      sourcePath: normalizeRememberedCodeAgentPath(requestedPath) ?? "",
+      worktrees: [],
+      error: "The selected project folder is unavailable.",
+    };
+  }
   cleanupDueManagedCodeAgentWorktrees();
   return listNamedCodeAgentWorktrees({
     registryPath: codeAgentWorktreeRegistryFile(),
@@ -8049,7 +8125,7 @@ function readCodeAgentProjectsState(): {
   const projects = rawProjects
     .map((item): CodeAgentProjectFolder | null => {
       if (!isObject(item) || typeof item.path !== "string") return null;
-      const dir = resolveUsableDirectory(item.path);
+      const dir = normalizeRememberedCodeAgentPath(item.path);
       if (!dir) return null;
       const project: CodeAgentProjectFolder = {
         id: typeof item.id === "string" ? item.id : projectFolderId(dir),
@@ -8066,9 +8142,31 @@ function readCodeAgentProjectsState(): {
     .filter((item): item is CodeAgentProjectFolder => Boolean(item));
   const selectedPath =
     typeof raw?.selectedPath === "string"
-      ? (resolveUsableDirectory(raw.selectedPath) ?? undefined)
+      ? (normalizeRememberedCodeAgentPath(raw.selectedPath) ?? undefined)
       : undefined;
   return { selectedPath, projects };
+}
+
+function normalizeRememberedCodeAgentPath(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const expanded = expandPathCandidate(value);
+  if (!expanded) return null;
+  const resolved = path.resolve(expanded);
+  return isFilesystemRoot(resolved) ? null : resolved;
+}
+
+function defaultCodeAgentProjectPath(state: { selectedPath?: string }): string {
+  return (
+    state.selectedPath ??
+    normalizeRememberedCodeAgentPath(
+      firstStringValue(
+        process.env.AGENT_NATIVE_PROJECT_ROOT,
+        process.env.CODE_AGENTS_PROJECT_ROOT,
+        IS_DEV ? process.cwd() : undefined,
+      ),
+    ) ??
+    getHomeDirectory()
+  );
 }
 
 function writeCodeAgentProjectsState(state: {
@@ -8109,8 +8207,8 @@ function upsertCodeAgentProject(
 
 function listCodeAgentProjects(): CodeAgentProjectListResult {
   try {
-    const defaultPath = resolveCodeAgentsTerminalCwd({});
     const state = readCodeAgentProjectsState();
+    const defaultPath = defaultCodeAgentProjectPath(state);
     const defaultProject = normalizeProjectFolder(defaultPath);
     const projects = [
       defaultProject,
@@ -8135,8 +8233,8 @@ function listMultiFrontierWorkspaces(): {
   selectedPath?: string;
   workspaces: Array<{ id: string; path: string }>;
 } {
-  const defaultPath = resolveCodeAgentsTerminalCwd({});
   const state = readCodeAgentProjectsState();
+  const defaultPath = defaultCodeAgentProjectPath(state);
   const projects = [
     normalizeProjectFolder(defaultPath),
     ...state.projects.filter((project) => project.path !== defaultPath),
@@ -8163,7 +8261,7 @@ function initializeMultiFrontierAppIntegrationForRuntime(): void {
   multiFrontierAppIntegration = initializeMultiFrontierAppIntegration({
     ipcMain,
     storeRoot: codeAgentStoreRoot(),
-    loginCwd: resolveCodeAgentsTerminalCwd({}),
+    loginCwd: getHomeDirectory(),
     listWorkspaces: listMultiFrontierWorkspaces,
     resolveDirectory: resolveUsableDirectory,
   });
@@ -11307,17 +11405,6 @@ async function openCodexLoginTerminal(): Promise<CodeAgentTerminalResult> {
   });
 }
 
-function readPackageMetadata(packagePath: string): {
-  name?: string;
-  version?: string;
-} {
-  const pkg = readJsonObjectFile(packagePath);
-  return {
-    name: firstStringValue(pkg?.name),
-    version: firstStringValue(pkg?.version),
-  };
-}
-
 const RESERVED_CODE_AGENT_COMMANDS = new Set([
   ...CODE_AGENT_GOALS.flatMap((goal) => [
     goal.id,
@@ -11345,7 +11432,20 @@ const RESERVED_CODE_AGENT_COMMANDS = new Set([
 
 function listCodeAgentProjectPacks(input?: unknown): CodeAgentCodePackResult {
   try {
-    const root = resolveCodeAgentsTerminalCwd(input);
+    const requestedPath =
+      typeof input === "string"
+        ? input
+        : isObject(input)
+          ? firstStringValue(input.cwd)
+          : undefined;
+    if (!requestedPath) return { status: "ok" };
+    const root = resolveUsableDirectory(requestedPath);
+    if (!root) {
+      return {
+        status: "unavailable",
+        error: "The selected project folder is unavailable.",
+      };
+    }
     const commandsRoot = path.join(root, ".agents", "commands");
     const skillsRoot = path.join(root, ".agents", "skills");
     const commands = fs.existsSync(commandsRoot)
@@ -12131,13 +12231,6 @@ function getCodeAgentModelList(input?: unknown): CodeAgentModelListResult {
 
 function getCodeAgentHostMetadata(): CodeAgentHostMetadata {
   try {
-    const cwd = resolveCodeAgentsTerminalCwd({});
-    const repoRoot = resolveRepositoryRoot(cwd);
-    const corePackagePath = path.join(repoRoot, "packages/core/package.json");
-    const corePackage = fs.existsSync(corePackagePath)
-      ? readPackageMetadata(corePackagePath)
-      : {};
-    const cliEntry = path.join(repoRoot, "packages/core/dist/cli/index.js");
     return {
       status: "ok",
       platform: process.platform,
@@ -12145,18 +12238,6 @@ function getCodeAgentHostMetadata(): CodeAgentHostMetadata {
       storeRoot: codeAgentStoreRoot(),
       runsDir: codeAgentRunsDir(),
       transcriptsDir: codeAgentEventsDir(),
-      codePack: {
-        name: corePackage.name ?? "@agent-native/core",
-        version: corePackage.version,
-        root: fs.existsSync(path.join(repoRoot, "packages/core"))
-          ? path.join(repoRoot, "packages/core")
-          : repoRoot,
-        packagePath: fs.existsSync(corePackagePath)
-          ? corePackagePath
-          : undefined,
-        cliEntry,
-        available: fs.existsSync(cliEntry),
-      },
       llmProvider: getCodeAgentLlmProviderStatus(),
       computerControl: getDesktopComputerControlMetadata(),
       capabilities: {
@@ -12545,6 +12626,7 @@ registerCodeAgentsIpc({
   controlCodeAgentRun,
   getCodeAgentHostMetadata,
   getBundledChromeExtensionPath,
+  prepareBrowserSetup: ensureDesktopComputerMcpBridge,
   getCodeAgentProviderSettings,
   updateCodeAgentProviderSettings,
   connectDesktopBuilderProvider,
@@ -12559,8 +12641,6 @@ registerCodeAgentsIpc({
   setRemoteConnectorEnabled,
   pairRemoteCodeAgentConnector,
 });
-
-scheduleCodeAgentWorktreeSweep();
 
 registerQuickPromptIpc({
   createCodeAgentRun,
@@ -14208,12 +14288,6 @@ void app.whenReady().then(async () => {
     ensureDesktopIdentityBroker();
   }
 
-  const shouldContinueStartup = await runDesktopStartupStep({
-    start: initializeDesktopComputerMcpBridge,
-    isShuttingDown: () => appIsQuitting,
-    abort: closeDesktopComputerMcpBridge,
-  });
-  if (!shouldContinueStartup) return;
   desktopCodeAgentScheduler.start();
   // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
@@ -14573,16 +14647,6 @@ void app.whenReady().then(async () => {
   registerDesktopShortcutBindings();
 
   const win = createWindow();
-  for (const { record } of listRawCodeAgentRunRecords()) {
-    reclaimTerminalCodeAgentWorktree(record);
-  }
-  reconcileManagedCodeAgentWorktreeLeases();
-  resumeQueuedCodeAgentWorktreeRuns();
-  const initialWorktreeCleanup = setTimeout(
-    cleanupDueManagedCodeAgentWorktrees,
-    0,
-  );
-  initialWorktreeCleanup.unref?.();
   registerQuickPromptShortcut();
   // Pairing details persist, but background access is opt-in per launch.
   // A read-only status check must never spawn a process or unlock Keychain.

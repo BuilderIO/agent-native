@@ -20,6 +20,10 @@ import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route
 import { isFeatureFlagAdminEmail } from "../feature-flags/permissions.js";
 import { resolveOrgByDomain, resolveOrgIdForEmail } from "../org/context.js";
 import { readBody } from "../server/h3-helpers.js";
+import {
+  agentNativeMcpInstructions,
+  agentNativeToolTitle,
+} from "../shared/agent-mcp-metadata.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
   isMcpEmbedCorsOrigin,
@@ -321,6 +325,7 @@ export interface WebMcpManifestOptions {
   name: string;
   description: string;
   title?: string;
+  instructions?: string;
   version?: string;
   websiteUrl?: string;
   icons?: Array<{
@@ -915,6 +920,7 @@ function buildWebMcpCompatibilityManifest(
     };
     return {
       name,
+      title: agentNativeToolTitle(name, entry.tool.title),
       description: entry.tool.description,
       parameters: inputSchema,
       inputSchema,
@@ -931,6 +937,7 @@ function buildWebMcpCompatibilityManifest(
     name: options?.name ?? "Agent",
     ...(options?.title ? { title: options.title } : {}),
     description: options?.description ?? "Agent-Native app agent",
+    instructions: agentNativeMcpInstructions(options?.instructions),
     version: options?.version ?? "1.0.0",
     ...(options?.websiteUrl ? { website_url: options.websiteUrl } : {}),
     ...(options?.icons ? { icons: options.icons } : {}),
@@ -1029,6 +1036,7 @@ export function mountWebMcpActionRoutes(
       const visible = authenticated ? eligible : publicEligible;
       return Object.entries(visible).map(([name, entry]) => ({
         name,
+        title: agentNativeToolTitle(name, entry.tool.title),
         description: entry.tool.description,
         inputSchema: entry.tool.parameters,
         readOnly: entry.readOnly === true,
