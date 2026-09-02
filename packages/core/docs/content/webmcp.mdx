@@ -43,9 +43,9 @@ APIs.
 An action is eligible when `agentTool` is not `false` and `needsApproval` is
 not declared. The latter is a fail-closed boundary: the server action approval
 contract belongs to the agent loop and cannot be delegated to a browser hint.
-Public paths, signed-out pages, and `sessionBypass` surfaces do not register
-backend action tools. Browsers without `document.modelContext` simply keep the
-normal app behavior.
+Authenticated `sessionBypass` surfaces, such as MCP embed routes, also register
+backend action tools. Public paths and signed-out pages do not. Browsers
+without `document.modelContext` simply keep the normal app behavior.
 
 No per-app WebMCP list or new `defineAction` metadata is required. Change the
 existing action definition when its exposure should change.
