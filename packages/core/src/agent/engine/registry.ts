@@ -706,6 +706,17 @@ export async function detectEngineFromUserSecrets(
     return null;
   }
 
+  const firstEntry = _registry.values().next().value;
+  if (
+    !getAppConfig().agent.preferBringYourOwnKey &&
+    firstEntry?.name === "builder" &&
+    isAgentEnginePackageInstalled(firstEntry) &&
+    firstEntry.requiredEnvVars.length > 0 &&
+    (await hasUsableBuilderConnection(identity))
+  ) {
+    return firstEntry;
+  }
+
   // Deliberately lazy: a connected Builder account resolves from the first
   // registry entry without reading a provider key at all, so warming eagerly
   // would put four scope reads in front of the fast path on a continuously
@@ -747,11 +758,6 @@ export async function detectEngineFromUserSecrets(
   };
 
   const preferByo = getAppConfig().agent.preferBringYourOwnKey;
-  const firstEntry = _registry.values().next().value;
-  if (!preferByo && firstEntry?.name === "builder") {
-    if (await hasAllKeys(firstEntry)) return firstEntry;
-  }
-
   if (preferByo) {
     for (const entry of _registry.values()) {
       if (entry.name === "builder") continue;
