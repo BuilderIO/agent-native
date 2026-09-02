@@ -523,6 +523,7 @@ const deDE = {
       apps: "Apps",
       privacyPolicy: "Datenschutzerklärung",
       saasTerms: "SaaS-Bedingungen",
+      legalResources: "Rechtliche Ressourcen",
     },
   },
   gettingStarted: {
@@ -1757,6 +1758,36 @@ const deDE = {
   },
   legal: {
     lastUpdated: "Zuletzt aktualisiert: {{date}}",
+    resources: {
+      eyebrow: "Rechtliche Ressourcen",
+      title: "Rechtliche Ressourcen für Agent-Native",
+      intro:
+        "Agent-Native führt eine gezielte Ergänzung für von Builder.io betriebene gehostete Beispiele und verlinkt die gemeinsamen Builder.io-Richtlinien von ihrer maßgeblichen Quelle. Das Framework ist Open Source; diese Seiten zu gehosteten Diensten gelten nicht für Forks oder selbst gehostete Bereitstellungen.",
+      agentNative: {
+        title: "Agent-Native-Richtlinien",
+        body: "Diese Seiten passen den gemeinsamen Richtlinienrahmen an das Open-Source-Projekt und die gehosteten Beispiele von Agent-Native an.",
+        terms: "Agent-Native-Nutzungsbedingungen",
+        privacy: "Agent-Native-Datenschutzerklärung",
+      },
+      builder: {
+        title: "Aktuelle gemeinsame Builder.io-Richtlinien",
+        body: "Diese Builder.io-Richtlinien enthalten gemeinsame Regeln für gehostete Dienste, Inhalte, KI-Funktionen, Sicherheit, geistiges Eigentum und rechtliche Anfragen. Der verlinkten Quelle ist der aktuelle Text zu entnehmen.",
+      },
+      links: {
+        terms: "SaaS-Servicevereinbarung",
+        privacy: "Datenschutzerklärung",
+        acceptableUse: "Richtlinie zur akzeptablen Nutzung",
+        aiTerms: "KI-Bedingungen",
+        platformRules: "Plattformregeln",
+        takedown: "Richtlinie zu Sperrung, Entfernung und Datenverarbeitung",
+        dmca: "DMCA-Richtlinie",
+        lawEnforcement: "Richtlinie für Anfragen von Strafverfolgungsbehörden",
+      },
+      notIncluded: {
+        title: "Nicht enthaltene kommerzielle Bedingungen",
+        body: "Agent-Native hat keine kostenpflichtigen Tarife oder Unternehmensverträge. Kommerzielle Materialien von Builder.io, etwa Enterprise-SLAs, Supportbedingungen, DPA, Sicherheitszusätze und Bedingungen für professionelle Dienstleistungen, sind nicht Teil der gehosteten Beispiele, sofern nicht eine separate schriftliche Vereinbarung etwas anderes bestimmt.",
+      },
+    },
     privacy: {
       eyebrow: "Datenschutzrichtlinie",
       title: "Agent-Native gehostete Anwendungen",
@@ -1779,6 +1810,7 @@ const deDE = {
       sections: {
         scope: "Umfang",
         information: "Informationen, die wir sammeln",
+        cookies: "Cookies und Analysen",
         clipsExtension: "Agent-Native Clips Chrome-Erweiterung",
         use: "Wie wir Informationen nutzen",
         sharing: "Weitergabe und Dritte",
@@ -1794,6 +1826,8 @@ const deDE = {
           "Diese Richtlinie soll das allgemeinere von Builder.io ergänzen",
         scope2Suffix:
           "für das Verhalten gehosteter Anwendungen von Agent-Native.",
+        cookies:
+          "Die Agent-Native-Dokumentationsseite und gehostete Anwendungen können notwendige Cookies für Authentifizierung und Sicherheit, für Präferenzen wie Sprache oder Design sowie konfigurierte Analysetechnologien verwenden. Die Dokumentationsseite kann Google Analytics oder Google Tag Manager laden, wenn die Bereitstellung dies konfiguriert, und der gehostete Dienst kann First-Party-Analysen zur Messung von Zuverlässigkeit und Funktionsnutzung verwenden. Wir nutzen Inhalte gehosteter Anwendungen nicht für Werbung Dritter. Cookies lassen sich über die Browsereinstellungen steuern; das Deaktivieren notwendiger Cookies kann jedoch die Anmeldung oder andere Funktionen verhindern.",
         clips1:
           "Mit Agent-Native Clips Chrome extension können Sie browserbasierte Aufzeichnungen starten und, wenn aktiviert, Browser-Diagnosen an einen Clip anhängen. Möglicherweise werden die ausgewählte Aufnahmequelle, die von Ihnen ausgewählten Kamera- und Mikrofonmedien, der Titel und die URL der aktiven Registerkarte sowie der Authentifizierungsstatus erfasst, der zum Herstellen einer Verbindung der Erweiterung mit dem gehosteten Clips erforderlich ist.",
         clips2:
@@ -1938,6 +1972,8 @@ const deDE = {
         scope2Middle: "und der Agent-Native",
         scope2Suffix:
           "Wenn Sie eine gehostete Agent-Native-App im Namen eines Unternehmens oder einer Organisation nutzen, erklären Sie, dass Sie befugt sind, diese Bedingungen für diese Organisation zu akzeptieren.",
+        scope3:
+          "Agent-Native bietet keine kostenpflichtigen Tarife oder kostenpflichtigen Hosting-Abonnements an. Kommerzielle Bedingungen von Builder.io, etwa Bestellformulare, Gebühren, Enterprise-Support, Service-Level und Nachträge zur Datenverarbeitung, sind nicht Teil dieses Angebots, sofern sie nicht separat schriftlich vereinbart wurden.",
         hostedService:
           "Builder.io kann gehostete Agent-Native-Anwendungen, Vorlagen, Demos, freigegebene Arbeitsbereiche, Browsererweiterungen und zugehörige Agenten-Workflows bereitstellen. Der gehostete Dienst kann im Zuge der Weiterentwicklung des Produkts aktualisiert, eingeschränkt, ausgesetzt oder eingestellt werden.",
         accounts1:

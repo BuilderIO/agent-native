@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { sitePathForLocale } from "../components/docs-locale";
 import { withDefaultSocialImage } from "../seo";
 
-const UPDATED_AT = "June 24, 2026";
+const UPDATED_AT = "September 2, 2026";
 
 const HOSTED_SERVICE_KEYS = [
   "create",
@@ -143,6 +143,7 @@ export default function TermsPage() {
             </InlineLink>
             . {t("legal.terms.paragraphs.scope2Suffix")}
           </p>
+          <p>{t("legal.terms.paragraphs.scope3")}</p>
         </Section>
 
         <Section title={t("legal.terms.sections.hostedService")}>

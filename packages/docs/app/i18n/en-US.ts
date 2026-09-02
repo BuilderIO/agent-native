@@ -520,6 +520,7 @@ const enUS = {
       apps: "Apps",
       privacyPolicy: "Privacy Policy",
       saasTerms: "SaaS Terms",
+      legalResources: "Legal resources",
     },
   },
   gettingStarted: {
@@ -1737,6 +1738,36 @@ const enUS = {
   },
   legal: {
     lastUpdated: "Last updated: {{date}}",
+    resources: {
+      eyebrow: "Legal resources",
+      title: "Legal resources for Agent-Native",
+      intro:
+        "Agent-Native keeps a focused supplement for Builder.io-operated hosted examples and links shared Builder.io policies from their canonical source. The framework itself is open source, and these hosted-service pages do not govern forks or self-hosted deployments.",
+      agentNative: {
+        title: "Agent-Native policies",
+        body: "These pages adapt the shared policy framework to Agent-Native's open-source project and hosted examples.",
+        terms: "Agent-Native Terms of Service",
+        privacy: "Agent-Native Privacy Policy",
+      },
+      builder: {
+        title: "Current shared Builder.io policies",
+        body: "These Builder.io policies provide the shared rules for hosted services, content, AI features, safety, intellectual property, and legal requests. Follow the linked source for the current text.",
+      },
+      links: {
+        terms: "SaaS Services Agreement",
+        privacy: "Privacy Policy",
+        acceptableUse: "Acceptable Use Policy",
+        aiTerms: "AI Terms",
+        platformRules: "Platform Rules",
+        takedown: "Suspension, Takedown & Data-Handling Policy",
+        dmca: "DMCA Policy",
+        lawEnforcement: "Law Enforcement Request Policy",
+      },
+      notIncluded: {
+        title: "Commercial terms not included",
+        body: "Agent-Native has no paid plans or enterprise contract. Builder.io commercial materials such as enterprise SLAs, support terms, DPAs, security addenda, and professional-services terms are not part of the hosted examples unless a separate written agreement says otherwise.",
+      },
+    },
     privacy: {
       eyebrow: "Privacy Policy",
       title: "Agent-Native hosted applications",
@@ -1759,6 +1790,7 @@ const enUS = {
       sections: {
         scope: "Scope",
         information: "Information we collect",
+        cookies: "Cookies and analytics",
         clipsExtension: "Agent-Native Clips Chrome extension",
         use: "How we use information",
         sharing: "Sharing and third parties",
@@ -1773,6 +1805,8 @@ const enUS = {
         scope2Prefix:
           "This policy is intended to supplement Builder.io's broader",
         scope2Suffix: "for Agent-Native hosted application behavior.",
+        cookies:
+          "The Agent-Native docs site and hosted applications may use necessary cookies for authentication and security, preference storage such as locale or theme, and configured analytics technologies. The docs site may load Google Analytics or Google Tag Manager when configured by the deployment, and the hosted service may use first-party analytics to measure reliability and feature usage. We do not use hosted application content for third-party advertising. You can control cookies through your browser settings, although disabling necessary cookies may prevent sign-in or other features.",
         clips1:
           "The Agent-Native Clips Chrome extension helps you start browser-based recordings and, when enabled, attach browser diagnostics to a clip. It may collect the selected capture source, camera and microphone media you choose to include, the active tab title and URL, and authentication state needed to connect the extension to hosted Clips.",
         clips2:
@@ -1916,6 +1950,8 @@ const enUS = {
         scope2Middle: "and the Agent-Native",
         scope2Suffix:
           "If you use a hosted Agent-Native app on behalf of a company or organization, you represent that you have authority to accept these terms for that organization.",
+        scope3:
+          "Agent-Native has no paid plans or paid hosted subscriptions. Builder.io commercial terms such as order forms, fees, enterprise support, service levels, and data-processing addenda are not part of this offering unless separately agreed in writing.",
         hostedService:
           "Builder.io may provide hosted Agent-Native applications, apps, demos, shared workspaces, browser extensions, and related agent workflows. The hosted service may be updated, limited, suspended, or discontinued as the product evolves.",
         accounts1:

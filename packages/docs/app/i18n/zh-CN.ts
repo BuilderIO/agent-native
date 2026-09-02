@@ -513,6 +513,7 @@ const zhCN = {
       apps: "应用",
       privacyPolicy: "隐私政策",
       saasTerms: "SaaS 条款",
+      legalResources: "法律资源",
     },
   },
   gettingStarted: {
@@ -1714,6 +1715,36 @@ const zhCN = {
   },
   legal: {
     lastUpdated: "上次更新：{{date}}",
+    resources: {
+      eyebrow: "法律资源",
+      title: "Agent-Native 法律资源",
+      intro:
+        "Agent-Native 为 Builder.io 运营的托管示例维护一份精简补充，并将 Builder.io 的通用政策链接到其规范来源。框架本身是开源的，这些托管服务页面不适用于分叉项目或自行托管的部署。",
+      agentNative: {
+        title: "Agent-Native 政策",
+        body: "这些页面将通用政策框架调整为适用于 Agent-Native 开源项目和托管示例的版本。",
+        terms: "Agent-Native 服务条款",
+        privacy: "Agent-Native 隐私政策",
+      },
+      builder: {
+        title: "当前 Builder.io 通用政策",
+        body: "这些 Builder.io 政策为托管服务、内容、AI 功能、安全、知识产权和法律请求提供通用规则。最新正文请以链接的规范来源为准。",
+      },
+      links: {
+        terms: "SaaS 服务协议",
+        privacy: "隐私政策",
+        acceptableUse: "可接受使用政策",
+        aiTerms: "AI 条款",
+        platformRules: "平台规则",
+        takedown: "暂停、下架和数据处理政策",
+        dmca: "DMCA 政策",
+        lawEnforcement: "执法机关请求政策",
+      },
+      notIncluded: {
+        title: "不包含商业条款",
+        body: "Agent-Native 没有付费计划或企业合同。除非另有单独的书面协议，Builder.io 的企业 SLA、支持条款、DPA、安全附录和专业服务条款等商业材料不属于托管示例的一部分。",
+      },
+    },
     privacy: {
       eyebrow: "隐私政策",
       title: "Agent-Native 托管应用程序",
@@ -1736,6 +1767,7 @@ const zhCN = {
       sections: {
         scope: "适用范围",
         information: "我们收集的信息",
+        cookies: "Cookie 和分析",
         clipsExtension: "Agent-Native Clips Chrome 扩展",
         use: "我们如何使用信息",
         sharing: "共享和第三方",
@@ -1749,6 +1781,8 @@ const zhCN = {
           "Agent-Native 是开源的，源代码可在 MIT 许可证下获得。本政策仅适用于 Builder.io 为 Agent-Native 用户运营的托管应用程序和服务。它不适用于其他人对代码的使用，包括分叉、自定义模板、私有部署或自托管版本。如果您操作自己的部署，则您应对自己的数据实践和隐私政策负责。",
         scope2Prefix: "本政策旨在补充 Builder.io 更广泛的政策",
         scope2Suffix: "对于 Agent-Native 托管应用程序行为。",
+        cookies:
+          "Agent-Native 文档网站和托管应用程序可能使用必要的 Cookie 来进行身份验证和安全保护、保存语言或主题等偏好设置，以及运行已配置的分析技术。如果部署进行了配置，文档网站可能会加载 Google Analytics 或 Google Tag Manager；托管服务也可能使用第一方分析来衡量可靠性和功能使用情况。我们不会将托管应用程序内容用于第三方广告。你可以在浏览器设置中管理 Cookie，但禁用必要 Cookie 可能会导致无法登录或使用其他功能。",
         clips1:
           "Agent-Native Clips Chrome extension 可帮助您开始基于浏览器的录制，并在启用后将浏览器诊断附加到剪辑。它可能会收集所选的捕获源、您选择包含的摄像头和麦克风媒体、活动选项卡标题和 URL，以及将扩展程序连接到托管 Clips 所需的身份验证状态。",
         clips2:
@@ -1891,6 +1925,8 @@ const zhCN = {
         scope2Middle: "和 Agent-Native",
         scope2Suffix:
           "如果您代表公司或组织使用托管 Agent-Native 应用程序，则表示您有权接受该组织的这些条款。",
+        scope3:
+          "Agent-Native 没有付费计划或付费托管订阅。除非另行签署书面协议，Builder.io 的商业条款（例如订单表、费用、企业支持、服务级别和数据处理附录）不属于本服务的一部分。",
         hostedService:
           "Builder.io 可以提供托管的 Agent-Native 应用程序、模板、演示、共享工作区、浏览器扩展和相关代理工作流程。随着产品的发展，托管服务可能会更新、限制、暂停或终止。",
         accounts1:

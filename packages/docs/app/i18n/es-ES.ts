@@ -523,6 +523,7 @@ const esES = {
       apps: "Apps",
       privacyPolicy: "Política de privacidad",
       saasTerms: "Términos de SaaS",
+      legalResources: "Recursos legales",
     },
   },
   gettingStarted: {
@@ -1756,6 +1757,36 @@ const esES = {
   },
   legal: {
     lastUpdated: "Última actualización: {{date}}",
+    resources: {
+      eyebrow: "Recursos legales",
+      title: "Recursos legales de Agent-Native",
+      intro:
+        "Agent-Native mantiene un suplemento centrado para los ejemplos alojados operados por Builder.io y enlaza las políticas compartidas de Builder.io desde su fuente canónica. El framework es de código abierto y estas páginas sobre servicios alojados no rigen para forks ni despliegues autoalojados.",
+      agentNative: {
+        title: "Políticas de Agent-Native",
+        body: "Estas páginas adaptan el marco de políticas compartido al proyecto de código abierto y a los ejemplos alojados de Agent-Native.",
+        terms: "Términos de servicio de Agent-Native",
+        privacy: "Política de privacidad de Agent-Native",
+      },
+      builder: {
+        title: "Políticas compartidas actuales de Builder.io",
+        body: "Estas políticas de Builder.io establecen las reglas compartidas para servicios alojados, contenido, funciones de IA, seguridad, propiedad intelectual y solicitudes legales. Consulta la fuente enlazada para ver el texto vigente.",
+      },
+      links: {
+        terms: "Acuerdo de servicios SaaS",
+        privacy: "Política de privacidad",
+        acceptableUse: "Política de uso aceptable",
+        aiTerms: "Términos de IA",
+        platformRules: "Reglas de la plataforma",
+        takedown: "Política de suspensión, retirada y gestión de datos",
+        dmca: "Política DMCA",
+        lawEnforcement: "Política para solicitudes de las fuerzas del orden",
+      },
+      notIncluded: {
+        title: "Términos comerciales no incluidos",
+        body: "Agent-Native no tiene planes de pago ni contratos empresariales. Los materiales comerciales de Builder.io, como SLA empresariales, términos de soporte, DPA, anexos de seguridad y términos de servicios profesionales, no forman parte de los ejemplos alojados salvo que un acuerdo escrito independiente indique lo contrario.",
+      },
+    },
     privacy: {
       eyebrow: "Política de privacidad",
       title: "Agent-Native aplicaciones alojadas",
@@ -1778,6 +1809,7 @@ const esES = {
       sections: {
         scope: "Alcance",
         information: "Información que recopilamos",
+        cookies: "Cookies y analítica",
         clipsExtension: "Extensión de Chrome Agent-Native Clips",
         use: "Cómo utilizamos la información",
         sharing: "Compartir y terceros",
@@ -1793,6 +1825,8 @@ const esES = {
           "Esta política está destinada a complementar la política más amplia de Builder.io.",
         scope2Suffix:
           "para el comportamiento de la aplicación alojada Agent-Native.",
+        cookies:
+          "El sitio de documentación y las aplicaciones alojadas de Agent-Native pueden usar cookies necesarias para autenticación y seguridad, guardar preferencias como el idioma o el tema, y tecnologías analíticas configuradas. El sitio de documentación puede cargar Google Analytics o Google Tag Manager cuando la implementación los configura, y el servicio alojado puede usar analítica propia para medir la fiabilidad y el uso de funciones. No usamos el contenido de las aplicaciones alojadas para publicidad de terceros. Puedes controlar las cookies desde la configuración del navegador, aunque desactivar las necesarias puede impedir el inicio de sesión u otras funciones.",
         clips1:
           "Agent-Native Clips Chrome extension le ayuda a iniciar grabaciones basadas en navegador y, cuando está habilitado, adjuntar diagnósticos del navegador a un clip. Puede recopilar la fuente de captura seleccionada, la cámara y el micrófono que elija incluir, el título de la pestaña activa y la URL, y el estado de autenticación necesario para conectar la extensión al Clips alojado.",
         clips2:
@@ -1938,6 +1972,8 @@ const esES = {
         scope2Middle: "y el Agent-Native",
         scope2Suffix:
           "Si utiliza una aplicación Agent-Native alojada en nombre de una empresa u organización, declara que tiene autoridad para aceptar estos términos para esa organización.",
+        scope3:
+          "Agent-Native no tiene planes de pago ni suscripciones de alojamiento de pago. Los términos comerciales de Builder.io, como formularios de pedido, tarifas, soporte empresarial, niveles de servicio y anexos de tratamiento de datos, no forman parte de esta oferta salvo que se acuerden por escrito por separado.",
         hostedService:
           "Builder.io puede proporcionar aplicaciones, plantillas, demostraciones, espacios de trabajo compartidos, extensiones de navegador y flujos de trabajo de agentes relacionados alojados en Agent-Native. El servicio alojado puede actualizarse, limitarse, suspenderse o discontinuarse a medida que evoluciona el producto.",
         accounts1:

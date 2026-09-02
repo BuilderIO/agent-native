@@ -45,6 +45,7 @@ describe("docs agent web generation", () => {
       expect(paths).toContain("/brand/");
       expect(paths).toContain("/about/");
       expect(paths).toContain("/contact/");
+      expect(paths).toContain("/legal/");
       expect(paths).toContain("/terms/");
       expect(paths).toContain("/apps/calendar/");
     },

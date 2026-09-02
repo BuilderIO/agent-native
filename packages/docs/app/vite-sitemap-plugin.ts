@@ -29,6 +29,7 @@ import {
 } from "./components/docs-locale";
 import { isRedirectedDocsPath } from "./components/docs-slug-redirects";
 import enUS from "./i18n/en-US";
+import { BUILDER_LEGAL_RESOURCES } from "./legal-resources";
 
 export const SITE_URL = "https://www.agent-native.com";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -371,6 +372,37 @@ Agent-Native is an open source framework for building apps where AI agents and U
         ]),
       ].join("\n"),
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/contact.tsx")),
+    },
+    {
+      path: sitePathForLocale("/legal"),
+      title: enUS.legal.resources.title,
+      description: enUS.legal.resources.intro,
+      markdown: [
+        `# ${enUS.legal.resources.title}`,
+        "",
+        enUS.legal.resources.intro,
+        "",
+        `## ${enUS.legal.resources.agentNative.title}`,
+        "",
+        enUS.legal.resources.agentNative.body,
+        "",
+        `- [${enUS.legal.resources.agentNative.terms}](${sitePathForLocale("/terms")})`,
+        `- [${enUS.legal.resources.agentNative.privacy}](${sitePathForLocale("/privacy")})`,
+        "",
+        `## ${enUS.legal.resources.builder.title}`,
+        "",
+        enUS.legal.resources.builder.body,
+        "",
+        ...BUILDER_LEGAL_RESOURCES.map(
+          ({ key, href }) => `- [${enUS.legal.resources.links[key]}](${href})`,
+        ),
+        "",
+        `## ${enUS.legal.resources.notIncluded.title}`,
+        "",
+        enUS.legal.resources.notIncluded.body,
+        "",
+      ].join("\n"),
+      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/legal.tsx")),
     },
     {
       path: sitePathForLocale("/privacy"),

@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 import { withDefaultSocialImage } from "../seo";
 
-const UPDATED_AT = "June 23, 2026";
+const UPDATED_AT = "September 2, 2026";
 
 const DATA_CATEGORY_KEYS = [
   "account",
@@ -136,6 +136,10 @@ export default function PrivacyPage() {
               </article>
             ))}
           </div>
+        </Section>
+
+        <Section title={t("legal.privacy.sections.cookies")}>
+          <p>{t("legal.privacy.paragraphs.cookies")}</p>
         </Section>
 
         <Section
