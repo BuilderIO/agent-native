@@ -127,6 +127,20 @@ describe("createDrizzleConfig", () => {
     expect(schemaDialect()).toBeUndefined();
   });
 
+  // The override is process-global, so a steering call must not leave the next
+  // default call describing the wrong dialect.
+  it("clears the schema dialect override for a later default call", async () => {
+    vi.stubEnv("DATABASE_URL", "file:./data/app.db");
+
+    const { createDrizzleConfig } = await import("./drizzle-config.js");
+
+    createDrizzleConfig({ url: "postgres://direct.neon.tech/app" });
+    expect(schemaDialect()).toBe("postgresql");
+
+    expect(createDrizzleConfig()).toMatchObject({ dialect: "sqlite" });
+    expect(schemaDialect()).toBeUndefined();
+  });
+
   it("refuses drizzle-kit push against a Neon url passed as an option", async () => {
     vi.stubEnv("npm_lifecycle_script", "drizzle-kit push");
 

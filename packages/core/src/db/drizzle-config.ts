@@ -193,14 +193,19 @@ export function createDrizzleConfig(
   // the URL here without steering the schema too generates migrations from the
   // wrong table builders: a Postgres `url` with no DATABASE_URL leaves
   // getDialect() on its sqlite fallthrough, writing SQLite DDL into a
-  // postgresql journal. With neither option, schema resolves the same
-  // environment we do, so leave it alone.
+  // postgresql journal.
+  //
+  // It is process-global, so every call has to leave it describing that call.
+  // A call steering nothing clears it rather than inheriting the last one:
+  // schema then resolves the same environment we do, through a getDialect()
+  // that also knows about D1 bindings our detection does not.
+  const dialectGlobal = globalThis as typeof globalThis & {
+    __agentNativeDrizzleKitDialect?: DrizzleKitDialect;
+  };
   if (opts.dialect || explicitUrl) {
-    (
-      globalThis as typeof globalThis & {
-        __agentNativeDrizzleKitDialect?: DrizzleKitDialect;
-      }
-    ).__agentNativeDrizzleKitDialect = dialect;
+    dialectGlobal.__agentNativeDrizzleKitDialect = dialect;
+  } else {
+    delete dialectGlobal.__agentNativeDrizzleKitDialect;
   }
   const useResolvedUrl =
     resolvedUrl &&
