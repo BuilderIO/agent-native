@@ -12,6 +12,7 @@ import {
 import {
   DEFAULT_LOCALE,
   isLocaleCode,
+  normalizeLocaleCode,
 } from "../../core/src/localization/shared";
 import { createAgentWebVitePlugin } from "../../core/src/vite/agent-web-plugin";
 import { docsBodyToMarkdownMirror } from "../lib/docs-markdown-export";
@@ -182,11 +183,15 @@ export function buildPrerenderPaths(): string[] {
     .map((page) => page.path);
 }
 
-function isDynamicCommunityPath(pagePath: string): boolean {
+export function isDynamicCommunityPath(pagePath: string): boolean {
+  const segments = pagePath.split("/").filter(Boolean);
+  const pathWithoutLocale = normalizeLocaleCode(segments[0])
+    ? `/${segments.slice(1).join("/")}`
+    : pagePath;
   return (
-    pagePath === "/apps" ||
-    pagePath === "/apps/" ||
-    pagePath.startsWith("/apps/community/")
+    pathWithoutLocale === "/apps" ||
+    pathWithoutLocale === "/apps/" ||
+    pathWithoutLocale.startsWith("/apps/community/")
   );
 }
 

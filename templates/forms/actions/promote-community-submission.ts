@@ -5,10 +5,10 @@ import {
 } from "@agent-native/core/action";
 import {
   getRequestUserEmail,
-  resolveBuilderCredential,
+  readDeployCredentialEnv,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -207,9 +207,7 @@ async function publishToBuilder(
   payload: CommunityAppPayload,
   fetchImpl: typeof fetch = fetch,
 ): Promise<BuilderWriteResult> {
-  const privateKey =
-    (await resolveBuilderCredential("BUILDER_PRIVATE_KEY")) ??
-    (await resolveBuilderCredential("BUILDER_CMS_PRIVATE_KEY"));
+  const privateKey = readDeployCredentialEnv("BUILDER_CMS_PRIVATE_KEY");
   if (!privateKey) {
     return {
       ok: false,
@@ -326,7 +324,7 @@ export default defineAction({
     const payload = readSubmission(response, form);
     const now = new Date().toISOString();
     const promotedBy = context?.userEmail ?? getRequestUserEmail() ?? null;
-    await db
+    const claimed = await db
       .update(schema.responses)
       .set({
         promotionStatus: "publishing",
@@ -338,8 +336,19 @@ export default defineAction({
         and(
           eq(schema.responses.id, response.id),
           eq(schema.responses.formId, response.formId),
+          or(
+            isNull(schema.responses.promotionStatus),
+            eq(schema.responses.promotionStatus, "failed"),
+          ),
         ),
+      )
+      .returning({ id: schema.responses.id });
+    if (claimed.length === 0) {
+      fail(
+        "This submission is already being published or needs a Builder check before retrying.",
+        { errorCode: "promotion_unknown", statusCode: 409 },
       );
+    }
 
     const result = await publishToBuilder(payload);
     if (!result.ok) {
@@ -380,9 +389,23 @@ export default defineAction({
         })
         .where(eq(schema.responses.id, response.id));
     } catch {
+      try {
+        await db
+          .update(schema.responses)
+          .set({
+            promotionStatus: "unknown",
+            promotionError:
+              "Builder accepted this submission, but Forms could not save its publication state. Check Builder before retrying.",
+            promotedAt: new Date().toISOString(),
+            promotedBy,
+          })
+          .where(eq(schema.responses.id, response.id));
+      } catch {
+        // coercion-ok: the original database error is returned below; the UI treats publishing as needs-check.
+      }
       fail(
         "Builder accepted this submission, but Forms could not save its publication state. Check Builder before retrying.",
-        { errorCode: "promotion_state_unknown", statusCode: 503 },
+        { errorCode: "promotion_unknown", statusCode: 503 },
       );
     }
 

@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const resolveBuilderCredential = vi.hoisted(() => vi.fn());
+const readDeployCredentialEnv = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
-  resolveBuilderCredential,
+  readDeployCredentialEnv,
 }));
 
 const { loadCommunityAppCatalog, normalizeCommunityAppEntry } =
@@ -15,7 +15,7 @@ describe("community app Builder catalog", () => {
   });
 
   it("keeps the checked-in seed visible when CMS access is not configured", async () => {
-    resolveBuilderCredential.mockResolvedValue(null);
+    readDeployCredentialEnv.mockReturnValue(undefined);
 
     const result = await loadCommunityAppCatalog();
 
@@ -24,7 +24,7 @@ describe("community app Builder catalog", () => {
   });
 
   it("reads published entries and keeps only safe, unique listings", async () => {
-    resolveBuilderCredential.mockResolvedValue("public-key");
+    readDeployCredentialEnv.mockReturnValue("public-key");
     const fetchImpl = vi.fn(
       async () =>
         new Response(
@@ -74,6 +74,16 @@ describe("community app Builder catalog", () => {
       }),
       expect.objectContaining({ headers: { accept: "application/json" } }),
     );
+  });
+
+  it("keeps the seed listing when a configured CMS is empty", async () => {
+    readDeployCredentialEnv.mockReturnValue("public-key");
+    const result = await loadCommunityAppCatalog(
+      vi.fn(async () => new Response(JSON.stringify({ results: [] }))),
+    );
+
+    expect(result.source).toBe("builder");
+    expect(result.apps.map((app) => app.slug)).toContain("nomad");
   });
 
   it("rejects unsafe or incomplete entries", () => {

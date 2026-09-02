@@ -1,4 +1,4 @@
-import { resolveBuilderCredential } from "@agent-native/core/server";
+import { readDeployCredentialEnv } from "@agent-native/core/server";
 
 import {
   communityApps as seedCommunityApps,
@@ -9,6 +9,15 @@ import {
 export const COMMUNITY_APP_BUILDER_MODEL = "community-apps";
 const BUILDER_CONTENT_API = "https://cdn.builder.io";
 const BUILDER_READ_TIMEOUT_MS = 8_000;
+const COMMUNITY_APP_CATALOG_TTL_MS = 30_000;
+
+let catalogCache:
+  | {
+      publicKey: string;
+      expiresAt: number;
+      catalog: CommunityAppCatalog;
+    }
+  | undefined;
 
 export type CommunityAppCatalog = {
   apps: CommunityApp[];
@@ -131,12 +140,26 @@ function normalizeEntries(value: unknown): CommunityApp[] {
   return apps;
 }
 
+function mergeSeedAndBuilderApps(builderApps: CommunityApp[]): CommunityApp[] {
+  const apps = new Map(seedCommunityApps.map((app) => [app.slug, app]));
+  for (const app of builderApps) apps.set(app.slug, app);
+  return [...apps.values()];
+}
+
 export async function loadCommunityAppCatalog(
   fetchImpl: typeof fetch = fetch,
 ): Promise<CommunityAppCatalog> {
-  const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
+  const publicKey = readDeployCredentialEnv("BUILDER_PUBLIC_KEY");
   if (!publicKey) {
     return { apps: seedCommunityApps, source: "seed" };
+  }
+
+  if (
+    fetchImpl === fetch &&
+    catalogCache?.publicKey === publicKey &&
+    catalogCache.expiresAt > Date.now()
+  ) {
+    return catalogCache.catalog;
   }
 
   const url = new URL(
@@ -168,7 +191,18 @@ export async function loadCommunityAppCatalog(
         "Builder community catalog returned invalid JSON.",
       );
     }
-    return { apps: normalizeEntries(body), source: "builder" };
+    const catalog = {
+      apps: mergeSeedAndBuilderApps(normalizeEntries(body)),
+      source: "builder" as const,
+    };
+    if (fetchImpl === fetch) {
+      catalogCache = {
+        publicKey,
+        expiresAt: Date.now() + COMMUNITY_APP_CATALOG_TTL_MS,
+        catalog,
+      };
+    }
+    return catalog;
   } catch (error) {
     if (error instanceof CommunityAppCatalogError) throw error;
     throw new CommunityAppCatalogError(

@@ -54,7 +54,7 @@ export function CommunityPromotionCell({
   }
 
   const error = localError ?? response.communityPromotion?.error;
-  if (status === "unknown") {
+  if (status === "unknown" || status === "publishing") {
     return (
       <div className="min-w-40 space-y-1">
         <Badge variant="outline">{t("responses.communityNeedsCheck")}</Badge>

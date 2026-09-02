@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { isRedirectedDocsPath } from "../app/components/docs-slug-redirects";
-import { buildPrerenderPaths } from "../app/vite-sitemap-plugin";
+import {
+  buildPrerenderPaths,
+  isDynamicCommunityPath,
+} from "../app/vite-sitemap-plugin";
 
 describe("isRedirectedDocsPath", () => {
   it("excludes docs slugs whose loader answers with a 301", () => {
@@ -65,4 +68,12 @@ describe("buildPrerenderPaths", () => {
   // page exists: it should be missing from `paths` (a draft doc's loader
   // 404s unless VITE_SHOW_DRAFTS is set, so prerendering it would freeze a
   // 404 into a 200 static file) while still appearing in `sitemapPaths`.
+});
+
+describe("isDynamicCommunityPath", () => {
+  it("recognizes localized community routes", () => {
+    expect(isDynamicCommunityPath("/es-es/apps/community/nomad/")).toBe(true);
+    expect(isDynamicCommunityPath("/apps/community/nomad/")).toBe(true);
+    expect(isDynamicCommunityPath("/es-es/apps/calendar/")).toBe(false);
+  });
 });

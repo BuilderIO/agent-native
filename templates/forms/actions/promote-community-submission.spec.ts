@@ -55,6 +55,7 @@ const form = {
 
 const dbMock = vi.hoisted(() => {
   let selectResults: unknown[][] = [];
+  let claimResult: unknown[] = [{ id: "response_123456" }];
   const updates: unknown[] = [];
 
   function selectQuery() {
@@ -71,14 +72,21 @@ const dbMock = vi.hoisted(() => {
     updates,
     setResults(next: unknown[][]) {
       selectResults = [...next];
+      claimResult = [{ id: "response_123456" }];
       updates.length = 0;
+    },
+    setClaimResult(next: unknown[]) {
+      claimResult = next;
     },
     getDb: () => ({
       select: vi.fn(() => selectQuery()),
       update: vi.fn(() => ({
         set: vi.fn((value) => {
           updates.push(value);
-          return { where: vi.fn(async () => undefined) };
+          const whereResult = {
+            returning: vi.fn(async () => claimResult),
+          };
+          return { where: vi.fn(() => whereResult) };
         }),
       })),
     }),
@@ -93,7 +101,7 @@ vi.mock("../server/db/index.js", async () => ({
 }));
 vi.mock("@agent-native/core/server", () => ({
   getRequestUserEmail: () => "reviewer@example.com",
-  resolveBuilderCredential: credentialMock,
+  readDeployCredentialEnv: credentialMock,
 }));
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: vi.fn(async () => ({ resource: form })),
@@ -106,7 +114,7 @@ describe("promote-community-submission action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     dbMock.setResults([[response], [form]]);
-    credentialMock.mockResolvedValue("private-key");
+    credentialMock.mockReturnValue("private-key");
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -157,5 +165,14 @@ describe("promote-community-submission action", () => {
     expect(dbMock.updates[1]).toMatchObject({
       promotionStatus: "unknown",
     });
+  });
+
+  it("does not publish when another reviewer claims the response first", async () => {
+    dbMock.setClaimResult([]);
+
+    await expect(
+      promoteCommunitySubmission.run({ responseId: response.id }),
+    ).rejects.toMatchObject({ errorCode: "promotion_unknown" });
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 });
