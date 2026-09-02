@@ -100,6 +100,7 @@ import {
   normalizeFormBuilderTab,
   type FormBuilderTab,
 } from "@/lib/form-builder-tabs";
+import type { AppFormFieldType } from "@/lib/form-field-types";
 import { normalizeFields } from "@/lib/normalize-fields";
 import { getPublishedFormUrl } from "@/lib/public-form-link";
 import { cn } from "@/lib/utils";
@@ -108,7 +109,7 @@ type Translator = ReturnType<typeof useT>;
 
 function getFieldTypeDefaults(
   t: Translator,
-): Record<FormFieldType, Partial<FormField>> {
+): Record<AppFormFieldType, Partial<FormField>> {
   const defaultOptions = [
     t("builder.fieldDefaults.option1"),
     t("builder.fieldDefaults.option2"),
@@ -149,6 +150,9 @@ function getFieldTypeDefaults(
     scale: {
       label: t("builder.fieldDefaults.scaleLabel"),
       validation: { min: 1, max: 10 },
+    },
+    file: {
+      label: t("builder.fieldDefaults.fileLabel"),
     },
   };
 }
@@ -466,19 +470,20 @@ export function FormBuilderPage() {
   // Viewers can see the form but not edit it or peek at responses / settings /
   // integrations. The role is set by `get-form` based on ownership + shares.
 
-  function addField(type: FormFieldType) {
+  function addField(type: AppFormFieldType) {
     const fieldTypeDefaults = getFieldTypeDefaults(t);
     const defaults = fieldTypeDefaults[type] || {};
-    const newField: FormField = {
+    const newField = {
       id: nanoid(8),
-      type,
+      type: type as FormFieldType,
       label: defaults.label || t("builder.fieldDefaults.newField"),
       placeholder: defaults.placeholder,
       required: false,
       options: defaults.options,
       validation: defaults.validation,
       width: "full",
-    };
+      ...(type === "file" ? { multiple: true } : {}),
+    } as FormField;
     setLocalFields((prev) => [...prev, newField]);
     fieldsDirty.current = true;
     saveFieldOps([{ op: "upsert", field: newField }]);
@@ -1011,13 +1016,13 @@ function BuilderContent({
   onDragStart: (idx: number) => void;
   onDragOver: (e: React.DragEvent, idx: number) => void;
   onDragEnd: () => void;
-  onAddField: (type: FormFieldType) => void;
+  onAddField: (type: AppFormFieldType) => void;
   onAgentPopoverChange: (open: boolean) => void;
   onAgentPromptChange: (v: string) => void;
   onSubmitAgent: () => void;
 }) {
   const t = useT();
-  const fieldTypeLabels: Record<FormFieldType, string> = {
+  const fieldTypeLabels: Record<AppFormFieldType, string> = {
     text: t("fieldProperties.fieldTypes.text"),
     email: t("fieldProperties.fieldTypes.email"),
     number: t("fieldProperties.fieldTypes.number"),
@@ -1029,6 +1034,7 @@ function BuilderContent({
     date: t("fieldProperties.fieldTypes.date"),
     rating: t("fieldProperties.fieldTypes.rating"),
     scale: t("fieldProperties.fieldTypes.scale"),
+    file: t("fieldProperties.fieldTypes.file"),
   };
 
   return (
@@ -1158,7 +1164,7 @@ function BuilderContent({
                   {Object.entries(fieldTypeLabels).map(([type, label]) => (
                     <DropdownMenuItem
                       key={type}
-                      onClick={() => onAddField(type as FormFieldType)}
+                      onClick={() => onAddField(type as AppFormFieldType)}
                     >
                       {label}
                     </DropdownMenuItem>

@@ -555,9 +555,10 @@ const deDE = {
     copyCommunityInstallCommand: "Installationsbefehl kopieren",
     viewRepository: "Repository ansehen",
     tryCommunityDemo: "Demo testen",
-    customizeDescription: "Du kannst diesen Code vollständig anpassen.",
-    customizeOnline: "Online anpassen",
-    customizeLocally: "Lokal anpassen",
+    customizeDescription: "Nutze diese App als Ausgangspunkt.",
+    customizeOnline: "Online",
+    customizeOnlineBadge: "Warteliste beitreten",
+    customizeLocally: "Lokal",
     communityNew: "Neu",
     communityComingSoon: "Demnächst",
     communityGithubStars: "{{count}} GitHub-Sterne",
@@ -577,7 +578,7 @@ const deDE = {
     communitySubmissionName: "App-Name",
     communitySubmissionNamePlaceholder: "Kundensupport-Zentrale",
     communitySubmissionUrl: "App-URL",
-    communitySubmissionUrlPlaceholder: "example.com oder https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "Beschreibung",
     communitySubmissionDescriptionPlaceholder:
       "Was macht die App und für wen ist sie gedacht?",
@@ -594,8 +595,16 @@ const deDE = {
     communitySubmissionSubmit: "App einreichen",
     communitySubmissionReady:
       "Danke. Wir prüfen deine App vor der Veröffentlichung.",
-    communitySubmissionValidation:
-      "Füge einen Namen und eine Beschreibung hinzu und gib dann einen App-Link wie example.com ein. Wir ergänzen https:// automatisch. Wenn du ein Repository hinzufügst, muss der Link auf github.com verweisen. Lade PNG-, JPG- oder WebP-Bilder mit jeweils maximal 1,5 MB hoch.",
+    communitySubmissionNameError: "Gib einen App-Namen ein.",
+    communitySubmissionDescriptionError: "Füge eine kurze Beschreibung hinzu.",
+    communitySubmissionUrlError:
+      "Gib einen gültigen App-Link ein, z. B. example.com.",
+    communitySubmissionRepositoryError: "Gib einen GitHub-Repository-Link ein.",
+    communitySubmissionScreenshotsError:
+      "Verwende PNG-, JPG- oder WebP-Bilder mit jeweils maximal 1,5 MB und höchstens 5 Bilder.",
+    communitySubmissionSubmitError:
+      "Die Übermittlung ist gerade nicht möglich. Prüfe die markierten Felder und versuche es erneut.",
+    communitySubmissionSubmitting: "Wird gesendet…",
   },
   buildFromScratch: {
     title: "Von Grund auf bauen",
@@ -1489,7 +1498,7 @@ const deDE = {
       s004: "Verfeinern",
       s005: "Alle Vorlagen",
       s006Primary: "Folienpräsentationen",
-      s006Secondary: "für Menschen und Agenten",
+      s006Secondary: "Markenkonform & bearbeitbar",
       s007: "Lassen Sie Ihren KI-Agenten Präsentationen in Ihrem Markendesign erstellen, nehmen Sie jederzeit eigene manuelle Änderungen vor und exportieren Sie sie überallhin.",
       s008: "Ausprobieren",
       s009: "Wie es funktioniert",

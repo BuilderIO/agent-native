@@ -1,4 +1,3 @@
-import { eq } from "drizzle-orm";
 import {
   defineEventHandler,
   getRequestURL,
@@ -7,7 +6,8 @@ import {
 } from "h3";
 
 import { toPublicFormSettings, type FormSettings } from "../../shared/types.js";
-import { getDb, schema } from "../db/index.js";
+import { getDb } from "../db/index.js";
+import { findFormBySlugOrId } from "../lib/form-lookup.js";
 
 // ---------------------------------------------------------------------------
 // Public form handler (unauthenticated — stays as API route)
@@ -24,22 +24,7 @@ export const getPublicForm = defineEventHandler(async (event: H3Event) => {
     return { error: "Form not found" };
   }
 
-  const db = getDb();
-  // Try matching by slug first, then fall back to matching by ID
-  let row = await db
-    .select()
-    .from(schema.forms)
-    .where(eq(schema.forms.slug, slug))
-    .then((rows) => rows[0]);
-
-  if (!row) {
-    // Fall back to ID-based lookup (for legacy URLs or direct ID access)
-    row = await db
-      .select()
-      .from(schema.forms)
-      .where(eq(schema.forms.id, slug))
-      .then((rows) => rows[0]);
-  }
+  const row = await findFormBySlugOrId(getDb(), slug);
 
   if (!row || row.status !== "published" || row.deletedAt) {
     setResponseStatus(event, 404);

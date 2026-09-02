@@ -412,6 +412,8 @@ export interface OAuthStatePayload {
    */
   returnUrl?: string;
   flowId?: string;
+  /** Internal provider-resource id targeted by a reconnect flow. */
+  oauthTargetId?: string;
   /** Hash of the client-held verifier binding a desktop exchange to its initiator. */
   desktopVerifierHash?: string;
   /** Hash of the initiating browser binding for a desktop OAuth exchange. */
@@ -487,6 +489,7 @@ export interface EncodeOAuthStateOptions {
   provider?: string;
   returnUrl?: string;
   flowId?: string;
+  oauthTargetId?: string;
   desktopVerifierHash?: string;
   desktopBrowserBindingHash?: string;
   desktopWebview?: boolean;
@@ -572,6 +575,7 @@ export function encodeOAuthState(
   if (opts.provider) payload.p = opts.provider;
   if (opts.returnUrl) payload.r2 = opts.returnUrl;
   if (opts.flowId) payload.f = opts.flowId;
+  if (opts.oauthTargetId) payload.ot = opts.oauthTargetId;
   if (opts.desktopVerifierHash) payload.vh = opts.desktopVerifierHash;
   if (opts.desktopBrowserBindingHash)
     payload.bh = opts.desktopBrowserBindingHash;
@@ -635,6 +639,7 @@ export function decodeOAuthState(
         // depth in case the signing key ever leaks.
         returnUrl: typeof parsed.r2 === "string" ? parsed.r2 : undefined,
         flowId: parsed.f || undefined,
+        oauthTargetId: typeof parsed.ot === "string" ? parsed.ot : undefined,
         desktopVerifierHash:
           typeof parsed.vh === "string" ? parsed.vh : undefined,
         desktopBrowserBindingHash:
