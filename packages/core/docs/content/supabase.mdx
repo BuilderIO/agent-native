@@ -1,0 +1,44 @@
+---
+title: "Supabase"
+description: "Connect an agent-native app to Supabase Postgres with the right pooler mode for runtime traffic and migrations."
+---
+
+# Supabase
+
+Supabase provides standard Postgres connection strings. Copy the connection
+details from the Supabase **Connect** panel and set `DATABASE_URL` in the
+server environment.
+
+## Configure the app
+
+For serverless or edge runtime traffic, use Supabase's transaction pooler:
+
+```bash
+DATABASE_URL=postgresql://postgres.project-ref:YOUR_PASSWORD@aws-0-us-east-1.pooler.supabase.com:6543/postgres
+```
+
+The framework uses a Postgres driver configuration that is compatible with
+Supabase poolers. Keep the database password in the provider's environment,
+never in client code or committed files.
+
+## Choose the pooler mode
+
+Transaction pooling is intended for short-lived application requests and does
+not support prepared statements. Use Supabase's direct or session connection
+for release migrations and other clients that need a persistent connection.
+
+If your deployment uses a transaction pooler for `DATABASE_URL`, keep a direct
+or session URL available to the migration step rather than running migrations
+through the transaction pooler.
+
+## Migrations
+
+Run production migrations in the release or deployment step. Follow the
+embedded migration guidance in the [database guide](/docs/server-database#migrations),
+and never run `drizzle-kit push` against a production database.
+
+## What's next
+
+- [Database](/docs/server-database) - schema, migrations, and connection rules
+- [Deployment](/docs/deployment) - choose a runtime and deployment preset
+- [Supabase connection guide](https://supabase.com/docs/guides/database/connecting-to-postgres) - pooler modes and connection strings

@@ -1,0 +1,44 @@
+---
+title: "Cloudflare D1"
+description: "Use Cloudflare D1 as the SQLite database binding for a Cloudflare Workers or Pages deployment."
+---
+
+# Cloudflare D1
+
+Cloudflare D1 is a supported SQLite database for Cloudflare runtimes. Pair it
+with the [Cloudflare deployment preset](/docs/cloudflare) and bind the
+database with the exact name `DB`.
+
+## Configure the binding
+
+Add the D1 database to Wrangler:
+
+```jsonc filename="wrangler.jsonc"
+{
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "agent-native-app",
+      "database_id": "YOUR_DATABASE_ID"
+    }
+  ]
+}
+```
+
+The framework reads the `DB` binding from the Cloudflare runtime. Do not set
+`DATABASE_URL` for a D1 deployment because a URL takes precedence over the D1
+binding and selects another database dialect.
+
+## Migrations
+
+D1 deployments cannot load migration files from the server filesystem. Bundle
+the migration entries and run them with the embedded migration runner during
+your release or deployment step. See the [database migration guide](/docs/server-database#migrations).
+
+Never run `drizzle-kit push` against a production database.
+
+## What's next
+
+- [Cloudflare deployment](/docs/cloudflare) - build and deploy the Worker or Pages app
+- [Database](/docs/server-database) - schema, migrations, and connection rules
+- [Cloudflare D1 documentation](https://developers.cloudflare.com/d1/) - D1 platform details
