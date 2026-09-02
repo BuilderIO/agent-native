@@ -2,6 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentNativeI18nProvider } from "../i18n.js";
@@ -110,5 +111,26 @@ describe("McpAccessSettings localization", () => {
         ?.getAttribute("aria-selected"),
     ).toBe("true");
     expect(container.textContent).toContain("grok.com/connectors");
+  });
+
+  it("renders the default guide without a browser during SSR", () => {
+    const browserWindow = window;
+    vi.stubGlobal("window", undefined);
+
+    try {
+      expect(() =>
+        renderToString(
+          <AgentNativeI18nProvider
+            initialLocale="en-US"
+            initialPreference="en-US"
+            persistPreference={false}
+          >
+            <McpAccessSettings appName="Content" />
+          </AgentNativeI18nProvider>,
+        ),
+      ).not.toThrow();
+    } finally {
+      vi.stubGlobal("window", browserWindow);
+    }
   });
 });

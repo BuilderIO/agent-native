@@ -23,9 +23,9 @@ If Content actions are already visible, use them. Otherwise connect the host to
 the Content app descriptor's hosted MCP URL (the hosted service uses
 \`https://content.agent-native.com/mcp\`). OAuth-capable hosts should add that
 remote MCP URL and let the user complete the host-owned sign-in and consent
-step. Claude and Claude Cowork use Claude's custom Connectors flow; Claude Code
-adds the same remote HTTP URL and authenticates from \`/mcp\`; ChatGPT/OpenAI,
-Codex, Grok/xAI, and other MCP hosts use their custom connector or MCP settings.
+step. Claude uses its custom Connectors flow; Claude Code adds the same remote
+HTTP URL and authenticates from \`/mcp\`; ChatGPT/OpenAI, Cursor, Grok/xAI, and
+other OAuth-capable MCP hosts use their custom connector or MCP settings.
 
 Use the browser for OAuth or consent, an MCP App or focused artifact handoff,
 or interaction that genuinely exists only in the UI. When Content actions are
@@ -34,10 +34,11 @@ browser automation. After authorization, inspect the tools the host actually
 provides and use only those tools; do not infer unavailable capabilities from
 this skill.
 
-Clients without remote OAuth can open the app's \`/mcp/connect\` page or run
+Codex and Claude Cowork do not use remote MCP OAuth. Open the app's
+\`/mcp/connect\` page or run
 \`npx @agent-native/core@latest connect https://content.agent-native.com\` for
-the existing browser-authorized fallback. Never ask the user to paste a token
-into chat.
+their browser-authorized device-code flow. Other clients without remote OAuth
+use the same fallback. Never ask the user to paste a token into chat.
 
 ## Choose The Path
 

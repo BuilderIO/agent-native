@@ -22,7 +22,7 @@
   },
   "auth": {
     "mode": "oauth",
-    "setup": "Use the Content actions if they are already available. Otherwise add https://content.agent-native.com/mcp as a remote MCP connector in Claude or Claude Cowork, Claude Code, ChatGPT or OpenAI, Codex, Grok or xAI, or another MCP host, then complete the host-owned OAuth sign-in. Use /mcp/connect only as the browser-authorized fallback for clients without remote OAuth. Local File Mode requires a local Content app, Agent-Native Desktop, or another trusted local bridge for filesystem access."
+    "setup": "Use the Content actions if they are already available. Otherwise add https://content.agent-native.com/mcp as a remote MCP connector in OAuth-capable hosts such as Claude, Claude Code, ChatGPT or OpenAI, Cursor, and Grok or xAI, then complete the host-owned OAuth sign-in. Codex and Claude Cowork use the browser-authorized device-code flow at https://content.agent-native.com/mcp/connect or through npx @agent-native/core@latest connect https://content.agent-native.com. Never ask the user to paste a token into chat. Local File Mode requires a local Content app, Agent-Native Desktop, or another trusted local bridge for filesystem access."
   },
   "surfaces": [
     {

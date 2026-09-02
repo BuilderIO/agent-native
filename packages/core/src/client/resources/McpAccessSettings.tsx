@@ -96,11 +96,15 @@ export function McpAccessSettings({
   );
   const [urls, setUrls] = useState<AccessUrls | null>(null);
   const [agentCardAvailable, setAgentCardAvailable] = useState(false);
-  const [activeGuide, setActiveGuide] = useState<string>(() =>
-    resolveMcpConnectGuideId(
-      new URLSearchParams(window.location.search).get("guide"),
-    ),
-  );
+  const [activeGuide, setActiveGuide] = useState<string>("claude");
+
+  useEffect(() => {
+    setActiveGuide(
+      resolveMcpConnectGuideId(
+        new URLSearchParams(window.location.search).get("guide"),
+      ),
+    );
+  }, []);
 
   useEffect(() => {
     const origin = window.location.origin;
