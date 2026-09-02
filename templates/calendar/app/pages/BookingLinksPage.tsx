@@ -694,6 +694,7 @@ function BookingHostsEditor({
       (person) => normalizeHostEmail(person.email) === normalized,
     )?.color;
     const statusHint = hostStatusHint(host);
+    const StatusIcon = statusHint?.icon;
     return (
       <Badge key={host.email} variant="secondary" className="gap-1.5 pr-1">
         {overlayColor && (
@@ -703,10 +704,10 @@ function BookingHostsEditor({
           />
         )}
         {host.displayName || host.email}
-        {statusHint && (
+        {statusHint && StatusIcon && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <statusHint.icon
+              <StatusIcon
                 className={cn("h-3.5 w-3.5 shrink-0", statusHint.className)}
                 aria-label={statusHint.label}
               />
