@@ -68,22 +68,11 @@ describe("resource-delete", () => {
         deleteResourceScript(["--path", "notes/todo.md", "--scope", "shared"]),
     );
 
-    expect(mocks.resourceDeleteIfCurrent).toHaveBeenNthCalledWith(1, {
-      owner: organizationResource.owner,
-      path: organizationResource.path,
-      expectedId: organizationResource.id,
-      expectedUpdatedAt: organizationResource.updatedAt,
-      expectedContent: organizationResource.content,
-      expectedMetadata: organizationResource.metadata,
-    });
-    expect(mocks.resourceDeleteIfCurrent).toHaveBeenCalledWith({
-      owner: "__shared__",
-      path: "notes/todo.md",
-      expectedId: "legacy-resource",
-      expectedUpdatedAt: 1,
-      expectedContent: "legacy",
-      expectedMetadata: legacyResource.metadata,
-    });
+    expect(mocks.resourceDeleteIfCurrent).toHaveBeenNthCalledWith(
+      1,
+      organizationResource,
+    );
+    expect(mocks.resourceDeleteIfCurrent).toHaveBeenCalledWith(legacyResource);
   });
 
   it("does not delete a replacement organization resource", async () => {
@@ -104,14 +93,9 @@ describe("resource-delete", () => {
         deleteResourceScript(["--path", "notes/todo.md", "--scope", "shared"]),
     );
 
-    expect(mocks.resourceDeleteIfCurrent).toHaveBeenCalledWith({
-      owner: organizationResource.owner,
-      path: organizationResource.path,
-      expectedId: organizationResource.id,
-      expectedUpdatedAt: organizationResource.updatedAt,
-      expectedContent: organizationResource.content,
-      expectedMetadata: organizationResource.metadata,
-    });
+    expect(mocks.resourceDeleteIfCurrent).toHaveBeenCalledWith(
+      organizationResource,
+    );
     expect(mocks.resourceDeleteByPath).not.toHaveBeenCalled();
     expect(mocks.resourceGetByPath).toHaveBeenCalledTimes(1);
   });

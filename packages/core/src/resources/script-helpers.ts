@@ -17,9 +17,11 @@ import {
   SHARED_OWNER,
   WORKSPACE_OWNER,
   sharedResourceOwner,
+  isLegacyOrganizationWorkspaceFile,
   resourceGetByPath,
   resourcePut,
   resourceDeleteByPath,
+  resourceDeleteIfCurrent,
   resourceList,
   resourceListAccessible,
   resourceEffectiveContext,
@@ -62,6 +64,30 @@ async function assertCanManageSharedResource(): Promise<void> {
       "Only organization owners and admins can edit organization files",
     );
   }
+}
+
+async function deleteSharedResource(path: string): Promise<boolean> {
+  const orgId = getRequestOrgId() ?? null;
+  const owner = sharedResourceOwner(orgId);
+  if (owner === SHARED_OWNER) return resourceDeleteByPath(owner, path);
+
+  const options = { orgId };
+  const organizationResource = await resourceGetByPath(owner, path, options);
+  if (organizationResource) {
+    const deleted = await resourceDeleteIfCurrent(organizationResource);
+    if (!deleted) return false;
+
+    const legacy = await resourceGetByPath(SHARED_OWNER, path, options);
+    if (legacy && isLegacyOrganizationWorkspaceFile(legacy, orgId)) {
+      await resourceDeleteIfCurrent(legacy);
+    }
+    return true;
+  }
+
+  const legacy = await resourceGetByPath(SHARED_OWNER, path, options);
+  return legacy && isLegacyOrganizationWorkspaceFile(legacy, orgId)
+    ? resourceDeleteIfCurrent(legacy)
+    : false;
 }
 
 export async function readResource(
@@ -131,7 +157,9 @@ export async function deleteResource(
   const scope = resolveScope(options);
   if (scope === "shared") await assertCanManageSharedResource();
   const owner = getOwnerForScope(scope);
-  return resourceDeleteByPath(owner, path);
+  return scope === "shared"
+    ? deleteSharedResource(path)
+    : resourceDeleteByPath(owner, path);
 }
 
 export async function listResources(

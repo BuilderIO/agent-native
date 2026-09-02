@@ -813,18 +813,20 @@ Legacy webhook.`,
           }),
         },
       );
-      expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith({
-        owner: "__shared__",
-        path: "analysis.md",
-        expectedId: "legacy-org-resource",
-        expectedUpdatedAt: 1,
-        expectedContent: "old",
-        expectedMetadata: JSON.stringify({
-          source: "workspace-files",
-          scope: "org",
-          scopeId: "org-1",
+      expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          owner: "__shared__",
+          path: "analysis.md",
+          id: "legacy-org-resource",
+          updatedAt: 1,
+          content: "old",
+          metadata: JSON.stringify({
+            source: "workspace-files",
+            scope: "org",
+            scopeId: "org-1",
+          }),
         }),
-      });
+      );
     });
 
     it("rejects a legacy rename onto an existing organization resource", async () => {
@@ -913,13 +915,37 @@ Legacy webhook.`,
       const result = await handleDeleteResource(event);
 
       expect(result).toEqual({ ok: true });
-      expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith({
-        owner: "test@test.com",
+      expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          owner: "test@test.com",
+          path: "doc.md",
+          id: "r1",
+          updatedAt: 1,
+          content: "content",
+          metadata: null,
+        }),
+      );
+    });
+
+    it("returns a conflict when the resource changed before deletion", async () => {
+      mockResourceGet.mockResolvedValue({
+        id: "r1",
         path: "doc.md",
-        expectedId: "r1",
-        expectedUpdatedAt: 1,
-        expectedContent: "content",
-        expectedMetadata: null,
+        owner: "test@test.com",
+        content: "content",
+        updatedAt: 1,
+        metadata: null,
+      });
+      mockResourceDeleteIfCurrent.mockResolvedValue(false);
+
+      const result = await handleDeleteResource({
+        _params: { id: "r1" },
+        context: {},
+      });
+
+      expect(lastStatus).toBe(409);
+      expect(result).toEqual({
+        error: "Resource changed before it could be deleted",
       });
     });
 
@@ -978,26 +1004,32 @@ Legacy webhook.`,
         context: {},
       });
 
-      expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(1, {
-        owner: "__organization__:org-1",
-        path: "analysis.md",
-        expectedId: "org-resource",
-        expectedUpdatedAt: 2,
-        expectedContent: "organization",
-        expectedMetadata: null,
-      });
-      expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(2, {
-        owner: "__shared__",
-        path: "analysis.md",
-        expectedId: "legacy-org-resource",
-        expectedUpdatedAt: 1,
-        expectedContent: "legacy",
-        expectedMetadata: JSON.stringify({
-          source: "workspace-files",
-          scope: "org",
-          scopeId: "org-1",
+      expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          owner: "__organization__:org-1",
+          path: "analysis.md",
+          id: "org-resource",
+          updatedAt: 2,
+          content: "organization",
+          metadata: null,
         }),
-      });
+      );
+      expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          owner: "__shared__",
+          path: "analysis.md",
+          id: "legacy-org-resource",
+          updatedAt: 1,
+          content: "legacy",
+          metadata: JSON.stringify({
+            source: "workspace-files",
+            scope: "org",
+            scopeId: "org-1",
+          }),
+        }),
+      );
     });
 
     it("keeps Dispatch workspace resources delete-protected", async () => {
@@ -1082,18 +1114,20 @@ Legacy webhook.`,
         userEmail: "test@test.com",
         orgId: "org-1",
       });
-      expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith({
-        owner: "__shared__",
-        path: "analysis.md",
-        expectedId: "legacy-org-resource",
-        expectedUpdatedAt: 1,
-        expectedContent: "legacy",
-        expectedMetadata: JSON.stringify({
-          source: "workspace-files",
-          scope: "org",
-          scopeId: "org-1",
+      expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          owner: "__shared__",
+          path: "analysis.md",
+          id: "legacy-org-resource",
+          updatedAt: 1,
+          content: "legacy",
+          metadata: JSON.stringify({
+            source: "workspace-files",
+            scope: "org",
+            scopeId: "org-1",
+          }),
         }),
-      });
+      );
     });
   });
 

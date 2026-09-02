@@ -642,16 +642,7 @@ describe("resourceEffectiveContext", () => {
         metadata: { source: "global" },
       });
 
-      await expect(
-        resourceDeleteIfCurrent({
-          owner: SHARED_OWNER,
-          path,
-          expectedId: legacy.id,
-          expectedUpdatedAt: legacy.updatedAt,
-          expectedContent: legacy.content,
-          expectedMetadata: legacy.metadata as string,
-        }),
-      ).resolves.toBe(false);
+      await expect(resourceDeleteIfCurrent(legacy)).resolves.toBe(false);
       await expect(
         resourceGetByPath(SHARED_OWNER, path),
       ).resolves.toMatchObject({
@@ -675,17 +666,48 @@ describe("resourceEffectiveContext", () => {
     try {
       const resource = await resourcePut(SHARED_OWNER, path, "content");
 
-      await expect(
-        resourceDeleteIfCurrent({
-          owner: SHARED_OWNER,
-          path,
-          expectedId: resource.id,
-          expectedUpdatedAt: resource.updatedAt,
-          expectedContent: resource.content,
-          expectedMetadata: resource.metadata,
-        }),
-      ).resolves.toBe(true);
+      await expect(resourceDeleteIfCurrent(resource)).resolves.toBe(true);
       await expect(resourceGetByPath(SHARED_OWNER, path)).resolves.toBeNull();
+    } finally {
+      await resourceDeleteByPath(SHARED_OWNER, path);
+    }
+  });
+
+  it("does not delete a same-timestamp MIME or visibility mutation", async () => {
+    const {
+      SHARED_OWNER,
+      resourceDeleteByPath,
+      resourceDeleteIfCurrent,
+      resourceGetByPath,
+      resourcePut,
+    } = await import("./store.js");
+    const path = `context/conditional-fields-${Date.now()}-${Math.random()}.md`;
+
+    try {
+      const resource = await resourcePut(
+        SHARED_OWNER,
+        path,
+        "content",
+        "text/plain",
+      );
+      sqlite
+        .prepare(
+          "UPDATE resources SET mime_type = ?, visibility = ?, updated_at = ? WHERE id = ?",
+        )
+        .run(
+          "application/json",
+          "agent_scratch",
+          resource.updatedAt,
+          resource.id,
+        );
+
+      await expect(resourceDeleteIfCurrent(resource)).resolves.toBe(false);
+      await expect(
+        resourceGetByPath(SHARED_OWNER, path),
+      ).resolves.toMatchObject({
+        mimeType: "application/json",
+        visibility: "agent_scratch",
+      });
     } finally {
       await resourceDeleteByPath(SHARED_OWNER, path);
     }

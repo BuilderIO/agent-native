@@ -218,15 +218,6 @@ export interface ResourceConditionalWrite {
   mimeType?: string;
 }
 
-export interface ResourceConditionalDelete {
-  owner: string;
-  path: string;
-  expectedId: string;
-  expectedUpdatedAt: number;
-  expectedContent: string;
-  expectedMetadata: string | null;
-}
-
 export interface ResourceListOptions {
   includeAgentScratch?: boolean;
   workspaceAppId?: string | null;
@@ -1727,27 +1718,41 @@ export async function resourcePutIfCurrent(
 }
 
 export async function resourceDeleteIfCurrent(
-  input: ResourceConditionalDelete,
+  resource: Resource,
 ): Promise<boolean> {
   await ensureTable();
-  if (isLocalWorkspaceResourceId(input.expectedId)) return false;
+  if (isLocalWorkspaceResourceId(resource.id)) return false;
 
   const client = getDbExec();
+  // `updated_at` is a wall-clock millisecond, not a logical version. Compare
+  // the full mutable row snapshot so same-ms or clock-skewed writes cannot be
+  // deleted by a stale caller.
   const result = await client.execute({
-    sql: `DELETE FROM resources WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ? AND (metadata = ? OR (metadata IS NULL AND ? IS NULL))`,
+    sql: `DELETE FROM resources WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ? AND mime_type = ? AND size = ? AND created_at = ? AND created_by = ? AND visibility = ? AND (thread_id = ? OR (thread_id IS NULL AND ? IS NULL)) AND (run_id = ? OR (run_id IS NULL AND ? IS NULL)) AND (expires_at = ? OR (expires_at IS NULL AND ? IS NULL)) AND (metadata = ? OR (metadata IS NULL AND ? IS NULL))`,
     args: [
-      input.owner,
-      input.path,
-      input.expectedId,
-      input.expectedUpdatedAt,
-      input.expectedContent,
-      input.expectedMetadata,
-      input.expectedMetadata,
+      resource.owner,
+      resource.path,
+      resource.id,
+      resource.updatedAt,
+      resource.content,
+      resource.mimeType,
+      resource.size,
+      resource.createdAt,
+      resource.createdBy,
+      resource.visibility,
+      resource.threadId,
+      resource.threadId,
+      resource.runId,
+      resource.runId,
+      resource.expiresAt,
+      resource.expiresAt,
+      resource.metadata,
+      resource.metadata,
     ],
   });
   const deleted = result.rowsAffected === 1;
   if (deleted) {
-    emitResourceDelete(input.expectedId, input.path, input.owner);
+    emitResourceDelete(resource.id, resource.path, resource.owner);
   }
   return deleted;
 }

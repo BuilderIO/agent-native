@@ -177,14 +177,7 @@ describe("workspace-files Resources adapter", () => {
       "text/markdown",
     );
 
-    expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith({
-      owner: "__shared__",
-      path: legacy.path,
-      expectedId: legacy.id,
-      expectedUpdatedAt: legacy.updatedAt,
-      expectedContent: legacy.content,
-      expectedMetadata: legacy.metadata,
-    });
+    expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith(legacy);
   });
 
   it("reads resources with offset and maxChars", async () => {
@@ -307,14 +300,7 @@ describe("workspace-files Resources adapter", () => {
         "scratch/tmp.md",
       ),
     ).resolves.toBe(true);
-    expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith({
-      owner: current.owner,
-      path: current.path,
-      expectedId: current.id,
-      expectedUpdatedAt: current.updatedAt,
-      expectedContent: current.content,
-      expectedMetadata: current.metadata,
-    });
+    expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith(current);
   });
 
   it("deletes a resolved legacy organization file conditionally", async () => {
@@ -339,14 +325,7 @@ describe("workspace-files Resources adapter", () => {
       ),
     ).resolves.toBe(true);
 
-    expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith({
-      owner: "__shared__",
-      path: legacy.path,
-      expectedId: legacy.id,
-      expectedUpdatedAt: legacy.updatedAt,
-      expectedContent: legacy.content,
-      expectedMetadata: legacy.metadata,
-    });
+    expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith(legacy);
     expect(mockResourceDeleteByPath).not.toHaveBeenCalled();
   });
 
@@ -376,22 +355,8 @@ describe("workspace-files Resources adapter", () => {
       ),
     ).resolves.toBe(true);
 
-    expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(1, {
-      owner: current.owner,
-      path: current.path,
-      expectedId: current.id,
-      expectedUpdatedAt: current.updatedAt,
-      expectedContent: current.content,
-      expectedMetadata: current.metadata,
-    });
-    expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(2, {
-      owner: "__shared__",
-      path: legacy.path,
-      expectedId: legacy.id,
-      expectedUpdatedAt: legacy.updatedAt,
-      expectedContent: legacy.content,
-      expectedMetadata: legacy.metadata,
-    });
+    expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(1, current);
+    expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(2, legacy);
   });
 
   it("rejects organization deletes from non-admin members", async () => {

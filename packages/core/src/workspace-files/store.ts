@@ -234,14 +234,7 @@ export async function writeWorkspaceFile(
     isLegacyOrganizationWorkspaceFile(legacy, scope.scopeId) &&
     typeof legacy.metadata === "string"
   ) {
-    await resourceDeleteIfCurrent({
-      owner: SHARED_OWNER,
-      path: legacy.path,
-      expectedId: legacy.id,
-      expectedUpdatedAt: legacy.updatedAt,
-      expectedContent: legacy.content,
-      expectedMetadata: legacy.metadata,
-    });
+    await resourceDeleteIfCurrent(legacy);
   }
 
   return resourceToMeta(resource);
@@ -362,14 +355,7 @@ export async function deleteWorkspaceFile(
   const resolved = await resolveResourceForScope(scope, path);
   if (!resolved) return false;
 
-  const deleted = await resourceDeleteIfCurrent({
-    owner: resolved.owner,
-    path: resolved.resource.path,
-    expectedId: resolved.resource.id,
-    expectedUpdatedAt: resolved.resource.updatedAt,
-    expectedContent: resolved.resource.content,
-    expectedMetadata: resolved.resource.metadata,
-  });
+  const deleted = await resourceDeleteIfCurrent(resolved.resource);
   if (deleted && scope.scope === "org" && resolved.owner !== SHARED_OWNER) {
     const legacy = await resourceGetByPath(
       SHARED_OWNER,
@@ -381,14 +367,7 @@ export async function deleteWorkspaceFile(
       isLegacyOrganizationWorkspaceFile(legacy, scope.scopeId) &&
       typeof legacy.metadata === "string"
     ) {
-      await resourceDeleteIfCurrent({
-        owner: SHARED_OWNER,
-        path: legacy.path,
-        expectedId: legacy.id,
-        expectedUpdatedAt: legacy.updatedAt,
-        expectedContent: legacy.content,
-        expectedMetadata: legacy.metadata,
-      });
+      await resourceDeleteIfCurrent(legacy);
     }
   }
   return deleted;

@@ -624,14 +624,7 @@ export async function handleUpdateResource(event: any) {
       isLegacyOrganizationWorkspaceResource &&
       typeof existing.metadata === "string"
     ) {
-      await resourceDeleteIfCurrent({
-        owner: existing.owner,
-        path: existing.path,
-        expectedId: existing.id,
-        expectedUpdatedAt: existing.updatedAt,
-        expectedContent: existing.content,
-        expectedMetadata: existing.metadata,
-      });
+      await resourceDeleteIfCurrent(existing);
     }
     return resource;
   }
@@ -735,24 +728,10 @@ export async function handleDeleteResource(event: any) {
     sharedResourceOwner(orgId) !== SHARED_OWNER &&
     isLegacyOrganizationWorkspaceFile(existing, orgId) &&
     typeof existing.metadata === "string"
-      ? await resourceDeleteIfCurrent({
-          owner: existing.owner,
-          path: existing.path,
-          expectedId: existing.id,
-          expectedUpdatedAt: existing.updatedAt,
-          expectedContent: existing.content,
-          expectedMetadata: existing.metadata,
-        })
+      ? await resourceDeleteIfCurrent(existing)
       : isLocalWorkspaceResource
         ? await resourceDelete(id)
-        : await resourceDeleteIfCurrent({
-            owner: existing.owner,
-            path: existing.path,
-            expectedId: existing.id,
-            expectedUpdatedAt: existing.updatedAt,
-            expectedContent: existing.content,
-            expectedMetadata: existing.metadata,
-          });
+        : await resourceDeleteIfCurrent(existing);
   if (deleted && existingOrganizationId === orgId) {
     const legacy = await resourceGetByPath(SHARED_OWNER, existing.path, {
       orgId,
@@ -762,15 +741,12 @@ export async function handleDeleteResource(event: any) {
       isLegacyOrganizationWorkspaceFile(legacy, orgId) &&
       typeof legacy.metadata === "string"
     ) {
-      await resourceDeleteIfCurrent({
-        owner: legacy.owner,
-        path: legacy.path,
-        expectedId: legacy.id,
-        expectedUpdatedAt: legacy.updatedAt,
-        expectedContent: legacy.content,
-        expectedMetadata: legacy.metadata,
-      });
+      await resourceDeleteIfCurrent(legacy);
     }
+  }
+  if (!deleted) {
+    setResponseStatus(event, 409);
+    return { error: "Resource changed before it could be deleted" };
   }
   return { ok: true };
 }

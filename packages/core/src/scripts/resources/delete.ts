@@ -51,14 +51,7 @@ async function deleteSharedResource(resourcePath: string): Promise<boolean> {
     options,
   );
   if (organizationResource) {
-    const deleted = await resourceDeleteIfCurrent({
-      owner: organizationResource.owner,
-      path: organizationResource.path,
-      expectedId: organizationResource.id,
-      expectedUpdatedAt: organizationResource.updatedAt,
-      expectedContent: organizationResource.content,
-      expectedMetadata: organizationResource.metadata,
-    });
+    const deleted = await resourceDeleteIfCurrent(organizationResource);
     if (!deleted) return false;
 
     const legacy = await resourceGetByPath(SHARED_OWNER, resourcePath, options);
@@ -67,14 +60,7 @@ async function deleteSharedResource(resourcePath: string): Promise<boolean> {
       isLegacyOrganizationWorkspaceFile(legacy, orgId) &&
       typeof legacy.metadata === "string"
     ) {
-      await resourceDeleteIfCurrent({
-        owner: legacy.owner,
-        path: legacy.path,
-        expectedId: legacy.id,
-        expectedUpdatedAt: legacy.updatedAt,
-        expectedContent: legacy.content,
-        expectedMetadata: legacy.metadata,
-      });
+      await resourceDeleteIfCurrent(legacy);
     }
     return true;
   }
@@ -83,14 +69,7 @@ async function deleteSharedResource(resourcePath: string): Promise<boolean> {
   return legacy &&
     isLegacyOrganizationWorkspaceFile(legacy, orgId) &&
     typeof legacy.metadata === "string"
-    ? resourceDeleteIfCurrent({
-        owner: legacy.owner,
-        path: legacy.path,
-        expectedId: legacy.id,
-        expectedUpdatedAt: legacy.updatedAt,
-        expectedContent: legacy.content,
-        expectedMetadata: legacy.metadata,
-      })
+    ? resourceDeleteIfCurrent(legacy)
     : false;
 }
 

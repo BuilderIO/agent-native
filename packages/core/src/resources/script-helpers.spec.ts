@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const mockResourceGetByPath = vi.fn();
 const mockResourcePut = vi.fn();
 const mockResourceDeleteByPath = vi.fn();
+const mockResourceDeleteIfCurrent = vi.fn();
+const mockIsLegacyOrganizationWorkspaceFile = vi.fn();
 const mockResourceList = vi.fn();
 const mockResourceListAccessible = vi.fn();
 const mockResourceEffectiveContext = vi.fn();
@@ -17,6 +19,10 @@ vi.mock("./store.js", () => ({
   resourceGetByPath: (...args: any[]) => mockResourceGetByPath(...args),
   resourcePut: (...args: any[]) => mockResourcePut(...args),
   resourceDeleteByPath: (...args: any[]) => mockResourceDeleteByPath(...args),
+  resourceDeleteIfCurrent: (...args: any[]) =>
+    mockResourceDeleteIfCurrent(...args),
+  isLegacyOrganizationWorkspaceFile: (...args: any[]) =>
+    mockIsLegacyOrganizationWorkspaceFile(...args),
   resourceList: (...args: any[]) => mockResourceList(...args),
   resourceListAccessible: (...args: any[]) =>
     mockResourceListAccessible(...args),
@@ -48,6 +54,8 @@ describe("resources script-helpers", () => {
     vi.clearAllMocks();
     mockEnsurePersonalDefaults.mockResolvedValue(undefined);
     mockGetOrgRoleForEmail.mockResolvedValue("admin");
+    mockResourceDeleteIfCurrent.mockResolvedValue(true);
+    mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -246,6 +254,62 @@ describe("resources script-helpers", () => {
 
       const result = await deleteResource("nope.md");
       expect(result).toBe(false);
+    });
+
+    it("deletes an organization override and its tagged legacy fallback", async () => {
+      const organizationResource = {
+        id: "org-resource",
+        path: "notes/todo.md",
+        owner: "__organization__:org-1",
+        content: "organization",
+      };
+      const legacyResource = {
+        id: "legacy-resource",
+        path: "notes/todo.md",
+        owner: "__shared__",
+        content: "legacy",
+      };
+      mockResourceGetByPath
+        .mockResolvedValueOnce(organizationResource)
+        .mockResolvedValueOnce(legacyResource);
+      mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+
+      const result = await runWithRequestContext(
+        { userEmail: "alice@test.com", orgId: "org-1" },
+        () => deleteResource("notes/todo.md", { shared: true }),
+      );
+
+      expect(result).toBe(true);
+      expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(
+        1,
+        organizationResource,
+      );
+      expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(
+        2,
+        legacyResource,
+      );
+      expect(mockResourceDeleteByPath).not.toHaveBeenCalled();
+    });
+
+    it("deletes a tagged legacy fallback when no organization override exists", async () => {
+      const legacyResource = {
+        id: "legacy-resource",
+        path: "notes/todo.md",
+        owner: "__shared__",
+        content: "legacy",
+      };
+      mockResourceGetByPath
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(legacyResource);
+      mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+
+      const result = await runWithRequestContext(
+        { userEmail: "alice@test.com", orgId: "org-1" },
+        () => deleteResource("notes/todo.md", { shared: true }),
+      );
+
+      expect(result).toBe(true);
+      expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith(legacyResource);
     });
   });
 
