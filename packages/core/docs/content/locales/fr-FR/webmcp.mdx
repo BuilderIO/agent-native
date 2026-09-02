@@ -12,6 +12,9 @@ la consommation, les sessions du navigateur et les limites de sécurité.
 Les pages authentifiées enregistrent automatiquement les actions backend éligibles
 depuis le registre d'actions existant. Les actions nécessitant une approbation sont
 exclues et la liste active est vérifiée de nouveau avant l'appel.
+Les surfaces authentifiées avec `sessionBypass`, comme les routes d'intégration MCP,
+enregistrent également les outils d'actions backend. Les pages publiques et celles
+où l'utilisateur n'est pas connecté ne les enregistrent pas.
 
 ## Découverte HTTP et solution de repli avec fetch
 
