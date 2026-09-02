@@ -40,6 +40,7 @@ const bodySchema = z.object({
   delayMs: z.number().int().min(0).max(30_000).optional(),
   retryAttempt: z.number().int().min(1).max(10).optional(),
   regenerate: z.boolean().optional(),
+  previousThumbnailUrl: z.string().min(1).max(4096).optional(),
 });
 
 const LOOM_IMPORT_LEASE_MS = 30 * 60 * 1000;
@@ -51,8 +52,15 @@ export default defineEventHandler(async (event: H3Event) => {
     return { ok: false, error: "Invalid post-finalize job" };
   }
 
-  const { recordingId, kind, token, delayMs, retryAttempt, regenerate } =
-    parsed.data;
+  const {
+    recordingId,
+    kind,
+    token,
+    delayMs,
+    retryAttempt,
+    regenerate,
+    previousThumbnailUrl,
+  } = parsed.data;
   console.log("[post-finalize-worker] received job", { recordingId, kind });
   const verified = verifyScopedAgentAccessToken(token, {
     resourceKind: POST_FINALIZE_JOB_TOKEN_KIND,
@@ -108,6 +116,7 @@ export default defineEventHandler(async (event: H3Event) => {
           kind,
           retryAttempt,
           regenerate,
+          ...(previousThumbnailUrl ? { previousThumbnailUrl } : {}),
           requireAccepted: kind === "media-ready",
         });
         return {
@@ -129,6 +138,7 @@ export default defineEventHandler(async (event: H3Event) => {
         const result = await ensureRecordingThumbnail({
           recordingId,
           ownerEmail: recording.ownerEmail,
+          ...(previousThumbnailUrl ? { previousThumbnailUrl } : {}),
         });
         return { ok: true, kind, result };
       }

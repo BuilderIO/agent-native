@@ -60,17 +60,28 @@ function createDb(
   updated: Array<Record<string, unknown>> = [
     { id: "rec-1", thumbnailUrl: "https://cdn.example.com/thumb.jpg" },
   ],
+  references: Array<Record<string, unknown>> = [],
 ) {
   const selectWhere = vi.fn().mockResolvedValue([recording]);
-  const selectFrom = vi.fn(() => ({ where: selectWhere }));
+  const referenceLimit = vi.fn().mockResolvedValue(references);
+  const select = vi.fn((selection?: unknown) => {
+    if (!selection) {
+      return { from: vi.fn(() => ({ where: selectWhere })) };
+    }
+    return {
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({ limit: referenceLimit })),
+      })),
+    };
+  });
   const updateReturning = vi.fn().mockResolvedValue(updated);
   const updateWhere = vi.fn(() => ({ returning: updateReturning }));
   const updateSet = vi.fn(() => ({ where: updateWhere }));
   const db = {
-    select: vi.fn(() => ({ from: selectFrom })),
+    select,
     update: vi.fn(() => ({ set: updateSet })),
   };
-  return { db, selectWhere, update: db.update, updateSet };
+  return { db, select, selectWhere, update: db.update, updateSet };
 }
 
 function recording(overrides: Record<string, unknown> = {}) {
@@ -161,5 +172,89 @@ describe("ensureRecordingThumbnail", () => {
     expect(mocks.extractJpegFrame).not.toHaveBeenCalled();
     expect(mocks.uploadFile).not.toHaveBeenCalled();
     expect(update).not.toHaveBeenCalled();
+  });
+
+  it("cleans an unreferenced thumbnail when replacing it", async () => {
+    const oldThumbnailUrl = "https://cdn.example.com/old.jpg";
+    const { db } = createDb(recording({ thumbnailUrl: oldThumbnailUrl }), [
+      { id: "rec-1", thumbnailUrl: "https://cdn.example.com/thumb.jpg" },
+    ]);
+    mocks.getDb.mockReturnValue(db);
+
+    const result = await ensureRecordingThumbnail({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+      mediaBytes: new Uint8Array([9, 9, 9]),
+      replaceNonEditorThumbnail: true,
+    });
+
+    expect(result.status).toBe("generated");
+    expect(mocks.deleteRecordingMediaObjects).toHaveBeenCalledWith({
+      id: "rec-1",
+      thumbnailUrl: oldThumbnailUrl,
+    });
+  });
+
+  it("keeps a superseded thumbnail that another recording still references", async () => {
+    const oldThumbnailUrl = "https://cdn.example.com/shared.jpg";
+    const { db } = createDb(
+      recording({ thumbnailUrl: oldThumbnailUrl }),
+      [{ id: "rec-1", thumbnailUrl: "https://cdn.example.com/thumb.jpg" }],
+      [{ id: "other-recording" }],
+    );
+    mocks.getDb.mockReturnValue(db);
+
+    await ensureRecordingThumbnail({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+      mediaBytes: new Uint8Array([9, 9, 9]),
+      replaceNonEditorThumbnail: true,
+    });
+
+    expect(mocks.deleteRecordingMediaObjects).not.toHaveBeenCalled();
+  });
+
+  it("single-flights concurrent thumbnail uploads for one recording", async () => {
+    const { db } = createDb(recording());
+    mocks.getDb.mockReturnValue(db);
+    let releaseExtraction!: () => void;
+    const extractionStarted = new Promise<void>((resolve) => {
+      mocks.extractJpegFrame.mockImplementationOnce(async () => {
+        resolve();
+        await new Promise<void>((release) => {
+          releaseExtraction = release;
+        });
+        return new Uint8Array([1, 2, 3]);
+      });
+    });
+
+    const first = ensureRecordingThumbnail({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+      mediaBytes: new Uint8Array([9, 9, 9]),
+    });
+    await extractionStarted;
+    const second = ensureRecordingThumbnail({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+      mediaBytes: new Uint8Array([9, 9, 9]),
+    });
+
+    releaseExtraction();
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      {
+        recordingId: "rec-1",
+        status: "generated",
+        changed: true,
+        thumbnailUrl: "https://cdn.example.com/thumb.jpg",
+      },
+      {
+        recordingId: "rec-1",
+        status: "generated",
+        changed: true,
+        thumbnailUrl: "https://cdn.example.com/thumb.jpg",
+      },
+    ]);
+    expect(mocks.uploadFile).toHaveBeenCalledOnce();
   });
 });

@@ -196,6 +196,7 @@ describe("post-finalize worker", () => {
       recordingId: "rec-1",
       kind: "thumbnail",
       token: "valid-token",
+      previousThumbnailUrl: "https://cdn.example.test/old-thumb.jpg",
     });
     mockDb.select.mockImplementationOnce(() => {
       const builder = {
@@ -226,6 +227,7 @@ describe("post-finalize worker", () => {
     expect(mockEnsureRecordingThumbnail).toHaveBeenCalledWith({
       recordingId: "rec-1",
       ownerEmail: "owner@example.test",
+      previousThumbnailUrl: "https://cdn.example.test/old-thumb.jpg",
     });
   });
 

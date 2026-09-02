@@ -9,7 +9,7 @@ import { z } from "zod";
 import { isPrivateClip } from "../app/lib/rewind-visibility.js";
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
-import { ensureRecordingThumbnail } from "../server/lib/ensure-recording-thumbnail.js";
+import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
@@ -135,6 +135,7 @@ export default defineAction({
     }));
     edits.rewindOriginalStartMs = args.addedMs;
     edits.mediaStorageLayout = "external";
+    const previousThumbnailUrl = recording.thumbnailUrl?.trim() || null;
 
     const [transcript] = await db
       .select()
@@ -199,12 +200,12 @@ export default defineAction({
       updatedAt: now,
     };
     await writeAppState(key, applied);
-    await ensureRecordingThumbnail({
+    void dispatchPostFinalizeJob({
       recordingId: args.recordingId,
-      ownerEmail,
-      mimeType: "video/mp4",
+      kind: "thumbnail",
+      ...(previousThumbnailUrl ? { previousThumbnailUrl } : {}),
     }).catch((err) => {
-      console.warn("[clips] Rewind recording thumbnail generation skipped", {
+      console.warn("[clips] Rewind recording thumbnail repair queue failed", {
         recordingId: args.recordingId,
         error: err instanceof Error ? err.message : String(err),
       });

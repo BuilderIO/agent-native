@@ -41,7 +41,7 @@ import { z } from "zod";
 
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
-import { ensureRecordingThumbnail } from "../server/lib/ensure-recording-thumbnail.js";
+import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import {
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
@@ -197,13 +197,12 @@ export default defineAction({
     } as any);
 
     if (videoUrl && !ordered[0].thumbnailUrl) {
-      await ensureRecordingThumbnail({
+      void dispatchPostFinalizeJob({
         recordingId: id,
-        ownerEmail,
-        mimeType: "video/mp4",
+        kind: "thumbnail",
       }).catch((err) => {
         console.warn(
-          "[clips] Stitched recording thumbnail generation skipped",
+          "[clips] Stitched recording thumbnail repair queue failed",
           {
             recordingId: id,
             error: err instanceof Error ? err.message : String(err),
