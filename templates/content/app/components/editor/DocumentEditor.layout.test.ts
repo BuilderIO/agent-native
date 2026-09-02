@@ -304,6 +304,22 @@ describe("document editor layout", () => {
     );
   });
 
+  it("focuses the editor padding without moving the document scroll position", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("pm?.focus({ preventScroll: true });");
+    expect(source).toContain("scrollContainer.scrollTop = scrollTop;");
+    expect(source).toContain("window.setTimeout(restoreScroll, 50);");
+    expect(source).toContain(
+      "onPointerDownCapture={cancelPaddingScrollRestore}",
+    );
+    expect(source).toContain("onWheelCapture={cancelPaddingScrollRestore}");
+    expect(source).toContain("onKeyDownCapture={cancelPaddingScrollRestore}");
+  });
+
   it("shows the editor skeleton instead of stale data during document switches", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
