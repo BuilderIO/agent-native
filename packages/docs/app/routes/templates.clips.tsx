@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconArrowUpRight, IconSparkles } from "@tabler/icons-react";
+import { IconArrowUpRight } from "@tabler/icons-react";
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 
 import { BuilderImage } from "../components/builder-image";
@@ -311,10 +311,7 @@ export default function ClipsTemplate() {
         <div className="flex flex-col border-y border-[var(--docs-border)] lg:flex-row lg:items-stretch lg:border-x">
           <div className="flex flex-1 items-center border-b border-[var(--docs-border)] px-6 py-8 sm:px-10 lg:w-2/3 lg:flex-none lg:border-b-0 lg:border-e lg:px-8 lg:py-8">
             <div className="flex w-full min-w-0 items-start gap-3 rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-4 sm:p-5">
-              <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--fg)] text-[var(--bg)]">
-                <IconSparkles size={16} aria-hidden="true" />
-              </div>
-              <p className="min-w-0 flex-1 pt-1 font-mono text-[15px] leading-6 text-[var(--fg-secondary)] sm:text-lg">
+              <p className="min-w-0 flex-1 font-mono text-sm leading-6 text-[var(--fg-secondary)]">
                 <span>Watch </span>
                 <span className="text-[var(--fg)]">{CLIPS_PROMPT_URL}.</span>
                 <span> {CLIPS_PROMPT_INSTRUCTION}</span>
