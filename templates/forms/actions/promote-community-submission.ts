@@ -45,7 +45,9 @@ function safeHttpUrl(value: string): string | null {
     : `https://${trimmed}`;
   if (!URL.canParse(normalized)) return null;
   const url = new URL(normalized);
-  return url.protocol === "http:" || url.protocol === "https:"
+  return (url.protocol === "http:" || url.protocol === "https:") &&
+    !url.username &&
+    !url.password
     ? url.href
     : null;
 }
@@ -292,7 +294,7 @@ export default defineAction({
       });
     }
 
-    await assertAccess("form", response.formId, "editor");
+    await assertAccess("form", response.formId, "admin");
     const [form] = await db
       .select()
       .from(schema.forms)

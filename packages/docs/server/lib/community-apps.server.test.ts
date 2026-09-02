@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const readDeployCredentialEnv = vi.hoisted(() => vi.fn());
 
@@ -12,6 +12,10 @@ const { loadCommunityAppCatalog, normalizeCommunityAppEntry } =
 describe("community app Builder catalog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("keeps the checked-in seed visible when CMS access is not configured", async () => {
@@ -86,6 +90,19 @@ describe("community app Builder catalog", () => {
     expect(result.apps.map((app) => app.slug)).toContain("nomad");
   });
 
+  it("falls back to the seed listing when the CMS is unavailable", async () => {
+    readDeployCredentialEnv.mockReturnValue("public-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 503 })),
+    );
+
+    const result = await loadCommunityAppCatalog();
+
+    expect(result.source).toBe("seed");
+    expect(result.apps[0]?.slug).toBe("nomad");
+  });
+
   it("rejects unsafe or incomplete entries", () => {
     expect(
       normalizeCommunityAppEntry({
@@ -97,5 +114,16 @@ describe("community app Builder catalog", () => {
         },
       }),
     ).toBeNull();
+    const app = normalizeCommunityAppEntry({
+      data: {
+        slug: "credential-url",
+        name: "Credential URL",
+        description: "Not a public app link.",
+        demoUrl: "https://user:pass@example.test",
+        screenshots: [],
+      },
+    });
+    expect(app?.name).toBe("Credential URL");
+    expect(app?.demoUrl).toBeUndefined();
   });
 });

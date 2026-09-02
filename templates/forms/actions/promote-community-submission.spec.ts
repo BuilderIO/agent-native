@@ -151,6 +151,14 @@ describe("promote-community-submission action", () => {
     ]);
   });
 
+  it("requires admin access before publishing", async () => {
+    const { assertAccess } = await import("@agent-native/core/sharing");
+
+    await promoteCommunitySubmission.run({ responseId: response.id });
+
+    expect(assertAccess).toHaveBeenCalledWith("form", response.formId, "admin");
+  });
+
   it("records an ambiguous Builder result as unknown", async () => {
     vi.stubGlobal(
       "fetch",

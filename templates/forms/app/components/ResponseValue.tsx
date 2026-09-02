@@ -17,7 +17,9 @@ export function isFormFileValue(value: unknown): value is FormFileValue {
 function safeHttpUrl(value: string): string | null {
   if (!URL.canParse(value)) return null;
   const url = new URL(value);
-  return url.protocol === "http:" || url.protocol === "https:"
+  return (url.protocol === "http:" || url.protocol === "https:") &&
+    !url.username &&
+    !url.password
     ? url.href
     : null;
 }
@@ -43,19 +45,20 @@ export function ResponseValue({ value }: { value: unknown }) {
       {files.map((file) => {
         const href = safeHttpUrl(file.url);
         const isImage = /^image\//i.test(file.type);
-        const content = isImage ? (
-          <img
-            src={file.url}
-            alt={file.name}
-            loading="lazy"
-            decoding="async"
-            className="h-16 w-24 rounded border border-border object-cover"
-          />
-        ) : (
-          <span className="max-w-40 truncate underline underline-offset-2">
-            {file.name}
-          </span>
-        );
+        const content =
+          isImage && href ? (
+            <img
+              src={href}
+              alt={file.name}
+              loading="lazy"
+              decoding="async"
+              className="h-16 w-24 rounded border border-border object-cover"
+            />
+          ) : (
+            <span className="max-w-40 truncate underline underline-offset-2">
+              {file.name}
+            </span>
+          );
 
         return href ? (
           <a

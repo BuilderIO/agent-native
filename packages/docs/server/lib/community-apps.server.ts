@@ -43,7 +43,9 @@ function safeHttpUrl(value: unknown): string | undefined {
   const normalized = value.trim();
   if (!URL.canParse(normalized)) return undefined;
   const url = new URL(normalized);
-  return url.protocol === "http:" || url.protocol === "https:"
+  return (url.protocol === "http:" || url.protocol === "https:") &&
+    !url.username &&
+    !url.password
     ? url.href
     : undefined;
 }
@@ -204,6 +206,13 @@ export async function loadCommunityAppCatalog(
     }
     return catalog;
   } catch (error) {
+    if (fetchImpl === fetch) {
+      const lastKnownGood =
+        catalogCache?.publicKey === publicKey
+          ? catalogCache.catalog
+          : undefined;
+      return lastKnownGood ?? { apps: seedCommunityApps, source: "seed" };
+    }
     if (error instanceof CommunityAppCatalogError) throw error;
     throw new CommunityAppCatalogError(
       controller.signal.aborted
