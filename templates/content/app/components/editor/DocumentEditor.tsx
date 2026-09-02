@@ -2424,10 +2424,19 @@ function DocumentEditorBody({
                     className="flex-1 w-full max-w-3xl mx-auto px-4 pb-16 cursor-text sm:px-8 md:px-16"
                     onClick={(e) => {
                       if (e.target === e.currentTarget) {
+                        const scrollContainer = scrollContainerRef.current;
+                        const scrollTop = scrollContainer?.scrollTop;
+                        const restoreScroll = () => {
+                          if (scrollContainer && scrollTop !== undefined) {
+                            scrollContainer.scrollTop = scrollTop;
+                          }
+                        };
                         const pm = e.currentTarget.querySelector(
                           ".ProseMirror",
                         ) as HTMLElement | null;
-                        pm?.focus();
+                        pm?.focus({ preventScroll: true });
+                        restoreScroll();
+                        window.setTimeout(restoreScroll, 50);
                       }
                     }}
                   >
