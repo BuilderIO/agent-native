@@ -1939,6 +1939,8 @@ function DocumentEditorBody({
   const hasUtilityRailSpace = useElementMinWidth(documentLayoutRef, 960);
   const showCommentsHistoryDrawer =
     utilityPanel === "comments" && commentsBrowseOpen;
+  const showDesktopCommentsHistory =
+    showCommentsHistoryDrawer && hasUtilityRailSpace;
   const hasOpenCommentThreads =
     threads?.some((thread) => !thread.resolved) ?? false;
   const showInlineComments =
@@ -1954,7 +1956,7 @@ function DocumentEditorBody({
     !hasUtilityRailSpace &&
     (!!pendingComment || !!selectedThreadId);
   const showUtilityPanelSheet =
-    showCommentsHistoryDrawer ||
+    (showCommentsHistoryDrawer && !showDesktopCommentsHistory) ||
     (utilityPanel === "info" && !showDesktopInfoPanel);
 
   useEffect(() => {
@@ -2858,6 +2860,22 @@ function DocumentEditorBody({
             </div>
           </div>
         </div>
+
+        <aside
+          className={cn(
+            "min-h-0 shrink-0 overflow-hidden border-s bg-background transition-[width] duration-[260ms] ease-[var(--ease-drawer)]",
+            showDesktopCommentsHistory
+              ? "w-80 border-border"
+              : "pointer-events-none w-0 border-transparent",
+          )}
+          aria-hidden={!showDesktopCommentsHistory || undefined}
+          inert={!showDesktopCommentsHistory || undefined}
+          data-comments-history-rail
+        >
+          <div className="h-full w-80 overflow-x-hidden overflow-y-auto">
+            {renderUtilityPanelContent("comments")}
+          </div>
+        </aside>
 
         <Sheet
           open={showUtilityPanelSheet}

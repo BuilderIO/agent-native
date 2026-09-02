@@ -11,13 +11,13 @@ import {
   IconArrowUp,
   IconArrowBackUp,
   IconFilter,
-  IconUser,
 } from "@tabler/icons-react";
 import {
   Fragment,
   useState,
   useRef,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useCallback,
   type RefObject,
@@ -31,8 +31,9 @@ import {
 } from "@/components/ui/avatar";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuItem,
+  DropdownMenuGroup,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -416,7 +417,7 @@ export function CommentsSidebar({
     !!selectedThreadId &&
     openThreads.some((thread) => thread.threadId === selectedThreadId);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const nextReplyingThreadId =
       presentation === "inline" && canComment && selectedThreadIsOpen
         ? selectedThreadId
@@ -709,7 +710,7 @@ export function CommentsSidebar({
   if (presentation === "history") {
     return (
       <div className="min-h-full w-full bg-background" data-comments-history>
-        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-1 border-b border-border bg-background px-3 py-2">
+        <div className="sticky top-0 z-10 flex items-center border-b border-border bg-background px-3 py-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -717,79 +718,80 @@ export function CommentsSidebar({
                 className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <IconFilter size={14} />
-                {historyType === "comments"
-                  ? t("comments.title")
-                  : t("comments.suggestions")}
+                {t("comments.filter")}
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
+            <DropdownMenuContent align="start" className="w-56">
               <DropdownMenuLabel>{t("comments.typeFilter")}</DropdownMenuLabel>
-              <DropdownMenuItem onSelect={() => setHistoryType("comments")}>
-                {t("comments.title")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setHistoryType("suggestions")}>
-                {t("comments.suggestions")}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="inline-flex h-8 items-center rounded-md px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {historyStatus === "all"
-                  ? t("comments.allStatuses")
-                  : historyStatus === "open"
-                    ? t("comments.open")
-                    : t("comments.resolvedStatus")}
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
+              <DropdownMenuGroup>
+                <DropdownMenuCheckboxItem
+                  checked={historyType === "comments"}
+                  onCheckedChange={(checked) =>
+                    checked && setHistoryType("comments")
+                  }
+                  onSelect={(event) => event.preventDefault()}
+                >
+                  {t("comments.title")}
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={historyType === "suggestions"}
+                  onCheckedChange={(checked) =>
+                    checked && setHistoryType("suggestions")
+                  }
+                  onSelect={(event) => event.preventDefault()}
+                >
+                  {t("comments.suggestions")}
+                </DropdownMenuCheckboxItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
               <DropdownMenuLabel>
                 {t("comments.statusFilter")}
               </DropdownMenuLabel>
-              <DropdownMenuItem onSelect={() => setHistoryStatus("all")}>
-                {t("comments.allStatuses")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setHistoryStatus("open")}>
-                {t("comments.open")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setHistoryStatus("resolved")}>
-                {t("comments.resolvedStatus")}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <IconUser size={14} />
-                {historyAuthor
-                  ? (historyAuthors.find(
-                      ([email]) => email === historyAuthor,
-                    )?.[1] ?? t("comments.allAuthors"))
-                  : t("comments.allAuthors")}
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
+              <DropdownMenuGroup>
+                {(["all", "open", "resolved"] as const).map((status) => (
+                  <DropdownMenuCheckboxItem
+                    key={status}
+                    checked={historyStatus === status}
+                    onCheckedChange={(checked) =>
+                      checked && setHistoryStatus(status)
+                    }
+                    onSelect={(event) => event.preventDefault()}
+                  >
+                    {status === "all"
+                      ? t("comments.allStatuses")
+                      : status === "open"
+                        ? t("comments.open")
+                        : t("comments.resolvedStatus")}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
               <DropdownMenuLabel>
                 {t("comments.authorFilter")}
               </DropdownMenuLabel>
-              <DropdownMenuItem onSelect={() => setHistoryAuthor(null)}>
-                {t("comments.allAuthors")}
-              </DropdownMenuItem>
-              {historyAuthors.length > 0 ? <DropdownMenuSeparator /> : null}
-              {historyAuthors.map(([email, name]) => (
-                <DropdownMenuItem
-                  key={email}
-                  onSelect={() => setHistoryAuthor(email)}
+              <DropdownMenuGroup>
+                <DropdownMenuCheckboxItem
+                  checked={historyAuthor === null}
+                  onCheckedChange={(checked) =>
+                    checked && setHistoryAuthor(null)
+                  }
+                  onSelect={(event) => event.preventDefault()}
                 >
-                  {name}
-                </DropdownMenuItem>
-              ))}
+                  {t("comments.allAuthors")}
+                </DropdownMenuCheckboxItem>
+                {historyAuthors.map(([email, name]) => (
+                  <DropdownMenuCheckboxItem
+                    key={email}
+                    checked={historyAuthor === email}
+                    onCheckedChange={(checked) =>
+                      checked && setHistoryAuthor(email)
+                    }
+                    onSelect={(event) => event.preventDefault()}
+                  >
+                    {name}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

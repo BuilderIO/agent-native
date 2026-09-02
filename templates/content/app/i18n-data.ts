@@ -3293,6 +3293,7 @@ const enUS = {
     untitledDatabase: "Untitled database",
   },
   comments: {
+    filter: "Filter",
     add: "Add a comment...",
     title: "Comments",
     empty: "No comments yet.",
@@ -9319,6 +9320,7 @@ const contentReferenceMessagesByLocale = {
 
 const commentMessagesByLocale = {
   "zh-CN": {
+    filter: "筛选",
     hideIndicators: "隐藏评论和高亮",
     showIndicators: "显示评论和高亮",
     unanchored: "高亮不可用",
@@ -9333,6 +9335,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "没有匹配的评论。",
   },
   "zh-TW": {
+    filter: "篩選",
     hideIndicators: "隱藏留言和醒目提示",
     showIndicators: "顯示留言和醒目提示",
     unanchored: "無法使用醒目提示",
@@ -9347,6 +9350,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "沒有相符的留言。",
   },
   "es-ES": {
+    filter: "Filtro",
     hideIndicators: "Ocultar comentarios y resaltados",
     showIndicators: "Mostrar comentarios y resaltados",
     unanchored: "Resaltado no disponible",
@@ -9361,6 +9365,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "No hay comentarios coincidentes.",
   },
   "fr-FR": {
+    filter: "Filtrer",
     hideIndicators: "Masquer les commentaires et surlignages",
     showIndicators: "Afficher les commentaires et surlignages",
     unanchored: "Surlignage indisponible",
@@ -9375,6 +9380,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "Aucun commentaire correspondant.",
   },
   "de-DE": {
+    filter: "Filter",
     hideIndicators: "Kommentare und Hervorhebungen ausblenden",
     showIndicators: "Kommentare und Hervorhebungen anzeigen",
     unanchored: "Hervorhebung nicht verfügbar",
@@ -9389,6 +9395,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "Keine passenden Kommentare.",
   },
   "ja-JP": {
+    filter: "フィルター",
     hideIndicators: "コメントとハイライトを非表示",
     showIndicators: "コメントとハイライトを表示",
     unanchored: "ハイライトを利用できません",
@@ -9403,6 +9410,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "一致するコメントはありません。",
   },
   "ko-KR": {
+    filter: "필터",
     hideIndicators: "댓글과 강조 표시 숨기기",
     showIndicators: "댓글과 강조 표시 보기",
     unanchored: "강조 표시를 사용할 수 없음",
@@ -9417,6 +9425,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "일치하는 댓글이 없습니다.",
   },
   "pt-BR": {
+    filter: "Filtro",
     hideIndicators: "Ocultar comentários e destaques",
     showIndicators: "Mostrar comentários e destaques",
     unanchored: "Destaque indisponível",
@@ -9431,6 +9440,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "Nenhum comentário correspondente.",
   },
   "hi-IN": {
+    filter: "फ़िल्टर",
     hideIndicators: "टिप्पणियाँ और हाइलाइट छिपाएँ",
     showIndicators: "टिप्पणियाँ और हाइलाइट दिखाएँ",
     unanchored: "हाइलाइट उपलब्ध नहीं है",
@@ -9445,6 +9455,7 @@ const commentMessagesByLocale = {
     noFilteredComments: "कोई मेल खाती टिप्पणी नहीं।",
   },
   "ar-SA": {
+    filter: "تصفية",
     hideIndicators: "إخفاء التعليقات والتمييزات",
     showIndicators: "إظهار التعليقات والتمييزات",
     unanchored: "التمييز غير متاح",

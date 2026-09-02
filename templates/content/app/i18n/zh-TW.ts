@@ -612,6 +612,7 @@ const messages = {
     untitledDatabase: "無標題資料庫",
   },
   comments: {
+    filter: "篩選",
     add: "新增評論...",
     title: "評論",
     empty: "尚無評論。",

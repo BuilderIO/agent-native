@@ -240,6 +240,22 @@ describe("comments sidebar layout", () => {
     expect(source).toContain("setReplyingThreadId(nextReplyingThreadId)");
     expect(source).toContain("setReplyingThreadId(thread.threadId)");
     expect(source).not.toContain("current === thread.threadId ? null");
+    expect(source).toMatch(
+      /useLayoutEffect\(\(\) => \{[\s\S]*?setReplyingThreadId\(nextReplyingThreadId\)/,
+    );
+  });
+
+  it("combines comment history filters into one persistent checkbox menu", () => {
+    const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source.match(/<DropdownMenu>/g)).toHaveLength(1);
+    expect(source).toContain("DropdownMenuCheckboxItem");
+    expect(source).toContain('t("comments.typeFilter")');
+    expect(source).toContain('t("comments.statusFilter")');
+    expect(source).toContain('t("comments.authorFilter")');
+    expect(source).toContain("event.preventDefault()");
   });
 
   it("captures inline comment activation at the document state boundary", () => {

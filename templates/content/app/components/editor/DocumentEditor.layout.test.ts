@@ -615,6 +615,15 @@ describe("document editor layout", () => {
     expect(source).toContain(
       "renderUtilityPanelContent(lastUtilityPanel, true)",
     );
+    expect(source).toContain("showDesktopCommentsHistory");
+    expect(source).toContain("data-comments-history-rail");
+    expect(source).toContain(
+      '"min-h-0 shrink-0 overflow-hidden border-s bg-background transition-[width] duration-[260ms] ease-[var(--ease-drawer)]"',
+    );
+    expect(source).toContain('renderUtilityPanelContent("comments")');
+    expect(source).toContain(
+      "showCommentsHistoryDrawer && !showDesktopCommentsHistory",
+    );
   });
 
   it("keeps title and content save watermarks independent after partial saves", () => {
