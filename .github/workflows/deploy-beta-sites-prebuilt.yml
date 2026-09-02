@@ -21,7 +21,7 @@ jobs:
   resolve-source:
     name: Resolve beta source revision
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 120
     outputs:
       source_sha: ${{ steps.source.outputs.source_sha }}
     steps:
@@ -41,8 +41,24 @@ jobs:
               const predecessorSha = commit.data.parents[0]?.sha;
               if (!predecessorSha) return;
 
-              const discoveryDeadline = Date.now() + 60_000;
-              const completionDeadline = Date.now() + 15 * 60_000;
+              try {
+                await github.rest.repos.getContent({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path: '.github/workflows/deploy-beta-sites-prebuilt.yml',
+                  ref: predecessorSha,
+                });
+              } catch (error) {
+                if (error.status === 404) {
+                  core.info(
+                    `Beta publisher was not present at predecessor ${predecessorSha}; continuing.`,
+                  );
+                  return;
+                }
+                throw error;
+              }
+
+              const completionDeadline = Date.now() + 110 * 60_000;
               while (Date.now() < completionDeadline) {
                 const runs = await github.rest.actions.listWorkflowRuns({
                   owner: context.repo.owner,
@@ -54,13 +70,10 @@ jobs:
                 const predecessor = runs.data.workflow_runs.find(
                   (run) =>
                     run.head_sha.toLowerCase() === predecessorSha.toLowerCase() &&
-                    ['push', 'workflow_dispatch'].includes(run.event),
+                    run.event === 'push',
                 );
                 if (!predecessor) {
-                  if (Date.now() >= discoveryDeadline) {
-                    core.info(`No beta run found for predecessor ${predecessorSha}; continuing.`);
-                    return;
-                  }
+                  core.info(`Waiting for beta run for predecessor ${predecessorSha}.`);
                   await sleep(10_000);
                   continue;
                 }
@@ -75,7 +88,7 @@ jobs:
               }
 
               core.setFailed(
-                `Predecessor beta run for ${predecessorSha} did not finish within 15 minutes.`,
+                `Predecessor beta run for ${predecessorSha} did not finish within 110 minutes.`,
               );
             }
 

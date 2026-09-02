@@ -130,7 +130,7 @@ jobs:
         id: source
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
+          SOURCE_REF: ${{ inputs.source_ref }}
           TARGET: ${{ inputs.target }}
         with:
           script: |
@@ -733,7 +733,7 @@ jobs:
         if: inputs.target == 'beta' && inputs.deploy
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          SOURCE_REF: ${{ inputs.source_ref }}
+          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
         with:
           script: |
             const sourceRef = process.env.SOURCE_REF.trim();
