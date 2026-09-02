@@ -22,23 +22,24 @@ export type ListContentSpacesResponse = {
   catalogDocumentId: string;
   favoritesDatabaseId: string | null;
   favoritesDocumentId: string | null;
+  needsReconciliation: boolean;
   spaces: ContentSpaceSummary[];
 };
 
 export function shouldAutoEnsureContentSpaces({
   querySucceeded,
-  spaceCount,
+  reconciliationNeeded,
   provisioningAttempted,
   provisioningPending,
 }: {
   querySucceeded: boolean;
-  spaceCount: number;
+  reconciliationNeeded: boolean;
   provisioningAttempted: boolean;
   provisioningPending: boolean;
 }) {
   return (
     querySucceeded &&
-    spaceCount === 0 &&
+    reconciliationNeeded &&
     !provisioningAttempted &&
     !provisioningPending
   );

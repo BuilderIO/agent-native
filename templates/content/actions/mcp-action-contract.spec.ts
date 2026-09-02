@@ -100,6 +100,12 @@ describe("Content action-owned agent catalogs", () => {
     expect(getContentDatabase.tool.description).toContain(
       "rowRevision as expectedRowRevision",
     );
+    expect(getContentDatabase.tool.parameters?.properties?.limit?.default).toBe(
+      100,
+    );
+    expect(
+      getContentDatabase.tool.parameters?.properties?.limit?.description,
+    ).toContain("Paginate");
 
     const updateProperties = updateDatabaseItem.tool.parameters?.properties;
     expect(updateProperties?.itemId?.description).toContain(

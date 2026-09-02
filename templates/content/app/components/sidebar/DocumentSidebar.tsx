@@ -918,10 +918,15 @@ export function DocumentSidebar({
   );
   const spaceProvisionAttemptedRef = useRef(false);
   useEffect(() => {
+    const reconciliationNeeded =
+      contentSpacesQuery.data?.needsReconciliation ?? false;
+    if (contentSpacesQuery.isSuccess && !reconciliationNeeded) {
+      spaceProvisionAttemptedRef.current = false;
+    }
     if (
       shouldAutoEnsureContentSpaces({
         querySucceeded: contentSpacesQuery.isSuccess,
-        spaceCount: contentSpaces.length,
+        reconciliationNeeded,
         provisioningAttempted: spaceProvisionAttemptedRef.current,
         provisioningPending: ensureContentSpaces.isPending,
       })
@@ -930,7 +935,7 @@ export function DocumentSidebar({
       ensureContentSpaces.mutate({});
     }
   }, [
-    contentSpaces.length,
+    contentSpacesQuery.data?.needsReconciliation,
     contentSpacesQuery.isSuccess,
     ensureContentSpaces,
     ensureContentSpaces.isPending,

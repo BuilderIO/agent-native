@@ -641,7 +641,7 @@ export function useContentDatabase(
   const queryClient = useQueryClient();
   const baseQuery = useActionQuery<ContentDatabaseResponse>(
     "get-content-database",
-    documentId ? { documentId, limit } : undefined,
+    documentId ? { documentId, limit: limit ?? 5_000 } : undefined,
     {
       enabled: !!documentId,
       retry: false,
@@ -712,7 +712,7 @@ export function useContentDatabaseById(
 ) {
   return useActionQuery<ContentDatabaseResponse>(
     "get-content-database",
-    databaseId ? { databaseId } : undefined,
+    databaseId ? { databaseId, limit: 5_000 } : undefined,
     {
       enabled: isContentDatabaseByIdQueryEnabled(databaseId, options),
       retry: false,

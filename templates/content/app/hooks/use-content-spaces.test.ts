@@ -5,19 +5,31 @@ import { shouldAutoEnsureContentSpaces } from "./use-content-spaces";
 describe("shouldAutoEnsureContentSpaces", () => {
   const bootstrapState = {
     querySucceeded: true,
-    spaceCount: 0,
+    reconciliationNeeded: true,
     provisioningAttempted: false,
     provisioningPending: false,
   };
 
-  it("provisions after a successful empty space list", () => {
+  it("provisions after a successful list reports missing spaces", () => {
     expect(shouldAutoEnsureContentSpaces(bootstrapState)).toBe(true);
   });
 
-  it("does not reconcile an already populated space list", () => {
+  it("does not reconcile a complete membership set", () => {
     expect(
-      shouldAutoEnsureContentSpaces({ ...bootstrapState, spaceCount: 1 }),
+      shouldAutoEnsureContentSpaces({
+        ...bootstrapState,
+        reconciliationNeeded: false,
+      }),
     ).toBe(false);
+  });
+
+  it("reconciles a newly granted organization even with existing spaces", () => {
+    expect(
+      shouldAutoEnsureContentSpaces({
+        ...bootstrapState,
+        reconciliationNeeded: true,
+      }),
+    ).toBe(true);
   });
 
   it("waits for a successful list query", () => {

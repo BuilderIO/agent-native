@@ -812,8 +812,8 @@ export function DataGrid<Row>({
                       );
                     })
                   : emptyState}
-            {renderFooter ? renderFooter(slotContext) : null}
           </div>
+          {renderFooter ? renderFooter(slotContext) : null}
         </div>
         {overflowEdges.start ? (
           <div

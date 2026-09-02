@@ -24,7 +24,8 @@ export default defineAction({
       .int()
       .min(1)
       .max(CONTENT_DATABASE_MAX_READ_LIMIT)
-      .optional(),
+      .default(100)
+      .describe("Page size; defaults to 100. Paginate with offset."),
     offset: z.coerce.number().int().min(0).optional(),
     tableQuery: contentDatabaseTableQuerySchema,
   }),
