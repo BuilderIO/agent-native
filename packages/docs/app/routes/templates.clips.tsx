@@ -225,18 +225,13 @@ export default function ClipsTemplate() {
     <TemplateLandingShell>
       {/* Hero */}
       <TemplateHero
-        eyebrow={
-          <span style={{ color: template.color }}>
-            {t("common.freeAndOpenSource")}
-          </span>
-        }
         title={
           <>
             <span className="text-[var(--fg-secondary)] lg:whitespace-nowrap">
               Screen recordings your{" "}
             </span>
             <span className="text-[var(--fg)] lg:block">
-              AI can actually watch
+              AI can see and hear.
             </span>
           </>
         }

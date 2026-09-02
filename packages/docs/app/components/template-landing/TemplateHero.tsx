@@ -12,7 +12,7 @@ type TemplateHeroProps = {
   action?: ReactNode;
   className?: string;
   description: ReactNode;
-  eyebrow: ReactNode;
+  eyebrow?: ReactNode;
   headerClassName?: string;
   headingAction?: ReactNode;
   media: ReactNode;
@@ -76,9 +76,11 @@ export function TemplateHero({
         <div
           className={`relative grid gap-3 px-6 pt-12 sm:gap-4 sm:px-10 sm:pt-16 lg:grid-cols-3 lg:gap-6 lg:pt-24 ${headerPadding} ${headerClassName}`}
         >
-          <div className="font-mono text-[15px] font-bold tracking-[0.14em] lg:col-start-1 lg:row-start-1">
-            {eyebrow}
-          </div>
+          {eyebrow ? (
+            <div className="font-mono text-[15px] font-bold tracking-[0.14em] lg:col-start-1 lg:row-start-1">
+              {eyebrow}
+            </div>
+          ) : null}
 
           <h1
             className={`m-0 font-medium leading-[1.05] tracking-tight lg:col-span-2 lg:col-start-1 lg:row-start-2 ${titleClassName || "text-[1.75rem] sm:text-[2.25rem] lg:text-[2.5rem]"}`}
