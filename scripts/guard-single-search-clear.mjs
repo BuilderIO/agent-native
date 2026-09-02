@@ -98,7 +98,19 @@ function main() {
       process.exit(GUARD_EXIT_COULD_NOT_RUN);
     }
     for (const absolutePath of walk(absoluteRoot)) {
-      const source = readFileSync(absolutePath, "utf8");
+      // Same reasoning as `walk`: a file this guard enumerated but cannot read
+      // is a failure to inspect, not a clean file. Letting `readFileSync`
+      // throw would surface as exit 1, which the runner reports as a violated
+      // invariant rather than a scan that never happened.
+      let source;
+      try {
+        source = readFileSync(absolutePath, "utf8");
+      } catch (error) {
+        console.error(
+          `guard-single-search-clear: cannot read ${path.relative(REPO_ROOT, absolutePath)} - ${error.message}`,
+        );
+        process.exit(GUARD_EXIT_COULD_NOT_RUN);
+      }
       if (!SEARCH_TYPE_RE.test(source)) continue;
       const lines = source.split("\n");
       const file = path.relative(REPO_ROOT, absolutePath).replaceAll("\\", "/");
