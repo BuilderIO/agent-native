@@ -1695,7 +1695,7 @@ export async function deleteBuilderCredentials(
         key,
         scope: target.scope,
         scopeId: target.scopeId,
-      }).catch(() => {}),
+      }),
     ),
   );
   return target;
