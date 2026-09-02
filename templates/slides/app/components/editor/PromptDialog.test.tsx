@@ -82,7 +82,11 @@ vi.mock("@agent-native/core/client/composer", () => ({
           data-testid="prompt-composer"
           disabled={props.disabled}
           onClick={() =>
-            void props.onSubmit("  make a deck  \n", [promptFile], [], {})
+            void props.onSubmit("  make a deck  \n", [promptFile], [], {
+              model: "gpt-5.6-terra",
+              engine: "builder",
+              effort: "high",
+            })
           }
         >
           Prompt composer
@@ -562,6 +566,11 @@ describe("PromptPopover import mode", () => {
           discard: expect.any(Function),
           attachments: [],
         }),
+        {
+          model: "gpt-5.6-terra",
+          engine: "builder",
+          effort: "high",
+        },
       );
     });
     expect(screen.queryByRole("status")).toBeNull();

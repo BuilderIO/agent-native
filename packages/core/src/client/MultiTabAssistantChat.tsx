@@ -2561,9 +2561,13 @@ export function MultiTabAssistantChat({
         case "plan":
           props.onExecModeChange?.("plan");
           break;
-        case "act":
-          props.onExecModeChange?.("build");
+        case "act": {
+          const ref = activeThreadIdRef.current
+            ? chatRefs.current.get(activeThreadIdRef.current)
+            : undefined;
+          if (!ref?.implementPlan()) props.onExecModeChange?.("build");
           break;
+        }
         case "help":
           setHelpVisible(true);
           break;

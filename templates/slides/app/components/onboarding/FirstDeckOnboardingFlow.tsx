@@ -63,6 +63,9 @@ export function FirstDeckOnboardingFlow({
   const [promptAttachments, setPromptAttachments] = useState<
     PromptChatAttachment[]
   >([]);
+  const [promptModelSelection, setPromptModelSelection] = useState<
+    Pick<PromptComposerSubmitOptions, "model" | "engine" | "effort"> | undefined
+  >();
   const [promptInitialText, setPromptInitialText] = useState<string>();
   const [promptInitialTextKey, setPromptInitialTextKey] = useState<number>();
   const [referenceImporting, setReferenceImporting] = useState(false);
@@ -170,6 +173,15 @@ export function FirstDeckOnboardingFlow({
         );
         setPromptFiles(uploaded);
         setPromptAttachments(chatAttachments);
+        setPromptModelSelection(
+          options
+            ? {
+                model: options.model,
+                engine: options.engine,
+                effort: options.effort,
+              }
+            : undefined,
+        );
         setStep("references");
       } catch (error) {
         discardFiles(files);
@@ -218,6 +230,7 @@ export function FirstDeckOnboardingFlow({
           prompt,
           files,
           attachments: promptAttachments,
+          modelSelection: promptModelSelection,
           referenceSelection: selection,
           selectedDesignSystemId: initialDesignSystemId,
           selectedReferenceDeckId: initialReferenceDeckId,
@@ -283,6 +296,7 @@ export function FirstDeckOnboardingFlow({
       onComplete,
       prompt,
       promptAttachments,
+      promptModelSelection,
       session,
       t,
       initialReferenceDeckId,

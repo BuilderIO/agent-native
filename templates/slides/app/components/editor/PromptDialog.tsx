@@ -391,6 +391,7 @@ interface PromptPopoverProps {
     prompt: string,
     files: UploadedFile[],
     attachments: PromptAttachmentActions,
+    options?: PromptComposerSubmitOptions,
   ) => void | PromptSubmitResult | Promise<PromptSubmitResult | void>;
   loading?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
@@ -594,20 +595,25 @@ export default function PromptPopover({
           uploaded,
         );
         retainFiles(files);
-        const result = await onSubmit(text, uploaded, {
-          commit: () => {
-            commitFiles(files);
-            retainingAttachmentsRef.current = false;
-            setRetainingAttachments(false);
+        const result = await onSubmit(
+          text,
+          uploaded,
+          {
+            commit: () => {
+              commitFiles(files);
+              retainingAttachmentsRef.current = false;
+              setRetainingAttachments(false);
+            },
+            discard: () => {
+              discardFiles(files);
+              retainingAttachmentsRef.current = false;
+              setRetainingAttachments(false);
+            },
+            attachments: chatAttachments,
+            context: googleDocContext || undefined,
           },
-          discard: () => {
-            discardFiles(files);
-            retainingAttachmentsRef.current = false;
-            setRetainingAttachments(false);
-          },
-          attachments: chatAttachments,
-          context: googleDocContext || undefined,
-        });
+          options,
+        );
         if (result === "retain") {
           retainingAttachmentsRef.current = true;
           setRetainingAttachments(true);

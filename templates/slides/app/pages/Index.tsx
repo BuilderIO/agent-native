@@ -1,3 +1,4 @@
+import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import {
   callAction,
   deleteClientAppState,
@@ -319,6 +320,10 @@ export default function Index() {
     files: UploadedFile[];
     context?: string;
     attachments: ReadonlyArray<PromptChatAttachment>;
+    modelSelection?: Pick<
+      PromptComposerSubmitOptions,
+      "model" | "engine" | "effort"
+    >;
   } | null>(null);
   const pendingDeckAttachmentActionsRef =
     useRef<PromptAttachmentActions | null>(null);
@@ -671,6 +676,10 @@ export default function Index() {
     referenceSelection: NewDeckReferenceSelection = {},
     additionalContext = "",
     attachments: ReadonlyArray<PromptChatAttachment> = [],
+    modelSelection?: Pick<
+      PromptComposerSubmitOptions,
+      "model" | "engine" | "effort"
+    >,
   ) => {
     // Pre-flight auth check. The add-deck action returns 403 silently
     // when unauthenticated, leaving the user stuck on a deck page that
@@ -956,6 +965,7 @@ export default function Index() {
       openSidebar: true,
       ...getUploadedImageAgentOptions(filesForGeneration),
       attachments: attachmentsForGeneration,
+      ...modelSelection,
     });
     settlePendingDeckAttachments("commit");
   };
@@ -967,6 +977,10 @@ export default function Index() {
       referenceSelection: NewDeckReferenceSelection,
       context?: string,
       attachments: ReadonlyArray<PromptChatAttachment> = [],
+      modelSelection?: Pick<
+        PromptComposerSubmitOptions,
+        "model" | "engine" | "effort"
+      >,
     ) => {
       const generation = Promise.resolve().then(() =>
         handleCreateDeckWithPrompt(
@@ -975,6 +989,7 @@ export default function Index() {
           referenceSelection,
           context,
           attachments,
+          modelSelection,
         ),
       );
       pendingDeckGenerationRef.current = generation;
@@ -1008,6 +1023,7 @@ export default function Index() {
       prompt: string,
       files: UploadedFile[],
       attachments: PromptAttachmentActions,
+      options?: PromptComposerSubmitOptions,
     ) => {
       pendingDeckAttachmentActionsRef.current = attachments;
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
@@ -1022,6 +1038,13 @@ export default function Index() {
           ...(prompt === newDeckRetryPrompt ? newDeckRetryAttachments : []),
           ...attachments.attachments,
         ],
+        modelSelection: options
+          ? {
+              model: options.model,
+              engine: options.engine,
+              effort: options.effort,
+            }
+          : undefined,
       });
       setNewDeckRetryPrompt(undefined);
       setNewDeckRetryContext(undefined);
@@ -1191,6 +1214,7 @@ export default function Index() {
         selection,
         pending.context,
         pending.attachments,
+        pending.modelSelection,
       );
       setShowNewDeckReferenceStep(false);
       setPendingDeck(null);
@@ -1415,6 +1439,7 @@ export default function Index() {
       },
       pending.context,
       pending.attachments,
+      pending.modelSelection,
     );
     setShowNewDeckReferenceStep(false);
     setPendingDeck(null);

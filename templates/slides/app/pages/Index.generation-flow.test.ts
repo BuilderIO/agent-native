@@ -140,6 +140,14 @@ describe("new deck generation flow", () => {
     expect(source).toContain("getUploadedImageAgentOptions");
   });
 
+  it("preserves the composer model selection through the reference step", () => {
+    expect(source).toContain("options?: PromptComposerSubmitOptions");
+    expect(source).toContain("modelSelection: options");
+    expect(flow).toContain("...modelSelection");
+    expect(onboardingSource).toContain("setPromptModelSelection");
+    expect(onboardingSource).toContain("modelSelection: promptModelSelection");
+  });
+
   it("routes both prompt submit and prompt skip into the reference step", () => {
     expect(source).toContain("const handlePromptSubmit");
     expect(source).toContain("const handlePromptSkip");
