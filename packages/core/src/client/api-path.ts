@@ -242,6 +242,16 @@ export function appMountedPath(path: string, appLocalRoute: string): string {
   if (!path.startsWith("/")) return path;
   const mountPath = appMountPath(appLocalRoute);
   if (!mountPath) return path;
+
+  // An app-local path always starts with the surface's own route, so it needs
+  // the mount even when the two happen to be spelled the same. Testing the
+  // idempotence guard first would treat "/settings/account" as already mounted
+  // under a "/settings" mount and drop the prefix.
+  const marker = normalizeBasePath(appLocalRoute);
+  if (marker && (path === marker || path.startsWith(`${marker}/`))) {
+    return `${mountPath}${path}`;
+  }
+
   if (path === mountPath || path.startsWith(`${mountPath}/`)) return path;
   return `${mountPath}${path}`;
 }

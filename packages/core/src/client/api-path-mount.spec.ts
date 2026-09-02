@@ -126,6 +126,18 @@ describe("appMountPath", () => {
     expect(appMountPath(SETTINGS)).toBe("/settings");
   });
 
+  it("still applies a mount that is spelled like the route", () => {
+    // appMountPath resolves "/settings" here, so the idempotence guard must not
+    // mistake the app-local "/settings/account" for an already-mounted URL.
+    vi.stubEnv("VITE_APP_BASE_PATH", "/settings");
+    vi.stubGlobal("window", { location: { pathname: "/settings/settings" } });
+
+    expect(appMountPath(SETTINGS)).toBe("/settings");
+    expect(appMountedPath("/settings/account", SETTINGS)).toBe(
+      "/settings/settings/account",
+    );
+  });
+
   it("does not double-prefix an already mounted path", () => {
     vi.stubGlobal("window", { location: { pathname: "/dispatch/settings" } });
 
