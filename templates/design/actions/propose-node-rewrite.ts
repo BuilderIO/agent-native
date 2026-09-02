@@ -204,7 +204,9 @@ export default defineAction({
     }
 
     const pendingKey = designRepromptPendingStateKey(file.designId, file.id);
-    const pending = pendingRepromptSchema.parse(await readAppState(pendingKey));
+    const pendingState = await readAppState(pendingKey);
+    if (!pendingState) throw new Error("Pending reprompt was not found.");
+    const pending = pendingRepromptSchema.parse(pendingState);
     if (pending.repromptId !== repromptId) {
       throw new Error("Pending reprompt does not match this request.");
     }
@@ -267,8 +269,10 @@ export default defineAction({
     const publishOperations: AppStateCompareAndSetOperation[] = [
       {
         key: pendingKey,
-        expectedValue: pending as unknown as Record<string, unknown>,
-        nextValue: pending as unknown as Record<string, unknown>,
+        // CAS compares serialized JSON exactly. Validate a parsed copy above,
+        // but retain the original snapshot so schema key order cannot fake a race.
+        expectedValue: pendingState,
+        nextValue: pendingState,
       },
       {
         key: proposalKey,
@@ -308,8 +312,8 @@ export default defineAction({
         const winnerIsCurrent = await compareAndSetManyAppState([
           {
             key: pendingKey,
-            expectedValue: pending as unknown as Record<string, unknown>,
-            nextValue: pending as unknown as Record<string, unknown>,
+            expectedValue: pendingState,
+            nextValue: pendingState,
           },
           {
             key: proposalKey,

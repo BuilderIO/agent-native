@@ -149,6 +149,7 @@ describe("node rewrite propose/accept interleave", () => {
       baseVersionHash: "hash_base",
       instruction: "Make it darker",
       createdAt: "2026-07-16T00:00:00.000Z",
+      status: "pending",
     });
   });
 

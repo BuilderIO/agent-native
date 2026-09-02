@@ -178,6 +178,37 @@ describe("propose-node-rewrite", () => {
     ]);
   });
 
+  it("uses the exact pending snapshot for atomic publication", async () => {
+    const pendingState = {
+      repromptId: "reprompt_1",
+      designId: "design_1",
+      fileId: "file_1",
+      target,
+      baseVersionHash: "hash_base",
+      instruction: "Make the hero darker",
+      createdAt: "2026-07-16T00:00:00.000Z",
+      status: "pending",
+    };
+    mocks.readAppState.mockResolvedValue(pendingState);
+
+    await action.run({
+      source: { fileId: "file_1" },
+      target,
+      baseVersionHash: "hash_base",
+      repromptId: "reprompt_1",
+      variants: [
+        {
+          html: "<section><h1>New</h1></section>",
+          summary: "Updated hero",
+        },
+      ],
+    });
+
+    const [operations] = mocks.compareAndSetManyAppState.mock.calls;
+    expect(operations?.[0]?.[0]?.expectedValue).toBe(pendingState);
+    expect(operations?.[0]?.[0]?.nextValue).toBe(pendingState);
+  });
+
   it("rejects an agent-selected target that differs from pending state", async () => {
     await expect(
       action.run({
