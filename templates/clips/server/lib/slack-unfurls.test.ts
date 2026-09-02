@@ -126,7 +126,7 @@ describe("Clips Slack unfurls", () => {
     });
   });
 
-  it("uses the default social image when no stored thumbnail exists", () => {
+  it("uses a public video frame when no stored thumbnail exists", () => {
     expect(
       buildSlackVideoBlock({
         recording: recording({
@@ -138,7 +138,7 @@ describe("Clips Slack unfurls", () => {
       }),
     ).toMatchObject({
       thumbnail_url:
-        "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9c533fed169648069bffaed652ec0897",
+        "https://clips.example.com/clips/api/agent-frame.jpg?id=rec-1&atMs=350",
     });
   });
 
@@ -163,6 +163,18 @@ describe("Clips Slack unfurls", () => {
       }),
     ).toBeNull();
   });
+
+  it.each(["private", "org"])(
+    "does not build playable unfurls for %s clips",
+    (visibility) => {
+      expect(
+        buildSlackVideoBlock({
+          recording: recording({ visibility }),
+          origin: "https://clips.example.com",
+        }),
+      ).toBeNull();
+    },
+  );
 
   it("builds chat.unfurl payloads for link_shared events", async () => {
     const block = buildSlackVideoBlock({

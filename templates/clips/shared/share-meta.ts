@@ -1,5 +1,4 @@
 import {
-  AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
@@ -8,6 +7,8 @@ import {
   normalizeDocumentTitle,
   type SocialMetaDescriptor,
 } from "@agent-native/core/shared";
+
+import { buildAgentApiUrls } from "./agent-context";
 
 export const CLIPS_DEFAULT_TITLE = "Untitled recording";
 
@@ -23,6 +24,8 @@ export type ClipsShareMetaRecording = {
   archivedAt?: string | null;
   trashedAt?: string | null;
 };
+
+const SOCIAL_FRAME_AT_MS = 350;
 
 export type PreferredThumbnailVariant = "still" | "animated";
 
@@ -93,7 +96,7 @@ function appPath(path: string, basePath: string): string {
   return normalizedBasePath ? `${normalizedBasePath}${path}` : path;
 }
 
-function canUseDefaultSocialImage(
+function canUseGeneratedSocialFrame(
   recording: ClipsShareMetaRecording | null,
 ): recording is ClipsShareMetaRecording & {
   id: string;
@@ -130,9 +133,12 @@ export function resolveClipsSocialImageUrl(options: {
     return absoluteUrl(storedImage, origin);
   }
 
-  if (!canUseDefaultSocialImage(recording)) return undefined;
+  if (!origin || !canUseGeneratedSocialFrame(recording)) return undefined;
 
-  return AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE;
+  return buildAgentApiUrls(recording.id, {
+    origin,
+    basePath,
+  }).frameUrl(SOCIAL_FRAME_AT_MS);
 }
 
 export function buildClipsShareMeta(options: {
