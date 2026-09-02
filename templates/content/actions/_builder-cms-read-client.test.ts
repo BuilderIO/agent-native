@@ -932,7 +932,14 @@ describe("Builder CMS read client", () => {
         new Response(
           JSON.stringify({
             jsonrpc: "2.0",
-            result: { content: [{ type: "text", text: '{"content":[]}' }] },
+            result: {
+              content: [
+                {
+                  type: "text",
+                  text: '{"content":[],"totalCount":0}',
+                },
+              ],
+            },
           }),
           { status: 200 },
         ),
@@ -970,7 +977,7 @@ describe("Builder CMS read client", () => {
             content: [
               {
                 type: "text",
-                text: JSON.stringify({ content }),
+                text: JSON.stringify({ content, totalCount: content.length }),
               },
             ],
           },
@@ -1052,7 +1059,7 @@ describe("Builder CMS read client", () => {
                         data: { title: "Builder entry" },
                       },
                     ],
-                    totalCount: 101,
+                    totalCount: 1,
                   }),
                 },
               ],
@@ -1079,8 +1086,100 @@ describe("Builder CMS read client", () => {
         requestedLimit: 10_000,
         pageSize: 100,
         fetchedEntryCount: 1,
-        partial: true,
+        partial: false,
       },
+    });
+  });
+
+  it("fails loudly when Builder MCP browse results are truncated", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "oauth-access-token",
+      authorization: "Bearer oauth-access-token",
+      source: "oauth",
+    });
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+          headers: { "mcp-session-id": "session-1" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({ content: [], totalCount: 101 }),
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "agent-native-blog-article-test",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "error",
+      entries: [],
+      message:
+        "Builder MCP browse returned 0 of 101 entries, but this provider does not support safe continuation reads.",
+    });
+  });
+
+  it("rejects malformed Builder MCP tool content instead of accepting an empty source", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "oauth-access-token",
+      authorization: "Bearer oauth-access-token",
+      source: "oauth",
+    });
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+          headers: { "mcp-session-id": "session-1" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: { content: [{ type: "text", text: "not json" }] },
+          }),
+          { status: 200 },
+        ),
+      );
+
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "agent-native-blog-article-test",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "error",
+      entries: [],
+      message: "Builder MCP browse returned malformed tool content.",
     });
   });
 
@@ -1359,6 +1458,7 @@ describe("Builder CMS read client", () => {
                         },
                       },
                     ],
+                    totalCount: 1,
                   }),
                 },
               ],
@@ -1414,6 +1514,112 @@ describe("Builder CMS read client", () => {
       }),
     ).rejects.toThrow("Builder.io access expired");
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("keeps OAuth hydration on Publish MCP when a legacy public key exists", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "oauth-access-token",
+      authorization: "Bearer oauth-access-token",
+      source: "oauth",
+    });
+    resolveBuilderCredentialMock.mockResolvedValue("legacy-public-key");
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: { supportedVersions: ["2026-07-28"] },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    content: [
+                      {
+                        id: "builder-entry-1",
+                        data: { title: "OAuth hydration", blocks: [] },
+                      },
+                    ],
+                    totalCount: 1,
+                  }),
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+
+    await expect(
+      readBuilderCmsContentEntryResult({
+        model: "blog_article",
+        entryId: "builder-entry-1",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({ state: "found", providerStatus: "mcp_200" });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(
+      fetchImpl.mock.calls.every(
+        ([input]) => String(input) === "https://mcp.builder.io/mcp/publish",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not report a truncated OAuth entry lookup as not found", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "oauth-access-token",
+      authorization: "Bearer oauth-access-token",
+      source: "oauth",
+    });
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: { supportedVersions: ["2026-07-28"] },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({ content: [], totalCount: 101 }),
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+
+    await expect(
+      readBuilderCmsContentEntryResult({
+        model: "blog_article",
+        entryId: "builder-entry-101",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).rejects.toMatchObject<Partial<BuilderCmsContentEntryReadError>>({
+      reason: "transient_read_failure",
+      providerStatus: "mcp_partial_lookup",
+      retryable: true,
+    });
   });
 
   it("distinguishes a provider-confirmed empty entry from a missing entry", async () => {

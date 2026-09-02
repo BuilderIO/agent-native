@@ -508,6 +508,12 @@ function parseBuilderMcpToolJson(value: unknown) {
   }
 }
 
+function builderMcpTotalCount(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const totalCount = Number((value as Record<string, unknown>).totalCount);
+  return Number.isInteger(totalCount) && totalCount >= 0 ? totalCount : null;
+}
+
 async function postBuilderMcp(args: {
   endpoint: string;
   privateKey: string;
@@ -892,16 +898,20 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
     },
   });
   const contentJson = parseBuilderMcpToolJson(contentResult.json.result);
+  if (!contentJson) {
+    throw new Error("Builder MCP browse returned malformed tool content.");
+  }
   const contentEntries = builderMcpEntriesFromToolResponse(
     contentJson,
     args.model,
   );
-  const totalCount =
-    contentJson && typeof contentJson === "object"
-      ? Number((contentJson as Record<string, unknown>).totalCount)
-      : Number.NaN;
-  const partial =
-    Number.isFinite(totalCount) && totalCount > contentEntries.length;
+  const totalCount = builderMcpTotalCount(contentJson);
+  const partial = totalCount !== null && totalCount > contentEntries.length;
+  if (partial) {
+    throw new Error(
+      `Builder MCP browse returned ${contentEntries.length} of ${totalCount} entries, but this provider does not support safe continuation reads.`,
+    );
+  }
 
   return {
     state: "live",
@@ -915,7 +925,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       nextOffset: contentEntries.length,
       fetchedEntryCount: contentEntries.length,
       hasMore: false,
-      partial,
+      partial: false,
       readMode: "mcp",
     },
   };
@@ -1160,7 +1170,7 @@ export async function readBuilderCmsContentEntryResult(args: {
     );
   }
 
-  if (!publicKey && privateKey) {
+  if (privateKey && (authorization?.source === "oauth" || !publicKey)) {
     const endpoint = builderMcpEndpoint(authorization?.source);
     const connection = await initializeBuilderMcp({
       endpoint,
@@ -1187,9 +1197,25 @@ export async function readBuilderCmsContentEntryResult(args: {
       },
     });
     const entryJson = parseBuilderMcpToolJson(entryResult.json.result);
-    const entry = builderMcpEntriesFromToolResponse(entryJson, args.model).find(
-      (candidate) => candidate.id === args.entryId,
-    );
+    if (!entryJson) {
+      throw new BuilderCmsContentEntryReadError(
+        "Builder MCP entry read returned malformed tool content.",
+        "malformed_body",
+        "mcp_malformed_response",
+        false,
+      );
+    }
+    const entries = builderMcpEntriesFromToolResponse(entryJson, args.model);
+    const entry = entries.find((candidate) => candidate.id === args.entryId);
+    const totalCount = builderMcpTotalCount(entryJson);
+    if (!entry && totalCount !== null && totalCount > entries.length) {
+      throw new BuilderCmsContentEntryReadError(
+        "Builder MCP entry lookup was truncated before the requested entry could be confirmed present or missing.",
+        "transient_read_failure",
+        "mcp_partial_lookup",
+        true,
+      );
+    }
     return entry?.id === args.entryId
       ? { state: "found", entry, providerStatus: "mcp_200" }
       : { state: "not_found", entry: null, providerStatus: "mcp_not_found" };
