@@ -445,8 +445,9 @@ describe("document editor layout", () => {
       "const collabEnabled = !isLocalFileDocument;",
     );
     expect(documentEditorSource).toContain(
-      'docId: collabEnabled ? documentId : "",',
+      "const collabDocumentId =\n    collabEnabled && !isDocumentCreationPending(document)",
     );
+    expect(documentEditorSource).toContain("docId: collabDocumentId,");
     expect(documentEditorSource).toContain("const collabEditorEnabled =");
     expect(documentEditorSource).toContain(
       'collabInitialization.status === "ready"',

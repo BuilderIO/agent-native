@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { accessFilter } from "@agent-native/core/sharing";
 import { z } from "zod";
@@ -7,12 +8,14 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { rowToBookingLink } from "../server/lib/booking-link-utils.js";
 import { readCalendarSettings } from "../server/lib/calendar-settings.js";
+import { listGoogleCalendars } from "../server/lib/google-calendar.js";
 import type { CalendarEvent, CalendarEventDraft } from "../shared/api.js";
 import {
   CALENDAR_VIEW_PREFERENCES_KEY,
   normalizeCalendarViewPreferences,
 } from "../shared/calendar-view-preferences.js";
 import { getWeekStartsOn } from "../shared/calendar-week.js";
+import { SHARED_GOOGLE_CALENDARS } from "../shared/feature-flags.js";
 import {
   getCalendarViewDateRange,
   dateKeyInTimezone,
@@ -33,6 +36,7 @@ async function fetchEventsForRange(
   from: string,
   to: string,
   timezone: string,
+  calendarSourceKeys?: string[],
 ): Promise<{
   events: CalendarEvent[];
   errors: Array<{ email: string; error: string }>;
@@ -40,7 +44,10 @@ async function fetchEventsForRange(
   range: { from: string; to: string; timezone: string; defaulted: boolean };
 }> {
   try {
-    return await listCalendarEvents({ from, to }, { timezone });
+    return await listCalendarEvents(
+      { from, to, calendarSourceKeys },
+      { timezone },
+    );
   } catch (error: any) {
     return {
       events: [],
@@ -66,7 +73,7 @@ export default defineAction({
     "See what the user is currently looking at on screen. Returns the current view, date range, and visible events. Always call this first before taking any action.",
   schema: z.object({}),
   http: false,
-  run: async () => {
+  run: async (_args, ctx) => {
     const navigation = await readAppState("navigation");
     const visualPreferences = normalizeCalendarViewPreferences(
       (await readAppState(CALENDAR_VIEW_PREFERENCES_KEY)) as any,
@@ -97,10 +104,49 @@ export default defineAction({
         getWeekStartsOn(settings.weekStart),
       );
 
+      const sharedCalendarsEnabled = await isFeatureFlagEnabled(
+        SHARED_GOOGLE_CALENDARS,
+        ctx,
+      );
+      const calendarSourceResult = sharedCalendarsEnabled
+        ? await listGoogleCalendars(email)
+        : { calendars: [], errors: [] };
+      const calendarSources = calendarSourceResult.calendars;
+      const visibleCalendarSources = calendarSources.filter(
+        (source) =>
+          source.accessRole !== "freeBusyReader" &&
+          (source.primary ||
+            (visualPreferences.googleCalendarVisibility[source.sourceKey] ??
+              source.selected)),
+      );
+
+      if (sharedCalendarsEnabled) {
+        screen.googleCalendars = calendarSources.map((source) => ({
+          sourceKey: source.sourceKey,
+          accountEmail: source.accountEmail,
+          calendarId: source.calendarId,
+          name: source.name,
+          color: source.color,
+          visible:
+            source.primary ||
+            (visualPreferences.googleCalendarVisibility[source.sourceKey] ??
+              source.selected),
+          primary: source.primary,
+          accessRole: source.accessRole,
+          readOnly: source.readOnly || !source.primary,
+        }));
+        if (calendarSourceResult.errors.length > 0) {
+          screen.googleCalendarErrors = calendarSourceResult.errors;
+        }
+      }
+
       const eventResult = await fetchEventsForRange(
         range.from,
         range.to,
         timezone,
+        sharedCalendarsEnabled
+          ? visibleCalendarSources.map((source) => source.sourceKey)
+          : undefined,
       );
       const { events } = eventResult;
 
@@ -112,6 +158,12 @@ export default defineAction({
           end: e.end,
           source: e.source,
           accountEmail: e.accountEmail || undefined,
+          calendarSourceKey: e.calendarSourceKey || undefined,
+          calendarId: e.calendarId || undefined,
+          calendarName: e.calendarName || undefined,
+          calendarAccessRole: e.calendarAccessRole || undefined,
+          calendarPrimary: e.calendarPrimary,
+          calendarReadOnly: e.calendarReadOnly,
           location: e.location || undefined,
           allDay: e.allDay || undefined,
           recurrence: e.recurrence || undefined,

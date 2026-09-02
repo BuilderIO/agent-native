@@ -1,8 +1,7 @@
 # Slides — Agent Guide
 
-Slides is an agent-native deck editor. The agent creates, edits, imports,
-exports, styles, shares, and navigates decks through actions and shared SQL
-state.
+Slides is an agent-native deck editor. The agent manages decks through actions
+and shared SQL state.
 
 ## Skills
 

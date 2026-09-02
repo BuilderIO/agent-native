@@ -12,6 +12,71 @@ function jsonResponse(status: number, body: unknown, headers?: HeadersInit) {
 describe("googleFetch quota handling", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("retries transient Gmail gateway failures", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(502, { error: { message: "bad gateway" } }),
+      )
+      .mockResolvedValueOnce(jsonResponse(200, { messages: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const resultPromise = googleFetch(
+      "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+      "gateway-token-a",
+    );
+    await vi.advanceTimersByTimeAsync(1000);
+
+    await expect(resultPromise).resolves.toEqual({ messages: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not replay state-changing requests after a gateway failure", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(502, { error: { message: "bad gateway" } }),
+      )
+      .mockResolvedValueOnce(jsonResponse(200, { id: "sent-message" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      googleFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+        "gateway-token-b",
+        {
+          method: "POST",
+          body: JSON.stringify({ raw: "message" }),
+        },
+      ),
+    ).rejects.toThrow("Google API error (502): bad gateway");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves the final 503 error body after read retries are exhausted", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(503, { error: { message: "backend overloaded" } }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const resultPromise = googleFetch(
+      "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+      "gateway-token-c",
+    );
+    const rejection = expect(resultPromise).rejects.toThrow(
+      "Google API error (503): backend overloaded",
+    );
+    await vi.advanceTimersByTimeAsync(7000);
+
+    await rejection;
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("trips cooldown on the first quota response instead of retrying inside the exhausted window", async () => {

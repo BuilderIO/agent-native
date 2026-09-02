@@ -286,7 +286,7 @@ export function ResponsesPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border pl-12 pr-2 sm:px-4 md:pl-4 h-14 shrink-0 gap-2 min-w-0">
+      <div className="flex items-center justify-between border-b border-border pl-14 pr-2 sm:px-4 md:pl-4 h-14 shrink-0 gap-2 min-w-0">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
           <Button
             variant="ghost"

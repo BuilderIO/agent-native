@@ -71,6 +71,20 @@ describe("update-event working locations", () => {
     deleteEventMock.mockResolvedValue(undefined);
   });
 
+  it("rejects namespaced shared-calendar events before any mutation", async () => {
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        action.run({
+          id: "google-google-calendar:opaque-source-shared-event",
+          title: "Changed",
+        }),
+      ),
+    ).rejects.toThrow("Shared Google calendar events are read-only");
+
+    expect(updateEventMock).not.toHaveBeenCalled();
+    expect(moveEventMock).not.toHaveBeenCalled();
+  });
+
   it("moves an event to another connected Google account", async () => {
     getAuthStatusMock.mockResolvedValue({
       accounts: [{ email: "secondary@example.com" }],

@@ -176,6 +176,13 @@ export function normalizeGoogleEventId(id: string): string {
   return id.startsWith("google-") ? id.slice("google-".length) : id;
 }
 
+export function normalizeWritableGoogleEventId(id: string): string {
+  if (id.startsWith("google-google-calendar:")) {
+    throw new Error("Shared Google calendar events are read-only");
+  }
+  return normalizeGoogleEventId(id);
+}
+
 export async function resolveOwnedAccountEmail(
   requestedAccountEmail: string | undefined,
   ownerEmail: string,

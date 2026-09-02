@@ -1,8 +1,7 @@
 name: Deploy Agent-Native docs site from GitHub
 
-# Temporary production-only exception: there is no beta docs Netlify site or
-# beta docs hostname yet. Keep the public docs site on the same prebuilt
-# publisher as the other sites until a docs beta site is provisioned.
+# The docs beta site is published by deploy-beta-sites-prebuilt.yml alongside
+# the app fleet. This workflow remains the production docs publisher.
 on:
   push:
     branches: [main]

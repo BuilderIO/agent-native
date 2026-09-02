@@ -62,6 +62,7 @@ registerEvent({
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
+  "list-google-calendars",
   "list-events",
   "search-events",
   "get-event",
@@ -113,6 +114,7 @@ Google Calendar events are NOT stored in the local database. They are fetched li
 Provider-specific Calendar actions are shortcuts, not limits. If a first-class action cannot express the exact Google Calendar/CRM endpoint, calendar id, filter, request body, pagination mode, attendee search, recurrence field, or API version needed, call \`provider-api-catalog\` and \`provider-api-docs\` as needed, then call \`provider-api-request\` against the provider's real HTTP API. Use this raw provider API escape hatch instead of weakening the answer, broadening filters, or claiming Calendar cannot do something the underlying API can do.
 
 - \`pnpm action view-screen\` — See the visible UI state (current view, date, selected event). Use it for questions about what the user is looking at, not as a prerequisite for deterministic schedule reads.
+- \`pnpm action list-google-calendars\` — Discover the primary and shared calendars available through every connected Google account. Pass returned opaque \`sourceKey\` values to \`list-events --calendarSourceKeys '[...]'\`; shared calendars are view-only and excluded from booking availability.
 - \`pnpm action list-events --from YYYY-MM-DD --to YYYY-MM-DD\` — List events from Google Calendar. The --to date is exclusive, so use tomorrow for today's events.
 - \`pnpm action search-events --query "term" --from YYYY-MM-DD --to YYYY-MM-DD\` — Convenience bounded search by title, attendees, organizer, location, or description. For relationship history, all-calendar discovery, exact attendee/domain search, or custom pagination, prefer provider-api-request with provider=google_calendar.
 - \`pnpm action provider-api-catalog\` / \`provider-api-docs\` / \`provider-api-request\` — Inspect and call the real Google Calendar, Apollo, Gong, HubSpot, and Pylon APIs directly. For Google Calendar events.list pagination use provider=google_calendar, path=/calendars/primary/events, query={...}, fetchAllPages={cursorPath:"nextPageToken",cursorParam:"pageToken",itemsPath:"items"}. For large relationship-history scans, pass stageAs and pagination={nextCursorPath:"nextPageToken",cursorParam:"pageToken",maxPages:N} with itemsPath="items", then use query-staged-dataset.
