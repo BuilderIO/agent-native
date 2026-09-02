@@ -144,12 +144,12 @@ return { message: `Welcome, ${name}.` };
 
 您已從代理和 UI 呼叫相同的 action。這個 action 還可以從下列位置呼叫：
 
-| 從這裡呼叫                              | 用途                                                   |
-| --------------------------------------- | ------------------------------------------------------ |
-| [HTTP API](/docs/http-api)              | 從指令碼、後端或整合呼叫 action。                      |
-| [CLI](/docs/actions-other-surfaces#cli) | 在終端機中執行或測試 action。                          |
-| [MCP](/docs/actions-other-surfaces#mcp) | 讓外部 AI 用戶端探索並以工具形式呼叫 actions。         |
-| [A2A](/docs/actions-other-surfaces#a2a) | 讓另一個代理將工作委派給您的代理。                 |
+| 從這裡呼叫                              | 用途                                           |
+| --------------------------------------- | ---------------------------------------------- |
+| [HTTP API](/docs/http-api)              | 從指令碼、後端或整合呼叫 action。              |
+| [CLI](/docs/actions-other-surfaces#cli) | 在終端機中執行或測試 action。                  |
+| [MCP](/docs/actions-other-surfaces#mcp) | 讓外部 AI 用戶端探索並以工具形式呼叫 actions。 |
+| [A2A](/docs/actions-other-surfaces#a2a) | 讓另一個代理將工作委派給您的代理。             |
 
 每個呼叫端都使用相同的 action 定義。您不需要為每個呼叫端建立單獨實作。這個共用 action 模型是 Agent-Native 的核心：隨著您新增能力，UI、代理與整合的行為、驗證及權限都會維持一致。
 
