@@ -65,6 +65,10 @@ on:
         required: false
       BETA_E2E_SESSION_TOKEN_MACROS:
         required: false
+      BETA_E2E_SESSION_TOKEN_CRM:
+        required: false
+      BETA_E2E_SESSION_TOKEN_CHAT:
+        required: false
       BETA_E2E_OPENAI_API_KEY:
         required: false
       OPENAI_API_KEY:
@@ -75,6 +79,10 @@ on:
         required: false
       PAGERDUTY_ROUTING_KEY:
         required: false
+    outputs:
+      signup_outcome:
+        description: "Signup lane result: success, failure, or inconclusive."
+        value: ${{ jobs.signup.outputs.outcome }}
   workflow_dispatch:
     inputs:
       apps:
@@ -284,6 +292,8 @@ jobs:
       BETA_E2E_EMAIL: ${{ secrets.BETA_E2E_EMAIL }}
       BETA_E2E_SESSION_TOKENS: ${{ secrets.BETA_E2E_SESSION_TOKENS }}
       BETA_E2E_SESSION_TOKEN_MACROS: ${{ secrets.BETA_E2E_SESSION_TOKEN_MACROS }}
+      BETA_E2E_SESSION_TOKEN_CRM: ${{ secrets.BETA_E2E_SESSION_TOKEN_CRM }}
+      BETA_E2E_SESSION_TOKEN_CHAT: ${{ secrets.BETA_E2E_SESSION_TOKEN_CHAT }}
       BETA_E2E_OPENAI_API_KEY: ${{ secrets.BETA_E2E_OPENAI_API_KEY }}
       # The repository-wide key is available only for an explicit shared-key
       # dispatch. Dedicated runs must not expose it to setup or test code.
@@ -375,6 +385,8 @@ jobs:
   signup:
     name: Signup canary
     if: ${{ inputs.lane == 'signup' }}
+    outputs:
+      outcome: ${{ steps.classify.outputs.outcome }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
@@ -386,13 +398,28 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: ./.github/actions/beta-e2e-setup
+      - name: Test signup email provider contracts
+        run: pnpm exec tsx --test e2e/signup/lib/mailosaur.spec.ts
       - name: Typecheck signup suite
         run: pnpm typecheck:e2e:signup
       - name: Run full signup flow
         id: signup
         run: pnpm e2e:signup
+      - name: Classify signup result
+        id: classify
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.signup.outcome }}" != "success" ]; then
+            echo "outcome=failure" >> "$GITHUB_OUTPUT"
+          elif find e2e/signup/test-results -type f -name 'mailosaur-inconclusive.txt' -print -quit | grep -q .; then
+            echo "outcome=inconclusive" >> "$GITHUB_OUTPUT"
+            echo "INCONCLUSIVE: Mailosaur rate-limited the verification inbox; no product result was recorded." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "outcome=success" >> "$GITHUB_OUTPUT"
+          fi
       - name: Page signup health on-call
-        if: ${{ failure() && steps.signup.outcome == 'failure' }}
+        if: ${{ failure() && steps.signup.outcome == 'failure' && steps.classify.outputs.outcome == 'failure' }}
         run: |
           set -euo pipefail
           if [ -z "${PAGERDUTY_ROUTING_KEY:-}" ]; then

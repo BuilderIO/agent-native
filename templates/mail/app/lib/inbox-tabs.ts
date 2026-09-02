@@ -1,4 +1,5 @@
 import { mailLabelsInclude, mailLabelsIncludeAny } from "@shared/gmail-labels";
+import { emailMessageMatchesSearch } from "@shared/search";
 import { isSelfAddressedThread } from "@shared/self-notes";
 import type { EmailMessage } from "@shared/types";
 
@@ -28,6 +29,12 @@ export const COLLAPSIBLE_VIEW_IDS = [
 // Its public URL remains `tab=other` for existing links and agent commands.
 export const OTHER_INBOX_TAB_ID = "__inbox_other__";
 export const OTHER_INBOX_TAB_PARAM = "other";
+
+export function inboxThreadKey(
+  email: Pick<EmailMessage, "accountEmail" | "threadId" | "id">,
+): string {
+  return `${email.accountEmail?.trim().toLowerCase() ?? ""}:${email.threadId || email.id}`;
+}
 
 /** Use the default Important tab only before the user has saved pin choices. */
 export function resolvePinnedLabels(
@@ -67,7 +74,7 @@ export function augmentSelfSentLabels(
   if (opts.hasNoteToSelf) {
     const threads = new Map<string, EmailMessage[]>();
     for (const e of emails) {
-      const key = e.threadId || e.id;
+      const key = inboxThreadKey(e);
       const thread = threads.get(key) ?? [];
       thread.push(e);
       threads.set(key, thread);
@@ -80,7 +87,7 @@ export function augmentSelfSentLabels(
   }
 
   return emails.map((e) => {
-    const key = e.threadId || e.id;
+    const key = inboxThreadKey(e);
     const isSelfSent = opts.connectedEmails.has(e.from.email.toLowerCase());
     const virtualLabel = opts.hasNoteToSelf
       ? selfNoteThreads.has(key)
@@ -131,13 +138,30 @@ export function qualifiesForInboxTab(
 function latestByThread(emails: EmailMessage[]): Map<string, EmailMessage> {
   const map = new Map<string, EmailMessage>();
   for (const e of emails) {
-    const key = e.threadId || e.id;
+    const key = inboxThreadKey(e);
     const existing = map.get(key);
     if (!existing || new Date(e.date) > new Date(existing.date)) {
       map.set(key, e);
     }
   }
   return map;
+}
+
+/** Threads claimed by saved query tabs, with Gmail's thread-level membership. */
+export function savedFilterThreadIds(
+  emails: EmailMessage[],
+  savedFilterQueries: readonly string[] = [],
+): Set<string> {
+  const queries = savedFilterQueries
+    .map((query) => query.trim())
+    .filter(Boolean);
+  const matched = new Set<string>();
+  for (const email of emails) {
+    if (queries.some((query) => emailMessageMatchesSearch(email, query))) {
+      matched.add(inboxThreadKey(email));
+    }
+  }
+  return matched;
 }
 
 /**
@@ -152,14 +176,19 @@ export function filterInboxTabEmails(
   emails: EmailMessage[],
   tab: string | null,
   pinnedLabels: readonly string[],
+  savedFilterQueries: readonly string[] = [],
 ): EmailMessage[] {
   const triage = pinnedTriageLabels(pinnedLabels);
   const latest = latestByThread(emails);
+  const savedFilterThreads = savedFilterThreadIds(emails, savedFilterQueries);
   const qualified = new Set<string>();
   for (const [key, latestMsg] of latest) {
-    if (qualifiesForInboxTab(latestMsg.labelIds, tab, triage)) {
+    if (
+      !savedFilterThreads.has(key) &&
+      qualifiesForInboxTab(latestMsg.labelIds, tab, triage)
+    ) {
       qualified.add(key);
     }
   }
-  return emails.filter((e) => qualified.has(e.threadId || e.id));
+  return emails.filter((e) => qualified.has(inboxThreadKey(e)));
 }

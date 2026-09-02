@@ -1,4 +1,12 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -17,6 +25,7 @@ interface FakePty {
   pid: number;
   write: ReturnType<typeof vi.fn>;
   resize: ReturnType<typeof vi.fn>;
+  kill: ReturnType<typeof vi.fn>;
   onData: ReturnType<typeof vi.fn>;
   onExit: ReturnType<typeof vi.fn>;
   emitData: (data: string) => void;
@@ -29,6 +38,7 @@ const spawn = vi.fn(() => {
     pid: 999_999 + ptys.length,
     write: vi.fn(),
     resize: vi.fn(),
+    kill: vi.fn(),
     onData: vi.fn((handler: (data: string) => void) => {
       pty.emitData = handler;
     }),
@@ -140,6 +150,62 @@ describe("createPtyWebSocketServer", () => {
     expect(spawn).not.toHaveBeenCalled();
   });
 
+  it("resolves packaged node-pty helpers into the unpacked app", async () => {
+    const { resolvePtySpawnHelper } = await import("./pty-server.js");
+
+    expect(
+      resolvePtySpawnHelper(
+        "/Applications/Agent-Native.app/Contents/Resources/app.asar/node_modules/node-pty/package.json",
+      ),
+    ).toBe(
+      `/Applications/Agent-Native.app/Contents/Resources/app.asar.unpacked/node_modules/node-pty/prebuilds/${process.platform}-${process.arch}/spawn-helper`,
+    );
+  });
+
+  it("wraps Windows command shims with cmd.exe", async () => {
+    const { preparePtySpawn } = await import("./pty-server.js");
+    const commandPath = String.raw`C:\Users\steve\AppData\Roaming\npm\codex.cmd`;
+
+    expect(preparePtySpawn(commandPath, ["--full-auto"], "win32")).toEqual({
+      command: "cmd.exe",
+      args: ["/d", "/s", "/c", `"${commandPath}"`, "--full-auto"],
+    });
+    expect(preparePtySpawn(commandPath, [], "darwin")).toEqual({
+      command: commandPath,
+      args: [],
+    });
+  });
+
+  it("preserves Windows path backslashes in terminal flags", async () => {
+    const { parseTerminalArguments } = await import("./pty-server.js");
+
+    expect(
+      parseTerminalArguments(
+        String.raw`--add-dir C:\Users\steve\Projects\framework --message "say \"hi\""`,
+        "win32",
+      ),
+    ).toEqual([
+      "--add-dir",
+      String.raw`C:\Users\steve\Projects\framework`,
+      "--message",
+      'say "hi"',
+    ]);
+  });
+
+  it("repairs a non-executable packaged spawn helper", async () => {
+    const helperDir = mkdtempSync(path.join(os.tmpdir(), "pty-helper-"));
+    tempDirs.push(helperDir);
+    const helper = path.join(helperDir, "spawn-helper");
+    mkdirSync(path.dirname(helper), { recursive: true });
+    writeFileSync(helper, "helper");
+    chmodSync(helper, 0o644);
+
+    const { ensurePtySpawnHelperExecutable } = await import("./pty-server.js");
+    ensurePtySpawnHelperExecutable(helper);
+
+    expect(statSync(helper).mode & 0o100).toBeTruthy();
+  });
+
   it("only upgrades the terminal WebSocket route", async () => {
     const server = await createServer({ authCheck: () => true });
 
@@ -166,6 +232,94 @@ describe("createPtyWebSocketServer", () => {
     ws.close();
   });
 
+  it("cleans up each PTY once across exit and WebSocket close", async () => {
+    const server = await createServer({ command: "builder" });
+    const ws = await openSocket(`ws://127.0.0.1:${server.port}/ws`);
+    await vi.waitFor(() => expect(ptys).toHaveLength(1));
+
+    ptys[0].emitExit(0);
+    ws.close();
+
+    await vi.waitFor(() => expect(ptys[0]?.kill).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not force-kill a parent PID after natural PTY exit", async () => {
+    const processKill = vi.spyOn(process, "kill");
+    const server = await createServer({ command: "builder" });
+    const ws = await openSocket(`ws://127.0.0.1:${server.port}/ws`);
+    await vi.waitFor(() => expect(ptys).toHaveLength(1));
+
+    ptys[0].emitExit(0);
+    await new Promise((resolve) => setTimeout(resolve, 550));
+
+    expect(processKill).not.toHaveBeenCalledWith(ptys[0].pid, "SIGKILL");
+    ws.close();
+  });
+
+  it("cleans up active PTYs when the server closes", async () => {
+    const server = await createServer({ command: "builder" });
+    await openSocket(`ws://127.0.0.1:${server.port}/ws`);
+    await vi.waitFor(() => expect(ptys).toHaveLength(1));
+
+    server.close();
+
+    await vi.waitFor(() => expect(ptys[0]?.kill).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not spawn a PTY after shutdown interrupts command setup", async () => {
+    let setupStarted!: () => void;
+    let releaseSetup!: () => void;
+    const setupStartedPromise = new Promise<void>((resolve) => {
+      setupStarted = resolve;
+    });
+    const setupPromise = new Promise<string[]>((resolve) => {
+      releaseSetup = () => resolve([]);
+    });
+    const server = await createServer({
+      command: "builder",
+      getCommandArgs: async () => {
+        setupStarted();
+        return setupPromise;
+      },
+    });
+    const ws = await openSocket(`ws://127.0.0.1:${server.port}/ws`);
+
+    await setupStartedPromise;
+    server.close();
+    releaseSetup();
+
+    await vi.waitFor(() => expect(ws.readyState).toBe(WebSocket.CLOSED));
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("does not spawn a PTY after the client closes during command setup", async () => {
+    let resolveSetupStarted!: () => void;
+    let releaseSetup!: () => void;
+    const setupStarted = new Promise<void>((resolve) => {
+      resolveSetupStarted = resolve;
+    });
+    const setupRelease = new Promise<void>((resolve) => {
+      releaseSetup = resolve;
+    });
+    const server = await createServer({
+      command: "builder",
+      getSessionSetup: async () => {
+        resolveSetupStarted();
+        await setupRelease;
+        return {};
+      },
+    });
+    const ws = await openSocket(`ws://127.0.0.1:${server.port}/ws`);
+
+    await setupStarted;
+    ws.terminate();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    releaseSetup();
+
+    await vi.waitFor(() => expect(ws.readyState).toBe(WebSocket.CLOSED));
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
   it("rejects shell metacharacters in flags before spawning", async () => {
     const server = await createServer();
     const { ws, message: rawMessage } = await openSocketAndMessage(
@@ -180,6 +334,23 @@ describe("createPtyWebSocketServer", () => {
       message: "Invalid flags: shell metacharacters not allowed",
     });
     expect(spawn).not.toHaveBeenCalled();
+    ws.close();
+  });
+
+  it("reports PTY spawn failures as terminal setup errors", async () => {
+    spawn.mockImplementationOnce(() => {
+      throw new Error("posix_spawnp failed");
+    });
+    const server = await createServer({ command: "builder" });
+    const { ws, message: rawMessage } = await openSocketAndMessage(
+      `ws://127.0.0.1:${server.port}/ws`,
+    );
+
+    expect(JSON.parse(rawMessage)).toEqual({
+      type: "setup-status",
+      status: "failed",
+      message: "Failed to spawn PTY: posix_spawnp failed",
+    });
     ws.close();
   });
 
@@ -198,7 +369,7 @@ describe("createPtyWebSocketServer", () => {
 
     expect(spawn).toHaveBeenCalledWith(
       expect.any(String),
-      ["-l", "-c", "builder"],
+      [],
       expect.objectContaining({
         cols: 120,
         rows: 40,
@@ -222,14 +393,43 @@ describe("createPtyWebSocketServer", () => {
 
     expect(spawn).toHaveBeenCalledWith(
       expect.any(String),
-      [
-        "-l",
-        "-c",
-        "builder '--mcp-config' '/tmp/desktop surface.json' 'it'\"'\"'s-safe'",
-      ],
+      ["--mcp-config", "/tmp/desktop surface.json", "it's-safe"],
       expect.objectContaining({ cwd: expect.any(String) }),
     );
     ws.close();
+  });
+
+  it("passes the active app context to each PTY session setup", async () => {
+    const onClose = vi.fn();
+    const getSessionSetup = vi.fn(() => ({
+      commandArgs: ["--from-session-setup"],
+      environment: { SESSION_CONTEXT: "mail" },
+      onClose,
+    }));
+    const server = await createServer({
+      command: "builder",
+      getSessionSetup,
+    });
+    const ws = await openSocket(
+      `ws://127.0.0.1:${server.port}/ws?appId=mail&path=%2Finbox&view=inbox`,
+    );
+    await vi.waitFor(() => expect(ptys).toHaveLength(1));
+
+    expect(getSessionSetup).toHaveBeenCalledWith("builder", {
+      appId: "mail",
+      path: "/inbox",
+      view: "inbox",
+    });
+    expect(spawn).toHaveBeenCalledWith(
+      expect.any(String),
+      ["--from-session-setup"],
+      expect.objectContaining({
+        env: expect.objectContaining({ SESSION_CONTEXT: "mail" }),
+      }),
+    );
+
+    ws.close();
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 
   it("does not write env vars sent through the terminal bridge to .env", async () => {

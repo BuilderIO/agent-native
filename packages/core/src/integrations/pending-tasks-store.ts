@@ -535,13 +535,15 @@ export async function markTaskCompleted(id: string): Promise<void> {
 export async function markTaskRetryable(
   id: string,
   errorMessage: string,
+  options?: { resetAttempts?: boolean },
 ): Promise<void> {
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
+  const attempts = options?.resetAttempts ? ", attempts = 0" : "";
   await client.execute({
     sql: `UPDATE integration_pending_tasks
-          SET status = ?, updated_at = ?, error_message = ?
+          SET status = ?${attempts}, updated_at = ?, error_message = ?
           WHERE id = ? AND status = 'processing'`,
     args: ["pending", now, errorMessage.slice(0, 2000), id],
   });

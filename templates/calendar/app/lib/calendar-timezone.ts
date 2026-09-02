@@ -1,13 +1,10 @@
 import type { CalendarEvent } from "@shared/api";
-import { addDaysToDateKey, isCalendarTimezone } from "@shared/timezone";
 import {
-  addDays,
-  endOfMonth,
-  endOfWeek,
-  format,
-  startOfMonth,
-  startOfWeek,
-} from "date-fns";
+  addDaysToDateKey,
+  getCalendarViewDateRange,
+  isCalendarTimezone,
+} from "@shared/timezone";
+import { format } from "date-fns";
 
 import { dateTimeInTimezoneToIso } from "./event-form-utils";
 
@@ -171,37 +168,12 @@ export function getViewDateRange(
   timezone: string,
   weekStartsOn: 0 | 1 = 0,
 ): { from: string; to: string } {
-  const normalizedTimezone = normalizeTimezone(timezone);
-  const weekOptions = { weekStartsOn };
-  let rangeStart: Date;
-  let rangeEndExclusive: Date;
-
-  if (viewMode === "month") {
-    rangeStart = startOfWeek(startOfMonth(selectedDate), weekOptions);
-    rangeEndExclusive = addDays(
-      endOfWeek(endOfMonth(selectedDate), weekOptions),
-      1,
-    );
-  } else if (viewMode === "week") {
-    rangeStart = startOfWeek(selectedDate, weekOptions);
-    rangeEndExclusive = addDays(endOfWeek(selectedDate, weekOptions), 1);
-  } else {
-    rangeStart = selectedDate;
-    rangeEndExclusive = addDays(selectedDate, 1);
-  }
-
-  return {
-    from: dateKeyToTimezoneIso(
-      dateToCalendarDateKey(rangeStart),
-      "00:00",
-      normalizedTimezone,
-    ),
-    to: dateKeyToTimezoneIso(
-      dateToCalendarDateKey(rangeEndExclusive),
-      "00:00",
-      normalizedTimezone,
-    ),
-  };
+  return getCalendarViewDateRange(
+    viewMode,
+    dateToCalendarDateKey(selectedDate),
+    normalizeTimezone(timezone),
+    weekStartsOn,
+  );
 }
 
 function dateOnlyPart(value: string | undefined): string | null {

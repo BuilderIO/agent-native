@@ -438,8 +438,7 @@ const frFR = {
   homepage: {
     hero: {
       title: "Le framework des applications agentic",
-      bodyLine1:
-        "Créez pour les agents IA sans construire un second produit pour les utilisateurs.",
+      bodyLine1: "Créez des agents autonomes avec des interfaces intuitives.",
       bodyLine2: "Apportez votre propre LLM. Déployez où vous voulez.",
       tryAnApp: "Essayer une app",
     },
@@ -539,21 +538,72 @@ const frFR = {
     eyebrow:
       "Partez d'une app fonctionnelle et laissez l'agent la faire évoluer.",
     body: "Vous pouvez tout personnaliser.",
+    firstPartyTitle: "Créées par Agent-Native",
     community:
       "Vous préférez une app vide ? Commencez de zéro avec le guide du framework.",
     createYourOwn: "Commencer de zéro",
-    communityTitle: "Modèles de la communauté",
+    communityTitle: "Applications de la communauté",
     communityDescription:
-      "Des applications indépendantes maintenues par leurs auteurs. Installez-les depuis un dépôt GitHub public ou essayez une version hébergée lorsqu’elle existe.",
-    submitCommunityTemplate: "Proposer votre modèle",
+      "Découvrez des applications maintenues par leurs auteurs. Essayez une version hébergée lorsqu’elle existe, ou consultez le code source pour la personnaliser.",
+    submitCommunityTemplate: "Proposer une application",
     communityEmpty:
-      "Les soumissions communautaires sont ouvertes. Publiez une application Agent-Native ciblée dans un dépôt public et proposez-la au catalogue.",
+      "Les soumissions communautaires sont ouvertes. Publiez une application Agent-Native ciblée et proposez-la au catalogue.",
     publishGuide: "Lire le guide de publication",
     communityTrust:
-      "Les modèles communautaires sont du code tiers. Vérifiez le dépôt, la licence, les dépendances et les scripts d’installation avant de l’exécuter.",
+      "Les applications communautaires sont du code tiers. Vérifiez le code source, la licence, les dépendances et les scripts d’installation avant de les exécuter.",
     copyCommunityInstallCommand: "Copier la commande d’installation",
     viewRepository: "Voir le dépôt",
     tryCommunityDemo: "Essayer la démo",
+    customizeDescription: "Vous pouvez personnaliser entièrement ce code.",
+    customizeOnline: "Personnaliser en ligne",
+    customizeLocally: "Personnaliser localement",
+    communityNew: "Nouveau",
+    communityComingSoon: "Bientôt disponible",
+    communityGithubStars: "{{count}} étoiles GitHub",
+    tryCommunityApp: "Essayer l’application",
+    viewCommunitySource: "Voir le code source",
+    communityEyebrow: "Application communautaire",
+    communityScreenshots: "Captures d’écran",
+    previousScreenshot: "Capture précédente",
+    nextScreenshot: "Capture suivante",
+    communityNoScreenshots: "Les captures apparaîtront ici après validation.",
+    communityScreenshotAlt: "Capture {{index}} de {{name}}",
+    communityNoHostedVersion:
+      "Une version hébergée arrive bientôt. Suivez le développement via le code source.",
+    communitySubmissionTitle: "Partager une application communautaire",
+    communitySubmissionDescription:
+      "Indiquez où trouver votre application et ce qu’elle fait. Nous vérifierons les informations avant de publier la fiche.",
+    communitySubmissionName: "Nom de l’application",
+    communitySubmissionNamePlaceholder: "Centre de support client",
+    communitySubmissionUrl: "URL de l’application",
+    communitySubmissionUrlPlaceholder: "example.com",
+    communitySubmissionDescriptionLabel: "Description",
+    communitySubmissionDescriptionPlaceholder:
+      "Que fait l’application et à qui s’adresse-t-elle ?",
+    communitySubmissionRepository: "Dépôt GitHub (facultatif)",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
+    communitySubmissionScreenshots: "Captures d’écran (facultatif)",
+    communitySubmissionScreenshotsPlaceholder: "Déposez jusqu’à 5 images ici",
+    communitySubmissionScreenshotDropHint:
+      "PNG, JPG ou WebP. 1,5 Mo maximum chacune.",
+    communitySubmissionScreenshotSlot: "Capture {{index}}",
+    communitySubmissionScreenshotsAdd: "Ajouter des captures",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 sélectionnées",
+    communitySubmissionScreenshotRemove: "Supprimer la capture {{index}}",
+    communitySubmissionSubmit: "Envoyer l’application",
+    communitySubmissionReady:
+      "Merci. Nous examinerons votre application avant de la publier.",
+    communitySubmissionNameError: "Saisissez un nom d’application.",
+    communitySubmissionDescriptionError: "Ajoutez une courte description.",
+    communitySubmissionUrlError:
+      "Saisissez un lien d’application valide, par exemple example.com.",
+    communitySubmissionRepositoryError:
+      "Saisissez un lien vers un dépôt GitHub.",
+    communitySubmissionScreenshotsError:
+      "Utilisez des images PNG, JPG ou WebP de 1,5 Mo maximum chacune, avec 5 images au maximum.",
+    communitySubmissionSubmitError:
+      "Impossible d’envoyer le formulaire pour le moment. Vérifiez les champs signalés, puis réessayez.",
+    communitySubmissionSubmitting: "Envoi…",
   },
   buildFromScratch: {
     title: "Créer de zéro",

@@ -13,6 +13,7 @@ import {
 import { forwardRef, useImperativeHandle, useRef } from "react";
 
 import { BuilderImage } from "../components/builder-image";
+import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
 import {
   TemplateCapabilityGrid,
@@ -227,7 +228,25 @@ export default function PlanTemplate() {
             </span>
           </>
         }
+        customizeTemplate={template}
         description={<p className="m-0">{t("templateLanding.plan.s016")}</p>}
+        headingAction={
+          <a
+            href={template.demoUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="primary-button"
+            onClick={(event) => {
+              applyFirstTouchAttributionToLink(event.currentTarget);
+              trackEvent("try live demo", {
+                template: template.slug,
+                location: "landing_page_hero",
+              });
+            }}
+          >
+            {t("common.getStarted")}
+          </a>
+        }
         media={
           <BuilderImage
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffbe161e4e98a4d5780baeb156a3eddff"

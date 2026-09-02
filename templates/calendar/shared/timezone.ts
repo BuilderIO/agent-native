@@ -125,3 +125,42 @@ export function addDaysToDateKey(date: string, amount: number): string {
   const shifted = new Date(Date.UTC(year, month - 1, day + amount));
   return shifted.toISOString().slice(0, 10);
 }
+
+export type CalendarViewMode = "month" | "week" | "day";
+
+function startOfCalendarWeek(date: string, weekStartsOn: 0 | 1): string {
+  const weekday = new Date(`${date}T12:00:00Z`).getUTCDay();
+  return addDaysToDateKey(date, -((weekday - weekStartsOn + 7) % 7));
+}
+
+export function getCalendarViewDateRange(
+  viewMode: CalendarViewMode,
+  selectedDate: string,
+  timezone: string,
+  weekStartsOn: 0 | 1 = 0,
+): { from: string; to: string } {
+  const selectedMonthStart = `${selectedDate.slice(0, 7)}-01`;
+  const [year, month] = selectedMonthStart.split("-").map(Number);
+  const nextMonthStart = new Date(Date.UTC(year, month, 1))
+    .toISOString()
+    .slice(0, 10);
+
+  let rangeStart = selectedDate;
+  let rangeEndExclusive = addDaysToDateKey(selectedDate, 1);
+  if (viewMode === "week") {
+    rangeStart = startOfCalendarWeek(selectedDate, weekStartsOn);
+    rangeEndExclusive = addDaysToDateKey(rangeStart, 7);
+  } else if (viewMode === "month") {
+    const monthEnd = addDaysToDateKey(nextMonthStart, -1);
+    rangeStart = startOfCalendarWeek(selectedMonthStart, weekStartsOn);
+    rangeEndExclusive = addDaysToDateKey(
+      startOfCalendarWeek(monthEnd, weekStartsOn),
+      7,
+    );
+  }
+
+  return {
+    from: dateTimeInTimezoneToIso(rangeStart, "00:00", timezone),
+    to: dateTimeInTimezoneToIso(rangeEndExclusive, "00:00", timezone),
+  };
+}

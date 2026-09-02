@@ -3,6 +3,22 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-01
+
+### Fixed
+
+- Calendar reconnects wait for Google to finish before refreshing meetings.
+
+## 2026-09-01
+
+### Improved
+
+- Clip editing uses a text-only Edit button for a cleaner toolbar.
+
+### Fixed
+
+- Clips camera bubbles now close reliably when the popover is dismissed.
+
 ## 2026-08-29
 
 ### Improved

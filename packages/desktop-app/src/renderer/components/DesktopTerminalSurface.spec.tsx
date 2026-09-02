@@ -7,7 +7,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import DesktopTerminalSurface from "./DesktopTerminalSurface.js";
 
 vi.mock("./DesktopTerminalTabs.js", () => ({
-  default: () => <div data-terminal-test />,
+  default: ({
+    agent,
+    active,
+    activeApp,
+  }: {
+    agent: string;
+    active?: boolean;
+    activeApp?: { id: string };
+  }) => (
+    <div
+      data-terminal-test
+      data-terminal-agent={agent}
+      data-terminal-active={active === false ? "false" : "true"}
+      data-terminal-app={activeApp?.id ?? ""}
+    />
+  ),
 }));
 
 describe("DesktopTerminalSurface", () => {
@@ -94,5 +109,147 @@ describe("DesktopTerminalSurface", () => {
     expect(item).toBeDefined();
     await act(async () => item?.click());
     expect(onToggleSidebar).toHaveBeenCalledOnce();
+  });
+
+  it("offers the supported terminal providers", async () => {
+    act(() => {
+      root.render(
+        <DesktopTerminalSurface
+          agent="codex"
+          theme="dark"
+          onAgentChange={vi.fn()}
+        />,
+      );
+    });
+
+    await act(async () => {
+      const trigger = container.querySelector<HTMLButtonElement>(
+        '[aria-label="Terminal options"]',
+      );
+      trigger?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    const providerItem = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Provider"));
+    expect(providerItem).not.toBeUndefined();
+    expect(
+      providerItem?.querySelector(".desktop-dropdown-item__main"),
+    ).not.toBe(null);
+    expect(providerItem?.querySelector("svg.ms-auto")).not.toBeNull();
+    expect(
+      Array.from(
+        document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).some((item) => item.textContent?.includes("Terminal provider")),
+    ).toBe(false);
+  });
+
+  it("keeps inactive terminal sessions on their original provider", async () => {
+    const onAgentChange = vi.fn();
+    act(() => {
+      root.render(
+        <DesktopTerminalSurface
+          agent="codex"
+          theme="dark"
+          onAgentChange={onAgentChange}
+        />,
+      );
+    });
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="New terminal"]')
+        ?.click();
+    });
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLElement>("[data-terminal-agent]"),
+      ).map((terminal) => terminal.dataset.terminalAgent),
+    ).toEqual(["codex", "codex"]);
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Terminal options"]')
+        ?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+      await Promise.resolve();
+    });
+    const providerItem = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Provider"));
+    expect(providerItem).toBeDefined();
+
+    await act(async () => {
+      providerItem?.dispatchEvent(
+        new PointerEvent("pointermove", {
+          bubbles: true,
+          pointerType: "mouse",
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+    const claudeOption = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Claude Code"));
+    expect(claudeOption).toBeDefined();
+
+    await act(async () => claudeOption?.click());
+    expect(onAgentChange).toHaveBeenCalledWith("claude-code");
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLElement>("[data-terminal-agent]"),
+      ).map((terminal) => terminal.dataset.terminalAgent),
+    ).toEqual(["codex", "claude-code"]);
+  });
+
+  it("scopes the active app context to the selected terminal", async () => {
+    act(() => {
+      root.render(
+        <DesktopTerminalSurface
+          agent="codex"
+          theme="dark"
+          activeApp={{ id: "mail", name: "Mail", path: "/inbox" }}
+        />,
+      );
+    });
+
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLElement>("[data-terminal-test]"),
+      ).map((terminal) => [
+        terminal.dataset.terminalActive,
+        terminal.dataset.terminalApp,
+      ]),
+    ).toEqual([["true", "mail"]]);
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="New terminal"]')
+        ?.click();
+    });
+
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLElement>("[data-terminal-test]"),
+      ).map((terminal) => [
+        terminal.dataset.terminalActive,
+        terminal.dataset.terminalApp,
+      ]),
+    ).toEqual([
+      ["false", ""],
+      ["true", "mail"],
+    ]);
   });
 });

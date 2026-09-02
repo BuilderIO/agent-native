@@ -119,6 +119,17 @@ describe("listTables", () => {
     expect(view?.type).toBe("view");
     expect(view?.rowCount).toBeNull();
   });
+
+  it("can cap table row-count queries while retaining table metadata", async () => {
+    const { ops } = await loadOps();
+    const { tables } = await ops.listTables(undefined, { maxRowCounts: 1 });
+
+    expect(tables.find((table) => table.name === "authors")?.rowCount).toBe(2);
+    expect(tables.find((table) => table.name === "books")?.rowCount).toBeNull();
+    expect(
+      tables.find((table) => table.name === "author_book_counts")?.rowCount,
+    ).toBeNull();
+  });
 });
 
 describe("getTableSchema", () => {

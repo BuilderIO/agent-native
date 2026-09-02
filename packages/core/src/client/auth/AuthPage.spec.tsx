@@ -29,7 +29,7 @@ describe("AuthPage", () => {
     expect(html).not.toContain("onclick");
   });
 
-  it("composes the shared marketing home and starfield for branded auth", () => {
+  it("composes the shared marketing home and product screenshot for branded auth", () => {
     const html = renderToString(
       <AuthPage
         {...propsFromHtml(
@@ -39,10 +39,27 @@ describe("AuthPage", () => {
     );
 
     expect(html).toContain('data-agent-native-marketing-home="true"');
-    expect(html).toContain('data-agent-native-starfield="true"');
+    expect(html).toContain('class="auth-marketing-screenshot"');
+    expect(html).toContain("/auth-marketing/slides.webp");
+    expect(html).toContain('href="https://agent-native.com/apps/slides"');
+    expect(html).toContain("New to Slides?");
+    expect(html).not.toContain('data-agent-native-starfield="true"');
     expect(html).toContain('class="split');
     expect(html).toContain('class="marketing-panel"');
     expect(html).toContain('class="form-panel');
+    expect(html).toMatch(
+      /class="auth-marketing-top-right">\s*<a[^>]+class="auth-marketing-learn-more"/,
+    );
+  });
+
+  it("places Calendar's learn-more link in the bottom-right corner", () => {
+    const props = propsFromHtml(
+      getOnboardingHtml({ requestHost: "calendar.agent-native.com" }),
+    );
+    const html = renderToString(<AuthPage {...props} />);
+
+    expect(props.marketing?.learnMorePlacement).toBe("bottom-right");
+    expect(html).toContain("has-bottom-right-learn-more");
   });
 
   it("keeps the magic-link entry and completion surfaces in the React tree", () => {

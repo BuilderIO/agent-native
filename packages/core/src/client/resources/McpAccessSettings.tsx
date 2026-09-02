@@ -95,7 +95,7 @@ export function McpAccessSettings({
   );
   const [urls, setUrls] = useState<AccessUrls | null>(null);
   const [agentCardAvailable, setAgentCardAvailable] = useState(false);
-  const [activeGuide, setActiveGuide] = useState(guides[0]?.id);
+  const [activeGuide, setActiveGuide] = useState<string | null>(null);
 
   useEffect(() => {
     const origin = window.location.origin;
@@ -162,7 +162,7 @@ export function McpAccessSettings({
         serverId: `agent-native-${window.location.hostname || "app"}`,
       }
     : null;
-  const guide = guides.find((item) => item.id === activeGuide) ?? guides[0];
+  const guide = guides.find((item) => item.id === activeGuide);
 
   return (
     <AgentTabFrame
@@ -213,12 +213,16 @@ export function McpAccessSettings({
                     type="button"
                     role="tab"
                     id={`mcp-guide-tab-${item.id}`}
-                    aria-selected={item.id === guide?.id}
-                    aria-controls={`mcp-guide-panel-${item.id}`}
+                    aria-selected={item.id === activeGuide}
+                    aria-controls={
+                      item.id === activeGuide
+                        ? `mcp-guide-panel-${item.id}`
+                        : undefined
+                    }
                     onClick={() => setActiveGuide(item.id)}
                     className={cn(
                       "shrink-0 cursor-pointer rounded-md px-2.5 py-1.5 text-xs font-medium",
-                      item.id === guide?.id
+                      item.id === activeGuide
                         ? "bg-accent text-foreground"
                         : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                     )}

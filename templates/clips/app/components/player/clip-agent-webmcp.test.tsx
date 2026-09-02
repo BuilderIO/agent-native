@@ -184,6 +184,10 @@ describe("Clip WebMCP tools", () => {
       truncated: true,
       fullTextIncluded: false,
     });
+    expect(result.sourceUrl).toBe(
+      `${window.location.origin}/api/agent-transcript.json?id=rec-1&agent_access=token`,
+    );
+    expect(result.apis.transcript.url).toBe(result.sourceUrl);
     expect(result.nextStartMs).toBe(1001);
     expect(result.nextStartIndex).toBe(1);
     expect(fetchMock).toHaveBeenCalledWith(

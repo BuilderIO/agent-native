@@ -1,9 +1,14 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+
 import { expect, test, type Page } from "@playwright/test";
+import type { TestInfo } from "@playwright/test";
 
 import { isQaTestEmail } from "../../../packages/core/src/shared/qa-test-email";
 import { collectAppPageErrors, renderedText } from "../../beta/lib/app";
 import {
   createQaEmail,
+  isMailosaurInconclusiveError,
   verificationLinkFor,
   waitForVerificationEmail,
 } from "../lib/mailosaur";
@@ -14,43 +19,22 @@ interface SessionResult {
   body: unknown;
 }
 
-/**
- * Read a session endpoint from inside the page.
- *
- * The verification link lands through redirects and some apps then navigate
- * again client-side — clips goes `/` to `/library`. An evaluate that starts
- * before that settles dies with "Execution context was destroyed", which is
- * this harness losing its footing, not the app failing to sign the user in.
- * Retrying only that error keeps a real signed-out session a failure.
- */
+/** Read an authenticated session endpoint with the browser context's cookies. */
 async function readJson(page: Page, path: string): Promise<SessionResult> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await page.waitForLoadState("domcontentloaded");
-    try {
-      return await page.evaluate(async (target): Promise<SessionResult> => {
-        const response = await fetch(target, {
-          cache: "no-store",
-          headers: { Accept: "application/json" },
-        });
-        const raw = await response.text();
-        let body: unknown;
-        try {
-          body = JSON.parse(raw);
-        } catch {
-          body = raw;
-        }
-        return { status: response.status, body };
-      }, path);
-    } catch (error) {
-      if (!/Execution context was destroyed/i.test(String(error))) throw error;
-      lastError = error;
-      await page.waitForTimeout(1_000);
-    }
+  const response = await page
+    .context()
+    .request.get(new URL(path, page.url()).toString(), {
+      headers: { Accept: "application/json" },
+      timeout: 60_000,
+    });
+  const raw = await response.text();
+  let body: unknown;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    body = raw;
   }
-  throw new Error(
-    `${path} could not be read: the page kept navigating across 3 attempts. Last error: ${String(lastError)}`,
-  );
+  return { status: response.status(), body };
 }
 
 async function readSession(page: Page) {
@@ -62,7 +46,10 @@ async function readBetterAuthSession(page: Page) {
 }
 
 function assertSession(session: SessionResult, email: string, label: string) {
-  expect(session.status, `${label} returned HTTP ${session.status}`).toBe(200);
+  expect(
+    session.status,
+    `${label} returned HTTP ${session.status}: ${JSON.stringify(session.body).slice(0, 500)}`,
+  ).toBe(200);
   expect(
     (session.body as { email?: unknown }).email,
     `${label} did not identify the canary account`,
@@ -74,7 +61,10 @@ function assertBetterAuthSession(
   email: string,
   label: string,
 ) {
-  expect(session.status, `${label} returned HTTP ${session.status}`).toBe(200);
+  expect(
+    session.status,
+    `${label} returned HTTP ${session.status}: ${JSON.stringify(session.body).slice(0, 500)}`,
+  ).toBe(200);
   expect(
     (session.body as { user?: { email?: unknown } }).user?.email,
     `${label} did not identify the canary account`,
@@ -83,10 +73,19 @@ function assertBetterAuthSession(
 
 const targets = selectedSignupTargets();
 
+function recordMailosaurInconclusive(
+  testInfo: TestInfo,
+  message: string,
+): void {
+  const marker = testInfo.outputPath("mailosaur-inconclusive.txt");
+  mkdirSync(dirname(marker), { recursive: true });
+  writeFileSync(marker, `${message}\n`, "utf8");
+}
+
 for (const target of targets) {
   test(`${target.environment} ${target.app} completes email signup without a refresh`, async ({
     page,
-  }) => {
+  }, testInfo) => {
     test.setTimeout(360_000);
     const { errors, thirdParty } = collectAppPageErrors(page, target.origin);
     const failedRequests: string[] = [];
@@ -131,10 +130,16 @@ for (const target of targets) {
       await expect(page.locator("#magic-link-form")).toBeVisible();
     });
 
-    await test.step("request a fresh magic link", async () => {
-      const emailPromise = waitForVerificationEmail(email, emailRequestedAt);
+    const message = await test.step("request a fresh magic link", async () => {
+      const emailResult = waitForVerificationEmail(
+        email,
+        emailRequestedAt,
+      ).then(
+        (message) => ({ status: "fulfilled" as const, message }),
+        (error) => ({ status: "rejected" as const, error }),
+      );
       await page.locator("#m-email").fill(email);
-      await page.locator("#magic-link-submit").click();
+      await page.locator("#magic-link-submit").click({ noWaitAfter: true });
       await expect(page.locator("#magic-link-success")).toBeVisible();
       await expect(page.locator("#magic-link-success-email")).toHaveText(email);
       expect(
@@ -142,24 +147,35 @@ for (const target of targets) {
         "magic-link request was not observed",
       ).not.toEqual([]);
       expect(magicLinkStatuses.at(-1)).toBe(200);
-      const message = await emailPromise;
 
-      await test.step("use the secure same-origin link from the inbox", async () => {
-        const verificationLink = verificationLinkFor(message, target.origin);
-        const response = await page.goto(verificationLink, {
-          waitUntil: "domcontentloaded",
-        });
-        expect(
-          response,
-          `${target.app} verification produced no response`,
-        ).toBeTruthy();
-        expect(
-          response!.status(),
-          `${target.app} verification returned an error`,
-        ).toBeLessThan(400);
-        expect(new URL(page.url()).origin).toBe(target.origin);
-        expect(new URL(page.url()).pathname).not.toMatch(/sign-in|login/i);
+      const result = await emailResult;
+      if (result.status === "rejected") {
+        if (isMailosaurInconclusiveError(result.error)) {
+          recordMailosaurInconclusive(testInfo, result.error.message);
+          testInfo.skip(true, `INCONCLUSIVE: ${result.error.message}`);
+          return null;
+        }
+        throw result.error;
+      }
+      return result.message;
+    });
+    if (!message) return;
+
+    await test.step("use the secure same-origin link from the inbox", async () => {
+      const verificationLink = verificationLinkFor(message, target.origin);
+      const response = await page.goto(verificationLink, {
+        waitUntil: "domcontentloaded",
       });
+      expect(
+        response,
+        `${target.app} verification produced no response`,
+      ).toBeTruthy();
+      expect(
+        response!.status(),
+        `${target.app} verification returned an error`,
+      ).toBeLessThan(400);
+      expect(new URL(page.url()).origin).toBe(target.origin);
+      expect(new URL(page.url()).pathname).not.toMatch(/sign-in|login/i);
     });
 
     await test.step("prove the session works before any refresh", async () => {

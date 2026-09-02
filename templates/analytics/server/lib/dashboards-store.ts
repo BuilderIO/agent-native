@@ -134,7 +134,12 @@ export interface DashboardRevisionRecord {
   chatContext: AnalyticsRevisionChatContext | null;
 }
 
-export type DashboardRevisionMetadata = Omit<DashboardRevisionRecord, "config">;
+export type DashboardRevisionMetadata = Omit<
+  DashboardRevisionRecord,
+  "config"
+> & {
+  chatContextStatus: RevisionChatContextStatus;
+};
 
 export type DashboardArchiveFilter = "active" | "archived" | "all";
 export type DashboardHiddenFilter = "visible" | "hidden" | "all";
@@ -183,6 +188,21 @@ export interface AnalyticsRevisionChatContext {
   runId?: string;
   turnId?: string;
 }
+
+export type RevisionChatContextStatus = "absent" | "valid" | "unreadable";
+
+export type AnalysisRevisionMetadata = Pick<
+  AnalysisRevisionRecord,
+  | "id"
+  | "analysisId"
+  | "name"
+  | "description"
+  | "createdAt"
+  | "createdBy"
+  | "chatContext"
+> & {
+  chatContextStatus: RevisionChatContextStatus;
+};
 
 interface AccessCtx {
   email: string;
@@ -284,6 +304,24 @@ function parseRevisionChatContext(
   );
   if (!context) throw new Error("Analytics revision chat metadata is invalid.");
   return context;
+}
+
+export function parseRevisionChatContextMetadata(raw: unknown): {
+  chatContext: AnalyticsRevisionChatContext | null;
+  chatContextStatus: RevisionChatContextStatus;
+} {
+  if (raw == null) {
+    return { chatContext: null, chatContextStatus: "absent" };
+  }
+  try {
+    const chatContext = parseRevisionChatContext(raw);
+    return {
+      chatContext,
+      chatContextStatus: chatContext ? "valid" : "absent",
+    };
+  } catch {
+    return { chatContext: null, chatContextStatus: "unreadable" };
+  }
 }
 
 function escapeLikeLiteral(value: string): string {
@@ -588,7 +626,7 @@ function rowToDashboardRevisionMetadata(row: any): DashboardRevisionMetadata {
     title: row.title,
     createdAt: row.createdAt,
     createdBy: row.createdBy ?? null,
-    chatContext: parseRevisionChatContext(row.chatContext),
+    ...parseRevisionChatContextMetadata(row.chatContext),
   };
 }
 
@@ -2197,6 +2235,18 @@ function rowToAnalysisRevision(row: any): AnalysisRevisionRecord {
   };
 }
 
+function rowToAnalysisRevisionMetadata(row: any): AnalysisRevisionMetadata {
+  return {
+    id: row.id,
+    analysisId: row.analysisId,
+    name: row.name,
+    description: row.description,
+    createdAt: row.createdAt,
+    createdBy: row.createdBy ?? null,
+    ...parseRevisionChatContextMetadata(row.chatContext),
+  };
+}
+
 function safeJsonParse<T>(s: unknown, fallback: T): T {
   if (typeof s !== "string") return fallback;
   try {
@@ -2728,18 +2778,7 @@ export async function listAnalysisRevisions(
 export async function listAnalysisRevisionMetadata(
   analysisId: string,
   ctx: AccessCtx,
-): Promise<
-  Pick<
-    AnalysisRevisionRecord,
-    | "id"
-    | "analysisId"
-    | "name"
-    | "description"
-    | "createdAt"
-    | "createdBy"
-    | "chatContext"
-  >[]
-> {
+): Promise<AnalysisRevisionMetadata[]> {
   const existing = await getAnalysis(analysisId, ctx);
   if (!existing) return [];
   await assertAccess("analysis", analysisId, "viewer", {
@@ -2761,7 +2800,7 @@ export async function listAnalysisRevisionMetadata(
     .where(eq(schema.analysisRevisions.analysisId, analysisId))
     .orderBy(desc(schema.analysisRevisions.createdAt))
     .limit(ANALYSIS_REVISION_LIMIT);
-  return rows;
+  return rows.map(rowToAnalysisRevisionMetadata);
 }
 
 export async function restoreAnalysisRevision(

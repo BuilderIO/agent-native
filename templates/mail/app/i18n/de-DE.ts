@@ -44,12 +44,18 @@ const messages = {
       noMatches: "Keine Treffer",
       localResults: "In diesem Posteingang",
       searchingGmail: "Gmail wird durchsucht...",
+      saveAsTab: "Als Tab speichern",
+      saveAsTabPrompt: "Diesen Tab benennen",
+      saveAsTabFailed:
+        "Tab konnte nicht gespeichert werden. Versuche es erneut.",
+      filtersLimitReached: "Du kannst bis zu 20 Filter speichern.",
     },
     tabSettings: {
       views: "Ansichten",
       categories: "Kategorien",
       rename: "Umbenennen",
       renameTab: "Tab umbenennen",
+      savedFilters: "Gespeicherte Filter",
       help: "Markierte Elemente werden als Tabs angezeigt. Label-E-Mails werden vom Posteingang getrennt.",
     },
     accounts: {

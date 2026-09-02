@@ -36,6 +36,12 @@ image" has very different right answers:
 | `pending` | Caller-side timeout; the Assets run is still going and owns a `taskId` | Tell the user to check Assets; generating again would duplicate the run |
 | `unavailable` | Assets could not be resolved or reached at all | Local fallback |
 
+A `delegated` reply can still say the generation is a draft pending approval.
+That means the user may draft in that brand kit but not save into it: the image
+is real and usable in the deck, and only the copy kept in Assets is waiting on a
+kit editor. Use the image, pass that along, and do not retry or fall back
+locally.
+
 Only `unavailable` falls through to the local Gemini/OpenAI providers under
 `server/handlers/image-providers/`, so a slides-only deploy still works. That
 output is **not** brand-grounded and the action says so: it returns

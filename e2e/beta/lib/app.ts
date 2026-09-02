@@ -24,7 +24,10 @@ export function isKnownThirdPartyPageError(
   message: string,
   stack: string,
 ): boolean {
-  return /failed to fetch/i.test(message) && VECTOR_HOST_PATTERN.test(stack);
+  return (
+    /failed to fetch|domain not allowed/i.test(message) &&
+    VECTOR_HOST_PATTERN.test(stack)
+  );
 }
 
 /**
@@ -39,7 +42,12 @@ async function readBodyText(
   page: Page,
 ): Promise<{ text: string } | { unreadable: string }> {
   try {
-    return { text: await page.locator("body").innerText() };
+    return {
+      text: await page.evaluate(() => {
+        if (!document.body) throw new Error("document.body is not available");
+        return document.body.innerText;
+      }),
+    };
   } catch (error) {
     return {
       unreadable: error instanceof Error ? error.message : String(error),

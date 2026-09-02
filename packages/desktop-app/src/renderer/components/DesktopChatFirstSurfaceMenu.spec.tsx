@@ -23,17 +23,14 @@ describe("DesktopChatFirstSurfaceMenu", () => {
     vi.unstubAllGlobals();
   });
 
-  it("exposes sidebar, app, and CLI actions from the full-screen menu", async () => {
+  it("exposes sidebar and CLI actions from the full-screen menu", async () => {
     const onToggleSidebar = vi.fn();
-    const onOpenApp = vi.fn();
     const onNewCliTab = vi.fn();
 
     act(() => {
       root.render(
         <DesktopChatFirstSurfaceMenu
-          apps={[{ id: "mail", name: "Mail" }]}
           onToggleSidebar={onToggleSidebar}
-          onOpenApp={onOpenApp}
           onNewCliTab={onNewCliTab}
         />,
       );
@@ -66,7 +63,7 @@ describe("DesktopChatFirstSurfaceMenu", () => {
       menuItems().some((item) =>
         item.textContent?.includes("Open app in sidebar"),
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       menuItems().some((item) => item.textContent?.includes("New CLI tab")),
     ).toBe(true);

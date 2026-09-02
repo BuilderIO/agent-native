@@ -1,7 +1,7 @@
 import path from "path";
 
 import { readBody, runWithRequestContext } from "@agent-native/core/server";
-import { defineEventHandler, setResponseStatus } from "h3";
+import { defineEventHandler, setResponseHeader, setResponseStatus } from "h3";
 
 import exportHtmlAction from "../../../../actions/export-html.js";
 import { resolveSlidesRequestAuth } from "../../../handlers/request-auth-context.js";
@@ -36,8 +36,9 @@ export default defineEventHandler(async (event) => {
       return { error: result.error };
     }
 
-    event.node!.res!.setHeader("Content-Type", "text/html; charset=utf-8");
-    event.node!.res!.setHeader(
+    setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+    setResponseHeader(
+      event,
       "Content-Disposition",
       `attachment; filename="${path.basename(result.filename)}"`,
     );

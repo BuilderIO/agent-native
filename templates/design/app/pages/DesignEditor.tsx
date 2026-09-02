@@ -57,7 +57,6 @@ import { ShareButton } from "@agent-native/core/client/sharing";
 import type { ReviewComment } from "@agent-native/core/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
-  CreativeContextShareSheet,
   CreativeContextShareTab,
   parseCreativeContexts,
   useCreativeContexts,
@@ -161,7 +160,6 @@ import {
   IconTemplate,
   IconAdjustmentsHorizontal,
   IconMessageCircle,
-  IconLibraryPlus,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -3519,11 +3517,6 @@ function DesignEditor() {
   });
 
   const shouldOpenShare = postAuthIntent === "share" && canShareDesign;
-  // Standalone entry point into the same Creative Context submission flow
-  // the Share popover's "Context" tab already offers — kept as its own
-  // always-visible button because the Share popover buries it behind two
-  // other tabs, which is the opposite of "clearly visible."
-  const [addToContextOpen, setAddToContextOpen] = useState(false);
   // ── Share URL, prompt popovers, title editing ──────────────────────────────
   const editorShareUrl = useMemo(() => {
     if (!id || typeof window === "undefined") return undefined;
@@ -15127,46 +15120,31 @@ function DesignEditor() {
       </div>
     </div>
   );
-  const designShareTabLabelClassName =
-    "inline-flex items-center justify-center gap-1.5";
   const designSharePopoverClassName =
     "z-[100010] !w-[min(620px,calc(100vw-32px))] !p-3 " +
-    "[&_[role=tablist]]:!inline-flex [&_[role=tablist]]:!w-fit [&_[role=tablist]]:!self-start [&_[role=tablist]]:justify-start [&_[role=tablist]]:gap-1 [&_[role=tablist]]:rounded-lg [&_[role=tablist]]:border [&_[role=tablist]]:border-[var(--design-editor-panel-divider-color)] [&_[role=tablist]]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tablist]]:p-1 " +
+    "[&_[role=tablist]]:!inline-flex [&_[role=tablist]]:!w-fit [&_[role=tablist]]:!max-w-full [&_[role=tablist]]:!self-start [&_[role=tablist]]:!overflow-x-auto [&_[role=tablist]]:justify-start [&_[role=tablist]]:gap-1 [&_[role=tablist]]:rounded-lg [&_[role=tablist]]:border [&_[role=tablist]]:border-[var(--design-editor-panel-divider-color)] [&_[role=tablist]]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tablist]]:p-1 " +
     "[&_[role=tab]]:!h-8 [&_[role=tab]]:!flex-none [&_[role=tab]]:rounded-md [&_[role=tab]]:px-3 [&_[role=tab]]:!text-[12px] [&_[role=tab]]:font-semibold [&_[role=tab]]:shadow-none [&_[role=tab]]:ring-0 " +
-    "[&_[role=tab]:hover]:bg-white/70 dark:[&_[role=tab]:hover]:bg-[var(--design-editor-control-bg)] [&_[role=tab]:hover]:text-foreground " +
-    "[&_[role=tab][aria-selected=true]]:bg-white dark:[&_[role=tab][aria-selected=true]]:bg-[var(--design-editor-control-bg)] [&_[role=tab][aria-selected=true]]:text-foreground [&_[role=tab][aria-selected=true]]:shadow-sm [&_[role=tab][aria-selected=true]]:ring-1 [&_[role=tab][aria-selected=true]]:ring-[var(--design-editor-control-border)]";
+    "[&_[role=tab]:hover]:text-foreground " +
+    "[&_[role=tab][aria-selected=true]]:!bg-background dark:[&_[role=tab][aria-selected=true]]:!bg-[var(--design-editor-panel-bg)] [&_[role=tab][aria-selected=true]]:text-foreground";
   const designShareTabs = {
-    shareLabel: (
-      <span className={designShareTabLabelClassName}>
-        <IconLink className="size-3.5" />
-        {"Share link" /* i18n-ignore share tab label */}
-      </span>
-    ),
+    shareLabel: "Share link" /* i18n-ignore share tab label */,
     defaultValue: "share",
     tabs: [
       {
         value: "export",
-        label: (
-          <span className={designShareTabLabelClassName}>
-            <IconFileExport className="size-3.5" />
-            {t("designEditor.export")}
-          </span>
-        ),
+        label: t("designEditor.export"),
         content: shareExportTab,
       },
       {
         value: "send",
-        label: (
-          <span className={designShareTabLabelClassName}>
-            <IconTerminal2 className="size-3.5" />
-            {"Send to agent" /* i18n-ignore share tab label */}
-          </span>
-        ),
+        label: "Send to agent" /* i18n-ignore share tab label */,
         content: shareSendToTab,
       },
       {
         value: "context",
-        label: <span className={designShareTabLabelClassName}>Context</span>,
+        label: t("creativeContext.share.tabLabel", {
+          defaultValue: "Context",
+        }),
         content: (
           <CreativeContextShareTab
             resource={{
@@ -18964,17 +18942,19 @@ function DesignEditor() {
     </>
   );
 
-  const pendingNodeRewriteCompact = rightSidebarWidth < 320;
+  // The right rail resizes down to 240px, so labelled controls in this row must
+  // collapse to icons or they push the Share CTA past the panel edge.
+  const rightToolbarCompact = rightSidebarWidth < 320;
   const pendingNodeRewriteLabel = t("designEditor.nodeRewrite.pendingReview", {
     count: pendingNodeRewriteProposals.length,
   });
   const pendingNodeRewriteButtonContent = (
     <>
-      {!pendingNodeRewriteCompact ? (
+      {!rightToolbarCompact ? (
         <span className="size-1.5 shrink-0 rounded-full bg-primary" />
       ) : null}
       <IconFileStack className="size-3.5 shrink-0" />
-      {pendingNodeRewriteCompact ? (
+      {rightToolbarCompact ? (
         <span className="min-w-4 rounded bg-primary/10 px-1 text-center text-[10px] font-semibold tabular-nums text-primary">
           {pendingNodeRewriteProposals.length}
         </span>
@@ -18985,9 +18965,7 @@ function DesignEditor() {
   );
   const pendingNodeRewriteButtonClassName = cn(
     "h-8 rounded-md border-primary/30 bg-primary/5 text-xs hover:bg-primary/10",
-    pendingNodeRewriteCompact
-      ? "min-w-10 gap-1 px-1.5"
-      : "max-w-44 gap-1.5 px-2",
+    rightToolbarCompact ? "min-w-10 gap-1 px-1.5" : "max-w-44 gap-1.5 px-2",
   );
   const pendingNodeRewriteControl =
     pendingNodeRewriteProposals.length ===
@@ -19007,7 +18985,7 @@ function DesignEditor() {
             {pendingNodeRewriteButtonContent}
           </Button>
         </TooltipTrigger>
-        {pendingNodeRewriteCompact ? (
+        {rightToolbarCompact ? (
           <TooltipContent>{pendingNodeRewriteLabel}</TooltipContent>
         ) : null}
       </Tooltip>
@@ -19024,13 +19002,13 @@ function DesignEditor() {
                 aria-label={pendingNodeRewriteLabel}
               >
                 {pendingNodeRewriteButtonContent}
-                {!pendingNodeRewriteCompact ? (
+                {!rightToolbarCompact ? (
                   <IconChevronDown className="size-3 shrink-0 opacity-70" />
                 ) : null}
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          {pendingNodeRewriteCompact ? (
+          {rightToolbarCompact ? (
             <TooltipContent>{pendingNodeRewriteLabel}</TooltipContent>
           ) : null}
         </Tooltip>
@@ -19062,7 +19040,10 @@ function DesignEditor() {
       data-design-chrome-region="right-toolbar"
       className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] px-[var(--design-baseline-unit)] py-[var(--design-baseline-half)]"
     >
-      <div className="flex min-h-[var(--design-row-height)] items-center gap-[var(--design-baseline-half)]">
+      <div
+        data-design-chrome-region="right-toolbar-actions"
+        className="flex min-h-[var(--design-row-height)] items-center gap-[var(--design-baseline-half)]"
+      >
         <div className="flex min-w-0 flex-1 items-center gap-[var(--design-baseline-half)]">
           {hostEmbeddedEditor ? null : (
             <DesignCollaboratorsMenu
@@ -19097,17 +19078,6 @@ function DesignEditor() {
               {reviewFeedbackApplying
                 ? t("review.applyingFeedback")
                 : t("review.applyFeedback", { count: reviewAgentQueueCount })}
-            </Button>
-          ) : null}
-          {!hostEmbeddedEditor && canRenderAuthenticatedShare ? (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setAddToContextOpen(true)}
-              className="h-8 gap-1.5 rounded-md px-3 text-sm"
-            >
-              <IconLibraryPlus className="size-4" />
-              {"Add to Context" /* i18n-ignore prominent context entry point */}
             </Button>
           ) : null}
           <Popover
@@ -19257,20 +19227,6 @@ function DesignEditor() {
           ) : null}
         </div>
       </div>
-      {!hostEmbeddedEditor && canRenderAuthenticatedShare ? (
-        <CreativeContextShareSheet
-          resource={{
-            appId: "design",
-            resourceType: "design",
-            resourceId: id ?? "",
-            title: design.title ?? "Untitled design",
-            updatedAt: design?.updatedAt ?? undefined,
-            preview: { kind: "document", label: "Design project" }, // i18n-ignore share-tab preview descriptor, template pages are raw-English
-          }}
-          open={addToContextOpen}
-          onOpenChange={setAddToContextOpen}
-        />
-      ) : null}
       {activeScreenIsLocalSource &&
       viewMode === "single" &&
       activeScreenPreviewUrl ? (

@@ -44,12 +44,17 @@ const messages = {
       noMatches: "لا توجد نتائج",
       localResults: "في هذا البريد الوارد",
       searchingGmail: "جارٍ البحث في Gmail...",
+      saveAsTab: "حفظ كعلامة تبويب",
+      saveAsTabPrompt: "سمِّ علامة التبويب هذه",
+      saveAsTabFailed: "تعذر حفظ علامة التبويب هذه. حاول مرة أخرى.",
+      filtersLimitReached: "يمكنك حفظ ما يصل إلى 20 فلترًا.",
     },
     tabSettings: {
       views: "وجهات النظر",
       categories: "الفئات",
       rename: "إعادة تسمية",
       renameTab: "إعادة تسمية علامة التبويب",
+      savedFilters: "الفلاتر المحفوظة",
       help: "تظهر العناصر المحددة كعلامات تبويب. رسائل التصنيفات تنفصل عن صندوق الوارد.",
     },
     accounts: {

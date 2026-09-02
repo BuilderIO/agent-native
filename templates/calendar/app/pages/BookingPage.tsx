@@ -1,3 +1,4 @@
+import { useSession } from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import {
   DefaultSpinner,
@@ -15,7 +16,7 @@ import {
   parseISO,
   startOfMonth,
 } from "date-fns";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
@@ -77,6 +78,7 @@ function BookingPageShell({
 
 export default function BookingPage() {
   const t = useT();
+  const { session } = useSession();
   const { slug, username } = useParams<{ slug: string; username?: string }>();
   const navigate = useNavigate();
   const { data: settings, isLoading: settingsLoading } = usePublicSettings();
@@ -113,9 +115,76 @@ export default function BookingPage() {
   const [bookingForm, setBookingForm] = useState<BookingFormValue>({
     name: "",
     email: "",
+    additionalGuestEmails: [],
     notes: "",
     fieldResponses: {},
   });
+  const signedInEmail = session?.email ?? "";
+  const signedInName = session?.name?.trim() || signedInEmail;
+  const autoFilledIdentityRef = useRef<{ name: string; email: string } | null>(
+    null,
+  );
+  const userEditedIdentityRef = useRef({ name: false, email: false });
+
+  useEffect(() => {
+    const previousAutoFilled = autoFilledIdentityRef.current;
+    setBookingForm((current) => {
+      const nameWasAutoFilled =
+        previousAutoFilled !== null &&
+        !userEditedIdentityRef.current.name &&
+        current.name === previousAutoFilled.name;
+      const emailWasAutoFilled =
+        previousAutoFilled !== null &&
+        !userEditedIdentityRef.current.email &&
+        current.email === previousAutoFilled.email;
+      if (
+        signedInEmail &&
+        !nameWasAutoFilled &&
+        current.name &&
+        previousAutoFilled === null
+      ) {
+        userEditedIdentityRef.current.name = true;
+      }
+      if (
+        signedInEmail &&
+        !emailWasAutoFilled &&
+        current.email &&
+        previousAutoFilled === null
+      ) {
+        userEditedIdentityRef.current.email = true;
+      }
+      return {
+        ...current,
+        name: signedInEmail
+          ? current.name && !nameWasAutoFilled
+            ? current.name
+            : signedInName
+          : nameWasAutoFilled
+            ? ""
+            : current.name,
+        email: signedInEmail
+          ? current.email && !emailWasAutoFilled
+            ? current.email
+            : signedInEmail
+          : emailWasAutoFilled
+            ? ""
+            : current.email,
+      };
+    });
+    autoFilledIdentityRef.current = signedInEmail
+      ? { name: signedInName, email: signedInEmail }
+      : null;
+  }, [signedInEmail, signedInName]);
+
+  function handleBookingFormChange(next: BookingFormValue) {
+    if (next.name !== bookingForm.name) {
+      userEditedIdentityRef.current.name = true;
+    }
+    if (next.email !== bookingForm.email) {
+      userEditedIdentityRef.current.email = true;
+    }
+    setBookingForm(next);
+  }
 
   const dateStr = selectedDate ? format(selectedDate, "yyyy-MM-dd") : "";
   const durationOptions =
@@ -177,6 +246,7 @@ export default function BookingPage() {
   function handleBookingSubmit(data: {
     name: string;
     email: string;
+    additionalGuestEmails?: string[];
     notes?: string;
     captchaToken?: string;
     fieldResponses?: Record<string, string | boolean>;
@@ -190,6 +260,7 @@ export default function BookingPage() {
       {
         name: data.name,
         email: data.email,
+        additionalGuestEmails: data.additionalGuestEmails,
         notes: data.notes,
         captchaToken: data.captchaToken,
         fieldResponses: data.fieldResponses,
@@ -213,12 +284,22 @@ export default function BookingPage() {
   }
 
   function handleReset() {
+    userEditedIdentityRef.current = { name: false, email: false };
+    autoFilledIdentityRef.current = signedInEmail
+      ? { name: signedInName, email: signedInEmail }
+      : null;
     setStep(hasDurationChoice ? "duration" : "date");
     setSelectedDate(null);
     setSelectedSlot(null);
     setSelectedDuration(null);
     setConfirmedBooking(null);
-    setBookingForm({ name: "", email: "", notes: "", fieldResponses: {} });
+    setBookingForm({
+      name: signedInName,
+      email: signedInEmail,
+      additionalGuestEmails: [],
+      notes: "",
+      fieldResponses: {},
+    });
   }
 
   function handleStepNavigation(target: Step) {
@@ -496,7 +577,7 @@ export default function BookingPage() {
               <BookingForm
                 onSubmit={handleBookingSubmit}
                 value={bookingForm}
-                onChange={setBookingForm}
+                onChange={handleBookingFormChange}
                 loading={createBooking.isPending}
                 customFields={bookingLink?.customFields}
               />

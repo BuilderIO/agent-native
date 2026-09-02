@@ -1,22 +1,29 @@
-import type { ChatFirstAppItem } from "@agent-native/core/client/chat-first";
 import type { AgentTerminalSubmitRequest } from "@agent-native/core/terminal";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@agent-native/toolkit/ui";
-import { IconDotsVertical, IconPlus, IconX } from "@tabler/icons-react";
-import type { ReactNode } from "react";
+import {
+  IconCheck,
+  IconDotsVertical,
+  IconPlus,
+  IconTerminal2,
+  IconX,
+} from "@tabler/icons-react";
 import { useCallback, useRef, useState } from "react";
 
-import { type DesktopTerminalAgentId } from "../lib/desktop-terminal-preferences.js";
-import type { RendererTheme } from "../lib/theme.js";
 import {
-  DesktopChatFirstSurfaceMenuItems,
-  type DesktopChatFirstSurfaceMenuProps,
-} from "./DesktopChatFirstSurfaceMenu.js";
+  DESKTOP_TERMINAL_AGENT_OPTIONS,
+  type DesktopTerminalAgentId,
+} from "../lib/desktop-terminal-preferences.js";
+import type { RendererTheme } from "../lib/theme.js";
+import { DesktopChatFirstSurfaceMenuItems } from "./DesktopChatFirstSurfaceMenu.js";
 import DesktopTerminalTabs from "./DesktopTerminalTabs.js";
 
 export interface DesktopTerminalPromptRequest extends AgentTerminalSubmitRequest {}
@@ -25,25 +32,34 @@ interface DesktopTerminalSurfaceProps {
   agent: DesktopTerminalAgentId;
   theme: RendererTheme;
   className?: string;
+  activeApp?: {
+    id: string;
+    name: string;
+    path?: string;
+    view?: string;
+  };
   submitRequest?: AgentTerminalSubmitRequest;
   onPromptSubmitted?: (request: AgentTerminalSubmitRequest) => void;
   onNewUiTab?: () => void;
   sidebarOpen?: boolean;
   onToggleSidebar?: () => void;
-  apps?: readonly ChatFirstAppItem[];
-  onOpenApp?: DesktopChatFirstSurfaceMenuProps["onOpenApp"];
-  renderAppIcon?: (app: ChatFirstAppItem) => ReactNode;
+  onAgentChange?: (agent: DesktopTerminalAgentId) => void;
 }
 
 interface DesktopTerminalTab {
   id: string;
   label: string;
+  agent: DesktopTerminalAgentId;
 }
 
-function createTerminalTab(number: number): DesktopTerminalTab {
+function createTerminalTab(
+  number: number,
+  agent: DesktopTerminalAgentId,
+): DesktopTerminalTab {
   return {
     id: `desktop-terminal-${number}`,
     label: `Terminal ${number}`,
+    agent,
   };
 }
 
@@ -51,32 +67,31 @@ export default function DesktopTerminalSurface({
   agent,
   theme,
   className,
+  activeApp,
   submitRequest,
   onPromptSubmitted,
   onNewUiTab,
   sidebarOpen,
   onToggleSidebar,
-  apps = [],
-  onOpenApp,
-  renderAppIcon,
+  onAgentChange,
 }: DesktopTerminalSurfaceProps) {
   const tabCounter = useRef(1);
   const [tabs, setTabs] = useState<DesktopTerminalTab[]>(() => [
-    createTerminalTab(1),
+    createTerminalTab(1, agent),
   ]);
   const [activeTabId, setActiveTabId] = useState("desktop-terminal-1");
 
   const addTab = useCallback(() => {
-    const next = createTerminalTab(++tabCounter.current);
+    const next = createTerminalTab(++tabCounter.current, agent);
     setTabs((current) => [...current, next]);
     setActiveTabId(next.id);
-  }, []);
+  }, [agent]);
 
   const closeTab = useCallback(
     (tabId: string) => {
       setTabs((current) => {
         if (current.length === 1) {
-          const replacement = createTerminalTab(++tabCounter.current);
+          const replacement = createTerminalTab(++tabCounter.current, agent);
           setActiveTabId(replacement.id);
           return [replacement];
         }
@@ -89,7 +104,7 @@ export default function DesktopTerminalSurface({
         return next;
       });
     },
-    [activeTabId],
+    [activeTabId, agent],
   );
 
   const closeOtherTabs = useCallback((tabId: string) => {
@@ -102,10 +117,23 @@ export default function DesktopTerminalSurface({
   }, []);
 
   const closeAllTabs = useCallback(() => {
-    const replacement = createTerminalTab(++tabCounter.current);
+    const replacement = createTerminalTab(++tabCounter.current, agent);
     setTabs([replacement]);
     setActiveTabId(replacement.id);
-  }, []);
+  }, [agent]);
+
+  const handleAgentChange = useCallback(
+    (nextAgent: DesktopTerminalAgentId) => {
+      setTabs((current) =>
+        current.map((tab) =>
+          tab.id === activeTabId ? { ...tab, agent: nextAgent } : tab,
+        ),
+      );
+      onAgentChange?.(nextAgent);
+    },
+    [activeTabId, onAgentChange],
+  );
+  const activeTab = tabs.find((tab) => tab.id === activeTabId);
 
   return (
     <section
@@ -176,16 +204,43 @@ export default function DesktopTerminalSurface({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" sideOffset={6} className="w-48">
-              {onToggleSidebar ||
-              (apps.length > 0 && onOpenApp) ||
-              onNewUiTab ? (
+              {onAgentChange ? (
+                <>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <span className="desktop-dropdown-item__main">
+                        <IconTerminal2 size={14} strokeWidth={1.8} />
+                        <span>Provider</span>
+                      </span>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-52">
+                      {DESKTOP_TERMINAL_AGENT_OPTIONS.map((option) => (
+                        <DropdownMenuItem
+                          key={option.id}
+                          onSelect={() => handleAgentChange(option.id)}
+                        >
+                          <IconCheck
+                            size={14}
+                            className={
+                              option.id === (activeTab?.agent ?? agent)
+                                ? "shrink-0"
+                                : "invisible"
+                            }
+                            aria-hidden="true"
+                          />
+                          <span>{option.label}</span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSeparator />
+                </>
+              ) : null}
+              {onToggleSidebar || onNewUiTab ? (
                 <>
                   <DesktopChatFirstSurfaceMenuItems
                     sidebarOpen={sidebarOpen}
-                    apps={apps}
                     onToggleSidebar={onToggleSidebar}
-                    onOpenApp={onOpenApp}
-                    renderAppIcon={renderAppIcon}
                     onNewUiTab={onNewUiTab}
                   />
                   <DropdownMenuSeparator />
@@ -217,8 +272,10 @@ export default function DesktopTerminalSurface({
             hidden={tab.id !== activeTabId}
           >
             <DesktopTerminalTabs
-              agent={agent}
+              agent={tab.agent}
               theme={theme}
+              active={tab.id === activeTabId}
+              activeApp={tab.id === activeTabId ? activeApp : undefined}
               submitRequest={tab.id === activeTabId ? submitRequest : undefined}
               onPromptSubmitted={onPromptSubmitted}
             />

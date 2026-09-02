@@ -234,6 +234,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
   }
+  if (typeof entry.endsTurn === "boolean") {
+    out.endsTurn = entry.endsTurn;
+  }
   if (typeof entry.dedupe === "boolean") {
     out.dedupe = entry.dedupe;
   }
@@ -737,6 +740,10 @@ export async function mergeCoreSharingActions(
     [
       "list-automations",
       () => import("../triggers/actions/list-automations.js"),
+    ],
+    [
+      "list-automation-events",
+      () => import("../triggers/actions/list-automation-events.js"),
     ],
     [
       "manage-automation",

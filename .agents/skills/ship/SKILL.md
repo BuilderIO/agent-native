@@ -127,6 +127,15 @@ source seam and focused verification, with one explicit disposition: fixed,
 awaiting reporter clarification, already owned or duplicate, deferred or
 informational, external or non-repo-owned, or unavailable/unverified.
 
+The handoff must preserve the feedback workflow's automation disclosure:
+every Slack reply it posts ends with `this was sent from a bot.`
+After every Slack reply, re-read the complete thread through its current end
+before continuing. If anyone replies to that message, treat it as new evidence,
+re-investigate, make and verify any needed fix, post another disclosed update,
+and repeat the read-back. Before treating the sweep as fully wrapped, audit
+every replied-to thread until no unprocessed follow-up remains. Do not merge
+while this reply follow-up pass is incomplete.
+
 Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
 
 - Never add or duplicate `👀` on a Slack parent. If the latest readable parent
