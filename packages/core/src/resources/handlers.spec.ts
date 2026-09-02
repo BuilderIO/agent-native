@@ -107,6 +107,7 @@ describe("resource handlers", () => {
     vi.clearAllMocks();
     lastStatus = 200;
     mockEnsurePersonalDefaults.mockResolvedValue(undefined);
+    mockResourceGet.mockResolvedValue(null);
     mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(false);
     mockIsLocalWorkspaceResourceId.mockReturnValue(false);
     mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(false);
