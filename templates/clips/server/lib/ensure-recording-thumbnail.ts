@@ -1,5 +1,9 @@
 import { writeAppState } from "@agent-native/core/application-state";
-import { uploadFile } from "@agent-native/core/file-upload";
+import {
+  deleteUploadedFile,
+  uploadFile,
+  type FileUploadResult,
+} from "@agent-native/core/file-upload";
 import { and, eq, isNull } from "drizzle-orm";
 
 import { parseEdits } from "../../app/lib/timestamp-mapping.js";
@@ -120,6 +124,51 @@ async function loadRecording(
   return recording ?? null;
 }
 
+async function cleanupUnreferencedThumbnail(
+  uploaded: FileUploadResult,
+  recordingId: string,
+  ownerEmail: string,
+): Promise<PublicAgentRecording | null | undefined> {
+  const current = await loadRecording(recordingId, ownerEmail).catch(
+    (error) => {
+      console.warn(
+        "[clips] generated recording thumbnail cleanup skipped because the recording could not be re-read",
+        {
+          recordingId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return undefined;
+    },
+  );
+  if (current === undefined || current?.thumbnailUrl === uploaded.url) {
+    return current;
+  }
+
+  try {
+    const deleted = await deleteUploadedFile(uploaded.provider, {
+      url: uploaded.url,
+      ...(uploaded.id ? { id: uploaded.id } : {}),
+    });
+    if (!deleted) {
+      console.warn(
+        "[clips] generated recording thumbnail cleanup unavailable",
+        {
+          recordingId,
+          provider: uploaded.provider,
+        },
+      );
+    }
+  } catch (error) {
+    console.warn("[clips] generated recording thumbnail cleanup failed", {
+      recordingId,
+      provider: uploaded.provider,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return current;
+}
+
 /**
  * Persist one still thumbnail for a ready recording when the upload path did
  * not already provide one. The thumbnail update is compare-and-set so a user
@@ -231,37 +280,45 @@ async function ensureRecordingThumbnailOnce(
     return { recordingId, status: "skipped-upload-failed", changed: false };
   }
 
-  const updated = await getDb()
-    .update(schema.recordings)
-    .set({
-      thumbnailUrl: uploaded.url,
-      updatedAt: new Date().toISOString(),
-    })
-    .where(
-      and(
-        eq(schema.recordings.id, recordingId),
-        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
-        recording.videoUrl
-          ? eq(schema.recordings.videoUrl, recording.videoUrl)
-          : isNull(schema.recordings.videoUrl),
-        recording.thumbnailUrl !== null && replaceExisting
-          ? eq(schema.recordings.thumbnailUrl, recording.thumbnailUrl)
-          : recording.thumbnailUrl == null
-            ? isNull(schema.recordings.thumbnailUrl)
-            : eq(schema.recordings.thumbnailUrl, recording.thumbnailUrl),
-        recording.editsJson == null
-          ? isNull(schema.recordings.editsJson)
-          : eq(schema.recordings.editsJson, recording.editsJson),
-      ),
-    )
-    .returning({
-      id: schema.recordings.id,
-      thumbnailUrl: schema.recordings.thumbnailUrl,
-    });
+  let updated: Array<{ id: string; thumbnailUrl: string | null }>;
+  try {
+    updated = await getDb()
+      .update(schema.recordings)
+      .set({
+        thumbnailUrl: uploaded.url,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(
+        and(
+          eq(schema.recordings.id, recordingId),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          recording.videoUrl
+            ? eq(schema.recordings.videoUrl, recording.videoUrl)
+            : isNull(schema.recordings.videoUrl),
+          recording.thumbnailUrl !== null && replaceExisting
+            ? eq(schema.recordings.thumbnailUrl, recording.thumbnailUrl)
+            : recording.thumbnailUrl == null
+              ? isNull(schema.recordings.thumbnailUrl)
+              : eq(schema.recordings.thumbnailUrl, recording.thumbnailUrl),
+          recording.editsJson == null
+            ? isNull(schema.recordings.editsJson)
+            : eq(schema.recordings.editsJson, recording.editsJson),
+        ),
+      )
+      .returning({
+        id: schema.recordings.id,
+        thumbnailUrl: schema.recordings.thumbnailUrl,
+      });
+  } catch (error) {
+    await cleanupUnreferencedThumbnail(uploaded, recordingId, ownerEmail);
+    throw error;
+  }
 
   if (updated.length !== 1 || updated[0]?.thumbnailUrl !== uploaded.url) {
-    const current = await loadRecording(recordingId, ownerEmail).catch(
-      () => null,
+    const current = await cleanupUnreferencedThumbnail(
+      uploaded,
+      recordingId,
+      ownerEmail,
     );
     if (current?.thumbnailUrl) {
       return {

@@ -159,6 +159,48 @@ describe("post-finalize worker", () => {
     });
   });
 
+  it("requires acceptance when re-dispatching delayed thumbnail work", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "thumbnail",
+      token: "valid-token",
+      delayMs: 1_000,
+      retryAttempt: 1,
+    });
+    mockDb.select.mockImplementationOnce(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => [
+          {
+            id: "rec-1",
+            ownerEmail: "owner@example.test",
+            orgId: "org-1",
+            status: "ready",
+            uploadGenerationId: null,
+          },
+        ]),
+      };
+      return builder;
+    });
+
+    const pending = handler({} as any);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(pending).resolves.toMatchObject({
+      ok: true,
+      kind: "thumbnail",
+      retryAttempt: 1,
+    });
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      kind: "thumbnail",
+      retryAttempt: 1,
+      regenerate: undefined,
+      requireAccepted: true,
+    });
+  });
+
   it("claims a Loom import before running its side effects", async () => {
     mockReadBody.mockResolvedValue({
       recordingId: "rec-1",

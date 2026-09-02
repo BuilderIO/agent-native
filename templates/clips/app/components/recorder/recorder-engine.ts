@@ -1449,7 +1449,7 @@ export class RecorderEngine {
         const remainder = new Blob(this.pendingStreamBlobs, {
           type: this.mimeType,
         });
-        await this.uploadThumbnailForBlob(
+        void this.uploadThumbnailForBlob(
           new Blob(this.localChunks, { type: this.mimeType }),
           this.uploadAbort?.signal,
         );

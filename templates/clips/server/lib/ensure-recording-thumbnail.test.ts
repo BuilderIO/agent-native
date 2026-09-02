@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   or: vi.fn(),
   extractJpegFrame: vi.fn(),
   uploadFile: vi.fn(),
+  deleteUploadedFile: vi.fn(),
   writeAppState: vi.fn(),
 }));
 
@@ -18,6 +19,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 }));
 vi.mock("@agent-native/core/file-upload", () => ({
   uploadFile: (...args: unknown[]) => mocks.uploadFile(...args),
+  deleteUploadedFile: (...args: unknown[]) => mocks.deleteUploadedFile(...args),
 }));
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => mocks.and(...args),
@@ -69,7 +71,14 @@ function createDb(
     select,
     update: vi.fn(() => ({ set: updateSet })),
   };
-  return { db, select, selectWhere, update: db.update, updateSet };
+  return {
+    db,
+    select,
+    selectWhere,
+    update: db.update,
+    updateSet,
+    updateReturning,
+  };
 }
 
 function recording(overrides: Record<string, unknown> = {}) {
@@ -100,6 +109,7 @@ describe("ensureRecordingThumbnail", () => {
       url: "https://cdn.example.com/thumb.jpg",
       provider: "builder",
     });
+    mocks.deleteUploadedFile.mockResolvedValue(true);
     mocks.writeAppState.mockResolvedValue(undefined);
   });
 
@@ -205,5 +215,52 @@ describe("ensureRecordingThumbnail", () => {
       },
     ]);
     expect(mocks.uploadFile).toHaveBeenCalledOnce();
+  });
+
+  it("cleans up the uploaded blob when another thumbnail wins the race", async () => {
+    const { db, selectWhere } = createDb(recording(), []);
+    const winner = recording({
+      thumbnailUrl: "https://cdn.example.com/winner.jpg",
+    });
+    selectWhere
+      .mockResolvedValueOnce([recording()])
+      .mockResolvedValueOnce([winner]);
+    mocks.getDb.mockReturnValue(db);
+
+    const result = await ensureRecordingThumbnail({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+      mediaBytes: new Uint8Array([9, 9, 9]),
+    });
+
+    expect(result).toEqual({
+      recordingId: "rec-1",
+      status: "already-set",
+      changed: false,
+      thumbnailUrl: "https://cdn.example.com/winner.jpg",
+    });
+    expect(mocks.deleteUploadedFile).toHaveBeenCalledWith("builder", {
+      url: "https://cdn.example.com/thumb.jpg",
+    });
+  });
+
+  it("cleans up the uploaded blob when thumbnail persistence fails", async () => {
+    const { db, updateReturning, selectWhere } = createDb(recording());
+    selectWhere
+      .mockResolvedValueOnce([recording()])
+      .mockResolvedValueOnce([recording()]);
+    updateReturning.mockRejectedValueOnce(new Error("database unavailable"));
+    mocks.getDb.mockReturnValue(db);
+
+    await expect(
+      ensureRecordingThumbnail({
+        recordingId: "rec-1",
+        ownerEmail: "owner@example.com",
+        mediaBytes: new Uint8Array([9, 9, 9]),
+      }),
+    ).rejects.toThrow("database unavailable");
+    expect(mocks.deleteUploadedFile).toHaveBeenCalledWith("builder", {
+      url: "https://cdn.example.com/thumb.jpg",
+    });
   });
 });

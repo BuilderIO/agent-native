@@ -12,10 +12,6 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { queueBuilderMediaCompression } from "../server/lib/builder-media-compression.js";
-import {
-  ensureRecordingThumbnail,
-  isRetryableRecordingThumbnailStatus,
-} from "../server/lib/ensure-recording-thumbnail.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import {
   getCurrentOwnerEmail,
@@ -484,30 +480,11 @@ export default defineAction({
       });
     }
 
-    const thumbnail = await ensureRecordingThumbnail({
+    await dispatchPostFinalizeJob({
       recordingId: id,
-      ownerEmail,
-      mediaBytes: media.bytes,
-      mimeType: media.mimeType,
-    }).catch((err) => {
-      console.warn("[clips] Direct video thumbnail generation skipped", {
-        recordingId: id,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return null;
+      kind: "thumbnail",
+      requireAccepted: true,
     });
-    if (!thumbnail || isRetryableRecordingThumbnailStatus(thumbnail.status)) {
-      await dispatchPostFinalizeJob({
-        recordingId: id,
-        kind: "thumbnail",
-        requireAccepted: true,
-      }).catch((err) => {
-        console.warn("[clips] Direct video thumbnail retry queue failed", {
-          recordingId: id,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
-    }
 
     void queueBuilderMediaCompression({
       recordingId: id,
@@ -591,7 +568,8 @@ export default defineAction({
       sourceUrl,
       videoUrl,
       embedUrl: videoUrl,
-      thumbnailUrl: thumbnail?.thumbnailUrl ?? oembed?.thumbnail_url ?? null,
+      thumbnailUrl:
+        oembed?.thumbnail_url ?? existingRecording?.thumbnailUrl ?? null,
       durationMs,
       importMode: "reuploaded" as const,
       storageProvider: upload.provider,
