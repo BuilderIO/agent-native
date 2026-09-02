@@ -12,14 +12,20 @@ import {
   readTriageConfigRow,
   requireExistingFactory,
 } from "../server/lib/factory-scope.js";
-import { parseGitHubRepositoryRef } from "../server/lib/github-repository.js";
+import {
+  gitHubRepositoriesEqual,
+  parseGitHubRepositoryRef,
+} from "../server/lib/github-repository.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
-import { createGitHubClient } from "../server/triage/github-client.js";
+import {
+  createGitHubClient,
+  GitHubRequestError,
+} from "../server/triage/github-client.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
 import {
   mergeTriageMetadata,
@@ -49,6 +55,46 @@ type NewlyObservedSource = {
   number: number;
   added: boolean;
 };
+
+export const PARKED_PR_RECHECK_EXTRA_LIMIT = 20;
+
+export function selectParkedRowsForRecheck<
+  T extends {
+    pullRequestNumber: number | null;
+    repository: string | null;
+    updatedAt?: string | null;
+  },
+>(
+  rows: readonly T[],
+  input: {
+    configuredRepository: string;
+    listedOpenPrNumbers: ReadonlySet<number>;
+    extraLimit?: number;
+  },
+): T[] {
+  const extraLimit = input.extraLimit ?? PARKED_PR_RECHECK_EXTRA_LIMIT;
+  const inOpenPage: T[] = [];
+  const extras: T[] = [];
+  for (const row of rows) {
+    if (typeof row.pullRequestNumber !== "number") continue;
+    if (!gitHubRepositoriesEqual(row.repository, input.configuredRepository)) {
+      continue;
+    }
+    if (input.listedOpenPrNumbers.has(row.pullRequestNumber)) {
+      inOpenPage.push(row);
+    } else {
+      extras.push(row);
+    }
+  }
+  extras.sort((left, right) =>
+    (right.updatedAt ?? "").localeCompare(left.updatedAt ?? ""),
+  );
+  return [...inOpenPage, ...extras.slice(0, extraLimit)];
+}
+
+function isAbsentParkedPullRequest(error: unknown): boolean {
+  return error instanceof GitHubRequestError && error.status === 404;
+}
 
 function githubPollRollupSummary(
   issueCount: number,
@@ -118,6 +164,9 @@ export default defineAction({
         mergeConflict: boolean;
       }
     >();
+    const listedOpenPrNumbers = new Set(
+      pullRequests.map((pullRequest) => pullRequest.number),
+    );
     const existingPrs = includePullRequests
       ? await db
           .select({
@@ -127,6 +176,8 @@ export default defineAction({
             headSha: triageItems.headSha,
             sourceUrl: triageItems.sourceUrl,
             title: triageItems.title,
+            repository: triageItems.repository,
+            updatedAt: triageItems.updatedAt,
           })
           .from(triageItems)
           .where(
@@ -146,27 +197,42 @@ export default defineAction({
           ),
         ),
     );
+    const parkedRecheckRows = selectParkedRowsForRecheck(parkedRows, {
+      configuredRepository: repositoryName,
+      listedOpenPrNumbers,
+    });
     await Promise.all(
-      parkedRows.map(async (row) => {
+      parkedRecheckRows.map(async (row) => {
         const number = row.pullRequestNumber;
         if (typeof number !== "number") return;
-        const summary = await client.getPullRequestSummary(repository, number);
-        const headSha = summary.headSha || row.headSha;
-        if (!headSha) return;
-        const evidence = await client.getPullRequestEvidence(
-          repository,
-          number,
-          headSha,
-        );
-        parkedRechecks.set(number, {
-          humanReviewCommentCount: countHumanReviewComments(evidence.comments),
-          commentsTruncated: evidence.commentsTruncated,
-          changesRequested: hasHumanChangesRequested(evidence.reviews),
-          mergeConflict: hasMergeConflict({
-            mergeable: summary.mergeable,
-            mergeableState: summary.mergeableState,
-          }),
-        });
+        try {
+          const summary = await client.getPullRequestSummary(
+            repository,
+            number,
+          );
+          if (summary.state !== "open") return;
+          const headSha = summary.headSha || row.headSha;
+          if (!headSha) return;
+          const evidence = await client.getPullRequestEvidence(
+            repository,
+            number,
+            headSha,
+          );
+          parkedRechecks.set(number, {
+            humanReviewCommentCount: countHumanReviewComments(
+              evidence.comments,
+            ),
+            commentsTruncated: evidence.commentsTruncated,
+            changesRequested: hasHumanChangesRequested(evidence.reviews),
+            mergeConflict: hasMergeConflict({
+              mergeable: summary.mergeable,
+              mergeableState: summary.mergeableState,
+            }),
+          });
+        } catch (error) {
+          if (isAbsentParkedPullRequest(error)) return;
+          throw error;
+        }
       }),
     );
     const now = new Date().toISOString();
@@ -404,12 +470,10 @@ export default defineAction({
           });
         pullRequestCount += 1;
       }
-      const listedPrNumbers = new Set(
-        pullRequests.map((pullRequest) => pullRequest.number),
-      );
       for (const row of parkedRows) {
         const number = row.pullRequestNumber;
-        if (typeof number !== "number" || listedPrNumbers.has(number)) continue;
+        if (typeof number !== "number" || listedOpenPrNumbers.has(number))
+          continue;
         const existingMetadata = parseTriageMetadata(row.metadataJson);
         const parkedRecheck = parkedRechecks.get(number);
         const reopenParked = shouldReopenParkedBabysit({

@@ -462,6 +462,7 @@ describe("babysit work policy", () => {
       countHumanReviewComments([
         comment({ id: "1", author: "reviewer" }),
         comment({ id: "2", author: "builderio-bot" }),
+        comment({ id: "3", author: "author", inReplyToId: "1" }),
       ]),
     ).toBe(1);
     expect(

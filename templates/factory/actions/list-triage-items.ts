@@ -181,7 +181,7 @@ export default defineAction({
       }
     }
     const page = eligible.slice(0, effectiveLimit);
-    const hasMore = filledPage || moreRaw;
+    const hasMore = moreRaw;
     const cursorRow = filledPage && lastKept ? lastKept : lastExamined;
 
     const pageIds = page.map((item) => item.id);

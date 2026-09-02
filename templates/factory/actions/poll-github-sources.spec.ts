@@ -46,6 +46,67 @@ beforeEach(() => {
   requireFactoryAutomationMock.mockRejectedValue(new Error("gated"));
 });
 
+describe("selectParkedRowsForRecheck", () => {
+  it("keeps the current-repo open page and a bounded extra set", async () => {
+    const { selectParkedRowsForRecheck } =
+      await import("./poll-github-sources.js");
+    const rows = [
+      {
+        pullRequestNumber: 1,
+        repository: "acme/current",
+        updatedAt: "2026-09-01T00:00:00.000Z",
+      },
+      {
+        pullRequestNumber: 2,
+        repository: "acme/old",
+        updatedAt: "2026-09-02T00:00:00.000Z",
+      },
+      {
+        pullRequestNumber: 3,
+        repository: "acme/current",
+        updatedAt: "2026-09-03T00:00:00.000Z",
+      },
+      {
+        pullRequestNumber: 4,
+        repository: "acme/current",
+        updatedAt: "2026-09-04T00:00:00.000Z",
+      },
+      {
+        pullRequestNumber: 5,
+        repository: "acme/current",
+        updatedAt: "2026-09-05T00:00:00.000Z",
+      },
+    ];
+    expect(
+      selectParkedRowsForRecheck(rows, {
+        configuredRepository: "acme/current",
+        listedOpenPrNumbers: new Set([1]),
+        extraLimit: 2,
+      }).map((row) => row.pullRequestNumber),
+    ).toEqual([1, 5, 4]);
+  });
+
+  it("drops parked rows from another repository", async () => {
+    const { selectParkedRowsForRecheck } =
+      await import("./poll-github-sources.js");
+    expect(
+      selectParkedRowsForRecheck(
+        [
+          {
+            pullRequestNumber: 9,
+            repository: "acme/old",
+            updatedAt: "2026-09-02T00:00:00.000Z",
+          },
+        ],
+        {
+          configuredRepository: "acme/current",
+          listedOpenPrNumbers: new Set(),
+        },
+      ),
+    ).toEqual([]);
+  });
+});
+
 describe("poll-github-sources action", () => {
   it("gates GitHub polling to githubPolling automations", async () => {
     const { default: action } = await import("./poll-github-sources.js");

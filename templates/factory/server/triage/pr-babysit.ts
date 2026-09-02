@@ -134,11 +134,13 @@ export function isBabysitBotAuthor(
 }
 
 export function countHumanReviewComments(
-  comments: readonly { author: string }[],
+  comments: readonly { author: string; inReplyToId?: string | null }[],
   botAuthors: readonly string[] = DEFAULT_BABYSIT_BOT_AUTHORS,
 ): number {
   return comments.filter(
-    (comment) => !isBabysitBotAuthor(comment.author, botAuthors),
+    (comment) =>
+      comment.inReplyToId == null &&
+      !isBabysitBotAuthor(comment.author, botAuthors),
   ).length;
 }
 
@@ -153,7 +155,7 @@ export function hasHumanChangesRequested(
   );
 }
 
-/** New human review work or a real conflict. Bot replies and truncated totals do not reopen. */
+/** New top-level human review work or a real conflict. Author replies, bot replies, and truncated totals do not reopen. */
 export function shouldReopenParkedBabysit(input: {
   parked: boolean;
   storedMergeConflict: boolean;

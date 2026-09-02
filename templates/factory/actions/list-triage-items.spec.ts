@@ -236,4 +236,44 @@ describe("list-triage-items automation limits", () => {
     ]);
     expect(result.hasMore).toBe(false);
   });
+
+  it("does not invent a next page when the last scan fills exactly", async () => {
+    const rows = [item("a", "99"), item("b", "99")];
+    let selectCalls = 0;
+    getDbMock.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => {
+            selectCalls += 1;
+            if (selectCalls === 1) {
+              return {
+                orderBy: vi.fn(() => ({
+                  limit: vi.fn().mockResolvedValue(rows),
+                })),
+              };
+            }
+            return { orderBy: vi.fn().mockResolvedValue([]) };
+          }),
+        })),
+      })),
+    });
+    const { default: action } = await import("./list-triage-items.js");
+    const result = await action.run(
+      {
+        factoryId: "support-triage",
+        source: "github",
+        needsReview: true,
+        limit: 2,
+      },
+      {
+        userEmail: "owner@example.com",
+      },
+    );
+    expect(result.items.map((entry: { id: string }) => entry.id)).toEqual([
+      "a",
+      "b",
+    ]);
+    expect(result.hasMore).toBe(false);
+    expect(result.nextCursor).toBeNull();
+  });
 });
