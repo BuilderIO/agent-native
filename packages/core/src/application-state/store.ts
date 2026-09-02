@@ -14,10 +14,6 @@ import { emitAppStateChange, emitAppStateDelete } from "./emitter.js";
 let _initPromise: Promise<void> | undefined;
 const MAX_HOSTED_APP_STATE_VALUE_BYTES = 1024 * 1024;
 
-function utf8ByteLength(value: string): number {
-  return new TextEncoder().encode(value).byteLength;
-}
-
 // Escapes LIKE wildcards (`%`, `_`) and the escape char itself so a caller's
 // literal prefix is matched verbatim. Used with `ESCAPE '!'` in prefix queries
 // below; without this, a prefix such as `user_settings` would treat `_` as a
@@ -170,7 +166,7 @@ export async function appStatePut(
   const serialized = JSON.stringify(value);
   if (
     !isLocalDatabase() &&
-    utf8ByteLength(serialized) > MAX_HOSTED_APP_STATE_VALUE_BYTES
+    Buffer.byteLength(serialized, "utf8") > MAX_HOSTED_APP_STATE_VALUE_BYTES
   ) {
     throw new Error(
       `application_state value "${key}" is too large for hosted SQL storage. Store large files, base64, or blobs in file storage and write only a URL or handle.`,
@@ -328,7 +324,7 @@ function serializeAppStateValue(
   const serialized = JSON.stringify(value);
   if (
     !isLocalDatabase() &&
-    utf8ByteLength(serialized) > MAX_HOSTED_APP_STATE_VALUE_BYTES
+    Buffer.byteLength(serialized, "utf8") > MAX_HOSTED_APP_STATE_VALUE_BYTES
   ) {
     throw new Error(
       `application_state value "${key}" is too large for hosted SQL storage. Store large files, base64, or blobs in file storage and write only a URL or handle.`,

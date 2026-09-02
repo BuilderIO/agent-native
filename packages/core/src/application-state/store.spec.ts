@@ -433,16 +433,4 @@ describe("application-state store", () => {
       appStatePut(SESSION, "huge", { data: "x".repeat(1024 * 1024 + 1) }),
     ).rejects.toThrow(/too large for hosted SQL storage/);
   });
-
-  it("checks hosted value size without the Node Buffer global", async () => {
-    dbMockState.localDatabase = false;
-    vi.stubGlobal("Buffer", undefined);
-    try {
-      await expect(
-        appStatePut(SESSION, "huge", { data: "x".repeat(1024 * 1024 + 1) }),
-      ).rejects.toThrow(/too large for hosted SQL storage/);
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
 });

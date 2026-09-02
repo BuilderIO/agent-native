@@ -26,7 +26,6 @@ import type {
   Tool,
 } from "@modelcontextprotocol/server";
 
-import { actionCallIsReadOnly } from "../action-call-classification.js";
 import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
@@ -40,7 +39,6 @@ import {
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
-import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
   buildDeepLink,
@@ -2380,7 +2378,7 @@ export async function createMCPServerForRequest(
               });
           const content: any[] = [{ type: "text", text }];
           if (block) content.push(block);
-          const response = {
+          return {
             content,
             ...(mcpResultIsError || embedProducedNothing
               ? { isError: true }
@@ -2390,24 +2388,6 @@ export async function createMCPServerForRequest(
               ? { _meta: responseMeta }
               : {}),
           };
-          if (
-            response.isError !== true &&
-            !actionCallIsReadOnly(entry, args, false)
-          ) {
-            try {
-              await writeActionChangeMarker({
-                actionName: name,
-                owner: getRequestUserEmail() ?? undefined,
-                orgId: getRequestOrgId() ?? undefined,
-              });
-            } catch (error) {
-              console.warn(
-                "Could not write the action-change marker after an MCP tool call",
-                error,
-              );
-            }
-          }
-          return response;
         } catch (err: any) {
           // Same contract the in-app agent gets: the message the action wrote,
           // plus the code it chose. `action_failed` is `fail()`'s stand-in for
