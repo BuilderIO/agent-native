@@ -630,7 +630,6 @@ export function AuthPage(props: AuthPageProps) {
     showGoogle,
     signupLegalNotice,
     signupLocalModeNote,
-    connectionLabel,
     docsAuthUrl,
     identitySsoEnabled,
     publicOAuthOrigin,
@@ -648,7 +647,6 @@ export function AuthPage(props: AuthPageProps) {
   const [localDevBusy, setLocalDevBusy] = React.useState(false);
   const [fullAuthOptionsVisible, setFullAuthOptionsVisible] =
     React.useState(true);
-  const [localNoteVisible, setLocalNoteVisible] = React.useState(false);
   const [upgradeVisible, setUpgradeVisible] = React.useState(false);
   const [magicLinkEmail, setMagicLinkEmail] = React.useState("");
   const [signupEmail, setSignupEmail] = React.useState("");
@@ -940,16 +938,6 @@ export function AuthPage(props: AuthPageProps) {
       auth_view: view,
     });
   }, [authMode, homePath, runtimeAppBasePath, trackingApp]);
-
-  React.useEffect(() => {
-    const hostname = window.location.hostname.toLowerCase();
-    setLocalNoteVisible(
-      hostname === "localhost" ||
-        hostname === "127.0.0.1" ||
-        hostname === "::1" ||
-        hostname.endsWith(".local"),
-    );
-  }, []);
 
   const localDevAllowed = React.useMemo(
     () =>
@@ -2089,14 +2077,19 @@ export function AuthPage(props: AuthPageProps) {
     />
   );
   const identityHref = apiPath("/_agent-native/identity/login");
+  const hideLocalDevSignupIntro = view === "signup" && localDevAvailable;
   const authCard = (
     <div className={cardClassName}>
-      <h1 id="heading" data-i18n={keys.heading}>
-        {t(keys.heading)}
-      </h1>
-      <p id="subtitle" className="subtitle" data-i18n={keys.subtitle}>
-        {t(keys.subtitle)}
-      </p>
+      {!hideLocalDevSignupIntro ? (
+        <>
+          <h1 id="heading" data-i18n={keys.heading}>
+            {t(keys.heading)}
+          </h1>
+          <p id="subtitle" className="subtitle" data-i18n={keys.subtitle}>
+            {t(keys.subtitle)}
+          </p>
+        </>
+      ) : null}
       <p
         className={`upgrade-note ${upgradeVisible ? "show" : ""}`}
         id="upgrade-note"
@@ -2519,16 +2512,6 @@ export function AuthPage(props: AuthPageProps) {
       </div>
     </div>
   );
-  const localNote = (
-    <p
-      className={`local-note ${localNoteVisible ? "show" : ""}`}
-      id="local-note"
-    >
-      <span data-i18n="localNotePrefix">{t("localNotePrefix")}</span> (
-      <strong>{connectionLabel}</strong>)
-      <span data-i18n="localNoteSuffix">{t("localNoteSuffix")}</span>
-    </p>
-  );
   const localePicker = (
     <div className="locale-picker">
       <button
@@ -2652,39 +2635,10 @@ export function AuthPage(props: AuthPageProps) {
       background={
         marketingCopy.screenshotSrc ? null : <Starfield id="starfield" />
       }
-      topRight={
-        marketingCopy.learnMoreUrl ? (
-          <a
-            className="auth-marketing-learn-more"
-            href={marketingCopy.learnMoreUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <span>
-              {t("newToApp").replace(
-                "{appName}",
-                marketingCopy.appName.replace(/^Agent-Native\s+/i, ""),
-              )}
-            </span>
-            <span aria-hidden="true"> - </span>
-            <span className="auth-marketing-learn-more-link">
-              {t("learnMore")}
-            </span>
-          </a>
-        ) : null
-      }
-      auth={
-        <>
-          {authCard}
-          {localNote}
-        </>
-      }
+      auth={authCard}
       className={[
         "auth-marketing-home",
         marketingCopy.screenshotSrc ? "has-product-screenshot" : "",
-        marketingCopy.learnMorePlacement === "bottom-right"
-          ? "has-bottom-right-learn-more"
-          : "",
       ]
         .filter(Boolean)
         .join(" ")}
@@ -2754,10 +2708,7 @@ export function AuthPage(props: AuthPageProps) {
       )}
     </MarketingHome>
   ) : (
-    <>
-      <div className="auth-centered">{authCard}</div>
-      {localNote}
-    </>
+    <div className="auth-centered">{authCard}</div>
   );
 
   return (

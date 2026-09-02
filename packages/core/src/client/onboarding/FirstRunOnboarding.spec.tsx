@@ -160,6 +160,28 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.querySelector("[data-onboarding-screen]")).toBeNull();
   });
 
+  it("lets users dismiss setup and records completion", async () => {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    const dismissButton = document.body.querySelector(
+      '[data-testid="first-run-dismiss"]',
+    );
+    expect(dismissButton).not.toBeNull();
+
+    await act(async () => {
+      (dismissButton as HTMLButtonElement).click();
+      await Promise.resolve();
+    });
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
+  });
+
   it("keeps the legacy Builder connection when account provisioning is disabled", () => {
     act(() => {
       root.render(
@@ -392,9 +414,9 @@ describe("FirstRunOnboarding", () => {
     const shell = document.body.querySelector(
       "[data-onboarding-screen='intro']",
     );
-    expect(shell?.firstElementChild?.getAttribute("data-testid")).toBe(
-      "onboarding-progress",
-    );
+    expect(
+      shell?.querySelector('[data-testid="onboarding-progress"]'),
+    ).toBeTruthy();
     expect(shell?.querySelector("header")).toBeNull();
     expect(document.body.textContent).not.toContain("Builder App");
     expect(document.body.textContent).not.toMatch(/\b[123] \/ 3\b/);

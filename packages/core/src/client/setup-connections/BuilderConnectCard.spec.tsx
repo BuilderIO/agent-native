@@ -153,6 +153,44 @@ describe("BuilderConnectCard", () => {
     expect(mocks.useBuilderConnectCardController).toHaveBeenCalledOnce();
   });
 
+  it("shows connection management for the connected settings card", () => {
+    viewModel = {
+      ...viewModel,
+      configured: true,
+      status: { kind: "connected", label: "Connected" },
+      action: null,
+      connectFlow: {
+        configured: true,
+        statusResolved: true,
+        envManaged: false,
+        agentNativeProvisioningEnabled: false,
+        codeChangeConfigured: false,
+        builderEnabled: true,
+        orgName: "Acme",
+        connecting: false,
+        error: null,
+        accountExists: false,
+        hasFetchedStatus: true,
+        credentialSource: "user",
+        start: vi.fn(),
+        retry: vi.fn(),
+      },
+    };
+    mocks.useBuilderConnectCardController.mockReturnValue(viewModel);
+
+    act(() =>
+      root.render(
+        <BuilderConnectCard showManage trackingSource="settings_connections" />,
+      ),
+    );
+
+    expect(
+      container.querySelector(
+        'button[aria-label="Manage Builder.io connection"]',
+      ),
+    ).not.toBeNull();
+  });
+
   it("falls back to the default view when a product renderer fails", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
 
