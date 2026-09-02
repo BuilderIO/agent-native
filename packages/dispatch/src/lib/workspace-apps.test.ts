@@ -8,6 +8,19 @@ import {
   workspaceAppEmbedTarget,
 } from "./workspace-apps";
 
+function setAncestorOrigin(origin: string | null) {
+  Object.defineProperty(window.location, "ancestorOrigins", {
+    configurable: true,
+    value: origin
+      ? {
+          0: origin,
+          length: 1,
+          item: (index: number) => (index === 0 ? origin : null),
+        }
+      : undefined,
+  });
+}
+
 describe("workspaceAppEmbedTarget", () => {
   it("uses the app URL as the embed root when a mount path is also present", () => {
     expect(
@@ -69,10 +82,12 @@ describe("workspaceAppDirectHref", () => {
 describe("navigateToWorkspaceApp", () => {
   beforeEach(() => {
     window.history.replaceState({}, "", "/");
+    setAncestorOrigin(null);
   });
 
   afterEach(() => {
     window.history.replaceState({}, "", "/");
+    setAncestorOrigin(null);
     Object.defineProperty(window, "parent", {
       configurable: true,
       value: window,
@@ -88,6 +103,16 @@ describe("navigateToWorkspaceApp", () => {
       configurable: true,
       value: {},
     });
+
+    expect(shouldOpenWorkspaceAppInTopWindow()).toBe(false);
+  });
+
+  it("keeps the hosted Dispatch shell inline", () => {
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: {},
+    });
+    setAncestorOrigin("https://agent-workspace.builder.io");
 
     expect(shouldOpenWorkspaceAppInTopWindow()).toBe(false);
   });

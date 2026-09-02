@@ -411,3 +411,15 @@ Claude Code calls: run-query(sql: "SELECT count(*) FROM signups WHERE created_at
 Claude Code calls: ask-agent(message: "Prepare a full breakdown of Q3 signups by source, with trends")
 → The analytics agent runs multiple queries, reasons about the data, and returns a formatted report
 ```
+
+## 以 fetch 優先探索
+
+Agent-Native 也會在 `GET /.well-known/mcp.json` 提供 HTTP 相容目錄。代理不需要
+執行瀏覽器，也可以使用 `fetch` 或 `curl` 取得。目錄描述動作端點、JSON schema、
+是否唯讀以及是否需要驗證。工具可以透過 `POST /mcp/tool/:name` 呼叫，而驗證、
+授權、檢查和租戶範圍仍由伺服器處理。
+
+這是 Agent-Native 的相容慣例，不是 WebMCP 或 MCP Streamable HTTP 的一部分。
+`/mcp` 仍是標準 MCP 端點，支援的瀏覽器仍可使用 `document.modelContext` 的頁面
+本機工具。Clips 會發布 `agentContextUrl` 以及完整 transcript 和 JPEG 畫格 URL，
+因此代理可以直接透過 HTTP 取得內容。

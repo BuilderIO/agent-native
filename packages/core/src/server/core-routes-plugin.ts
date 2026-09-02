@@ -59,6 +59,7 @@ import {
 } from "../db/client.js";
 import {
   getDatabaseRuntimeFingerprint,
+  getEffectiveDatabaseEnvStatus,
   getRuntimeDebugFingerprint,
   runDatabaseSchemaHealthCheck,
   type DatabaseSchemaHealthResult,
@@ -4047,10 +4048,14 @@ export function createCoreRoutesPlugin(
             );
             return Promise.all(
               envKeys.map(async (cfg) => {
-                const configured = await runWithRequestContext(
-                  requestContext,
-                  () => resolveSecret(cfg.key).then(Boolean),
+                const effectiveDatabaseStatus = getEffectiveDatabaseEnvStatus(
+                  cfg.key,
                 );
+                const configured =
+                  effectiveDatabaseStatus ??
+                  (await runWithRequestContext(requestContext, () =>
+                    resolveSecret(cfg.key).then(Boolean),
+                  ));
                 return {
                   key: cfg.key,
                   label: cfg.label,

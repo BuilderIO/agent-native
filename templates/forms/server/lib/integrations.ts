@@ -8,9 +8,11 @@ import { publicSubmitterEmail } from "../../shared/submitter-email.js";
 import type {
   FormIntegration,
   FormField,
+  FormFileValue,
   FormSettings,
   IntegrationType,
 } from "../../shared/types.js";
+import { isFormFileValue, isSafeFormFileUrl } from "./file-upload-policy.js";
 
 // ---------------------------------------------------------------------------
 // Save-time validation
@@ -120,6 +122,34 @@ function pageLabelFromUrl(pageUrl: string): string {
 // Format helpers
 // ---------------------------------------------------------------------------
 
+function isStoredFileReference(value: unknown): value is FormFileValue {
+  return isFormFileValue(value) && isSafeFormFileUrl(value.url);
+}
+
+function formatIntegrationValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map(formatIntegrationValue).join(", ");
+  }
+  if (isStoredFileReference(value)) {
+    return `${value.name} (${value.url})`;
+  }
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
+function formatSlackValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map(formatSlackValue).join(", ");
+  }
+  if (isStoredFileReference(value)) {
+    return `<${escapeSlackMrkdwn(value.url)}|${escapeSlackMrkdwn(value.name)}>`;
+  }
+  return escapeSlackMrkdwn(formatIntegrationValue(value));
+}
+
 /** Build a flat label→value object from field definitions and submission data */
 function formatFields(
   fields: FormField[],
@@ -133,7 +163,7 @@ function formatFields(
       let key = label;
       if (usedLabels.has(key)) key = `${label} (${field.id})`;
       usedLabels.add(key);
-      out[key] = data[field.id];
+      out[key] = formatIntegrationValue(data[field.id]);
     }
   }
   return out;
@@ -172,8 +202,7 @@ export function buildSlackPayload(submission: SubmissionPayload) {
     .filter((f) => submission.data[f.id] !== undefined)
     .map((f) => {
       const val = submission.data[f.id];
-      const display = Array.isArray(val) ? val.join(", ") : String(val);
-      return `*${escapeSlackMrkdwn(f.label)}:* ${escapeSlackMrkdwn(display)}`;
+      return `*${escapeSlackMrkdwn(f.label)}:* ${formatSlackValue(val)}`;
     });
 
   const tsContext = `Submitted <!date^${Math.floor(new Date(submission.submittedAt).getTime() / 1000)}^{date_short_pretty} at {time}|${submission.submittedAt}>`;
@@ -219,7 +248,7 @@ function buildDiscordPayload(submission: SubmissionPayload) {
     .filter((f) => submission.data[f.id] !== undefined)
     .map((f) => {
       const val = submission.data[f.id];
-      const display = Array.isArray(val) ? val.join(", ") : String(val);
+      const display = formatIntegrationValue(val);
       return { name: f.label, value: display, inline: true };
     });
   if (submitterEmail) {

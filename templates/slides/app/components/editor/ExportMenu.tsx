@@ -202,9 +202,9 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     const handleExportGoogleSlides = async () => {
       if (!onExportGoogleSlides) return;
       // Opened up-front: browsers only honour window.open() inside the click
-      // gesture, and building the PPTX is async. If the account is missing,
-      // the same tab becomes the OAuth popup so the export action owns setup.
-      const target = window.open("", "_blank");
+      // gesture, and building the PPTX is async. Start on the import page so a
+      // slow or rejected export never leaves the user staring at about:blank.
+      const target = window.open(GOOGLE_SLIDES_IMPORT_URL, "_blank");
       googleSlidesImportTarget.current = target;
       try {
         const result = await onExportGoogleSlides();

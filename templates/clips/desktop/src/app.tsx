@@ -2853,6 +2853,12 @@ export function App({
           return;
         }
         await loadDevices();
+        if (cancelled) {
+          // The popover closed while device enumeration was in flight. Do not
+          // create a native bubble for an effect that has already ended.
+          s.getTracks().forEach((t) => t.stop());
+          return;
+        }
         stream = s;
         bubbleStreamRef.current = s;
         // Open the bubble window. It's a pure renderer — the bubble
@@ -2866,6 +2872,13 @@ export function App({
           console.error("[clips-popover] show_bubble failed:", err);
         }
         if (cancelled) {
+          // show_bubble can finish after cleanup. Close only when this effect
+          // no longer belongs to a recording or a replacement bubble session.
+          if (!recordingFlowGateRef.current && !bubbleActiveRef.current) {
+            await invoke("close_bubble").catch((err) =>
+              console.error("[clips-popover] late bubble cleanup failed:", err),
+            );
+          }
           s.getTracks().forEach((t) => t.stop());
           return;
         }
@@ -3010,7 +3023,12 @@ export function App({
       bubbleStreamTransferredToRecorder.current = false;
       bubbleStreamRef.current?.getTracks().forEach((t) => t.stop());
       bubbleStreamRef.current = null;
-      setBubbleSessionEpoch((epoch) => epoch + 1);
+      // A native recording-start release is still waiting for the bubble's
+      // Destroyed event. Defer the re-acquire until that command has released
+      // the JS gate, or a replacement bubble can overlap WebKit teardown.
+      if (!recordingFlowGateRef.current) {
+        setBubbleSessionEpoch((epoch) => epoch + 1);
+      }
     })
       .then((u) => {
         if (cancelled) u();
@@ -3479,19 +3497,47 @@ export function App({
       // further below hasn't run yet at this point, so reset this on every
       // early return in this block.
       recordingFlowGateRef.current = true;
+      const releaseRecordingFlowGate = async () => {
+        let released = false;
+        try {
+          // Clear the native guard and close an idle bubble in one native
+          // command so a new start cannot interleave between those steps.
+          await invoke("release_recording_state");
+          released = true;
+        } catch (err) {
+          console.error(
+            "[clips-popover] could not release recording state:",
+            err,
+          );
+        } finally {
+          recordingFlowGateRef.current = false;
+          if (released) {
+            setBubbleSessionEpoch((epoch) => epoch + 1);
+          }
+        }
+      };
+      // Native blur cleanup also runs while the permission prompt or display
+      // picker is open, before the later recording-state update below.
+      try {
+        await invoke("set_recording_state", { active: true });
+      } catch (err) {
+        await releaseRecordingFlowGate();
+        console.error("[clips-popover] could not hold recording state:", err);
+        return null;
+      }
       try {
         const granted = await invoke<boolean>(
           "request_macos_screen_recording_access",
         );
         if (!granted) {
-          recordingFlowGateRef.current = false;
+          await releaseRecordingFlowGate();
           setReadinessOpen(true);
           setRecError(MACOS_SCREEN_PERMISSION_MESSAGE);
           openPrivacySettings("screen");
           return null;
         }
       } catch (err) {
-        recordingFlowGateRef.current = false;
+        await releaseRecordingFlowGate();
         setReadinessOpen(true);
         setRecError(err instanceof Error ? err.message : String(err));
         return null;
@@ -3509,7 +3555,7 @@ export function App({
           // themselves on the chosen screen the first time they are shown.
           await pickFullscreenRecordingDisplay();
         } catch (err) {
-          recordingFlowGateRef.current = false;
+          await releaseRecordingFlowGate();
           if (err instanceof Error && err.name === "AbortError") {
             // User cancelled the screen picker (Escape) — abort silently,
             // same as dismissing the native macOS screen picker.
@@ -3759,10 +3805,8 @@ export function App({
     };
   }, []);
 
-  // Gates every start-recording gesture (button, global shortcut, permission
-  // retry) on the mic toggle. When the mic is off we show the informational
-  // mic-off screen and wait for the user to go back and change that setting
-  // before the actual getDisplayMedia/getUserMedia call runs.
+  // Show the mic-off explanation once, then let the user continue without
+  // audio instead of trapping the start flow behind the toggle.
   function beginRecording(
     options?: Parameters<typeof handleStartRecording>[0],
     beginOptions?: { revealPopoverIfMicOff?: boolean },
@@ -4507,7 +4551,13 @@ export function App({
   return (
     <div className="app app-recorder" ref={appRef}>
       {micOffConfirmOpen ? (
-        <MicOffConfirmation onBack={closeMicOffConfirmation} />
+        <MicOffConfirmation
+          onBack={closeMicOffConfirmation}
+          onContinue={() => {
+            setMicOffConfirmOpen(false);
+            void handleStartRecording();
+          }}
+        />
       ) : null}
 
       <div

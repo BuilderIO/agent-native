@@ -86,9 +86,29 @@ pub fn run() {
             // single writer, so the one report it can never deliver is its
             // own death. Any toolbar teardown restores the plain status item.
             if window.label() == "toolbar" {
-                if let tauri::WindowEvent::Destroyed = event {
-                    tray::reset_tray_recording(window.app_handle());
+                match event {
+                    tauri::WindowEvent::Moved(position) => {
+                        // Forward the platform move event directly to the
+                        // toolbar webview. The renderer's Window.onMoved
+                        // subscription can lag native macOS drag events.
+                        let _ = window.emit("clips:toolbar-native-moved", position);
+                    }
+                    tauri::WindowEvent::Destroyed => {
+                        tray::reset_tray_recording(window.app_handle());
+                    }
+                    _ => {}
                 }
+            }
+            // The popover and camera bubble are separate native windows. If
+            // the popover is closed before its webview emits the visibility
+            // event, tear down the bubble from the native lifecycle instead.
+            if window.label() == "popover"
+                && matches!(
+                    event,
+                    tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
+                )
+            {
+                clips::close_bubble_if_idle(window.app_handle());
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -100,7 +120,12 @@ pub fn run() {
             clips::show_finalizing,
             clips::hide_finalizing,
             clips::show_toolbar,
+            clips::toolbar_drag_start,
+            clips::toolbar_drag_move,
+            clips::toolbar_drag_end,
+            clips::toolbar_set_bounds,
             clips::toolbar_save_position,
+            clips::toolbar_get_dock_preference,
             clips::toolbar_set_visible,
             clips::set_toolbar_finishing,
             tray::tray_recording_status,
@@ -133,6 +158,7 @@ pub fn run() {
             clips::complete_voice_dictation,
             clips::paste_last_dictation,
             clips::set_recording_state,
+            clips::release_recording_state,
             clips::set_meeting_active,
             clips::get_active_meeting_id,
             clips::quit_teardown_done,
@@ -481,6 +507,7 @@ pub fn run() {
                         dlog!("[clips-tray] popover blur, elapsed_ms={}", elapsed_ms);
                         if elapsed_ms >= 1500 {
                             let _ = handle.hide();
+                            clips::close_bubble_if_idle(&app_handle);
                             let _ = app_handle.emit("clips:popover-visible", false);
                         }
                     }

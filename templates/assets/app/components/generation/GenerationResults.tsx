@@ -110,6 +110,15 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
   const { data: librariesData } = useActionQuery("list-libraries", {
     compact: true,
   } as any) as { data?: LibraryListResult };
+  // Saving a candidate into the kit needs editor access, while generating it
+  // only needs read access, so the tray asks before offering Save at all
+  // rather than letting the button 403.
+  const { data: libraryAccess } = useActionQuery(
+    "get-library-access",
+    { libraryId: variants?.libraryId } as any,
+    { enabled: Boolean(variants?.libraryId) },
+  ) as { data?: { canApprove?: boolean } };
+  const canApprove = libraryAccess?.canApprove === true;
   const saveGenerated = useActionMutation("save-generated-image");
   const dismissSlot = useActionMutation("dismiss-variant-slots");
   const refreshGeneration = useActionMutation("refresh-generation-run");
@@ -342,7 +351,11 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
           if (!open) setPreviewSlotId(null);
         }}
         onSelect={setPreviewSlotId}
-        onSave={(slot) => saveSlot(slot, () => setPreviewSlotId(null))}
+        onSave={
+          canApprove
+            ? (slot) => saveSlot(slot, () => setPreviewSlotId(null))
+            : undefined
+        }
         onRefine={(slot, variantNumber) => {
           refineSlot(slot, variantNumber);
           setPreviewSlotId(null);
@@ -371,6 +384,20 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
                   <Badge variant="secondary" className="shrink-0">
                     {statusSummary}
                   </Badge>
+                  {libraryAccess && !canApprove ? (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge variant="outline" className="shrink-0">
+                            {t("library.draftsOnly")}
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {t("library.draftsOnlyHint")}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  ) : null}
                 </div>
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">
                   {libraryTitle || t("library.noBrandKit")} / {variants.prompt}
@@ -406,7 +433,7 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
                     isSaving={saveGenerated.isPending}
                     isDismissing={dismissSlot.isPending}
                     onPreview={() => setPreviewSlotId(slot.slotId)}
-                    onSave={() => saveSlot(slot)}
+                    onSave={canApprove ? () => saveSlot(slot) : undefined}
                     onRefine={() => refineSlot(slot, variantNumber)}
                     onDismiss={() => dismissSlotById(slot)}
                   />
@@ -455,7 +482,7 @@ function GenerationDraftCard({
   isSaving: boolean;
   isDismissing: boolean;
   onPreview: () => void;
-  onSave: () => void;
+  onSave?: () => void;
   onRefine: () => void;
   onDismiss: () => void;
 }) {
@@ -495,27 +522,29 @@ function GenerationDraftCard({
         {ready ? (
           <TooltipProvider>
             <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={t("library.save")}
-                    disabled={isSaving}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onSave();
-                    }}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-                  >
-                    {isSaving ? (
-                      <Spinner className="h-4 w-4" />
-                    ) : (
-                      <IconDeviceFloppy className="h-4 w-4" />
-                    )}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{t("library.save")}</TooltipContent>
-              </Tooltip>
+              {onSave ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={t("library.save")}
+                      disabled={isSaving}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onSave();
+                      }}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                    >
+                      {isSaving ? (
+                        <Spinner className="h-4 w-4" />
+                      ) : (
+                        <IconDeviceFloppy className="h-4 w-4" />
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("library.save")}</TooltipContent>
+                </Tooltip>
+              ) : null}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
@@ -596,7 +625,7 @@ function GenerationPreviewDialog({
   isDismissing: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (slotId: string) => void;
-  onSave: (slot: VariantSlot) => void;
+  onSave?: (slot: VariantSlot) => void;
   onRefine: (slot: VariantSlot, variantNumber: number) => void;
   onDismiss: (slot: VariantSlot) => void;
 }) {
@@ -647,13 +676,19 @@ function GenerationPreviewDialog({
               {variantLabel}
             </p>
             <div className="flex shrink-0 items-center gap-2">
-              <Button
-                size="sm"
-                disabled={isSaving || !slot.assetId}
-                onClick={() => onSave(slot)}
-              >
-                {isSaving ? <Spinner className="h-4 w-4" /> : t("library.save")}
-              </Button>
+              {onSave ? (
+                <Button
+                  size="sm"
+                  disabled={isSaving || !slot.assetId}
+                  onClick={() => onSave(slot)}
+                >
+                  {isSaving ? (
+                    <Spinner className="h-4 w-4" />
+                  ) : (
+                    t("library.save")
+                  )}
+                </Button>
+              ) : null}
               <Button
                 variant="outline"
                 size="sm"

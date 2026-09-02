@@ -1,6 +1,12 @@
 import { IconArrowLeft, IconMicrophone2 } from "@tabler/icons-react";
 
-export function MicOffConfirmation({ onBack }: { onBack: () => void }) {
+export function MicOffConfirmation({
+  onBack,
+  onContinue,
+}: {
+  onBack: () => void;
+  onContinue: () => void;
+}) {
   return (
     <section className="mic-off-confirmation" aria-labelledby="mic-off-title">
       <header className="mic-off-confirmation-header">
@@ -20,10 +26,14 @@ export function MicOffConfirmation({ onBack }: { onBack: () => void }) {
           <span className="mic-off-confirmation-slash" />
         </div>
         <h2 id="mic-off-title">Your mic is muted</h2>
-        <p>
-          You can change your microphone setting and then come back to start
-          recording.
-        </p>
+        <p>You can change your microphone setting or continue without it.</p>
+        <button
+          type="button"
+          className="primary mic-off-confirmation-continue"
+          onClick={onContinue}
+        >
+          Continue
+        </button>
       </div>
     </section>
   );

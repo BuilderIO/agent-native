@@ -494,9 +494,12 @@ export async function stopTranscriptionEngine(
 
 export async function resetTranscriptionTimeline(
   engine: TranscriptionEngine,
+  offsetMs: number = 0,
 ): Promise<void> {
   if (engine !== "whisper") return;
-  await invoke("audio_transcription_reset_timeline");
+  await invoke("audio_transcription_reset_timeline", {
+    offsetMs: Math.max(0, Math.round(offsetMs)),
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -3,6 +3,10 @@ import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  resolveDraftReadScope,
+  runReadFilter,
+} from "../server/lib/library-access.js";
 import { requireLibrary, serializeGenerationRun } from "./_helpers.js";
 
 export default defineAction({
@@ -16,7 +20,14 @@ export default defineAction({
   readOnly: true,
   run: async ({ libraryId, sessionId, presetId }) => {
     await requireLibrary(libraryId);
-    const filters = [eq(schema.assetGenerationRuns.libraryId, libraryId)];
+    // Runs carry the prompt, settings, and outputs behind a draft, so a
+    // below-approver caller sees their own history, not the kit's.
+    const scope = await resolveDraftReadScope([libraryId]);
+    const runFilter = runReadFilter(scope, schema.assetGenerationRuns);
+    const filters = [
+      eq(schema.assetGenerationRuns.libraryId, libraryId),
+      ...(runFilter ? [runFilter] : []),
+    ];
     if (sessionId)
       filters.push(eq(schema.assetGenerationRuns.sessionId, sessionId));
     if (presetId)
