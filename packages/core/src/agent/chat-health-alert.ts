@@ -84,17 +84,20 @@ async function countRecentTurns(since: number): Promise<TurnCounts> {
 /** Use one owner/admin only when the app has an unambiguous org scope. */
 async function alertOwner(): Promise<string | null> {
   const { rows } = await getDbExec().execute({
-    sql: `SELECT org_id, email FROM org_members
-          WHERE role IN ('owner', 'admin')
-          ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END, email`,
+    sql: `SELECT org_id, email, role FROM org_members
+          ORDER BY CASE role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, email`,
     args: [],
   });
   const orgIds = new Set(
     rows.map((row) => String((row as Record<string, unknown>).org_id ?? "")),
   );
   if (orgIds.size !== 1 || orgIds.has("")) return null;
+  const recipient = rows.find((row) => {
+    const role = (row as Record<string, unknown>).role;
+    return role === "owner" || role === "admin";
+  });
   const email = String(
-    (rows[0] as Record<string, unknown> | undefined)?.email ?? "",
+    (recipient as Record<string, unknown> | undefined)?.email ?? "",
   );
   return email || null;
 }

@@ -45,7 +45,7 @@ function turns(total: number, bad: number) {
 
 beforeEach(() => {
   turnRows = [];
-  memberRows = [{ org_id: "org-1", email: "owner@example.com" }];
+  memberRows = [{ org_id: "org-1", email: "owner@example.com", role: "owner" }];
   turnQueryThrows = false;
   settings.clear();
   settingsReadThrows = false;
@@ -71,8 +71,8 @@ describe("checkChatHealthAndAlert", () => {
 
   it("pages Slack once when the app stops answering", async () => {
     memberRows = [
-      { org_id: "org-1", email: "a@example.com" },
-      { org_id: "org-1", email: "b@example.com" },
+      { org_id: "org-1", email: "a@example.com", role: "owner" },
+      { org_id: "org-1", email: "b@example.com", role: "admin" },
     ];
     turns(20, 15);
     const out = await checkChatHealthAndAlert(NOW);
@@ -89,8 +89,8 @@ describe("checkChatHealthAndAlert", () => {
 
   it("fails closed when owner scope spans multiple organizations", async () => {
     memberRows = [
-      { org_id: "org-1", email: "a@example.com" },
-      { org_id: "org-2", email: "b@example.com" },
+      { org_id: "org-1", email: "a@example.com", role: "owner" },
+      { org_id: "org-2", email: "b@example.com", role: "admin" },
     ];
     turns(20, 15);
     const out = await checkChatHealthAndAlert(NOW);
