@@ -19,7 +19,9 @@ describe("googleFetch quota handling", () => {
     vi.useFakeTimers();
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(jsonResponse(502, { error: "bad gateway" }))
+      .mockResolvedValueOnce(
+        jsonResponse(502, { error: { message: "bad gateway" } }),
+      )
       .mockResolvedValueOnce(jsonResponse(200, { messages: [] }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -31,6 +33,28 @@ describe("googleFetch quota handling", () => {
 
     await expect(resultPromise).resolves.toEqual({ messages: [] });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not replay state-changing requests after a gateway failure", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(502, { error: { message: "bad gateway" } }),
+      )
+      .mockResolvedValueOnce(jsonResponse(200, { id: "sent-message" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      googleFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+        "gateway-token-b",
+        {
+          method: "POST",
+          body: JSON.stringify({ raw: "message" }),
+        },
+      ),
+    ).rejects.toThrow("Google API error (502): bad gateway");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("trips cooldown on the first quota response instead of retrying inside the exhausted window", async () => {

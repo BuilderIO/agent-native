@@ -327,6 +327,8 @@ export async function googleFetch(
   }
 
   const maxRetries = 3;
+  const method = opts?.method?.toUpperCase() ?? "GET";
+  const canRetry = method === "GET" || method === "HEAD";
 
   // Pre-pay the bucket once per call; retries don't re-charge (Google didn't
   // actually complete the work, and we'd rather retry promptly than stack
@@ -348,6 +350,7 @@ export async function googleFetch(
     // Parse body early when we might need it for quota-error classification.
     // Transient 5xx responses have no useful body; retry before parsing them.
     if (
+      canRetry &&
       (res.status === 500 || res.status === 502 || res.status === 503) &&
       attempt < maxRetries
     ) {
