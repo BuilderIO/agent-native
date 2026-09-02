@@ -26,6 +26,13 @@ function shouldCreateDocsSession(event: H3Event): boolean {
   return shouldCreateDocsSessionForPath(pathname);
 }
 
+function getDocsRequestPathname(event: H3Event): string {
+  const mountedPathname = (event as any).context?._mountedPathname;
+  return typeof mountedPathname === "string" && mountedPathname
+    ? mountedPathname
+    : getRequestURL(event).pathname;
+}
+
 export function isDocsWebMcpPath(
   pathname: string,
   basePath = getAppBasePath(),
@@ -46,7 +53,7 @@ export const docsAuthOptions: AuthOptions = {
   workspaceAppAudience: "public",
   getSession: async (event) => {
     const cookieName = "an_docs_session";
-    if (isDocsWebMcpPath(getRequestURL(event).pathname)) return null;
+    if (isDocsWebMcpPath(getDocsRequestPathname(event))) return null;
     let sessionId = getCookie(event, cookieName);
 
     if (!sessionId) {

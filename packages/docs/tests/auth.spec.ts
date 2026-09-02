@@ -43,4 +43,16 @@ describe("docs auth session scoping", () => {
     );
     await expect(docsAuthOptions.getSession!(event)).resolves.toBeNull();
   });
+
+  it("preserves WebMCP auth exclusion after mounted-route path stripping", async () => {
+    const event = mockEvent("https://docs.example.com/webmcp/manifest", {
+      headers: { cookie: "an_docs_session=existing" },
+    });
+    (event as any).context = {
+      _mountedPathname: "/_agent-native/webmcp/manifest",
+      _mountPrefix: "/_agent-native/webmcp",
+    };
+
+    await expect(docsAuthOptions.getSession!(event)).resolves.toBeNull();
+  });
 });
