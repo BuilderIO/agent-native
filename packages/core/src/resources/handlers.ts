@@ -601,14 +601,12 @@ export async function handleUpdateResource(event: any) {
   // editing one creates an organization override instead of mutating the
   // fallback seen by every tenant in the deployment.
   if (existing.owner === SHARED_OWNER && activeSharedOwner !== SHARED_OWNER) {
-    if (nextPath !== existing.path) {
-      const destination = await resourceGetByPath(activeSharedOwner, nextPath, {
-        orgId,
-      });
-      if (destination) {
-        setResponseStatus(event, 409);
-        return { error: `A resource already exists at path "${nextPath}"` };
-      }
+    const destination = await resourceGetByPath(activeSharedOwner, nextPath, {
+      orgId,
+    });
+    if (destination) {
+      setResponseStatus(event, 409);
+      return { error: `A resource already exists at path "${nextPath}"` };
     }
     const resource = await resourcePut(
       activeSharedOwner,
@@ -714,7 +712,15 @@ export async function handleDeleteResource(event: any) {
     };
   }
 
-  await resourceDelete(id);
+  const deleted = await resourceDelete(id);
+  if (deleted && existingOrganizationId === orgId) {
+    const legacy = await resourceGetByPath(SHARED_OWNER, existing.path, {
+      orgId,
+    });
+    if (legacy && isLegacyOrganizationWorkspaceFile(legacy, orgId)) {
+      await resourceDelete(legacy.id);
+    }
+  }
   return { ok: true };
 }
 

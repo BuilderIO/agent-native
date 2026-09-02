@@ -830,6 +830,41 @@ Legacy webhook.`,
       expect(mockResourcePut).not.toHaveBeenCalled();
       expect(mockResourceDelete).not.toHaveBeenCalled();
     });
+
+    it("rejects a legacy update when an organization resource already shares its path", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "QA Org",
+        role: "admin",
+      });
+      mockResourceGet.mockResolvedValue({
+        id: "legacy-org-resource",
+        path: "analysis.md",
+        owner: "__shared__",
+        content: "old",
+        mimeType: "text/markdown",
+      });
+      mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+      mockResourceGetByPath.mockResolvedValue({
+        id: "existing-destination",
+        path: "analysis.md",
+        owner: "__organization__:org-1",
+      });
+
+      const result = await handleUpdateResource({
+        _params: { id: "legacy-org-resource" },
+        _body: { content: "new" },
+        context: {},
+      });
+
+      expect(lastStatus).toBe(409);
+      expect(result).toEqual({
+        error: 'A resource already exists at path "analysis.md"',
+      });
+      expect(mockResourcePut).not.toHaveBeenCalled();
+      expect(mockResourceDelete).not.toHaveBeenCalled();
+    });
   });
 
   describe("handleDeleteResource", () => {
@@ -865,6 +900,38 @@ Legacy webhook.`,
       expect(result).toEqual({ ok: true });
       expect(mockResourceDelete).toHaveBeenCalledWith(
         "local-workspace-resource:agents",
+      );
+    });
+
+    it("removes a shadowed legacy organization row when deleting its override", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "QA Org",
+        role: "admin",
+      });
+      mockResourceGet.mockResolvedValue({
+        id: "org-resource",
+        path: "analysis.md",
+        owner: "__organization__:org-1",
+      });
+      mockResourceDelete.mockResolvedValue(true);
+      mockResourceGetByPath.mockResolvedValue({
+        id: "legacy-org-resource",
+        path: "analysis.md",
+        owner: "__shared__",
+      });
+      mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+
+      await handleDeleteResource({
+        _params: { id: "org-resource" },
+        context: {},
+      });
+
+      expect(mockResourceDelete).toHaveBeenNthCalledWith(1, "org-resource");
+      expect(mockResourceDelete).toHaveBeenNthCalledWith(
+        2,
+        "legacy-org-resource",
       );
     });
 

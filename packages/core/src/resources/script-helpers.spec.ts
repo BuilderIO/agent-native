@@ -11,7 +11,8 @@ const mockEnsurePersonalDefaults = vi.fn();
 vi.mock("./store.js", () => ({
   SHARED_OWNER: "__shared__",
   WORKSPACE_OWNER: "__workspace__",
-  sharedResourceOwner: () => "__shared__",
+  sharedResourceOwner: (orgId?: string | null) =>
+    orgId ? `__organization__:${orgId}` : "__shared__",
   resourceGetByPath: (...args: any[]) => mockResourceGetByPath(...args),
   resourcePut: (...args: any[]) => mockResourcePut(...args),
   resourceDeleteByPath: (...args: any[]) => mockResourceDeleteByPath(...args),
@@ -24,6 +25,7 @@ vi.mock("./store.js", () => ({
     mockEnsurePersonalDefaults(...args),
 }));
 
+import { runWithRequestContext } from "../server/request-context.js";
 import {
   readResource,
   writeResource,
@@ -75,6 +77,31 @@ describe("resources script-helpers", () => {
       expect(mockResourceGetByPath).toHaveBeenCalledWith(
         "__shared__",
         "file.md",
+      );
+    });
+
+    it("reads the legacy shared fallback for an active organization", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      mockResourceGetByPath
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ content: "legacy" });
+
+      const result = await runWithRequestContext({ orgId: "org-1" }, () =>
+        readResource("file.md", { shared: true }),
+      );
+
+      expect(result).toBe("legacy");
+      expect(mockResourceGetByPath).toHaveBeenNthCalledWith(
+        1,
+        "__organization__:org-1",
+        "file.md",
+        { orgId: "org-1" },
+      );
+      expect(mockResourceGetByPath).toHaveBeenNthCalledWith(
+        2,
+        "__shared__",
+        "file.md",
+        { orgId: "org-1" },
       );
     });
 
@@ -232,6 +259,34 @@ describe("resources script-helpers", () => {
 
       await listResources(undefined, { shared: true });
       expect(mockResourceList).toHaveBeenCalledWith("__shared__", undefined);
+    });
+
+    it("merges organization resources with legacy shared defaults", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      mockResourceList
+        .mockResolvedValueOnce([{ path: "org.md" }])
+        .mockResolvedValueOnce([{ path: "default.md" }, { path: "org.md" }]);
+
+      const result = await runWithRequestContext({ orgId: "org-1" }, () =>
+        listResources(undefined, { shared: true }),
+      );
+
+      expect(result.map((resource) => resource.path)).toEqual([
+        "org.md",
+        "default.md",
+      ]);
+      expect(mockResourceList).toHaveBeenNthCalledWith(
+        1,
+        "__organization__:org-1",
+        undefined,
+        { orgId: "org-1" },
+      );
+      expect(mockResourceList).toHaveBeenNthCalledWith(
+        2,
+        "__shared__",
+        undefined,
+        { orgId: "org-1" },
+      );
     });
 
     it("lists workspace resources when scope is workspace", async () => {

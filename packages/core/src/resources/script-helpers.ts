@@ -53,11 +53,19 @@ export async function readResource(
   path: string,
   options?: { shared?: boolean; scope?: ResourceHelperScope },
 ): Promise<string | null> {
-  const owner = getOwnerForScope(resolveScope(options));
-  const resource = await resourceGetByPath(owner, path);
+  const scope = resolveScope(options);
+  const owner = getOwnerForScope(scope);
+  const orgId = scope === "shared" ? getRequestOrgId() : undefined;
+  const resourceOptions = orgId ? { orgId } : undefined;
+  const resource = resourceOptions
+    ? await resourceGetByPath(owner, path, resourceOptions)
+    : await resourceGetByPath(owner, path);
   if (resource) return resource.content;
-  if (resolveScope(options) === "shared" && owner !== SHARED_OWNER) {
-    return (await resourceGetByPath(SHARED_OWNER, path))?.content ?? null;
+  if (scope === "shared" && owner !== SHARED_OWNER) {
+    return (
+      (await resourceGetByPath(SHARED_OWNER, path, resourceOptions))?.content ??
+      null
+    );
   }
   return null;
 }
@@ -115,17 +123,32 @@ export async function listResources(
     includeAgentScratch?: boolean;
   },
 ): Promise<ResourceMeta[]> {
-  const owner = getOwnerForScope(resolveScope(options));
-  const resources = options?.includeAgentScratch
-    ? resourceList(owner, prefix, { includeAgentScratch: true })
+  const scope = resolveScope(options);
+  const owner = getOwnerForScope(scope);
+  const orgId = scope === "shared" ? getRequestOrgId() : undefined;
+  const resourceOptions =
+    scope === "shared"
+      ? orgId
+        ? {
+            ...(options?.includeAgentScratch
+              ? { includeAgentScratch: true }
+              : {}),
+            orgId,
+          }
+        : options?.includeAgentScratch
+          ? { includeAgentScratch: true }
+          : undefined
+      : options?.includeAgentScratch
+        ? { includeAgentScratch: true }
+        : undefined;
+  const resources = resourceOptions
+    ? resourceList(owner, prefix, resourceOptions)
     : resourceList(owner, prefix);
   const primary = await resources;
-  if (resolveScope(options) !== "shared" || owner === SHARED_OWNER) {
+  if (scope !== "shared" || owner === SHARED_OWNER) {
     return primary;
   }
-  const inherited = options?.includeAgentScratch
-    ? await resourceList(SHARED_OWNER, prefix, { includeAgentScratch: true })
-    : await resourceList(SHARED_OWNER, prefix);
+  const inherited = await resourceList(SHARED_OWNER, prefix, resourceOptions);
   const seen = new Set(primary.map((resource) => resource.path));
   return [
     ...primary,
