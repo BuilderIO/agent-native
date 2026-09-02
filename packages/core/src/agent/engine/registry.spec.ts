@@ -2747,6 +2747,80 @@ describe("AgentEngine registry", () => {
       expect(providerRead).toBeUndefined();
     });
 
+    it("prefetches once when a non-Builder engine is registered ahead of Builder", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
+        if (key === "BUILDER_PRIVATE_KEY") return { key, value: "p-key" };
+        if (key === "BUILDER_PUBLIC_KEY") return { key, value: "space" };
+        return null;
+      });
+      const readAppSecrets = vi.fn(readAppSecretsFromSingles(readAppSecret));
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret,
+        readAppSecrets,
+      }));
+
+      const { registerAgentEngine, detectEngineFromUserSecrets } =
+        await import("./registry.js");
+
+      // Registration order is priority order (see registerBuiltinEngines), so a
+      // custom engine ahead of Builder is legitimately probed first. The
+      // invariant that matters is that the prefetch stays memoized: it must not
+      // re-run per engine as the loop walks the rest of the registry.
+      registerAgentEngine({
+        name: "custom-first",
+        label: "Custom",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "c",
+        supportedModels: [],
+        requiredEnvVars: ["CUSTOM_API_KEY"],
+        create: vi.fn() as any,
+      });
+      registerAgentEngine({
+        name: "builder",
+        label: "Builder",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        create: vi.fn() as any,
+      });
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: vi.fn() as any,
+      });
+
+      const detected = await detectEngineFromUserSecrets();
+      expect(detected?.name).toBe("builder");
+
+      // One combined key set per scope, not a batch per engine: every read that
+      // covers the first engine's key also covers the later engine's, and no
+      // read covers a single engine on its own.
+      const providerBatches = readAppSecrets.mock.calls
+        .map(([args]: any) => args.keys as string[])
+        .filter(
+          (keys) =>
+            keys.includes("CUSTOM_API_KEY") || keys.includes("OPENAI_API_KEY"),
+        );
+      expect(providerBatches.length).toBeGreaterThan(0);
+      for (const keys of providerBatches) {
+        expect(keys).toContain("CUSTOM_API_KEY");
+        expect(keys).toContain("OPENAI_API_KEY");
+      }
+    });
+
     it("resolveEngine still honors a stored BYOK provider when Builder is not connected", async () => {
       vi.doMock("../../settings/store.js", () => ({
         getSetting: vi.fn().mockResolvedValue({
