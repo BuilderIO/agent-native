@@ -1,16 +1,11 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import {
-  useLoaderData,
-  useSearchParams,
-  type ClientLoaderFunctionArgs,
-} from "react-router";
+import { useLoaderData, useSearchParams } from "react-router";
 
 import { BuildOnlinePopover } from "../components/BuilderWaitlistPopover";
-import { communityApps } from "../components/community-apps";
-import { fetchCommunityApps } from "../components/community-apps.client";
 import { CommunityAppCard } from "../components/CommunityAppCard";
 import { CommunityAppSubmissionDialog } from "../components/CommunityAppSubmissionDialog";
+import { loadCommunityAppCatalog } from "../../server/lib/community-apps.server";
 import { sitePathForLocale } from "../components/docs-locale";
 import { featuredTemplates, TemplateCard } from "../components/TemplateCard";
 import { Button } from "../components/website-redesign/ds/button";
@@ -26,20 +21,9 @@ import {
 const SECTION_HEADING_CLASS =
   "font-[family-name:var(--b-font-sans)] text-[32px] font-medium leading-[1.1] tracking-[-0.02em] text-[var(--b-text-primary)]";
 
-export function loader() {
-  return { apps: communityApps, source: "seed" as const };
+export async function loader() {
+  return loadCommunityAppCatalog();
 }
-
-export async function clientLoader({ serverLoader }: ClientLoaderFunctionArgs) {
-  const fallback = await serverLoader<typeof loader>();
-  try {
-    return { apps: await fetchCommunityApps(), source: "builder" as const };
-  } catch {
-    return fallback;
-  }
-}
-
-clientLoader.hydrate = true;
 
 export default function TemplatesPage() {
   const t = useT();

@@ -54,5 +54,10 @@ export default createCoreRoutesPlugin({
       label: "Turnstile Site Key",
       required: false,
     },
+    {
+      key: "AGENT_NATIVE_COMMUNITY_APP_PUBLISHING_ORG_ID",
+      label: "Community app publishing organization ID",
+      required: false,
+    },
   ],
 });

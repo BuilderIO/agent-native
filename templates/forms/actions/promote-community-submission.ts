@@ -17,6 +17,8 @@ import type { FormField } from "../shared/types.js";
 
 export const COMMUNITY_APP_FORM_SLUG = "community-app-submission";
 export const COMMUNITY_APP_BUILDER_MODEL = "community-apps";
+const COMMUNITY_APP_PUBLISHING_ORG_ENV =
+  "AGENT_NATIVE_COMMUNITY_APP_PUBLISHING_ORG_ID";
 const BUILDER_WRITE_TIMEOUT_MS = 30_000;
 const PROMOTION_CLAIM_LEASE_MS = 5 * 60_000;
 
@@ -218,6 +220,7 @@ function builderEntryId(value: unknown): string | null {
 
 async function publishToBuilder(
   payload: CommunityAppPayload,
+  entryId: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<BuilderWriteResult> {
   const privateKey = readDeployCredentialEnv("BUILDER_CMS_PRIVATE_KEY");
@@ -236,9 +239,9 @@ async function publishToBuilder(
   );
   try {
     const response = await fetchImpl(
-      `https://builder.io/api/v1/write/${COMMUNITY_APP_BUILDER_MODEL}?triggerWebhooks=false`,
+      `https://builder.io/api/v1/write/${COMMUNITY_APP_BUILDER_MODEL}/${encodeURIComponent(entryId)}?triggerWebhooks=false`,
       {
-        method: "POST",
+        method: "PUT",
         headers: {
           accept: "application/json",
           authorization: `Bearer ${privateKey}`,
@@ -270,7 +273,7 @@ async function publishToBuilder(
     } catch {
       // coercion-ok: a successful status is the write result; the body is optional metadata.
     }
-    return { ok: true, entryId: builderEntryId(body) };
+    return { ok: true, entryId: builderEntryId(body) ?? entryId };
   } catch {
     return {
       ok: false,
@@ -352,7 +355,9 @@ export default defineAction({
       );
     }
 
+    assertCommunityPublishingConfigured(form);
     const payload = readSubmission(response, form);
+    const entryId = builderEntryIdForResponse(response.id);
     const now = new Date().toISOString();
     const promotedBy = context?.userEmail ?? getRequestUserEmail() ?? null;
     const claimed = await db
@@ -391,7 +396,7 @@ export default defineAction({
       );
     }
 
-    const result = await publishToBuilder(payload);
+    const result = await publishToBuilder(payload, entryId);
     if (!result.ok) {
       const status = result.ambiguity ? "unknown" : "failed";
       await db
@@ -457,5 +462,23 @@ export default defineAction({
     };
   },
 });
+
+function assertCommunityPublishingConfigured(
+  form: typeof schema.forms.$inferSelect,
+): void {
+  const configuredOrgId = readDeployCredentialEnv(
+    COMMUNITY_APP_PUBLISHING_ORG_ENV,
+  )?.trim();
+  if (!configuredOrgId || configuredOrgId !== form.orgId) {
+    fail("Community app publishing is not enabled for this organization.", {
+      errorCode: "promotion_not_configured",
+      statusCode: 503,
+    });
+  }
+}
+
+function builderEntryIdForResponse(responseId: string): string {
+  return `community-${responseId}`;
+}
 
 export { publishToBuilder, safeHttpUrl, slugify };

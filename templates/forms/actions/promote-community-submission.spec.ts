@@ -30,6 +30,7 @@ const response = {
 
 const form = {
   id: "form_community",
+  orgId: "builder-org",
   slug: "community-app-submission",
   fields: JSON.stringify([
     { id: "name", label: "App name", type: "text", required: true },
@@ -116,7 +117,11 @@ describe("promote-community-submission action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     dbMock.setResults([[{ formId: response.formId }], [response], [form]]);
-    credentialMock.mockReturnValue("private-key");
+    credentialMock.mockImplementation((key: string) =>
+      key === "AGENT_NATIVE_COMMUNITY_APP_PUBLISHING_ORG_ID"
+        ? form.orgId
+        : "private-key",
+    );
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -146,6 +151,10 @@ describe("promote-community-submission action", () => {
     });
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const body = JSON.parse(String(fetchCall?.[1]?.body));
+    expect(fetchCall?.[0]).toBe(
+      "https://builder.io/api/v1/write/community-apps/community-response_123456?triggerWebhooks=false",
+    );
+    expect(fetchCall?.[1]?.method).toBe("PUT");
     expect(body.published).toBe("published");
     expect(body.data.demoUrl).toBe("https://nomad.example.com/");
     expect(body.data.screenshots).toEqual([
@@ -183,6 +192,17 @@ describe("promote-community-submission action", () => {
     await expect(
       promoteCommunitySubmission.run({ responseId: response.id }),
     ).rejects.toMatchObject({ errorCode: "promotion_unknown" });
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it("requires the reserved form organization to be configured", async () => {
+    credentialMock.mockImplementation((key: string) =>
+      key === "BUILDER_CMS_PRIVATE_KEY" ? "private-key" : undefined,
+    );
+
+    await expect(
+      promoteCommunitySubmission.run({ responseId: response.id }),
+    ).rejects.toMatchObject({ errorCode: "promotion_not_configured" });
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 

@@ -1,1 +1,1 @@
-export { clientLoader, default, loader, meta } from "./apps.community.$slug";
+export { default, loader, meta } from "./apps.community.$slug";
