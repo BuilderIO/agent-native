@@ -2395,15 +2395,10 @@ export async function createMCPServerForRequest(
             !actionCallIsReadOnly(entry, args, false)
           ) {
             try {
-              void writeActionChangeMarker({
+              await writeActionChangeMarker({
                 actionName: name,
                 owner: getRequestUserEmail() ?? undefined,
                 orgId: getRequestOrgId() ?? undefined,
-              }).catch((error: unknown) => {
-                console.warn(
-                  "Could not write the action-change marker after an MCP tool call",
-                  error,
-                );
               });
             } catch (error) {
               console.warn(
