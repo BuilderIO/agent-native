@@ -5907,7 +5907,10 @@ const AssistantChatInner = forwardRef<
     () => new Set<string>(),
   );
   useEffect(() => {
-    if (!cpDevMode || !threadId) {
+    // An unsent thread has no row yet, so the endpoint answers 404 "Thread not
+    // found" — a guaranteed failed request on every fresh chat. It also cannot
+    // hold checkpoints, so there is nothing to ask for.
+    if (!cpDevMode || !threadId || messages.length === 0) {
       setCheckpointRunIds(new Set<string>());
       return;
     }
@@ -5936,7 +5939,7 @@ const AssistantChatInner = forwardRef<
     return () => {
       cancelled = true;
     };
-  }, [apiUrl, cpDevMode, threadId, isRunning]);
+  }, [apiUrl, cpDevMode, threadId, isRunning, messages.length]);
   const checkpointCtx = useMemo(
     () => ({ apiUrl, devMode: cpDevMode, threadId, checkpointRunIds }),
     [apiUrl, cpDevMode, threadId, checkpointRunIds],
