@@ -2,12 +2,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getOAuthAccountsMock = vi.hoisted(() => vi.fn());
 const listOAuthAccountsByOwnerMock = vi.hoisted(() => vi.fn());
+const listOAuthAccountsMock = vi.hoisted(() =>
+  vi.fn(
+    (): Promise<
+      Array<{ accountId: string; owner: string | null; tokens: unknown }>
+    > => Promise.resolve([]),
+  ),
+);
 const saveOAuthTokensMock = vi.hoisted(() => vi.fn());
 const deleteOAuthTokensMock = vi.hoisted(() => vi.fn());
 const createOAuth2ClientMock = vi.hoisted(() => vi.fn());
 const oauth2GetUserInfoMock = vi.hoisted(() => vi.fn());
 const peopleGetProfileMock = vi.hoisted(() => vi.fn());
 const calendarGetEventMock = vi.hoisted(() => vi.fn());
+const calendarGetCalendarMock = vi.hoisted(() => vi.fn());
 const calendarListEventsMock = vi.hoisted(() => vi.fn());
 const calendarFreeBusyMock = vi.hoisted(() => vi.fn());
 const calendarInsertEventMock = vi.hoisted(() => vi.fn());
@@ -70,6 +78,7 @@ vi.mock("@agent-native/core/oauth-tokens", () => ({
   saveOAuthTokens: saveOAuthTokensMock,
   deleteOAuthTokens: deleteOAuthTokensMock,
   listOAuthAccountsByOwner: listOAuthAccountsByOwnerMock,
+  listOAuthAccounts: listOAuthAccountsMock,
   hasOAuthTokens: vi.fn(),
 }));
 
@@ -83,6 +92,7 @@ vi.mock("./google-api.js", () => ({
   peopleGetProfile: peopleGetProfileMock,
   calendarListEvents: calendarListEventsMock,
   calendarGetEvent: calendarGetEventMock,
+  calendarGetCalendar: calendarGetCalendarMock,
   calendarInsertEvent: calendarInsertEventMock,
   calendarDeleteEvent: calendarDeleteEventMock,
   calendarPatchEvent: calendarPatchEventMock,
@@ -103,8 +113,11 @@ import {
   createEvent,
   moveEvent,
   deleteEvent,
+  disconnect,
   getClientForAccount,
   getDefaultAccountSelection,
+  getGoogleAccountTimezone,
+  invalidateAccountTimezoneCache,
   listEvents,
   listOverlayEvents,
   rsvpEvent,
@@ -787,6 +800,285 @@ describe("calendar event listing", () => {
       "person@example.com",
       expect.objectContaining({ pageToken: "overlay-page-2" }),
     );
+  });
+
+  it("degrades to an error result instead of throwing when account resolution itself fails", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+
+    const result = await listOverlayEvents(
+      "2026-02-05T00:00:00Z",
+      "2026-02-06T00:00:00Z",
+      ["person@example.com"],
+      "owner@example.com",
+      { accountEmails: ["owner@example.com"] },
+    );
+
+    expect(result.events).toEqual([]);
+    expect(result.errors).toEqual([
+      expect.objectContaining({ email: "person@example.com" }),
+    ]);
+  });
+});
+
+describe("Google account time zone lookup", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "peer@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+  });
+
+  it("reuses the same access token across a Calendar-call retry instead of refreshing again", async () => {
+    calendarGetCalendarMock
+      .mockRejectedValueOnce(new Error("transient"))
+      .mockResolvedValueOnce({ timeZone: "America/Chicago" });
+
+    await expect(getGoogleAccountTimezone("peer@example.com")).resolves.toBe(
+      "America/Chicago",
+    );
+
+    expect(calendarGetCalendarMock).toHaveBeenCalledTimes(2);
+    expect(calendarGetCalendarMock.mock.calls[0][0]).toBe("access-token");
+    expect(calendarGetCalendarMock.mock.calls[1][0]).toBe("access-token");
+  });
+
+  it("coalesces concurrent lookups for the same email into a single provider read", async () => {
+    let resolveCalendar: (value: { timeZone: string }) => void;
+    calendarGetCalendarMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCalendar = resolve;
+      }),
+    );
+
+    const first = getGoogleAccountTimezone("coalesce-peer@example.com");
+    const second = getGoogleAccountTimezone("coalesce-peer@example.com");
+    resolveCalendar!({ timeZone: "America/Chicago" });
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      "America/Chicago",
+      "America/Chicago",
+    ]);
+    expect(listOAuthAccountsByOwnerMock).toHaveBeenCalledTimes(1);
+    expect(calendarGetCalendarMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops serving a cached negative result once the account is invalidated", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+
+    await expect(
+      getGoogleAccountTimezone("negative-peer@example.com"),
+    ).resolves.toBeNull();
+    await expect(
+      getGoogleAccountTimezone("negative-peer@example.com"),
+    ).resolves.toBeNull();
+    expect(listOAuthAccountsByOwnerMock).toHaveBeenCalledTimes(1);
+
+    invalidateAccountTimezoneCache("negative-peer@example.com");
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "negative-peer@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarGetCalendarMock.mockResolvedValue({ timeZone: "America/Chicago" });
+
+    await expect(
+      getGoogleAccountTimezone("negative-peer@example.com"),
+    ).resolves.toBe("America/Chicago");
+    expect(listOAuthAccountsByOwnerMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("invalidates the cached time zone when the account reconnects", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+    await expect(
+      getGoogleAccountTimezone("steve@example.com"),
+    ).resolves.toBeNull();
+
+    createOAuth2ClientMock.mockReturnValue({
+      getToken: vi.fn().mockResolvedValue({
+        access_token: "fresh-access-token",
+        refresh_token: "refresh-token",
+        expires_in: 3600,
+        token_type: "Bearer",
+        scope: "scope",
+      }),
+    });
+    oauth2GetUserInfoMock.mockResolvedValue({ email: "steve@example.com" });
+    process.env.GOOGLE_CLIENT_ID = "client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    resolveSecretMock.mockImplementation(async (key: string) => {
+      const value = process.env[key];
+      return typeof value === "string" && value.length > 0 ? value : null;
+    });
+    runWithRequestContextMock.mockImplementation(
+      (_context: unknown, callback: () => unknown) => callback(),
+    );
+    await exchangeCode(
+      "oauth-code",
+      undefined,
+      "https://app.example.com/_agent-native/google/callback",
+    );
+
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarGetCalendarMock.mockResolvedValue({ timeZone: "America/Chicago" });
+
+    await expect(getGoogleAccountTimezone("steve@example.com")).resolves.toBe(
+      "America/Chicago",
+    );
+  });
+
+  it("invalidates the cached time zone on disconnect", async () => {
+    calendarGetCalendarMock.mockResolvedValue({ timeZone: "America/Chicago" });
+    await expect(
+      getGoogleAccountTimezone("disconnect-peer@example.com"),
+    ).resolves.toBe("America/Chicago");
+
+    await disconnect("disconnect-peer@example.com");
+
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+    await expect(
+      getGoogleAccountTimezone("disconnect-peer@example.com"),
+    ).resolves.toBeNull();
+    expect(listOAuthAccountsByOwnerMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not let a lookup started before a disconnect cache its stale result afterward", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "racing-peer@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    let resolveCalendar: (value: { timeZone: string }) => void;
+    calendarGetCalendarMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCalendar = resolve;
+      }),
+    );
+
+    const inFlight = getGoogleAccountTimezone("racing-peer@example.com");
+
+    // Disconnect races ahead of the in-flight lookup finishing.
+    await disconnect("racing-peer@example.com");
+
+    resolveCalendar!({ timeZone: "America/Chicago" });
+    await expect(inFlight).resolves.toBe("America/Chicago");
+
+    // The in-flight lookup's result (reflecting pre-disconnect state) must
+    // not have been written to the cache after the disconnect invalidated
+    // it - the next lookup should re-resolve from scratch.
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+    calendarGetCalendarMock.mockResolvedValue({ timeZone: "America/Chicago" });
+    await expect(
+      getGoogleAccountTimezone("racing-peer@example.com"),
+    ).resolves.toBeNull();
+  });
+
+  it("invalidates the owner-keyed cache when connecting a secondary account on someone else's behalf", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+    await expect(
+      getGoogleAccountTimezone("owner-secondary@example.com"),
+    ).resolves.toBeNull();
+
+    createOAuth2ClientMock.mockReturnValue({
+      getToken: vi.fn().mockResolvedValue({
+        access_token: "fresh-access-token",
+        refresh_token: "refresh-token",
+        expires_in: 3600,
+        token_type: "Bearer",
+        scope: "scope",
+      }),
+    });
+    oauth2GetUserInfoMock.mockResolvedValue({
+      email: "personal-secondary@example.com",
+    });
+    process.env.GOOGLE_CLIENT_ID = "client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    resolveSecretMock.mockImplementation(async (key: string) => {
+      const value = process.env[key];
+      return typeof value === "string" && value.length > 0 ? value : null;
+    });
+    runWithRequestContextMock.mockImplementation(
+      (_context: unknown, callback: () => unknown) => callback(),
+    );
+    // Connecting a secondary Google account (a different email than the
+    // app-owner) on someone else's behalf - `owner` is who the timezone
+    // cache is actually keyed by.
+    await exchangeCode(
+      "oauth-code",
+      undefined,
+      "https://app.example.com/_agent-native/google/callback",
+      "owner-secondary@example.com",
+    );
+
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "personal-secondary@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarGetCalendarMock.mockResolvedValue({ timeZone: "America/Chicago" });
+
+    await expect(
+      getGoogleAccountTimezone("owner-secondary@example.com"),
+    ).resolves.toBe("America/Chicago");
+  });
+
+  it("invalidates the owner-keyed cache when disconnecting a secondary account", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "personal-disconnect@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarGetCalendarMock.mockResolvedValue({ timeZone: "America/Chicago" });
+    await expect(
+      getGoogleAccountTimezone("owner-disconnect@example.com"),
+    ).resolves.toBe("America/Chicago");
+
+    // disconnect() is called with the connected account's own email, not
+    // the app-owner the cache is keyed by - the fix must resolve the owner
+    // from the account row before it's deleted.
+    listOAuthAccountsMock.mockResolvedValueOnce([
+      {
+        accountId: "personal-disconnect@example.com",
+        owner: "owner-disconnect@example.com",
+        tokens: {},
+      },
+    ]);
+    await disconnect("personal-disconnect@example.com");
+
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+    await expect(
+      getGoogleAccountTimezone("owner-disconnect@example.com"),
+    ).resolves.toBeNull();
+    expect(listOAuthAccountsByOwnerMock).toHaveBeenCalledTimes(2);
   });
 });
 
