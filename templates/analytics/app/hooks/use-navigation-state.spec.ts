@@ -1,6 +1,39 @@
 import { describe, expect, it } from "vitest";
 
-import { preserveActiveDashboardTab } from "./use-navigation-state";
+import {
+  commandPathForNavigation,
+  dataSourcesNavigationState,
+  preserveActiveDashboardTab,
+} from "./use-navigation-state";
+
+describe("data source navigation", () => {
+  it("extracts only the focused source as semantic navigation state", () => {
+    expect(
+      dataSourcesNavigationState(
+        new URLSearchParams("source=dbt&returnTo=ask&metadata=ignored"),
+      ),
+    ).toEqual({ view: "data-sources", dataSourceId: "dbt" });
+  });
+
+  it("builds an encoded command path for the focused source", () => {
+    expect(
+      commandPathForNavigation({
+        view: "data-sources",
+        dataSourceId: "dbt/core",
+      }),
+    ).toBe("/data-sources?source=dbt%2Fcore");
+  });
+
+  it("preserves an existing command path including returnTo", () => {
+    expect(
+      commandPathForNavigation({
+        view: "data-sources",
+        dataSourceId: "dbt",
+        path: "/data-sources?source=dbt&returnTo=ask",
+      }),
+    ).toBe("/data-sources?source=dbt&returnTo=ask");
+  });
+});
 
 describe("preserveActiveDashboardTab", () => {
   it("keeps the active tab when an agent reopens the current dashboard", () => {

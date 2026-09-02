@@ -11,6 +11,10 @@ const accountHealthSkill = readFileSync(
   new URL("../../.agents/skills/account-health/SKILL.md", import.meta.url),
   "utf8",
 );
+const dbtSkill = readFileSync(
+  new URL("../../.agents/skills/dbt/SKILL.md", import.meta.url),
+  "utf8",
+);
 
 const { agentChatPluginOptions, representativeAnalyticsActions } = vi.hoisted(
   () => ({
@@ -88,6 +92,7 @@ import {
 } from "../lib/real-data-actions";
 import {
   analyticsDataDictionaryRoutingContext,
+  analyticsDbtRoutingContext,
   analyticsSourceGuidanceOpening,
   ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE,
   ANALYTICS_CROSS_APP_ROUTING_GUIDANCE,
@@ -252,6 +257,68 @@ describe("Analytics agent Plan mode policy", () => {
     expect(context.length).toBeLessThan(1_000);
   });
 
+  it("keeps dbt routing bounded and distinguishes connection errors", () => {
+    const connected = analyticsDbtRoutingContext({
+      available: true,
+      configured: true,
+      capabilities: {
+        discovery: true,
+        lineage: true,
+        healthAndFreshness: true,
+        semanticLayer: false,
+      },
+      sqlTools: { available: true, intentionallyUnused: true },
+      toolCount: 8,
+      setupLink: "/data-sources?source=dbt&returnTo=ask",
+    });
+    const unreadable = analyticsDbtRoutingContext({
+      available: false,
+      configured: null,
+      error: "MCP client is not configured.",
+      capabilities: {
+        discovery: false,
+        lineage: false,
+        healthAndFreshness: false,
+        semanticLayer: false,
+      },
+      sqlTools: { available: false, intentionallyUnused: true },
+      toolCount: 0,
+      setupLink: "/data-sources?source=dbt&returnTo=ask",
+    });
+
+    expect(connected).toContain("discover the exact dynamic dbt tools");
+    expect(connected).toContain("direct SQL only through the bigquery action");
+    expect(connected).toContain(
+      "Missing Semantic Layer tools are a capability gap",
+    );
+    expect(unreadable).toContain("status is unreadable");
+    expect(unreadable).toContain("Do not infer that dbt is disconnected");
+    expect(connected.length).toBeLessThan(700);
+    expect(unreadable.length).toBeLessThan(500);
+  });
+
+  it("documents the governed dbt and MetricFlow decision order", () => {
+    for (const toolName of [
+      "get_node_details",
+      "get_lineage",
+      "get_model_health",
+      "get_model_performance",
+      "get_all_sources",
+      "list_metrics",
+      "get_dimensions",
+      "get_entities",
+      "get_dimension_values",
+      "query_metrics",
+      "get_metrics_compiled_sql",
+    ]) {
+      expect(dbtSkill).toContain(`\`${toolName}\``);
+    }
+    expect(dbtSkill).toContain("Never use dbt `execute_sql` or `text_to_sql`");
+    expect(dbtSkill).toContain("keep it unknown");
+    expect(dbtSkill).toContain("label the result as ad hoc SQL");
+    expect(dbtSkill).toContain("shared workspace dbt identity");
+  });
+
   it("leaves representative read-only Analytics tools available to the shared Plan-mode policy", () => {
     const pluginActions = agentChatPluginOptions[0]?.actions as Record<
       string,
@@ -295,6 +362,24 @@ describe("Analytics agent Plan mode policy", () => {
     );
   });
 
+  it("keeps dynamic dbt MCP tools off the initial tool surface", () => {
+    expect(INITIAL_TOOL_NAMES).not.toEqual(
+      expect.arrayContaining([
+        "get_node_details",
+        "get_lineage",
+        "get_model_health",
+        "get_model_performance",
+        "get_all_sources",
+        "list_metrics",
+        "get_dimensions",
+        "get_entities",
+        "get_dimension_values",
+        "query_metrics",
+        "get_metrics_compiled_sql",
+      ]),
+    );
+  });
+
   it("keeps named-session incident evidence on the initial tool surface", () => {
     expect(INITIAL_TOOL_NAMES).toEqual(
       expect.arrayContaining([
@@ -320,6 +405,7 @@ describe("Analytics agent Plan mode policy", () => {
       | (() => Promise<string>)
       | undefined;
     const context = await extraContext?.();
+    expect(context).toContain("<dbt-routing>");
     expect(context).toContain("EXPORT DELIVERY");
     expect(context).toContain("call `show-workspace-file`");
     expect(context).toContain("Never save an error or failed response");

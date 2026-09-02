@@ -8,9 +8,10 @@ analyses remain readable.
 
 Read the relevant skill before deeper work:
 
-- `data-querying` for source inspection, SQL generation, result handling, and
-  `/chart` embeds; `bigquery`, `hubspot`, `gong`, `prometheus` for provider
-  specifics.
+- `data-querying` for source inspection, SQL, result handling, and `/chart` embeds.
+- `dbt` for governed model semantics, lineage, freshness, MetricFlow, and dbt-backed SQL.
+  Read provider skills such as `bigquery`, `hubspot`, `gong`, and `prometheus`
+  for provider specifics.
 - `account-health` for named customer health, QBR, renewal, contract usage,
   identity, and product adoption.
 - `cross-source-analysis` for questions spanning sources (identity stitching,
@@ -47,23 +48,18 @@ Read the relevant skill before deeper work:
 
 ## Core Rules
 
-- A sibling app sends natural-language or shaped input over A2A, never SQL; this
-  app owns schema, source selection, and tools. Prefer natural-language
-  delegation; shaped reads are stable contracts.
-- Analytics owns first-party product usage, app/template events, agent-native
-  signups, conversions, and other curated product metrics. Answer sibling-app
-  delegations with the built-in source and query catalog; sibling agents should
-  send a natural-language question, never SQL.
+- A sibling app delegates natural-language or shaped input over A2A, never SQL;
+  this app owns schema, source selection, and tools.
 - Delegated requests: choose a safe default; label partial.
 - Data integrity first. Never invent numbers, dimensions, filters, or source
   semantics; present only retrieved values with source, window, filters,
   row-count/sample-size, join method, and caveats.
+- dbt is authoritative for dbt model semantics and lineage. When connected,
+  discover its dynamic tools with `tool-search`; read `dbt` before using them.
 - Use actions for data and sharing; don't bypass ownable-resource access checks
   with raw SQL.
 - Provider actions are bounded shortcuts, not limits. For broad or
-  absence-sensitive Gong work, stage raw API data and use `query-staged-dataset`
-  or a Data Program; see `provider-api`, `data-programs`, and `gong` for secure
-  provider and hosted-endpoint boundaries.
+  absence-sensitive work, read `provider-api` and `data-programs`.
 - Create dashboards, panels, or saved artifacts only when explicitly asked;
   suggest and wait otherwise. Scope them to the question, avoid decorative
   metrics, and never modify existing dashboards without a directive.
@@ -80,12 +76,8 @@ Read the relevant skill before deeper work:
 - Never hardcode API keys, tokens, webhook URLs, secrets, private Builder data,
   or customer data. Use secrets/OAuth and obvious placeholders in examples.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
-- External MCP callers should prefer a cataloged direct action for a bounded
-  read or explicitly requested mutation. Use `ask_app` for interpretation,
-  source selection, multi-step analysis, or when the requested capability is
-  not exposed directly. Writes remain limited to intentionally allowlisted
-  actions.
-- Reports/alerts use SQL actions; reports cap at five recipients.
+- External MCP callers use cataloged actions for bounded reads and `ask_app` for
+  interpretation or multi-step analysis. Writes require intentional allowlisting.
 
 ## Actions
 
@@ -95,19 +87,12 @@ Read the relevant skill before deeper work:
 | `search-dashboard-references` | Find dashboards to replicate. |
 | `get-sql-dashboard` | Read the dashboard and exact panel SQL. |
 | `certify-dashboard` | Admin-only approval of its current version. |
-| DB | `list-db-admin-connections`, `list-connected-database-tables`, `db-admin-federated-read`: registry, schema, bounded joins. |
+| DB | Registry, schema, and bounded federated reads. |
 
 ## Application State
 
 - `navigation` exposes the current dashboard, analysis, source, chart, and
-  selection. `navigate` moves the user between supported Analytics surfaces,
-  `"sessions"`, `"monitoring"`, and `"agents"`. Use `view-screen` when the
-  active context is unclear.
+  selection. Use `view-screen` when active context is unclear.
 - Clicking a panel stages it as a chat context chip and writes `selected-object`
   with `type="dashboard-panel"`. Read `dashboard-management` for the
   `/dashboards` overview and folder actions.
-
-## Shared UI
-
-Before building common workspace or agent UI, read `agent-native-toolkit`; read
-`customizing-agent-native` before adapting shared UI.

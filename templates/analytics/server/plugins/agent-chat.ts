@@ -14,6 +14,7 @@ import actionsRegistry from "../../.generated/actions-registry.js";
 import { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
 import { ANALYTICS_CONNECTOR_CATALOG } from "../lib/analytics-connector-catalog";
 import { credentialProviderConfigs } from "../lib/credential-keys";
+import { readDbtMcpStatus, type DbtMcpStatus } from "../lib/dbt-mcp-status";
 import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
 import {
   deriveGroundingActionNames,
@@ -329,6 +330,32 @@ export function analyticsDataDictionaryRoutingContext(): string {
   return `<data-dictionary-routing>
 Data-dictionary definitions are available through \`search-analytics-query-catalog\`, which combines focused dictionary lookup with a search over existing dashboard/chart SQL. Use that combined catalog search as the normal preflight for a bounded metric lookup. Call \`list-data-dictionary\` separately when the catalog has no usable match or when the user asks to browse definitions or filter them by department. Treat approved entries as canonical, verify unreviewed human entries when stakes are high, and treat AI-generated unapproved entries as suggestions only. After the catalog identifies one source and query shape, query that source once and stop on success. If no matching definition or chart exists, inspect the most likely source schema before asking a clarification about business meaning. Never ask the user to supply internal dataset, table, column, or SQL identifiers that the configured Analytics actions can discover.
 </data-dictionary-routing>`;
+}
+
+export function analyticsDbtRoutingContext(status: DbtMcpStatus): string {
+  if (status.configured === null) {
+    return `<dbt-routing>
+dbt capability status is unreadable. Do not infer that dbt is disconnected or that no dbt models or metrics exist. For a dbt-backed request, read the dbt skill and use tool-search to look for the official dynamic dbt tools; preserve a real connection error if discovery fails.
+</dbt-routing>`;
+  }
+  if (!status.configured) {
+    return `<dbt-routing>
+No dynamic dbt capability was visible in a successful connection check. This is a connection capability gap, not evidence that no governed metrics exist. If the request requires dbt semantics, explain the missing connection and link to ${status.setupLink}.
+</dbt-routing>`;
+  }
+
+  const capabilities = [
+    status.capabilities.discovery ? "Discovery" : null,
+    status.capabilities.lineage ? "lineage" : null,
+    status.capabilities.healthAndFreshness ? "health/freshness" : null,
+    status.capabilities.semanticLayer ? "Semantic Layer" : null,
+  ].filter((capability): capability is string => Boolean(capability));
+  const semanticLayerGuidance = status.capabilities.semanticLayer
+    ? "Use MetricFlow for governed metric requests."
+    : "Missing Semantic Layer tools are a capability gap, not evidence that no metrics exist.";
+  return `<dbt-routing>
+dbt is connected with these visible capabilities: ${capabilities.join(", ") || "none classified"}. Read the dbt skill, then discover the exact dynamic dbt tools with tool-search. dbt owns model semantics and lineage; verify physical BigQuery relations with search-bigquery-schema and run direct SQL only through the bigquery action. ${semanticLayerGuidance}
+</dbt-routing>`;
 }
 
 export { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
@@ -1135,6 +1162,7 @@ export default createAgentChatPlugin({
     // Always inject compact source-routing guidance. Dictionary definitions
     // stay behind list-data-dictionary so prompt assembly does not read and
     // render every organization metric before the model request starts.
+    const dbtRouting = analyticsDbtRoutingContext(await readDbtMcpStatus());
     const sourceGuidance =
       analyticsSourceGuidanceOpening() +
       "DASHBOARD CREATION RULE — You may create dashboard artifacts, SQL panels, or other resources only when the user explicitly asks you to (e.g. 'build me a dashboard for...', 'save this analysis', 'add a chart for...'). Treat a requested saved analysis or deep-dive report as a dashboard request. Never create any resource proactively during research, trend analysis, or answering questions. If you think a dashboard would be useful, suggest it and wait for explicit confirmation before creating anything. Never add new items to the sidebar or modify existing dashboards without an explicit user directive. " +
@@ -1161,7 +1189,7 @@ export default createAgentChatPlugin({
       "For schema questions, prefer data-dictionary entries and configured warehouse schemas over assumptions; use `search-bigquery-schema` for BigQuery metadata before inventing datasets, tables, or columns. " +
       "Before finalizing any analytics answer, make the evidence trail explicit enough to audit: answer the user's question, name the source(s), time window, sample size or row count, filters, join/match method, caveats/gaps, and recommended next action when useful. Never substitute fabricated numbers for a failed query or unavailable provider. It is fine to ask a clarifying question, provide a plan, or say exactly which source is unavailable as long as you do not present metrics or source-record conclusions without evidence.\n" +
       "</data-source-guidance>";
-    return `${sourceGuidance}\n\n${ANALYTICS_CUSTOM_BLOCK_GUIDANCE}\n\n${analyticsDataDictionaryRoutingContext()}`;
+    return `${sourceGuidance}\n\n${ANALYTICS_CUSTOM_BLOCK_GUIDANCE}\n\n${analyticsDataDictionaryRoutingContext()}\n\n${dbtRouting}`;
   },
   mentionProviders: {
     dashboards: {
