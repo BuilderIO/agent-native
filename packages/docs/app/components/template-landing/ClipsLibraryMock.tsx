@@ -702,7 +702,7 @@ const CLIPS_MOCK_CSS = [
   // The popover is a fixed 340x408 panel. Shrink it on narrow screens, where
   // the mock is shorter, rather than let the "Start recording" CTA clip out.
   // The desktop overlap values are far too aggressive for a narrow column.
-  "@media (max-width: 640px) { .clips-mock { margin-top: 0; padding: 54px 16px 18px; } .clips-mock .clips-mock-popover { top: -44px; right: 12px; transform: scale(0.72); transform-origin: top right; } }",
+  "@media (max-width: 860px) { .clips-mock { margin-top: -36px; padding: 54px 16px 18px; } .clips-mock .clips-mock-popover { top: -49px; right: -1px; transform: scale(0.72); transform-origin: top right; } }",
 
   // Faux app window
   ".clips-mock .library-window { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; background: var(--lib-window-bg); color: var(--lib-fg); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }",
