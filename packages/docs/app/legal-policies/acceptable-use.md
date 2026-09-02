@@ -29,7 +29,7 @@ You will not, and will cause your users you authorize not to, use the Services t
 2.2 Content and Conduct
 
 - host, transmit, or distribute content that is unlawful, defamatory, harassing, or that incites violence or unlawful acts;
-- infringe the intellectual property, privacy, publicity, or other rights of any third party (see also the [DMCA Policy](/legal/dmca));
+- infringe the intellectual property, privacy, publicity, or other rights of any third party;
 - impersonate any person or entity, or publish one-to-one copies of existing brands' sites to deceive;
 - publish or distribute spam, chain messages, or unsolicited bulk communications;
 - operate or facilitate an illicit marketplace, or any service whose primary purpose is to enable the anonymous purchase, sale, or exchange of illegal goods, services, stolen data, or stolen credentials;

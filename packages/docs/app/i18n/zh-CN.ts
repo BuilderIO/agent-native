@@ -1736,7 +1736,6 @@ const zhCN = {
         aiTerms: "AI 条款",
         platformRules: "平台规则",
         takedown: "暂停、下架和数据处理政策",
-        dmca: "DMCA 政策",
         lawEnforcement: "执法机关请求政策",
       },
       notIncluded: {

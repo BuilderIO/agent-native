@@ -28,12 +28,12 @@ describe("renderMarkdownToHtml", () => {
 
   it("canonicalizes same-site links and leaves external ones alone", () => {
     const html = renderMarkdownToHtml(
-      "[docs](/docs) [policy](/legal/dmca) [site](https://x.test)",
+      "[docs](/docs) [policy](/legal/takedown) [site](https://x.test)",
       "es-ES",
     );
 
     expect(html).toContain('<a href="/es-es/docs/">docs</a>');
-    expect(html).toContain('<a href="/es-es/legal/dmca/">policy</a>');
+    expect(html).toContain('<a href="/es-es/legal/takedown/">policy</a>');
     expect(html).toContain('<a href="https://x.test">site</a>');
   });
 

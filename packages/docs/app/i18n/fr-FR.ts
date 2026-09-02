@@ -1779,7 +1779,6 @@ const frFR = {
         aiTerms: "Conditions relatives à l’IA",
         platformRules: "Règles de la plateforme",
         takedown: "Politique de suspension, retrait et traitement des données",
-        dmca: "Politique DMCA",
         lawEnforcement: "Politique relative aux demandes des autorités",
       },
       notIncluded: {

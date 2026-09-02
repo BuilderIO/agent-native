@@ -1,6 +1,5 @@
 import acceptableUseMarkdown from "./legal-policies/acceptable-use.md?raw";
 import aiTermsMarkdown from "./legal-policies/ai-terms.md?raw";
-import dmcaMarkdown from "./legal-policies/dmca.md?raw";
 import lawEnforcementMarkdown from "./legal-policies/law-enforcement.md?raw";
 import platformRulesMarkdown from "./legal-policies/platform-rules.md?raw";
 import privacyMarkdown from "./legal-policies/privacy.md?raw";
@@ -15,8 +14,7 @@ export const LEGAL_POLICIES = [
   { ...LEGAL_POLICY_METADATA[3], markdown: aiTermsMarkdown },
   { ...LEGAL_POLICY_METADATA[4], markdown: platformRulesMarkdown },
   { ...LEGAL_POLICY_METADATA[5], markdown: takedownMarkdown },
-  { ...LEGAL_POLICY_METADATA[6], markdown: dmcaMarkdown },
-  { ...LEGAL_POLICY_METADATA[7], markdown: lawEnforcementMarkdown },
+  { ...LEGAL_POLICY_METADATA[6], markdown: lawEnforcementMarkdown },
 ] as const;
 
 export type LegalPolicy = (typeof LEGAL_POLICIES)[number];

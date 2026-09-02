@@ -1780,7 +1780,6 @@ const deDE = {
         aiTerms: "KI-Bedingungen",
         platformRules: "Plattformregeln",
         takedown: "Richtlinie zu Sperrung, Entfernung und Datenverarbeitung",
-        dmca: "DMCA-Richtlinie",
         lawEnforcement: "Richtlinie für Anfragen von Strafverfolgungsbehörden",
       },
       notIncluded: {

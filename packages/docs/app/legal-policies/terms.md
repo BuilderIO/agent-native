@@ -151,6 +151,5 @@ These restrictions apply to hosted services. They do not restrict the rights gra
 - [Acceptable Use Policy](/legal/acceptable-use)
 - [AI Terms](/legal/ai-terms)
 - [Platform Rules](/legal/platform-rules)
-- [DMCA Policy](/legal/dmca)
 - [Suspension, Takedown & Data-Handling Policy](/legal/takedown)
 - [Law Enforcement Request Policy](/legal/law-enforcement)

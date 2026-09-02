@@ -1771,7 +1771,6 @@ const ptBR = {
         aiTerms: "Termos de IA",
         platformRules: "Regras da Plataforma",
         takedown: "Política de Suspensão, Remoção e Tratamento de Dados",
-        dmca: "Política DMCA",
         lawEnforcement: "Política para Solicitações de Autoridades Policiais",
       },
       notIncluded: {

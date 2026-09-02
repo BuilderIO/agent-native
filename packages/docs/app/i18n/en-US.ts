@@ -1760,7 +1760,6 @@ const enUS = {
         aiTerms: "AI Terms",
         platformRules: "Platform Rules",
         takedown: "Suspension, Takedown & Data-Handling Policy",
-        dmca: "DMCA Policy",
         lawEnforcement: "Law Enforcement Request Policy",
       },
       notIncluded: {

@@ -1779,7 +1779,6 @@ const esES = {
         aiTerms: "Términos de IA",
         platformRules: "Reglas de la plataforma",
         takedown: "Política de suspensión, retirada y gestión de datos",
-        dmca: "Política DMCA",
         lawEnforcement: "Política para solicitudes de las fuerzas del orden",
       },
       notIncluded: {

@@ -1761,7 +1761,6 @@ const koKR = {
         aiTerms: "AI 약관",
         platformRules: "플랫폼 규칙",
         takedown: "중지, 삭제 및 데이터 처리 정책",
-        dmca: "DMCA 정책",
         lawEnforcement: "법 집행기관 요청 정책",
       },
       notIncluded: {

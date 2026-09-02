@@ -1756,7 +1756,6 @@ const arSA = {
         aiTerms: "شروط الذكاء الاصطناعي",
         platformRules: "قواعد المنصة",
         takedown: "سياسة التعليق والإزالة ومعالجة البيانات",
-        dmca: "سياسة DMCA",
         lawEnforcement: "سياسة طلبات جهات إنفاذ القانون",
       },
       notIncluded: {

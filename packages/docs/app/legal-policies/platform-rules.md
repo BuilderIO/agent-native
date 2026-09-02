@@ -34,7 +34,7 @@ Zero tolerance for content that sexually exploits or endangers minors (CSAM). We
 
 6. Copyright and IP
 
-Respect copyright and intellectual property. Don't host content that infringes someone's copyright or trademark, including one-to-one copies of existing commercial sites. If you receive a DMCA takedown notice relating to your app, we'll follow the process in the [DMCA Policy](/legal/dmca).
+Respect copyright and intellectual property. Don't host content that infringes someone's copyright or trademark, including one-to-one copies of existing commercial sites. To report a copyright or trademark concern, use the reporting or contact method published on the Agent-Native Site.
 
 7. Privacy and Data
 

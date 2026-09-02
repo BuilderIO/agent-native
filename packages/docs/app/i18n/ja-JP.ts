@@ -1770,7 +1770,6 @@ const jaJP = {
         aiTerms: "AI 利用規約",
         platformRules: "プラットフォームルール",
         takedown: "停止・削除・データ処理ポリシー",
-        dmca: "DMCA ポリシー",
         lawEnforcement: "法執行機関からの要請ポリシー",
       },
       notIncluded: {

@@ -1756,7 +1756,6 @@ const hiIN = {
         aiTerms: "AI शर्तें",
         platformRules: "प्लेटफ़ॉर्म नियम",
         takedown: "निलंबन, हटाने और डेटा प्रबंधन नीति",
-        dmca: "DMCA नीति",
         lawEnforcement: "कानून प्रवर्तन अनुरोध नीति",
       },
       notIncluded: {

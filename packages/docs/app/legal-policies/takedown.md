@@ -13,7 +13,7 @@ This policy explains how and when the Service operator suspends access to Agent-
 The Service operator may suspend an account, restrict access to the Services, or disable a Hosted Agent-Native Application where it reasonably believes there is:
 
 - a violation of the Acceptable Use Policy or Platform Rules;
-- a valid DMCA takedown notice or other copyright infringement claim under the [DMCA Policy](/legal/dmca), including repeat infringement;
+- a credible copyright or other intellectual-property infringement claim submitted through the reporting or contact method published on the Agent-Native Site, including repeat infringement;
 - a security threat, such as malware, phishing, or compromised infrastructure;
 - unlawful content or activity, or a valid legal order requiring removal;
 - unlicensed operation of a regulated or age-restricted offering.

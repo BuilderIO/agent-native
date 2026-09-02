@@ -55,7 +55,6 @@ export default function LegalPage() {
     aiTerms: t("legal.resources.links.aiTerms"),
     platformRules: t("legal.resources.links.platformRules"),
     takedown: t("legal.resources.links.takedown"),
-    dmca: t("legal.resources.links.dmca"),
     lawEnforcement: t("legal.resources.links.lawEnforcement"),
   } as const;
 

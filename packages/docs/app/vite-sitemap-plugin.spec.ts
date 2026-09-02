@@ -52,7 +52,6 @@ describe("docs agent web generation", () => {
       expect(paths).toContain("/legal/ai-terms/");
       expect(paths).toContain("/legal/platform-rules/");
       expect(paths).toContain("/legal/takedown/");
-      expect(paths).toContain("/legal/dmca/");
       expect(paths).toContain("/legal/law-enforcement/");
       expect(paths).toContain("/es-es/legal/");
       expect(paths).toContain("/es-es/terms/");

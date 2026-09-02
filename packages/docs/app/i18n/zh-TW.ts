@@ -1736,7 +1736,6 @@ const messages = {
         aiTerms: "AI 條款",
         platformRules: "平台規則",
         takedown: "暫停、下架和資料處理政策",
-        dmca: "DMCA 政策",
         lawEnforcement: "執法機關請求政策",
       },
       notIncluded: {

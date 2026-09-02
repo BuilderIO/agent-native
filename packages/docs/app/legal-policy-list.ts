@@ -47,14 +47,6 @@ export const LEGAL_POLICY_METADATA = [
     filename: "takedown.md",
   },
   {
-    key: "dmca",
-    slug: "dmca",
-    title: "DMCA Policy",
-    description:
-      "How the Service operator responds to copyright infringement notices for hosted Agent-Native content.",
-    filename: "dmca.md",
-  },
-  {
     key: "lawEnforcement",
     slug: "law-enforcement",
     title: "Law Enforcement Request Policy",

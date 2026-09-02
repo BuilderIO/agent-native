@@ -185,8 +185,8 @@ describe("localizeDocsMarkdownLinks", () => {
 
 describe("localizeSiteHref", () => {
   it("localizes policy links and preserves fragments", () => {
-    expect(localizeSiteHref("/legal/dmca#notice", "de-DE")).toBe(
-      "/de-de/legal/dmca/#notice",
+    expect(localizeSiteHref("/legal/takedown#notice", "de-DE")).toBe(
+      "/de-de/legal/takedown/#notice",
     );
     expect(localizeSiteHref("/privacy", "es-ES")).toBe("/es-es/privacy/");
   });
