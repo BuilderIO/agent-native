@@ -48,42 +48,52 @@ merging, except when the user explicitly invokes `/ship-now`.
    `notificationPolicy: failed_runs_only`; update that exact task-scoped
    automation on later ticks. The task-scoped name prevents different
    invocations from overwriting the same record, but it does not select one
-   durable babysitter for the PR. Use the remote Git ref
+   durable babysitter for the PR. First inspect the exact legacy heartbeat. If
+   it is ACTIVE, leave it untouched, do not claim a lease or create any watcher
+   for this PR, and continue this invocation in the foreground. This is a
+   terminal foreground-only branch for this invocation, so skip the
+   missing-watcher create or resume path below.
+
+   When no ACTIVE legacy heartbeat is present, use the remote Git ref
    `refs/heads/agent-native-babysit-lock-<number>` as the concrete serialized
    PR lease coordinator. Its tip is a lease-record commit, not application
    code, and must record the PR, owner thread, version, and expiry. Create a
    fresh record with `git commit-tree`, then claim an absent ref with a normal
    non-force `git push origin <record-oid>:<lease-ref>`; ref creation is the
-   atomic create-if-absent operation. To renew or take over an expired record,
-   build the next record with the observed lease commit as its parent and use
+   atomic create-if-absent operation. Read the lease with `git ls-remote` plus
+   `git fetch`/`git show`; only an expired or released record may be replaced.
+   To renew or take over such a record, build the next record with the observed
+   lease commit as its parent and use
    `git push --force-with-lease=<lease-ref>:<observed-oid> origin
    <record-oid>:<lease-ref>`. A rejected push is a failed claim or renewal:
-   never update the heartbeat and remain foreground-only. Read the lease with
-   `git ls-remote` plus `git fetch`/`git show`; do not enumerate or infer foreign
-   task-scoped automation names. The lease ref is the single source of truth
-   for new watchers, and an ACTIVE legacy watcher is conservatively treated as
-   an existing holder. A task-scoped heartbeat is valid only while its owner
-   holds the current lease, so no foreign-name lookup is needed for exclusion.
-   Inspect the exact legacy heartbeat before claiming the lease. If it is
-   ACTIVE, leave it untouched, do not create any watcher for this PR, and
-   continue this invocation in the foreground. This is a terminal
-   foreground-only branch for this invocation, so skip the missing-watcher
-   create or resume path below. If the lease ref reports another active owner,
-   the atomic claim fails and this invocation remains foreground-only. Only
-   after this task's PR-scoped lease claim succeeds may it create or resume its
-   own task-scoped watcher. Never use the legacy shared `babysit-pr-<number>`
-   identity as a new invocation's heartbeat.
-   The lease ref's `git push --force-with-lease` is the atomic precondition for
-   every claim, renewal, and release. The ordinary `automation_update` call is
-   made only after this task holds the lease, for this task's exact watcher name
-   and `targetThreadId`; do not invent unsupported CAS fields for that API.
-   Never use a read followed by an unconditional lease write. After every
-   successful mutation, reread and verify the owner and version. Before each
-   reschedule, renew the lease with its expected version, then update the exact
-   task-scoped watcher; a rejected lease push is a no-op and must not be
-   bypassed with an unconditional retry. A text-only wake-up reminder is not
-   enough. If no durable wake-up tool is available, keep the foreground loop
-   running and do not stop after PR creation.
+   never update the heartbeat and remain foreground-only. If the lease ref
+   reports another active owner, the atomic claim fails and this invocation
+   remains foreground-only. The lease ref is the single source of truth for
+   new watchers, so do not enumerate or infer foreign task-scoped automation
+   names. An ACTIVE legacy watcher is conservatively treated as an existing
+   holder. A task-scoped heartbeat is valid only while its owner holds the
+   current lease.
+
+   Never create a task-scoped watcher before this task's PR-scoped lease claim
+   succeeds. Only after the claim succeeds may this invocation create or resume
+   its own task-scoped watcher. Never use the legacy shared
+   `babysit-pr-<number>` identity as a new invocation's heartbeat. The lease
+   ref's `git push --force-with-lease` is the atomic precondition for every
+   claim, renewal, and release. The ordinary `automation_update` call is made
+   only after this task holds the lease, for this task's exact watcher name and
+   `targetThreadId`; do not invent unsupported CAS fields for that API. Never
+   use a read followed by an unconditional lease write. After every successful
+   mutation, reread and verify the owner and version.
+
+   Renew the lease atomically at the start of every tick, after the required
+   fetch and before Step 0 checks, and again before any slow local validation or
+   heartbeat reschedule. Use an expiry longer than the two-minute cadence, but
+   never rely on expiry alone. A failed renewal fences this invocation: do not
+   perform PR work or update the heartbeat, and remain foreground-only. A
+   heartbeat wake that fails this fence must attempt the same-owner pause of
+   its exact task-scoped record before exiting. A text-only wake-up reminder is
+   not enough. If no durable wake-up tool is available, keep the foreground
+   loop running and do not stop after PR creation.
 2. Track when the last actionable item (new human/bot feedback, CI fix, merge-conflict resolution, or a local-change commit/push) occurred.
 3. After 30 minutes of no new actionable items with GitHub Actions CI green, cancel the loop (stop scheduling wake-ups) and report "All clear".
 
@@ -325,7 +335,11 @@ Only after 10 consecutive clean minutes, force merge with `gh pr merge <number> 
 - No new actionable feedback AND GitHub Actions green for 30 consecutive minutes
 - PR is merged or closed
 
-Before stopping on either condition, reread this task's exact
+If this invocation claimed the PR lease but did not create or resume its
+task-scoped heartbeat, release that lease first with the same owner/version
+`git push --force-with-lease` operation; retry a failed release while the
+foreground loop remains active. Then, before stopping on either condition,
+reread this task's exact
 `babysit-pr-<number>-<this task's threadId>` heartbeat and capture its current
 version. While still holding the PR lease, update that exact heartbeat to
 `PAUSED` and verify the result. If the pause fails, do not stop: reread the
