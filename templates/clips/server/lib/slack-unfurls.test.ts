@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 
+import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "@agent-native/core/shared";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -39,6 +40,8 @@ function recording(overrides: Record<string, unknown> = {}) {
     trashedAt: null,
     expiresAt: null,
     videoUrl: "https://media.example.com/rec-1.mp4",
+    sourceAppName: null,
+    sourceWindowTitle: null,
     ...overrides,
   } as any;
 }
@@ -139,6 +142,22 @@ describe("Clips Slack unfurls", () => {
     ).toMatchObject({
       thumbnail_url:
         "https://clips.example.com/clips/api/agent-frame.jpg?id=rec-1&atMs=350",
+    });
+  });
+
+  it("keeps a valid fallback for legacy Loom embeds without thumbnails", () => {
+    expect(
+      buildSlackVideoBlock({
+        recording: recording({
+          thumbnailUrl: null,
+          animatedThumbnailUrl: null,
+          sourceAppName: "Loom",
+          videoUrl: "https://www.loom.com/embed/loom123456",
+        }),
+        origin: "https://clips.example.com",
+      }),
+    ).toMatchObject({
+      thumbnail_url: AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
     });
   });
 
