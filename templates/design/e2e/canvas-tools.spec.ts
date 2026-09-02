@@ -1148,9 +1148,9 @@ test("keyboard shortcuts dock opens without remounting the overview iframe", asy
     .boundingBox();
   expect(railBox?.width).toBe(64);
   expect(layersBox).not.toBeNull();
-  expect(
-    Math.abs(layersBox!.x + layersBox!.width - 344),
-  ).toBeLessThanOrEqual(1);
+  expect(Math.abs(layersBox!.x + layersBox!.width - 344)).toBeLessThanOrEqual(
+    1,
+  );
 
   const iframe = screenShell(page, "Home")
     .locator("iframe[data-design-preview-iframe]")
@@ -3276,7 +3276,9 @@ test("single-screen undo does not consume overview history", async ({
 });
 
 // Undo over deleted screen content restores one item too many.
-test.fixme("overview undo skips deleted screen content history", async ({ page }) => {
+test.fixme("overview undo skips deleted screen content history", async ({
+  page,
+}) => {
   await postAction(page.request, "create-file", {
     designId,
     filename: "about.html",
