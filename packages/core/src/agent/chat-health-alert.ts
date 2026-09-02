@@ -1,9 +1,9 @@
 import { getDbExec } from "../db/client.js";
-import { notify } from "../notifications/registry.js";
+import { notifyWithDelivery } from "../notifications/registry.js";
 import { getSetting, putSetting } from "../settings/store.js";
 
 /**
- * Pages the people who can act when an app's chat stops answering.
+ * Sends one Slack alert when an app's chat stops answering.
  *
  * The detector for this already existed as `scripts/chat-health.mjs --strict`,
  * correctly calibrated and exiting 1 on a partial outage — but nothing ever ran
@@ -30,7 +30,7 @@ const BAD_RATE_THRESHOLD = 0.5;
 /** One page per outage, not one per sweep. */
 const COOLDOWN_MS = 60 * 60_000;
 
-const LAST_ALERT_SETTING_KEY = "chat-health-alert:last-paged-at";
+const LAST_ALERT_SETTING_KEY = "chat-health-alert:last-slack-alert-at";
 
 /**
  * Every outcome is distinguishable. "Not enough turns to judge" and "healthy"
@@ -42,6 +42,7 @@ export type ChatHealthAlertOutcome =
   | { status: "insufficient-data"; turns: number }
   | { status: "cooldown"; retryAfterMs: number }
   | { status: "alerted"; turns: number; badRate: number; recipients: number }
+  | { status: "delivery-failed"; reason: string }
   | { status: "check-failed"; reason: string };
 
 interface TurnCounts {
@@ -79,16 +80,19 @@ async function countRecentTurns(since: number): Promise<TurnCounts> {
   };
 }
 
-/** Owners and admins — the people who can actually change a model or a key. */
-async function alertRecipients(): Promise<string[]> {
+/** Use one owner/admin so a shared Slack webhook gets one alert, not duplicates. */
+async function alertOwner(): Promise<string | null> {
   const { rows } = await getDbExec().execute({
-    sql: `SELECT DISTINCT email FROM org_members
-          WHERE role IN ('owner', 'admin')`,
+    sql: `SELECT email FROM org_members
+          WHERE role IN ('owner', 'admin')
+          ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END, email
+          LIMIT 1`,
     args: [],
   });
-  return rows
-    .map((r) => String((r as Record<string, unknown>).email ?? ""))
-    .filter(Boolean);
+  const email = String(
+    (rows[0] as Record<string, unknown> | undefined)?.email ?? "",
+  );
+  return email || null;
 }
 
 export async function checkChatHealthAndAlert(
@@ -131,16 +135,23 @@ export async function checkChatHealthAndAlert(
     };
   }
 
-  let recipients: string[];
+  let owner: string | null;
   try {
-    recipients = await alertRecipients();
+    owner = await alertOwner();
   } catch (error) {
     return { status: "check-failed", reason: String(error) };
   }
+  if (!owner) {
+    return {
+      status: "delivery-failed",
+      reason: "No owner or admin is configured for Slack health alerts.",
+    };
+  }
 
   const pct = Math.round(badRate * 100);
-  for (const owner of recipients) {
-    await notify(
+  let delivery: Awaited<ReturnType<typeof notifyWithDelivery>>;
+  try {
+    delivery = await notifyWithDelivery(
       {
         severity: "critical",
         title: `Chat is failing: ${pct}% of turns ended without an answer`,
@@ -148,6 +159,7 @@ export async function checkChatHealthAndAlert(
           `${counts.bad} of ${counts.turns} turns in the last hour ended without ` +
           `an answer. Run \`node scripts/chat-health.mjs --hours 1\` for the ` +
           `per-reason breakdown.`,
+        channels: ["slack"],
         metadata: {
           turns: counts.turns,
           bad: counts.bad,
@@ -156,17 +168,20 @@ export async function checkChatHealthAndAlert(
         },
       },
       { owner },
-    ).catch((error: unknown) => {
-      // One undeliverable recipient must not suppress the rest.
-      console.error(
-        "[chat-health-alert] notify failed for a recipient:",
-        error,
-      );
-    });
+    );
+  } catch (error) {
+    console.error("[chat-health-alert] Slack delivery failed:", error);
+    return { status: "delivery-failed", reason: String(error) };
   }
 
-  // Stamped only after an attempt was actually made, so a failed page retries
-  // on the next sweep instead of being silenced by its own cooldown.
+  if (!delivery.deliveredChannels.includes("slack")) {
+    const reason = "Slack health alert was not delivered.";
+    console.error(`[chat-health-alert] ${reason}`);
+    return { status: "delivery-failed", reason };
+  }
+
+  // Stamp only after Slack confirms delivery, so a failed alert retries on the
+  // next sweep instead of being silenced by its own cooldown.
   await putSetting(LAST_ALERT_SETTING_KEY, { at: now }).catch(
     (error: unknown) => {
       console.error("[chat-health-alert] could not stamp cooldown:", error);
@@ -177,6 +192,6 @@ export async function checkChatHealthAndAlert(
     status: "alerted",
     turns: counts.turns,
     badRate,
-    recipients: recipients.length,
+    recipients: 1,
   };
 }
