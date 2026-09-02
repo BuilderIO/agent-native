@@ -7,6 +7,7 @@ const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
 const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockRunLoomImportJob = vi.hoisted(() => vi.fn());
 const mockFinalizeRun = vi.hoisted(() => vi.fn());
+const mockEnsureRecordingThumbnail = vi.hoisted(() => vi.fn());
 const mockUpdateReturning = vi.hoisted(() =>
   vi.fn(async () => [{ id: "rec-1" }]),
 );
@@ -63,6 +64,11 @@ vi.mock("../../../../actions/lib/ensure-seekable-video.js", () => ({
   ensureRecordingSeekable: vi.fn(),
 }));
 
+vi.mock("../../../lib/ensure-recording-thumbnail.js", () => ({
+  ensureRecordingThumbnail: (...args: unknown[]) =>
+    mockEnsureRecordingThumbnail(...args),
+}));
+
 vi.mock("../../../../actions/request-transcript.js", () => ({
   default: { run: vi.fn() },
 }));
@@ -116,6 +122,12 @@ describe("post-finalize worker", () => {
     );
     mockDispatchPostFinalizeJob.mockResolvedValue({ accepted: true });
     mockFinalizeRun.mockResolvedValue({ status: "processing" });
+    mockEnsureRecordingThumbnail.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "generated",
+      changed: true,
+      thumbnailUrl: "https://cdn.example.test/thumb.jpg",
+    });
   });
 
   afterEach(() => {
@@ -176,6 +188,44 @@ describe("post-finalize worker", () => {
       id: "rec-1",
       mediaVerificationRetryAttempt: 2,
       uploadGenerationId: "generation-1",
+    });
+  });
+
+  it("repairs a missing thumbnail in the owner request context", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "thumbnail",
+      token: "valid-token",
+    });
+    mockDb.select.mockImplementationOnce(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => [
+          {
+            id: "rec-1",
+            ownerEmail: "owner@example.test",
+            orgId: "org-1",
+            status: "ready",
+            uploadGenerationId: null,
+          },
+        ]),
+      };
+      return builder;
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "thumbnail",
+      result: { status: "generated" },
+    });
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      expect.any(Function),
+    );
+    expect(mockEnsureRecordingThumbnail).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.test",
     });
   });
 

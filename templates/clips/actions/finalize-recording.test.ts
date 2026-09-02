@@ -577,14 +577,10 @@ describe("finalize-recording media serve verification", () => {
     expect(mockUpdateSet).toHaveBeenCalledWith(
       expect.objectContaining({ status: "ready", videoSizeBytes: 2 }),
     );
-    expect(mockEnsureRecordingThumbnail).toHaveBeenCalledWith(
-      expect.objectContaining({
-        recordingId: "rec_1",
-        ownerEmail: "owner@example.com",
-        mimeType: "video/webm",
-        mediaBytes: expect.any(Uint8Array),
-      }),
-    );
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec_1",
+      kind: "thumbnail",
+    });
   });
 
   it("keeps verification pending when storage omits a determinate byte count", async () => {

@@ -8,6 +8,7 @@ const mockLoadRecordingMediaBytes = vi.hoisted(() => vi.fn());
 const mockExtractJpegFrame = vi.hoisted(() => vi.fn());
 const mockProbeMediaDurationMs = vi.hoisted(() => vi.fn());
 const mockEnsureRecordingThumbnail = vi.hoisted(() => vi.fn());
+const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
 const MockVideoFrameExtractionError = vi.hoisted(
   () =>
     class VideoFrameExtractionError extends Error {
@@ -25,6 +26,11 @@ vi.mock("h3", () => ({
   getRequestURL: (event: { url: string }) => new URL(event.url),
   setResponseHeader: (...args: unknown[]) => mockSetResponseHeader(...args),
   setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  runWithRequestContext: (...args: unknown[]) =>
+    mockRunWithRequestContext(...args),
 }));
 
 vi.mock("../../lib/public-agent-context.js", () => ({
@@ -122,6 +128,9 @@ describe("agent-frame.jpg route", () => {
       changed: true,
       thumbnailUrl: "https://cdn.example.com/thumb.jpg",
     });
+    mockRunWithRequestContext.mockImplementation(
+      (_context: unknown, callback: () => unknown) => callback(),
+    );
   });
 
   it("caches anonymous public frames without shared caching", async () => {
@@ -246,6 +255,10 @@ describe("agent-frame.jpg route", () => {
       thumbnailBytes: new Uint8Array([1, 2, 3]),
       mimeType: "video/webm",
     });
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com", orgId: undefined },
+      expect.any(Function),
+    );
   });
 
   it("replaces password and legacy token query params with the scoped token", async () => {

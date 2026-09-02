@@ -4,6 +4,7 @@
  * Extract a JPEG frame from a public clip for external agents.
  */
 
+import { runWithRequestContext } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getQuery,
@@ -101,17 +102,26 @@ async function persistDefaultThumbnailIfMissing(
   mimeType: string,
 ): Promise<void> {
   if (access.recording.thumbnailUrl) return;
-  await ensureRecordingThumbnail({
-    recordingId: access.recording.id,
-    ownerEmail: access.recording.ownerEmail,
-    thumbnailBytes: frame,
-    mimeType,
-  }).catch((err) => {
+  try {
+    await runWithRequestContext(
+      {
+        userEmail: access.recording.ownerEmail,
+        orgId: access.recording.orgId ?? undefined,
+      },
+      () =>
+        ensureRecordingThumbnail({
+          recordingId: access.recording.id,
+          ownerEmail: access.recording.ownerEmail,
+          thumbnailBytes: frame,
+          mimeType,
+        }),
+    );
+  } catch (err: unknown) {
     console.warn("[agent-frame] thumbnail persistence skipped", {
       recordingId: access.recording.id,
       error: err instanceof Error ? err.message : String(err),
     });
-  });
+  }
 }
 
 function redirectToResolvedFrame(

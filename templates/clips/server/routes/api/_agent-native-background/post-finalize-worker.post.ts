@@ -19,6 +19,7 @@ import { ensureRecordingSeekable } from "../../../../actions/lib/ensure-seekable
 import { runLoomImportJob } from "../../../../actions/lib/loom-import-job.js";
 import requestTranscript from "../../../../actions/request-transcript.js";
 import { getDb, schema } from "../../../db/index.js";
+import { ensureRecordingThumbnail } from "../../../lib/ensure-recording-thumbnail.js";
 import {
   dispatchPostFinalizeJob,
   POST_FINALIZE_JOB_TOKEN_KIND,
@@ -30,6 +31,7 @@ const bodySchema = z.object({
   kind: z.enum([
     "media-ready",
     "seekable",
+    "thumbnail",
     "transcript",
     "brain-export",
     "loom-import",
@@ -118,6 +120,13 @@ export default defineEventHandler(async (event: H3Event) => {
       }
       if (kind === "seekable") {
         const result = await ensureRecordingSeekable({
+          recordingId,
+          ownerEmail: recording.ownerEmail,
+        });
+        return { ok: true, kind, result };
+      }
+      if (kind === "thumbnail") {
+        const result = await ensureRecordingThumbnail({
           recordingId,
           ownerEmail: recording.ownerEmail,
         });
