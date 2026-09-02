@@ -369,6 +369,7 @@ describe("GitHub triage client", () => {
       },
     ]);
     expect(evidence.commentsTruncated).toBe(false);
+    expect(evidence.reviewsTruncated).toBe(false);
     expect(evidence.reviews).toEqual([
       {
         author: "reviewer",
@@ -392,6 +393,66 @@ describe("GitHub triage client", () => {
       "/repos/builder/factory/pulls/7/comments",
       "/repos/builder/factory/commits/sha-7/check-runs",
     ]);
+    expect(
+      new URL(String(fetchImpl.mock.calls[0]?.[0])).searchParams.get("page"),
+    ).toBe("1");
+  });
+
+  it("pages review submissions and flags an incomplete last page", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(String(input));
+      const path = url.pathname;
+      if (path.endsWith("/reviews")) {
+        const page = url.searchParams.get("page");
+        if (page === "1") {
+          return response(
+            Array.from({ length: 100 }, (_, index) => ({
+              user: { login: "reviewer", id: 2 },
+              state: "COMMENTED",
+              body: `note ${index}`,
+              submitted_at: "2026-08-28T12:00:00Z",
+            })),
+          );
+        }
+        if (page === "2") {
+          return response([
+            {
+              user: { login: "reviewer", id: 2 },
+              state: "COMMENTED",
+              body: "later feedback",
+              submitted_at: "2026-08-28T13:00:00Z",
+            },
+          ]);
+        }
+        throw new Error(`unexpected review page ${page}`);
+      }
+      if (path.endsWith("/comments")) return response([]);
+      if (path.endsWith("/check-runs")) {
+        return response({
+          total_count: 1,
+          check_runs: [
+            {
+              name: "ci",
+              status: "completed",
+              conclusion: "success",
+              completed_at: "2026-08-28T12:02:00Z",
+            },
+          ],
+        });
+      }
+      throw new Error(`unexpected ${path}`);
+    });
+
+    const evidence = await createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl,
+    }).getPullRequestEvidence(repository, 7, "sha-7");
+
+    expect(evidence.reviews).toHaveLength(101);
+    expect(evidence.reviews[evidence.reviews.length - 1]?.body).toBe(
+      "later feedback",
+    );
+    expect(evidence.reviewsTruncated).toBe(false);
   });
 
   it("falls back to Actions workflow runs when Checks permission is unavailable", async () => {

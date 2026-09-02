@@ -2856,6 +2856,7 @@ export function createAgentChatPlugin(
       }
       mountWebMcpActionRoutes(nitroApp, httpActions, {
         getOwnerFromEvent,
+        getOwnerContextFromEvent: resolveOwnerContext,
         getUserNameFromEvent,
         appId: options?.appId,
         resolveOrgId: options?.resolveOrgId,

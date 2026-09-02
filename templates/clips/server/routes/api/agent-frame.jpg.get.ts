@@ -4,6 +4,7 @@
  * Extract a JPEG frame from a public clip for external agents.
  */
 
+import { runWithRequestContext } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getQuery,
@@ -13,6 +14,10 @@ import {
   type H3Event,
 } from "h3";
 
+import {
+  ensureRecordingThumbnail,
+  RECORDING_THUMBNAIL_AT_MS,
+} from "../../lib/ensure-recording-thumbnail.js";
 import {
   CLIPS_AGENT_ACCESS_PARAM,
   loadPublicAgentAccess,
@@ -89,6 +94,34 @@ function applyFrameHeaders(event: H3Event) {
   setResponseHeader(event, "X-Content-Type-Options", "nosniff");
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
   setResponseHeader(event, "Cache-Control", cacheControlForAccess());
+}
+
+async function persistDefaultThumbnailIfMissing(
+  access: PublicAgentAccess,
+  frame: Uint8Array,
+  mimeType: string,
+): Promise<void> {
+  if (access.recording.thumbnailUrl) return;
+  try {
+    await runWithRequestContext(
+      {
+        userEmail: access.recording.ownerEmail,
+        orgId: access.recording.orgId ?? undefined,
+      },
+      () =>
+        ensureRecordingThumbnail({
+          recordingId: access.recording.id,
+          ownerEmail: access.recording.ownerEmail,
+          thumbnailBytes: frame,
+          mimeType,
+        }),
+    );
+  } catch (err: unknown) {
+    console.warn("[agent-frame] thumbnail persistence skipped", {
+      recordingId: access.recording.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 function redirectToResolvedFrame(
@@ -207,6 +240,13 @@ export default defineEventHandler(async (event: H3Event) => {
   const cacheable = isPubliclyCacheableFrame(access);
   const cached = cacheable ? getCachedFrame(key) : null;
   if (cached) {
+    if (requestedMs === RECORDING_THUMBNAIL_AT_MS) {
+      await persistDefaultThumbnailIfMissing(
+        access,
+        new Uint8Array(cached),
+        recording.videoFormat === "mp4" ? "video/mp4" : "video/webm",
+      );
+    }
     applyFrameHeaders(event);
     return cached;
   }
@@ -218,6 +258,14 @@ export default defineEventHandler(async (event: H3Event) => {
       mimeType: media.mimeType,
       atMs,
     });
+
+    if (requestedMs === RECORDING_THUMBNAIL_AT_MS) {
+      await persistDefaultThumbnailIfMissing(
+        access,
+        resolved.frame,
+        media.mimeType,
+      );
+    }
 
     if (resolved.atMs !== atMs) {
       return redirectToResolvedFrame(event, access, resolved.atMs);

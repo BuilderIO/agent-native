@@ -11,19 +11,17 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
-concurrency:
-  group: deploy-agent-native-beta-sites-prebuilt
-  # Every main push gets a source-SHA-pinned beta publish. The per-site child
-  # queues serialize uploads, so a newer merge cannot cancel an older one
-  # before the docs host has received an artifact.
-  cancel-in-progress: false
+# Do not add a shared workflow concurrency group here. GitHub retains only one
+# pending run per group. Each push run waits for the prior push's beta run
+# instead, so every main push remains in the publish order.
 
 jobs:
-  wait-for-beta:
-    name: Wait for beta branch mirror
+  resolve-source:
+    name: Resolve beta source revision
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 120
     outputs:
       source_sha: ${{ steps.source.outputs.source_sha }}
     steps:
@@ -31,7 +29,76 @@ jobs:
         id: source
         with:
           script: |
-            const expectedSha =
+            const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+            async function waitForPredecessor(sourceSha) {
+              if (context.eventName !== 'push') return;
+              const predecessorSha = context.payload.before;
+              if (!/^[0-9a-f]{40}$/i.test(predecessorSha ?? '')) return;
+
+              try {
+                await github.rest.repos.getContent({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path: '.github/workflows/deploy-beta-sites-prebuilt.yml',
+                  ref: predecessorSha,
+                });
+              } catch (error) {
+                if (error.status === 404) {
+                  core.info(
+                    `Beta publisher was not present at predecessor ${predecessorSha}; continuing.`,
+                  );
+                  return;
+                }
+                throw error;
+              }
+
+              const completionDeadline = Date.now() + 110 * 60_000;
+              let predecessorRunId;
+              while (Date.now() < completionDeadline) {
+                if (!predecessorRunId) {
+                  const runs = await github.rest.actions.listWorkflowRuns({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    workflow_id: 'deploy-beta-sites-prebuilt.yml',
+                    head_sha: predecessorSha,
+                    per_page: 10,
+                  });
+                  const predecessor = runs.data.workflow_runs.find(
+                    (run) =>
+                      run.head_sha.toLowerCase() === predecessorSha.toLowerCase() &&
+                      run.event === 'push',
+                  );
+                  if (predecessor) predecessorRunId = predecessor.id;
+                }
+
+                if (predecessorRunId) {
+                  const predecessor = await github.rest.actions.getWorkflowRun({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    run_id: predecessorRunId,
+                  });
+                  if (predecessor.data.status === 'completed') {
+                    core.info(
+                      `Predecessor beta run ${predecessorRunId} completed with ${predecessor.data.conclusion ?? 'no conclusion'}.`,
+                    );
+                    return;
+                  }
+                  core.info(
+                    `Waiting for predecessor beta run ${predecessorRunId} (${predecessor.data.status}).`,
+                  );
+                } else {
+                  core.info(`Waiting for beta run for predecessor ${predecessorSha}.`);
+                }
+                await sleep(30_000);
+              }
+
+              core.setFailed(
+                `Predecessor beta run for ${predecessorSha} did not finish within 110 minutes.`,
+              );
+            }
+
+            const sourceSha =
               context.eventName === 'workflow_dispatch'
                 ? (await github.rest.git.getRef({
                     owner: context.repo.owner,
@@ -39,35 +106,20 @@ jobs:
                     ref: 'heads/main',
                   })).data.object.sha
                 : context.sha;
-            const deadline = Date.now() + 10 * 60 * 1000;
-
-            while (Date.now() < deadline) {
-              const betaSha = (await github.rest.git.getRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: 'heads/beta',
-              })).data.object.sha;
-              if (betaSha === expectedSha) {
-                core.info(`beta is mirrored at ${expectedSha}`);
-                core.setOutput('source_sha', expectedSha);
-                return;
-              }
-              core.info(`waiting for beta ${betaSha} to reach ${expectedSha}`);
-              await new Promise((resolve) => setTimeout(resolve, 10_000));
-            }
-
-            core.setFailed(`beta did not reach ${expectedSha} within 10 minutes`);
+            await waitForPredecessor(sourceSha);
+            core.setOutput('source_sha', sourceSha);
+            core.info(`beta source is pinned to ${sourceSha}`);
 
   discover-sites:
     name: Discover beta sites
-    needs: wait-for-beta
+    needs: resolve-source
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: ${{ needs.wait-for-beta.outputs.source_sha }}
+          ref: ${{ needs.resolve-source.outputs.source_sha }}
           fetch-depth: 1
           sparse-checkout: scripts/netlify-beta-sites.json
           sparse-checkout-cone-mode: false
@@ -92,7 +144,7 @@ jobs:
 
   deploy:
     name: ${{ matrix.site }} beta prebuilt deploy
-    needs: [wait-for-beta, discover-sites]
+    needs: [resolve-source, discover-sites]
     strategy:
       fail-fast: false
       max-parallel: 8
@@ -102,7 +154,7 @@ jobs:
       target: beta
       site: ${{ matrix.site }}
       caller: fleet
-      source_ref: ${{ needs.wait-for-beta.outputs.source_sha }}
+      source_ref: ${{ needs.resolve-source.outputs.source_sha }}
       build_context: branch-deploy
       deploy: true
       deploy_mode: production

@@ -871,6 +871,21 @@ function DocumentEditorBody({
   );
   const titleFocusedRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const pendingPaddingScrollRestoreRef = useRef<number | null>(null);
+  const cancelPaddingScrollRestore = () => {
+    if (pendingPaddingScrollRestoreRef.current !== null) {
+      window.clearTimeout(pendingPaddingScrollRestoreRef.current);
+      pendingPaddingScrollRestoreRef.current = null;
+    }
+  };
+  useEffect(
+    () => () => {
+      if (pendingPaddingScrollRestoreRef.current !== null) {
+        window.clearTimeout(pendingPaddingScrollRestoreRef.current);
+      }
+    },
+    [documentId],
+  );
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
   const shouldFocusTitleRef = useRef(false);
   const notionPageLinks = useMemo<NotionPageLink[]>(
@@ -2304,6 +2319,9 @@ function DocumentEditorBody({
             ref={scrollContainerRef}
             className="flex-1 min-h-0 min-w-0 overflow-auto flex flex-col"
             data-document-print-scroll
+            onKeyDownCapture={cancelPaddingScrollRestore}
+            onPointerDownCapture={cancelPaddingScrollRestore}
+            onWheelCapture={cancelPaddingScrollRestore}
           >
             <div
               className={cn(
@@ -2424,10 +2442,24 @@ function DocumentEditorBody({
                     className="flex-1 w-full max-w-3xl mx-auto px-4 pb-16 cursor-text sm:px-8 md:px-16"
                     onClick={(e) => {
                       if (e.target === e.currentTarget) {
+                        cancelPaddingScrollRestore();
+                        const scrollContainer = scrollContainerRef.current;
+                        const scrollTop = scrollContainer?.scrollTop;
+                        const restoreScroll = () => {
+                          if (scrollContainer && scrollTop !== undefined) {
+                            scrollContainer.scrollTop = scrollTop;
+                          }
+                          pendingPaddingScrollRestoreRef.current = null;
+                        };
                         const pm = e.currentTarget.querySelector(
                           ".ProseMirror",
                         ) as HTMLElement | null;
-                        pm?.focus();
+                        pm?.focus({ preventScroll: true });
+                        restoreScroll();
+                        if (scrollContainer && scrollTop !== undefined) {
+                          pendingPaddingScrollRestoreRef.current =
+                            window.setTimeout(restoreScroll, 50);
+                        }
                       }
                     }}
                   >
