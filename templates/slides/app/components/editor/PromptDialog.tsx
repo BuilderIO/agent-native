@@ -785,7 +785,7 @@ export default function PromptPopover({
       )}
       <div
         ref={panelRef}
-        className="fixed relative z-[200] w-[min(500px,calc(100vw-24px))] rounded-xl border border-border/80 bg-popover shadow-xl shadow-black/15"
+        className="fixed z-[200] w-[min(500px,calc(100vw-24px))] rounded-xl border border-border/80 bg-popover shadow-xl shadow-black/15"
         role="dialog"
         aria-modal="true"
         aria-label={title}
