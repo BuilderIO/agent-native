@@ -957,6 +957,9 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(document.body.textContent).toContain("Extension Skip");
+    expect(
+      document.body.querySelector('[data-testid="first-run-dismiss"]'),
+    ).not.toBeNull();
 
     await act(async () => {
       [...document.body.querySelectorAll("button")]

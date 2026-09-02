@@ -65,19 +65,16 @@ export interface BuilderConnectionMenuProps {
 }
 
 function DisconnectBuilderButton({
-  flow,
-  credentialSource,
+  canDisconnect,
   onDisconnected,
 }: {
-  flow: BuilderConnectFlow;
-  credentialSource?: BuilderStatus["credentialSource"] | null;
+  canDisconnect: boolean;
   onDisconnected: () => void;
 }) {
   const t = useT();
   const [phase, setPhase] = useState<"idle" | "armed" | "busy">("idle");
   const [err, setErr] = useState<string | null>(null);
   const armedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const source = credentialSource ?? flow.credentialSource;
 
   const clearArmedTimer = useCallback(() => {
     if (armedTimerRef.current) {
@@ -150,7 +147,7 @@ function DisconnectBuilderButton({
     setPhase("idle");
   }, [clearArmedTimer]);
 
-  if (source === "env") return null;
+  if (!canDisconnect) return null;
 
   if (phase === "armed") {
     return (
@@ -207,7 +204,7 @@ export function BuilderConnectionMenu({
   const t = useT();
   const [open, setOpen] = useState(false);
   const source = credentialSource ?? flow.credentialSource;
-  const canDisconnect = source === "user" || source === "org";
+  const canDisconnect = flow.canDisconnect === true;
   const manageLabel = t("settings.builderConnection.manage", {
     defaultValue: "Manage Builder.io connection",
   });
@@ -257,8 +254,7 @@ export function BuilderConnectionMenu({
           </button>
           {canDisconnect ? (
             <DisconnectBuilderButton
-              flow={flow}
-              credentialSource={source}
+              canDisconnect={canDisconnect}
               onDisconnected={() => setOpen(false)}
             />
           ) : null}

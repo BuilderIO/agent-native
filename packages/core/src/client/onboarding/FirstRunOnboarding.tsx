@@ -456,24 +456,17 @@ export function FirstRunOnboarding({
       void finishOnboarding("extension", extensionIndex);
     };
     return (
-      <>
+      <OnboardingShell
+        profile={profile}
+        screen="extension"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <Extension
           onComplete={advanceExtension}
           onSkip={() => void finishOnboarding(null)}
         />
-        {completeFirstRunError && (
-          <FirstRunCompletionError
-            message={completeFirstRunError}
-            onRetry={() => {
-              const attempt = completionAttemptRef.current;
-              void finishOnboarding(
-                attempt?.screen ?? null,
-                attempt?.extensionIndex ?? extensionIndex,
-              );
-            }}
-          />
-        )}
-      </>
+      </OnboardingShell>
     );
   }
 
@@ -1150,7 +1143,7 @@ function OnboardingShell({
   children,
 }: {
   profile: OnboardingAppProfile | null;
-  screen: "intro" | "choice" | "tools" | "role" | "ready";
+  screen: FirstRunScreen;
   footer?: React.ReactNode;
   onDismiss?: () => void;
   completionError?: string | null;
@@ -1187,7 +1180,10 @@ function OnboardingShell({
             width:
               screen === "intro"
                 ? "33.33%"
-                : screen === "tools" || screen === "role" || screen === "ready"
+                : screen === "tools" ||
+                    screen === "role" ||
+                    screen === "ready" ||
+                    screen === "extension"
                   ? "100%"
                   : "66.66%",
           }}

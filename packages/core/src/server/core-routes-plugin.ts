@@ -2498,11 +2498,13 @@ export function createCoreRoutesPlugin(
         // member's status poller and the UI would show "not connected" forever
         // even though the chat actually resolves the org-shared credential.
         let orgId: string | null = null;
+        let orgRole: string | null = null;
         if (!ownerContext.anonymous) {
           try {
             const { getOrgContext } = await import("../org/context.js");
             const orgCtx = await getOrgContext(event);
             orgId = orgCtx.orgId ?? null;
+            orgRole = orgCtx.role ?? null;
           } catch {
             /* org module not present in this template — keep userEmail-only */
           }
@@ -2589,6 +2591,7 @@ export function createCoreRoutesPlugin(
                   ...requestStatus,
                   configured: false,
                   credentialSource: "user" as const,
+                  canDisconnect: false,
                   privateKeyConfigured: false,
                   publicKeyConfigured: false,
                   connectError: {
@@ -2615,6 +2618,10 @@ export function createCoreRoutesPlugin(
                   ...requestStatus,
                   configured: true,
                   credentialSource: "user" as const,
+                  canDisconnect:
+                    oauthAccess.scope === "user" ||
+                    (oauthAccess.scope === "org" &&
+                      (orgRole === "owner" || orgRole === "admin")),
                   privateKeyConfigured: keyStatus.privateKeyConfigured,
                   publicKeyConfigured: keyStatus.publicKeyConfigured,
                   keyLookupFailed: keyStatus.keyLookupFailed,
@@ -2627,6 +2634,7 @@ export function createCoreRoutesPlugin(
                   ...requestStatus,
                   configured: false,
                   credentialSource: "user" as const,
+                  canDisconnect: false,
                   privateKeyConfigured: false,
                   publicKeyConfigured: false,
                   connectError: {
@@ -2666,6 +2674,7 @@ export function createCoreRoutesPlugin(
                   isEnterprise: undefined,
                   isFreeAccount: undefined,
                   credentialSource: credentialSource ?? undefined,
+                  canDisconnect: false,
                   // Surface durable credential rejection separately from
                   // one-shot OAuth callback failures. The reconnect UI keeps
                   // polling through authError while the user chooses a new
@@ -2722,6 +2731,10 @@ export function createCoreRoutesPlugin(
                   isFreeAccount:
                     creds.isFreeAccount ?? envStatus.isFreeAccount ?? undefined,
                   credentialSource: credentialSource ?? undefined,
+                  canDisconnect:
+                    credentialSource === "user" ||
+                    (credentialSource === "org" &&
+                      (orgRole === "owner" || orgRole === "admin")),
                 });
               }
             } catch {
