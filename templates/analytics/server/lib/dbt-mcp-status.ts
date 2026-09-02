@@ -50,7 +50,7 @@ export interface DbtMcpStatus {
     intentionallyUnused: true;
   };
   toolCount: number;
-  setupLink: "/data-sources?source=dbt";
+  setupLink: "/data-sources?source=dbt&returnTo=ask";
 }
 
 function emptyStatus(configured: false | null, error?: string): DbtMcpStatus {
@@ -69,7 +69,7 @@ function emptyStatus(configured: false | null, error?: string): DbtMcpStatus {
       intentionallyUnused: true,
     },
     toolCount: 0,
-    setupLink: "/data-sources?source=dbt",
+    setupLink: "/data-sources?source=dbt&returnTo=ask",
   };
 }
 
@@ -133,6 +133,6 @@ export async function readDbtMcpStatus(): Promise<DbtMcpStatus> {
       intentionallyUnused: true,
     },
     toolCount: dbtTools.length,
-    setupLink: "/data-sources?source=dbt",
+    setupLink: "/data-sources?source=dbt&returnTo=ask",
   };
 }

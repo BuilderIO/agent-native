@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getGitHubAccessToken: vi.fn(),
   tryRequestCredentialContext: vi.fn(),
   resolveAnalyticsProviderCredential: vi.fn(),
+  readDbtMcpStatus: vi.fn(),
   workspaceSummary: {
     appId: "analytics",
     provider: "hubspot",
@@ -71,6 +72,10 @@ vi.mock("../server/lib/credentials-context", () => ({
   tryRequestCredentialContext: mocks.tryRequestCredentialContext,
 }));
 
+vi.mock("../server/lib/dbt-mcp-status", () => ({
+  readDbtMcpStatus: mocks.readDbtMcpStatus,
+}));
+
 vi.mock("../server/lib/github-oauth", () => ({
   getGitHubAccessToken: mocks.getGitHubAccessToken,
 }));
@@ -87,6 +92,23 @@ describe("data-source-status", () => {
     mocks.getGitHubAccessToken.mockReset();
     mocks.tryRequestCredentialContext.mockReset();
     mocks.resolveAnalyticsProviderCredential.mockReset();
+    mocks.readDbtMcpStatus.mockReset();
+    mocks.readDbtMcpStatus.mockResolvedValue({
+      available: true,
+      configured: false,
+      capabilities: {
+        discovery: false,
+        lineage: false,
+        healthAndFreshness: false,
+        semanticLayer: false,
+      },
+      sqlTools: {
+        available: false,
+        intentionallyUnused: true,
+      },
+      toolCount: 0,
+      setupLink: "/data-sources?source=dbt&returnTo=ask",
+    });
     mocks.tryRequestCredentialContext.mockReturnValue({
       userEmail: "ada@example.com",
       orgId: "org-1",
@@ -139,6 +161,39 @@ describe("data-source-status", () => {
       label: "Open Analytics data sources",
       view: "data-sources",
     });
+  });
+
+  it("keeps external source status unknown when dbt MCP tools are unreadable", async () => {
+    mocks.readDbtMcpStatus.mockResolvedValue({
+      available: false,
+      configured: null,
+      error: "MCP client is not configured.",
+      capabilities: {
+        discovery: false,
+        lineage: false,
+        healthAndFreshness: false,
+        semanticLayer: false,
+      },
+      sqlTools: {
+        available: false,
+        intentionallyUnused: true,
+      },
+      toolCount: 0,
+      setupLink: "/data-sources?source=dbt&returnTo=ask",
+    });
+
+    const result = (await dataSourceStatus.run({ key: "dbt" })) as any;
+
+    expect(result).toMatchObject({
+      hasConnectedExternalDataSources: null,
+      connectedExternalDataSourceCount: 0,
+      dbt: {
+        available: false,
+        configured: null,
+        setupLink: "/data-sources?source=dbt&returnTo=ask",
+      },
+    });
+    expect(result.error).toBeUndefined();
   });
 
   it("uses the canonical PostgreSQL source id in focused setup links", async () => {

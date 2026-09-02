@@ -62,7 +62,7 @@ describe("readDbtMcpStatus", () => {
         intentionallyUnused: true,
       },
       toolCount: fullContractNames.length,
-      setupLink: "/data-sources?source=dbt",
+      setupLink: "/data-sources?source=dbt&returnTo=ask",
     });
   });
 
@@ -88,7 +88,7 @@ describe("readDbtMcpStatus", () => {
         intentionallyUnused: true,
       },
       toolCount: 2,
-      setupLink: "/data-sources?source=dbt",
+      setupLink: "/data-sources?source=dbt&returnTo=ask",
     });
   });
 

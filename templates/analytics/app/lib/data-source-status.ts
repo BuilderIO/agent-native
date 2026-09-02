@@ -43,7 +43,7 @@ export interface DbtMcpStatus {
     intentionallyUnused: true;
   };
   toolCount: number;
-  setupLink: "/data-sources?source=dbt";
+  setupLink: "/data-sources?source=dbt&returnTo=ask";
 }
 
 export interface ConfiguredDataSourceSummary {

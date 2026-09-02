@@ -261,9 +261,9 @@ export default defineAction({
     const connectedExternalDataSources = configuredDataSources.filter(
       (source) => source.provider !== BUILT_IN_FIRST_PARTY_PROVIDER.provider,
     );
-    const hasUnknownProviderStatus = providers.some(
-      (provider) => provider.configured === null,
-    );
+    const hasUnknownProviderStatus =
+      dbt.configured === null ||
+      providers.some((provider) => provider.configured === null);
     return {
       // Keep a compact, explicit summary first so models do not infer source
       // availability from the much larger per-credential list below.
