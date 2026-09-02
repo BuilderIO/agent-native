@@ -56,7 +56,7 @@ const LIBRARY_RECORDINGS: Array<{
   },
   {
     title: "Show Claude how to perform a task",
-    thumbnail: "/clips/U1f0uKYYKGF2.jpg",
+    thumbnail: "/clips/webcam-bubble.jpg",
     duration: "3:12",
     relative: "5 days ago",
     visibility: "org",
