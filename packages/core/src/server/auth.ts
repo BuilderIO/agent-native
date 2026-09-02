@@ -6059,7 +6059,7 @@ async function mountBetterAuthRoutes(
           captureAuthError(e, { route: "signup", email });
         }
         const authError = publicAuthError(e, AUTH_SIGNUP_FALLBACK);
-        setResponseStatus(event, authError.statusCode ?? 409);
+        setResponseStatus(event, authError.statusCode ?? 500);
         return { error: authError.message };
       }
     }),
@@ -6345,7 +6345,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
           captureAuthError(e, { route: "signup", email });
         }
         const authError = publicAuthError(e, AUTH_SIGNUP_FALLBACK);
-        setResponseStatus(event, authError.statusCode ?? 409);
+        setResponseStatus(event, authError.statusCode ?? 500);
         return { error: authError.message };
       }
     }),
