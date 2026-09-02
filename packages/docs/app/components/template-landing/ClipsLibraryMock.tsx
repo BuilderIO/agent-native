@@ -699,10 +699,6 @@ const CLIPS_MOCK_CSS = [
   // Palette. Dark by default; the light block further down swaps the whole mock
   // over when the docs shell is in light mode.
   ".clips-mock { --lib-window-bg: #151515; --lib-chrome-bg: #101010; --lib-chrome-border: #232323; --lib-dot: #4d4d4d; --lib-border: #333333; --lib-fg: #e6e6e6; --lib-fg-dim: #b3b3b3; --lib-fg-muted: #999999; --lib-fg-subtle: #808080; --lib-fg-faint: #6b6b6b; --lib-btn-bg: #262626; --lib-btn-border: #383838; --lib-btn-fg: #cccccc; --lib-btn-hover-bg: #303030; --lib-btn-hover-border: #454545; --lib-hover-bg: rgba(255, 255, 255, 0.06); --lib-active-bg: rgba(191, 191, 191, 0.12); --lib-active-fg: #f2f2f2; --lib-input-bg: #191919; --lib-input-border: #2e2e2e; --lib-input-hover-border: #4d4d4d; --lib-card-bg: #1c1c1c; --lib-card-border: #2b2b2b; --lib-card-hover-border: #5a5a5a; --lib-thumb-bg: #202020; --lib-avatar-bg: #3a3a3a; --lib-avatar-fg: #bfbfbf; }",
-  // The popover is a fixed 340x408 panel. Shrink it on narrow screens, where
-  // the mock is shorter, rather than let the "Start recording" CTA clip out.
-  // The desktop overlap values are far too aggressive for a narrow column.
-  "@media (max-width: 860px) { .clips-mock { margin-top: -36px; padding: 54px 16px 18px; } .clips-mock .clips-mock-popover { top: -49px; right: -1px; transform: scale(0.72); transform-origin: top right; } }",
 
   // Faux app window
   ".clips-mock .library-window { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; background: var(--lib-window-bg); color: var(--lib-fg); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }",
@@ -805,13 +801,7 @@ const CLIPS_MOCK_CSS = [
   ".clips-mock .bottom-btn:hover .bottom-icon { color: var(--fg); }",
   ".clips-mock .readiness-summary:hover { color: var(--fg); }",
 
-  // Library hover behavior, mirroring templates/clips/app RecordingCard.
-  ".clips-mock .library-card { transition: border-color 140ms, box-shadow 140ms, transform 140ms; }",
-  ".clips-mock .library-card:hover { border-color: var(--lib-card-hover-border); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35); transform: translateY(-2px); }",
-  ".clips-mock .library-card-thumb img { transition: transform 240ms, filter 240ms; }",
-  ".clips-mock .library-card:hover .library-card-thumb img { transform: scale(1.03); }",
-  ".clips-mock .library-card-thumb-overlay { transition: background 160ms; }",
-  ".clips-mock .library-card:hover .library-card-thumb-overlay { background: rgba(0, 0, 0, 0.32); }",
+  // Library chrome hover only. The recording cards stay static.
   ".clips-mock .library-nav-item:hover { background: var(--lib-hover-bg); color: var(--lib-active-fg); }",
   ".clips-mock .library-icon-btn:hover { background: var(--lib-hover-bg); color: var(--lib-fg); }",
   ".clips-mock .library-search:hover { border-color: var(--lib-input-hover-border); }",
@@ -821,11 +811,16 @@ const CLIPS_MOCK_CSS = [
   // Light mode. The docs shell puts `light`/`dark` on <html>, so the mock
   // follows the visitor's theme instead of staying pinned to the dark art.
   "html.light .clips-mock { --lib-window-bg: #f1f0ea; --lib-chrome-bg: #eae8e1; --lib-chrome-border: #dedbd2; --lib-dot: #c8c5bb; --lib-border: #dedbd2; --lib-fg: #22201c; --lib-fg-dim: #56534d; --lib-fg-muted: #6f6b64; --lib-fg-subtle: #827e76; --lib-fg-faint: #969288; --lib-btn-bg: #fdfdfb; --lib-btn-border: #d7d3ca; --lib-btn-fg: #3f3c36; --lib-btn-hover-bg: #f8f7f3; --lib-btn-hover-border: #c0bcb2; --lib-hover-bg: rgba(50, 48, 38, 0.05); --lib-active-bg: rgba(50, 48, 38, 0.09); --lib-active-fg: #1d1b17; --lib-input-bg: #fdfdfb; --lib-input-border: #dcd8cf; --lib-input-hover-border: #c0bcb2; --lib-card-bg: #fdfdfb; --lib-card-border: #e3e0d8; --lib-card-hover-border: #c4c0b6; --lib-thumb-bg: #ebe9e3; --lib-avatar-bg: #e4e1d9; --lib-avatar-fg: #5d5a52; }",
-  "html.light .clips-mock .library-card:hover { box-shadow: 0 8px 20px rgba(50, 48, 38, 0.14); }",
   "html.light .clips-mock .clips-mock-popover { --brand: #22201c; --brand-hover: #131210; --brand-ring: rgba(34, 32, 28, 0.2); --bg: #fefefc; --surface: #f5f4ef; --surface-hover: #efede7; --surface-strong: #e8e6de; --fg: #22201c; --fg-muted: #6a6760; --fg-subtle: #8b887f; --border: #e2dfd7; --border-strong: #d1cdc4; --shadow-sm: 0 1px 2px rgba(50, 48, 38, 0.09); --shadow-md: 0 8px 24px rgba(50, 48, 38, 0.14), 0 2px 6px rgba(50, 48, 38, 0.07); }",
   "html.light .clips-mock .clips-mock-popover.app { border-color: #dedbd2; box-shadow: 0 28px 64px rgba(50, 48, 38, 0.22), 0 6px 18px rgba(50, 48, 38, 0.12); }",
   "html.light .clips-mock .primary { color: #3f3c36; }",
   "html.light .clips-mock .primary:hover { background: #dedbd3; color: var(--fg); }",
+
+  // Narrow screens. The popover is a fixed 340x408 panel, so it shrinks and
+  // tucks into the right edge rather than letting the CTA clip out. This block
+  // stays last: it has the same specificity as the base rules above and would
+  // otherwise lose to them on source order.
+  "@media (max-width: 860px) { .clips-mock { margin-top: -36px; padding: 54px 16px 18px; } .clips-mock .clips-mock-popover { top: -20px; right: 0; transform: scale(0.72); transform-origin: top right; } }",
 ].join("\n");
 
 export function ClipsLibraryMock({
