@@ -297,8 +297,8 @@ export default function ClipsTemplate() {
         id="try-with-ai"
         className="scroll-mt-24 border-t border-[var(--docs-border)]"
       >
-        <div className="flex flex-col lg:flex-row lg:items-stretch lg:border-x lg:border-[var(--docs-border)]">
-          <div className="flex flex-1 items-center border-b border-[var(--docs-border)] px-6 py-8 sm:px-10 lg:w-2/3 lg:flex-none lg:border-b-0 lg:border-e lg:px-8 lg:py-8">
+        <div className="flex flex-col border-x border-[var(--docs-border)] lg:flex-row lg:items-stretch">
+          <div className="flex flex-1 items-center px-6 pb-8 sm:px-10 order-2 lg:order-1 lg:w-2/3 lg:flex-none lg:border-e lg:border-[var(--docs-border)] lg:px-8 lg:py-8">
             <div className="flex w-full min-w-0 items-start gap-3 rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-4 sm:p-5">
               <p className="min-w-0 flex-1 font-mono text-sm leading-6 text-[var(--fg-secondary)]">
                 <span>Watch </span>
@@ -343,8 +343,8 @@ export default function ClipsTemplate() {
             </div>
           </div>
 
-          <div className="flex items-center px-6 py-8 sm:px-10 lg:w-1/3 lg:shrink-0 lg:py-8 lg:ps-16 lg:pe-8">
-            <div className="max-w-[320px]">
+          <div className="flex items-center px-6 pt-8 pb-6 sm:px-10 order-1 lg:order-2 lg:w-1/3 lg:shrink-0 lg:py-8 lg:pt-8 lg:pb-8 lg:ps-16 lg:pe-8">
+            <div className="lg:max-w-[320px]">
               <h2 className="font-poppins text-2xl font-medium leading-[1.3] tracking-[-0.24px] text-[var(--fg)]">
                 Get a personalized recommendation
               </h2>
