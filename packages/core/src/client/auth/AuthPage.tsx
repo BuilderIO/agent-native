@@ -67,7 +67,6 @@ export interface AuthPageProps {
   showGoogle: boolean;
   signupLegalNotice?: AuthLegalNotice;
   signupLocalModeNote?: { text: string; command: string };
-  connectionLabel: string;
   docsAuthUrl: string;
   identitySsoEnabled: boolean;
   publicOAuthOrigin: string;
@@ -2644,7 +2643,12 @@ export function AuthPage(props: AuthPageProps) {
         .join(" ")}
     >
       {marketingCopy.screenshotSrc ? (
-        <div className="auth-marketing-screenshot-wrap">
+        <div
+          className="auth-marketing-screenshot-wrap"
+          style={{
+            aspectRatio: `${marketingCopy.screenshotWidth ?? 914} / ${marketingCopy.screenshotHeight ?? 818}`,
+          }}
+        >
           <img
             className="auth-marketing-screenshot"
             src={marketingCopy.screenshotSrc}

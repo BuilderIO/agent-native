@@ -71,6 +71,9 @@ function stubCleanLocalRuntimeEnv() {
     "SLACK_BOT_TOKEN",
     "SLACK_BOT_TOKEN_2",
     "GITHUB_TOKEN",
+    "GITHUB_APP_ID",
+    "GITHUB_APP_INSTALLATION_ID",
+    "GITHUB_APP_PRIVATE_KEY",
     "SENTRY_AUTH_TOKEN",
     "SENTRY_SERVER_TOKEN",
   ]) {
@@ -381,6 +384,35 @@ describe("resolveFactoryConnectorReadiness", () => {
       github: false,
       sentry: false,
     });
+  });
+
+  it("treats a complete GitHub App configuration as ready", async () => {
+    const appKeys = new Set([
+      "GITHUB_APP_ID",
+      "GITHUB_APP_INSTALLATION_ID",
+      "GITHUB_APP_PRIVATE_KEY",
+    ]);
+    mocks.readAppSecret.mockImplementation(async ({ key, scope, scopeId }) =>
+      appKeys.has(key) && scope === "org" && scopeId === "active-org"
+        ? { value: "configured" }
+        : null,
+    );
+
+    await expect(
+      resolveFactoryConnectorReadiness(userEmail, { orgId: "active-org" }),
+    ).resolves.toMatchObject({ github: true });
+  });
+
+  it("does not treat a partial GitHub App configuration as ready", async () => {
+    mocks.readAppSecret.mockImplementation(async ({ key, scope, scopeId }) =>
+      key === "GITHUB_APP_ID" && scope === "org" && scopeId === "active-org"
+        ? { value: "configured" }
+        : null,
+    );
+
+    await expect(
+      resolveFactoryConnectorReadiness(userEmail, { orgId: "active-org" }),
+    ).resolves.toMatchObject({ github: false });
   });
 
   it("falls back to the org vault when no workspace connection exists", async () => {

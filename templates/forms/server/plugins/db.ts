@@ -190,6 +190,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS response_deliveries_response_destination_idx
 CREATE INDEX IF NOT EXISTS response_deliveries_status_idx
   ON response_deliveries (status, claimed_at)`,
     },
+    {
+      version: 16,
+      name: "community-app-promotion-state",
+      sql: {
+        postgres: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS promotion_status TEXT;
+ALTER TABLE responses ADD COLUMN IF NOT EXISTS builder_content_id TEXT;
+ALTER TABLE responses ADD COLUMN IF NOT EXISTS community_slug TEXT;
+ALTER TABLE responses ADD COLUMN IF NOT EXISTS promotion_error TEXT;
+ALTER TABLE responses ADD COLUMN IF NOT EXISTS promoted_at TEXT;
+ALTER TABLE responses ADD COLUMN IF NOT EXISTS promoted_by TEXT`,
+        sqlite: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS promotion_status TEXT;
+ALTER TABLE responses ADD COLUMN IF NOT EXISTS builder_content_id TEXT;
+ALTER TABLE responses ADD COLUMN IF NOT EXISTS community_slug TEXT;
+ALTER TABLE responses ADD COLUMN IF NOT EXISTS promotion_error TEXT;
+ALTER TABLE responses ADD COLUMN IF NOT EXISTS promoted_at TEXT;
+ALTER TABLE responses ADD COLUMN IF NOT EXISTS promoted_by TEXT`,
+      },
+    },
   ],
   { table: "forms_migrations" },
 );

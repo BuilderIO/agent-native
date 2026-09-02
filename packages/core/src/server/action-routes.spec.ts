@@ -2491,6 +2491,7 @@ describe("mountWebMcpActionRoutes", () => {
         manifest: {
           name: "Clips",
           description: "Read clips",
+          instructions: "Call view-screen before editing.",
           websiteUrl: "https://clips.example.com",
         },
       },
@@ -2530,6 +2531,7 @@ describe("mountWebMcpActionRoutes", () => {
       protocol: "WebMCP",
       name: "Clips",
       description: "Read clips",
+      instructions: expect.stringContaining("Call view-screen before editing."),
       website_url: "https://clips.example.com",
       endpoints: {
         mcp: "https://clips.example.com/mcp",
@@ -2542,6 +2544,7 @@ describe("mountWebMcpActionRoutes", () => {
       tools: [
         {
           name: "eligible",
+          title: "Eligible",
           description: "Eligible",
           parameters: { type: "object" },
           inputSchema: { type: "object" },
@@ -2558,6 +2561,7 @@ describe("mountWebMcpActionRoutes", () => {
     ).resolves.toEqual([
       {
         name: "eligible",
+        title: "Eligible",
         description: "Eligible",
         inputSchema: { type: "object" },
         readOnly: true,

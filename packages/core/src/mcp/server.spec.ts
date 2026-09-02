@@ -331,6 +331,7 @@ const config = {
   title: "Agent-Native Mail",
   appId: "mail",
   description: "Mail app",
+  instructions: "Call get-mail-settings before drafting.",
   websiteUrl: "/mail",
   icons: [
     {
@@ -686,6 +687,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.serverInfo.name).toBe("agent-native-mail");
     expect(out.result.serverInfo.title).toBe("Agent-Native Mail");
     expect(out.result.serverInfo.description).toBe("Mail app");
+    expect(out.result.instructions).toContain(
+      "Call get-mail-settings before drafting.",
+    );
     expect(out.result.serverInfo.websiteUrl).toBe(
       "https://mail.agent-native.com/mail",
     );
@@ -1107,6 +1111,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     // Actions with a `link` builder advertise the producesOpenLink annotation
     // and a description nudge — identical on both runtimes.
     expect(echo.annotations?.readOnlyHint).toBe(true);
+    expect(echo.annotations?.title).toBe("Echo thing");
     expect(echo.annotations?.["agent-native/producesOpenLink"]).toBe(true);
     expect(echo.description).toContain("Open in");
     // Anthropic MCP-Apps linkage (Claude.ai / Claude Desktop): the tool→`ui://`

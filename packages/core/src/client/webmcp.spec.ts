@@ -184,6 +184,7 @@ describe("automatic server action WebMCP registration", () => {
           JSON.stringify([
             {
               name: "get-order",
+              title: "Read order",
               description: "Read an order",
               inputSchema: {
                 type: "object",
@@ -216,6 +217,7 @@ describe("automatic server action WebMCP registration", () => {
 
     expect(registrations[0]?.tool).toMatchObject({
       name: "get-order",
+      title: "Read order",
       description: "Read an order",
       annotations: { readOnlyHint: true },
     });
@@ -316,6 +318,7 @@ describe("WebMCP registration", () => {
     expect(registration.registered).toBe(1);
     expect(registrations[0].tool).toMatchObject({
       name: "select-order",
+      title: "Select order",
       inputSchema: { type: "object" },
       annotations: { readOnlyHint: true },
     });

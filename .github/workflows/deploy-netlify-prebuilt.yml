@@ -252,6 +252,9 @@ jobs:
             export AGENT_NATIVE_ENABLE_KEEP_WARM=1
             export AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1
             export AGENT_NATIVE_HOSTED_HARNESS=true
+            if [[ "$SOURCE_TEMPLATE" == "@agent-native/docs" ]]; then
+              export VITE_AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT=beta
+            fi
           fi
           if [[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" ]]; then
             # Netlify's local CLI receives masked site secrets. These templates

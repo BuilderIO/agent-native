@@ -2570,6 +2570,7 @@ export function createAgentChatPlugin(
           description:
             mcpOptions.description ??
             `Agent-Native ${options?.appId ?? "app"} agent`,
+          instructions: mcpOptions.instructions,
           websiteUrl: mcpOptions.websiteUrl,
           icons: mcpOptions.icons,
           actions: externalActions,
@@ -2867,6 +2868,7 @@ export function createAgentChatPlugin(
           description:
             mcpOptions.description ??
             `Agent-Native ${options?.appId ?? "app"} agent`,
+          instructions: mcpOptions.instructions,
           websiteUrl: mcpOptions.websiteUrl,
           icons: mcpOptions.icons,
         },

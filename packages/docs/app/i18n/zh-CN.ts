@@ -439,14 +439,14 @@ const zhCN = {
     },
     actions: {
       title: "一个 Action 驱动所有能力面",
-      bodyLine1: "Action 是 Agent-Native 应用的基础构建块。",
+      bodyLine1: "Action 定义你的 agent 能做什么。",
       bodyLine2:
-        "只需定义一次功能，即可在 UI、agent 对话、HTTP API、MCP、A2A 或 CLI 中使用。",
+        "只需定义一次每项能力，即可在 agent、UI、HTTP API、MCP、A2A 或 CLI 中使用。",
       diagramAlt: "一个 Action 驱动 UI、MCP、Agent 对话、A2A、HTTP API 和 CLI",
     },
     builtIn: {
-      title: "每个 Agent-Native 应用都内置这些能力",
-      body: "用户和 AI agent 协同工作所需的一切，已经集成到同一个应用中。",
+      title: "你的 agent 所需的一切",
+      body: "UI、上下文、数据、权限和基础设施都已连接在一起。",
       pillars: {
         reactUi: {
           title: "React UI",
@@ -454,7 +454,7 @@ const zhCN = {
         },
         agentChat: {
           title: "内嵌 agent 对话",
-          body: "让用户无需离开应用即可委派工作、提问和查看结果。",
+          body: "让用户在同一个 UI 中委派工作、提问和查看结果。",
         },
         sharedState: {
           title: "共享的应用状态",
@@ -470,11 +470,11 @@ const zhCN = {
         },
         automations: {
           title: "自动化",
-          body: "按计划或应用事件自动运行 agent 工作。",
+          body: "按计划或事件自动运行 agent 工作。",
         },
         agentTeams: {
           title: "Agent 团队",
-          body: "在应用内部或跨应用把工作委派给专业 agent。",
+          body: "在同一个工作区或相互连接的 agent 之间，把工作委派给专业 agent。",
         },
         auth: {
           title: "身份认证与组织",
@@ -488,19 +488,19 @@ const zhCN = {
     },
     stack: {
       title: "适配你的技术栈",
-      body: "带上你自己的 LLM、数据库、工具和基础设施，Agent-Native 是开源的 TypeScript，你的应用始终归你所有。",
+      body: "带上你自己的 LLM、数据库、工具和基础设施。Agent-Native 是开源的 TypeScript，因此你构建的一切始终归你所有。",
       exploreApps: "探索用 Agent-Native 构建的应用",
     },
     showcase: {
       title: "你能用 Agent-Native 构建什么？",
-      body: "理解你的工作、采取行动并与你协作的智能体应用。构建你自己的应用，或试用这些开源应用中的一个。",
+      body: "为会议、设计、演示文稿、数据等工作构建带 UI 的 agent。从这些开源应用之一开始，或构建你自己的 agent。",
       browseApps: "浏览应用",
       scrollLeft: "向左滚动应用",
       scrollRight: "向右滚动应用",
     },
     bottomCta: {
-      title: "构建你的第一个 Agent-Native 应用",
-      body: "为用户和 AI agent 打造同一个应用。使用你自己的 LLM，随处部署。",
+      title: "构建你的第一个带 UI 的 agent",
+      body: "Agent 和 UI 共享相同的能力。使用你自己的 LLM，并随处部署。",
     },
     footer: {
       tagline: "面向 agentic 应用的框架。",

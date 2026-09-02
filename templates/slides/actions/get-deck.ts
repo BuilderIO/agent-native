@@ -145,6 +145,7 @@ function deckDeepLink(deckId: string): string {
 }
 
 export default defineAction({
+  title: "Read Slides deck",
   description:
     "Get a specific deck. Pass slideId to return only that slide; targeted agent reads include full HTML by default. In-app agent calls without slideId return compact slide metadata by default; set compact=false when full deck HTML is needed. Frontend and CLI reads remain full unless compact=true. For any continuation or follow-up, call this first and use generationContext as the canonical original brief, references, theme, and target slide count. For source-preserving work, the compact result includes sourceCoverage; do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI: slide 1 is the first slide. Use slideId for edits.",
   timeoutMs: 60_000,
