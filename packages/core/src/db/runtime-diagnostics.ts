@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 
-import { getAppConfig } from "../app-config/index.js";
 import {
   getDialect,
   getDbExec,
   getRuntimeDatabaseUrl,
+  getRuntimeDatabaseSource,
   isLocalDatabase,
   type DbExec,
   type Dialect,
@@ -130,33 +130,6 @@ function appEnvPrefix(): string | undefined {
   return envValue("APP_NAME")?.toUpperCase().replace(/-/g, "_");
 }
 
-function databaseUrlSource(): string {
-  const appName = appEnvPrefix();
-  if (appName && envValue(`${appName}_DATABASE_URL_UNPOOLED`)) {
-    return `${appName}_DATABASE_URL_UNPOOLED`;
-  }
-  if (appName && envValue(`${appName}_DATABASE_URL`)) {
-    return `${appName}_DATABASE_URL`;
-  }
-  const configuredUnpooled = getAppConfig().runtime.databaseUrlUnpooled;
-  if (configuredUnpooled) {
-    if (envValue("NETLIFY_DATABASE_URL_UNPOOLED") === configuredUnpooled) {
-      return "NETLIFY_DATABASE_URL_UNPOOLED";
-    }
-    if (envValue("DATABASE_URL_UNPOOLED") === configuredUnpooled) {
-      return "DATABASE_URL_UNPOOLED";
-    }
-    return "DATABASE_URL_UNPOOLED";
-  }
-  if (envValue("NETLIFY_DATABASE_URL_UNPOOLED")) {
-    return "NETLIFY_DATABASE_URL_UNPOOLED";
-  }
-  if (envValue("DATABASE_URL_UNPOOLED")) return "DATABASE_URL_UNPOOLED";
-  if (envValue("DATABASE_URL")) return "DATABASE_URL";
-  if (envValue("NETLIFY_DATABASE_URL")) return "NETLIFY_DATABASE_URL";
-  return "default";
-}
-
 function databaseAuthTokenConfigured(): boolean {
   const appName = appEnvPrefix();
   return Boolean(
@@ -212,7 +185,7 @@ export function getDatabaseRuntimeFingerprint(): DatabaseRuntimeFingerprint {
   const parsed = parseDatabaseUrl(url);
   return {
     configured: Boolean(url),
-    source: databaseUrlSource(),
+    source: getRuntimeDatabaseSource(),
     dialect: getDialect(),
     urlHash: shortHash(url),
     appName: envValue("APP_NAME"),

@@ -3,12 +3,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const mockExecute = vi.hoisted(() => vi.fn());
 const mockIsLocalDatabase = vi.hoisted(() => vi.fn());
 const mockRuntimeDatabaseUrl = vi.hoisted(() => vi.fn());
+const mockRuntimeDatabaseSource = vi.hoisted(() => vi.fn());
 const mockGetAppConfig = vi.hoisted(() =>
   vi.fn(() => ({ runtime: { databaseUrlUnpooled: undefined } })),
 );
 
 vi.mock("./client.js", () => ({
   getRuntimeDatabaseUrl: mockRuntimeDatabaseUrl,
+  getRuntimeDatabaseSource: mockRuntimeDatabaseSource,
   getDialect: () => "postgres",
   isLocalDatabase: mockIsLocalDatabase,
   getDbExec: () => ({ execute: mockExecute }),
@@ -28,6 +30,7 @@ import {
 afterEach(() => {
   vi.unstubAllEnvs();
   mockRuntimeDatabaseUrl.mockReset();
+  mockRuntimeDatabaseSource.mockReset();
   mockIsLocalDatabase.mockReset();
   mockGetAppConfig.mockReset();
   mockGetAppConfig.mockReturnValue({
@@ -42,6 +45,7 @@ describe("runtime diagnostics", () => {
     vi.stubEnv("DATABASE_URL", "");
     vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
     mockRuntimeDatabaseUrl.mockReturnValue("postgres://netlify.example/db");
+    mockRuntimeDatabaseSource.mockReturnValue("NETLIFY_DATABASE_URL");
     mockIsLocalDatabase.mockReturnValue(false);
 
     expect(getEffectiveDatabaseEnvStatus("DATABASE_URL")).toBe(false);
@@ -55,6 +59,7 @@ describe("runtime diagnostics", () => {
     vi.stubEnv("DATABASE_URL", "file:./data/app.db");
     vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
     mockRuntimeDatabaseUrl.mockReturnValue("file:./data/app.db");
+    mockRuntimeDatabaseSource.mockReturnValue("DATABASE_URL");
     mockIsLocalDatabase.mockReturnValue(true);
 
     expect(getEffectiveDatabaseEnvStatus("DATABASE_URL")).toBe(false);
@@ -67,6 +72,7 @@ describe("runtime diagnostics", () => {
     vi.stubEnv("DATABASE_URL", "postgres://generic.example/db");
     vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
     mockRuntimeDatabaseUrl.mockReturnValue("postgres://forms.example/db");
+    mockRuntimeDatabaseSource.mockReturnValue("FORMS_DATABASE_URL");
     mockIsLocalDatabase.mockReturnValue(false);
 
     expect(getEffectiveDatabaseEnvStatus("FORMS_DATABASE_URL")).toBe(true);
@@ -86,6 +92,7 @@ describe("runtime diagnostics", () => {
     mockRuntimeDatabaseUrl.mockReturnValue(
       "postgres://forms-direct.example/db",
     );
+    mockRuntimeDatabaseSource.mockReturnValue("FORMS_DATABASE_URL_UNPOOLED");
     mockIsLocalDatabase.mockReturnValue(false);
 
     expect(getEffectiveDatabaseEnvStatus("FORMS_DATABASE_URL_UNPOOLED")).toBe(
@@ -109,6 +116,7 @@ describe("runtime diagnostics", () => {
     mockRuntimeDatabaseUrl.mockReturnValue(
       "postgres://netlify-direct.example/db",
     );
+    mockRuntimeDatabaseSource.mockReturnValue("NETLIFY_DATABASE_URL_UNPOOLED");
     mockIsLocalDatabase.mockReturnValue(false);
 
     expect(getEffectiveDatabaseEnvStatus("NETLIFY_DATABASE_URL_UNPOOLED")).toBe(
@@ -132,6 +140,7 @@ describe("runtime diagnostics", () => {
       runtime: { databaseUrlUnpooled: "postgres://configured.example/db" },
     });
     mockRuntimeDatabaseUrl.mockReturnValue("postgres://configured.example/db");
+    mockRuntimeDatabaseSource.mockReturnValue("DATABASE_URL_UNPOOLED");
     mockIsLocalDatabase.mockReturnValue(false);
 
     expect(getEffectiveDatabaseEnvStatus("DATABASE_URL_UNPOOLED")).toBe(true);
