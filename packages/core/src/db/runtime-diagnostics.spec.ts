@@ -3,12 +3,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const mockExecute = vi.hoisted(() => vi.fn());
 const mockIsLocalDatabase = vi.hoisted(() => vi.fn());
 const mockRuntimeDatabaseUrl = vi.hoisted(() => vi.fn());
+const mockGetAppConfig = vi.hoisted(() =>
+  vi.fn(() => ({ runtime: { databaseUrlUnpooled: undefined } })),
+);
 
 vi.mock("./client.js", () => ({
   getRuntimeDatabaseUrl: mockRuntimeDatabaseUrl,
   getDialect: () => "postgres",
   isLocalDatabase: mockIsLocalDatabase,
   getDbExec: () => ({ execute: mockExecute }),
+}));
+vi.mock("../app-config/index.js", () => ({
+  getAppConfig: mockGetAppConfig,
 }));
 
 import {
@@ -23,6 +29,10 @@ afterEach(() => {
   vi.unstubAllEnvs();
   mockRuntimeDatabaseUrl.mockReset();
   mockIsLocalDatabase.mockReset();
+  mockGetAppConfig.mockReset();
+  mockGetAppConfig.mockReturnValue({
+    runtime: { databaseUrlUnpooled: undefined },
+  });
 });
 
 describe("runtime diagnostics", () => {
@@ -104,6 +114,24 @@ describe("runtime diagnostics", () => {
     expect(getEffectiveDatabaseEnvStatus("NETLIFY_DATABASE_URL_UNPOOLED")).toBe(
       true,
     );
+    expect(getEffectiveDatabaseEnvStatus("DATABASE_URL")).toBe(false);
+  });
+
+  it("reports an app-configured unpooled URL through the canonical status key", () => {
+    vi.stubEnv("APP_NAME", "forms");
+    vi.stubEnv("FORMS_DATABASE_URL", "");
+    vi.stubEnv("FORMS_DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    mockGetAppConfig.mockReturnValue({
+      runtime: { databaseUrlUnpooled: "postgres://configured.example/db" },
+    });
+    mockRuntimeDatabaseUrl.mockReturnValue("postgres://configured.example/db");
+    mockIsLocalDatabase.mockReturnValue(false);
+
+    expect(getEffectiveDatabaseEnvStatus("DATABASE_URL_UNPOOLED")).toBe(true);
     expect(getEffectiveDatabaseEnvStatus("DATABASE_URL")).toBe(false);
   });
 

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { getAppConfig } from "../app-config/index.js";
 import {
   getDialect,
   getDbExec,
@@ -141,6 +142,9 @@ function databaseUrlSource(): string {
     return "NETLIFY_DATABASE_URL_UNPOOLED";
   }
   if (envValue("DATABASE_URL_UNPOOLED")) return "DATABASE_URL_UNPOOLED";
+  if (getAppConfig().runtime.databaseUrlUnpooled) {
+    return "DATABASE_URL_UNPOOLED";
+  }
   if (envValue("DATABASE_URL")) return "DATABASE_URL";
   if (envValue("NETLIFY_DATABASE_URL")) return "NETLIFY_DATABASE_URL";
   return "default";
@@ -206,7 +210,10 @@ export function getDatabaseRuntimeFingerprint(): DatabaseRuntimeFingerprint {
     urlHash: shortHash(url),
     appName: envValue("APP_NAME"),
     authTokenConfigured: databaseAuthTokenConfigured(),
-    netlifyDatabaseUrlConfigured: Boolean(envValue("NETLIFY_DATABASE_URL")),
+    netlifyDatabaseUrlConfigured: Boolean(
+      envValue("NETLIFY_DATABASE_URL") ||
+      envValue("NETLIFY_DATABASE_URL_UNPOOLED"),
+    ),
     ...parsed,
   };
 }
