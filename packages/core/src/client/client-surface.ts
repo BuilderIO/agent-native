@@ -13,15 +13,14 @@ interface SurfaceGlobals {
   __TAURI__?: unknown;
   // Exposed by the Agent-Native desktop (Electron) preload bridges.
   agentNativeDesktop?: unknown;
-  electronAPI?: unknown;
 }
 
 /**
  * Best-effort, side-effect-free detection of the current client surface.
  * Returns "web" during SSR and in any plain browser.
  *
- * Electron detection accepts known native-client User-Agent markers, the
- * `AgentNativeDesktop` marker, or the preload globals exposed by our shell.
+ * Electron detection accepts known native-client User-Agent markers or the
+ * `AgentNativeDesktop` marker exposed by our shell.
  */
 export function getClientSurface(): ClientSurface {
   if (typeof window === "undefined") return "web";
@@ -30,8 +29,7 @@ export function getClientSurface(): ClientSurface {
   const ua = typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
   if (
     /\b(?:AgentNativeDesktop|ChatGPT|Claude|Codex)\b/i.test(ua) ||
-    w.agentNativeDesktop ||
-    w.electronAPI
+    w.agentNativeDesktop
   ) {
     return "electron";
   }

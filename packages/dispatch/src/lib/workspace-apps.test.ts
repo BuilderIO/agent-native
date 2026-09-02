@@ -123,6 +123,20 @@ describe("navigateToWorkspaceApp", () => {
     expect(shouldOpenWorkspaceAppInTopWindow()).toBe(false);
   });
 
+  it("ignores a generic Electron preload global", () => {
+    setUserAgent("Mozilla/5.0 Electron/38.0");
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {},
+    });
+
+    try {
+      expect(shouldOpenWorkspaceAppInTopWindow()).toBe(false);
+    } finally {
+      delete (window as unknown as { electronAPI?: unknown }).electronAPI;
+    }
+  });
+
   it("uses the top window in known native desktop hosts", () => {
     setUserAgent("Mozilla/5.0 Electron/38.0 ChatGPT/1.0");
 
