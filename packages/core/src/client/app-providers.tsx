@@ -389,7 +389,10 @@ export function AppProviders({
         >
           <RequireSession bypass={sessionBypass} fallback={fallback}>
             {sessionBypass ? (
-              children
+              <>
+                <AutomaticWebMcpActionRegistration />
+                {children}
+              </>
             ) : (
               <FirstRunOnboardingStartupGate>
                 <AutomaticWebMcpActionRegistration />
