@@ -727,21 +727,20 @@ export async function handleDeleteResource(event: any) {
     };
   }
 
-  const isLegacyOrganizationResource =
+  const deleted =
     existing.owner === SHARED_OWNER &&
     sharedResourceOwner(orgId) !== SHARED_OWNER &&
     isLegacyOrganizationWorkspaceFile(existing, orgId) &&
-    typeof existing.metadata === "string";
-  const deleted = isLegacyOrganizationResource
-    ? await resourceDeleteIfCurrent({
-        owner: existing.owner,
-        path: existing.path,
-        expectedId: existing.id,
-        expectedUpdatedAt: existing.updatedAt,
-        expectedContent: existing.content,
-        expectedMetadata: existing.metadata,
-      })
-    : await resourceDelete(id);
+    typeof existing.metadata === "string"
+      ? await resourceDeleteIfCurrent({
+          owner: existing.owner,
+          path: existing.path,
+          expectedId: existing.id,
+          expectedUpdatedAt: existing.updatedAt,
+          expectedContent: existing.content,
+          expectedMetadata: existing.metadata,
+        })
+      : await resourceDelete(id);
   if (deleted && existingOrganizationId === orgId) {
     const legacy = await resourceGetByPath(SHARED_OWNER, existing.path, {
       orgId,
