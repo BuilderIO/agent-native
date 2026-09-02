@@ -1915,6 +1915,8 @@ function DocumentEditorBody({
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const [utilityPanel, setUtilityPanel] = useState<DocumentUtilityPanel>(null);
+  const [lastUtilityPanel, setLastUtilityPanel] =
+    useState<Exclude<DocumentUtilityPanel, null>>("comments");
   const [commentsBrowseOpen, setCommentsBrowseOpen] = useState(false);
   const [showCommentIndicators, setShowCommentIndicators] = useState(true);
   const activeThreadId = hoveredThreadId ?? selectedThreadId;
@@ -1941,6 +1943,10 @@ function DocumentEditorBody({
   const showUtilityPanelSheet =
     showCommentsHistoryDrawer ||
     (utilityPanel === "info" && !showDesktopUtilityPanel);
+
+  useEffect(() => {
+    if (utilityPanel) setLastUtilityPanel(utilityPanel);
+  }, [utilityPanel]);
 
   const handleComment = useCallback(
     (
@@ -2251,61 +2257,69 @@ function DocumentEditorBody({
   const exportContent = isInitializedRef.current
     ? localContent
     : document.content;
-  const utilityPanelTitle =
-    utilityPanel === "info" ? t("editor.toolbar.info") : t("comments.title");
-  const utilityPanelContent = utilityPanel ? (
-    <div className="w-full min-w-0 bg-background" data-document-utility-panel>
-      <div className="sticky top-0 z-10 flex h-12 items-center border-b border-border bg-background px-4">
-        <h2
-          className="text-sm font-semibold"
-          aria-hidden={!hasUtilityRailSpace || undefined}
-        >
-          {utilityPanelTitle}
-        </h2>
-        {utilityPanel === "comments" ? (
-          <button
-            type="button"
-            className="ms-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-pressed={showCommentIndicators}
-            aria-label={t("comments.title")}
-            onClick={() => setShowCommentIndicators((visible) => !visible)}
+  const renderUtilityPanelContent = (
+    panel: Exclude<DocumentUtilityPanel, null>,
+    inSheet = false,
+  ) => {
+    const utilityPanelTitle =
+      panel === "info" ? t("editor.toolbar.info") : t("comments.title");
+    return (
+      <div className="w-full min-w-0 bg-background" data-document-utility-panel>
+        <div className="sticky top-0 z-10 flex h-12 items-center border-b border-border bg-background px-4">
+          <h2
+            className="text-sm font-semibold"
+            aria-hidden={!hasUtilityRailSpace || undefined}
           >
-            {showCommentIndicators ? (
-              <IconMessageCircle size={16} />
-            ) : (
-              <IconMessageCircleOff size={16} />
-            )}
-          </button>
-        ) : null}
-        {hasUtilityRailSpace || showCommentsHistoryDrawer ? (
-          <button
-            type="button"
-            className={cn(
-              "flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              utilityPanel !== "comments" && "ms-auto",
-            )}
-            aria-label={t("editor.toolbar.closeUtilityPanel")}
-            onClick={() => handleUtilityPanelChange(null)}
-          >
-            <IconX size={16} />
-          </button>
-        ) : null}
+            {utilityPanelTitle}
+          </h2>
+          {panel === "comments" ? (
+            <button
+              type="button"
+              className="ms-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-pressed={showCommentIndicators}
+              aria-label={t("comments.title")}
+              onClick={() => setShowCommentIndicators((visible) => !visible)}
+            >
+              {showCommentIndicators ? (
+                <IconMessageCircle size={16} />
+              ) : (
+                <IconMessageCircleOff size={16} />
+              )}
+            </button>
+          ) : null}
+          {hasUtilityRailSpace || inSheet ? (
+            <button
+              type="button"
+              className={cn(
+                "flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                panel !== "comments" && "ms-auto",
+              )}
+              aria-label={t("editor.toolbar.closeUtilityPanel")}
+              onClick={() => handleUtilityPanelChange(null)}
+            >
+              <IconX size={16} />
+            </button>
+          ) : null}
+        </div>
+        {panel === "info" ? (
+          <DocumentInfoPanel
+            document={document}
+            databaseId={databaseId}
+            databaseDocumentId={databaseDocumentId}
+            canEdit={editorCanEdit}
+            onSaveDescription={(description) =>
+              persistDocumentUpdates({ description })
+            }
+          />
+        ) : (
+          renderCommentsSidebar(undefined, false, "history")
+        )}
       </div>
-      {utilityPanel === "info" ? (
-        <DocumentInfoPanel
-          document={document}
-          databaseId={databaseId}
-          databaseDocumentId={databaseDocumentId}
-          canEdit={editorCanEdit}
-          onSaveDescription={(description) =>
-            persistDocumentUpdates({ description })
-          }
-        />
-      ) : (
-        renderCommentsSidebar(undefined, false, "history")
-      )}
-    </div>
-  ) : null;
+    );
+  };
+  const utilityPanelContent = utilityPanel
+    ? renderUtilityPanelContent(utilityPanel)
+    : null;
 
   return (
     <BlockRegistryProvider
@@ -2805,29 +2819,31 @@ function DocumentEditorBody({
           </div>
         </div>
 
-        {showUtilityPanelSheet ? (
-          <Sheet
-            open={showUtilityPanelSheet}
-            onOpenChange={(open) => {
-              if (!open) {
-                handleUtilityPanelChange(null);
-              }
-            }}
+        <Sheet
+          open={showUtilityPanelSheet}
+          onOpenChange={(open) => {
+            if (!open) {
+              handleUtilityPanelChange(null);
+            }
+          }}
+        >
+          <SheetContent
+            side="right"
+            className="flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0 data-[state=closed]:duration-[260ms] data-[state=open]:duration-[260ms] data-[state=closed]:ease-[var(--ease-drawer)] data-[state=open]:ease-[var(--ease-drawer)]"
+            aria-describedby={undefined}
           >
-            <SheetContent
-              side="right"
-              className="flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0"
-              aria-describedby={undefined}
-            >
-              <SheetHeader className="sr-only">
-                <SheetTitle>{utilityPanelTitle}</SheetTitle>
-              </SheetHeader>
-              <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-                {utilityPanelContent}
-              </div>
-            </SheetContent>
-          </Sheet>
-        ) : null}
+            <SheetHeader className="sr-only">
+              <SheetTitle>
+                {lastUtilityPanel === "info"
+                  ? t("editor.toolbar.info")
+                  : t("comments.title")}
+              </SheetTitle>
+            </SheetHeader>
+            <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+              {renderUtilityPanelContent(lastUtilityPanel, true)}
+            </div>
+          </SheetContent>
+        </Sheet>
       </div>
     </BlockRegistryProvider>
   );

@@ -592,10 +592,16 @@ describe("document editor layout", () => {
     );
 
     expect(source).toContain(
-      'className="flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0"',
+      'className="flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0',
     );
     expect(source).toContain(
       'className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"',
+    );
+    expect(source).toContain("data-[state=closed]:duration-[260ms]");
+    expect(source).toContain("data-[state=open]:ease-[var(--ease-drawer)]");
+    expect(source).not.toContain("{showUtilityPanelSheet ? (");
+    expect(source).toContain(
+      "renderUtilityPanelContent(lastUtilityPanel, true)",
     );
   });
 
