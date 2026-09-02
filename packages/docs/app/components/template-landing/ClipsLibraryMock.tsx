@@ -705,60 +705,63 @@ const CLIPS_MOCK_CSS = [
   ".clips-mock { position: relative; width: 100%; margin-top: -160px; padding: 182px 40px 28px; overflow: hidden; }",
   ".clips-mock, .clips-mock * { box-sizing: border-box; }",
   ".clips-mock-frame { position: relative; height: 100%; }",
+  // Palette. Dark by default; the light block further down swaps the whole mock
+  // over when the docs shell is in light mode.
+  ".clips-mock { --lib-window-bg: #151515; --lib-chrome-bg: #101010; --lib-chrome-border: #232323; --lib-dot: #4d4d4d; --lib-border: #333333; --lib-fg: #e6e6e6; --lib-fg-dim: #b3b3b3; --lib-fg-muted: #999999; --lib-fg-subtle: #808080; --lib-fg-faint: #6b6b6b; --lib-btn-bg: #262626; --lib-btn-border: #383838; --lib-btn-fg: #cccccc; --lib-btn-hover-bg: #303030; --lib-btn-hover-border: #454545; --lib-hover-bg: rgba(255, 255, 255, 0.06); --lib-active-bg: rgba(191, 191, 191, 0.12); --lib-active-fg: #f2f2f2; --lib-input-bg: #191919; --lib-input-border: #2e2e2e; --lib-input-hover-border: #4d4d4d; --lib-card-bg: #1c1c1c; --lib-card-border: #2b2b2b; --lib-card-hover-border: #5a5a5a; --lib-thumb-bg: #202020; --lib-avatar-bg: #3a3a3a; --lib-avatar-fg: #bfbfbf; --lib-scroll: #4d4d4d; --lib-scroll-hover: #666666; }",
   // The popover is a fixed 340x408 panel. Shrink it on narrow screens, where
   // the mock is shorter, rather than let the "Start recording" CTA clip out.
   // The desktop overlap values are far too aggressive for a narrow column.
   "@media (max-width: 640px) { .clips-mock { margin-top: 0; padding: 54px 16px 18px; } .clips-mock .clips-mock-popover { top: -44px; right: 12px; transform: scale(0.72); transform-origin: top right; } }",
 
   // Faux app window
-  ".clips-mock .library-window { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; background: #151515; color: #e6e6e6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.18); }",
-  ".clips-mock .library-window-topbar { flex-shrink: 0; display: flex; align-items: center; gap: 6px; padding: 10px 12px; background: #101010; border-bottom: 1px solid #232323; }",
-  ".clips-mock .library-window-topbar span { width: 11px; height: 11px; border-radius: 999px; background: #4d4d4d; }",
+  ".clips-mock .library-window { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; background: var(--lib-window-bg); color: var(--lib-fg); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.18); }",
+  ".clips-mock .library-window-topbar { flex-shrink: 0; display: flex; align-items: center; gap: 6px; padding: 10px 12px; background: var(--lib-chrome-bg); border-bottom: 1px solid var(--lib-chrome-border); }",
+  ".clips-mock .library-window-topbar span { width: 11px; height: 11px; border-radius: 999px; background: var(--lib-dot); }",
   ".clips-mock .library-window-body { flex: 1; min-height: 0; display: flex; }",
 
   // Sidebar
-  ".clips-mock .library-sidebar { width: 216px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; padding: 14px 12px; background: #101010; border-right: 1px solid #232323; }",
+  ".clips-mock .library-sidebar { width: 216px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; padding: 14px 12px; background: var(--lib-chrome-bg); border-right: 1px solid var(--lib-chrome-border); }",
   ".clips-mock .library-brand { display: flex; align-items: center; gap: 8px; padding: 4px 4px 12px; }",
-  ".clips-mock .library-brand-mark { height: 14px; width: 24px; flex-shrink: 0; color: #e6e6e6; }",
-  ".clips-mock .library-brand-name { font-weight: 600; font-size: 13px; color: #e6e6e6; }",
-  ".clips-mock .library-new-recording { margin-bottom: 6px; padding: 7px 0; border-radius: 6px; background: #262626; border: 1px solid #383838; color: #cccccc; font-size: 12.5px; font-weight: 600; text-align: center; }",
-  ".clips-mock .library-import { margin-bottom: 12px; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 0; border-radius: 6px; border: 1px solid #333333; color: #cccccc; font-size: 12.5px; }",
+  ".clips-mock .library-brand-mark { height: 14px; width: 24px; flex-shrink: 0; color: var(--lib-fg); }",
+  ".clips-mock .library-brand-name { font-weight: 600; font-size: 13px; color: var(--lib-fg); }",
+  ".clips-mock .library-new-recording { margin-bottom: 6px; padding: 7px 0; border-radius: 6px; background: var(--lib-btn-bg); border: 1px solid var(--lib-btn-border); color: var(--lib-btn-fg); font-size: 12.5px; font-weight: 600; text-align: center; }",
+  ".clips-mock .library-import { margin-bottom: 12px; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 0; border-radius: 6px; border: 1px solid var(--lib-border); color: var(--lib-btn-fg); font-size: 12.5px; }",
   ".clips-mock .library-import-chev { margin-left: 2px; opacity: 0.7; }",
   ".clips-mock .library-nav { display: flex; flex-direction: column; gap: 1px; }",
-  ".clips-mock .library-nav-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 5px; font-size: 12.5px; color: #b3b3b3; }",
-  ".clips-mock .library-nav-item.is-active { background: rgba(191, 191, 191, 0.12); color: #f2f2f2; font-weight: 500; }",
+  ".clips-mock .library-nav-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 5px; font-size: 12.5px; color: var(--lib-fg-dim); }",
+  ".clips-mock .library-nav-item.is-active { background: var(--lib-active-bg); color: var(--lib-active-fg); font-weight: 500; }",
   ".clips-mock .library-nav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
-  ".clips-mock .library-nav-count { color: #808080; font-size: 11px; }",
+  ".clips-mock .library-nav-count { color: var(--lib-fg-subtle); font-size: 11px; }",
   ".clips-mock .library-sidebar-section { margin-top: 14px; }",
-  ".clips-mock .library-sidebar-section-header { display: flex; align-items: center; justify-content: space-between; padding: 0 8px; color: #7a7a7a; font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }",
-  ".clips-mock .library-sidebar-empty { padding: 6px 8px 0; color: #6b6b6b; font-size: 12px; }",
+  ".clips-mock .library-sidebar-section-header { display: flex; align-items: center; justify-content: space-between; padding: 0 8px; color: var(--lib-fg-subtle); font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }",
+  ".clips-mock .library-sidebar-empty { padding: 6px 8px 0; color: var(--lib-fg-faint); font-size: 12px; }",
   ".clips-mock .library-sidebar-spacer { flex: 1; }",
-  ".clips-mock .library-sidebar-bottom { display: flex; flex-direction: column; gap: 1px; border-top: 1px solid #232323; padding-top: 8px; }",
+  ".clips-mock .library-sidebar-bottom { display: flex; flex-direction: column; gap: 1px; border-top: 1px solid var(--lib-chrome-border); padding-top: 8px; }",
 
   // Main column
   ".clips-mock .library-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }",
-  ".clips-mock .library-topbar { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid #333333; }",
-  ".clips-mock .library-heading { font-size: 15px; font-weight: 600; color: #e6e6e6; }",
+  ".clips-mock .library-topbar { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--lib-border); }",
+  ".clips-mock .library-heading { font-size: 15px; font-weight: 600; color: var(--lib-fg); }",
   ".clips-mock .library-topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }",
-  ".clips-mock .library-search { display: flex; align-items: center; gap: 6px; width: 220px; height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid #2e2e2e; background: #191919; color: #808080; font-size: 12px; }",
-  ".clips-mock .library-icon-btn { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 6px; color: #999999; }",
+  ".clips-mock .library-search { display: flex; align-items: center; gap: 6px; width: 220px; height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--lib-input-border); background: var(--lib-input-bg); color: var(--lib-fg-subtle); font-size: 12px; }",
+  ".clips-mock .library-icon-btn { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 6px; color: var(--lib-fg-muted); }",
 
   // Card grid
-  ".clips-mock .library-grid { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); grid-auto-rows: max-content; gap: 16px; padding: 20px; align-content: start; scrollbar-width: thin; scrollbar-color: #4d4d4d transparent; }",
+  ".clips-mock .library-grid { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); grid-auto-rows: max-content; gap: 16px; padding: 20px; align-content: start; scrollbar-width: thin; scrollbar-color: var(--lib-scroll) transparent; }",
   ".clips-mock .library-grid::-webkit-scrollbar { width: 10px; }",
   ".clips-mock .library-grid::-webkit-scrollbar-track { background: transparent; }",
-  ".clips-mock .library-grid::-webkit-scrollbar-thumb { border-radius: 999px; background: #4d4d4d; border: 3px solid transparent; background-clip: content-box; }",
-  ".clips-mock .library-grid::-webkit-scrollbar-thumb:hover { background: #666666; background-clip: content-box; }",
-  ".clips-mock .library-card { border-radius: 8px; overflow: hidden; background: #1c1c1c; border: 1px solid #2b2b2b; }",
-  ".clips-mock .library-card-thumb { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: #202020; }",
+  ".clips-mock .library-grid::-webkit-scrollbar-thumb { border-radius: 999px; background: var(--lib-scroll); border: 3px solid transparent; background-clip: content-box; }",
+  ".clips-mock .library-grid::-webkit-scrollbar-thumb:hover { background: var(--lib-scroll-hover); background-clip: content-box; }",
+  ".clips-mock .library-card { border-radius: 8px; overflow: hidden; background: var(--lib-card-bg); border: 1px solid var(--lib-card-border); }",
+  ".clips-mock .library-card-thumb { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: var(--lib-thumb-bg); }",
   ".clips-mock .library-card-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }",
   ".clips-mock .library-card-thumb-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.15); color: #ffffff; }",
   ".clips-mock .library-card-duration { position: absolute; bottom: 6px; right: 6px; padding: 1px 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.8); color: #ffffff; font-size: 11px; font-variant-numeric: tabular-nums; }",
-  ".clips-mock .library-card-title { margin: 10px 12px 0; font-size: 13.5px; font-weight: 500; color: #e6e6e6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }",
-  ".clips-mock .library-card-owner-row { margin: 5px 12px 0; display: flex; align-items: center; gap: 6px; color: #999999; font-size: 11px; }",
-  ".clips-mock .library-card-avatar { display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 999px; background: #3a3a3a; color: #bfbfbf; font-size: 8px; font-weight: 700; flex-shrink: 0; }",
+  ".clips-mock .library-card-title { margin: 10px 12px 0; font-size: 13.5px; font-weight: 500; color: var(--lib-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }",
+  ".clips-mock .library-card-owner-row { margin: 5px 12px 0; display: flex; align-items: center; gap: 6px; color: var(--lib-fg-muted); font-size: 11px; }",
+  ".clips-mock .library-card-avatar { display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 999px; background: var(--lib-avatar-bg); color: var(--lib-avatar-fg); font-size: 8px; font-weight: 700; flex-shrink: 0; }",
   ".clips-mock .library-card-owner-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
-  ".clips-mock .library-card-meta { margin: 3px 12px 12px; display: flex; align-items: center; gap: 6px; color: #999999; font-size: 11px; }",
+  ".clips-mock .library-card-meta { margin: 3px 12px 12px; display: flex; align-items: center; gap: 6px; color: var(--lib-fg-muted); font-size: 11px; }",
   ".clips-mock .library-card-visibility { text-transform: capitalize; }",
 
   // Tray popover — values mirror templates/clips/desktop/src/styles.css, with
@@ -817,16 +820,26 @@ const CLIPS_MOCK_CSS = [
 
   // Library hover behavior, mirroring templates/clips/app RecordingCard.
   ".clips-mock .library-card { transition: border-color 140ms, box-shadow 140ms, transform 140ms; }",
-  ".clips-mock .library-card:hover { border-color: #5a5a5a; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35); transform: translateY(-2px); }",
+  ".clips-mock .library-card:hover { border-color: var(--lib-card-hover-border); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35); transform: translateY(-2px); }",
   ".clips-mock .library-card-thumb img { transition: transform 240ms, filter 240ms; }",
   ".clips-mock .library-card:hover .library-card-thumb img { transform: scale(1.03); }",
   ".clips-mock .library-card-thumb-overlay { transition: background 160ms; }",
   ".clips-mock .library-card:hover .library-card-thumb-overlay { background: rgba(0, 0, 0, 0.32); }",
-  ".clips-mock .library-nav-item:hover { background: rgba(255, 255, 255, 0.06); color: #f2f2f2; }",
-  ".clips-mock .library-icon-btn:hover { background: rgba(255, 255, 255, 0.08); color: #e6e6e6; }",
-  ".clips-mock .library-search:hover { border-color: #4d4d4d; }",
-  ".clips-mock .library-new-recording:hover { background: #303030; border-color: #454545; color: #e6e6e6; }",
-  ".clips-mock .library-import:hover { background: rgba(255, 255, 255, 0.05); color: #e6e6e6; }",
+  ".clips-mock .library-nav-item:hover { background: var(--lib-hover-bg); color: var(--lib-active-fg); }",
+  ".clips-mock .library-icon-btn:hover { background: var(--lib-hover-bg); color: var(--lib-fg); }",
+  ".clips-mock .library-search:hover { border-color: var(--lib-input-hover-border); }",
+  ".clips-mock .library-new-recording:hover { background: var(--lib-btn-hover-bg); border-color: var(--lib-btn-hover-border); color: var(--lib-fg); }",
+  ".clips-mock .library-import:hover { background: var(--lib-hover-bg); color: var(--lib-fg); }",
+
+  // Light mode. The docs shell puts `light`/`dark` on <html>, so the mock
+  // follows the visitor's theme instead of staying pinned to the dark art.
+  "html.light .clips-mock { --lib-window-bg: #f4f4f4; --lib-chrome-bg: #ececec; --lib-chrome-border: #dcdcdc; --lib-dot: #c4c4c4; --lib-border: #dcdcdc; --lib-fg: #1f1f1f; --lib-fg-dim: #545454; --lib-fg-muted: #6e6e6e; --lib-fg-subtle: #808080; --lib-fg-faint: #949494; --lib-btn-bg: #ffffff; --lib-btn-border: #d4d4d4; --lib-btn-fg: #3d3d3d; --lib-btn-hover-bg: #f7f7f7; --lib-btn-hover-border: #bdbdbd; --lib-hover-bg: rgba(0, 0, 0, 0.05); --lib-active-bg: rgba(0, 0, 0, 0.08); --lib-active-fg: #171717; --lib-input-bg: #ffffff; --lib-input-border: #d9d9d9; --lib-input-hover-border: #bdbdbd; --lib-card-bg: #ffffff; --lib-card-border: #e2e2e2; --lib-card-hover-border: #bdbdbd; --lib-thumb-bg: #ebebeb; --lib-avatar-bg: #e0e0e0; --lib-avatar-fg: #5c5c5c; --lib-scroll: #c4c4c4; --lib-scroll-hover: #a8a8a8; }",
+  "html.light .clips-mock .library-window { box-shadow: 0 24px 60px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06); }",
+  "html.light .clips-mock .library-card:hover { box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12); }",
+  "html.light .clips-mock .clips-mock-popover { --brand: #171717; --brand-hover: #000000; --brand-ring: rgba(23, 23, 23, 0.2); --bg: #ffffff; --surface: #f5f5f5; --surface-hover: #ededed; --surface-strong: #e8e8e8; --fg: #171717; --fg-muted: #6b6b6b; --fg-subtle: #8f8f8f; --border: #e0e0e0; --border-strong: #cfcfcf; --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08); --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06); }",
+  "html.light .clips-mock .clips-mock-popover.app { border-color: #dcdcdc; box-shadow: 0 28px 64px rgba(0, 0, 0, 0.2), 0 6px 18px rgba(0, 0, 0, 0.1); }",
+  "html.light .clips-mock .primary { color: #3d3d3d; }",
+  "html.light .clips-mock .primary:hover { background: #dedede; color: var(--fg); }",
 ].join("\n");
 
 export function ClipsLibraryMock({
