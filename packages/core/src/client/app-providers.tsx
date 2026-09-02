@@ -60,6 +60,7 @@ import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
 } from "../shared/document-title.js";
+import { getSsrBetaRedirectScriptBody } from "../shared/ssr-beta-redirect.js";
 import { ClientOnly } from "./ClientOnly.js";
 import { DefaultSpinner } from "./DefaultSpinner.js";
 import { EnvironmentBadge } from "./EnvironmentBadge.js";
@@ -160,6 +161,15 @@ const DEFAULT_TOASTER = (
     mobileOffset={{ bottom: 44, left: 16 }}
   />
 );
+
+function EarlyBetaRedirectScript() {
+  return (
+    <script
+      data-agent-native-beta-redirect="1"
+      dangerouslySetInnerHTML={{ __html: getSsrBetaRedirectScriptBody() }}
+    />
+  );
+}
 
 function RoutedAppEnhancements() {
   const isInRouter = useInRouterContext();
@@ -360,30 +370,38 @@ export function AppProviders({
     );
   }
 
+  // Keep the bootstrap outside ClientOnly so the HTML parser can run it before
+  // the authenticated client bundle starts.
   return (
-    <ClientOnly fallback={fallback}>
-      <ProvidersInner
-        queryClient={queryClient}
-        defaultTheme={defaultTheme}
-        themeAttribute={themeAttribute}
-        tooltipDelayDuration={tooltipDelayDuration}
-        toaster={toaster}
-        disableThemeTransitions={disableThemeTransitions}
-        i18n={i18n}
-        documentTitleFallback={documentTitleFallback}
-        showProductionEnvironmentBadge={!sessionBypass}
-      >
-        <RequireSession bypass={sessionBypass} fallback={fallback}>
-          {sessionBypass ? (
-            children
-          ) : (
-            <FirstRunOnboardingStartupGate>
-              <AutomaticWebMcpActionRegistration />
-              {children}
-            </FirstRunOnboardingStartupGate>
-          )}
-        </RequireSession>
-      </ProvidersInner>
-    </ClientOnly>
+    <>
+      {!sessionBypass && <EarlyBetaRedirectScript />}
+      <ClientOnly fallback={fallback}>
+        <ProvidersInner
+          queryClient={queryClient}
+          defaultTheme={defaultTheme}
+          themeAttribute={themeAttribute}
+          tooltipDelayDuration={tooltipDelayDuration}
+          toaster={toaster}
+          disableThemeTransitions={disableThemeTransitions}
+          i18n={i18n}
+          documentTitleFallback={documentTitleFallback}
+          showProductionEnvironmentBadge={!sessionBypass}
+        >
+          <RequireSession bypass={sessionBypass} fallback={fallback}>
+            {sessionBypass ? (
+              <>
+                <AutomaticWebMcpActionRegistration />
+                {children}
+              </>
+            ) : (
+              <FirstRunOnboardingStartupGate>
+                <AutomaticWebMcpActionRegistration />
+                {children}
+              </FirstRunOnboardingStartupGate>
+            )}
+          </RequireSession>
+        </ProvidersInner>
+      </ClientOnly>
+    </>
   );
 }

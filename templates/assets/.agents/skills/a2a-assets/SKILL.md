@@ -22,8 +22,9 @@ delegation, but A2A replies cannot render MCP App pickers.
    `callerAppId` with the calling app id (`slides`, `design`, `content`,
    `mail`) so the Assets audit log can group cross-agent generations.
 3. Treat image batches as complete when the action returns. Use returned
-   successful `images` entries directly; only regenerate slots that returned
-   `ok: false`.
+   successful compact `images` entries directly; only regenerate slots that
+   returned `ok: false`. Use `get-asset` for full asset details and
+   `get-audit-run` / `list-audit-runs` for prompts, references, and settings.
    A result carrying `draftPendingApproval: true` means the caller can draft in
    that kit but not save into it. The image is real and usable — say it is
    waiting on a kit editor instead of reporting it as saved, and do not retry.
@@ -33,12 +34,13 @@ delegation, but A2A replies cannot render MCP App pickers.
 5. When a human designer needs to continue the work, create or update a
    generation session and preserve the returned `sessionId`.
 6. For video, call `generate-video` and then `refresh-generation-run` until the run completes.
-7. Preserve returned `assetId`, `runId`, `previewUrl`, `downloadUrl`, and
-   `embedPath` exactly.
+7. Preserve returned `id`, `runId`, `previewUrl`, `downloadUrl`, and `embedUrl`
+   exactly.
 8. Insert chosen/exported URLs into the caller's artifact. Design callers should
    call `insert-asset` after the picker returns a selected asset.
-9. On feedback, call `refine-image` with the prior `assetId`, `source: "a2a"`,
-   and the same `callerAppId`, then replace only the affected destination.
+9. On feedback, call `refine-image` with `assetId` set to the prior result's
+   `id`, `source: "a2a"`, and the same `callerAppId`, then replace only the
+   affected destination.
 
 ## Audit Trail
 

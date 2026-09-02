@@ -118,6 +118,7 @@ export type CreativeContextMessageKey =
 
 export interface CreativeContextShareMessages {
   title: string;
+  documentation: string;
   tabLabel: string;
   pendingResource: string;
   publishedResource: string;
@@ -268,6 +269,7 @@ export const creativeContextMessagesByLocale: Record<
     logo: "Canonical logo",
     share: {
       title: "Creative context",
+      documentation: "Creative Context documentation",
       tabLabel: "Context",
       pendingResource: "Pending resource",
       publishedResource: "Published resource",
@@ -402,6 +404,7 @@ export const creativeContextMessagesByLocale: Record<
     logo: "標準標誌",
     share: {
       title: "創意脈絡",
+      documentation: "Creative Context 文件",
       tabLabel: "脈絡",
       pendingResource: "待處理資源",
       publishedResource: "已發布資源",
@@ -536,6 +539,7 @@ export const creativeContextMessagesByLocale: Record<
     logo: "标准徽标",
     share: {
       title: "创意上下文",
+      documentation: "Creative Context 文档",
       tabLabel: "上下文",
       pendingResource: "待处理资源",
       publishedResource: "已发布资源",
@@ -677,6 +681,7 @@ export const creativeContextMessagesByLocale: Record<
     logo: "Logotipo canónico",
     share: {
       title: "Contexto creativo",
+      documentation: "Documentación de Creative Context",
       tabLabel: "Contexto",
       pendingResource: "Recurso pendiente",
       publishedResource: "Recurso publicado",
@@ -820,6 +825,7 @@ export const creativeContextMessagesByLocale: Record<
     logo: "Logo canonique",
     share: {
       title: "Contexte créatif",
+      documentation: "Documentation de Creative Context",
       tabLabel: "Contexte",
       pendingResource: "Ressource en attente",
       publishedResource: "Ressource publiée",
@@ -962,6 +968,7 @@ export const creativeContextMessagesByLocale: Record<
     logo: "Kanonisches Logo",
     share: {
       title: "Kreativer Kontext",
+      documentation: "Creative-Context-Dokumentation",
       tabLabel: "Kontext",
       pendingResource: "Ausstehende Ressource",
       publishedResource: "Veröffentlichte Ressource",
@@ -1107,6 +1114,7 @@ export const creativeContextMessagesByLocale: Record<
     logo: "正式ロゴ",
     share: {
       title: "クリエイティブコンテキスト",
+      documentation: "Creative Context のドキュメント",
       tabLabel: "コンテキスト",
       pendingResource: "保留中のリソース",
       publishedResource: "公開済みリソース",
@@ -1247,6 +1255,7 @@ export const creativeContextMessagesByLocale: Record<
     logo: "대표 로고",
     share: {
       title: "크리에이티브 컨텍스트",
+      documentation: "Creative Context 문서",
       tabLabel: "컨텍스트",
       pendingResource: "대기 중인 리소스",
       publishedResource: "게시된 리소스",
@@ -1389,6 +1398,7 @@ export const creativeContextMessagesByLocale: Record<
     logo: "Logotipo canônico",
     share: {
       title: "Contexto criativo",
+      documentation: "Documentação do Creative Context",
       tabLabel: "Contexto",
       pendingResource: "Recurso pendente",
       publishedResource: "Recurso publicado",
@@ -1528,6 +1538,7 @@ export const creativeContextMessagesByLocale: Record<
     logo: "मानक लोगो",
     share: {
       title: "क्रिएटिव संदर्भ",
+      documentation: "Creative Context दस्तावेज़",
       tabLabel: "संदर्भ",
       pendingResource: "लंबित संसाधन",
       publishedResource: "प्रकाशित संसाधन",
@@ -1667,6 +1678,7 @@ export const creativeContextMessagesByLocale: Record<
     logo: "الشعار المعتمد",
     share: {
       title: "السياق الإبداعي",
+      documentation: "توثيق Creative Context",
       tabLabel: "السياق",
       pendingResource: "مورد قيد الانتظار",
       publishedResource: "مورد منشور",

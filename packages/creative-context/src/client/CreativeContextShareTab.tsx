@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { docsUrl } from "@agent-native/core/shared";
 import { cn } from "@agent-native/toolkit";
 import { ShareDisclosureSection } from "@agent-native/toolkit/sharing";
 import {
@@ -17,13 +18,7 @@ import {
   SheetTitle,
   Textarea,
 } from "@agent-native/toolkit/ui";
-import {
-  IconCheck,
-  IconFileText,
-  IconLink,
-  IconPlus,
-  IconX,
-} from "@tabler/icons-react";
+import { IconCheck, IconFileText, IconPlus, IconX } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
 import {
@@ -540,7 +535,7 @@ export function CreativeContextShareTab({
       ) : null}
       {contextId && selectedResources.length ? (
         <div className="border-t border-border/60 pt-3">
-          <div className="flex items-start gap-2">
+          <div className="mb-3 flex items-start gap-2">
             <ShareDisclosureSection
               label={
                 memberships.some((membership) => membership.publishedItem)
@@ -608,7 +603,6 @@ export function CreativeContextShareTab({
               }
               onClick={() => void submit()}
             >
-              <IconLink />{" "}
               {t("creativeContext.share.submit", { defaultValue: "Submit" })}
             </Button>
           </div>
@@ -661,6 +655,18 @@ export function CreativeContextShareTab({
       {submitSummary ? (
         <p className="text-xs text-muted-foreground">{submitSummary}</p>
       ) : null}
+      <a
+        href={docsUrl("toolkit-capability-packages", {
+          hash: "package-maturity-and-ownership",
+        })}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {t("creativeContext.share.documentation", {
+          defaultValue: "Creative Context documentation",
+        })}
+      </a>
     </section>
   );
 }

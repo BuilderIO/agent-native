@@ -159,6 +159,37 @@ describe("<NewDeckReferenceStep>", () => {
     ).toContain("Reference PDF");
   });
 
+  it("confirms a DOCX import as the selected reference deck", async () => {
+    const imported: ImportedReference = {
+      id: "deck-docx",
+      title: "Reference DOCX",
+      source: "docx",
+    };
+    const { onImport } = renderStep();
+    onImport.mockResolvedValue(imported);
+
+    const input = document.querySelector('input[accept=".docx"]');
+    expect(input).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.change(input!, {
+        target: {
+          files: [
+            new File(["docx"], "reference.docx", {
+              type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            }),
+          ],
+        },
+      });
+    });
+
+    expect(screen.getByRole("status").textContent).toContain("Reference DOCX");
+    expect(screen.getByLabelText("DOCX - Imported")).toBeTruthy();
+    expect(
+      screen.getByRole("combobox", { name: "Reference deck" }).textContent,
+    ).toContain("Reference DOCX");
+  });
+
   it("imports a Google Slides URL before showing the success state", async () => {
     const imported: ImportedReference = {
       id: "deck-google",

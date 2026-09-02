@@ -149,6 +149,39 @@ describe("delete-file", () => {
     expect(mocks.db.transaction).not.toHaveBeenCalled();
   });
 
+  it("refuses a locked screen by default so the agent cannot drop template branding", async () => {
+    mocks.fileSelectChain.limit.mockResolvedValue([
+      {
+        id: "file-b",
+        designId: "design_123",
+        content: '<div data-agent-native-locked="true">Brand</div>',
+      },
+    ]);
+
+    await expect(action.run({ id: "file-b" })).rejects.toThrow(/locked/i);
+    expect(mocks.db.delete).not.toHaveBeenCalled();
+  });
+
+  it("deletes a locked screen when the caller says the user asked for it", async () => {
+    // Every template-backed screen carries locked layers, so without the
+    // opt-in a user could not remove one they created from a template.
+    mocks.fileSelectChain.limit.mockResolvedValue([
+      {
+        id: "file-b",
+        designId: "design_123",
+        content: '<div data-agent-native-locked="true">Brand</div>',
+      },
+    ]);
+
+    const result = await action.run({
+      id: "file-b",
+      allowLockedLayers: true,
+    });
+
+    expect(result).toEqual({ id: "file-b", deleted: true });
+    expect(mocks.db.delete).toHaveBeenCalled();
+  });
+
   it("deletes the file and prunes stale board metadata", async () => {
     const result = await action.run({ id: "file-b" });
 

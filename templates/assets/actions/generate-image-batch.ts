@@ -70,7 +70,7 @@ const imageBatchAgentInputSchema = z.object({
 
 export default defineAction({
   description:
-    "Generate several brand-consistent images in parallel from one brand kit/library. Use @brand-kit mentions as libraryId and @preset mentions as presetId when present. If no preset is tagged, call list-generation-presets first and use a matching preset's presetId; the user may not know presets exist. Generate presetless only when no preset matches the request. This is synchronous for images: one call waits for every slot and returns final image artifacts. Use this for slide decks, landing pages, and multi-slot design work. Do not call get-generation-run or refresh-generation-run after a normal image batch result.",
+    "Generate several brand-consistent images in parallel from one brand kit/library. Use @brand-kit mentions as libraryId and @preset mentions as presetId when present. If no preset is tagged, call list-generation-presets first and use a matching preset's presetId; the user may not know presets exist. Generate presetless only when no preset matches the request. This is synchronous for images: one call waits for every slot and returns compact image summaries; use get-asset for full asset details and get-audit-run for prompt, references, and settings. Use this for slide decks, landing pages, and multi-slot design work. Do not call get-generation-run or refresh-generation-run after a normal image batch result.",
   schema: z.object({
     libraryId: z
       .string()
@@ -296,14 +296,44 @@ export default defineAction({
           .where(eq(schema.assetGenerationSessions.id, base.sessionId));
       }
     }
+    const creativeContextProvenance = firstCreativeContextProvenance(results);
     return {
       count: results.length,
       images: results.map((result, index) =>
         serializeBatchResult(slots[index].slotId, result),
       ),
+      ...creativeContextProvenance,
     };
   },
 });
+
+function firstCreativeContextProvenance(
+  results: PromiseSettledResult<Record<string, unknown>>[],
+) {
+  for (const result of results) {
+    if (result.status !== "fulfilled") continue;
+    const contextMode = result.value.contextMode;
+    if (
+      contextMode !== "off" &&
+      contextMode !== "auto" &&
+      contextMode !== "pinned"
+    ) {
+      continue;
+    }
+    const contextPackId = result.value.contextPackId;
+    return {
+      contextMode,
+      contextPackId:
+        typeof contextPackId === "string" || contextPackId === null
+          ? contextPackId
+          : null,
+      reuseLabels: Array.isArray(result.value.reuseLabels)
+        ? result.value.reuseLabels
+        : [],
+    };
+  }
+  return {};
+}
 
 function firstSuccessfulAssetId(
   results: PromiseSettledResult<Record<string, unknown>>[],
@@ -351,7 +381,13 @@ function serializeBatchResult(
     };
   }
 
-  return { slotId, ok: true, ...result.value };
+  const {
+    contextMode: _contextMode,
+    contextPackId: _contextPackId,
+    reuseLabels: _reuseLabels,
+    ...image
+  } = result.value;
+  return { slotId, ok: true, ...image };
 }
 
 function imageAssetId(value: Record<string, unknown>): string | undefined {

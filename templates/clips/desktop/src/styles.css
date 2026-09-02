@@ -2158,6 +2158,11 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   line-height: 1.55;
 }
 
+.mic-off-confirmation-continue {
+  max-width: 300px;
+  margin-top: 24px;
+}
+
 /* ------------------------------------------------------------------------- */
 /* Alert dialog                                                              */
 /* ------------------------------------------------------------------------- */

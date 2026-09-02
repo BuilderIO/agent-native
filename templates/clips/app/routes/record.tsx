@@ -2662,7 +2662,7 @@ export default function RecordRoute() {
       {/* Idle / pre-record panel. `/record` sits outside the `_app` layout, so
           it renders its own standalone surface for direct visits. */}
       {uiState === "idle" && (
-        <div className="flex min-h-screen flex-col items-center justify-center px-4 py-10">
+        <div className="flex min-h-screen flex-col items-center justify-start px-4 py-10">
           <div className="mb-6 flex items-center gap-2 text-primary">
             <IconVideo className="h-6 w-6" />
             <span className="text-sm font-medium uppercase tracking-wide">
