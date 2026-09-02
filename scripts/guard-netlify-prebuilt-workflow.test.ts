@@ -222,6 +222,16 @@ describe("production Netlify site concurrency guard", () => {
       reusableSource,
       /steps\.beta_freshness\.outputs\.current == 'true'/,
     );
+    assert.match(
+      reusableSource,
+      /SOURCE_REF: \$\{\{ steps\.source\.outputs\.source_ref \}\}/,
+    );
+    const betaSource = readFileSync(
+      ".github/workflows/deploy-beta-sites-prebuilt.yml",
+      "utf8",
+    );
+    assert.match(betaSource, /actions\.listWorkflowRuns/);
+    assert.match(betaSource, /first-parent beta/);
   });
 
   it("rejects the dead workflow_call event check", () => {
