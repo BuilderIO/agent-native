@@ -70,7 +70,6 @@ Read the relevant skill before deeper work:
   then pinned/current pack, then narrow library search. Respect
   `contextMode: "off"`. Submit governed context through the Context tab or
   `manage-context-membership`; reuse only its opaque clone reference.
-
 ## Persistence Model
 
 Deck data lives in SQL and all writes go through server-side actions. Read

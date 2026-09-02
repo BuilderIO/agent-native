@@ -16,6 +16,8 @@ Les surfaces authentifiées avec `sessionBypass`, comme les routes d'intégratio
 enregistrent également les outils d'actions backend. Les pages publiques et celles
 où l'utilisateur n'est pas connecté ne les enregistrent pas.
 
+Le cœur Agent-Native initialise `@mcp-b/webmcp-polyfill` lorsque le navigateur ne fournit pas de surface WebMCP native utilisable. Le polyfill reste limité à la page et ne crée pas de connexion MCP réseau.
+
 ## Découverte HTTP et solution de repli avec fetch
 
 Pour les agents qui n'exécutent pas de navigateur, Agent-Native publie aussi un

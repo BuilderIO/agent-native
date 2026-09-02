@@ -1,12 +1,21 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
 
+const { initializeWebMCPPolyfill } = vi.hoisted(() => ({
+  initializeWebMCPPolyfill: vi.fn(),
+}));
+
+vi.mock("@mcp-b/webmcp-polyfill", () => ({
+  initializeWebMCPPolyfill,
+}));
+
 import type { AgentNativeClientAction } from "./host-bridge.js";
 import {
   AgentNativeWebMcpUnsupportedError,
   createAgentNativeWebMcpClient,
   createAgentNativeWebMcpRegistration,
   createAgentNativeServerActionWebMcpRegistration,
+  initializeAgentNativeWebMcp,
 } from "./webmcp.js";
 
 function documentWithModelContext(modelContext: Record<string, unknown>) {
@@ -14,6 +23,35 @@ function documentWithModelContext(modelContext: Record<string, unknown>) {
 }
 
 describe("WebMCP client", () => {
+  it("initializes the page-local polyfill when native WebMCP is unavailable", () => {
+    const originalModelContext = Object.getOwnPropertyDescriptor(
+      document,
+      "modelContext",
+    );
+    initializeWebMCPPolyfill.mockImplementation(() => {
+      Object.defineProperty(document, "modelContext", {
+        configurable: true,
+        value: {
+          registerTool: vi.fn(),
+          getTools: vi.fn(),
+          executeTool: vi.fn(),
+        },
+      });
+    });
+
+    try {
+      expect(initializeAgentNativeWebMcp()).toBe(true);
+      expect(initializeWebMCPPolyfill).toHaveBeenCalledOnce();
+    } finally {
+      if (originalModelContext) {
+        Object.defineProperty(document, "modelContext", originalModelContext);
+      } else {
+        delete (document as Document & { modelContext?: unknown }).modelContext;
+      }
+      initializeWebMCPPolyfill.mockReset();
+    }
+  });
+
   it("distinguishes an unsupported document from an empty tool list", async () => {
     const client = createAgentNativeWebMcpClient({
       document: {} as Document,

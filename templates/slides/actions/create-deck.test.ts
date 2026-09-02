@@ -145,6 +145,20 @@ describe("create-deck — aspectRatio", () => {
     expect(data.slides).toEqual([]);
   });
 
+  it("opens a newly created empty deck for incremental slide generation", async () => {
+    const result = await action.run({ title: "T", slides: [] });
+
+    expect(result.slideCount).toBe(0);
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "navigate",
+      expect.objectContaining({
+        view: "editor",
+        deckId: result.id,
+        _writeId: expect.any(String),
+      }),
+    );
+  });
+
   it("omits aspectRatio from the data JSON when not provided (legacy default)", async () => {
     await action.run({ title: "T", slides: [] });
     expect(insertedRow).toBeDefined();

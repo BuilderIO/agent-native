@@ -1,3 +1,5 @@
+import { initializeWebMCPPolyfill } from "@mcp-b/webmcp-polyfill";
+
 import { agentNativeToolTitle } from "../shared/agent-mcp-metadata.js";
 import type {
   AgentNativeClientAction,
@@ -153,6 +155,18 @@ function getModelContext(
   return value;
 }
 
+/**
+ * Make the page-local WebMCP surface available when the browser does not
+ * provide it natively. The polyfill only owns the current document. A host
+ * bridge or browser evaluator still controls who can discover and invoke it.
+ */
+export function initializeAgentNativeWebMcp(): boolean {
+  if (isAgentNativeWebMcpSupported()) return true;
+  if (typeof window === "undefined") return false;
+  initializeWebMCPPolyfill();
+  return isAgentNativeWebMcpSupported();
+}
+
 export function isAgentNativeWebMcpSupported(
   targetDocument?: Document,
 ): boolean {
@@ -290,6 +304,7 @@ export interface AgentNativeWebMcpClientOptions {
 export function createAgentNativeWebMcpClient(
   options: AgentNativeWebMcpClientOptions = {},
 ): AgentNativeWebMcpClient {
+  if (!options.document) initializeAgentNativeWebMcp();
   const modelContext = getModelContext(options.document);
   const defaultFromOrigins = options.fromOrigins;
   const limits = {
@@ -670,6 +685,7 @@ function serializeWebMcpResult(
 export function createAgentNativeWebMcpRegistration(
   options: AgentNativeWebMcpRegistrationOptions,
 ): AgentNativeWebMcpRegistration {
+  if (!options.document) initializeAgentNativeWebMcp();
   const modelContext = getModelContext(options.document);
   let controller: AbortController | undefined;
   let registered = 0;
