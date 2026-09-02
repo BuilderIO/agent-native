@@ -694,9 +694,7 @@ class CollabDocConnection {
           state?: string;
         } | null;
         if (this.disposed) return;
-        // New documents may have no Yjs content yet, so an empty base64 state
-        // is a valid zero-byte update until the first editor change.
-        if (typeof data?.state !== "string") {
+        if (typeof data?.state !== "string" || data.state.length === 0) {
           this.markInitializationFailed("invalid-payload");
           return;
         }

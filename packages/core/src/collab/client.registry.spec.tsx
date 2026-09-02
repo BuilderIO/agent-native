@@ -175,6 +175,11 @@ describe("useCollaborativeDoc connection registry", () => {
       () => new Response(JSON.stringify({ state: null })),
       "invalid-payload",
     ],
+    [
+      "empty success",
+      () => new Response(JSON.stringify({ state: "" })),
+      "invalid-payload",
+    ],
   ] as const)(
     "fails closed for initial %s responses without posting an update on pagehide",
     async (_name, response, category) => {
@@ -211,33 +216,6 @@ describe("useCollaborativeDoc connection registry", () => {
       ).toHaveLength(0);
     },
   );
-
-  it("accepts an empty Yjs state for a new document", async () => {
-    const mock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (/\/collab\/[^/]+\/state/.test(url)) {
-        return new Response(JSON.stringify({ state: "" }));
-      }
-      if (url.includes("/_agent-native/poll")) {
-        return new Response(JSON.stringify({ version: 1, events: [] }));
-      }
-      return new Response(JSON.stringify({ states: [] }));
-    });
-    vi.stubGlobal("fetch", mock);
-
-    let result: UseCollaborativeDocResult | undefined;
-    mount(<Probe docId="new-empty-doc" onResult={(next) => (result = next)} />);
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(0);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(result?.initialization).toEqual({ status: "ready" });
-    expect(result?.isSynced).toBe(true);
-    expect(result?.ydoc?.getText("content").toString()).toBe("");
-    expect(FakeEventSource.instances).toHaveLength(1);
-  });
 
   it("fails closed after a network rejection and enables updates only after retry succeeds", async () => {
     let attempts = 0;
