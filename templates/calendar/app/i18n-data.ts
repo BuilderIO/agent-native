@@ -625,6 +625,11 @@ const enUS = {
     addOtherEmail: "Add another email",
     overlayHostsHint:
       "People from your calendar get working-hours-aware scheduling. Other emails are only checked for conflicts.",
+    hostStatusActive: "{{name}}'s working hours are applied to this link.",
+    hostStatusAwaitingReciprocal:
+      "{{name}} hasn't added you back to their calendar yet, so only their free/busy is checked, not their working hours.",
+    hostStatusMissingSchedule:
+      "{{name}} hasn't saved working hours yet, so only their free/busy is checked.",
     showTimeZones: "Show time zones",
     hideTimeZones: "Hide time zones",
     youLabel: "You",
@@ -10167,3 +10172,93 @@ applyTranslatedCalendarOverrides(translatedCalendarExactCleanup);
 applyTranslatedCalendarOverrides(translatedCalendarAvailabilityFix);
 applyTranslatedCalendarOverrides(translatedBookingHostAvailability);
 applyTranslatedCalendarOverrides(translatedCalendarNotificationSettings);
+
+const translatedHostSchedulingStatus = {
+  "es-ES": {
+    bookingLinks: {
+      hostStatusActive:
+        "El horario laboral de {{name}} se aplica a este enlace.",
+      hostStatusAwaitingReciprocal:
+        "{{name}} aún no te ha añadido de vuelta a su calendario, así que solo se comprueba su disponibilidad, no su horario laboral.",
+      hostStatusMissingSchedule:
+        "{{name}} aún no ha guardado un horario laboral, así que solo se comprueba su disponibilidad.",
+    },
+  },
+  "fr-FR": {
+    bookingLinks: {
+      hostStatusActive:
+        "Les horaires de travail de {{name}} sont appliqués à ce lien.",
+      hostStatusAwaitingReciprocal:
+        "{{name}} ne vous a pas encore ajouté à son calendrier, donc seule sa disponibilité est vérifiée, pas ses horaires de travail.",
+      hostStatusMissingSchedule:
+        "{{name}} n'a pas encore enregistré d'horaires de travail, donc seule sa disponibilité est vérifiée.",
+    },
+  },
+  "de-DE": {
+    bookingLinks: {
+      hostStatusActive:
+        "Die Arbeitszeiten von {{name}} werden auf diesen Link angewendet.",
+      hostStatusAwaitingReciprocal:
+        "{{name}} hat dich noch nicht zu seinem/ihrem Kalender hinzugefügt, daher wird nur die Verfügbarkeit geprüft, nicht die Arbeitszeiten.",
+      hostStatusMissingSchedule:
+        "{{name}} hat noch keine Arbeitszeiten gespeichert, daher wird nur die Verfügbarkeit geprüft.",
+    },
+  },
+  "pt-BR": {
+    bookingLinks: {
+      hostStatusActive:
+        "O horário de trabalho de {{name}} é aplicado a este link.",
+      hostStatusAwaitingReciprocal:
+        "{{name}} ainda não adicionou você de volta ao calendário dele(a), então apenas a disponibilidade é verificada, não o horário de trabalho.",
+      hostStatusMissingSchedule:
+        "{{name}} ainda não salvou um horário de trabalho, então apenas a disponibilidade é verificada.",
+    },
+  },
+  "zh-CN": {
+    bookingLinks: {
+      hostStatusActive: "此链接已应用 {{name}} 的工作时间。",
+      hostStatusAwaitingReciprocal:
+        "{{name}} 尚未将你添加回他们的日历，因此仅会检查空闲/忙碌状态，而非工作时间。",
+      hostStatusMissingSchedule:
+        "{{name}} 尚未保存工作时间，因此仅会检查空闲/忙碌状态。",
+    },
+  },
+  "ja-JP": {
+    bookingLinks: {
+      hostStatusActive: "{{name}} の勤務時間がこのリンクに適用されています。",
+      hostStatusAwaitingReciprocal:
+        "{{name}} はまだあなたを自分のカレンダーに追加し返していないため、空き状況のみが確認され、勤務時間は確認されません。",
+      hostStatusMissingSchedule:
+        "{{name}} はまだ勤務時間を保存していないため、空き状況のみが確認されます。",
+    },
+  },
+  "ko-KR": {
+    bookingLinks: {
+      hostStatusActive: "{{name}}님의 근무 시간이 이 링크에 적용됩니다.",
+      hostStatusAwaitingReciprocal:
+        "{{name}}님이 아직 자신의 캘린더에 회원님을 다시 추가하지 않아 근무 시간이 아닌 여유/사용 중 상태만 확인됩니다.",
+      hostStatusMissingSchedule:
+        "{{name}}님이 아직 근무 시간을 저장하지 않아 여유/사용 중 상태만 확인됩니다.",
+    },
+  },
+  "hi-IN": {
+    bookingLinks: {
+      hostStatusActive: "{{name}} के काम के घंटे इस लिंक पर लागू हैं।",
+      hostStatusAwaitingReciprocal:
+        "{{name}} ने अभी तक आपको अपने कैलेंडर में वापस नहीं जोड़ा है, इसलिए केवल उनकी उपलब्धता जाँची जाती है, काम के घंटे नहीं।",
+      hostStatusMissingSchedule:
+        "{{name}} ने अभी तक काम के घंटे सहेजे नहीं हैं, इसलिए केवल उनकी उपलब्धता जाँची जाती है।",
+    },
+  },
+  "ar-SA": {
+    bookingLinks: {
+      hostStatusActive: "يتم تطبيق ساعات عمل {{name}} على هذا الرابط.",
+      hostStatusAwaitingReciprocal:
+        "لم يقم {{name}} بإضافتك إلى تقويمه بعد، لذا يتم التحقق فقط من التوفر وليس ساعات العمل.",
+      hostStatusMissingSchedule:
+        "لم يحفظ {{name}} ساعات العمل بعد، لذا يتم التحقق فقط من التوفر.",
+    },
+  },
+} satisfies Partial<Record<LocaleCode, PartialMessages>>;
+
+applyTranslatedCalendarOverrides(translatedHostSchedulingStatus);

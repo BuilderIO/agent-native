@@ -17,6 +17,7 @@ import type {
 } from "@shared/api";
 import { getWeekdayOrder, getWeekStartsOn } from "@shared/calendar-week";
 import {
+  IconAlertTriangle,
   IconBrandGoogle,
   IconBrandZoom,
   IconCalendar,
@@ -143,6 +144,7 @@ import {
   type BookingAvailabilityPreview,
 } from "@/hooks/use-bookings";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import { useHostSchedulingStatus } from "@/hooks/use-host-scheduling-status";
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { usePublicBookingLink } from "@/hooks/use-public-data";
 import { useSettings } from "@/hooks/use-settings";
@@ -569,6 +571,20 @@ function BookingHostsEditor({
     : [];
 
   const selectedEmails = new Set(hosts.map((host) => host.email.toLowerCase()));
+  const hostEmailsKey = Array.from(selectedEmails).sort().join(",");
+  const hostEmailsForStatus = useMemo(
+    () => hostEmailsKey.split(",").filter(Boolean),
+    [hostEmailsKey],
+  );
+  const { data: schedulingStatuses } = useHostSchedulingStatus(
+    hostEmailsForStatus,
+  );
+  const schedulingStatusByEmail = new Map(
+    (schedulingStatuses ?? []).map((entry) => [
+      entry.email.toLowerCase(),
+      entry.status,
+    ]),
+  );
 
   function addHost(email: string, displayName?: string) {
     const normalized = normalizeHostEmail(email);
@@ -638,11 +654,46 @@ function BookingHostsEditor({
   const calendarHosts = hosts.filter((host) => isOverlayHost(host));
   const manualHosts = hosts.filter((host) => !isOverlayHost(host));
 
+  function hostStatusHint(host: BookingHost): {
+    icon: typeof IconCircleCheck;
+    className: string;
+    label: string;
+  } | null {
+    const normalized = normalizeHostEmail(host.email);
+    const status = normalized
+      ? schedulingStatusByEmail.get(normalized)
+      : undefined;
+    const name = host.displayName || host.email;
+    if (status === "active") {
+      return {
+        icon: IconCircleCheck,
+        className: "text-emerald-500",
+        label: t("bookingLinks.hostStatusActive", { name }),
+      };
+    }
+    if (status === "awaiting-reciprocal-overlay") {
+      return {
+        icon: IconAlertTriangle,
+        className: "text-amber-500",
+        label: t("bookingLinks.hostStatusAwaitingReciprocal", { name }),
+      };
+    }
+    if (status === "missing-schedule") {
+      return {
+        icon: IconAlertTriangle,
+        className: "text-amber-500",
+        label: t("bookingLinks.hostStatusMissingSchedule", { name }),
+      };
+    }
+    return null;
+  }
+
   function renderHostBadge(host: BookingHost) {
     const normalized = normalizeHostEmail(host.email);
     const overlayColor = overlayPeople.find(
       (person) => normalizeHostEmail(person.email) === normalized,
     )?.color;
+    const statusHint = hostStatusHint(host);
     return (
       <Badge key={host.email} variant="secondary" className="gap-1.5 pr-1">
         {overlayColor && (
@@ -652,6 +703,19 @@ function BookingHostsEditor({
           />
         )}
         {host.displayName || host.email}
+        {statusHint && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <statusHint.icon
+                className={cn("h-3.5 w-3.5 shrink-0", statusHint.className)}
+                aria-label={statusHint.label}
+              />
+            </TooltipTrigger>
+            <TooltipContent className="max-w-64">
+              {statusHint.label}
+            </TooltipContent>
+          </Tooltip>
+        )}
         <button
           type="button"
           onClick={() => removeHost(host.email)}

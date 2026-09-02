@@ -585,6 +585,11 @@ const messages = {
     addOtherEmail: "新增其他電子郵件",
     overlayHostsHint:
       "來自你行事曆的聯絡人會依照他們的工作時間安排行程。其他電子郵件僅用於檢查衝突。",
+    hostStatusActive: "已套用 {{name}} 的工作時間到此連結。",
+    hostStatusAwaitingReciprocal:
+      "{{name}} 尚未將你新增回他們的行事曆，因此僅會檢查空閒/忙碌狀態，而非其工作時間。",
+    hostStatusMissingSchedule:
+      "{{name}} 尚未儲存工作時間，因此僅會檢查空閒/忙碌狀態。",
     showTimeZones: "顯示時區",
     hideTimeZones: "隱藏時區",
     youLabel: "你",

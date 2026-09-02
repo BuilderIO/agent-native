@@ -113,6 +113,76 @@ export async function getEligibleHostAvailability(
     }),
   );
 }
+export type HostSchedulingStatus =
+  | "not-overlaid"
+  | "awaiting-reciprocal-overlay"
+  | "missing-schedule"
+  | "active";
+
+export interface HostSchedulingStatusResult {
+  email: string;
+  status: HostSchedulingStatus;
+}
+
+/**
+ * Reports, per required host, why their working hours would or would not be
+ * applied on this booking link — the same eligibility chain
+ * `getEligibleHostAvailability` enforces, but surfaced for the owner
+ * managing the link instead of collapsed into a single filtered list.
+ * "not-overlaid" and "awaiting-reciprocal-overlay" are the two halves of the
+ * two-way overlay requirement; "missing-schedule" means the relationship is
+ * fine but the peer never saved a `calendar-availability` schedule.
+ */
+export async function getHostSchedulingStatus(
+  ownerEmail: string | undefined,
+  hostEmails: string[],
+): Promise<HostSchedulingStatusResult[]> {
+  if (!ownerEmail) return [];
+  const owner = ownerEmail.toLowerCase();
+  const emails = Array.from(
+    new Set(
+      hostEmails.map((email) => email.toLowerCase()).filter((email) => email !== owner),
+    ),
+  );
+  if (emails.length === 0) return [];
+
+  const overlayData = (await getUserSetting(
+    ownerEmail,
+    "calendar-overlay-people",
+  )) as { people: OverlayPerson[] } | null;
+  const overlayEmails = new Set(
+    (overlayData?.people ?? []).map((person) => person.email.toLowerCase()),
+  );
+
+  return Promise.all(
+    emails.map(async (email): Promise<HostSchedulingStatusResult> => {
+      if (!overlayEmails.has(email)) {
+        return { email, status: "not-overlaid" };
+      }
+      if (!(await overlaysBack(email, owner))) {
+        return { email, status: "awaiting-reciprocal-overlay" };
+      }
+      const [config, calendarSettings] = await Promise.all([
+        getUserSetting(email, "calendar-availability") as Promise<
+          AvailabilityConfig | null
+        >,
+        getUserSetting(email, "calendar-settings") as Promise<{
+          timezone?: string;
+        } | null>,
+      ]);
+      const timezone =
+        safeBookingTimeZone(config?.timezone) ||
+        safeBookingTimeZone(calendarSettings?.timezone) ||
+        (await getGoogleAccountTimezone(email)) ||
+        undefined;
+      if (!config?.weeklySchedule || !timezone) {
+        return { email, status: "missing-schedule" };
+      }
+      return { email, status: "active" };
+    }),
+  );
+}
+
 /**
  * Attaches the owner's time zone and builds the sanitized `publicHosts` list
  * for the public read response. Never attaches schedule windows — only the
