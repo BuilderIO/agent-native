@@ -258,9 +258,7 @@ export default function ClipsTemplate() {
             <span className="text-[var(--fg-secondary)] lg:whitespace-nowrap">
               Screen recordings your{" "}
             </span>
-            <span className="text-[var(--fg)] lg:block">
-              AI can see and hear.
-            </span>
+            <span className="block text-[var(--fg)]">AI can see and hear.</span>
           </>
         }
         eyebrow={<ClipsWordmark />}
@@ -299,7 +297,6 @@ export default function ClipsTemplate() {
         id="try-with-ai"
         className="scroll-mt-24 border-t border-[var(--docs-border)]"
       >
-
         <div className="flex flex-col border-t border-[var(--docs-border)] lg:flex-row lg:items-stretch lg:border-x">
           <div className="flex flex-1 items-center border-b border-[var(--docs-border)] px-6 py-8 sm:px-10 lg:w-2/3 lg:flex-none lg:border-b-0 lg:border-e lg:px-8 lg:py-8">
             <div className="flex w-full min-w-0 items-start gap-3 rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-4 sm:p-5">
