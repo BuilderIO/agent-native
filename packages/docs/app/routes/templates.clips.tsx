@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconArrowUpRight } from "@tabler/icons-react";
+import { IconArrowUpRight, IconSparkles } from "@tabler/icons-react";
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 
 import { BuilderImage } from "../components/builder-image";
@@ -309,53 +309,64 @@ export default function ClipsTemplate() {
         </div>
 
         <div className="flex flex-col border-y border-[var(--docs-border)] lg:flex-row lg:items-stretch lg:border-x">
-          <div className="flex items-center border-b border-[var(--docs-border)] px-6 py-8 sm:px-10 lg:w-1/3 lg:shrink-0 lg:border-b-0 lg:border-e lg:py-8 lg:ps-8 lg:pe-16">
-            <h2 className="max-w-[320px] font-poppins text-2xl font-medium leading-[1.3] tracking-[-0.24px] text-[var(--fg)]">
-              Try pasting this into Claude, ChatGPT, or Cursor:
-            </h2>
+          <div className="flex flex-1 items-center border-b border-[var(--docs-border)] px-6 py-8 sm:px-10 lg:w-2/3 lg:flex-none lg:border-b-0 lg:border-e lg:px-8 lg:py-8">
+            <div className="flex w-full min-w-0 items-start gap-3 rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-4 sm:p-5">
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--fg)] text-[var(--bg)]">
+                <IconSparkles size={16} aria-hidden="true" />
+              </div>
+              <p className="min-w-0 flex-1 pt-1 font-mono text-[15px] leading-6 text-[var(--fg-secondary)] sm:text-lg">
+                <span>Watch </span>
+                <span className="text-[var(--fg)]">{CLIPS_PROMPT_URL}.</span>
+                <span> {CLIPS_PROMPT_INSTRUCTION}</span>
+              </p>
+
+              <button
+                type="button"
+                onClick={handleCopyAiPrompt}
+                aria-label="Copy prompt"
+                className="flex size-[34px] shrink-0 items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg)] text-[var(--fg)] transition-[background-color,border-color,color] hover:border-[var(--fg-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]"
+              >
+                {aiPromptCopied ? (
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                ) : (
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 18 18"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      d="M14.4375 7.5C14.4375 7.25136 14.3387 7.01297 14.1628 6.83716C13.987 6.66134 13.7486 6.5625 13.5 6.5625H7.5C7.25136 6.5625 7.01297 6.66134 6.83716 6.83716C6.66134 7.01297 6.5625 7.25136 6.5625 7.5V13.5C6.5625 13.7486 6.66134 13.987 6.83716 14.1628C7.01297 14.3387 7.25136 14.4375 7.5 14.4375H13.5C13.7486 14.4375 13.987 14.3387 14.1628 14.1628C14.3387 13.987 14.4375 13.7486 14.4375 13.5V7.5ZM11.4375 4.5C11.4375 4.25136 11.3387 4.01297 11.1628 3.83716C10.987 3.66134 10.7486 3.5625 10.5 3.5625H4.5C4.25136 3.5625 4.01297 3.66134 3.83716 3.83716C3.66134 4.01297 3.5625 4.25136 3.5625 4.5V10.5C3.5625 10.7486 3.66134 10.987 3.83716 11.1628C4.01297 11.3387 4.25136 11.4375 4.5 11.4375H5.4375V7.5C5.4375 6.95299 5.65495 6.42854 6.04175 6.04175C6.42854 5.65495 6.95299 5.4375 7.5 5.4375H11.4375V4.5ZM12.5625 5.4375H13.5C14.047 5.4375 14.5715 5.65495 14.9583 6.04175C15.345 6.42854 15.5625 6.95299 15.5625 7.5V13.5C15.5625 14.047 15.345 14.5715 14.9583 14.9583C14.5715 15.345 14.047 15.5625 13.5 15.5625H7.5C6.95299 15.5625 6.42854 15.345 6.04175 14.9583C5.65495 14.5715 5.4375 14.047 5.4375 13.5V12.5625H4.5C3.95299 12.5625 3.42854 12.345 3.04175 11.9583C2.65495 11.5715 2.4375 11.047 2.4375 10.5V4.5C2.4375 3.95299 2.65495 3.42854 3.04175 3.04175C3.42854 2.65495 3.95299 2.4375 4.5 2.4375H10.5C11.047 2.4375 11.5715 2.65495 11.9583 3.04175C12.345 3.42854 12.5625 3.95299 12.5625 4.5V5.4375Z"
+                      fill="currentColor"
+                    />
+                  </svg>
+                )}
+              </button>
+            </div>
           </div>
 
-          <div className="flex flex-1 items-center gap-6 px-6 py-8 sm:px-10 lg:w-2/3 lg:flex-none lg:px-8 lg:py-8">
-            <p className="min-w-0 flex-1 font-mono text-[15px] leading-6 text-[var(--fg-secondary)] sm:text-lg">
-              <span>Watch </span>
-              <span className="text-[var(--fg)]">{CLIPS_PROMPT_URL}.</span>
-              <span> {CLIPS_PROMPT_INSTRUCTION}</span>
-            </p>
-
-            <button
-              type="button"
-              onClick={handleCopyAiPrompt}
-              aria-label="Copy prompt"
-              className="flex size-[34px] shrink-0 items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] text-[var(--fg)] transition-[background-color,border-color,color] hover:border-[var(--fg-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]"
-            >
-              {aiPromptCopied ? (
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              ) : (
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 18 18"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    d="M14.4375 7.5C14.4375 7.25136 14.3387 7.01297 14.1628 6.83716C13.987 6.66134 13.7486 6.5625 13.5 6.5625H7.5C7.25136 6.5625 7.01297 6.66134 6.83716 6.83716C6.66134 7.01297 6.5625 7.25136 6.5625 7.5V13.5C6.5625 13.7486 6.66134 13.987 6.83716 14.1628C7.01297 14.3387 7.25136 14.4375 7.5 14.4375H13.5C13.7486 14.4375 13.987 14.3387 14.1628 14.1628C14.3387 13.987 14.4375 13.7486 14.4375 13.5V7.5ZM11.4375 4.5C11.4375 4.25136 11.3387 4.01297 11.1628 3.83716C10.987 3.66134 10.7486 3.5625 10.5 3.5625H4.5C4.25136 3.5625 4.01297 3.66134 3.83716 3.83716C3.66134 4.01297 3.5625 4.25136 3.5625 4.5V10.5C3.5625 10.7486 3.66134 10.987 3.83716 11.1628C4.01297 11.3387 4.25136 11.4375 4.5 11.4375H5.4375V7.5C5.4375 6.95299 5.65495 6.42854 6.04175 6.04175C6.42854 5.65495 6.95299 5.4375 7.5 5.4375H11.4375V4.5ZM12.5625 5.4375H13.5C14.047 5.4375 14.5715 5.65495 14.9583 6.04175C15.345 6.42854 15.5625 6.95299 15.5625 7.5V13.5C15.5625 14.047 15.345 14.5715 14.9583 14.9583C14.5715 15.345 14.047 15.5625 13.5 15.5625H7.5C6.95299 15.5625 6.42854 15.345 6.04175 14.9583C5.65495 14.5715 5.4375 14.047 5.4375 13.5V12.5625H4.5C3.95299 12.5625 3.42854 12.345 3.04175 11.9583C2.65495 11.5715 2.4375 11.047 2.4375 10.5V4.5C2.4375 3.95299 2.65495 3.42854 3.04175 3.04175C3.42854 2.65495 3.95299 2.4375 4.5 2.4375H10.5C11.047 2.4375 11.5715 2.65495 11.9583 3.04175C12.345 3.42854 12.5625 3.95299 12.5625 4.5V5.4375Z"
-                    fill="currentColor"
-                  />
-                </svg>
-              )}
-            </button>
+          <div className="flex items-center px-6 py-8 sm:px-10 lg:w-1/3 lg:shrink-0 lg:py-8 lg:ps-16 lg:pe-8">
+            <div className="max-w-[320px]">
+              <h2 className="font-poppins text-2xl font-medium leading-[1.3] tracking-[-0.24px] text-[var(--fg)]">
+                Get a personalized recommendation
+              </h2>
+              <p className="mt-2 text-[15px] leading-6 text-[var(--fg-secondary)]">
+                Paste this prompt into Claude, ChatGPT, or Cursor to see how
+                Clips could impact your workflow.
+              </p>
+            </div>
           </div>
         </div>
       </section>
