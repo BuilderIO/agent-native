@@ -124,5 +124,11 @@ describe("RootShell tree stability", () => {
     expect(() =>
       docsWebMcpActions[0]!.run({ path: "https://example.com" }),
     ).toThrow("absolute path");
+    expect(() => docsWebMcpActions[0]!.run({ path: "//example.com" })).toThrow(
+      "current site",
+    );
+    expect(() => docsWebMcpActions[0]!.run({ path: 42 })).toThrow(
+      "string path",
+    );
   });
 });

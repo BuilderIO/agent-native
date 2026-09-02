@@ -585,7 +585,8 @@ function mountActionRoutesInternal(
           } catch (error) {
             if (
               entry.requiresAuth === false &&
-              isAuthResolutionFailure(error)
+              isAuthResolutionFailure(error) &&
+              (options?.caller !== "webmcp" || isPublicWebMcpAction(entry))
             ) {
               userEmail = undefined;
               userName = undefined;

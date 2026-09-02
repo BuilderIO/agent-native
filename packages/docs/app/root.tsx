@@ -161,7 +161,11 @@ function DocsWebMcpNavigationRegistration() {
             required: ["path"],
             additionalProperties: false,
           },
-          run: ({ path }) => {
+          run: (input) => {
+            if (typeof input?.path !== "string") {
+              throw new Error("Docs navigation requires a string path");
+            }
+            const { path } = input;
             if (!path.startsWith("/")) {
               throw new Error("Docs navigation requires an absolute path");
             }

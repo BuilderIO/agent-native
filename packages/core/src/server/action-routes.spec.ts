@@ -2629,6 +2629,7 @@ describe("mountWebMcpActionRoutes", () => {
           },
           run: privateRun,
           http: false,
+          requiresAuth: false,
           readOnly: true,
         } as any,
       },
@@ -2640,6 +2641,9 @@ describe("mountWebMcpActionRoutes", () => {
     );
     const invocationRoute = mounted.find(
       ({ path }) => path === "/_agent-native/webmcp/actions/search-docs",
+    );
+    const guessedPrivateRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/private-docs",
     );
 
     await expect(
@@ -2662,6 +2666,13 @@ describe("mountWebMcpActionRoutes", () => {
       }),
     ).resolves.toEqual({ userEmail: undefined });
     expect(publicRun).toHaveBeenCalledTimes(1);
+    await expect(
+      guessedPrivateRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
     expect(privateRun).not.toHaveBeenCalled();
   });
 });

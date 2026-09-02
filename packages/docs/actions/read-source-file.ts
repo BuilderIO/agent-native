@@ -19,9 +19,8 @@ export default defineAction({
     endLine: z.number().optional().describe("Stop reading at this line number"),
   }),
   http: false,
-  requiresAuth: false,
   readOnly: true,
-  publicAgent: { expose: true, readOnly: true, requiresAuth: false },
+  publicAgent: { expose: true, readOnly: true },
   run: async ({ path, startLine, endLine }) => {
     const index =
       await readPublicJsonAsset<Array<{ path: string; content: string }>>(

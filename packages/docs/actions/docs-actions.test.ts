@@ -26,16 +26,16 @@ describe("docs actions", () => {
     expect(actions.map((action) => action.requiresAuth)).toEqual([
       false,
       false,
+      undefined,
       false,
-      false,
-      false,
+      undefined,
     ]);
     expect(actions.map((action) => action.publicAgent)).toEqual([
       { expose: true, readOnly: true, requiresAuth: false },
       { expose: true, readOnly: true, requiresAuth: false },
+      { expose: true, readOnly: true },
       { expose: true, readOnly: true, requiresAuth: false },
-      { expose: true, readOnly: true, requiresAuth: false },
-      { expose: true, readOnly: true, requiresAuth: false },
+      { expose: true, readOnly: true },
     ]);
   });
 
