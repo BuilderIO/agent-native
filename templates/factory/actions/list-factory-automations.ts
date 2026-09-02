@@ -14,7 +14,6 @@ import {
   DEFAULT_FACTORY_ID,
   factoryAutomationRunHistoryKey,
   factoryIdSchema,
-  factoryAutomationRunHistoryKey,
   readAutomationFactoryId,
   resolveAutomationDisplayName,
 } from "../server/lib/factory-scope.js";
