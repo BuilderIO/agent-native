@@ -430,6 +430,7 @@ describe("document editor layout", () => {
     expect(source).toContain("editor.toolbar.copyPageLink");
     expect(source).toContain("editor.toolbar.info");
     expect(source).toContain("comments.title");
+    expect(source).toContain("showCommentsControl && !commentsHistoryOpen");
     expect(editorSource).toContain(
       "commentsHistoryOpen={showCommentsHistoryDrawer}",
     );

@@ -986,7 +986,7 @@ export function DocumentToolbar({
             </>
           )}
 
-          {showCommentsControl ? (
+          {showCommentsControl && !commentsHistoryOpen ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
