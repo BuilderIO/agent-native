@@ -68,16 +68,21 @@ of duplicated investigation costs two agents. If the reaction write or
 read-back fails, record the item as unavailable and stop working it — never
 proceed on an unverified claim.
 
+**Never end a run holding a claim you did not work.** Confirm every parent you
+eyed has a disposition; otherwise work it now or remove the eye. An eye with
+nobody behind it is worse than none — peers read it as owned and skip it. One
+run left six eyed and unworked, a data-loss report among them, then rotated
+off its branch; all six looked handled.
+
 **The eye means "I have this," not "I owe you a message."** It carries no
 reply obligation — that coupling is what produced 23 questions in one hour.
 Every item gets a recap row; only some get a Slack reply.
 
-Claim only what the classification rules below put in scope. One clarification
-those rules need: "duplicate" means the same message twice — a re-post or
+Claim only what the classification rules below put in scope, with one
+clarification: "duplicate" means the same message twice, a re-post or
 cross-post. **A fresh report of a symptom we already answered is not a
 duplicate; it is the repeat signal.** Claim and cluster it so Phase 2's repeat
-gate can run. Skipping it is how a failed fix stays believed: someone says the
-bug is still there and we file it as noise.
+gate can run. Skipping it is how a failed fix stays believed.
 
 ## Phase 1: answer the people who answered you
 
@@ -312,10 +317,10 @@ inaccessible is not absent.
 
 **Sweep siblings before you claim anything is fixed.** Derive the fingerprint
 from the symptom, not the file — the exact crashing token, call shape, or
-literal — then search the whole repo for it and enumerate every hit in your
-recap before editing. `fix-at-the-boundary` owns the method. A fix that
-repairs the route in the report and leaves the identical crash in the sibling
-route is not a fix, and the reporter was told otherwise.
+literal — then search the repo for it and enumerate every hit in your recap
+before editing. `fix-at-the-boundary` owns the method. A fix that repairs the
+reported route and leaves the identical crash in its sibling is not a fix, and
+the reporter was told otherwise.
 
 ### Repeats get more time, not the same fix again
 
@@ -337,13 +342,13 @@ the code is correct. Treat it as a stop, not a fresh report:
 
 1. **Find what we said last time** — the prior thread, its **Fixed** reply,
    and the commit behind it. You want the claim that turned out wrong.
-2. **Name why it did not take**: never deployed; fixed a sibling path, not the
-   reported one; root cause misdiagnosed; or one symptom of several. Each
-   needs a different repair, and re-applying the same class of change is how
-   one bug ships three times.
+2. **Name why it did not take**: never deployed; fixed a sibling path; root
+   cause misdiagnosed; or one symptom of several. Each needs a different
+   repair, and re-applying the same class of change is how one bug ships
+   three times.
 3. **Reproduce end to end before editing, verify end to end after.** A passing
-   unit test is not sufficient for a repeat — exercise the surface the
-   reporter used. `verifying-changes` owns the per-area proof.
+   unit test is not sufficient for a repeat — exercise the surface the reporter
+   used. `verifying-changes` owns the proof.
 4. **Cluster the reports**: one investigation and one fix, not one per report.
    Clustering changes the work, not the bookkeeping — every source thread
    keeps its own recap row, and Phase 3's reply rules apply unchanged.
@@ -414,15 +419,13 @@ working it, stay out — do not narrate over someone mid-conversation.
 **At most three questions per run, across all sources.** This is a hard cap,
 not a target. Most runs should ask zero or one.
 
-The cap exists because the yield was measured. Earlier sweeps that asked one
-or two sharp, thread-specific follow-ups got 7 of 8 answered, median 6.6
-minutes. The 2026-09-01 sweep asked 23 templated questions in one hour and had
-1 answer half an hour later — too soon to call a final rate, but a 20x drop in
-early engagement against questions that used to land in minutes. Three of the
-23 asked for something already attached to the parent message.
-
-Volume is not coverage. It spends the channel's willingness to answer on the
-questions that did not matter, and the ones that did go unanswered with them.
+The cap exists because the yield was measured. Sweeps asking one or two sharp,
+thread-specific follow-ups got 7 of 8 answered, median 6.6 minutes. The
+2026-09-01 sweep asked 23 templated questions in an hour and had 1 answer half
+an hour later, and three of the 23 asked for something already attached to the
+parent. Volume is not coverage: it spends the channel's willingness to answer
+on the questions that did not matter, and the ones that did go unanswered with
+them.
 
 So rank before you ask. For each candidate, state: *if I get this answer, I
 can ship the fix.* Ask the three with the strongest answer. If fewer than
@@ -434,12 +437,11 @@ Never ask for:
 - Anything already in the thread — a screenshot that is attached, an app the
   message is tagged with, a slide number that is in the linked URL, a file
   type the report already enumerated.
-- A run ID, request ID, or session ID as the primary ask. Reporters often
-  cannot get one — the `...` menu that exposes it is not always present — and
-  a request that cannot be fulfilled reads as a brush-off. Prefer the surface
-  URL, which they always have and which usually contains the same id.
-- A build number, unless you have a specific reason to believe two builds
-  behave differently and you will act on the answer.
+- A run, request, or session ID as the primary ask. Reporters often cannot get
+  one — the `...` menu exposing it is not always present — and an unfulfillable
+  request reads as a brush-off. Prefer the surface URL, which they always have
+  and which usually contains the same id.
+- A build number, unless two builds plausibly differ and you will act on it.
 - Anything you could determine yourself from source, logs, the linked
   artifact, or the deployed surface. Exhaust those first.
 - A subjective product choice — including on an upvoted item, where the
