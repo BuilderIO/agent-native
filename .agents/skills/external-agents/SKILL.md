@@ -28,12 +28,9 @@ For a deliberately isolated app, add that app directly at
 `https://<app>.agent-native.com/mcp` or
 `https://<your-host>/mcp`.
 
-In-app, the Agent page's **Access** tab (`/agent#access`, see the
-`agent-page` skill) is the discoverable home for all of this: it shows the
-app's copyable MCP URL and A2A agent-card URL, per-client setup steps
-(Claude, ChatGPT, Cursor, Claude Code, Codex, Other), and links to the full
-`/mcp/connect` page including the static-token fallback. Point users there
-instead of dictating URLs in chat.
+In-app, the Agent page's **Access** tab (`/agent#access`) is the home for this:
+it shows MCP/A2A URLs, client setup steps, and the full `/mcp/connect` page.
+Point users there instead of dictating URLs in chat.
 
 OAuth-capable hosts should use the standard remote MCP OAuth flow. Claude
 connectors and Claude Code `/mcp` authentication discover the protected
