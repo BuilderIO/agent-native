@@ -2108,6 +2108,11 @@ html.dark .shiki span {
   font-weight: 500;
 }
 
+.template-hero-actions .secondary-button {
+  min-height: 40px;
+  padding: 0 16px;
+}
+
 .secondary-button:hover {
   border-color: var(--fg-secondary);
   color: var(--fg);

@@ -94,7 +94,7 @@ export function TemplateHero({
             <div
               className={`relative z-10 mt-3 lg:col-span-2 lg:col-start-1 ${belowTitle ? "lg:row-start-4" : "lg:row-start-3"}`}
             >
-              <div className="flex flex-wrap items-center gap-3 [&_.secondary-button]:min-h-10">
+              <div className="template-hero-actions flex flex-wrap items-center gap-3">
                 {headingAction}
                 {customizeTemplate ? (
                   <CustomizeTemplatePopover
