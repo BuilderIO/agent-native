@@ -2030,7 +2030,7 @@ export class RecorderEngine {
     },
     signal?: AbortSignal,
   ): Promise<Record<string, unknown> | undefined> {
-    await this.uploadThumbnailForBlob(blob, signal);
+    void this.uploadThumbnailForBlob(blob, signal);
 
     // Reset the upload index for post-stop blob uploads: MP4/QuickTime never
     // streamed chunks, and the compression path has just cleared server chunks.
@@ -2149,7 +2149,7 @@ export class RecorderEngine {
       throw new Error("Cannot retry an empty recording upload.");
     }
 
-    await this.uploadThumbnailForBlob(blob, signal);
+    void this.uploadThumbnailForBlob(blob, signal);
 
     this.chunkIndex = 0;
     const totalChunks = Math.ceil(blob.size / STREAM_CHUNK_BYTES);

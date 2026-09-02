@@ -1589,7 +1589,7 @@ export default function RecordRoute() {
         fileUploadRecordingIdRef.current = createdId;
         await saveBugReportContextRef.current(info.id);
         if (isStale()) throw makeAbortError("Upload cancelled");
-        await uploadVideoBlobThumbnail(createdId, uploadBlob, {
+        void uploadVideoBlobThumbnail(createdId, uploadBlob, {
           signal: abort.signal,
         }).catch((err) => {
           console.warn("[recorder] local-file thumbnail upload skipped", {
