@@ -31,9 +31,12 @@ describe("getGithubStarCount", () => {
   });
 
   it("returns null and does not throw when the request fails", async () => {
-    global.fetch = vi.fn().mockRejectedValue(new Error("network down"));
+    const fetchMock = vi.fn().mockRejectedValue(new Error("network down"));
+    global.fetch = fetchMock;
 
     expect(await getGithubStarCount()).toBeNull();
+    expect(await getGithubStarCount()).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("returns null when the response is not ok", async () => {
@@ -79,6 +82,7 @@ describe("getGithubStarCount", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(await getGithubStarCount()).toBe(7);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("dedupes concurrent requests into a single upstream fetch", async () => {

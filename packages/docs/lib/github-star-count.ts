@@ -1,9 +1,11 @@
 const REPO_URL = "https://api.github.com/repos/BuilderIO/agent-native";
 const FETCH_TIMEOUT_MS = 5_000;
 const CACHE_FRESH_MS = 5 * 60_000;
+const FAILURE_RETRY_MS = 60_000;
 
 let cache: { count: number; ts: number } | null = null;
 let inFlight: Promise<number | null> | null = null;
+let lastFailureAt: number | null = null;
 
 async function fetchStarCount(): Promise<number | null> {
   try {
@@ -24,9 +26,17 @@ async function fetchStarCount(): Promise<number | null> {
 
 function refresh(): Promise<number | null> {
   if (inFlight) return inFlight;
+  if (lastFailureAt !== null && Date.now() - lastFailureAt < FAILURE_RETRY_MS) {
+    return Promise.resolve(null);
+  }
   const request = (async () => {
     const count = await fetchStarCount();
-    if (count !== null) cache = { count, ts: Date.now() };
+    if (count !== null) {
+      cache = { count, ts: Date.now() };
+      lastFailureAt = null;
+    } else {
+      lastFailureAt = Date.now();
+    }
     return count;
   })();
   inFlight = request.finally(() => {
@@ -37,10 +47,16 @@ function refresh(): Promise<number | null> {
 
 export async function getGithubStarCount(): Promise<number | null> {
   if (cache) {
-    if (Date.now() - cache.ts >= CACHE_FRESH_MS) {
+    if (
+      Date.now() - cache.ts >= CACHE_FRESH_MS &&
+      (lastFailureAt === null || Date.now() - lastFailureAt >= FAILURE_RETRY_MS)
+    ) {
       void refresh();
     }
     return cache.count;
+  }
+  if (lastFailureAt !== null && Date.now() - lastFailureAt < FAILURE_RETRY_MS) {
+    return null;
   }
   return refresh();
 }
@@ -48,4 +64,5 @@ export async function getGithubStarCount(): Promise<number | null> {
 export function resetGithubStarCountCacheForTests(): void {
   cache = null;
   inFlight = null;
+  lastFailureAt = null;
 }
