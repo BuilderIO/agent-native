@@ -90,8 +90,14 @@ const AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR =
  */
 export function registerAgentEngine(entry: AgentEngineEntry): void {
   if (_registry.has(entry.name)) {
-    // Allow re-registration in tests / hot-reload — just overwrite
+    // Allow re-registration in tests / hot-reload — just overwrite.
+    // Delete first: `Map.set` on an existing key keeps its original insertion
+    // slot, so a re-registered engine would silently retain the priority it
+    // had in a previous test's registry. Detection walks this map in order, so
+    // that leaves a stale entry ahead of Builder and probes a provider key on
+    // the path that is supposed to resolve without reading one.
     if (process.env.NODE_ENV === "test") {
+      _registry.delete(entry.name);
       _registry.set(entry.name, entry);
       return;
     }
