@@ -12,13 +12,17 @@ type TemplateHeroProps = {
   action?: ReactNode;
   className?: string;
   description: ReactNode;
-  eyebrow: ReactNode;
+  eyebrow?: ReactNode;
   headerClassName?: string;
   headingAction?: ReactNode;
   media: ReactNode;
   title: ReactNode;
   titleClassName?: string;
   customizeTemplate?: TemplateHeroTemplate;
+  /** Place the description under the title instead of in the right column. */
+  descriptionPlacement?: "side" | "below-title";
+  /** Drop the header's bottom padding so the media can overlap it. */
+  mediaOverlapsHeader?: boolean;
 };
 
 export function TemplateHero({
@@ -32,7 +36,31 @@ export function TemplateHero({
   title,
   titleClassName = "",
   customizeTemplate,
+  descriptionPlacement = "side",
+  mediaOverlapsHeader = false,
 }: TemplateHeroProps) {
+  const belowTitle = descriptionPlacement === "below-title";
+  const headerPadding = mediaOverlapsHeader
+    ? "pb-10 sm:pb-14 lg:pb-0"
+    : "pb-10 sm:pb-14 lg:pb-20";
+
+  const descriptionBlock = (
+    <div
+      className={
+        belowTitle
+          ? "lg:col-span-2 lg:col-start-1 lg:row-start-3"
+          : "lg:col-start-3 lg:row-start-2 lg:self-center lg:ps-8"
+      }
+    >
+      <div
+        className={`font-sans text-[15px] font-normal leading-[1.4] text-[var(--fg-secondary)] ${belowTitle ? "max-w-[440px]" : "max-w-[300px]"}`}
+      >
+        {description}
+      </div>
+      {action ? <div className="mt-5">{action}</div> : null}
+    </div>
+  );
+
   return (
     <section className={className}>
       <div className="relative overflow-hidden border-x border-[var(--docs-border)]">
@@ -46,11 +74,13 @@ export function TemplateHero({
         </div>
 
         <div
-          className={`relative grid gap-3 px-6 pb-10 pt-12 sm:gap-4 sm:px-10 sm:pb-14 sm:pt-16 lg:grid-cols-3 lg:gap-6 lg:pb-20 lg:pt-24 ${headerClassName}`}
+          className={`relative grid gap-3 px-6 pt-12 sm:gap-4 sm:px-10 sm:pt-16 lg:grid-cols-3 lg:gap-6 lg:pt-24 ${headerPadding} ${headerClassName}`}
         >
-          <div className="font-mono text-[15px] font-bold tracking-[0.14em] lg:col-start-1 lg:row-start-1">
-            {eyebrow}
-          </div>
+          {eyebrow ? (
+            <div className="font-mono text-[15px] font-bold tracking-[0.14em] lg:col-start-1 lg:row-start-1">
+              {eyebrow}
+            </div>
+          ) : null}
 
           <h1
             className={`m-0 font-medium leading-[1.05] tracking-tight lg:col-span-2 lg:col-start-1 lg:row-start-2 ${titleClassName || "text-[1.75rem] sm:text-[2.25rem] lg:text-[2.5rem]"}`}
@@ -58,9 +88,13 @@ export function TemplateHero({
             {title}
           </h1>
 
+          {belowTitle ? descriptionBlock : null}
+
           {headingAction || customizeTemplate ? (
-            <div className="mt-3 lg:col-span-2 lg:col-start-1 lg:row-start-3">
-              <div className="flex flex-wrap items-center gap-3">
+            <div
+              className={`relative z-10 mt-3 lg:col-span-2 lg:col-start-1 ${belowTitle ? "lg:row-start-4" : "lg:row-start-3"}`}
+            >
+              <div className="template-hero-actions flex flex-wrap items-center gap-3">
                 {headingAction}
                 {customizeTemplate ? (
                   <CustomizeTemplatePopover
@@ -72,12 +106,7 @@ export function TemplateHero({
             </div>
           ) : null}
 
-          <div className="lg:col-start-3 lg:row-start-2 lg:self-center lg:ps-8">
-            <div className="max-w-[300px] font-sans text-[15px] font-normal leading-[1.4] text-[var(--fg-secondary)]">
-              {description}
-            </div>
-            {action ? <div className="mt-5">{action}</div> : null}
-          </div>
+          {belowTitle ? null : descriptionBlock}
         </div>
 
         <div className="relative py-3 sm:py-4 lg:py-5">{media}</div>
