@@ -33,8 +33,9 @@ export default defineAction({
       ),
   }),
   http: false,
+  requiresAuth: false,
   readOnly: true,
-  publicAgent: { expose: true, readOnly: true },
+  publicAgent: { expose: true, readOnly: true, requiresAuth: false },
   run: async ({ query, directory }) => {
     const index = await loadSourceIndex();
     if (index.length === 0) {

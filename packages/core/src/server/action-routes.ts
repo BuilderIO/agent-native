@@ -398,6 +398,18 @@ function isAuthResolutionFailure(error: unknown): boolean {
   );
 }
 
+function isPublicWebMcpAction(entry: ActionEntry): boolean {
+  const publicAgent = entry.publicAgent;
+  return (
+    entry.requiresAuth === false &&
+    entry.readOnly === true &&
+    publicAgent?.expose === true &&
+    publicAgent.readOnly === true &&
+    publicAgent.requiresAuth !== true &&
+    publicAgent.isConsequential !== true
+  );
+}
+
 async function resolveRequestAuthCapability(
   event: any,
 ): Promise<string | undefined> {
@@ -903,6 +915,9 @@ export function mountWebMcpActionRoutes(
         entry.needsApproval === undefined,
     ),
   );
+  const publicEligible = Object.fromEntries(
+    Object.entries(eligible).filter(([, entry]) => isPublicWebMcpAction(entry)),
+  );
 
   const app = getH3App(nitroApp);
   const actionRoutePrefixes = ["/_agent-native/webmcp/actions", "/mcp/tool"];
@@ -911,9 +926,9 @@ export function mountWebMcpActionRoutes(
       (name) => `${routePrefix}/${encodeURIComponent(name)}`,
     ),
   );
-  // These routes own their auth decision: the manifest is public metadata,
-  // while each action handler distinguishes public actions from protected
-  // ones using the same `requiresAuth` contract as normal HTTP actions.
+  // These routes own their auth decision: the compatibility manifest is public
+  // metadata, while the page-local manifest returns only explicitly public
+  // read-only actions when no browser session is present.
   registerAuthPublicPaths(
     ["/_agent-native/webmcp/manifest", ...actionRoutePaths],
     app,
@@ -944,12 +959,21 @@ export function mountWebMcpActionRoutes(
         setResponseStatus(event, 405);
         return { error: "Method not allowed. Use GET." };
       }
-      if (!options?.getOwnerFromEvent) {
+      let authenticated = false;
+      if (options?.getOwnerFromEvent) {
+        try {
+          await options.getOwnerFromEvent(event);
+          authenticated = true;
+        } catch (error) {
+          if (!isAuthResolutionFailure(error)) throw error;
+        }
+      }
+      if (!authenticated && Object.keys(publicEligible).length === 0) {
         throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
       }
-      await options.getOwnerFromEvent(event);
       setResponseHeader(event, "Cache-Control", "no-store");
-      return Object.entries(eligible).map(([name, entry]) => ({
+      const visible = authenticated ? eligible : publicEligible;
+      return Object.entries(visible).map(([name, entry]) => ({
         name,
         description: entry.tool.description,
         inputSchema: entry.tool.parameters,
