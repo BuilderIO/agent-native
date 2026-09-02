@@ -981,7 +981,7 @@ function HistoryThreadView({
   return (
     <button
       type="button"
-      className="rounded-lg bg-popover p-3 text-start shadow-sm ring-1 ring-border/50 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="w-full min-w-0 overflow-hidden rounded-lg bg-popover p-3 text-start shadow-sm ring-1 ring-border/50 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       onClick={onOpen}
     >
       {thread.quotedText ? (
@@ -995,7 +995,7 @@ function HistoryThreadView({
           name={first.author_name ?? first.author_email}
           className="size-5 shrink-0"
         />
-        <span className="min-w-0 flex-1 text-[13px] text-foreground/90">
+        <span className="min-w-0 flex-1 break-words text-[13px] text-foreground/90">
           {renderCommentBody(first.content, first.mentions)}
         </span>
       </div>
@@ -1210,7 +1210,7 @@ function ResolvedThreadView({
 }) {
   const first = thread.comments[0];
   return (
-    <div className="group/resolved rounded-lg bg-muted/40 p-3 ring-1 ring-border/40">
+    <div className="group/resolved w-full min-w-0 overflow-hidden rounded-lg bg-muted/40 p-3 ring-1 ring-border/40">
       {thread.quotedText && (
         <p className="mb-1.5 truncate border-l-2 border-border pl-2 text-xs italic text-muted-foreground">
           {thread.quotedText}

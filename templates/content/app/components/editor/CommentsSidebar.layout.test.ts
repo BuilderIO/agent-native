@@ -256,6 +256,9 @@ describe("comments sidebar layout", () => {
     expect(source).toContain('t("comments.statusFilter")');
     expect(source).toContain('t("comments.authorFilter")');
     expect(source).toContain("event.preventDefault()");
+    expect(source).toContain(
+      'className="w-full min-w-0 overflow-hidden rounded-lg bg-popover',
+    );
   });
 
   it("captures inline comment activation at the document state boundary", () => {
