@@ -1528,6 +1528,7 @@ export async function updateEvent(
     account: GoogleAccountSelection;
     sendUpdates?: "all" | "none";
     addGoogleMeet?: boolean;
+    removeGoogleMeet?: boolean;
     scope?: UpdateEventScope;
   },
 ): Promise<{
@@ -1611,6 +1612,8 @@ export async function updateEvent(
   applyEventPatchOptions(requestBody, eventPatch);
   if (options?.addGoogleMeet) {
     requestBody.conferenceData = createGoogleMeetRequest();
+  } else if (options?.removeGoogleMeet) {
+    requestBody.conferenceData = null;
   }
 
   // Google validates status events as complete resources during updates. A
@@ -1631,7 +1634,8 @@ export async function updateEvent(
         },
         {
           sendUpdates: options?.sendUpdates,
-          conferenceDataVersion: options?.addGoogleMeet ? 1 : undefined,
+          conferenceDataVersion:
+            options?.addGoogleMeet || options?.removeGoogleMeet ? 1 : undefined,
           supportsAttachments:
             eventPatch.attachments !== undefined ? true : undefined,
         },
@@ -1643,7 +1647,8 @@ export async function updateEvent(
         requestBody,
         {
           sendUpdates: options?.sendUpdates,
-          conferenceDataVersion: options?.addGoogleMeet ? 1 : undefined,
+          conferenceDataVersion:
+            options?.addGoogleMeet || options?.removeGoogleMeet ? 1 : undefined,
           supportsAttachments:
             eventPatch.attachments !== undefined ? true : undefined,
         },

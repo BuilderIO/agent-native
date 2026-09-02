@@ -201,6 +201,12 @@ interface PendingNativeUpload {
 
 type PendingDesktopUpload = PendingNativeUpload | PendingBrowserRecordingUpload;
 
+type AuthCheckResult =
+  | { state: "authenticated"; token?: string }
+  | { state: "anonymous" }
+  | { state: "unavailable" }
+  | { state: "stale" };
+
 type NativeUploadProgress = {
   message?: string;
 };
@@ -1234,9 +1240,9 @@ export function App({
   const [recordingFlowActive, setRecordingFlowActive] = useState(false);
   const [recordingStopFinalizing, setRecordingStopFinalizing] = useState(false);
   const [, setLastRecordingId] = useState<string | null>(null);
-  const [authStatus, setAuthStatus] = useState<"unknown" | "authed" | "anon">(
-    "unknown",
-  );
+  const [authStatus, setAuthStatus] = useState<
+    "unknown" | "authed" | "anon" | "unavailable"
+  >("unknown");
   // "Could not reach the server" is not the same state as "signed out", and the
   // fix is different: one needs a correct server URL, the other needs sign-in.
   const [serverReachable, setServerReachable] = useState(true);
@@ -1258,6 +1264,9 @@ export function App({
   // Ref-based lock so two fast clicks cannot start competing desktop auth
   // (state updates are async; refs are synchronous).
   const signInInflightRef = useRef(false);
+  const authCheckGenerationRef = useRef(0);
+  const authServerUrlRef = useRef(serverUrl);
+  authServerUrlRef.current = serverUrl;
   // Stored so Cancel can stop the polling loop.
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const signInVisibilityRef = useRef<(() => void) | null>(null);
@@ -1475,21 +1484,27 @@ export function App({
   // The Tauri WebView has its own cookie jar (separate from the user's
   // browser). Before anything else, check whether we have a session cookie
   // for the Clips server; if not, surface a Sign in button.
-  const checkAuth = useCallback(async () => {
+  const checkAuth = useCallback(async (): Promise<AuthCheckResult> => {
+    const requestServerUrl = serverUrl;
+    const requestId = ++authCheckGenerationRef.current;
+    const isCurrentRequest = () =>
+      requestId === authCheckGenerationRef.current &&
+      authServerUrlRef.current === requestServerUrl;
     try {
       const res = await fetch(
-        `${serverUrl.replace(/\/+$/, "")}/_agent-native/auth/session`,
+        `${requestServerUrl.replace(/\/+$/, "")}/_agent-native/auth/session`,
         { credentials: "include", cache: "no-store" },
       );
+      if (!isCurrentRequest()) return { state: "stale" };
       // Any HTTP answer, including 401, means the server is there.
       setServerReachable(true);
       if (!res.ok) {
         if (res.status === 401 || res.status === 403) {
-          clearDesktopAuthToken(serverUrl);
+          clearDesktopAuthToken(requestServerUrl);
         }
         setAuthStatus("anon");
         setSignedInAs(null);
-        return false;
+        return { state: "anonymous" };
       }
       const json = (await res.json().catch(() => null)) as {
         email?: string;
@@ -1497,22 +1512,27 @@ export function App({
         error?: string;
       } | null;
       if (json?.email) {
-        if (json.token) saveDesktopAuthToken(serverUrl, json.token);
+        if (!isCurrentRequest()) return { state: "stale" };
+        const token = json.token?.trim() || undefined;
+        if (token) saveDesktopAuthToken(requestServerUrl, token);
         setAuthStatus("authed");
         setSignedInAs(json.email);
-        return true;
+        return { state: "authenticated", ...(token ? { token } : {}) };
       }
+      if (!isCurrentRequest()) return { state: "stale" };
       setAuthStatus("anon");
       setSignedInAs(null);
-      clearDesktopAuthToken(serverUrl);
-      return false;
+      clearDesktopAuthToken(requestServerUrl);
+      return { state: "anonymous" };
     } catch {
       // Network-level failure: nothing answered, so we know nothing about the
       // session. Record that separately so the UI can offer the right fix.
+      if (!isCurrentRequest()) return { state: "stale" };
       setServerReachable(false);
-      setAuthStatus("anon");
-      setSignedInAs(null);
-      return false;
+      setAuthStatus((current) =>
+        current === "authed" ? current : "unavailable",
+      );
+      return { state: "unavailable" };
     }
   }, [serverUrl]);
 
@@ -2376,12 +2396,16 @@ export function App({
           signInInflightRef.current = false;
           setSignInPending(null);
           setMagicLinkEmail(null);
-          const ok = await checkAuth();
-          if (!ok) {
+          const authResult = await checkAuth();
+          if (authResult.state === "anonymous") {
             setSignInError(
               kind === "magic-link"
                 ? "Signed in, but Clips couldn't keep the session. Try again."
                 : "Signed in with Google, but Clips couldn't keep the session. Try again.",
+            );
+          } else if (authResult.state === "unavailable") {
+            setSignInError(
+              "Signed in, but Clips couldn't reach the server to verify it. Try again.",
             );
           }
         } else if (Date.now() - start > TIMEOUT_MS) {
@@ -2829,6 +2853,12 @@ export function App({
           return;
         }
         await loadDevices();
+        if (cancelled) {
+          // The popover closed while device enumeration was in flight. Do not
+          // create a native bubble for an effect that has already ended.
+          s.getTracks().forEach((t) => t.stop());
+          return;
+        }
         stream = s;
         bubbleStreamRef.current = s;
         // Open the bubble window. It's a pure renderer — the bubble
@@ -2842,6 +2872,13 @@ export function App({
           console.error("[clips-popover] show_bubble failed:", err);
         }
         if (cancelled) {
+          // show_bubble can finish after cleanup. Close only when this effect
+          // no longer belongs to a recording or a replacement bubble session.
+          if (!recordingFlowGateRef.current && !bubbleActiveRef.current) {
+            await invoke("close_bubble").catch((err) =>
+              console.error("[clips-popover] late bubble cleanup failed:", err),
+            );
+          }
           s.getTracks().forEach((t) => t.stop());
           return;
         }
@@ -2986,7 +3023,12 @@ export function App({
       bubbleStreamTransferredToRecorder.current = false;
       bubbleStreamRef.current?.getTracks().forEach((t) => t.stop());
       bubbleStreamRef.current = null;
-      setBubbleSessionEpoch((epoch) => epoch + 1);
+      // A native recording-start release is still waiting for the bubble's
+      // Destroyed event. Defer the re-acquire until that command has released
+      // the JS gate, or a replacement bubble can overlap WebKit teardown.
+      if (!recordingFlowGateRef.current) {
+        setBubbleSessionEpoch((epoch) => epoch + 1);
+      }
     })
       .then((u) => {
         if (cancelled) u();
@@ -3202,7 +3244,19 @@ export function App({
     retryUploadAbortRef.current = abortController;
     retryingUploadKindRef.current = upload.kind;
     try {
-      const authToken = loadDesktopAuthToken(targetServerUrl);
+      let authToken = loadDesktopAuthToken(targetServerUrl);
+      if (
+        upload.kind === "native" &&
+        originForServer(targetServerUrl) === originForServer(serverUrl)
+      ) {
+        const authResult = await checkAuth();
+        if (authResult.state === "anonymous") {
+          throw new Error("Sign in to retry this upload.");
+        }
+        if (authResult.state === "authenticated" && authResult.token) {
+          authToken = authResult.token;
+        }
+      }
       if (upload.kind === "native") {
         const result = await invoke<{ verificationPending?: boolean }>(
           "native_fullscreen_recording_retry_upload",
@@ -3378,6 +3432,15 @@ export function App({
     /** Live capture inherited from the take a restart is replacing. */
     resumeCapture?: RestartHandoff;
   }): Promise<RecorderHandle | null> {
+    if (recordingStopFinalizingRef.current) {
+      console.warn(
+        "[clips-popover] handleStartRecording ignored — previous recording still finalizing",
+      );
+      setRecError(
+        "Still finishing the last recording. Wait a moment, then try again.",
+      );
+      return null;
+    }
     if (
       (recorder || recordingFlowGateRef.current) &&
       !options?.ignoreActiveRecorder
@@ -3434,19 +3497,47 @@ export function App({
       // further below hasn't run yet at this point, so reset this on every
       // early return in this block.
       recordingFlowGateRef.current = true;
+      const releaseRecordingFlowGate = async () => {
+        let released = false;
+        try {
+          // Clear the native guard and close an idle bubble in one native
+          // command so a new start cannot interleave between those steps.
+          await invoke("release_recording_state");
+          released = true;
+        } catch (err) {
+          console.error(
+            "[clips-popover] could not release recording state:",
+            err,
+          );
+        } finally {
+          recordingFlowGateRef.current = false;
+          if (released) {
+            setBubbleSessionEpoch((epoch) => epoch + 1);
+          }
+        }
+      };
+      // Native blur cleanup also runs while the permission prompt or display
+      // picker is open, before the later recording-state update below.
+      try {
+        await invoke("set_recording_state", { active: true });
+      } catch (err) {
+        await releaseRecordingFlowGate();
+        console.error("[clips-popover] could not hold recording state:", err);
+        return null;
+      }
       try {
         const granted = await invoke<boolean>(
           "request_macos_screen_recording_access",
         );
         if (!granted) {
-          recordingFlowGateRef.current = false;
+          await releaseRecordingFlowGate();
           setReadinessOpen(true);
           setRecError(MACOS_SCREEN_PERMISSION_MESSAGE);
           openPrivacySettings("screen");
           return null;
         }
       } catch (err) {
-        recordingFlowGateRef.current = false;
+        await releaseRecordingFlowGate();
         setReadinessOpen(true);
         setRecError(err instanceof Error ? err.message : String(err));
         return null;
@@ -3464,7 +3555,7 @@ export function App({
           // themselves on the chosen screen the first time they are shown.
           await pickFullscreenRecordingDisplay();
         } catch (err) {
-          recordingFlowGateRef.current = false;
+          await releaseRecordingFlowGate();
           if (err instanceof Error && err.name === "AbortError") {
             // User cancelled the screen picker (Escape) — abort silently,
             // same as dismissing the native macOS screen picker.
@@ -3714,10 +3805,8 @@ export function App({
     };
   }, []);
 
-  // Gates every start-recording gesture (button, global shortcut, permission
-  // retry) on the mic toggle. When the mic is off we show the informational
-  // mic-off screen and wait for the user to go back and change that setting
-  // before the actual getDisplayMedia/getUserMedia call runs.
+  // Show the mic-off explanation once, then let the user continue without
+  // audio instead of trapping the start flow behind the toggle.
   function beginRecording(
     options?: Parameters<typeof handleStartRecording>[0],
     beginOptions?: { revealPopoverIfMicOff?: boolean },
@@ -3743,6 +3832,17 @@ export function App({
     }
     if (recordingFlowGateRef.current || recordingFlowActive) {
       emit("clips:countdown-cancel").catch(() => {});
+      return;
+    }
+    if (recordingStopFinalizingRef.current) {
+      // The shortcut's start call below passes `ignoreActiveRecorder: true`
+      // (it intentionally bypasses the recorder/gate check so a restart can
+      // reuse it), which would otherwise let it start a new native capture
+      // while the previous one is still finalizing.
+      setRecError(
+        "Still finishing the last recording. Wait a moment, then try again.",
+      );
+      invoke("show_popover").catch(() => {});
       return;
     }
 
@@ -4031,6 +4131,8 @@ export function App({
   const recordingReadinessPending =
     localRecordingMode === "off" &&
     (authStatus !== "authed" || videoStorageStatus === "checking");
+  const startButtonLoading =
+    recordingReadinessPending && !recordingStopFinalizing;
 
   const pendingUploadBanner =
     authStatus === "authed" ? (
@@ -4353,7 +4455,7 @@ export function App({
   // the same webview that reads it on the next /auth/session poll.
   // Google verification uses a popup in the bound WebView, while magic-link
   // verification uses the system browser and password stays inline here.
-  if (authStatus === "anon") {
+  if (authStatus === "anon" || authStatus === "unavailable") {
     return (
       <div className="app" ref={appRef}>
         {/* Signed out, the only job on this screen is signing in. Capture
@@ -4408,7 +4510,12 @@ export function App({
               serverUrl={serverUrl}
               onSignedIn={async () => {
                 setSignInError(null);
-                await checkAuth();
+                const authResult = await checkAuth();
+                if (authResult.state === "unavailable") {
+                  setSignInError(
+                    "Signed in, but Clips couldn't reach the server to verify it. Try again.",
+                  );
+                }
               }}
               onUseBrowser={signInExternal}
               onMagicLink={requestMagicLink}
@@ -4444,7 +4551,13 @@ export function App({
   return (
     <div className="app app-recorder" ref={appRef}>
       {micOffConfirmOpen ? (
-        <MicOffConfirmation onBack={closeMicOffConfirmation} />
+        <MicOffConfirmation
+          onBack={closeMicOffConfirmation}
+          onContinue={() => {
+            setMicOffConfirmOpen(false);
+            void handleStartRecording();
+          }}
+        />
       ) : null}
 
       <div
@@ -4554,24 +4667,34 @@ export function App({
 
         {!isRecording ? (
           <button
-            className="primary start"
-            disabled={recordingReadinessPending}
-            aria-busy={recordingReadinessPending}
+            className={cn(
+              "primary start",
+              startButtonLoading && "start-loading",
+            )}
+            disabled={recordingReadinessPending || recordingStopFinalizing}
+            aria-busy={recordingReadinessPending || recordingStopFinalizing}
             aria-label={
-              recordingReadinessPending ? "Start recording" : undefined
+              recordingStopFinalizing
+                ? "Finishing last recording..."
+                : recordingReadinessPending
+                  ? "Start recording"
+                  : undefined
             }
             onClick={() => beginRecording()}
           >
-            {recordingReadinessPending ? (
+            <span className="start-label">
+              {recordingStopFinalizing
+                ? "Finishing last recording..."
+                : localRecordingMode === "off"
+                  ? "Start recording"
+                  : "Start local recording"}
+            </span>
+            {startButtonLoading ? (
               <span
                 aria-hidden="true"
-                className="skeleton-shimmer inline-block h-4 w-32 rounded bg-muted"
+                className="start-loading-shimmer skeleton-shimmer"
               />
-            ) : localRecordingMode === "off" ? (
-              "Start recording"
-            ) : (
-              "Start local recording"
-            )}
+            ) : null}
           </button>
         ) : null}
 

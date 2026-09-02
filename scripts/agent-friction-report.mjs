@@ -74,6 +74,33 @@ const FEEDBACK_REGEX_CASES = [
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
+const CREDENTIAL_NAMESPACE_SIGNAL = String.raw`(?:mismatched?[ -]pairs?|GOOGLE_SIGN_IN_[A-Z_]+)`;
+const CREDENTIAL_CORRECTION_CONTEXT = String.raw`(?:wrong|incorrect|mistaken|mistake|not the (?:fix|pair)|changes? nothing|changed nothing|didn['’]?t (?:fix|change)|fixed the wrong|repair\w*|rotat\w*|regenerat\w*|replac\w*|don't|do not|stop|never|avoid)`;
+// A bare namespace mention is routine documentation. Count it only when the
+// same sentence also says the repair was wrong or describes a repair action.
+const CREDENTIAL_NAMESPACE_RE = new RegExp(
+  [
+    String.raw`\b${CREDENTIAL_NAMESPACE_SIGNAL}\b[^.!?]{0,120}\b${CREDENTIAL_CORRECTION_CONTEXT}\b`,
+    String.raw`\b${CREDENTIAL_CORRECTION_CONTEXT}\b[^.!?]{0,120}\b${CREDENTIAL_NAMESPACE_SIGNAL}\b`,
+  ].join("|"),
+  "i",
+);
+
+const CREDENTIAL_REGEX_CASES = [
+  [
+    true,
+    "Do not rotate the key because the mismatched pairs identify different clients.",
+  ],
+  [
+    true,
+    "The GOOGLE_SIGN_IN_CLIENT_SECRET was repaired instead of the active provider pair.",
+  ],
+  [true, "The mismatched pair was the wrong fix and changed nothing."],
+  [false, "Check mismatched pairs before changing credentials."],
+  [false, "GOOGLE_SIGN_IN_CLIENT_ID identifies the sign-in client."],
+  [false, "Mismatched pairs can be intentional on a host."],
+];
+
 const SHIPPING_CHURN_REGEX_CASES = [
   [true, "don't merge main 100 times unless there is a clear conflict."],
   [true, "Stop merging main unless there is a real conflict."],
@@ -110,12 +137,18 @@ if (process.argv.includes("--self-test")) {
       ([expected, message]) => SHIPPING_CHURN_RE.test(message) !== expected,
     ),
   );
+  failures.push(
+    ...CREDENTIAL_REGEX_CASES.filter(
+      ([expected, message]) =>
+        CREDENTIAL_NAMESPACE_RE.test(message) !== expected,
+    ),
+  );
   if (failures.length > 0) {
     console.error("Feedback regex self-test failed:", failures);
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -183,7 +216,14 @@ const PATTERNS = [
       "pnpm check:google-redirect-uris (MISMATCHED-PAIRS remediation, 2026-08-29)",
     // The failure is repairing one namespace while the flow reads the other,
     // so the repair verifies clean and changes nothing.
-    re: /\b(?:don'?t|do not|stop|no need to|didn'?t need to)\b[^.!?]{0,60}\b(?:rotat\w+|regenerat\w+|new secret|another key|update the key)\b|\bmismatched?[ -]pairs?\b|\b(?:wrong|losing|stale) (?:key|secret|pair|namespace)\b|\bGOOGLE_SIGN_IN_[A-Z_]+\b/i,
+    re: new RegExp(
+      [
+        String.raw`\b(?:don'?t|do not|stop|no need to|didn'?t need to)\b[^.!?]{0,60}\b(?:rotat\w+|regenerat\w+|new secret|another key|update the key)\b`,
+        String.raw`\b(?:wrong|losing|stale) (?:key|secret|pair|namespace)\b`,
+        CREDENTIAL_NAMESPACE_RE.source,
+      ].join("|"),
+      "i",
+    ),
   },
   {
     key: "missed-localization",
@@ -239,6 +279,22 @@ const PATTERNS = [
       "Reported duplicate feedback clarification or missing thank-first reply",
     fixedBy: ".agents/skills/address-feedback* (2026-08-19 clarification gate)",
     re: /\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\bclarif(?:ication|y)\b|\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b|\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b[^.!?]{0,80}\b(?:url|link|details?|information|issue)\b|\bclarif(?:ication|y)\b[^.!?]{0,120}\b(?:already|thread|reply|fixed|fixing|solved|found|agent-native|someone|details?|not|unfriendly|robotic|tone|warm|harsh)\b|\bthank(?:s|ed|ing)?\b[^.!?]{0,80}\b(?:first|before|them|reporter)\b|\b(?:didn'?t|doesn'?t|without|skipped|forgot(?:ten)?)\b[^.!?]{0,80}\bthank(?:s|ed|ing)?\b/i,
+  },
+  // Added 2026-09-01. `feedback-reply-tone` counts duplicate and unfriendly
+  // questions but not their volume, so the 2026-09-01 sweep that posted 23
+  // questions in one hour (4% answered, against 88% for the runs that asked
+  // one or two) scored zero on every existing key. The cap in
+  // review-latest-feedback is what this key has to move; if it stays at zero
+  // while the user keeps saying the asks are odd, the key is wrong, not the
+  // behavior. Watch it alongside `unanswered-feedback-followup`, which has
+  // read zero since it landed because a per-run state file could not see the
+  // previous run's questions at all.
+  {
+    key: "feedback-question-volume",
+    label: "Told the feedback sweep asked too many or low-value questions",
+    fixedBy:
+      ".agents/skills/review-latest-feedback (2026-09-01 three-question budget)",
+    re: /\b(?:too many|so many|stop asking|spam(?:ming|med)?|carpet|blast(?:ed|ing)?|barrage|flood(?:ed|ing)?)\b[^.!?\n]{0,80}\b(?:questions?|asks?|replies|messages?|threads?)\b|\b(?:questions?|asks?|replies|messages?)\b[^.!?\n]{0,60}\b(?:odd|weird|strange|pointless|useless|low[- ]value|generic|templated|robotic|noisy|annoying)\b|\b(?:don['’]?t|do not|stop|quit)\b[^.!?\n]{0,60}\b(?:ask(?:ing)?|reply(?:ing)?|post(?:ing)?)\b[^.!?\n]{0,60}\b(?:every|each|all)\b[^.!?\n]{0,40}\b(?:thread|report|message|item)\b/i,
   },
   {
     key: "cross-thread-interference",

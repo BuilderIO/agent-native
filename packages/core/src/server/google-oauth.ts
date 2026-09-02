@@ -39,6 +39,14 @@ import {
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
+import {
+  EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS,
+  firstOriginFromEnv,
+  getConfiguredOriginAllowlist,
+  isLoopbackHost,
+  normalizeOrigin,
+  WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS,
+} from "./origin-allowlist.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 // ─── Platform Detection ─────────────────────────────────────────────────────
@@ -109,73 +117,6 @@ export function isMobile(event: H3Event): boolean {
   return /iPhone|iPad|iPod|Android/i.test(getHeader(event, "user-agent") || "");
 }
 
-/**
- * Build the static allowlist of origins we trust for `getOrigin`. Reads
- * deployment-known public URLs. Each entry is normalised to
- * `${proto}://${host}` (no path). Duplicates collapse, invalid entries are
- * dropped silently.
- */
-const EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS = [
-  "WORKSPACE_OAUTH_ORIGIN",
-  "VITE_WORKSPACE_OAUTH_ORIGIN",
-  "APP_URL",
-  "VITE_APP_URL",
-  "BETTER_AUTH_URL",
-  "VITE_BETTER_AUTH_URL",
-  "URL",
-  "DEPLOY_URL",
-] as const;
-
-const WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS = [
-  "WORKSPACE_GATEWAY_URL",
-  "VITE_WORKSPACE_GATEWAY_URL",
-] as const;
-
-function normalizeOrigin(raw: string | undefined): string | undefined {
-  if (!raw) return undefined;
-  try {
-    const u = new URL(raw);
-    return `${u.protocol}//${u.host}`;
-  } catch {
-    return undefined;
-  }
-}
-
-function addNormalizedOrigin(
-  out: Set<string>,
-  raw: string | undefined,
-  options: { allowLoopback: boolean },
-): void {
-  const origin = normalizeOrigin(raw);
-  if (!origin) return;
-  if (!options.allowLoopback && isLoopbackOrigin(origin)) return;
-  out.add(origin);
-}
-
-function firstOriginFromEnv(
-  keys: readonly string[],
-  options: { allowLoopback: boolean },
-): string | undefined {
-  for (const key of keys) {
-    const origin = normalizeOrigin(process.env[key]);
-    if (!origin) continue;
-    if (!options.allowLoopback && isLoopbackOrigin(origin)) continue;
-    return origin;
-  }
-  return undefined;
-}
-
-function getConfiguredOriginAllowlist(): Set<string> {
-  const out = new Set<string>();
-  for (const key of EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS) {
-    addNormalizedOrigin(out, process.env[key], { allowLoopback: true });
-  }
-  for (const key of WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS) {
-    addNormalizedOrigin(out, process.env[key], { allowLoopback: false });
-  }
-  return out;
-}
-
 /** Return whether a candidate is one of this deployment's configured origins. */
 export function isConfiguredAppOrigin(value: string | undefined): boolean {
   const origin = normalizeOrigin(value);
@@ -191,30 +132,6 @@ function getWorkspaceCallbackOrigin(): string | undefined {
   return firstOriginFromEnv(WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS, {
     allowLoopback: false,
   });
-}
-
-function isLoopbackHost(host: string | undefined): boolean {
-  if (!host) return false;
-  try {
-    const parsed = new URL(`http://${host}`);
-    return (
-      parsed.hostname === "localhost" ||
-      parsed.hostname === "127.0.0.1" ||
-      parsed.hostname === "::1" ||
-      parsed.hostname === "[::1]"
-    );
-  } catch {
-    return false;
-  }
-}
-
-function isLoopbackOrigin(origin: string | undefined): boolean {
-  if (!origin) return false;
-  try {
-    return isLoopbackHost(new URL(origin).host);
-  } catch {
-    return false;
-  }
 }
 
 function isBuilderPreviewHost(host: string | undefined): boolean {
@@ -495,6 +412,8 @@ export interface OAuthStatePayload {
    */
   returnUrl?: string;
   flowId?: string;
+  /** Internal provider-resource id targeted by a reconnect flow. */
+  oauthTargetId?: string;
   /** Hash of the client-held verifier binding a desktop exchange to its initiator. */
   desktopVerifierHash?: string;
   /** Hash of the initiating browser binding for a desktop OAuth exchange. */
@@ -570,6 +489,7 @@ export interface EncodeOAuthStateOptions {
   provider?: string;
   returnUrl?: string;
   flowId?: string;
+  oauthTargetId?: string;
   desktopVerifierHash?: string;
   desktopBrowserBindingHash?: string;
   desktopWebview?: boolean;
@@ -655,6 +575,7 @@ export function encodeOAuthState(
   if (opts.provider) payload.p = opts.provider;
   if (opts.returnUrl) payload.r2 = opts.returnUrl;
   if (opts.flowId) payload.f = opts.flowId;
+  if (opts.oauthTargetId) payload.ot = opts.oauthTargetId;
   if (opts.desktopVerifierHash) payload.vh = opts.desktopVerifierHash;
   if (opts.desktopBrowserBindingHash)
     payload.bh = opts.desktopBrowserBindingHash;
@@ -718,6 +639,7 @@ export function decodeOAuthState(
         // depth in case the signing key ever leaks.
         returnUrl: typeof parsed.r2 === "string" ? parsed.r2 : undefined,
         flowId: parsed.f || undefined,
+        oauthTargetId: typeof parsed.ot === "string" ? parsed.ot : undefined,
         desktopVerifierHash:
           typeof parsed.vh === "string" ? parsed.vh : undefined,
         desktopBrowserBindingHash:

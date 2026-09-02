@@ -14,9 +14,11 @@ export interface AuthFormProps {
   fields: readonly AuthFormField[];
   submitLabel: React.ReactNode;
   className?: string;
+  onSubmit?: React.FormEventHandler<HTMLFormElement>;
   submitProps?: React.ButtonHTMLAttributes<HTMLButtonElement> & DataAttributes;
   footer?: React.ReactNode;
   messageId?: string;
+  message?: React.ReactNode;
   messageClassName?: string;
 }
 
@@ -26,9 +28,11 @@ export function AuthForm({
   fields,
   submitLabel,
   className,
+  onSubmit,
   submitProps,
   footer,
   messageId,
+  message,
   messageClassName = "msg",
 }: AuthFormProps) {
   const {
@@ -39,7 +43,11 @@ export function AuthForm({
   } = submitProps ?? {};
 
   return (
-    <form id={id} className={className ? `form ${className}` : "form"}>
+    <form
+      id={id}
+      className={className ? `form ${className}` : "form"}
+      onSubmit={onSubmit}
+    >
       {fields.map((field) => (
         <React.Fragment key={field.id}>
           <label {...field.labelProps} htmlFor={field.id}>
@@ -52,7 +60,11 @@ export function AuthForm({
         {submitLabel}
       </button>
       {footer}
-      {messageId ? <p className={messageClassName} id={messageId} /> : null}
+      {messageId ? (
+        <p className={messageClassName} id={messageId}>
+          {message}
+        </p>
+      ) : null}
     </form>
   );
 }

@@ -1,5 +1,4 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { emailToName } from "@agent-native/core/client/collab";
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -397,10 +396,6 @@ export function CommentsSidebar({
     [threads],
   );
 
-  const authorName = currentUserEmail
-    ? emailToName(currentUserEmail)
-    : undefined;
-
   useEffect(() => {
     if (pendingComment) {
       setPendingText("");
@@ -420,7 +415,6 @@ export function CommentsSidebar({
         anchorPrefix: pendingComment?.anchor?.prefix,
         anchorSuffix: pendingComment?.anchor?.suffix,
         anchorStartOffset: pendingComment?.anchor?.startOffset,
-        authorName,
         mentions: mentionsJsonFor(pendingText, pendingMentions),
       },
       {
@@ -454,7 +448,6 @@ export function CommentsSidebar({
         content: replyText.trim(),
         threadId,
         parentId: thread?.comments[0]?.id,
-        authorName,
         mentions: mentionsJsonFor(replyText, replyMentions),
       },
       {

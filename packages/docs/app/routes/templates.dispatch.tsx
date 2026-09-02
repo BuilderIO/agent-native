@@ -105,6 +105,7 @@ export default function DispatchTemplate() {
           </span>
         }
         title={t("templateLanding.dispatch.s007")}
+        customizeTemplate={template}
         description={
           <p className="m-0">{t("templateLanding.dispatch.s008")}</p>
         }

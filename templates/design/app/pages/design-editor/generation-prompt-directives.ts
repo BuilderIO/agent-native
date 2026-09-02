@@ -3,6 +3,14 @@ import type { TweakDefinition } from "@shared/api";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 
+import {
+  coveredIntakeTopics,
+  INTAKE_QUESTION_TOPIC_LABELS,
+  INTAKE_QUESTION_TOPICS,
+  uncoveredIntakeTopics,
+  type IntakeTopicCoverage,
+} from "./intake-question-topics";
+
 const WEBSITE_STYLE_REFERENCE_DIRECTIVE =
   "When the user asks to use or match a website's styling or branding and provides a URL, call `import-from-url` for each URL before generating or editing. Treat the returned design.md-style visual system as the source of truth for colors, typography, spacing, components, and imagery. If no URL is provided, ask for one instead of guessing the site's style from its name.";
 
@@ -121,21 +129,42 @@ export async function loadDesignSystemGenerationContext(
   ].join("\n");
 }
 
+export interface IntakeQuestionContextHint {
+  coverage: IntakeTopicCoverage;
+  /** True when the Creative Context lookup itself failed - see loadIntakeContext. */
+  contextUnavailable?: boolean;
+  unavailableReason?: string;
+}
+
 export function designIntakeQuestionDirectives(
   designId: string,
   designSystemId?: string | null,
   referenceImageCount = 0,
+  contextHint?: IntakeQuestionContextHint,
 ): string[] {
+  const covered = contextHint ? coveredIntakeTopics(contextHint.coverage) : [];
+  const uncovered = contextHint
+    ? uncoveredIntakeTopics(contextHint.coverage)
+    : [...INTAKE_QUESTION_TOPICS];
+  const uncoveredLabels = uncovered.map(
+    (topic) => INTAKE_QUESTION_TOPIC_LABELS[topic],
+  );
   return [
     `This is a new UI-started design for design id "${designId}". The design shell already exists - DO NOT call create-design.`,
     WEBSITE_STYLE_REFERENCE_DIRECTIVE,
     ...designSystemGenerationDirectives(designSystemId),
     ...referenceImageDirectives(referenceImageCount),
     "First, call `show-design-questions` with 4-6 tailored questions and then stop. Do NOT call generate-design or present-design-variants until the user submits or skips the questions.",
-    "Make the questions feel like Claude Design intake: form factor, aesthetic direction, important features/content, special interactions/polish, and whether to explore variations. Omit or rephrase anything the user's prompt already answered.",
+    covered.length
+      ? `Available Creative Context already answers: ${covered.map((topic) => INTAKE_QUESTION_TOPIC_LABELS[topic]).join(", ")}. Do NOT ask about these - name what you're following from context in your summary instead.`
+      : "",
+    `Make the questions feel like Claude Design intake, covering what's genuinely still open: ${uncoveredLabels.join(", ")}. Omit or rephrase anything the user's prompt already answered.`,
+    contextHint?.contextUnavailable
+      ? `Creative Context could not be checked before this run (${contextHint.unavailableReason ?? "lookup failed"}). That is different from no context existing - do not treat it as "nothing saved". Ask the normal question set above, and mention in your reply that saved context couldn't be verified this time.`
+      : "",
     "Use concise option chips with `allowOther: true`; include a practical `Decide for me` option where useful. Use `multiSelect: true` for feature/interactions questions.",
     "Set a specific title like `Quick questions about your todo app` and a short description. After `show-design-questions` succeeds, wait for the user's answers.",
-  ];
+  ].filter(Boolean);
 }
 
 export function promptRequestsVariantExploration(prompt: string): boolean {
@@ -181,6 +210,26 @@ export function referenceImageDirectives(
     "Match its regions and their positions, navigation pattern, information hierarchy, density, component grammar (tabs vs pills, cards vs rows, sidebar vs topbar), and approximate proportions. Briefly name what you see before building so a misread can be corrected early.",
     "Do NOT substitute your own composition, palette, or font for something the image or the linked design system already specifies — including choices a generic quality heuristic would discourage. Deviate only where the image is genuinely unreadable, and say so when you do.",
     "Do NOT call `show-design-questions` or `present-design-variants` about anything the image already answers; the direction is chosen. Generate the one design it specifies.",
+  ];
+}
+
+/**
+ * The selected element's markup is a potential structural specification the
+ * same way an attached screenshot is a visual one (see
+ * `referenceImageDirectives` above) — but grounded in real markup/CSS
+ * instead of pixels, so there is nothing to infer visually. Unlike an
+ * attached image, a selection isn't necessarily a reference: the user might
+ * just be pointing at something to edit. So this always ships with the
+ * selection, and leaves the "is this a reference" call to the agent reading
+ * the user's own next message — a client-side keyword guess would both miss
+ * real phrasings ("build off this", "keep the same vibe") and misfire on
+ * ordinary edits that happen to say "this".
+ */
+export function structuralReferenceDirectives(label: string): string[] {
+  return [
+    `If the user's message asks for a design modeled after, similar to, or based on the selected element ("${label}") — rather than an edit to it — treat this markup as the reference specification.`,
+    "In that case, read the real colors, spacing, typography, and hierarchy directly from the markup below rather than treating it as loose inspiration, and model the new design after those precise, literal values (hex/OKLCH colors, font families and sizes, padding/margin/gap numbers, border radii, class names) instead of approximating them.",
+    "If the user's message is instead asking to edit or discuss this selected element itself, ignore this reference framing and handle it as a normal edit/question against the selection.",
   ];
 }
 

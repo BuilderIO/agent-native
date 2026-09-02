@@ -1,15 +1,14 @@
 ---
 title: "시작하기"
-description: "Agent-Native 앱을 만들고 에이전트와 UI에서 같은 액션을 호출합니다."
+description: "채팅 UI가 있는 에이전트를 만들고 에이전트와 UI에서 같은 액션을 호출합니다."
 ---
 
 # 시작하기
 
-Agent-Native는 사람과 AI 에이전트 모두를 지원하는 앱을 만들기 위한 오픈 소스
-TypeScript 프레임워크입니다. 앱의 기능을 한 번만 [액션](/docs/actions-overview)으로
-정의합니다. 액션은 React UI가 코드에서 호출하고 에이전트가 도구로 사용하는 타입이 지정된 함수입니다.
+Agent-Native는 직관적인 UI를 갖춘 자율형 에이전트를 구축하기 위한 오픈 소스
+TypeScript 프레임워크입니다. 각 기능을 [액션](/docs/actions-overview)으로 한 번만 정의합니다. 액션은 에이전트가 도구로 사용하고 UI가 코드에서 호출하는 타입이 지정된 함수입니다.
 
-이 가이드에서는 Chat 앱을 만들고, 포함된 `hello` 액션을 에이전트와 UI에서 호출합니다.
+이 가이드에서는 채팅 UI가 있는 에이전트를 만들고, 포함된 `hello` 액션을 에이전트와 UI에서 호출합니다.
 
 <GettingStartedPaths />
 
@@ -19,9 +18,9 @@ TypeScript 프레임워크입니다. 앱의 기능을 한 번만 [액션](/docs/
 - [pnpm](https://pnpm.io)
 - 에이전트용 LLM 연결: Builder.io, Anthropic 또는 OpenAI API 키, 또는 로컬 Ollama 모델
 
-## 앱 만들기
+## 에이전트 만들기
 
-새 디렉터리에서 Chat 앱을 만드세요.
+새 디렉터리에서 Chat 템플릿으로 시작하세요.
 
 ```bash
 npx @agent-native/core@latest create my-app --standalone --template chat
@@ -29,18 +28,19 @@ cd my-app
 pnpm install
 ```
 
-템플릿에는 브라우저 앱, 인증, 지속되는 대화, 라이브 동기화, 애플리케이션 컨텍스트,
-`actions/` 디렉터리가 포함됩니다. 이 가이드 전체에서 사용할 작은 `hello` 액션도 들어 있습니다.
+템플릿은 에이전트에 브라우저 UI, 인증, 지속되는 대화, 라이브 동기화,
+애플리케이션 컨텍스트와 `actions/` 디렉터리를 제공합니다. 이 가이드 전체에서
+사용할 작은 `hello` 액션도 들어 있습니다.
 
 ## 개발 서버 시작하기
 
-앱을 시작하세요.
+개발 서버를 시작하세요.
 
 ```bash
 pnpm dev
 ```
 
-앱은 `http://localhost:8080`에서 열립니다. 자동으로 열리지 않으면 브라우저에서 해당 URL로 이동하세요.
+브라우저 UI는 `http://localhost:8080`에서 열립니다. 자동으로 열리지 않으면 브라우저에서 해당 URL로 이동하세요.
 
 <Callout tone="info">
 
@@ -54,7 +54,7 @@ Welcome 화면에서 **Continue as local dev**를 선택하세요. 로컬 개발
 
 액션은 React UI가 코드에서 호출하고 에이전트가 도구로 사용할 수 있는 타입이 지정된 함수입니다. Chat 템플릿에는 간단한 `hello` 액션이 있어 직접 작성하기 전에 이 패턴을 시험할 수 있습니다.
 
-앱에서 다음과 같이 요청하세요.
+에이전트 패널에서 다음과 같이 요청하세요.
 
 > Call the hello action for Alex.
 
@@ -152,13 +152,13 @@ return { message: `Welcome, ${name}.` };
 | [HTTP API](/docs/http-api)              | 스크립트, 백엔드 또는 통합에서 액션을 호출합니다.            |
 | [CLI](/docs/actions-other-surfaces#cli) | 터미널에서 액션을 실행하거나 테스트합니다.                   |
 | [MCP](/docs/actions-other-surfaces#mcp) | 외부 AI 클라이언트가 액션을 도구로 검색하고 호출하게 합니다. |
-| [A2A](/docs/actions-other-surfaces#a2a) | 다른 Agent-Native 앱이 이 앱에 작업을 요청하게 합니다.       |
+| [A2A](/docs/actions-other-surfaces#a2a) | 다른 에이전트가 내 에이전트에 작업을 위임하게 합니다.         |
 
-모든 호출자가 같은 액션 정의를 사용합니다. 호출자별로 별도 구현이 필요하지 않습니다. 이 공유 액션 모델은 Agent-Native의 핵심입니다. 앱이 바뀌어도 UI, 에이전트, 통합 전반에서 동작, 검증, 권한이 일관되게 유지됩니다.
+모든 호출자가 같은 액션 정의를 사용합니다. 호출자별로 별도 구현이 필요하지 않습니다. 이 공유 액션 모델은 Agent-Native의 핵심입니다. 기능을 추가해도 UI, 에이전트, 통합 전반에서 동작, 검증, 권한이 일관되게 유지됩니다.
 
 ## 만든 것
 
-Agent-Native 앱을 만들고 `hello` 액션을 에이전트와 React UI에서 호출했으며, 인사말을 한 번 바꿔 두 곳 모두 업데이트되는 것을 확인했습니다. 앞으로 작성하는 모든 액션도 같은 패턴을 따릅니다.
+채팅 UI가 있는 에이전트를 만들고 같은 `hello` 액션을 에이전트와 React UI에서 호출했으며, 인사말을 한 번 바꿔 두 곳 모두 업데이트되는 것을 확인했습니다. 앞으로 작성하는 모든 액션도 같은 패턴을 따릅니다.
 
 ## 다음 단계
 

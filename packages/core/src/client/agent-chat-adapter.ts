@@ -26,7 +26,7 @@ import {
 import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { captureError } from "./analytics.js";
-import { agentNativePath } from "./api-path.js";
+import { agentChatStreamingUrl, agentNativePath } from "./api-path.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   createRunStreamToken,
@@ -1959,6 +1959,7 @@ function missingCredentialFailure(message: string): {
  */
 export interface CreateAgentChatAdapterOptions {
   apiUrl?: string;
+  streamingUrl?: string;
   tabId?: string;
   threadId?: string;
   modelRef?: { current: string | undefined };
@@ -2048,6 +2049,68 @@ export function createAgentChatAdapter(
 ): ChatModelAdapter {
   const apiUrl =
     options?.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
+  const streamTargetUrl =
+    options?.streamingUrl?.trim() || agentChatStreamingUrl();
+  let streamTokenWarningShown = false;
+  const resolveChatRequestTarget = async (
+    headers: Record<string, string>,
+    abortSignal: AbortSignal,
+    forcePrimary = false,
+  ): Promise<{
+    url: string;
+    headers: Record<string, string>;
+    credentials: RequestCredentials;
+    usesStreamingOrigin: boolean;
+  }> => {
+    if (forcePrimary || !streamTargetUrl) {
+      return {
+        url: apiUrl,
+        headers,
+        credentials: "same-origin",
+        usesStreamingOrigin: false,
+      };
+    }
+
+    const tokenUrl = `${apiUrl.replace(/\/+$/, "")}/stream-token`;
+    try {
+      const tokenResponse = await fetch(tokenUrl, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        credentials: "same-origin",
+        cache: "no-store",
+        signal: abortSignal,
+      });
+      if (!tokenResponse.ok) throw new Error(`HTTP ${tokenResponse.status}`);
+      const payload: unknown = await tokenResponse.json();
+      const token =
+        payload && typeof payload === "object" && "token" in payload
+          ? (payload as { token?: unknown }).token
+          : undefined;
+      if (typeof token !== "string" || !token.trim()) {
+        throw new Error("missing token");
+      }
+      return {
+        url: streamTargetUrl,
+        headers: { ...headers, Authorization: `Bearer ${token}` },
+        credentials: "omit",
+        usesStreamingOrigin: true,
+      };
+    } catch (error) {
+      if (!streamTokenWarningShown && !abortSignal.aborted) {
+        streamTokenWarningShown = true;
+        console.warn(
+          "[agent-chat] streaming origin auth handoff unavailable; using the primary chat route",
+          error instanceof Error ? error.message : error,
+        );
+      }
+      return {
+        url: apiUrl,
+        headers,
+        credentials: "same-origin",
+        usesStreamingOrigin: false,
+      };
+    }
+  };
   const tabId = options?.tabId;
   const threadId = options?.threadId;
   const modelRef = options?.modelRef;
@@ -2074,7 +2137,7 @@ export function createAgentChatAdapter(
   }
 
   return {
-    async *run({ messages, abortSignal, runConfig }) {
+    async *run({ messages, abortSignal, runConfig, unstable_parentId }) {
       // Extract latest user message and build history from prior messages
       const adapterMessages = messages as readonly AdapterMessage[];
       const latestUserIndex = (() => {
@@ -2196,6 +2259,7 @@ export function createAgentChatAdapter(
         return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
       })();
       const turnId = requestedTurnId ?? generateTurnId();
+      let streamTransportFallbackUsed = false;
 
       const withRequestModeMetadata = (
         result: ChatModelRunResult,
@@ -4001,6 +4065,8 @@ export function createAgentChatAdapter(
         };
 
         while (true) {
+          let requestUsedStreamingOrigin = false;
+          let responseReceived = false;
           let delayedJsonProbe: Promise<JsonResponseProbeOutcome> | undefined;
           let delayedJsonProbeOutcome: JsonResponseProbeOutcome | undefined;
           let delayedJsonProbeReader:
@@ -4015,11 +4081,18 @@ export function createAgentChatAdapter(
           try {
             runId = null;
             lastSeq = -1;
+            const requestTarget = await resolveChatRequestTarget(
+              headers,
+              abortSignal,
+              streamTransportFallbackUsed,
+            );
+            requestUsedStreamingOrigin = requestTarget.usesStreamingOrigin;
             const res = await fetchWithStartupTimeout(
-              apiUrl,
+              requestTarget.url,
               {
                 method: "POST",
-                headers,
+                headers: requestTarget.headers,
+                credentials: requestTarget.credentials,
                 body: JSON.stringify({
                   message: currentMessageText,
                   displayMessage: userMessageText,
@@ -4030,6 +4103,9 @@ export function createAgentChatAdapter(
                   ...(trackInRunsTray ? { trackInRunsTray: true } : {}),
                   ...(usageLabel ? { usageLabel } : {}),
                   ...(threadId ? { threadId } : {}),
+                  ...(unstable_parentId !== undefined
+                    ? { parentId: unstable_parentId }
+                    : {}),
                   ...(internalContinuationRequest
                     ? { internalContinuation: true }
                     : {}),
@@ -4050,6 +4126,7 @@ export function createAgentChatAdapter(
               STARTUP_RESPONSE_TIMEOUT_MS,
               abortSignal,
             );
+            responseReceived = true;
 
             // Check for auth errors returned as 200 with JSON (common with middleware issues)
             const contentType = res.headers.get("content-type") || "";
@@ -4457,6 +4534,16 @@ export function createAgentChatAdapter(
               // User-initiated abort (Stop button) — clear active run
               clearOwnedActiveRun();
               return;
+            }
+
+            if (
+              requestUsedStreamingOrigin &&
+              !responseReceived &&
+              !runId &&
+              !streamTransportFallbackUsed
+            ) {
+              streamTransportFallbackUsed = true;
+              continue;
             }
 
             let delayedJsonOutcome = delayedJsonProbeOutcome;

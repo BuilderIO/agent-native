@@ -1,0 +1,32 @@
+{
+  "name": "agent-native",
+  "version": "1.0.0+codex.2780eb8dd3b5",
+  "description": "Open and operate granted Agent-Native apps through Dispatch MCP, with inline app surfaces and current browser screen state.",
+  "author": { "name": "Agent-Native", "url": "https://agent-native.com" },
+  "homepage": "https://dispatch.agent-native.com",
+  "license": "MIT",
+  "keywords": [
+    "agent-native",
+    "agent-native",
+    "mcp",
+    "skills",
+    "app-backed-skill"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Agent-Native",
+    "shortDescription": "Open and operate granted Agent-Native apps through Dispatch MCP, with inline app surfaces and current browser screen state.",
+    "longDescription": "Agent-Native packages agent instructions, app actions, an MCP connector, and inline UI surfaces as an installable skill. The plugin connects to hosted Agent-Native by default; use the Agent-Native CLI when you need a custom/self-hosted app URL.",
+    "developerName": "Agent-Native",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "websiteURL": "https://dispatch.agent-native.com",
+    "defaultPrompt": [
+      "Open Agent-Native where useful",
+      "Use Agent-Native for app-backed workflows",
+      "Search Agent-Native and return usable context"
+    ],
+    "brandColor": "#0F766E"
+  }
+}

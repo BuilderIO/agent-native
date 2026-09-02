@@ -117,6 +117,11 @@ export {
 } from "./chat-first-app-creation.js";
 export { isQaTestEmail } from "./qa-test-email.js";
 export {
+  SYNTHETIC_TRAFFIC_BETA_E2E,
+  SYNTHETIC_TRAFFIC_HEADER,
+  isSyntheticTrafficValue,
+} from "./test-traffic.js";
+export {
   NATIVE_AUTH_COPY,
   resolveNativeAuthCopy,
   type NativeAuthCopy,

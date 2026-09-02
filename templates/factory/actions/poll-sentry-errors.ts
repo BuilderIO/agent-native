@@ -4,7 +4,12 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageConfig, triageItems } from "../server/db/schema.js";
+import { readCallingFactoryAutomation } from "../server/lib/factory-automation-caller.js";
 import { repairFactoryAutomationsFromConfig } from "../server/lib/factory-automation-repair.js";
+import {
+  readFactoryPollCursor,
+  writeFactoryPollCursor,
+} from "../server/lib/factory-poll-cursors.js";
 import {
   factoryIdSchema,
   factoryStillPresent,
@@ -17,6 +22,7 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { sentryPollObservationSummary } from "../server/lib/sentry-poll-summary.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
 import { mergeTriageMetadata } from "../server/triage/metadata.js";
@@ -47,27 +53,43 @@ export default defineAction({
     const db = getDb();
     const config = await readTriageConfigRow(db, orgId, factoryId);
     await repairFactoryAutomationsFromConfig(userEmail, orgId, factoryId);
-    if (config?.sentryPollingEnabled !== 1) {
-      throw new Error("Enable Sentry polling before polling Sentry.");
-    }
-    if (!config.sentryOrgSlug) {
+    const job = await readCallingFactoryAutomation(context, {
+      userEmail,
+      orgId,
+    });
+    const sentryOrgSlug =
+      job?.config.sentryOrgSlug?.trim() || config?.sentryOrgSlug || "";
+    const sentryProjectSlug =
+      job?.config.sentryProjectSlug?.trim() || config?.sentryProjectSlug || "";
+    const sentryEnvironment =
+      job?.config.sentryEnvironment?.trim() || config?.sentryEnvironment || "";
+    if (!sentryOrgSlug) {
       throw new Error("Configure a Sentry organization before polling Sentry.");
     }
+    const inboxLimit = Math.min(job?.config.inboxLimit ?? 25, limit);
+    const destinationKey = `${sentryOrgSlug}/${sentryProjectSlug}`;
+    const storedCursor = await readFactoryPollCursor(
+      db,
+      orgId,
+      factoryId,
+      "sentry",
+      destinationKey,
+    );
     const query = [
       "is:unresolved",
-      config.sentryProjectSlug ? `project:${config.sentryProjectSlug}` : "",
-      config.sentryEnvironment ? `environment:${config.sentryEnvironment}` : "",
+      sentryProjectSlug ? `project:${sentryProjectSlug}` : "",
+      sentryEnvironment ? `environment:${sentryEnvironment}` : "",
     ]
       .filter(Boolean)
       .join(" ");
     const issues = await createSentryClient({
       ownerEmail: userEmail,
       orgId,
-      orgSlug: config.sentryOrgSlug,
-    }).listIssues(query, limit);
-    const cursor = config.lastSentrySeenAt
-      ? Date.parse(config.lastSentrySeenAt)
-      : null;
+      orgSlug: sentryOrgSlug,
+    }).listIssues(query, inboxLimit);
+    const lastSentrySeenAt =
+      storedCursor?.lastSentrySeenAt ?? config?.lastSentrySeenAt ?? null;
+    const cursor = lastSentrySeenAt ? Date.parse(lastSentrySeenAt) : null;
     if (cursor !== null && Number.isNaN(cursor)) {
       throw new Error("Stored Sentry polling cursor is not a valid timestamp.");
     }
@@ -83,7 +105,19 @@ export default defineAction({
     }
     const observedIssues = issues;
     const now = new Date().toISOString();
-    const configRowId = triageConfigUpdateRowId(config, orgId, factoryId);
+    const configRowId = config
+      ? triageConfigUpdateRowId(config, orgId, factoryId)
+      : null;
+    let added = 0;
+    let updated = 0;
+    const addedIds: string[] = [];
+    const nextSentrySeenAt =
+      observedIssues.reduce<string | null>((latest, issue) => {
+        if (!latest) return issue.firstSeen;
+        return Date.parse(issue.firstSeen) > Date.parse(latest)
+          ? issue.firstSeen
+          : latest;
+      }, lastSentrySeenAt) ?? lastSentrySeenAt;
 
     await db.transaction(async (tx) => {
       for (const issue of observedIssues) {
@@ -99,6 +133,13 @@ export default defineAction({
             .where(and(eq(triageItems.id, id), eq(triageItems.orgId, orgId)))
             .limit(1)
         )[0];
+        if (!existing && added >= inboxLimit) continue;
+        if (!existing) {
+          added += 1;
+          addedIds.push(id);
+        } else {
+          updated += 1;
+        }
         const metadata = mergeTriageMetadata(existing?.metadataJson ?? "{}", {
           kind: "sentry_issue",
           sentryIssueId: issue.id,
@@ -166,29 +207,33 @@ export default defineAction({
           });
       }
 
-      await tx
-        .update(triageConfig)
-        .set({
-          lastSentrySeenAt:
-            observedIssues.reduce<string | null>((latest, issue) => {
-              if (!latest) return issue.firstSeen;
-              return Date.parse(issue.firstSeen) > Date.parse(latest)
-                ? issue.firstSeen
-                : latest;
-            }, config.lastSentrySeenAt) ?? config.lastSentrySeenAt,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(triageConfig.id, configRowId),
-            eq(triageConfig.orgId, orgId),
-            factoryStillPresent(
-              tx as unknown as ReturnType<typeof getDb>,
-              orgId,
-              factoryId,
+      await writeFactoryPollCursor(tx as unknown as ReturnType<typeof getDb>, {
+        orgId,
+        factoryId,
+        source: "sentry",
+        destinationKey,
+        ownerEmail: userEmail,
+        lastSentrySeenAt: nextSentrySeenAt,
+      });
+      if (config && configRowId) {
+        await tx
+          .update(triageConfig)
+          .set({
+            lastSentrySeenAt: nextSentrySeenAt,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(triageConfig.id, configRowId),
+              eq(triageConfig.orgId, orgId),
+              factoryStillPresent(
+                tx as unknown as ReturnType<typeof getDb>,
+                orgId,
+                factoryId,
+              ),
             ),
-          ),
-        );
+          );
+      }
       await requireExistingFactory(
         tx as unknown as ReturnType<typeof getDb>,
         orgId,
@@ -196,32 +241,42 @@ export default defineAction({
       );
     });
 
-    if (observedIssues.length === 0) {
-      await recordFactoryAudit(
-        context,
-        { userEmail, orgId },
-        {
-          action: "poll-sentry-errors",
-          kind: "observed",
-          source: "sentry",
-          summary: "No unresolved Sentry errors were observed.",
-          details: { sentryOrgSlug: config.sentryOrgSlug },
+    await recordFactoryAudit(
+      context,
+      { userEmail, orgId },
+      {
+        action: "poll-sentry-errors",
+        kind: "observed",
+        source: "sentry",
+        summary: sentryPollObservationSummary(observedIssues.length, added),
+        details: {
+          sentryOrgSlug,
+          inboxLimit,
+          added,
+          updated,
+          authorFiltered: 0,
+          newlyObserved: added,
+          truncated: added + updated < observedIssues.length,
+          itemIds: addedIds,
         },
-        factoryId,
-      );
-    } else {
+      },
+      factoryId,
+    );
+    if (observedIssues.length > 0) {
       for (const issue of observedIssues) {
+        const itemId = itemDedupeKey(
+          { source: "sentry", externalId: issue.id },
+          orgId,
+          factoryId,
+        );
+        if (!addedIds.includes(itemId)) continue;
         await recordFactoryAudit(
           context,
           { userEmail, orgId },
           {
             action: "poll-sentry-errors",
             kind: "observed",
-            itemId: itemDedupeKey(
-              { source: "sentry", externalId: issue.id },
-              orgId,
-              factoryId,
-            ),
+            itemId,
             source: "sentry",
             sourceUrl: issue.permalink,
             summary: issue.title,
@@ -230,6 +285,7 @@ export default defineAction({
               level: issue.level,
               count: issue.count,
               projectSlug: issue.projectSlug,
+              added: true,
             },
           },
           factoryId,
@@ -242,7 +298,7 @@ export default defineAction({
       factoryId,
       observed: observedIssues.length,
       fetched: issues.length,
-      sentryOrgSlug: config.sentryOrgSlug,
+      sentryOrgSlug,
     };
   },
 });

@@ -10,6 +10,7 @@ import {
   type LlmConnectionStatus,
 } from "../shared/llm-connection.js";
 import { isQaTestEmail } from "../shared/qa-test-email.js";
+import { isSyntheticTrafficValue } from "../shared/test-traffic.js";
 import { toPostHogExceptionProperties } from "../tracking/posthog-exception.js";
 import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import {
@@ -63,6 +64,8 @@ export {
 declare global {
   interface Window {
     gtag?: (...args: any[]) => void;
+    /** Set by synthetic E2E contexts before the first app script runs. */
+    __AGENT_NATIVE_SYNTHETIC_TRAFFIC__?: string;
     __AGENT_NATIVE_CONFIG__?: {
       /**
        * This app's origins, projected by server/app-origin-config.ts. These
@@ -70,6 +73,8 @@ declare global {
        * ever answered "how does this reach the browser", which the shell
        * answers better. Impersonal, so safe in the CDN-cached shell.
        */
+      /** Public authenticated-app route used by client session fallbacks. */
+      appHomePath?: string;
       appUrl?: string;
       workspaceGatewayUrl?: string;
       workspaceOAuthOrigin?: string;
@@ -673,7 +678,15 @@ function isLocalAnalyticsHostname(hostname: string | undefined): boolean {
   );
 }
 
+function isSyntheticBrowserTraffic(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    isSyntheticTrafficValue(window.__AGENT_NATIVE_SYNTHETIC_TRAFFIC__)
+  );
+}
+
 function ensureAmplitude(): boolean {
+  if (isSyntheticBrowserTraffic()) return false;
   if (_amplitudeInitialized) return true;
   const key = (import.meta.env as Record<string, string | undefined>)
     ?.VITE_AMPLITUDE_API_KEY;
@@ -1001,6 +1014,7 @@ function captureWithSentry(
 }
 
 function ensureSentry(loadWithoutDsn = false): void {
+  if (isSyntheticBrowserTraffic()) return;
   if (_sentryInitialized || _sentryLoadPromise) return;
   const dsn = getClientSentryDsn();
   if (!dsn && !loadWithoutDsn) return;
@@ -1018,6 +1032,7 @@ function ensureSentry(loadWithoutDsn = false): void {
         dsn,
         environment: resolveClientDeploymentEnvironment(),
         beforeSend(event) {
+          if (isSyntheticBrowserTraffic()) return null;
           event.tags = {
             ...event.tags,
             deployment_environment: resolveClientDeploymentEnvironment(),
@@ -1173,6 +1188,7 @@ export function captureClientException(
   context: ClientCaptureContext = {},
 ): string | undefined {
   if (typeof window === "undefined") return undefined;
+  if (isSyntheticBrowserTraffic()) return undefined;
   if (isQaTrackingIdentity(_trackingIdentity)) return undefined;
   try {
     ensureSentry(true);
@@ -1238,6 +1254,7 @@ export type AgentChatLifecycleEvent = {
  */
 export function trackAgentChatLifecycle(input: AgentChatLifecycleEvent): void {
   if (typeof window === "undefined") return;
+  if (isSyntheticBrowserTraffic()) return;
   const surface = input.surface?.trim() || "app";
   const dedupeKey = [
     input.phase,
@@ -1290,6 +1307,10 @@ export function trackAgentChatLifecycle(input: AgentChatLifecycleEvent): void {
 }
 
 export function configureTracking(options: ConfigureTrackingOptions): void {
+  if (isSyntheticBrowserTraffic()) {
+    _trackingContentCaptureEnabled = false;
+    return;
+  }
   if (options.clientPlatform) {
     _configuredAnalyticsClientPlatform = options.clientPlatform;
   }
@@ -1454,6 +1475,7 @@ function posthogErrorConfig(): { key: string; host: string } | undefined {
  * id, which `$identify` later aliases on login.
  */
 function sendPostHogExceptionEvent(event: CapturedExceptionEvent): void {
+  if (isSyntheticBrowserTraffic()) return;
   const config = posthogErrorConfig();
   if (!config) return;
 
@@ -1501,6 +1523,7 @@ function sendPostHogExceptionEvent(event: CapturedExceptionEvent): void {
 }
 
 function sendExceptionEvent(event: CapturedExceptionEvent): void {
+  if (isSyntheticBrowserTraffic()) return;
   if (isQaTrackingIdentity(_trackingIdentity)) return;
   // Route through the existing first-party analytics ingest as a dedicated
   // `$exception` event. This reuses the public-key auth + sendBeacon/keepalive
@@ -1514,6 +1537,7 @@ function sendExceptionEvent(event: CapturedExceptionEvent): void {
 }
 
 function emitExceptionToReplay(event: CapturedExceptionEvent): void {
+  if (isSyntheticBrowserTraffic()) return;
   if (isQaTrackingIdentity(_trackingIdentity)) return;
   _sessionReplayModuleForCapture?.emitSessionReplayException?.({
     type: event.type,
@@ -1732,6 +1756,9 @@ async function waitForSessionReplayAuthIfRequired(
 async function startConfiguredSessionReplay(
   options: SessionReplayOptions,
 ): Promise<SessionReplayStartResult | null> {
+  if (isSyntheticBrowserTraffic()) {
+    return { started: false, reason: "disabled" };
+  }
   if (_sessionReplayStartPromise) return _sessionReplayStartPromise;
   _sessionReplayStartPromise = (async () => {
     if (!_trackingContentCaptureEnabled) {
@@ -1766,6 +1793,9 @@ async function startConfiguredSessionReplay(
 export async function startSessionReplay(
   options: SessionReplayOptions = {},
 ): Promise<SessionReplayStartResult> {
+  if (isSyntheticBrowserTraffic()) {
+    return { started: false, reason: "disabled" };
+  }
   if (!_trackingContentCaptureEnabled) {
     return { started: false, reason: "disabled" };
   }
@@ -1787,6 +1817,9 @@ export async function startSessionReplay(
 export async function maybeStartSessionReplay(
   options: SessionReplayOptions = {},
 ): Promise<SessionReplayStartResult> {
+  if (isSyntheticBrowserTraffic()) {
+    return { started: false, reason: "disabled" };
+  }
   if (!_trackingContentCaptureEnabled) {
     return { started: false, reason: "disabled" };
   }
@@ -1978,6 +2011,7 @@ function sendAgentNativeAnalytics(
   name: string,
   properties: Record<string, unknown>,
 ): void {
+  if (isSyntheticBrowserTraffic()) return;
   if (isLocalAnalyticsHostname(window.location.hostname)) return;
 
   const publicKey =
@@ -2026,6 +2060,7 @@ export function trackEvent(
   params?: Record<string, unknown>,
 ): void {
   if (typeof window === "undefined") return;
+  if (isSyntheticBrowserTraffic()) return;
   if (isQaTrackingIdentity(_trackingIdentity)) return;
   ensureSentry();
   const props = resolveProps(name, params);

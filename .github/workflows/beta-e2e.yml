@@ -65,6 +65,10 @@ on:
         required: false
       BETA_E2E_SESSION_TOKEN_MACROS:
         required: false
+      BETA_E2E_SESSION_TOKEN_CRM:
+        required: false
+      BETA_E2E_SESSION_TOKEN_CHAT:
+        required: false
       BETA_E2E_OPENAI_API_KEY:
         required: false
       OPENAI_API_KEY:
@@ -75,6 +79,10 @@ on:
         required: false
       PAGERDUTY_ROUTING_KEY:
         required: false
+    outputs:
+      signup_outcome:
+        description: "Signup lane result: success, failure, or inconclusive."
+        value: ${{ jobs.signup.outputs.outcome }}
   workflow_dispatch:
     inputs:
       apps:
@@ -88,6 +96,7 @@ on:
         type: choice
         options:
           - public
+          - authed
           - public+authed
           - signup
       signup_apps:
@@ -256,19 +265,35 @@ jobs:
           retention-days: 7
 
   authed:
-    name: Authenticated journeys
+    name: Authenticated ${{ matrix.cluster }}
     needs: [discover, advisory]
     if: ${{ always() && !cancelled() && needs.discover.result == 'success' && inputs.lane != 'public' && inputs.lane != 'signup' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      # These clusters share the e2e identity and production-backed databases.
+      # Keep them serialized while giving each failure its own gating signal.
+      max-parallel: 1
+      matrix:
+        include:
+          - cluster: registry
+            project: registry
+          - cluster: chat
+            project: chat
+          - cluster: journeys
+            project: journeys
     env:
       BETA_E2E_APPS: ${{ needs.discover.outputs.apps }}
       BETA_E2E_GREP: ${{ inputs.grep || '' }}
       BETA_E2E_AUTHED: "1"
-      BETA_E2E_REPORT_SLOT: authed
+      BETA_E2E_CLUSTER: ${{ matrix.cluster }}
+      BETA_E2E_REPORT_SLOT: authed-${{ matrix.cluster }}
       BETA_E2E_EMAIL: ${{ secrets.BETA_E2E_EMAIL }}
       BETA_E2E_SESSION_TOKENS: ${{ secrets.BETA_E2E_SESSION_TOKENS }}
       BETA_E2E_SESSION_TOKEN_MACROS: ${{ secrets.BETA_E2E_SESSION_TOKEN_MACROS }}
+      BETA_E2E_SESSION_TOKEN_CRM: ${{ secrets.BETA_E2E_SESSION_TOKEN_CRM }}
+      BETA_E2E_SESSION_TOKEN_CHAT: ${{ secrets.BETA_E2E_SESSION_TOKEN_CHAT }}
       BETA_E2E_OPENAI_API_KEY: ${{ secrets.BETA_E2E_OPENAI_API_KEY }}
       # The repository-wide key is available only for an explicit shared-key
       # dispatch. Dedicated runs must not expose it to setup or test code.
@@ -277,10 +302,11 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: ./.github/actions/beta-e2e-setup
-      - name: Authenticated journeys
+      - name: Authenticated ${{ matrix.cluster }}
         # Global setup fails loudly if a credential is missing rather than
         # degrading to an anonymous run that would pass without testing
-        # anything. Not sharded: it establishes one session per app up front.
+        # anything. The clusters are separate so a provider failure cannot
+        # hide registry or journey regressions.
         # A title filter can select only public/fleet tests, though. Ask
         # Playwright for the authenticated selection first with auth disabled;
         # --list does not run globalSetup, so an empty selection skips the
@@ -291,7 +317,7 @@ jobs:
             trap 'rm -f "$selection_file"' EXIT
             set +e
             BETA_E2E_AUTHED=0 pnpm e2e:beta \
-              --project=authed --project=journeys \
+              --project=${{ matrix.project }} \
               --grep "$BETA_E2E_GREP" --list >"$selection_file" 2>&1
             selection_status="$?"
             set -e
@@ -304,9 +330,9 @@ jobs:
               echo "Authenticated test selection failed before execution." >&2
               exit "$selection_status"
             fi
-            pnpm e2e:beta --project=authed --project=journeys --grep "$BETA_E2E_GREP" --pass-with-no-tests
+            pnpm e2e:beta --project=${{ matrix.project }} --grep "$BETA_E2E_GREP" --pass-with-no-tests
           else
-            pnpm e2e:beta --project=authed --project=journeys
+            pnpm e2e:beta --project=${{ matrix.project }}
           fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ always() }}
@@ -315,7 +341,7 @@ jobs:
         # publish the e2e account's live session cookie to anyone with repo
         # read access. e2e/beta/.auth is deliberately not in this list.
         with:
-          name: beta-e2e-authed-${{ github.run_id }}
+          name: beta-e2e-authed-${{ matrix.cluster }}-${{ github.run_id }}
           path: |
             e2e/beta/playwright-report/
             e2e/beta/test-results/
@@ -359,6 +385,8 @@ jobs:
   signup:
     name: Signup canary
     if: ${{ inputs.lane == 'signup' }}
+    outputs:
+      outcome: ${{ steps.classify.outputs.outcome }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
@@ -370,13 +398,28 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: ./.github/actions/beta-e2e-setup
+      - name: Test signup email provider contracts
+        run: pnpm exec tsx --test e2e/signup/lib/mailosaur.spec.ts
       - name: Typecheck signup suite
         run: pnpm typecheck:e2e:signup
       - name: Run full signup flow
         id: signup
         run: pnpm e2e:signup
+      - name: Classify signup result
+        id: classify
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.signup.outcome }}" != "success" ]; then
+            echo "outcome=failure" >> "$GITHUB_OUTPUT"
+          elif find e2e/signup/test-results -type f -name 'mailosaur-inconclusive.txt' -print -quit | grep -q .; then
+            echo "outcome=inconclusive" >> "$GITHUB_OUTPUT"
+            echo "INCONCLUSIVE: Mailosaur rate-limited the verification inbox; no product result was recorded." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "outcome=success" >> "$GITHUB_OUTPUT"
+          fi
       - name: Page signup health on-call
-        if: ${{ steps.signup.outcome == 'failure' }}
+        if: ${{ failure() && steps.signup.outcome == 'failure' && steps.classify.outputs.outcome == 'failure' }}
         run: |
           set -euo pipefail
           if [ -z "${PAGERDUTY_ROUTING_KEY:-}" ]; then

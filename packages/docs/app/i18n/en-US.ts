@@ -436,8 +436,7 @@ const enUS = {
   homepage: {
     hero: {
       title: "The agentic application framework",
-      bodyLine1:
-        "Build for AI agents without building a second product for users.",
+      bodyLine1: "Build autonomous agents with intuitive UIs.",
       bodyLine2: "Bring your own LLM. Deploy anywhere.",
       tryAnApp: "Try an app",
     },
@@ -536,21 +535,70 @@ const enUS = {
     title: "Open-source agentic apps you own",
     eyebrow: "Start from a working app and let the agent evolve it.",
     body: "You can customize everything.",
+    firstPartyTitle: "Built by Agent-Native",
     community:
       "Want a blank app instead? Start from scratch with the framework guide.",
     createYourOwn: "Start from scratch",
-    communityTitle: "Community templates",
+    communityTitle: "Community apps",
     communityDescription:
-      "Independent apps maintained by their authors. Install from a public GitHub repository, or try a hosted version when one is available.",
-    submitCommunityTemplate: "Submit your template",
+      "Discover apps maintained by their authors. Try a hosted version when one is available, or inspect the source and customize it yourself.",
+    submitCommunityTemplate: "Submit an app",
     communityEmpty:
-      "Community listings are open. Publish a focused Agent-Native app in a public repository and submit it for the catalog.",
+      "Community listings are open. Publish a focused Agent-Native app and submit it for the catalog.",
     publishGuide: "Read the publishing guide",
     communityTrust:
-      "Community templates are third-party code. Review the repository, license, dependencies, and install scripts before running it.",
+      "Community apps are third-party code. Review the source, license, dependencies, and install scripts before running them.",
     copyCommunityInstallCommand: "Copy install command",
     viewRepository: "View repository",
     tryCommunityDemo: "Try demo",
+    customizeDescription: "You can customize this code completely.",
+    customizeOnline: "Customize online",
+    customizeLocally: "Customize locally",
+    communityNew: "New",
+    communityComingSoon: "Coming soon",
+    communityGithubStars: "{{count}} GitHub stars",
+    tryCommunityApp: "Try app",
+    viewCommunitySource: "View source",
+    communityEyebrow: "Community app",
+    communityScreenshots: "Screenshots",
+    previousScreenshot: "Previous screenshot",
+    nextScreenshot: "Next screenshot",
+    communityNoScreenshots: "Screenshots will appear here after review.",
+    communityScreenshotAlt: "{{name}} screenshot {{index}}",
+    communityNoHostedVersion:
+      "A hosted version is coming soon. Use the source link to follow development.",
+    communitySubmissionTitle: "Share a community app",
+    communitySubmissionDescription:
+      "Tell us where to find your app and what it does. We will review the details before publishing the listing.",
+    communitySubmissionName: "App name",
+    communitySubmissionNamePlaceholder: "Customer Support Hub",
+    communitySubmissionUrl: "App URL",
+    communitySubmissionUrlPlaceholder: "example.com",
+    communitySubmissionDescriptionLabel: "Description",
+    communitySubmissionDescriptionPlaceholder:
+      "What does the app do, and who is it for?",
+    communitySubmissionRepository: "GitHub repository (optional)",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
+    communitySubmissionScreenshots: "Screenshots (optional)",
+    communitySubmissionScreenshotsPlaceholder: "Drop up to 5 images here",
+    communitySubmissionScreenshotDropHint:
+      "PNG, JPG, or WebP. 1.5 MB max each.",
+    communitySubmissionScreenshotSlot: "Screenshot {{index}}",
+    communitySubmissionScreenshotsAdd: "Add screenshots",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 selected",
+    communitySubmissionScreenshotRemove: "Remove screenshot {{index}}",
+    communitySubmissionSubmit: "Submit app",
+    communitySubmissionReady:
+      "Thanks. We will review your app before publishing it.",
+    communitySubmissionNameError: "Enter an app name.",
+    communitySubmissionDescriptionError: "Add a short description.",
+    communitySubmissionUrlError: "Enter a valid app link, such as example.com.",
+    communitySubmissionRepositoryError: "Enter a GitHub repository link.",
+    communitySubmissionScreenshotsError:
+      "Use PNG, JPG, or WebP images up to 1.5 MB each, with up to 5 images.",
+    communitySubmissionSubmitError:
+      "Couldn’t submit right now. Check the highlighted fields and try again.",
+    communitySubmissionSubmitting: "Submitting…",
   },
   buildFromScratch: {
     title: "Build from scratch",

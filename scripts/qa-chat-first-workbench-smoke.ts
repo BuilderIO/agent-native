@@ -508,9 +508,9 @@ async function runSmoke(browser: Browser): Promise<void> {
     assert.equal(browserSurface.panel, 1);
     assert.equal(browserSurface.browser, 1);
     assert.ok(browserSurface.tabs >= 1);
-    for (const label of ["Back", "Forward", /Reload/]) {
+    for (const label of ["Back", "Forward", "Reload page"]) {
       assert.equal(
-        await on.page.getByRole("button", { name: label }).count(),
+        await on.page.locator(`button[aria-label="${label}"]`).count(),
         1,
         `${label} browser control should be visible`,
       );
@@ -641,6 +641,30 @@ async function openElectronAgentSurface(page: Page): Promise<void> {
     await page.getByRole("button", { name: "Agent", exact: true }).click();
   }
   await shell.waitFor({ state: "visible", timeout: 15_000 });
+}
+
+async function openElectronSidebar(page: Page): Promise<void> {
+  if ((await page.locator("[data-chat-first-surface-panel]").count()) > 0) {
+    return;
+  }
+  const surfaceOptions = page.getByRole("button", {
+    name: "Surface options",
+    exact: true,
+  });
+  const terminalOptions = page.getByRole("button", {
+    name: "Terminal options",
+    exact: true,
+  });
+  const options =
+    (await surfaceOptions.count()) > 0 ? surfaceOptions : terminalOptions;
+  await options.waitFor({ state: "visible", timeout: 15_000 });
+  await options.click();
+  await page
+    .getByRole("menuitem", { name: "Open sidebar", exact: true })
+    .click();
+  await page
+    .locator("[data-chat-first-surface-panel]")
+    .waitFor({ state: "visible", timeout: 15_000 });
 }
 
 async function installElectronAppCreationSmokeMock(
@@ -931,58 +955,13 @@ async function runElectronSmoke(): Promise<void> {
     );
     assert.equal(
       await page.getByRole("button", { name: "Surface options" }).count(),
-      1,
-      "Electron empty chat should expose surface options",
+      0,
+      "Electron New Chat must not expose sidebar controls",
     );
     assert.ok(
       empty.composerRight - empty.composerLeft <= 752,
       "Electron full-page composer should be no wider than 750px",
     );
-    await page.getByRole("button", { name: "Surface options" }).click();
-    assert.equal(
-      await page
-        .getByRole("menuitem", { name: "Open sidebar", exact: true })
-        .count(),
-      1,
-      "Electron surface options should open the shared sidebar",
-    );
-    assert.equal(
-      await page
-        .getByRole("menuitem", { name: "Open app in sidebar", exact: true })
-        .count(),
-      1,
-      "Electron surface options should expose the app picker",
-    );
-    assert.equal(
-      await page
-        .getByRole("menuitem", { name: "New CLI tab", exact: true })
-        .count(),
-      1,
-      "Electron surface options should expose a new CLI tab",
-    );
-    await saveElectronScreenshot(electronApp, "electron-surface-options");
-    await page
-      .getByRole("menuitem", { name: "Open sidebar", exact: true })
-      .click();
-    await page
-      .locator("[data-chat-first-surface-panel]")
-      .waitFor({ state: "visible", timeout: 15_000 });
-    const emptySidebar = await electronSnapshot(
-      page,
-      "electron-01-chat-first-empty-sidebar",
-      electronApp,
-    );
-    assert.ok(
-      emptySidebar.appOptions >= 5,
-      "Electron empty chat should expose the app picker from its sidebar",
-    );
-    await page.getByRole("button", { name: "Surface options" }).click();
-    await page
-      .getByRole("menuitem", { name: "Hide sidebar", exact: true })
-      .click();
-    await page
-      .locator("[data-chat-first-surface-panel]")
-      .waitFor({ state: "detached", timeout: 15_000 });
     const defaultAppIds = await page
       .locator("[data-chat-first-app][data-app-id]")
       .evaluateAll((elements) =>
@@ -1067,6 +1046,15 @@ async function runElectronSmoke(): Promise<void> {
       1,
       "Electron active chat should expose surface options",
     );
+    await page.getByRole("button", { name: "Surface options" }).click();
+    await page
+      .getByRole("menuitem", { name: "Open sidebar", exact: true })
+      .waitFor({ state: "visible" });
+    await saveElectronScreenshot(
+      electronApp,
+      "electron-03-active-surface-options",
+    );
+    await page.keyboard.press("Escape");
     assert.ok(
       active.composerRight - active.composerLeft <= 752,
       "Electron full-page composer should be no wider than 750px",
@@ -1098,43 +1086,13 @@ async function runElectronSmoke(): Promise<void> {
     );
     assert.equal(appSurface.panel, 0);
 
-    await page.evaluate(() => {
-      window.dispatchEvent(
-        new CustomEvent("agentNative:openApp", {
-          detail: { app: "mail", path: "/mail/inbox" },
-        }),
-      );
-    });
-    await page.locator("[data-chat-first-surface-panel]").waitFor({
-      state: "visible",
-      timeout: 15_000,
-    });
-    const sideApp = await electronSnapshot(
-      page,
-      "electron-03-chat-first-app-side",
-      electronApp,
-    );
-    assert.equal(sideApp.panel, 1);
-    assert.equal(sideApp.mainApp, 0);
-    assert.ok(
-      sideApp.chatWidth < active.chatWidth - 1,
-      "Electron agent-opened apps should leave the full-page chat visible beside them",
-    );
-    await page.getByRole("button", { name: "Surface options" }).click();
-    await page
-      .getByRole("menuitem", { name: "Hide sidebar", exact: true })
-      .click();
-    await page.keyboard.press("Escape");
-    await page.locator("[data-chat-first-surface-panel]").waitFor({
-      state: "detached",
-    });
-
     await installElectronAppCreationSmokeMock(electronApp);
-    const collapseRailButton = page.locator("[data-chat-first-rail-collapse]");
-    if (await collapseRailButton.count()) {
-      await collapseRailButton.evaluate((button) =>
-        (button as HTMLButtonElement).click(),
-      );
+    const railCollapseButton = page.locator("[data-chat-first-rail-collapse]");
+    await railCollapseButton.waitFor({ state: "visible", timeout: 15_000 });
+    if (
+      (await railCollapseButton.getAttribute("aria-label")) === "Expand rail"
+    ) {
+      await railCollapseButton.click();
       await page
         .locator(".code-agents-rail:not(.code-agents-rail--collapsed)")
         .waitFor({ state: "visible" });
@@ -1269,13 +1227,7 @@ async function runElectronSmoke(): Promise<void> {
     await currentChatRow.locator(".an-chat-history-row__button").click();
     const closePreview = page.getByRole("button", { name: "Close browser" });
     if (await closePreview.count()) await closePreview.click();
-    const electronToggle = page.locator("[data-chat-first-surface-toggle]");
-    if ((await page.locator("[data-chat-first-surface-panel]").count()) === 0) {
-      await electronToggle.click();
-    }
-    await page
-      .locator("[data-chat-first-surface-panel]")
-      .waitFor({ state: "visible" });
+    await openElectronSidebar(page);
     const picker = await electronSnapshot(
       page,
       "electron-03-surface-picker",
@@ -1302,7 +1254,7 @@ async function runElectronSmoke(): Promise<void> {
     );
     assert.equal(
       await page.locator('[data-surface-availability="deferred"]').count(),
-      3,
+      2,
       "Electron deferred surfaces should be labeled honestly",
     );
 
@@ -1350,6 +1302,13 @@ async function runElectronSmoke(): Promise<void> {
     );
     assert.equal(closed.tabs, 0);
 
+    await currentChatRow.locator(".an-chat-history-row__button").click();
+    await page
+      .getByRole("button", { name: "Surface options", exact: true })
+      .waitFor({
+        state: "visible",
+        timeout: 15_000,
+      });
     await page.evaluate(() => {
       window.dispatchEvent(
         new CustomEvent("agentNative:openBrowser", {
@@ -1357,6 +1316,12 @@ async function runElectronSmoke(): Promise<void> {
         }),
       );
     });
+    await page
+      .getByRole("button", { name: "Surface options", exact: true })
+      .click();
+    await page
+      .getByRole("menuitem", { name: "Open sidebar", exact: true })
+      .click();
     await page.locator("[data-chat-first-browser-pane]").waitFor({
       state: "visible",
       timeout: 15_000,
@@ -1368,9 +1333,12 @@ async function runElectronSmoke(): Promise<void> {
     );
     assert.equal(browserSurface.panel, 1);
     assert.equal(browserSurface.browser, 1);
-    for (const label of ["Back", "Forward", /Reload/]) {
+    for (const label of ["Back", "Forward", "Reload page"]) {
       assert.equal(
-        await page.getByRole("button", { name: label }).count(),
+        await page
+          .locator("[data-chat-first-browser-pane]")
+          .locator(`button[aria-label="${label}"]`)
+          .count(),
         1,
         `Electron ${label} browser control should be visible`,
       );
@@ -1402,6 +1370,7 @@ async function runElectronSmoke(): Promise<void> {
 
     await page.getByRole("button", { name: "Close browser" }).click();
     await page.getByRole("button", { name: "Close browser" }).click();
+
     await page.evaluate(() => {
       window.dispatchEvent(
         new CustomEvent("agentNative:openApp", {
@@ -1427,6 +1396,104 @@ async function runElectronSmoke(): Promise<void> {
       "Electron hostile open_app must not mount the side panel",
     );
     await saveElectronScreenshot(electronApp, "electron-08-hostile-open-app");
+
+    await page.getByRole("button", { name: "Surface options" }).click();
+    await page
+      .getByRole("menuitem", { name: "New CLI tab", exact: true })
+      .click();
+    await page
+      .locator("[data-desktop-terminal-surface]")
+      .waitFor({ state: "visible", timeout: 15_000 });
+    await page
+      .locator('[aria-label="Terminal options"]')
+      .waitFor({ state: "visible", timeout: 15_000 });
+    await page
+      .locator("[data-desktop-terminal-tabs] .xterm")
+      .waitFor({ state: "visible", timeout: 15_000 });
+    assert.equal(
+      await page.locator("[data-desktop-terminal-tabs]").count(),
+      1,
+      "Electron New CLI tab should mount the terminal surface",
+    );
+    await page.getByRole("button", { name: "Terminal options" }).click();
+    assert.equal(
+      await page
+        .getByRole("menuitem", { name: "New UI tab", exact: true })
+        .count(),
+      1,
+      "Electron CLI options should expose a new UI tab",
+    );
+    assert.equal(
+      await page
+        .getByRole("menuitem", { name: "Open sidebar", exact: true })
+        .count(),
+      1,
+      "Electron CLI options should keep the shared sidebar reachable",
+    );
+    await saveElectronScreenshot(electronApp, "electron-09-cli-options");
+    await page
+      .getByRole("menuitem", { name: "Open sidebar", exact: true })
+      .click();
+    await page
+      .locator("[data-chat-first-surface-panel]")
+      .waitFor({ state: "visible", timeout: 15_000 });
+    assert.equal(
+      await page.locator("[data-desktop-terminal-surface]").count(),
+      1,
+      "Electron CLI should keep the terminal beside the shared sidebar",
+    );
+    await page.getByRole("button", { name: "Terminal options" }).click();
+    await page
+      .getByRole("menuitem", { name: "New UI tab", exact: true })
+      .click();
+    await page
+      .locator("[data-desktop-terminal-surface]")
+      .waitFor({ state: "detached", timeout: 15_000 });
+    await page
+      .getByRole("button", { name: "Surface options" })
+      .waitFor({ state: "visible", timeout: 15_000 });
+    assert.equal(
+      await page.locator("[data-chat-first-surface-panel]").count(),
+      0,
+      "Electron New UI tab should return to the full-page chat",
+    );
+
+    await page.getByRole("button", { name: "Surface options" }).click();
+    await page
+      .getByRole("menuitem", { name: "New CLI tab", exact: true })
+      .click();
+    await page
+      .locator("[data-desktop-terminal-surface]")
+      .waitFor({ state: "visible", timeout: 15_000 });
+    await page
+      .locator("[data-desktop-terminal-tabs] .xterm")
+      .waitFor({ state: "visible", timeout: 15_000 });
+    await page.getByRole("button", { name: "Terminal options" }).click();
+    await page
+      .getByRole("menuitem", { name: "Open sidebar", exact: true })
+      .click();
+    await page
+      .locator("[data-chat-first-surface-panel]")
+      .waitFor({ state: "visible", timeout: 15_000 });
+    assert.equal(
+      await page.locator("[data-desktop-terminal-surface]").count(),
+      1,
+      "Electron CLI should keep the terminal beside the shared sidebar",
+    );
+    await page
+      .locator(
+        '[data-chat-first-surface-panel] [data-chat-first-surface-app="mail"]',
+      )
+      .click();
+    await page
+      .locator("[data-chat-first-app-pane]")
+      .waitFor({ state: "visible", timeout: 15_000 });
+    assert.equal(
+      await page.locator("[data-chat-first-surface-panel]").count(),
+      1,
+      "Electron CLI should keep Mail in the shared sidebar",
+    );
+    await saveElectronScreenshot(electronApp, "electron-10-cli-mail-sidebar");
   } finally {
     if (electronApp) await electronApp.close();
     fs.rmSync(userDataPath, { recursive: true, force: true });

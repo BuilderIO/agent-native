@@ -334,16 +334,19 @@ export async function resolveAgentEngineStatus<
   const configuredEngine = getAppConfig().agent.engine;
   const envEntry = configuredEngine ? lookupEntry(configuredEngine) : undefined;
   if (envEntry) {
-    if (!(await deps.isStoredEngineUsable({ engine: envEntry.name }, envEntry)))
+    if (await deps.isStoredEngineUsable({ engine: envEntry.name }, envEntry)) {
+      return {
+        configured: true,
+        engine: envEntry.name,
+        model: envEntry.defaultModel ?? DEFAULT_MODEL,
+        source: "env",
+        envVar: "AGENT_ENGINE",
+        openAiBaseUrlConfigured,
+      };
+    }
+    if (getRequestContext()?.isSyntheticTraffic !== true) {
       return { configured: false, openAiBaseUrlConfigured };
-    return {
-      configured: true,
-      engine: envEntry.name,
-      model: envEntry.defaultModel ?? DEFAULT_MODEL,
-      source: "env",
-      envVar: "AGENT_ENGINE",
-      openAiBaseUrlConfigured,
-    };
+    }
   }
 
   // Stored provider selections win over an existing Builder connection, so
@@ -390,40 +393,6 @@ export async function resolveAgentEngineStatus<
   }
 
   return { configured: false, openAiBaseUrlConfigured };
-}
-
-const _agentEngineStatusInFlight = new Map<
-  string,
-  Promise<AgentEngineStatusResult>
->();
-
-/**
- * Share one in-flight status resolution between concurrent probes of the same
- * identity. Several client surfaces probe this route on mount and the client
- * retries after its own timeout; without this each probe re-ran the whole
- * credential sweep. The entry is dropped as soon as the lookup settles, so a
- * joiner never sees an answer older than one lookup — no TTL, nothing to
- * invalidate when a provider is added or removed. The key carries the identity
- * that decides the answer, so no tenant can read another's result.
- */
-export function shareAgentEngineStatusLookup(
-  identityKey: string,
-  compute: () => Promise<AgentEngineStatusResult>,
-): Promise<AgentEngineStatusResult> {
-  const existing = _agentEngineStatusInFlight.get(identityKey);
-  if (existing) return existing;
-  const started = compute().finally(() => {
-    _agentEngineStatusInFlight.delete(identityKey);
-  });
-  _agentEngineStatusInFlight.set(identityKey, started);
-  return started;
-}
-
-export function agentEngineStatusIdentityKey(
-  userEmail: string | undefined,
-  orgId: string | undefined,
-): string {
-  return `${userEmail ?? ""}\u0000${orgId ?? ""}`;
 }
 
 function requestAgentEngineStatusDeps(): AgentEngineStatusDeps<AgentEngineEntry> {
@@ -4028,14 +3997,8 @@ export function createCoreRoutesPlugin(
           try {
             const { userEmail, orgId } =
               await resolveAgentEngineStatusIdentity(event);
-            return await shareAgentEngineStatusLookup(
-              agentEngineStatusIdentityKey(userEmail, orgId),
-              () =>
-                Promise.resolve(
-                  runWithRequestContext({ userEmail, orgId }, () =>
-                    resolveAgentEngineStatus(requestAgentEngineStatusDeps()),
-                  ),
-                ),
+            return await runWithRequestContext({ userEmail, orgId }, () =>
+              resolveAgentEngineStatus(requestAgentEngineStatusDeps()),
             );
           } catch (err) {
             // NOT `{ configured: false }`. A 200 saying "not configured" is an

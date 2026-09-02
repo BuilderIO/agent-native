@@ -21,9 +21,9 @@ decisions, feedback, agent runs, and provider audit records.
   reconciliation is not success; preserve typed failure or
   `reconciliation_required` state.
 - Deduplicate by Factory item and rule/run identity, not provider comment ID.
-- Slack clear bugs go through `start-builder-for-item`; never post Slack
-  messages or `@handles`. GitHub/Sentry use the Builder run API. Read
-  `review-latest-feedback` for thread evidence and disposition rules.
+- Slack clear bugs go through `dispatch-factory-item`; never post Slack
+  messages or `@handles`. GitHub issues and Sentry tag `@builderio-bot`
+  on a GitHub issue. Read `review-latest-feedback` for thread evidence.
 - PR governance follows `review-prs`: verify membership and evidence; skip
   drafts and external authors; apply the verified `liamdebeasi` exception for
   ordinary gates; keep ultra-scary risks manual; never auto-merge.
@@ -34,14 +34,15 @@ decisions, feedback, agent runs, and provider audit records.
   MCP tools through the workspace grant boundary.
 - Never put provider keys in hosted deployment env or Factory bootstrap.
   Hosted Factory reads Slack/GitHub/Sentry from workspace connections or the
-  org vault. Local sqlite may read `.env` Slack/GitHub/Sentry keys as a last resort.
+  org vault. Local sqlite may read `.env` Slack/GitHub/Sentry keys last.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 
 ## Application state
 
 - `navigation.view` is `factory` or `agents`. Runtime data is scoped by
-  `factoryId`; reusable agents stay workspace-wide. Read `view-screen` and
-  `factory-graphs` for tab and selection keys.
+  `factoryId`; reusable agents stay workspace-wide. Opening a factory
+  defaults to Inbox. Read `view-screen` and `factory-graphs` for tab and
+  selection keys.
 
 ## Action contract
 
@@ -56,16 +57,16 @@ decisions, feedback, agent runs, and provider audit records.
 | `list-triage-rules` / `save-triage-rule` | Tune rules and guards. |
 | `evaluate-triage-item` | Append a decision. |
 | `record-triage-feedback` | Capture human correction for learning. |
-| `approve-factory-item` | Explicitly authorize one bounded run. |
-| `start-builder-for-item` | Govern clear-bug dispatch through Slack or Builder API, or record a skip reason. |
-| `govern-agent-native-pull-request` | Apply PR evidence and ownership gates. |
-| `list-factory-automations` / `save-factory-automation` / `run-factory-automation` | Inspect or edit org-owned automations. |
-| `list-factory-audit` | Inspect runs, evidence, and provider actions for one factory. |
+| `dispatch-factory-item` | Tag Builder or record a skip. Optional `reaction` marks the source if that provider can. |
+| `govern-factory-pull-request` | Apply PR evidence and ownership gates. |
+| `babysit-factory-pull-request` / `propose-pr-babysit-status` | Post the bot PR poke, or propose babysit status without writing. |
+| `list-factory-automations` / `create-factory-automation` / `save-factory-automation` / `run-factory-automation` | List, create, edit, or run jobs. Factories start empty. Hosted jobs need a workspace connection or vault token. Author filters use Slack `U`/`W` or GitHub numeric ids. Limits are action-enforced. |
+| `list-factory-audit` | Inspect inbox additions, worked items, and actions for one factory. |
 | `get-factory-automation-health` | Inspect scheduler heartbeat and last error. |
 | `suggest-factory-rules` | Mine feedback into proposals. |
-| `reconcile-triage-run` | Persist callback/provider reconciliation. |
+| `reconcile-triage-run` | Persist PR-monitor observations; no GitHub write. |
 | `list-factories` / `get-factory-graph` / `delete-factory` | Inspect Factory definitions, versions, and metrics, or permanently delete a user-created Factory after exact-name confirmation. A committed delete whose follow-up read cannot confirm the row is gone returns `verified:false`, not a failed deletion. |
-| `create-factory` | Create a factory from `/new-factory` with optional sources. |
+| `create-factory` | Create a factory from `/new-factory`. Automations start empty. |
 | `save-factory-graph` | Create/version a graph with inspected `expectedGraphVersion`; never starts provider work. |
 | graph history actions | Factory graph version history. |
 | `list-factory-comments` / `add-factory-comment` | Read or attach comments to a canvas, node, or edge. |

@@ -416,7 +416,10 @@ const GENERIC_EXTERNAL_SOURCE_REQUEST_TERMS = /\b(warehouse|crm|payments?)\b/i;
 
 const EXTERNAL_SOURCE_PROVIDER_ALIASES = [
   ...credentialProviderConfigs.map(({ provider, label }) => ({
-    terms: [provider, label],
+    // "Builder" also names the product whose first-party metrics live in
+    // Analytics; require a content qualifier before routing to Builder.io.
+    terms:
+      provider === "builder" ? [label, "Builder content"] : [provider, label],
     aliases: [provider, label],
   })),
   { terms: ["ga4"], aliases: ["ga4", "google analytics"] },

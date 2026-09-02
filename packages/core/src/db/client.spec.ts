@@ -30,6 +30,7 @@ describe("db/client dialect detection", () => {
       "__AGENT_NATIVE_MIGRATION_RUNTIME__",
     );
     Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
     vi.resetModules();
   });
 
@@ -72,6 +73,14 @@ describe("db/client dialect detection", () => {
     const { getDialect, isPostgres } = await import("./client.js");
     expect(getDialect()).toBe("sqlite");
     expect(isPostgres()).toBe(false);
+  });
+
+  it("detects postgres dialect from an unpooled-only URL", async () => {
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "postgres://direct.example/db");
+    const { getDialect } = await import("./client.js");
+    expect(getDialect()).toBe("postgres");
   });
 
   it("detects a D1 binding from Nitro's native Worker environment", async () => {
@@ -406,13 +415,103 @@ describe("PGlite optional dependency", () => {
   });
 });
 
+describe("getRuntimeDatabaseUrl", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
+    vi.resetModules();
+  });
+
+  it("uses the direct Neon endpoint in serverless runtimes", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv(
+      "DATABASE_URL",
+      "postgresql://user:pass@ep-round-heart-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require",
+    );
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { getRuntimeDatabaseUrl } = await import("./client.js");
+
+    expect(getRuntimeDatabaseUrl()).toBe(
+      "postgresql://user:pass@ep-round-heart.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require",
+    );
+  });
+
+  it("prefers an explicit unpooled URL", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://pooled.example/db");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "postgres://direct.example/db");
+
+    const { getRuntimeDatabaseUrl } = await import("./client.js");
+
+    expect(getRuntimeDatabaseUrl()).toBe("postgres://direct.example/db");
+  });
+
+  it("keeps pooled URLs unchanged outside serverless runtimes", async () => {
+    vi.stubEnv(
+      "DATABASE_URL",
+      "postgresql://user:pass@ep-round-heart-pooler.c-7.us-east-1.aws.neon.tech/neondb",
+    );
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "");
+
+    const { getRuntimeDatabaseUrl } = await import("./client.js");
+
+    expect(getRuntimeDatabaseUrl()).toBe(
+      "postgresql://user:pass@ep-round-heart-pooler.c-7.us-east-1.aws.neon.tech/neondb",
+    );
+  });
+
+  it("keeps an app-specific pooled URL ahead of a generic unpooled alias", async () => {
+    vi.stubEnv("APP_NAME", "plan");
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("DATABASE_URL", "postgres://generic.example/db");
+    vi.stubEnv(
+      "PLAN_DATABASE_URL",
+      "postgresql://user:pass@ep-plan-pooler.c-7.us-east-1.aws.neon.tech/neondb",
+    );
+    vi.stubEnv("PLAN_DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "postgresql://other-app.example/db");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { getRuntimeDatabaseUrl } = await import("./client.js");
+
+    expect(getRuntimeDatabaseUrl()).toBe(
+      "postgresql://user:pass@ep-plan.c-7.us-east-1.aws.neon.tech/neondb",
+    );
+  });
+
+  it("uses direct endpoints in Cloudflare binding-based runtimes", async () => {
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv(
+      "DATABASE_URL",
+      "postgresql://user:pass@ep-round-heart-pooler.c-7.us-east-1.aws.neon.tech/neondb",
+    );
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("CF_PAGES", "");
+    vi.stubGlobal("__cf_env", {});
+
+    const { getRuntimeDatabaseUrl, isServerlessRuntime } =
+      await import("./client.js");
+
+    expect(isServerlessRuntime()).toBe(true);
+    expect(getRuntimeDatabaseUrl()).toBe(
+      "postgresql://user:pass@ep-round-heart.c-7.us-east-1.aws.neon.tech/neondb",
+    );
+  });
+});
+
 describe("getMigrationDatabaseUrl", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
     vi.resetModules();
   });
 
   it("strips the -pooler suffix from a real Neon pooler host", async () => {
+    vi.stubEnv("APP_NAME", "");
     // Exact pooler URL shape from templates/plan/.env (region segment .c-7.).
     vi.stubEnv(
       "DATABASE_URL",
@@ -425,6 +524,7 @@ describe("getMigrationDatabaseUrl", () => {
   });
 
   it("leaves an already-direct Neon host unchanged", async () => {
+    vi.stubEnv("APP_NAME", "");
     const direct =
       "postgresql://neondb_owner:npg_pw@ep-round-heart-ap9wji9h.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require";
     vi.stubEnv("DATABASE_URL", direct);
@@ -433,6 +533,7 @@ describe("getMigrationDatabaseUrl", () => {
   });
 
   it("leaves a non-Neon Postgres URL unchanged", async () => {
+    vi.stubEnv("APP_NAME", "");
     const other = "postgresql://user:pass@db.example.com:5432/app";
     vi.stubEnv("DATABASE_URL", other);
     const { getMigrationDatabaseUrl } = await import("./client.js");
@@ -440,12 +541,14 @@ describe("getMigrationDatabaseUrl", () => {
   });
 
   it("leaves a sqlite file: URL unchanged", async () => {
+    vi.stubEnv("APP_NAME", "");
     vi.stubEnv("DATABASE_URL", "file:./data/app.db");
     const { getMigrationDatabaseUrl } = await import("./client.js");
     expect(getMigrationDatabaseUrl()).toBe("file:./data/app.db");
   });
 
   it("prefers Netlify's explicit unpooled migration URL over a stale generic unpooled URL", async () => {
+    vi.stubEnv("APP_NAME", "");
     vi.stubEnv(
       "DATABASE_URL_UNPOOLED",
       "postgresql://old:pw@old.example.com/db",
@@ -576,6 +679,8 @@ describe("retryOnDdlRace", () => {
 describe("dbOpTimeoutMs", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
     vi.resetModules();
   });
 

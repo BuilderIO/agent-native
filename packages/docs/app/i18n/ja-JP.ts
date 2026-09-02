@@ -437,8 +437,7 @@ const jaJP = {
   homepage: {
     hero: {
       title: "agentic アプリケーションのための framework",
-      bodyLine1:
-        "ユーザー向けに別のプロダクトを作らずに、AI エージェント向けに構築できます。",
+      bodyLine1: "直感的な UI を備えた自律型エージェントを構築できます。",
       bodyLine2: "好きな LLM を持ち込んで、どこにでもデプロイできます。",
       tryAnApp: "アプリを試す",
     },
@@ -537,21 +536,71 @@ const jaJP = {
     title: "あなたが所有するオープンソースのエージェントネイティブ アプリ",
     eyebrow: "動く app から始め、agent に進化させます。",
     body: "すべてをカスタマイズできます。",
+    firstPartyTitle: "Agent-Native が作成",
     community:
       "空のアプリから始めたい場合は、フレームワークガイドでゼロから始められます。",
     createYourOwn: "ゼロから始める",
-    communityTitle: "コミュニティテンプレート",
+    communityTitle: "コミュニティアプリ",
     communityDescription:
-      "作者が管理する独立したアプリです。公開 GitHub リポジトリからインストールし、ホスト版がある場合は事前に試せます。",
-    submitCommunityTemplate: "テンプレートを申請",
+      "作者が管理するアプリを見つけましょう。ホスト版があれば試用でき、ソースコードを確認して自分でカスタマイズできます。",
+    submitCommunityTemplate: "アプリを送信",
     communityEmpty:
-      "コミュニティ掲載を受け付けています。目的を絞った Agent-Native アプリを公開リポジトリで公開し、カタログに申請してください。",
+      "コミュニティ掲載を受け付けています。目的を絞った Agent-Native アプリを公開し、カタログに申請してください。",
     publishGuide: "公開ガイドを読む",
     communityTrust:
-      "コミュニティテンプレートは第三者のコードです。実行前にリポジトリ、ライセンス、依存関係、インストールスクリプトを確認してください。",
+      "コミュニティアプリは第三者のコードです。実行前にソースコード、ライセンス、依存関係、インストールスクリプトを確認してください。",
     copyCommunityInstallCommand: "インストールコマンドをコピー",
     viewRepository: "リポジトリを見る",
     tryCommunityDemo: "デモを試す",
+    customizeDescription: "このコードはすべてカスタマイズできます。",
+    customizeOnline: "オンラインでカスタマイズ",
+    customizeLocally: "ローカルでカスタマイズ",
+    communityNew: "新着",
+    communityComingSoon: "近日公開",
+    communityGithubStars: "GitHub スター {{count}}",
+    tryCommunityApp: "アプリを試す",
+    viewCommunitySource: "ソースコードを見る",
+    communityEyebrow: "コミュニティアプリ",
+    communityScreenshots: "スクリーンショット",
+    previousScreenshot: "前のスクリーンショット",
+    nextScreenshot: "次のスクリーンショット",
+    communityNoScreenshots: "審査後、ここにスクリーンショットが表示されます。",
+    communityScreenshotAlt: "{{name}} のスクリーンショット {{index}}",
+    communityNoHostedVersion:
+      "ホスト版は近日公開予定です。ソースコードのリンクから開発状況を確認できます。",
+    communitySubmissionTitle: "コミュニティアプリを共有",
+    communitySubmissionDescription:
+      "アプリの場所と機能を教えてください。掲載前に内容を確認します。",
+    communitySubmissionName: "アプリ名",
+    communitySubmissionNamePlaceholder: "カスタマーサポートハブ",
+    communitySubmissionUrl: "アプリ URL",
+    communitySubmissionUrlPlaceholder: "example.com",
+    communitySubmissionDescriptionLabel: "説明",
+    communitySubmissionDescriptionPlaceholder:
+      "アプリの機能と対象ユーザーを教えてください。",
+    communitySubmissionRepository: "GitHub リポジトリ（任意）",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
+    communitySubmissionScreenshots: "スクリーンショット（任意）",
+    communitySubmissionScreenshotsPlaceholder: "最大5枚の画像をここにドロップ",
+    communitySubmissionScreenshotDropHint: "PNG、JPG、WebP。各1.5 MBまで。",
+    communitySubmissionScreenshotSlot: "スクリーンショット {{index}}",
+    communitySubmissionScreenshotsAdd: "スクリーンショットを追加",
+    communitySubmissionScreenshotsCount: "{{count}} / 5 枚を選択",
+    communitySubmissionScreenshotRemove: "スクリーンショット{{index}}を削除",
+    communitySubmissionSubmit: "アプリを送信",
+    communitySubmissionReady:
+      "ありがとうございます。公開前にアプリを確認します。",
+    communitySubmissionNameError: "アプリ名を入力してください。",
+    communitySubmissionDescriptionError: "短い説明を追加してください。",
+    communitySubmissionUrlError:
+      "example.com のような有効なアプリリンクを入力してください。",
+    communitySubmissionRepositoryError:
+      "GitHub リポジトリのリンクを入力してください。",
+    communitySubmissionScreenshotsError:
+      "PNG、JPG、WebP 画像を使用してください。各 1.5 MB まで、最大 5 枚です。",
+    communitySubmissionSubmitError:
+      "現在送信できません。強調表示された項目を確認して、もう一度お試しください。",
+    communitySubmissionSubmitting: "送信中…",
   },
   buildFromScratch: {
     title: "ゼロから構築",

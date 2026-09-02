@@ -98,6 +98,8 @@ on:
         required: true
       PLAN_DATABASE_URL:
         required: false
+      CLIPS_DATABASE_URL:
+        required: false
 
 permissions:
   contents: read
@@ -179,7 +181,7 @@ jobs:
           cache: pnpm
 
       - name: Install the pinned Netlify CLI
-        run: npm install --global netlify-cli@27.1.2 --ignore-scripts
+        run: npm install --global netlify-cli@27.0.0 --ignore-scripts
 
       - name: Validate rollout mode
         env:
@@ -232,6 +234,10 @@ jobs:
         run: |
           set -euo pipefail
           : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          # The Netlify CLI uses DEPLOY_ID=0 during local prebuilt builds. Use
+          # the checked-out source revision so fixed auth assets get a new URL
+          # on every source deploy, including branch and beta deployments.
+          export AGENT_NATIVE_BUILD_ID="$(git rev-parse HEAD)"
           if [[ "$TARGET" == "beta" ]]; then
             # Beta is built from the release commit with branch-deploy context,
             # so production-scoped Netlify variables are not applied. Export
@@ -255,7 +261,19 @@ jobs:
             agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
             export agentNativePrebuiltAuthSecret
           fi
+          if [[ "$TARGET" == "production" && "$SOURCE_TEMPLATE" == "chat" ]]; then
+            # Starter's runtime database and auth secret are Netlify secrets.
+            # The external prebuilt runner receives masked values, so use
+            # build-only shapes and let the deployed Functions read the real
+            # site-scoped values at runtime.
+            export agentNativePrebuiltBuild=true
+            agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
+            export agentNativePrebuiltAuthSecret
+          fi
           if [[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" ]]; then
+            export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
+          fi
+          if [[ "$TARGET" == "production" && "$SOURCE_TEMPLATE" == "chat" ]]; then
             export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
           fi
           netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE"
@@ -270,6 +288,18 @@ jobs:
           set -euo pipefail
           : "${DATABASE_URL:?PLAN_DATABASE_URL secret is required for prebuilt Plan deployments}"
           pnpm --filter plan migrate:production
+
+      - name: Run Clips release migrations
+        if: >-
+          inputs.target == 'production' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
+          steps.target.outputs.source_template == 'clips'
+        env:
+          DATABASE_URL: ${{ secrets.CLIPS_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?CLIPS_DATABASE_URL secret is required for prebuilt Clips deployments}"
+          pnpm --filter clips migrate:production
 
       - name: Verify deploy directories
         env:

@@ -1,5 +1,9 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import {
   DEFAULT_SSR_CACHE_CONTROL,
   DEFAULT_SSR_CDN_CACHE_CONTROL,
@@ -81,7 +85,13 @@ function expectNoDefaultCdnCacheHeaders(response: Response) {
 }
 
 describe("createH3SSRHandler", () => {
+  beforeEach(() => {
+    resetAppConfigForTests();
+    defineAppConfig({ app: { homePath: "/home" } });
+  });
+
   afterEach(() => {
+    resetAppConfigForTests();
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
     delete process.env.SENTRY_CLIENT_DSN;
@@ -272,7 +282,11 @@ describe("createH3SSRHandler", () => {
     expect(response.headers.get("speculation-rules")).toBe(
       DEFAULT_SPECULATION_RULES_HEADER,
     );
-    expect(await response.text()).toContain("data-agent-native-auth-redirect");
+    const html = await response.text();
+    const handoff = html.indexOf("data-agent-native-auth-redirect");
+    expect(handoff).toBeGreaterThan(html.indexOf("<head>"));
+    expect(handoff).toBeLessThan(html.indexOf("</head>"));
+    expect(handoff).toBeLessThan(html.indexOf("<body>"));
   });
 
   it("only adds the auth handoff to the public root shell", async () => {

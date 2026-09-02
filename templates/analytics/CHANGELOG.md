@@ -3,10 +3,31 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-08-31
+
+### Improved
+
+- Per-app auth pages show a product preview and learn-more link
+
+## 2026-08-29
+
+### Added
+
+- Chat edits can be reverted to saved checkpoints
+
+### Improved
+
+- Analytics loading states now use an even more subtle whole-surface shine.
+- Dashboard certification lives in the overflow menu
+- Analytics now has a public marketing page with a direct path into the app.
+
 ## 2026-08-28
 
 ### Improved
 
+- Analytics loading states now use a softer whole-surface shine.
+- Analytics sidebar navigation now matches sibling sidebars with tighter horizontal spacing.
+- Sidebar branding matches the app text color with a tighter mark size.
 - Analytics loading placeholders now use a smooth whole-surface shine
 - Sidebar branding uses a monochrome Agent-Native mark.
 
