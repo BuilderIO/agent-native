@@ -734,14 +734,24 @@ function reportDesktopTerminalCleanupFailure(error: unknown): void {
   );
 }
 
-function resolveDesktopTerminalCwd(): string {
+export function desktopTerminalWorkspacePath(): string {
+  const workspacePath = path.join(
+    app.getPath("userData"),
+    "terminal-workspace",
+  );
+  fs.mkdirSync(workspacePath, { recursive: true });
+  return workspacePath;
+}
+
+export function resolveDesktopTerminalCwd(preferredPath?: string): string {
   const candidates = [
+    preferredPath,
     process.env.AGENT_NATIVE_PROJECT_ROOT,
     process.env.CODE_AGENTS_PROJECT_ROOT,
     process.env.INIT_CWD,
     process.env.PWD,
     process.cwd(),
-    app.getPath("home"),
+    desktopTerminalWorkspacePath(),
   ];
   for (const candidate of candidates) {
     if (!candidate) continue;
@@ -753,11 +763,7 @@ function resolveDesktopTerminalCwd(): string {
       continue;
     }
   }
-  return app.getPath("home");
-}
-
-export function desktopTerminalUserHomeEnvironment(): NodeJS.ProcessEnv {
-  return { HOME: app.getPath("home") };
+  return desktopTerminalWorkspacePath();
 }
 
 function isSafeDesktopAppPath(value: string): boolean {
@@ -947,6 +953,7 @@ async function createDesktopTerminalSession(
           ? desktopTerminalOpenCodeEnvironment(mcpServers)
           : {}),
       },
+      cwd: resolveDesktopTerminalCwd(appConfig?.localPath),
       onClose: close,
     };
   } catch (error) {
@@ -959,7 +966,6 @@ async function createDesktopTerminal() {
   const token = randomUUID().replaceAll("-", "");
   const terminal = await createPtyWebSocketServer({
     appDir: resolveDesktopTerminalCwd(),
-    getEnvironment: () => desktopTerminalUserHomeEnvironment(),
     authCheck: (request) => {
       try {
         const url = new URL(

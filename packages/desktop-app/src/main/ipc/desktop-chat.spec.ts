@@ -1,4 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
+import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -20,9 +22,10 @@ vi.mock("../app-store", () => ({
 import {
   desktopTerminalMcpArgs,
   desktopTerminalInfo,
-  desktopTerminalUserHomeEnvironment,
+  desktopTerminalWorkspacePath,
   DesktopTerminalMcpRelay,
   desktopTerminalOpenCodeEnvironment,
+  resolveDesktopTerminalCwd,
   resolveTargetUrl,
   shouldForwardRequestHeader,
   shouldForwardResponseHeader,
@@ -30,8 +33,21 @@ import {
 } from "./desktop-chat.js";
 
 describe("desktop chat relay target URLs", () => {
-  it("gives every desktop PTY the real stable user home", () => {
-    expect(desktopTerminalUserHomeEnvironment()).toEqual({ HOME: "/tmp" });
+  it("uses selected app folders and a stable app-owned fallback", () => {
+    const selectedPath = mkdtempSync(path.join("/tmp", "selected-app-"));
+    vi.spyOn(process, "cwd").mockReturnValue("/");
+    vi.stubEnv("AGENT_NATIVE_PROJECT_ROOT", "/");
+    vi.stubEnv("CODE_AGENTS_PROJECT_ROOT", "/");
+    vi.stubEnv("INIT_CWD", "/");
+    vi.stubEnv("PWD", "/");
+
+    try {
+      expect(resolveDesktopTerminalCwd(selectedPath)).toBe(selectedPath);
+      expect(desktopTerminalWorkspacePath()).toBe("/tmp/terminal-workspace");
+      expect(resolveDesktopTerminalCwd()).toBe("/tmp/terminal-workspace");
+    } finally {
+      rmSync(selectedPath, { recursive: true, force: true });
+    }
   });
 
   it("configures the desktop sidebar tool for supported CLI agents", () => {

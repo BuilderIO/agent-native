@@ -209,7 +209,7 @@ export default function DesktopTerminalSurface({
               {onAgentChange ? (
                 <>
                   <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
+                    <DropdownMenuSubTrigger className="gap-2">
                       <IconTerminal2 size={14} strokeWidth={1.8} />
                       <span>Provider</span>
                     </DropdownMenuSubTrigger>
@@ -266,8 +266,8 @@ export default function DesktopTerminalSurface({
             <button
               type="button"
               className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-              aria-label="Close terminal"
-              title="Close terminal"
+              aria-label="Back to chat"
+              title="Back to chat"
               onClick={onClose}
             >
               <IconX size={14} aria-hidden="true" />
