@@ -90,7 +90,7 @@ export function TemplateHero({
 
           {headingAction || customizeTemplate ? (
             <div
-              className={`mt-3 lg:col-span-2 lg:col-start-1 ${belowTitle ? "lg:row-start-4" : "lg:row-start-3"}`}
+              className={`relative z-10 mt-3 lg:col-span-2 lg:col-start-1 ${belowTitle ? "lg:row-start-4" : "lg:row-start-3"}`}
             >
               <div className="flex flex-wrap items-center gap-3">
                 {headingAction}
