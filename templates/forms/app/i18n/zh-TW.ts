@@ -377,6 +377,13 @@ const messages = {
     page: "Page",
     source: "來源",
     sortBy: "依 {{label}} 排序",
+    communityReview: "審核",
+    communityPublish: "發布到網站",
+    communityPublishing: "正在發布...",
+    communityPublished: "已發布",
+    communityView: "查看網站",
+    communityNeedsCheck: "重試前請檢查 Builder",
+    communityPromotionFailed: "無法發布此提交。",
   },
 };
 

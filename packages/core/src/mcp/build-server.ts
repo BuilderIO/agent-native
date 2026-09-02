@@ -55,6 +55,10 @@ import {
   runWithRequestContext,
 } from "../server/request-context.js";
 import {
+  agentNativeMcpInstructions,
+  agentNativeToolTitle,
+} from "../shared/agent-mcp-metadata.js";
+import {
   isAgentNativeOpenDeepLink,
   withCollapsedAgentSidebarParam,
 } from "../shared/agent-sidebar-url.js";
@@ -107,6 +111,8 @@ export interface MCPConfig {
   appId?: string;
   /** App description */
   description: string;
+  /** Additional host-facing guidance included in the MCP initialize response. */
+  instructions?: string;
   /** Optional canonical website URL for hosts that surface MCP app details. */
   websiteUrl?: string;
   /** Optional app icons for MCP hosts that render server branding. */
@@ -1851,6 +1857,7 @@ export async function createMCPServerForRequest(
       Boolean(entry.mcpApp?.resource),
     );
   const server = new Server(mcpServerInfo(config, requestMeta), {
+    instructions: agentNativeMcpInstructions(config.instructions),
     capabilities: {
       tools: {},
       ...(supportsMcpApps
@@ -2065,7 +2072,9 @@ export async function createMCPServerForRequest(
                 : {}),
             };
             const baseDescription = entry.tool.description ?? name;
+            const title = agentNativeToolTitle(name, entry.tool.title);
             const annotations: Record<string, unknown> = {
+              title,
               readOnlyHint: entry.readOnly === true,
               destructiveHint:
                 entry.publicAgent?.isConsequential === true ||

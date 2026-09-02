@@ -447,16 +447,15 @@ const esES = {
     },
     actions: {
       title: "Una acción impulsa cada superficie",
-      bodyLine1:
-        "Las acciones son los bloques de construcción de una app Agent-Native.",
+      bodyLine1: "Las acciones definen lo que puede hacer tu agente.",
       bodyLine2:
-        "Define la funcionalidad una vez y úsala desde tu UI, el chat del agente, HTTP API, MCP, A2A o CLI.",
+        "Define cada capacidad una vez y úsala desde el agente, la UI, HTTP API, MCP, A2A o CLI.",
       diagramAlt:
         "Una acción impulsa la UI, MCP, el chat del agente, A2A, HTTP API y CLI",
     },
     builtIn: {
-      title: "Integrado en cada app Agent-Native",
-      body: "Todo lo que usuarios y agentes de IA necesitan para trabajar juntos, ya conectado en una sola aplicación.",
+      title: "Todo lo que necesita tu agente",
+      body: "UI, contexto, datos, permisos e infraestructura, ya conectados entre sí.",
       pillars: {
         reactUi: {
           title: "UI en React",
@@ -464,7 +463,7 @@ const esES = {
         },
         agentChat: {
           title: "Chat de agente integrado",
-          body: "Deja que los usuarios deleguen trabajo, hagan preguntas y revisen resultados sin salir de la app.",
+          body: "Deja que los usuarios deleguen trabajo, hagan preguntas y revisen resultados en la misma UI.",
         },
         sharedState: {
           title: "Estado de aplicación compartido",
@@ -480,11 +479,11 @@ const esES = {
         },
         automations: {
           title: "Automatizaciones",
-          body: "Ejecuta trabajo del agente automáticamente según horarios o eventos de la aplicación.",
+          body: "Ejecuta trabajo del agente automáticamente según horarios o eventos.",
         },
         agentTeams: {
           title: "Equipos de agentes",
-          body: "Delega trabajo a agentes especializados dentro de la app o entre apps.",
+          body: "Delega trabajo a agentes especializados en el mismo espacio de trabajo o entre agentes conectados.",
         },
         auth: {
           title: "Autenticación y organizaciones",
@@ -498,19 +497,19 @@ const esES = {
     },
     stack: {
       title: "Funciona con tu stack",
-      body: "Trae tu LLM, base de datos, herramientas e infraestructura; Agent-Native es TypeScript de código abierto, así que tu aplicación sigue siendo tuya.",
+      body: "Trae tu LLM, base de datos, herramientas e infraestructura. Agent-Native es TypeScript de código abierto, así que todo lo que construyes sigue siendo tuyo.",
       exploreApps: "Explora apps creadas con Agent-Native",
     },
     showcase: {
       title: "¿Qué puedes crear con Agent-Native?",
-      body: "Apps agénticas que entienden tu trabajo, actúan y colaboran contigo. Crea la tuya o prueba una de estas apps de código abierto.",
+      body: "Crea agentes con UI para reuniones, diseño, presentaciones, datos y mucho más. Empieza con una de estas apps de código abierto o crea el tuyo.",
       browseApps: "Explorar apps",
       scrollLeft: "Desplazar apps a la izquierda",
       scrollRight: "Desplazar apps a la derecha",
     },
     bottomCta: {
-      title: "Crea tu primera app Agent-Native",
-      body: "Crea una sola aplicación para usuarios y agentes de IA. Usa tu propio LLM y despliega donde quieras.",
+      title: "Crea tu primer agente con una UI",
+      body: "El agente y la UI comparten las mismas capacidades. Usa tu propio LLM y despliega donde quieras.",
     },
     footer: {
       tagline: "El framework de aplicaciones agentic.",
@@ -522,7 +521,8 @@ const esES = {
       download: "Descargar",
       apps: "Apps",
       privacyPolicy: "Política de privacidad",
-      saasTerms: "Términos de SaaS",
+      saasTerms: "Términos del servicio alojado",
+      legalResources: "Recursos legales",
     },
   },
   gettingStarted: {
@@ -1756,6 +1756,35 @@ const esES = {
   },
   legal: {
     lastUpdated: "Última actualización: {{date}}",
+    resources: {
+      eyebrow: "Recursos legales",
+      title: "Recursos legales de Agent-Native",
+      intro:
+        "Políticas legales independientes de Agent-Native para aplicaciones y servicios alojados.",
+      agentNative: {
+        title: "Políticas de Agent-Native",
+        body: "Estas páginas adaptan el marco de políticas compartido al proyecto de código abierto y a los ejemplos alojados de Agent-Native.",
+        terms: "Términos de servicio de Agent-Native",
+        privacy: "Política de privacidad de Agent-Native",
+      },
+      builder: {
+        title: "Políticas adicionales del servicio alojado",
+        body: "Estas copias locales cubren el uso aceptable, las funciones de IA, las reglas de la plataforma, la suspensión y retirada, los derechos de autor y las solicitudes de las autoridades. Prevalece la versión en inglés.",
+      },
+      links: {
+        terms: "Acuerdo de servicios SaaS",
+        privacy: "Política de privacidad",
+        acceptableUse: "Política de uso aceptable",
+        aiTerms: "Términos de IA",
+        platformRules: "Reglas de la plataforma",
+        takedown: "Política de suspensión, retirada y gestión de datos",
+        lawEnforcement: "Política para solicitudes de las fuerzas del orden",
+      },
+      notIncluded: {
+        title: "Términos comerciales no incluidos",
+        body: "Agent-Native no tiene planes de pago ni contratos empresariales. No se incluyen materiales comerciales como SLA empresariales, condiciones de soporte, DPA, adendas de seguridad, servicios profesionales ni tarifas.",
+      },
+    },
     privacy: {
       eyebrow: "Política de privacidad",
       title: "Agent-Native aplicaciones alojadas",
@@ -1778,6 +1807,7 @@ const esES = {
       sections: {
         scope: "Alcance",
         information: "Información que recopilamos",
+        cookies: "Cookies y analítica",
         clipsExtension: "Extensión de Chrome Agent-Native Clips",
         use: "Cómo utilizamos la información",
         sharing: "Compartir y terceros",
@@ -1793,6 +1823,8 @@ const esES = {
           "Esta política está destinada a complementar la política más amplia de Builder.io.",
         scope2Suffix:
           "para el comportamiento de la aplicación alojada Agent-Native.",
+        cookies:
+          "El sitio de documentación y las aplicaciones alojadas de Agent-Native pueden usar cookies necesarias para autenticación y seguridad, guardar preferencias como el idioma o el tema, y tecnologías analíticas configuradas. El sitio de documentación puede cargar Google Analytics o Google Tag Manager cuando la implementación los configura, y el servicio alojado puede usar analítica propia para medir la fiabilidad y el uso de funciones. No usamos el contenido de las aplicaciones alojadas para publicidad de terceros. Puedes controlar las cookies desde la configuración del navegador, aunque desactivar las necesarias puede impedir el inicio de sesión u otras funciones.",
         clips1:
           "Agent-Native Clips Chrome extension le ayuda a iniciar grabaciones basadas en navegador y, cuando está habilitado, adjuntar diagnósticos del navegador a un clip. Puede recopilar la fuente de captura seleccionada, la cámara y el micrófono que elija incluir, el título de la pestaña activa y la URL, y el estado de autenticación necesario para conectar la extensión al Clips alojado.",
         clips2:
@@ -1938,6 +1970,8 @@ const esES = {
         scope2Middle: "y el Agent-Native",
         scope2Suffix:
           "Si utiliza una aplicación Agent-Native alojada en nombre de una empresa u organización, declara que tiene autoridad para aceptar estos términos para esa organización.",
+        scope3:
+          "Agent-Native no tiene planes de pago ni suscripciones de alojamiento de pago. Los términos comerciales de Builder.io, como formularios de pedido, tarifas, soporte empresarial, niveles de servicio y anexos de tratamiento de datos, no forman parte de esta oferta salvo que se acuerden por escrito por separado.",
         hostedService:
           "Builder.io puede proporcionar aplicaciones, plantillas, demostraciones, espacios de trabajo compartidos, extensiones de navegador y flujos de trabajo de agentes relacionados alojados en Agent-Native. El servicio alojado puede actualizarse, limitarse, suspenderse o discontinuarse a medida que evoluciona el producto.",
         accounts1:

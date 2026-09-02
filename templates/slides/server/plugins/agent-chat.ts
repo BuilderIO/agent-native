@@ -132,6 +132,8 @@ export default createAgentChatPlugin({
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: {
     connectorCatalog: INITIAL_TOOL_NAMES,
+    instructions:
+      "For deck edits, call view-screen first when the active deck or slide ID is unknown. Use get-deck to read the target, update-slide for one-slide edits, and patch-deck for deck-wide or multi-slide changes. Read back with get-deck after writing.",
   },
   durableBackgroundRuns: true,
   runSoftTimeoutMs: SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS,

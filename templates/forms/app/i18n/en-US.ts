@@ -338,6 +338,13 @@ const messages = {
     page: "Page",
     source: "Source",
     sortBy: "Sort by {{label}}",
+    communityReview: "Review",
+    communityPublish: "Publish to site",
+    communityPublishing: "Publishing...",
+    communityPublished: "Published",
+    communityView: "View on site",
+    communityNeedsCheck: "Check Builder before retrying",
+    communityPromotionFailed: "Could not publish this submission.",
   },
   cloudUpgrade: {
     sharePublicly: "Share Publicly",

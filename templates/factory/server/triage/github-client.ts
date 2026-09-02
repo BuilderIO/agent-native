@@ -1,3 +1,5 @@
+import { createSign } from "node:crypto";
+
 import { resolveConnectorSecret } from "../connectors/credentials.js";
 import type { TriageCoverage } from "./contracts.js";
 import type { ReviewCommentObservation } from "./pr-babysit.js";
@@ -19,6 +21,45 @@ export interface GitHubClientIdentity {
 export interface GitHubClientOptions extends GitHubClientIdentity {
   baseUrl?: string;
   fetchImpl?: FetchLike;
+}
+
+const GITHUB_APP_KEYS = [
+  "GITHUB_APP_ID",
+  "GITHUB_APP_INSTALLATION_ID",
+  "GITHUB_APP_PRIVATE_KEY",
+] as const;
+const INSTALLATION_TOKEN_CACHE_BUFFER_MS = 60_000;
+
+interface GitHubAppConfig {
+  appId: string;
+  installationId: string;
+  privateKey: string;
+}
+
+function base64Url(value: string): string {
+  return Buffer.from(value).toString("base64url");
+}
+
+function positiveIntegerString(value: string | undefined, key: string): string {
+  if (!value || !/^[1-9]\d*$/.test(value)) {
+    throw new Error(`${key} must be a positive integer string`);
+  }
+  return value;
+}
+
+function normalizePrivateKey(value: string): string {
+  return value.trim().replace(/\\n/g, "\n");
+}
+
+function createGitHubAppJwt(config: GitHubAppConfig): string {
+  const now = Math.floor(Date.now() / 1000);
+  const header = base64Url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const payload = base64Url(
+    JSON.stringify({ iat: now - 60, exp: now + 540, iss: config.appId }),
+  );
+  const signer = createSign("RSA-SHA256");
+  signer.update(`${header}.${payload}`);
+  return `${header}.${payload}.${signer.sign(config.privateKey, "base64url")}`;
 }
 
 export interface GitHubRepositoryRef {
@@ -369,14 +410,83 @@ export function createGitHubClient(options: GitHubClientOptions) {
   const fetchImpl = options.fetchImpl ?? fetch;
   const baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
 
-  async function token(): Promise<string> {
-    const value = await resolveConnectorSecret(
-      "GITHUB_TOKEN",
-      options.ownerEmail,
-      {
-        orgId: options.orgId,
-      },
+  let cachedAppConfig: GitHubAppConfig | null | undefined;
+  let cachedInstallationToken: { value: string; expiresAt: number } | undefined;
+  let cachedAppBotIdentity: { login: string; id: number } | undefined;
+
+  async function connectorSecret(key: string): Promise<string | undefined> {
+    return resolveConnectorSecret(key, options.ownerEmail, {
+      orgId: options.orgId,
+    });
+  }
+
+  async function appConfig(): Promise<GitHubAppConfig | null> {
+    if (cachedAppConfig !== undefined) return cachedAppConfig;
+    const [appId, installationId, privateKey] = await Promise.all(
+      GITHUB_APP_KEYS.map((key) => connectorSecret(key)),
     );
+    const configured = [appId, installationId, privateKey].filter(
+      Boolean,
+    ).length;
+    if (configured === 0) {
+      cachedAppConfig = null;
+      return cachedAppConfig;
+    }
+    if (configured !== GITHUB_APP_KEYS.length) {
+      throw new Error(
+        "GitHub App configuration is incomplete; configure GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, and GITHUB_APP_PRIVATE_KEY",
+      );
+    }
+    cachedAppConfig = {
+      appId: positiveIntegerString(appId, "GITHUB_APP_ID"),
+      installationId: positiveIntegerString(
+        installationId,
+        "GITHUB_APP_INSTALLATION_ID",
+      ),
+      privateKey: normalizePrivateKey(privateKey as string),
+    };
+    return cachedAppConfig;
+  }
+
+  async function token(): Promise<string> {
+    const app = await appConfig();
+    if (app) {
+      const now = Math.floor(Date.now() / 1000);
+      if (
+        cachedInstallationToken &&
+        cachedInstallationToken.expiresAt >
+          now * 1000 + INSTALLATION_TOKEN_CACHE_BUFFER_MS
+      ) {
+        return cachedInstallationToken.value;
+      }
+      const jwt = createGitHubAppJwt(app);
+      const response = (await fetchImpl(
+        `${baseUrl}/app/installations/${app.installationId}/access_tokens`,
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/vnd.github+json",
+            Authorization: `Bearer ${jwt}`,
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+        },
+      )) as JsonResponse;
+      if (!response.ok) {
+        throw new Error(
+          `GitHub App installation token request failed: HTTP ${response.status}`,
+        );
+      }
+      const body = record(await response.json());
+      const value = requiredString(body.token, "GitHub App installation token");
+      const expiresAt = Date.parse(
+        requiredString(body.expires_at, "GitHub App token expiry"),
+      );
+      if (!Number.isFinite(expiresAt))
+        throw new Error("GitHub App token expiry is invalid");
+      cachedInstallationToken = { value, expiresAt };
+      return value;
+    }
+    const value = await connectorSecret("GITHUB_TOKEN");
     if (!value)
       throw new Error("GITHUB_TOKEN is not configured for this workspace");
     return value;
@@ -608,6 +718,33 @@ export function createGitHubClient(options: GitHubClientOptions) {
     },
 
     async getAuthenticatedUser() {
+      const app = await appConfig();
+      if (app) {
+        if (!cachedAppBotIdentity) {
+          const response = (await fetchImpl(`${baseUrl}/app`, {
+            headers: {
+              Accept: "application/vnd.github+json",
+              Authorization: `Bearer ${createGitHubAppJwt(app)}`,
+              "X-GitHub-Api-Version": "2022-11-28",
+            },
+          })) as JsonResponse;
+          if (!response.ok) {
+            throw new Error(
+              `GitHub App metadata request failed: HTTP ${response.status}`,
+            );
+          }
+          const metadata = record(await response.json());
+          const login = `${requiredString(metadata.slug, "GitHub App slug")}[bot]`;
+          const bot = record(
+            await request<unknown>(`/users/${encodeURIComponent(login)}`),
+          );
+          cachedAppBotIdentity = {
+            login: requiredString(bot.login, "GitHub App bot login"),
+            id: requiredNumber(bot.id, "GitHub App bot id"),
+          };
+        }
+        return cachedAppBotIdentity;
+      }
       const item = record(await request<unknown>("/user"));
       return {
         login: requiredString(item.login, "authenticated GitHub user login"),
