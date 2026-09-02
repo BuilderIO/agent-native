@@ -4,6 +4,8 @@ import {
   getDesignBottomToolbarMode,
   resolveModeChangeView,
   resolveToolAfterSelection,
+  shouldAskOnNewDesignArrival,
+  shouldRevealLayersOnFirstCreate,
 } from "./tool-state";
 
 describe("resolveModeChangeView", () => {
@@ -126,4 +128,77 @@ describe("resolveToolAfterSelection", () => {
       expect(resolveToolAfterSelection(tool)).toBe("move");
     },
   );
+});
+
+describe("shouldAskOnNewDesignArrival", () => {
+  const arrival = {
+    arrivedFromNewDesign: true,
+    alreadyAsked: false,
+    canEditDesign: true,
+    embedded: false,
+    shellMode: false,
+  };
+
+  it("asks once on arrival from the New Design button", () => {
+    expect(shouldAskOnNewDesignArrival(arrival)).toBe(true);
+  });
+
+  it("does not ask again after the first ask", () => {
+    expect(
+      shouldAskOnNewDesignArrival({ ...arrival, alreadyAsked: true }),
+    ).toBe(false);
+  });
+
+  it("stays quiet on a design opened any other way", () => {
+    expect(
+      shouldAskOnNewDesignArrival({
+        ...arrival,
+        arrivedFromNewDesign: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("waits for edit access rather than asking a viewer", () => {
+    expect(
+      shouldAskOnNewDesignArrival({ ...arrival, canEditDesign: false }),
+    ).toBe(false);
+  });
+
+  it.each(["embedded", "shellMode"] as const)(
+    "leaves intake to the host in %s mode",
+    (key) => {
+      expect(shouldAskOnNewDesignArrival({ ...arrival, [key]: true })).toBe(
+        false,
+      );
+    },
+  );
+});
+
+describe("shouldRevealLayersOnFirstCreate", () => {
+  it("reveals the layer tree when the first shape lands from the agent rail", () => {
+    expect(
+      shouldRevealLayersOnFirstCreate({
+        activeLeftPanel: "agent",
+        alreadyRevealed: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("leaves the agent rail alone on every later creation", () => {
+    expect(
+      shouldRevealLayersOnFirstCreate({
+        activeLeftPanel: "agent",
+        alreadyRevealed: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not churn the panel that is already showing layers", () => {
+    expect(
+      shouldRevealLayersOnFirstCreate({
+        activeLeftPanel: "file",
+        alreadyRevealed: false,
+      }),
+    ).toBe(false);
+  });
 });

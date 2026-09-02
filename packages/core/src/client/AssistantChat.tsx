@@ -2023,6 +2023,9 @@ export interface AssistantChatProps {
   threadFooterSlot?: AssistantChatThreadFooterSlot;
   /** Optional content rendered in the empty state, above the suggestion buttons. */
   emptyStateAddon?: React.ReactNode;
+  /** Optional content rendered in the empty state, below the suggestion
+   *  buttons. Unlike `threadFooterSlot` this never survives the first message. */
+  emptyStateFooter?: React.ReactNode;
   /** Whether to show the header bar. Default: true */
   showHeader?: boolean;
   /** CSS class for the outer container */
@@ -2488,6 +2491,7 @@ const AssistantChatInner = forwardRef<
     suggestions,
     dynamicSuggestions,
     threadFooterSlot,
+    emptyStateFooter,
     emptyStateAddon,
     showHeader = true,
     onSwitchToCli,
@@ -6479,6 +6483,11 @@ const AssistantChatInner = forwardRef<
                                     {showInlineEmptyThreadFooterSlot ? (
                                       <div className="agent-thread-footer-slot agent-thread-footer-slot--empty">
                                         {resolvedThreadFooterSlot}
+                                      </div>
+                                    ) : null}
+                                    {emptyStateFooter ? (
+                                      <div className="agent-empty-state-footer">
+                                        {emptyStateFooter}
                                       </div>
                                     ) : null}
                                   </div>

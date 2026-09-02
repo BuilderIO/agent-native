@@ -518,17 +518,13 @@ function FlexContainerControls({
         onClipContentChange={(clipContent) =>
           onStyleChange("overflow", clipContent ? "hidden" : "visible")
         }
-        // Clipping belongs to containers — including the `div`/`section`/`main`
-        // ones that generated and imported markup is full of, which a
-        // frame-primitive-only test would have stripped it from. Drawn shapes
-        // are the exception: a rectangle can host a drop but is not a frame,
-        // and offering it there was the control that made no sense.
+        // Only containers own clipping: a drawn frame, or the screen's own
+        // document. Do not widen this to `isContainerElement`: board-drawn
+        // primitives reach this panel with no `primitiveKind`, so every drawn
+        // rectangle reads as a plain container `div` and gets the control back.
         clipContentSupported={
-          element.tagName?.toLowerCase() === "body" ||
-          (isContainerElement(element) &&
-            !["rectangle", "rect"].includes(
-              element.primitiveKind?.trim().toLowerCase() ?? "",
-            ))
+          element.primitiveKind === "frame" ||
+          element.tagName?.toLowerCase() === "body"
         }
         onDistribute={
           displayMode === "grid"

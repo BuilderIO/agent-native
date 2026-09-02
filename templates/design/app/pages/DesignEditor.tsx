@@ -2,6 +2,8 @@
 import {
   generateTabId,
   AgentChatSurface,
+  buildDynamicAgentSuggestions,
+  type AgentDynamicSuggestionContext,
   isAssistantChatHistoryVersion,
   type AssistantChatHistoryConfig,
   type AssistantChatHistoryVersion,
@@ -244,7 +246,9 @@ import {
 } from "@/components/design/EditPanel";
 import { FigmaHydrationDialog } from "@/components/design/FigmaHydrationDialog";
 import { FigmaPasteImagesNotice } from "@/components/design/FigmaPasteImagesNotice";
+import { FirstRunStart } from "@/components/design/FirstRunStart";
 import { FusionAppBanner } from "@/components/design/FusionAppBanner";
+import { GenerationStatusCard } from "@/components/design/GenerationStatusCard";
 import {
   beginEyedropperPick,
   hasEyeDropperSupport,
@@ -306,6 +310,10 @@ import type {
   RuntimeStructureMoveRequest,
 } from "@/components/design/types";
 import { DEVICE_FRAME_VIEWPORTS } from "@/components/design/types";
+import {
+  designSystemPickerOptions,
+  DesignSystemPickerControl,
+} from "@/components/editor/design-start-pickers";
 import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
@@ -668,6 +676,7 @@ import {
   type UndoRedoOrderKind,
 } from "./design-editor/editor-state";
 import { runAdoptDbFileContent } from "./design-editor/effects/adopt-db-file-content";
+import { focusAgentComposer } from "./design-editor/effects/focus-agent-composer";
 import { runMirrorSelectionToAgentChat } from "./design-editor/effects/mirror-selection-to-agent-chat";
 import { runMotionAutosave } from "./design-editor/effects/motion-autosave";
 import { runObserveCollabText } from "./design-editor/effects/observe-collab-text";
@@ -814,6 +823,7 @@ import {
   getDesignBottomToolbarMode,
   getSingleScreenCreationTool,
   resolveToolAfterSelection,
+  shouldAskOnNewDesignArrival,
   shouldAutoEnableDrawOverlay,
 } from "./design-editor/tool-state";
 import {
@@ -1425,6 +1435,7 @@ function DesignEditor() {
   const reviewFocusNonceRef = useRef(0);
   const [activeLeftPanel, setActiveLeftPanel] =
     useState<DesignLeftPanel | null>("file");
+  const layersRevealedForFirstCreateRef = useRef(false);
   const [activeCodeFile, setActiveCodeFile] =
     useState<CodeWorkbenchActiveFile | null>(null);
   const initialSearchCommandAppliedForIdRef = useRef<string | null>(null);
@@ -1537,20 +1548,6 @@ function DesignEditor() {
   );
 
   useEffect(() => {
-    const focusAgentComposer = () => {
-      requestAnimationFrame(() => {
-        const panel = document.querySelector("[data-design-agent-panel]");
-        const prosemirror = panel?.querySelector(
-          ".ProseMirror",
-        ) as HTMLElement | null;
-        if (prosemirror) {
-          prosemirror.focus();
-          return;
-        }
-        const textarea = panel?.querySelector("textarea") as HTMLElement | null;
-        textarea?.focus();
-      });
-    };
     const openAgentPanel = () => {
       setActiveLeftPanel("agent");
       focusAgentComposer();
@@ -2470,10 +2467,8 @@ function DesignEditor() {
   const [figmaHydrationFileIds, setFigmaHydrationFileIds] = useState<string[]>(
     [],
   );
-  const generateBtnRef = useRef<HTMLButtonElement | null>(null);
   const promptAnchorRef = useRef<HTMLElement | null>(null);
   const tweakPromptAnchorRef = useRef<HTMLElement | null>(null);
-  promptAnchorRef.current = generateBtnRef.current;
 
   useEffect(() => {
     viewModeRef.current = viewMode;
@@ -2883,6 +2878,7 @@ function DesignEditor() {
       designAccessRole === "editor" ||
       designAccessRole === "commenter");
   const canRenderAuthenticatedShare = isSignedIn || canEditDesign;
+
   const reviewResult = useReviewComments(
     {
       resourceType: "design",
@@ -4010,6 +4006,44 @@ function DesignEditor() {
     // a second copy that drifts.
     window.dispatchEvent(new Event("agent-panel:open"));
   }, []);
+
+  /**
+   * The New Design button creates the row and lands here, so the "what do you
+   * want" question is asked in the editor — the agent rail holds the ask while
+   * the drawing tools stay on the bottom bar, so either answer is one gesture
+   * away. The flag is stripped on the first ask so a reload does not reopen it.
+   */
+  const arrivedFromNewDesign = initialSearchParams.get("new") === "1";
+  const newDesignAskedRef = useRef(false);
+  useEffect(() => {
+    if (
+      !shouldAskOnNewDesignArrival({
+        arrivedFromNewDesign,
+        alreadyAsked: newDesignAskedRef.current,
+        canEditDesign,
+        embedded,
+        shellMode,
+      })
+    )
+      return;
+    newDesignAskedRef.current = true;
+    openGenerateInAgent();
+    const next = new URLSearchParams(location.search);
+    next.delete("new");
+    const query = next.toString();
+    void navigate(`${location.pathname}${query ? `?${query}` : ""}`, {
+      replace: true,
+    });
+  }, [
+    arrivedFromNewDesign,
+    canEditDesign,
+    embedded,
+    location.pathname,
+    location.search,
+    navigate,
+    openGenerateInAgent,
+    shellMode,
+  ]);
 
   const overviewScreens = useMemo(() => {
     return deriveOverviewScreens({
@@ -8217,14 +8251,17 @@ function DesignEditor() {
     ) =>
       runPrimitiveCreated(
         {
+          activeLeftPanel,
           boardFileId,
           clearPendingOverviewLayerSelectionTimer,
           pendingEmptyTextEditRef,
           pendingOverviewLayerSelectionRef,
           pendingOverviewScreenSelectionRef,
           pendingTextEditNodeIdRef,
+          layersRevealedForFirstCreateRef,
           removeEmptyTextNodeWithRetry,
           setActiveFileId,
+          setActiveLeftPanel,
           setActiveTool,
           setCreatedOverviewLayerSelection,
           setHoveredElement,
@@ -8238,6 +8275,7 @@ function DesignEditor() {
         options,
       ),
     [
+      activeLeftPanel,
       boardFileId,
       clearPendingOverviewLayerSelectionTimer,
       removeEmptyTextNodeWithRetry,
@@ -15641,21 +15679,104 @@ function DesignEditor() {
     return nodes.length > 0 ? nodes : undefined;
   }, [boardFileId, codeLayerModelByFileId, lockedLayerIds, hiddenLayerIds]);
 
-  /**
-   * The starting placeholder used to vanish the moment any file existed, which
-   * is immediately — so a blank canvas lost the Generate option straight away.
-   * It now survives until the design has something in it or the user reaches
-   * for a tool, which is the deliberate act that says "I am drawing this
-   * myself".
-   */
-  const [canvasEngaged, setCanvasEngaged] = useState(false);
-  useEffect(() => {
-    if (activeTool !== "move") setCanvasEngaged(true);
-  }, [activeTool]);
-
   const designIsEmpty = useMemo(
     () => overviewScreens.length === 0 && (boardElements?.length ?? 0) === 0,
     [boardElements, overviewScreens.length],
+  );
+
+  const firstRunTemplatesQuery = useActionQuery(
+    "list-design-templates",
+    // Without this the picker renders every row as the generic placeholder
+    // icon, which is the whole point of choosing a template visually.
+    { includePreview: "true" },
+    { enabled: canEditDesign && designIsEmpty },
+  );
+  const firstRunTemplates = useMemo(
+    () =>
+      (firstRunTemplatesQuery.data?.templates ?? []).map((template) => ({
+        id: template.id,
+        title: template.title,
+        description: template.description,
+        category: template.category,
+        width: template.width,
+        height: template.height,
+        previewHtml: template.previewHtml,
+        designSystemId: template.designSystemId,
+        isBuiltIn: template.isBuiltIn,
+      })),
+    [firstRunTemplatesQuery.data?.templates],
+  );
+  const firstRunDesignSystems = useMemo(
+    () => designSystemPickerOptions(designSystems),
+    [designSystems],
+  );
+  const [applyingTemplateId, setApplyingTemplateId] = useState<string | null>(
+    null,
+  );
+  // A started conversation retires the whole first-run affordance. `designIsEmpty`
+  // alone is not enough: generation can be under way for a while before the
+  // first screen row exists.
+  const [chatMessageCount, setChatMessageCount] = useState(0);
+  const showFirstRunStart = designIsEmpty && chatMessageCount === 0;
+  const applyTemplate = useActionMutation("create-design-from-template");
+  const handleFirstRunTemplate = useCallback(
+    async (templateId: string) => {
+      if (!id || applyingTemplateId) return;
+      setApplyingTemplateId(templateId);
+      try {
+        await applyTemplate.mutateAsync({
+          templateId,
+          targetDesignId: id,
+          ...(selectedPromptDesignSystemId
+            ? { designSystemId: selectedPromptDesignSystemId }
+            : {}),
+        });
+        await queryClient.invalidateQueries({
+          queryKey: ["action", "get-design"],
+        });
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : String(error));
+      } finally {
+        setApplyingTemplateId(null);
+      }
+    },
+    [
+      applyTemplate,
+      applyingTemplateId,
+      id,
+      queryClient,
+      selectedPromptDesignSystemId,
+    ],
+  );
+  const handleFirstRunDesignSystem = useCallback(
+    (designSystemId: string | null) => {
+      setPromptDesignSystemId(designSystemId ?? undefined);
+      persistPromptDesignSystem(designSystemId);
+    },
+    [persistPromptDesignSystem],
+  );
+
+  const designAgentSuggestions = useMemo(
+    () => [
+      t("chat.suggestionLandingPage"),
+      t("chat.suggestionBrandMatch"),
+      t("chat.suggestionMobile"),
+    ],
+    [t],
+  );
+  /**
+   * An empty design has nothing to explain, so the shared builder's generic
+   * "explain what I am looking at" crowds the three creation prompts out of
+   * the chip row on the one screen where creating is the only thing to do.
+   */
+  const designAgentSuggestionConfig = useMemo(
+    () => ({
+      getSuggestions: (context: AgentDynamicSuggestionContext) =>
+        designIsEmpty
+          ? designAgentSuggestions
+          : buildDynamicAgentSuggestions(context),
+    }),
+    [designAgentSuggestions, designIsEmpty],
   );
 
   const activeLayerPanelNodes = useMemo<LayersPanelNode[]>(() => {
@@ -19712,11 +19833,8 @@ function DesignEditor() {
                     className="min-h-0 flex-1 border-0 bg-transparent shadow-none"
                     storageKey={DESIGN_CHAT_STORAGE_KEY}
                     emptyStateText={t("chat.emptyState")}
-                    suggestions={[
-                      t("chat.suggestionLandingPage"),
-                      t("chat.suggestionBrandMatch"),
-                      t("chat.suggestionMobile"),
-                    ]}
+                    suggestions={designAgentSuggestions}
+                    dynamicSuggestions={designAgentSuggestionConfig}
                     scope={designChatScope}
                     chatHistory={designChatHistory}
                     showScopeBadge={false}
@@ -19724,13 +19842,41 @@ function DesignEditor() {
                     showTabBar={false}
                     browserTabId={browserTabId}
                     onComposerTextChange={handleComposerTextChange}
-                    composerSlot={
-                      detectedFigmaComposerLink ? (
-                        <FigmaLinkComposerBubble
-                          link={detectedFigmaComposerLink}
-                          designId={id}
+                    onMessageCountChange={setChatMessageCount}
+                    // After the suggestions and empty-state only: a template
+                    // and a suggestion are two ways to start, and neither is
+                    // worth offering once the conversation is under way.
+                    emptyStateFooter={
+                      showFirstRunStart ? (
+                        <FirstRunStart
+                          templates={firstRunTemplates}
+                          templatesLoading={firstRunTemplatesQuery.isLoading}
+                          applyingTemplateId={applyingTemplateId}
+                          onPickTemplate={(templateId) => {
+                            void handleFirstRunTemplate(templateId);
+                          }}
                         />
                       ) : null
+                    }
+                    composerSlot={
+                      <>
+                        {showFirstRunStart ? (
+                          <div data-design-system-picker className="px-3 pb-2">
+                            <DesignSystemPickerControl
+                              designSystems={firstRunDesignSystems}
+                              loading={designSystemsLoading}
+                              selectedId={selectedPromptDesignSystemId ?? null}
+                              onChange={handleFirstRunDesignSystem}
+                            />
+                          </div>
+                        ) : null}
+                        {detectedFigmaComposerLink ? (
+                          <FigmaLinkComposerBubble
+                            link={detectedFigmaComposerLink}
+                            designId={id}
+                          />
+                        ) : null}
+                      </>
                     }
                   />
                 ) : (
@@ -20186,7 +20332,15 @@ function DesignEditor() {
             onToggleUi={handleToggleUi}
             onToggleComments={handleToggleComments}
           >
-            {activeFile && (!designIsEmpty || canvasEngaged) ? (
+            {designIsEmpty &&
+            (generating || pendingGenerationActive || generationIssue) ? (
+              <GenerationStatusCard
+                generating={generating || pendingGenerationActive}
+                issue={generationIssue}
+                retryablePrompt={retryablePrompt?.prompt ?? null}
+                onRetry={handleRetryGeneration}
+              />
+            ) : viewMode === "overview" || activeFile ? (
               <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
                 {/* Interact's device chrome sits inside the canvas column so
                     the workspace rails stay put — Interact is a different view
@@ -20849,80 +21003,7 @@ function DesignEditor() {
                   />
                 </div>
               </div>
-            ) : (
-              <div className="flex min-h-0 flex-1 items-center justify-center px-8 py-10">
-                <div className="flex w-full max-w-md flex-col items-center text-center">
-                  {generating || pendingGenerationActive ? (
-                    <>
-                      <div className="mb-4 flex size-12 items-center justify-center rounded-xl border border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] shadow-[0_18px_50px_-34px_rgba(0,0,0,0.8)]">
-                        <Spinner className="size-5 text-foreground/40" />
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        {t("designEditor.generating")}
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <div
-                        aria-hidden="true"
-                        className="mb-5 w-full max-w-sm rounded-xl bg-[#f7f8fb] p-3 dark:bg-[#f4f6f8]"
-                      >
-                        <div className="flex h-7 items-center justify-between px-1 pb-2">
-                          <div className="flex gap-1.5">
-                            <span className="size-2 rounded-full bg-slate-950/[0.12]" />
-                            <span className="size-2 rounded-full bg-slate-950/[0.1]" />
-                            <span className="size-2 rounded-full bg-slate-950/[0.08]" />
-                          </div>
-                          <span className="h-2 w-16 rounded bg-slate-950/[0.08]" />
-                        </div>
-                        <div className="space-y-3 pt-4">
-                          <span className="block h-5 w-2/3 rounded bg-slate-950/[0.085]" />
-                          <span className="block h-4 w-1/2 rounded bg-slate-950/[0.07]" />
-                          <div className="grid grid-cols-3 gap-2 pt-2">
-                            <span className="h-12 rounded-md bg-slate-950/[0.07]" />
-                            <span className="h-12 rounded-md bg-slate-950/[0.07]" />
-                            <span className="h-12 rounded-md bg-slate-950/[0.07]" />
-                          </div>
-                          <span className="block h-20 rounded-lg bg-slate-950/[0.07]" />
-                        </div>
-                      </div>
-                      <p className="mb-3 text-sm font-medium text-foreground/85">
-                        {generationIssue ?? t("designEditor.noFiles")}
-                      </p>
-                      {retryablePrompt ? (
-                        <p className="mx-auto mb-4 max-w-sm text-xs italic text-muted-foreground/70">
-                          {`"${retryablePrompt.prompt}"`}
-                        </p>
-                      ) : null}
-                      <div className="flex items-center justify-center gap-2">
-                        {retryablePrompt ? (
-                          <Button
-                            size="sm"
-                            className="h-8 cursor-pointer rounded-md"
-                            onClick={handleRetryGeneration}
-                          >
-                            <IconRefresh className="h-3.5 w-3.5" />
-                            {t("designEditor.tryAgain")}
-                          </Button>
-                        ) : null}
-                        <Button
-                          ref={generateBtnRef}
-                          variant={retryablePrompt ? "ghost" : "outline"}
-                          size="sm"
-                          className="h-8 cursor-pointer rounded-md"
-                          onClick={openGenerateInAgent}
-                        >
-                          <IconPlus className="h-3.5 w-3.5" />
-                          {retryablePrompt
-                            ? t("designEditor.newPrompt")
-                            : t("designEditor.generateDesign")}
-                        </Button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
+            ) : null}
           </CanvasContextMenu>
         )}
 

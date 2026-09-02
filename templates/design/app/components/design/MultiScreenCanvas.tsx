@@ -11443,7 +11443,6 @@ function PassiveSelectionBox({
         top: SURFACE_PADDING + geometry.y,
         width: geometry.width,
         height: geometry.height,
-        borderRadius: 13 * chromeScale,
         borderWidth: 1.5 * chromeScale,
         transition: getSelectionBoxTransition(chromeSettling),
         transform: geometry.rotation
@@ -11508,7 +11507,6 @@ function SelectionBox({
         background: filled
           ? "var(--design-editor-selection-color)"
           : "transparent",
-        borderRadius: 13 * chromeScale,
         borderWidth: 1.5 * chromeScale,
         transition: getSelectionBoxTransition(chromeSettling),
         transform: geometry.rotation
