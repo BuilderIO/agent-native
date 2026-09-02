@@ -32,18 +32,18 @@ Other agents work this channel concurrently, so an unclaimed report is one
 someone else is about to start investigating. The eye is a lock, not a
 bookmark, and a lock taken after the work is worthless.
 
-Enumerate the window with `slack_read_channel`, paginating on its cursor until
-the window is covered, and classify from **parent-level evidence only**: the
-message text, its attachments, and its existing reactions. That is enough to
-tell a clear bug from a preference, and it is cheap. Do not open full threads,
-read code, or investigate yet.
+Enumerate with `slack_read_channel` from newest backwards, following its
+`next_cursor` until you reach a parent already carrying your `👀` or one older
+than 5 days — that is the window. Record its oldest timestamp as the recap's
+start cursor. Classify from **parent-level evidence only**: message text,
+attachments, reactions. Do not open threads or investigate yet.
 
 **`slack_search` is not a scan.** It ranks and truncates, so a channel-plus-date
 query returns a subset and never promises every message. A run that used search
 as its only cursor missed six clear bugs, including a data-loss report — "undo
-made all my slides blank", with clip, deck id, and run id attached. Search
-finds known things: prior replies, your eyes, repeat symptoms. Enumeration is
-the channel read. Put the count you covered in the recap.
+made all my slides blank", with clip and run id attached. Search finds known
+things: prior replies, your eyes, repeat symptoms. Enumeration is the channel
+read; put its count in the recap.
 
 A channel read returns parents, so use its timestamps directly; *search* hits
 are usually replies, so resolve those through the permalink `thread_ts` first.
