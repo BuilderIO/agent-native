@@ -257,6 +257,17 @@ export function FirstRunOnboarding({
   const dismissOnboarding = useCallback(() => {
     void finishOnboarding(null);
   }, [finishOnboarding]);
+  const retryOnboardingCompletion = useCallback(() => {
+    const attempt = completionAttemptRef.current;
+    void finishOnboarding(
+      attempt?.screen ?? null,
+      attempt?.extensionIndex ?? extensionIndex,
+    );
+  }, [extensionIndex, finishOnboarding]);
+  const completionErrorProps = {
+    completionError: completeFirstRunError,
+    onRetry: retryOnboardingCompletion,
+  };
 
   if (!firstRun) return null;
 
@@ -266,6 +277,7 @@ export function FirstRunOnboarding({
         profile={profile}
         screen="choice"
         onDismiss={dismissOnboarding}
+        {...completionErrorProps}
       >
         <div className="mx-auto flex w-full max-w-md flex-col items-center gap-4 text-center">
           <h1 className="text-xl font-semibold tracking-[-0.03em]">
@@ -471,6 +483,7 @@ export function FirstRunOnboarding({
         profile={profile}
         screen="intro"
         onDismiss={dismissOnboarding}
+        {...completionErrorProps}
       >
         <div className="mx-auto flex w-full max-w-lg flex-col items-center text-center">
           <h1 className="text-3xl font-semibold tracking-[-0.05em] sm:text-4xl">
@@ -530,6 +543,7 @@ export function FirstRunOnboarding({
         profile={profile}
         screen="choice"
         onDismiss={dismissOnboarding}
+        {...completionErrorProps}
       >
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
           <h1 className="text-center text-xl font-semibold tracking-[-0.04em] sm:text-2xl">
@@ -706,6 +720,7 @@ export function FirstRunOnboarding({
         profile={profile}
         screen="choice"
         onDismiss={dismissOnboarding}
+        {...completionErrorProps}
       >
         <div className="mx-auto flex w-full max-w-xl flex-col gap-4">
           <div>
@@ -761,6 +776,7 @@ export function FirstRunOnboarding({
         profile={profile}
         screen="tools"
         onDismiss={dismissOnboarding}
+        {...completionErrorProps}
         footer={
           <div
             data-testid="onboarding-tools-footer"
@@ -897,6 +913,7 @@ export function FirstRunOnboarding({
         profile={profile}
         screen="role"
         onDismiss={dismissOnboarding}
+        {...completionErrorProps}
       >
         <div
           className="mx-auto flex w-full max-w-md flex-col"
@@ -969,12 +986,6 @@ export function FirstRunOnboarding({
             </button>
           </div>
         </div>
-        {completeFirstRunError && (
-          <FirstRunCompletionError
-            message={completeFirstRunError}
-            onRetry={() => void finishOnboarding("role")}
-          />
-        )}
       </OnboardingShell>
     );
   }
@@ -988,6 +999,7 @@ export function FirstRunOnboarding({
         profile={profile}
         screen="choice"
         onDismiss={dismissOnboarding}
+        {...completionErrorProps}
       >
         <div
           className="mx-auto flex w-full max-w-md flex-col items-center text-center"
@@ -1066,6 +1078,7 @@ export function FirstRunOnboarding({
       profile={profile}
       screen="ready"
       onDismiss={dismissOnboarding}
+      {...completionErrorProps}
     >
       <div className="mx-auto flex w-full max-w-2xl flex-col items-center text-center">
         <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
@@ -1123,12 +1136,6 @@ export function FirstRunOnboarding({
           <IconArrowRight size={15} />
         </button>
       </div>
-      {completeFirstRunError && (
-        <FirstRunCompletionError
-          message={completeFirstRunError}
-          onRetry={() => void finishOnboarding("ready")}
-        />
-      )}
     </OnboardingShell>
   );
 }
@@ -1138,12 +1145,16 @@ function OnboardingShell({
   screen,
   footer,
   onDismiss,
+  completionError,
+  onRetry,
   children,
 }: {
   profile: OnboardingAppProfile | null;
   screen: "intro" | "choice" | "tools" | "role" | "ready";
   footer?: React.ReactNode;
   onDismiss?: () => void;
+  completionError?: string | null;
+  onRetry?: () => void;
   children: React.ReactNode;
 }) {
   const t = useT();
@@ -1195,6 +1206,9 @@ function OnboardingShell({
           {footer}
         </footer>
       )}
+      {completionError && onRetry ? (
+        <FirstRunCompletionError message={completionError} onRetry={onRetry} />
+      ) : null}
     </div>
   );
 }

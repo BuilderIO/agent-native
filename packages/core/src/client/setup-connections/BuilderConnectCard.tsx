@@ -207,7 +207,7 @@ export function BuilderConnectionMenu({
   const t = useT();
   const [open, setOpen] = useState(false);
   const source = credentialSource ?? flow.credentialSource;
-  const canDisconnect = source !== "env";
+  const canDisconnect = source === "user" || source === "org";
   const manageLabel = t("settings.builderConnection.manage", {
     defaultValue: "Manage Builder.io connection",
   });
