@@ -773,7 +773,7 @@ function BookingHostsEditor({
                 />
               </button>
             </PopoverTrigger>
-            <PopoverContent className="w-64 text-sm" align="start">
+            <PopoverContent className="w-64 text-[11px]" align="start">
               <p>{statusHint.label}</p>
               <button
                 type="button"
