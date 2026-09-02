@@ -20,12 +20,7 @@ export function useDbStatus() {
   });
 
   const configured =
-    data?.some(
-      (entry) =>
-        (entry.key === "DATABASE_URL" ||
-          entry.key === "NETLIFY_DATABASE_URL") &&
-        entry.configured,
-    ) ?? false;
+    data?.find((entry) => entry.key === "DATABASE_URL")?.configured ?? false;
 
   return {
     configured,

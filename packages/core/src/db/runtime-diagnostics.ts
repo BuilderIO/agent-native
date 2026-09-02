@@ -4,6 +4,7 @@ import {
   getDialect,
   getDbExec,
   getRuntimeDatabaseUrl,
+  isLocalDatabase,
   type DbExec,
   type Dialect,
 } from "./client.js";
@@ -201,6 +202,21 @@ export function getDatabaseRuntimeFingerprint(): DatabaseRuntimeFingerprint {
     netlifyDatabaseUrlConfigured: Boolean(envValue("NETLIFY_DATABASE_URL")),
     ...parsed,
   };
+}
+
+/**
+ * Report whether a declared database URL represents the effective shared
+ * database, without exposing its value to the caller.
+ */
+export function getEffectiveDatabaseEnvStatus(
+  key: string,
+): boolean | undefined {
+  if (!/(?:^|_)DATABASE_URL$/.test(key)) return undefined;
+
+  const database = getDatabaseRuntimeFingerprint();
+  if (!database.configured || isLocalDatabase()) return false;
+
+  return key === "DATABASE_URL" || database.source === key;
 }
 
 export function getRuntimeDebugFingerprint(): RuntimeDebugFingerprint {

@@ -1,21 +1,55 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mockExecute = vi.hoisted(() => vi.fn());
+const mockIsLocalDatabase = vi.hoisted(() => vi.fn());
+const mockRuntimeDatabaseUrl = vi.hoisted(() => vi.fn());
 
 vi.mock("./client.js", () => ({
-  getRuntimeDatabaseUrl: () => "postgres://localhost/test",
+  getRuntimeDatabaseUrl: mockRuntimeDatabaseUrl,
   getDialect: () => "postgres",
+  isLocalDatabase: mockIsLocalDatabase,
   getDbExec: () => ({ execute: mockExecute }),
 }));
 
 import {
   DEFAULT_REQUIRED_SCHEMA,
   formatRuntimeDebugFingerprint,
+  getEffectiveDatabaseEnvStatus,
   runDatabaseSchemaHealthCheck,
   type RuntimeDebugFingerprint,
 } from "./runtime-diagnostics.js";
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+  mockRuntimeDatabaseUrl.mockReset();
+  mockIsLocalDatabase.mockReset();
+});
+
 describe("runtime diagnostics", () => {
+  it("reports the effective Netlify database without reading scoped secrets", () => {
+    vi.stubEnv("APP_NAME", "forms");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
+    mockRuntimeDatabaseUrl.mockReturnValue("postgres://netlify.example/db");
+    mockIsLocalDatabase.mockReturnValue(false);
+
+    expect(getEffectiveDatabaseEnvStatus("DATABASE_URL")).toBe(true);
+    expect(getEffectiveDatabaseEnvStatus("NETLIFY_DATABASE_URL")).toBe(true);
+    expect(
+      getEffectiveDatabaseEnvStatus("DATABASE_AUTH_TOKEN"),
+    ).toBeUndefined();
+  });
+
+  it("keeps a local effective URL local even when Netlify also has a URL", () => {
+    vi.stubEnv("DATABASE_URL", "file:./data/app.db");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
+    mockRuntimeDatabaseUrl.mockReturnValue("file:./data/app.db");
+    mockIsLocalDatabase.mockReturnValue(true);
+
+    expect(getEffectiveDatabaseEnvStatus("DATABASE_URL")).toBe(false);
+    expect(getEffectiveDatabaseEnvStatus("NETLIFY_DATABASE_URL")).toBe(false);
+  });
+
   it("formats runtime debug details without leaking credentials", () => {
     const details = formatRuntimeDebugFingerprint({
       app: "design",
