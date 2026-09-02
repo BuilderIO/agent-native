@@ -224,7 +224,7 @@ export interface ResourceConditionalDelete {
   expectedId: string;
   expectedUpdatedAt: number;
   expectedContent: string;
-  expectedMetadata: string;
+  expectedMetadata: string | null;
 }
 
 export interface ResourceListOptions {
@@ -1734,13 +1734,14 @@ export async function resourceDeleteIfCurrent(
 
   const client = getDbExec();
   const result = await client.execute({
-    sql: `DELETE FROM resources WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ? AND metadata = ?`,
+    sql: `DELETE FROM resources WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ? AND (metadata = ? OR (metadata IS NULL AND ? IS NULL))`,
     args: [
       input.owner,
       input.path,
       input.expectedId,
       input.expectedUpdatedAt,
       input.expectedContent,
+      input.expectedMetadata,
       input.expectedMetadata,
     ],
   });

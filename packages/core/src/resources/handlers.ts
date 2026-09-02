@@ -708,6 +708,9 @@ export async function handleDeleteResource(event: any) {
     setResponseStatus(event, 403);
     return { error: "Workspace resources are managed from Dispatch" };
   }
+  const isLocalWorkspaceResource =
+    existing.owner === WORKSPACE_OWNER &&
+    isLocalWorkspaceResourceId(existing.id);
   const existingOrganizationId = organizationIdFromResourceOwner(
     existing.owner,
   );
@@ -740,7 +743,16 @@ export async function handleDeleteResource(event: any) {
           expectedContent: existing.content,
           expectedMetadata: existing.metadata,
         })
-      : await resourceDelete(id);
+      : isLocalWorkspaceResource
+        ? await resourceDelete(id)
+        : await resourceDeleteIfCurrent({
+            owner: existing.owner,
+            path: existing.path,
+            expectedId: existing.id,
+            expectedUpdatedAt: existing.updatedAt,
+            expectedContent: existing.content,
+            expectedMetadata: existing.metadata,
+          });
   if (deleted && existingOrganizationId === orgId) {
     const legacy = await resourceGetByPath(SHARED_OWNER, existing.path, {
       orgId,

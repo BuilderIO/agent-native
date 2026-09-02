@@ -134,6 +134,26 @@ describe("workspace-files Resources adapter", () => {
     expect(mockResourcePut).not.toHaveBeenCalled();
   });
 
+  it("allows organization members to write scratch paths", async () => {
+    mockGetOrgRoleForEmail.mockResolvedValue("member");
+    mockResourcePut.mockResolvedValue(resource("scratch/tmp.md"));
+
+    await expect(
+      writeWorkspaceFile(
+        { scope: "org", scopeId: "org_123" },
+        "scratch/tmp.md",
+        "temporary",
+      ),
+    ).resolves.toMatchObject({ path: "scratch/tmp.md" });
+    expect(mockResourcePut).toHaveBeenCalledWith(
+      "__organization__:org_123",
+      "scratch/tmp.md",
+      "temporary",
+      "text/plain",
+      expect.objectContaining({ visibility: "agent_scratch" }),
+    );
+  });
+
   it("removes the legacy organization row after writing its override", async () => {
     const legacy = {
       ...resource("analysis/summary.md", "old"),
@@ -275,7 +295,11 @@ describe("workspace-files Resources adapter", () => {
   });
 
   it("deletes by path in the resolved resource owner", async () => {
-    mockResourceDeleteByPath.mockResolvedValue(true);
+    const current = {
+      ...resource("scratch/tmp.md"),
+      owner: "__organization__:org_123",
+    };
+    mockResourceGetByPath.mockResolvedValue(current);
 
     await expect(
       deleteWorkspaceFile(
@@ -283,10 +307,14 @@ describe("workspace-files Resources adapter", () => {
         "scratch/tmp.md",
       ),
     ).resolves.toBe(true);
-    expect(mockResourceDeleteByPath).toHaveBeenCalledWith(
-      "__organization__:org_123",
-      "scratch/tmp.md",
-    );
+    expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith({
+      owner: current.owner,
+      path: current.path,
+      expectedId: current.id,
+      expectedUpdatedAt: current.updatedAt,
+      expectedContent: current.content,
+      expectedMetadata: current.metadata,
+    });
   });
 
   it("deletes a resolved legacy organization file conditionally", async () => {
@@ -340,7 +368,6 @@ describe("workspace-files Resources adapter", () => {
       .mockResolvedValueOnce(current)
       .mockResolvedValueOnce(legacy);
     mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
-    mockResourceDeleteByPath.mockResolvedValue(true);
 
     await expect(
       deleteWorkspaceFile(
@@ -349,7 +376,15 @@ describe("workspace-files Resources adapter", () => {
       ),
     ).resolves.toBe(true);
 
-    expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith({
+    expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(1, {
+      owner: current.owner,
+      path: current.path,
+      expectedId: current.id,
+      expectedUpdatedAt: current.updatedAt,
+      expectedContent: current.content,
+      expectedMetadata: current.metadata,
+    });
+    expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(2, {
       owner: "__shared__",
       path: legacy.path,
       expectedId: legacy.id,
@@ -365,7 +400,7 @@ describe("workspace-files Resources adapter", () => {
     await expect(
       deleteWorkspaceFile(
         { scope: "org", scopeId: "org_123" },
-        "scratch/tmp.md",
+        "analysis/summary.md",
       ),
     ).rejects.toThrow(
       "Only organization owners and admins can edit organization files",

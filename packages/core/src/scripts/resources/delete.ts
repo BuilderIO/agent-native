@@ -51,7 +51,14 @@ async function deleteSharedResource(resourcePath: string): Promise<boolean> {
     options,
   );
   if (organizationResource) {
-    const deleted = await resourceDeleteByPath(owner, resourcePath);
+    const deleted = await resourceDeleteIfCurrent({
+      owner: organizationResource.owner,
+      path: organizationResource.path,
+      expectedId: organizationResource.id,
+      expectedUpdatedAt: organizationResource.updatedAt,
+      expectedContent: organizationResource.content,
+      expectedMetadata: organizationResource.metadata,
+    });
     if (!deleted) return false;
 
     const legacy = await resourceGetByPath(SHARED_OWNER, resourcePath, options);

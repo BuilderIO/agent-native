@@ -38,7 +38,14 @@ describe("resource-delete", () => {
   });
 
   it("deletes the active organization resource and its legacy fallback", async () => {
-    const organizationResource = { id: "org-resource" };
+    const organizationResource = {
+      id: "org-resource",
+      path: "notes/todo.md",
+      owner: "__organization__:org-1",
+      content: "organization",
+      updatedAt: 2,
+      metadata: null,
+    };
     const legacyResource = {
       id: "legacy-resource",
       path: "notes/todo.md",
@@ -61,10 +68,14 @@ describe("resource-delete", () => {
         deleteResourceScript(["--path", "notes/todo.md", "--scope", "shared"]),
     );
 
-    expect(mocks.resourceDeleteByPath).toHaveBeenCalledWith(
-      "__organization__:org-1",
-      "notes/todo.md",
-    );
+    expect(mocks.resourceDeleteIfCurrent).toHaveBeenNthCalledWith(1, {
+      owner: organizationResource.owner,
+      path: organizationResource.path,
+      expectedId: organizationResource.id,
+      expectedUpdatedAt: organizationResource.updatedAt,
+      expectedContent: organizationResource.content,
+      expectedMetadata: organizationResource.metadata,
+    });
     expect(mocks.resourceDeleteIfCurrent).toHaveBeenCalledWith({
       owner: "__shared__",
       path: "notes/todo.md",
@@ -73,6 +84,36 @@ describe("resource-delete", () => {
       expectedContent: "legacy",
       expectedMetadata: legacyResource.metadata,
     });
+  });
+
+  it("does not delete a replacement organization resource", async () => {
+    const organizationResource = {
+      id: "org-resource",
+      path: "notes/todo.md",
+      owner: "__organization__:org-1",
+      content: "organization",
+      updatedAt: 2,
+      metadata: null,
+    };
+    mocks.resourceGetByPath.mockResolvedValueOnce(organizationResource);
+    mocks.resourceDeleteIfCurrent.mockResolvedValue(false);
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      () =>
+        deleteResourceScript(["--path", "notes/todo.md", "--scope", "shared"]),
+    );
+
+    expect(mocks.resourceDeleteIfCurrent).toHaveBeenCalledWith({
+      owner: organizationResource.owner,
+      path: organizationResource.path,
+      expectedId: organizationResource.id,
+      expectedUpdatedAt: organizationResource.updatedAt,
+      expectedContent: organizationResource.content,
+      expectedMetadata: organizationResource.metadata,
+    });
+    expect(mocks.resourceDeleteByPath).not.toHaveBeenCalled();
+    expect(mocks.resourceGetByPath).toHaveBeenCalledTimes(1);
   });
 
   it("does not delete an unrelated global default for an organization", async () => {

@@ -6,6 +6,8 @@
  * require a real identity; there is no dev-mode fallback.
  */
 
+import { getOrgRoleForEmail } from "../mcp/actions/service-token-access.js";
+import { canManageOrg } from "../org/permissions.js";
 import {
   getAmbientUserEmail,
   getRequestOrgId,
@@ -49,6 +51,19 @@ function resolveScope(options?: {
   return options?.scope ?? (options?.shared ? "shared" : "personal");
 }
 
+async function assertCanManageSharedResource(): Promise<void> {
+  const orgId = getRequestOrgId();
+  if (!orgId) return;
+
+  const email = getRequestUserEmail()?.trim() ?? getAmbientUserEmail()?.trim();
+  const role = email ? await getOrgRoleForEmail(orgId, email) : null;
+  if (!email || !canManageOrg(role)) {
+    throw new Error(
+      "Only organization owners and admins can edit organization files",
+    );
+  }
+}
+
 export async function readResource(
   path: string,
   options?: { shared?: boolean; scope?: ResourceHelperScope },
@@ -85,7 +100,9 @@ export async function writeResource(
     metadata?: string | Record<string, unknown> | null;
   },
 ): Promise<void> {
-  const owner = getOwnerForScope(resolveScope(options));
+  const scope = resolveScope(options);
+  if (scope === "shared") await assertCanManageSharedResource();
+  const owner = getOwnerForScope(scope);
   const writeOptions = {
     visibility: options?.visibility,
     createdBy: options?.createdBy,
@@ -111,7 +128,9 @@ export async function deleteResource(
     scope?: Exclude<ResourceHelperScope, "workspace">;
   },
 ): Promise<boolean> {
-  const owner = getOwnerForScope(resolveScope(options));
+  const scope = resolveScope(options);
+  if (scope === "shared") await assertCanManageSharedResource();
+  const owner = getOwnerForScope(scope);
   return resourceDeleteByPath(owner, path);
 }
 

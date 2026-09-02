@@ -904,13 +904,23 @@ Legacy webhook.`,
         id: "r1",
         path: "doc.md",
         owner: "test@test.com",
+        content: "content",
+        updatedAt: 1,
+        metadata: null,
       });
-      mockResourceDelete.mockResolvedValue(true);
 
       const event = { _params: { id: "r1" }, context: {} };
       const result = await handleDeleteResource(event);
 
       expect(result).toEqual({ ok: true });
+      expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith({
+        owner: "test@test.com",
+        path: "doc.md",
+        expectedId: "r1",
+        expectedUpdatedAt: 1,
+        expectedContent: "content",
+        expectedMetadata: null,
+      });
     });
 
     it("deletes local workspace resources", async () => {
@@ -945,8 +955,10 @@ Legacy webhook.`,
         id: "org-resource",
         path: "analysis.md",
         owner: "__organization__:org-1",
+        content: "organization",
+        updatedAt: 2,
+        metadata: null,
       });
-      mockResourceDelete.mockResolvedValue(true);
       mockResourceGetByPath.mockResolvedValue({
         id: "legacy-org-resource",
         path: "analysis.md",
@@ -966,8 +978,15 @@ Legacy webhook.`,
         context: {},
       });
 
-      expect(mockResourceDelete).toHaveBeenNthCalledWith(1, "org-resource");
-      expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith({
+      expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(1, {
+        owner: "__organization__:org-1",
+        path: "analysis.md",
+        expectedId: "org-resource",
+        expectedUpdatedAt: 2,
+        expectedContent: "organization",
+        expectedMetadata: null,
+      });
+      expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(2, {
         owner: "__shared__",
         path: "analysis.md",
         expectedId: "legacy-org-resource",

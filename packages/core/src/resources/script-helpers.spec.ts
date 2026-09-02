@@ -7,6 +7,7 @@ const mockResourceList = vi.fn();
 const mockResourceListAccessible = vi.fn();
 const mockResourceEffectiveContext = vi.fn();
 const mockEnsurePersonalDefaults = vi.fn();
+const mockGetOrgRoleForEmail = vi.fn();
 
 vi.mock("./store.js", () => ({
   SHARED_OWNER: "__shared__",
@@ -23,6 +24,10 @@ vi.mock("./store.js", () => ({
     mockResourceEffectiveContext(...args),
   ensurePersonalDefaults: (...args: any[]) =>
     mockEnsurePersonalDefaults(...args),
+}));
+
+vi.mock("../mcp/actions/service-token-access.js", () => ({
+  getOrgRoleForEmail: (...args: any[]) => mockGetOrgRoleForEmail(...args),
 }));
 
 import { runWithRequestContext } from "../server/request-context.js";
@@ -42,6 +47,7 @@ describe("resources script-helpers", () => {
     originalEnv = { ...process.env };
     vi.clearAllMocks();
     mockEnsurePersonalDefaults.mockResolvedValue(undefined);
+    mockGetOrgRoleForEmail.mockResolvedValue("admin");
   });
 
   afterEach(() => {
@@ -178,6 +184,20 @@ describe("resources script-helpers", () => {
         "content",
         undefined,
       );
+    });
+
+    it("rejects organization shared writes from members", async () => {
+      mockGetOrgRoleForEmail.mockResolvedValue("member");
+
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@test.com", orgId: "org-1" },
+          () => writeResource("shared.md", "content", { shared: true }),
+        ),
+      ).rejects.toThrow(
+        "Only organization owners and admins can edit organization files",
+      );
+      expect(mockResourcePut).not.toHaveBeenCalled();
     });
 
     it("passes agent scratch metadata when provided", async () => {

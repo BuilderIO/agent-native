@@ -14,7 +14,6 @@ import {
   isLegacyOrganizationWorkspaceFile,
   sharedResourceOwner,
   resourceDeleteIfCurrent,
-  resourceDeleteByPath,
   resourceGetByPath,
   resourceList,
   resourcePut,
@@ -95,8 +94,9 @@ function workspaceFileMetadata(scope: WorkspaceFilesScope) {
 
 async function assertCanMutateWorkspaceFile(
   scope: WorkspaceFilesScope,
+  path: string,
 ): Promise<void> {
-  if (scope.scope !== "org") return;
+  if (scope.scope !== "org" || isScratchWorkspacePath(path)) return;
   const email = getRequestUserEmail()?.trim();
   const role = email ? await getOrgRoleForEmail(scope.scopeId, email) : null;
   if (!email || !canManageOrg(role)) {
@@ -198,7 +198,7 @@ export async function writeWorkspaceFile(
 ): Promise<WorkspaceFileMeta> {
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
-  await assertCanMutateWorkspaceFile(scope);
+  await assertCanMutateWorkspaceFile(scope, path);
 
   const legacy =
     scope.scope === "org"
@@ -357,24 +357,19 @@ export async function deleteWorkspaceFile(
 ): Promise<boolean> {
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
-  await assertCanMutateWorkspaceFile(scope);
+  await assertCanMutateWorkspaceFile(scope, path);
 
   const resolved = await resolveResourceForScope(scope, path);
   if (!resolved) return false;
 
-  const deleted =
-    scope.scope === "org" &&
-    resolved.owner === SHARED_OWNER &&
-    typeof resolved.resource.metadata === "string"
-      ? await resourceDeleteIfCurrent({
-          owner: resolved.owner,
-          path: resolved.resource.path,
-          expectedId: resolved.resource.id,
-          expectedUpdatedAt: resolved.resource.updatedAt,
-          expectedContent: resolved.resource.content,
-          expectedMetadata: resolved.resource.metadata,
-        })
-      : await resourceDeleteByPath(resolved.owner, path);
+  const deleted = await resourceDeleteIfCurrent({
+    owner: resolved.owner,
+    path: resolved.resource.path,
+    expectedId: resolved.resource.id,
+    expectedUpdatedAt: resolved.resource.updatedAt,
+    expectedContent: resolved.resource.content,
+    expectedMetadata: resolved.resource.metadata,
+  });
   if (deleted && scope.scope === "org" && resolved.owner !== SHARED_OWNER) {
     const legacy = await resourceGetByPath(
       SHARED_OWNER,

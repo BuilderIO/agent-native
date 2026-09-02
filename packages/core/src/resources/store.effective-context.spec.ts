@@ -661,4 +661,33 @@ describe("resourceEffectiveContext", () => {
       await resourceDeleteByPath(SHARED_OWNER, path);
     }
   });
+
+  it("conditionally deletes a resource without metadata", async () => {
+    const {
+      SHARED_OWNER,
+      resourceDeleteByPath,
+      resourceDeleteIfCurrent,
+      resourceGetByPath,
+      resourcePut,
+    } = await import("./store.js");
+    const path = `context/conditional-null-metadata-${Date.now()}-${Math.random()}.md`;
+
+    try {
+      const resource = await resourcePut(SHARED_OWNER, path, "content");
+
+      await expect(
+        resourceDeleteIfCurrent({
+          owner: SHARED_OWNER,
+          path,
+          expectedId: resource.id,
+          expectedUpdatedAt: resource.updatedAt,
+          expectedContent: resource.content,
+          expectedMetadata: resource.metadata,
+        }),
+      ).resolves.toBe(true);
+      await expect(resourceGetByPath(SHARED_OWNER, path)).resolves.toBeNull();
+    } finally {
+      await resourceDeleteByPath(SHARED_OWNER, path);
+    }
+  });
 });
