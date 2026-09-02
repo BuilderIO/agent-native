@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 let turnRows: Array<Record<string, unknown>> = [];
 let memberRows: Array<Record<string, unknown>> = [];
 let turnQueryThrows = false;
+let memberQueryThrows = false;
 
 const execute = vi.fn(async ({ sql }: { sql: string }) => {
   if (sql.includes("org_members")) {
+    if (memberQueryThrows) throw new Error("member lookup failed");
     const rows = sql.includes("role IN ('owner', 'admin')")
       ? memberRows.filter((row) => row.role === "owner" || row.role === "admin")
       : memberRows;
@@ -71,6 +73,7 @@ beforeEach(() => {
   turnRows = [];
   memberRows = [{ org_id: "org-1", email: "owner@example.com", role: "owner" }];
   turnQueryThrows = false;
+  memberQueryThrows = false;
   settings.clear();
   settingsReadThrows = false;
   settingsWriteThrows = false;
@@ -136,6 +139,32 @@ describe("checkChatHealthAndAlert", () => {
     turns(20, 15);
     const out = await checkChatHealthAndAlert(NOW);
     expect(out).toMatchObject({ status: "alerted", recipients: 1 });
+    expect(notifyWithDelivery).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the claim when recipient lookup fails", async () => {
+    turns(20, 15);
+    memberQueryThrows = true;
+    const first = await checkChatHealthAndAlert(NOW);
+    expect(first.status).toBe("check-failed");
+
+    memberQueryThrows = false;
+    const second = await checkChatHealthAndAlert(NOW);
+    expect(second.status).toBe("alerted");
+    expect(notifyWithDelivery).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the claim when no recipient is available", async () => {
+    turns(20, 15);
+    memberRows = [];
+    const first = await checkChatHealthAndAlert(NOW);
+    expect(first.status).toBe("delivery-failed");
+
+    memberRows = [
+      { org_id: "org-1", email: "owner@example.com", role: "owner" },
+    ];
+    const second = await checkChatHealthAndAlert(NOW);
+    expect(second.status).toBe("alerted");
     expect(notifyWithDelivery).toHaveBeenCalledTimes(1);
   });
 

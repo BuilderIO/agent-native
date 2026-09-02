@@ -188,13 +188,21 @@ export async function checkChatHealthAndAlert(
   try {
     recipient = await alertOwner();
   } catch (error) {
-    return { status: "check-failed", reason: String(error) };
+    const releaseReason = await releaseAlertClaim(claimId, claimExpiresAt);
+    return {
+      status: "check-failed",
+      reason: releaseReason
+        ? `${String(error)} ${releaseReason}`
+        : String(error),
+    };
   }
   if (!recipient) {
+    const reason =
+      "No single owner/admin organization scope is available for Slack health alerts.";
+    const releaseReason = await releaseAlertClaim(claimId, claimExpiresAt);
     return {
       status: "delivery-failed",
-      reason:
-        "No single owner/admin organization scope is available for Slack health alerts.",
+      reason: releaseReason ? `${reason} ${releaseReason}` : reason,
     };
   }
 
