@@ -5,7 +5,6 @@ import {
   IconBrandWhatsapp,
   IconBrandGoogleDrive,
   IconTerminal2,
-  IconBuildingSkyscraper,
   IconCopy,
   IconCheck,
   IconChevronLeft,
@@ -30,7 +29,10 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
-import { getDefaultMcpIntegrations } from "../resources/mcp-integration-catalog.js";
+import {
+  getDefaultMcpIntegrations,
+  type DefaultMcpIntegration,
+} from "../resources/mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
 import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 import {
@@ -138,20 +140,18 @@ const PLATFORMS: PlatformInfo[] = [
     category: "Agent clients",
   },
   {
-    id: "builder",
-    label: "Builder.io",
-    icon: IconBuildingSkyscraper,
+    id: "claude-code",
+    label: "Claude Code",
+    icon: IconTerminal2,
     description:
-      "One chat interface that orchestrates all your agents together.",
+      "Let Claude Code call this agent via A2A for data and actions.",
     envVars: [],
     isClient: true,
     setupSteps: [
-      "Connect your agent-native apps in your Builder.io workspace",
-      "Builder.io discovers each agent's skills via A2A",
-      "Chat with one agent that can trigger actions across all your apps",
+      "Your agent exposes an A2A endpoint at /.well-known/agent-card.json",
+      "In Claude Code, reference your agent's URL when asking for data",
+      "Claude Code will discover and call your agent's skills automatically",
     ],
-    docsUrl:
-      "https://www.builder.io?utm_source=agent-native&utm_medium=product&utm_campaign=integrations&utm_content=integrations_panel",
     category: "Agent clients",
   },
 ];
@@ -752,6 +752,7 @@ export interface McpIntegrationsSectionProps {
   showDescription?: boolean;
   showHeader?: boolean;
   className?: string;
+  integrations?: DefaultMcpIntegration[];
   onOAuthStart?: (url: string) => void | Promise<void>;
   oauthReady?: boolean;
   oauthReturnPath?: string;
@@ -766,6 +767,7 @@ export function McpIntegrationsSection({
   showDescription = true,
   showHeader = true,
   className,
+  integrations: integrationOptions,
   onOAuthStart,
   oauthReady,
   oauthReturnPath,
@@ -791,7 +793,10 @@ export function McpIntegrationsSection({
     key: string;
     message: string;
   } | null>(null);
-  const catalog = useMemo(() => getDefaultMcpIntegrations(), []);
+  const catalog = useMemo(
+    () => integrationOptions ?? getDefaultMcpIntegrations(),
+    [integrationOptions],
+  );
   const activeQuery = query ?? localQuery;
   const normalizedQuery = activeQuery.trim().toLowerCase();
   const filteredCatalog = useMemo(() => {
@@ -1133,13 +1138,20 @@ export function IntegrationsPanel() {
   const normalizedQuery = query.trim().toLowerCase();
   const externalHostMatches = matchesMcpConnectHost(normalizedQuery);
   const externalHostGuide = resolveMcpConnectGuideId(normalizedQuery);
+  const mcpIntegrations = useMemo(
+    () =>
+      getDefaultMcpIntegrations().filter(
+        (integration) => integration.id !== "builder-cms",
+      ),
+    [],
+  );
   const filteredPlatforms = PLATFORMS.filter((platform) => {
     if (!normalizedQuery) return true;
     return `${platform.label} ${platform.description} ${platform.category}`
       .toLowerCase()
       .includes(normalizedQuery);
   });
-  const mcpCatalogMatches = getDefaultMcpIntegrations().some((integration) =>
+  const mcpCatalogMatches = mcpIntegrations.some((integration) =>
     normalizedQuery
       ? `${integration.name} ${integration.provider} ${integration.description} ${integration.useCase}`
           .toLowerCase()
@@ -1185,6 +1197,7 @@ export function IntegrationsPanel() {
 
       <McpIntegrationsSection
         query={normalizedQuery}
+        integrations={mcpIntegrations}
         showHeader={false}
         showEmptyState={false}
       />

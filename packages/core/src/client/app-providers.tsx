@@ -183,7 +183,7 @@ function RoutedAppEnhancements() {
   );
 }
 
-function AutomaticWebMcpActionRegistration() {
+export function AgentNativeWebMcpActionRegistration() {
   useEffect(() => {
     const registration = createAgentNativeServerActionWebMcpRegistration();
     void registration.start().catch(() => {
@@ -389,10 +389,13 @@ export function AppProviders({
         >
           <RequireSession bypass={sessionBypass} fallback={fallback}>
             {sessionBypass ? (
-              children
+              <>
+                <AgentNativeWebMcpActionRegistration />
+                {children}
+              </>
             ) : (
               <FirstRunOnboardingStartupGate>
-                <AutomaticWebMcpActionRegistration />
+                <AgentNativeWebMcpActionRegistration />
                 {children}
               </FirstRunOnboardingStartupGate>
             )}

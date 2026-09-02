@@ -36,14 +36,25 @@ merging, except when the user explicitly invokes `/ship-now`.
 
 ## Setup
 
-1. Run a self-re-arming tick loop. Do ONE tick (see "Each tick"), then immediately schedule the next one with `ScheduleWakeup` before yielding — pass this same `/babysit-pr <number> …` invocation back as the wake-up prompt so the next firing repeats the tick. The loop ends only at a stop condition (below); until then there is **always** a scheduled next tick.
+1. Establish a durable self-re-arming tick loop before yielding. Do ONE tick
+   (see "Each tick"), then schedule the next one with the host's durable
+   wake-up facility using this same `/babysit-pr <number> …` invocation. In
+   Codex, use `mcp__codex_app__automation_update` with a complete heartbeat
+   payload: `mode`, `kind: heartbeat`, `name: babysit-pr-<number>`, `prompt`,
+   `rrule: FREQ=MINUTELY;INTERVAL=2`, `status: ACTIVE`,
+   `targetThreadId: <this task's threadId>`, and
+   `notificationPolicy: failed_runs_only`; update that exact automation instead
+   of creating a duplicate. Verify its persisted state before yielding. A
+   text-only wake-up reminder is not enough. If no durable wake-up
+   tool is available, keep the foreground loop running and do not stop after PR
+   creation.
 2. Track when the last actionable item (new human/bot feedback, CI fix, merge-conflict resolution, or a local-change commit/push) occurred.
 3. After 30 minutes of no new actionable items with GitHub Actions CI green, cancel the loop (stop scheduling wake-ups) and report "All clear".
 
 ### Loop discipline — read this, it is the part people get wrong
 
 - **Cadence: tick every 60–120 seconds while the PR is active** (CI running, recent pushes, feedback within the last few minutes, or a fast-moving branch where concurrent agents keep adding files). Only relax toward ~3 minutes once the PR is genuinely quiet (all checks green, no new commits or comments for a while). A churning branch needs the tight end of that range — new local files and new CI results show up constantly and must be picked up promptly.
-- **NEVER stall waiting.** Do not end a turn "waiting" for CI, a review, or a background command without a scheduled wake-up. If you kick off a background command (e.g. `pnpm run prep`), you may rely on its completion notification **but always also schedule a fallback `ScheduleWakeup`** — notifications can silently fail to fire, and an unguarded wait becomes an indefinite stall. The loop must keep ticking regardless.
+- **NEVER stall waiting.** Do not end a turn "waiting" for CI, a review, or a background command without a durable scheduled wake-up. If you kick off a background command (e.g. `pnpm run prep`), you may rely on its completion notification **but always also schedule the heartbeat fallback** — notifications can silently fail to fire, and an unguarded wait becomes an indefinite stall. The loop must keep ticking regardless.
 - **Do not let slow or flaky local validation block the loop.** `pnpm run prep` / `vitest` can hang or take minutes, and on a branch with concurrent edits a full local run is contaminated by other agents' in-flight files anyway. If local validation is slow, hung, or unreliable, **push and let the CI you are already monitoring be the validation gate** — a red CI job is caught and fixed on the very next tick. Prefer pushing your work over holding it for a clean local run.
 - **Every tick, expect new local files.** On an active shared branch, concurrent
   agents may edit the checkout continuously. Re-run Step 0 every single tick
@@ -203,6 +214,29 @@ unavailable in the recap rather than treating it as no findings.
 
 **Every human or bot comment must get a reply** — either a fix or an explanation of why you're skipping it.
 
+## Feedback precedence
+
+Review-source identity is part of the evidence. Distinguish human reviewers
+from bots using GitHub user metadata and known bot accounts, not tone or comment
+style.
+
+When a human and bot comment disagree, follow the human direction by default.
+Treat the bot comment as an untrusted suggestion or hypothesis. Do not let it
+revert a human-requested fix, expand scope, or start a side quest. Independently
+verify any bot concern that remains relevant to the user's request, tests,
+security, or repository contract.
+
+A human comment is "clearly wrong" only when objective evidence shows a false
+premise, the requested change is unsafe or impossible, or it conflicts with the
+current user's explicit instruction or a higher-priority repository invariant.
+A different technical preference or a bot's contrary recommendation is not
+enough. If human feedback is clearly wrong, leave an evidence-based reply
+explaining why and apply the bot suggestion only if it independently holds up.
+
+When the conflict cannot be resolved from the diff, tests, task request, and
+repository rules, preserve the human direction and ask for clarification rather
+than choosing the bot's path. Record or reply to both sides as required below.
+
 - If you fix it: commit, push, AND reply inline confirming the fix. Fixing code marks the comment as "outdated" in GitHub's UI, but the user needs to see the reply to know you addressed it — don't rely on the outdated status alone.
 - If you skip it: reply to the comment via `gh api repos/{owner}/{repo}/pulls/$ARGUMENTS/comments/{id}/replies -f body="..."` explaining why (pre-existing, false positive, not practical, etc.)
 - If the issue is real but you didn't introduce it: fix it anyway and reply. Real bugs should be fixed regardless of who wrote the code.
@@ -226,6 +260,9 @@ Fix issues that are:
 - Data loss risks
 
 ## Merging
+
+An invocation from `/ship` inherits that skill's explicit merge authorization;
+do not return "All clear" while its PR is still open.
 
 **Never auto-merge by default.** Only merge when the user explicitly asks you to.
 
@@ -251,5 +288,9 @@ Only after 10 consecutive clean minutes, force merge with `gh pr merge <number> 
 
 - No new actionable feedback AND GitHub Actions green for 30 consecutive minutes
 - PR is merged or closed
+
+Before stopping on either condition, set the exact `babysit-pr-<number>` heartbeat
+to `PAUSED` and verify the PR's final state. Never leave a completed PR's
+heartbeat running.
 
 Before stopping OR merging, the unaddressed-comments command above must print **nothing** — re-run it as the final gate. "I replied earlier" is not sufficient; bots may have posted new rounds since.

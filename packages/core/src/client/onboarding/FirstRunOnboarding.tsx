@@ -8,6 +8,7 @@ import {
   IconKey,
   IconLoader2,
   IconSearch,
+  IconX,
 } from "@tabler/icons-react";
 import React, {
   useCallback,
@@ -253,12 +254,31 @@ export function FirstRunOnboarding({
   });
   const canActivateBuilderFreeCredits =
     connectFlow.agentNativeProvisioningEnabled;
+  const dismissOnboarding = useCallback(() => {
+    void finishOnboarding(null);
+  }, [finishOnboarding]);
+  const retryOnboardingCompletion = useCallback(() => {
+    const attempt = completionAttemptRef.current;
+    void finishOnboarding(
+      attempt?.screen ?? null,
+      attempt?.extensionIndex ?? extensionIndex,
+    );
+  }, [extensionIndex, finishOnboarding]);
+  const completionErrorProps = {
+    completionError: completeFirstRunError,
+    onRetry: retryOnboardingCompletion,
+  };
 
   if (!firstRun) return null;
 
   if (error) {
     return (
-      <OnboardingShell profile={profile} screen="choice">
+      <OnboardingShell
+        profile={profile}
+        screen="choice"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <div className="mx-auto flex w-full max-w-md flex-col items-center gap-4 text-center">
           <h1 className="text-xl font-semibold tracking-[-0.03em]">
             Setup is almost ready.
@@ -436,30 +456,28 @@ export function FirstRunOnboarding({
       void finishOnboarding("extension", extensionIndex);
     };
     return (
-      <>
+      <OnboardingShell
+        profile={profile}
+        screen="extension"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <Extension
           onComplete={advanceExtension}
           onSkip={() => void finishOnboarding(null)}
         />
-        {completeFirstRunError && (
-          <FirstRunCompletionError
-            message={completeFirstRunError}
-            onRetry={() => {
-              const attempt = completionAttemptRef.current;
-              void finishOnboarding(
-                attempt?.screen ?? null,
-                attempt?.extensionIndex ?? extensionIndex,
-              );
-            }}
-          />
-        )}
-      </>
+      </OnboardingShell>
     );
   }
 
   if (screen === "intro") {
     return (
-      <OnboardingShell profile={profile} screen="intro">
+      <OnboardingShell
+        profile={profile}
+        screen="intro"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <div className="mx-auto flex w-full max-w-lg flex-col items-center text-center">
           <h1 className="text-3xl font-semibold tracking-[-0.05em] sm:text-4xl">
             Free forever.
@@ -514,7 +532,12 @@ export function FirstRunOnboarding({
 
   if (screen === "choice") {
     return (
-      <OnboardingShell profile={profile} screen="choice">
+      <OnboardingShell
+        profile={profile}
+        screen="choice"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
           <h1 className="text-center text-xl font-semibold tracking-[-0.04em] sm:text-2xl">
             Choose your setup.
@@ -686,7 +709,12 @@ export function FirstRunOnboarding({
 
   if (screen === "manual") {
     return (
-      <OnboardingShell profile={profile} screen="choice">
+      <OnboardingShell
+        profile={profile}
+        screen="choice"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <div className="mx-auto flex w-full max-w-xl flex-col gap-4">
           <div>
             <button
@@ -740,6 +768,8 @@ export function FirstRunOnboarding({
       <OnboardingShell
         profile={profile}
         screen="tools"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
         footer={
           <div
             data-testid="onboarding-tools-footer"
@@ -872,7 +902,12 @@ export function FirstRunOnboarding({
 
   if (screen === "role") {
     return (
-      <OnboardingShell profile={profile} screen="role">
+      <OnboardingShell
+        profile={profile}
+        screen="role"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <div
           className="mx-auto flex w-full max-w-md flex-col"
           data-testid="first-run-role"
@@ -944,12 +979,6 @@ export function FirstRunOnboarding({
             </button>
           </div>
         </div>
-        {completeFirstRunError && (
-          <FirstRunCompletionError
-            message={completeFirstRunError}
-            onRetry={() => void finishOnboarding("role")}
-          />
-        )}
       </OnboardingShell>
     );
   }
@@ -959,7 +988,12 @@ export function FirstRunOnboarding({
     const provisioning =
       builderConnectionMode === "provision" && !accountExists;
     return (
-      <OnboardingShell profile={profile} screen="choice">
+      <OnboardingShell
+        profile={profile}
+        screen="choice"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <div
           className="mx-auto flex w-full max-w-md flex-col items-center text-center"
           role="status"
@@ -1033,7 +1067,12 @@ export function FirstRunOnboarding({
   }
 
   return (
-    <OnboardingShell profile={profile} screen="ready">
+    <OnboardingShell
+      profile={profile}
+      screen="ready"
+      onDismiss={dismissOnboarding}
+      {...completionErrorProps}
+    >
       <div className="mx-auto flex w-full max-w-2xl flex-col items-center text-center">
         <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
           <IconCheck size={20} />
@@ -1090,12 +1129,6 @@ export function FirstRunOnboarding({
           <IconArrowRight size={15} />
         </button>
       </div>
-      {completeFirstRunError && (
-        <FirstRunCompletionError
-          message={completeFirstRunError}
-          onRetry={() => void finishOnboarding("ready")}
-        />
-      )}
     </OnboardingShell>
   );
 }
@@ -1104,13 +1137,20 @@ function OnboardingShell({
   profile,
   screen,
   footer,
+  onDismiss,
+  completionError,
+  onRetry,
   children,
 }: {
   profile: OnboardingAppProfile | null;
-  screen: "intro" | "choice" | "tools" | "role" | "ready";
+  screen: FirstRunScreen;
   footer?: React.ReactNode;
+  onDismiss?: () => void;
+  completionError?: string | null;
+  onRetry?: () => void;
   children: React.ReactNode;
 }) {
+  const t = useT();
   return (
     <div
       className="fixed inset-0 z-[100] flex h-full min-h-0 flex-col bg-background text-foreground"
@@ -1119,6 +1159,17 @@ function OnboardingShell({
       aria-modal="true"
       aria-label={`${profile?.appName ?? "Your app"} setup`}
     >
+      {onDismiss ? (
+        <button
+          type="button"
+          data-testid="first-run-dismiss"
+          aria-label={t("agentChat.common.dismiss")}
+          onClick={onDismiss}
+          className="absolute end-4 top-4 z-10 flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <IconX size={17} />
+        </button>
+      ) : null}
       <div
         className="h-0.5 shrink-0 bg-muted"
         data-testid="onboarding-progress"
@@ -1129,7 +1180,10 @@ function OnboardingShell({
             width:
               screen === "intro"
                 ? "33.33%"
-                : screen === "tools" || screen === "role" || screen === "ready"
+                : screen === "tools" ||
+                    screen === "role" ||
+                    screen === "ready" ||
+                    screen === "extension"
                   ? "100%"
                   : "66.66%",
           }}
@@ -1148,6 +1202,9 @@ function OnboardingShell({
           {footer}
         </footer>
       )}
+      {completionError && onRetry ? (
+        <FirstRunCompletionError message={completionError} onRetry={onRetry} />
+      ) : null}
     </div>
   );
 }

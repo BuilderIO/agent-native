@@ -13,6 +13,7 @@ import {
 import { forwardRef, useImperativeHandle, useRef } from "react";
 
 import { BuilderImage } from "../components/builder-image";
+import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
 import {
@@ -65,17 +66,23 @@ const template = templates.find((t) => t.slug === "plan")!;
 const PLAN_VIDEO_PREVIEWS = [
   {
     title: "Triggering code to diagram itself",
-    href: "https://clips.agent-native.com/share/F5l6RppFaQDF?ref=clip_share",
+    href: firstPartyAppUrl(
+      "https://clips.agent-native.com/share/F5l6RppFaQDF?ref=clip_share",
+    ),
     thumbnail: "https://clips.agent-native.com/api/thumbnail/F5l6RppFaQDF",
   },
   {
     title: "Better, more visual plans for Claude Code",
-    href: "https://clips.agent-native.com/share/F6SlN9TdlK30?ref=clip_share",
+    href: firstPartyAppUrl(
+      "https://clips.agent-native.com/share/F6SlN9TdlK30?ref=clip_share",
+    ),
     thumbnail: "https://clips.agent-native.com/api/thumbnail/F6SlN9TdlK30",
   },
   {
     title: "Visual MDX Plans for APIs, UIs, and Flows",
-    href: "https://clips.agent-native.com/share/YuM1nM1pcX3e?ref=clip_share",
+    href: firstPartyAppUrl(
+      "https://clips.agent-native.com/share/YuM1nM1pcX3e?ref=clip_share",
+    ),
     thumbnail: "https://clips.agent-native.com/api/thumbnail/YuM1nM1pcX3e",
   },
 ];
@@ -232,7 +239,7 @@ export default function PlanTemplate() {
         description={<p className="m-0">{t("templateLanding.plan.s016")}</p>}
         headingAction={
           <a
-            href={template.demoUrl}
+            href={firstPartyAppUrl(template.demoUrl)}
             target="_blank"
             rel="noopener noreferrer"
             className="primary-button"

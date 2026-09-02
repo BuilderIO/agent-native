@@ -1,8 +1,7 @@
 # Slides — Agent Guide
 
-Slides is an agent-native deck editor. The agent creates, edits, imports,
-exports, styles, shares, and navigates decks through actions and shared SQL
-state.
+Slides is an agent-native deck editor. The agent manages decks through actions
+and shared SQL state.
 
 ## Skills
 
@@ -58,10 +57,10 @@ Read the relevant skill before deeper work:
   reveals.
 - For images, use `generate-image-api` with provenance; show results as
   `![alt](url)`.
-- Ask a sibling app's agent with a natural-language `call-agent` message by
-  default. Let that specialist use its own instructions, skills, sources, and
-  tools. Direct action invocation is only for an exact bounded read with a
-  fully known schema; never use it as a workaround for slow or failed A2A.
+- Prefer exposed direct actions for bounded current-app work. Use `view-screen`
+  first when selection or context matters, use the smallest action, and read
+  back. Use `call-agent` or `ask_app` only when direct actions are unavailable,
+  cross-app/multi-step reasoning is needed, or direct execution needs recovery.
 - For data requests, read `analytics-data-for-decks` and delegate via Analytics
   over A2A; do not write SQL or call providers directly.
 - When the user names no reference deck or design system, call

@@ -1922,6 +1922,8 @@ export interface AssistantChatHandle {
     images?: string[],
     options?: AssistantChatSendOptions,
   ): void;
+  /** Implement the latest plan when the plan-mode callout is available. */
+  implementPlan(): boolean;
   /** Programmatically prefill the composer without submitting. */
   prefillMessage(text: string): void;
   /**
@@ -5754,6 +5756,33 @@ const AssistantChatInner = forwardRef<
     return () => window.clearTimeout(timer);
   }, [addToQueue, pendingReconnectRecovery]);
 
+  const latestMessage = messages[messages.length - 1];
+  const latestMessageRole = latestMessage?.role;
+  const latestAssistantWasPlan =
+    latestMessageRole === "assistant" &&
+    getRequestModeMetadata(latestMessage) === "plan";
+  const showPlanModeCallout =
+    execMode === "plan" &&
+    !planModeDisabled &&
+    !isComposerDisabled &&
+    !showRunningInUI;
+  const canImplementPlan = showPlanModeCallout && latestAssistantWasPlan;
+  const handleImplementPlan = useCallback(() => {
+    if (!canImplementPlan) return false;
+    onExecModeChange?.("build");
+    void addToQueue(
+      "Implement the plan.",
+      undefined,
+      undefined,
+      undefined,
+      "act",
+    );
+    return true;
+  }, [addToQueue, canImplementPlan, onExecModeChange]);
+  const handleSwitchToAct = useCallback(() => {
+    onExecModeChange?.("build");
+  }, [onExecModeChange]);
+
   // Expose imperative handle
   useImperativeHandle(
     ref,
@@ -5780,6 +5809,9 @@ const AssistantChatInner = forwardRef<
           undefined,
           options?.usageLabel,
         );
+      },
+      implementPlan() {
+        return handleImplementPlan();
       },
       prefillMessage(text: string) {
         tiptapRef.current?.setText(text);
@@ -5856,6 +5888,7 @@ const AssistantChatInner = forwardRef<
     [
       addToQueue,
       exportPersistableThreadRepo,
+      handleImplementPlan,
       isRunning,
       messages.length,
       stageComposerContextItem,
@@ -5889,7 +5922,6 @@ const AssistantChatInner = forwardRef<
     isReconnecting,
     reconnectFrozen,
   });
-  const latestMessage = messages[messages.length - 1];
   const reconnectStatusContent =
     visibleReconnectContent.length > 0
       ? visibleReconnectContent
@@ -5975,33 +6007,10 @@ const AssistantChatInner = forwardRef<
       "retry",
     );
   }, [addToQueue, lastUserText]);
-  const latestMessageRole = latestMessage?.role;
-  const latestAssistantWasPlan =
-    latestMessageRole === "assistant" &&
-    getRequestModeMetadata(latestMessage) === "plan";
   const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
   const bounceMissingKeySetup = useCallback(() => {
     setMissingKeyBouncePulse((pulse) => pulse + 1);
   }, []);
-  const showPlanModeCallout =
-    execMode === "plan" &&
-    !planModeDisabled &&
-    !isComposerDisabled &&
-    !showRunningInUI;
-  const canImplementPlan = showPlanModeCallout && latestAssistantWasPlan;
-  const handleImplementPlan = useCallback(() => {
-    onExecModeChange?.("build");
-    void addToQueue(
-      "Implement the plan.",
-      undefined,
-      undefined,
-      undefined,
-      "act",
-    );
-  }, [addToQueue, onExecModeChange]);
-  const handleSwitchToAct = useCallback(() => {
-    onExecModeChange?.("build");
-  }, [onExecModeChange]);
   const visibleLoopLimit = showContinue
     ? (loopLimitInfo ?? lastMessageLoopLimit ?? {})
     : lastMessageLoopLimit;

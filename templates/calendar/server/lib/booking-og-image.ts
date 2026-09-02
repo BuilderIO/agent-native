@@ -16,13 +16,11 @@ export interface BookingOgImageInput {
 
 const WIDTH = 1200;
 const HEIGHT = 630;
-const BRAND_BLUE = "#00B5FF";
-const BRAND_MINT = "#48FFE4";
-const BG = "#000000";
+const BG = "#0A0A0A";
 const SURFACE = "#0a0a0a";
 const BORDER = "#1f1f1f";
-const FG = "#ededed";
-const MUTED = "#a0a0a0";
+const FG = "#FAF9F5";
+const MUTED = "#9A9997";
 const FONT_FAMILY = "Liberation Sans, Arial, system-ui, sans-serif";
 const FONT_SOURCE_PATHS = [
   "../../assets/fonts/LiberationSans-Regular.ttf",
@@ -33,8 +31,8 @@ const AVATAR_CY = 170;
 const AVATAR_SIZE = 172;
 
 const LOGO_MARK = `
-  <path d="M24.5537 65.7695H0L15.0859 39.4619L37.708 0L60.4912 39.4619H39.6396L24.5537 65.7695Z" fill="white"/>
-  <path d="M89.446 0H114L76.2921 65.7704H51.7383L89.446 0Z" fill="url(#brand)"/>
+  <path d="M26.8789 71.999H0L16.5146 43.1992L41.2793 0L66.2197 43.1992H43.3945L26.8789 71.999Z" fill="white"/>
+  <path d="M97.914 0H124.794L83.5143 72H56.6348L97.914 0Z" fill="white"/>
 `;
 
 function escapeSvg(value: string): string {
@@ -59,7 +57,9 @@ function titleCase(value: string): string {
     .join(" ");
 }
 
-function displayNameFromIdentifier(
+// Also used by the public booking-link handler so it can identify the owner
+// without exposing their raw email address.
+export function displayNameFromIdentifier(
   username?: string | null,
   ownerEmail?: string | null,
 ): string {
@@ -237,34 +237,26 @@ export function renderBookingOgImageSvg(input: BookingOgImageInput): string {
     titleLines.length === 1
       ? `<g transform="translate(0 150)">
       <rect x="0" y="-34" width="${Math.max(246, duration.length * 17 + 54)}" height="58" rx="29" fill="${SURFACE}" stroke="${BORDER}"/>
-      <circle cx="31" cy="-5" r="8" fill="${BRAND_MINT}"/>
+      <circle cx="31" cy="-5" r="8" fill="${FG}"/>
       <text x="54" y="4" font-family="${FONT_FAMILY}" font-size="27" font-weight="700" fill="${FG}">${escapeSvg(duration)}</text>
     </g>`
       : "";
   const avatarContent = profileImageDataUrl
     ? `<image x="${AVATAR_CX - AVATAR_SIZE / 2}" y="${AVATAR_CY - AVATAR_SIZE / 2}" width="${AVATAR_SIZE}" height="${AVATAR_SIZE}" href="${escapeSvg(profileImageDataUrl)}" preserveAspectRatio="xMidYMid slice" mask="url(#avatarMask)"/>`
-    : `<circle cx="${AVATAR_CX}" cy="${AVATAR_CY}" r="72" fill="url(#brand)" fill-opacity="0.2"/>
+    : `<circle cx="${AVATAR_CX}" cy="${AVATAR_CY}" r="72" fill="${FG}" fill-opacity="0.12"/>
        <text x="${AVATAR_CX}" y="${AVATAR_CY + 20}" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="56" font-weight="800" fill="${FG}">${escapeSvg(initials)}</text>`;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
   <title>Agent-Native Calendar booking link</title>
   <defs>
-    <linearGradient id="brand" x1="101.702" y1="67.4791" x2="113.672" y2="-37.4275" gradientUnits="userSpaceOnUse">
-      <stop stop-color="${BRAND_BLUE}"/>
-      <stop offset="1" stop-color="${BRAND_MINT}"/>
-    </linearGradient>
-    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
-      <path d="M 48 0 L 0 0 0 48" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="1"/>
-    </pattern>
     <mask id="avatarMask">
       <rect width="${WIDTH}" height="${HEIGHT}" fill="black"/>
       <circle cx="${AVATAR_CX}" cy="${AVATAR_CY}" r="78" fill="white"/>
     </mask>
   </defs>
   <rect width="${WIDTH}" height="${HEIGHT}" fill="${BG}"/>
-  <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#grid)"/>
   <g transform="translate(80 86)">
-    <g transform="scale(0.62)">
+    <g transform="translate(0 14) scale(0.62)">
       ${LOGO_MARK}
     </g>
     <text x="90" y="31" font-family="${FONT_FAMILY}" font-size="28" font-weight="800" fill="${FG}">Agent-Native</text>

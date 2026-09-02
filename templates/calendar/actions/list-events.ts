@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { defineAction } from "@agent-native/core/action";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   getRequestTimezone,
   getRequestUserEmail,
@@ -17,6 +18,7 @@ import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import { fetchICalEvents } from "../server/lib/ical-fetcher.js";
 import type { CalendarEvent, ExternalCalendar } from "../shared/api.js";
+import { SHARED_GOOGLE_CALENDARS } from "../shared/feature-flags.js";
 import {
   addDaysToDateKey,
   dateKeyInTimezone,
@@ -74,6 +76,7 @@ interface ListCalendarEventsArgs {
   query?: string;
   overlayEmails?: string | string[];
   accountEmails?: string[];
+  calendarSourceKeys?: string[];
   sources?: CalendarInventorySource[];
   providerPageSize?: number;
 }
@@ -89,6 +92,15 @@ type CalendarInventorySource = "google" | "bookings" | "ics" | "overlays";
 interface CalendarEventsResult {
   events: CalendarEvent[];
   errors: Array<{ email: string; error: string }>;
+  // Primary-account read failures only, excluding overlay-account
+  // failures - an optional overlay person's calendar failing shouldn't
+  // make an otherwise-successful primary read look failed.
+  primaryErrors: Array<{ email: string; error: string }>;
+  // Count of events the primary read itself contributed, before merging
+  // in overlay/ical/booking events - lets callers tell "primary failed
+  // but a supplementary source had something" apart from "primary really
+  // returned events".
+  primaryEventCount: number;
   googleConnected: boolean;
   range: CalendarEventRange;
   icalErrors: Array<{ id: string; name: string; error: string }>;
@@ -122,6 +134,12 @@ export interface CalendarInventoryItem {
   source: "google" | "booking" | "ics" | "overlay";
   sourceId?: string;
   accountEmail?: string;
+  calendarSourceKey?: string;
+  calendarId?: string;
+  calendarName?: string;
+  calendarAccessRole?: CalendarEvent["calendarAccessRole"];
+  calendarPrimary?: boolean;
+  calendarReadOnly?: boolean;
   overlayEmail?: string;
   organizer?: { email?: string; displayName?: string; self?: boolean };
   selfResponseStatus?: CalendarEvent["responseStatus"];
@@ -230,6 +248,7 @@ function inventoryQueryKey(args: {
   to: string;
   query?: string;
   accountEmails: string[];
+  calendarSourceKeys?: string[];
   overlayEmails?: string | string[];
   sources: CalendarInventorySource[];
 }): string {
@@ -239,6 +258,7 @@ function inventoryQueryKey(args: {
     to: args.to,
     query: args.query?.trim().toLowerCase() || "",
     accountEmails: normalizedEmails(args.accountEmails),
+    calendarSourceKeys: [...(args.calendarSourceKeys ?? [])].sort(),
     overlayEmails: normalizedOverlayEmails(args.overlayEmails),
     sources: [...args.sources].sort(),
   });
@@ -305,7 +325,10 @@ function compactInventoryEvent(event: CalendarEvent): CalendarInventoryItem {
   );
   const key = [
     event.source,
-    event.accountEmail ?? event.overlayEmail ?? "local",
+    event.calendarSourceKey ??
+      event.accountEmail ??
+      event.overlayEmail ??
+      "local",
     event.googleEventId ?? event.id,
     event.start,
   ].join(":");
@@ -329,6 +352,12 @@ function compactInventoryEvent(event: CalendarEvent): CalendarInventoryItem {
     source,
     sourceId: event.sourceId,
     accountEmail: event.accountEmail,
+    calendarSourceKey: event.calendarSourceKey,
+    calendarId: event.calendarId,
+    calendarName: cap(event.calendarName),
+    calendarAccessRole: event.calendarAccessRole,
+    calendarPrimary: event.calendarPrimary,
+    calendarReadOnly: event.calendarReadOnly,
     overlayEmail: event.overlayEmail,
     organizer: event.organizer
       ? {
@@ -629,6 +658,7 @@ export async function listCalendarEvents(
     connected && includeGoogle
       ? googleCalendar.listEvents(range.from, range.to, email, {
           accountEmails: args.accountEmails,
+          calendarSourceKeys: args.calendarSourceKeys,
           maxResults: args.providerPageSize,
         })
       : Promise.resolve({ events: [], errors: [] });
@@ -718,11 +748,21 @@ export async function listCalendarEvents(
 
   const googleEventIds = new Set(
     googleEvents
+      .filter(
+        (event) =>
+          event.calendarPrimary !== false &&
+          !event.overlayEmail &&
+          event.googleEventId,
+      )
       .map((event) => event.googleEventId)
       .filter((id): id is string => Boolean(id)),
   );
   const googleReadAuthoritative =
-    includeGoogle && connected && errors.length === 0;
+    includeGoogle &&
+    connected &&
+    googleResult.errors.length === 0 &&
+    (!args.calendarSourceKeys?.length ||
+      googleEvents.some((event) => event.calendarPrimary === true));
   const bookingEvents = rawBookingEvents.filter((event) =>
     shouldShowLocalBookingEvent({
       event,
@@ -749,6 +789,8 @@ export async function listCalendarEvents(
   return {
     events,
     errors,
+    primaryErrors: googleResult.errors,
+    primaryEventCount: googleResult.events.length,
     googleConnected: connected,
     range,
     icalErrors,
@@ -789,6 +831,14 @@ export default defineAction({
       .describe(
         "Connected Google accounts to read; omitted reads every connected account",
       ),
+    calendarSourceKeys: z
+      .array(z.string().min(1).max(4096))
+      .min(1)
+      .max(100)
+      .optional()
+      .describe(
+        "Opaque Google calendar source keys returned by list-google-calendars; each is revalidated before reading",
+      ),
     sources: z
       .array(z.enum(["google", "bookings", "ics", "overlays"]))
       .max(4)
@@ -814,6 +864,12 @@ export default defineAction({
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async (args, ctx) => {
+    if (
+      args.calendarSourceKeys &&
+      !(await isFeatureFlagEnabled(SHARED_GOOGLE_CALENDARS, ctx))
+    ) {
+      throw new Error("Shared Google calendars is not enabled");
+    }
     const inventory =
       args.format === "inventory" || (ctx?.caller === "mcp" && !args.format);
     const owner = inventory ? getRequestUserEmail() : undefined;
@@ -844,6 +900,7 @@ export default defineAction({
         to: preparedRange.to,
         query: args.query,
         accountEmails: args.accountEmails ?? preparedOwnedAccounts ?? [],
+        calendarSourceKeys: args.calendarSourceKeys,
         overlayEmails: args.overlayEmails,
         sources: resolveInventorySources(args.sources),
       });
@@ -873,6 +930,7 @@ export default defineAction({
           to: result.range.to,
           query: args.query,
           accountEmails: result.requestedAccounts ?? result.resolvedAccounts,
+          calendarSourceKeys: args.calendarSourceKeys,
           overlayEmails: args.overlayEmails,
           sources: result.sources,
         });
@@ -1016,9 +1074,18 @@ export default defineAction({
       };
     }
 
-    if (result.events.length === 0 && result.errors.length > 0) {
+    // Overlay people are a supplementary view on top of the caller's own
+    // calendar - an overlay-only failure (disconnected/erroring peer
+    // account) must not fail the whole request when the caller's own
+    // primary read succeeded fine, even if it happened to return zero
+    // events for this range. Conversely, check primaryEventCount (not
+    // the combined `events.length`) so a real primary failure isn't
+    // silently masked by a supplementary source (overlay/ical/booking)
+    // happening to contribute something - that would otherwise return
+    // an incomplete result that looks like a normal empty success.
+    if (result.primaryEventCount === 0 && result.primaryErrors.length > 0) {
       throw new Error(
-        result.errors.map((e) => `${e.email}: ${e.error}`).join("; "),
+        result.primaryErrors.map((e) => `${e.email}: ${e.error}`).join("; "),
       );
     }
 

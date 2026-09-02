@@ -610,6 +610,7 @@ export function isAgentPatchCaller(caller: string | undefined): boolean {
 // ---------------------------------------------------------------------------
 
 export default defineAction({
+  title: "Patch Slides deck",
   description:
     "Granular deck patch used by the browser editor for concurrent-safe writes. " +
     "Each operation touches only the target slide or field — concurrent writers " +
