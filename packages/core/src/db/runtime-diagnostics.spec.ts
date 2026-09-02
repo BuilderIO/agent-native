@@ -26,14 +26,15 @@ afterEach(() => {
 });
 
 describe("runtime diagnostics", () => {
-  it("reports the effective Netlify database without reading scoped secrets", () => {
+  it("reports only the effective Netlify database without reading scoped secrets", () => {
     vi.stubEnv("APP_NAME", "forms");
+    vi.stubEnv("FORMS_DATABASE_URL", "");
     vi.stubEnv("DATABASE_URL", "");
     vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
     mockRuntimeDatabaseUrl.mockReturnValue("postgres://netlify.example/db");
     mockIsLocalDatabase.mockReturnValue(false);
 
-    expect(getEffectiveDatabaseEnvStatus("DATABASE_URL")).toBe(true);
+    expect(getEffectiveDatabaseEnvStatus("DATABASE_URL")).toBe(false);
     expect(getEffectiveDatabaseEnvStatus("NETLIFY_DATABASE_URL")).toBe(true);
     expect(
       getEffectiveDatabaseEnvStatus("DATABASE_AUTH_TOKEN"),
@@ -46,6 +47,19 @@ describe("runtime diagnostics", () => {
     mockRuntimeDatabaseUrl.mockReturnValue("file:./data/app.db");
     mockIsLocalDatabase.mockReturnValue(true);
 
+    expect(getEffectiveDatabaseEnvStatus("DATABASE_URL")).toBe(false);
+    expect(getEffectiveDatabaseEnvStatus("NETLIFY_DATABASE_URL")).toBe(false);
+  });
+
+  it("follows app-prefixed URL precedence when multiple URLs are present", () => {
+    vi.stubEnv("APP_NAME", "forms");
+    vi.stubEnv("FORMS_DATABASE_URL", "postgres://forms.example/db");
+    vi.stubEnv("DATABASE_URL", "postgres://generic.example/db");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
+    mockRuntimeDatabaseUrl.mockReturnValue("postgres://forms.example/db");
+    mockIsLocalDatabase.mockReturnValue(false);
+
+    expect(getEffectiveDatabaseEnvStatus("FORMS_DATABASE_URL")).toBe(true);
     expect(getEffectiveDatabaseEnvStatus("DATABASE_URL")).toBe(false);
     expect(getEffectiveDatabaseEnvStatus("NETLIFY_DATABASE_URL")).toBe(false);
   });

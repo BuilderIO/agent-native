@@ -216,7 +216,7 @@ export function getEffectiveDatabaseEnvStatus(
   const database = getDatabaseRuntimeFingerprint();
   if (!database.configured || isLocalDatabase()) return false;
 
-  return key === "DATABASE_URL" || database.source === key;
+  return database.source === key;
 }
 
 export function getRuntimeDebugFingerprint(): RuntimeDebugFingerprint {

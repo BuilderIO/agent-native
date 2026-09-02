@@ -20,7 +20,9 @@ export function useDbStatus() {
   });
 
   const configured =
-    data?.find((entry) => entry.key === "DATABASE_URL")?.configured ?? false;
+    data?.some(
+      (entry) => /(?:^|_)DATABASE_URL$/.test(entry.key) && entry.configured,
+    ) ?? false;
 
   return {
     configured,

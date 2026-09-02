@@ -90,6 +90,8 @@ describe("createServer", () => {
   });
 
   it("reports a Netlify database through the effective URL status", async () => {
+    vi.stubEnv("APP_NAME", "forms");
+    vi.stubEnv("FORMS_DATABASE_URL", "");
     vi.stubEnv("DATABASE_URL", "");
     vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
     const { app } = createServer({
@@ -107,7 +109,7 @@ describe("createServer", () => {
         key: "DATABASE_URL",
         label: "Database URL",
         required: false,
-        configured: true,
+        configured: false,
       },
       {
         key: "NETLIFY_DATABASE_URL",
