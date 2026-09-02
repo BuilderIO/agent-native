@@ -19,6 +19,8 @@ type TemplateHeroProps = {
   title: ReactNode;
   titleClassName?: string;
   customizeTemplate?: TemplateHeroTemplate;
+  /** Place the description under the title instead of in the right column. */
+  descriptionPlacement?: "side" | "below-title";
 };
 
 export function TemplateHero({
@@ -32,7 +34,27 @@ export function TemplateHero({
   title,
   titleClassName = "",
   customizeTemplate,
+  descriptionPlacement = "side",
 }: TemplateHeroProps) {
+  const belowTitle = descriptionPlacement === "below-title";
+
+  const descriptionBlock = (
+    <div
+      className={
+        belowTitle
+          ? "lg:col-span-2 lg:col-start-1 lg:row-start-3"
+          : "lg:col-start-3 lg:row-start-2 lg:self-center lg:ps-8"
+      }
+    >
+      <div
+        className={`font-sans text-[15px] font-normal leading-[1.4] text-[var(--fg-secondary)] ${belowTitle ? "max-w-[440px]" : "max-w-[300px]"}`}
+      >
+        {description}
+      </div>
+      {action ? <div className="mt-5">{action}</div> : null}
+    </div>
+  );
+
   return (
     <section className={className}>
       <div className="relative overflow-hidden border-x border-[var(--docs-border)]">
@@ -58,8 +80,12 @@ export function TemplateHero({
             {title}
           </h1>
 
+          {belowTitle ? descriptionBlock : null}
+
           {headingAction || customizeTemplate ? (
-            <div className="mt-3 lg:col-span-2 lg:col-start-1 lg:row-start-3">
+            <div
+              className={`mt-3 lg:col-span-2 lg:col-start-1 ${belowTitle ? "lg:row-start-4" : "lg:row-start-3"}`}
+            >
               <div className="flex flex-wrap items-center gap-3">
                 {headingAction}
                 {customizeTemplate ? (
@@ -72,12 +98,7 @@ export function TemplateHero({
             </div>
           ) : null}
 
-          <div className="lg:col-start-3 lg:row-start-2 lg:self-center lg:ps-8">
-            <div className="max-w-[300px] font-sans text-[15px] font-normal leading-[1.4] text-[var(--fg-secondary)]">
-              {description}
-            </div>
-            {action ? <div className="mt-5">{action}</div> : null}
-          </div>
+          {belowTitle ? null : descriptionBlock}
         </div>
 
         <div className="relative py-3 sm:py-4 lg:py-5">{media}</div>

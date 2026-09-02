@@ -3,6 +3,7 @@ import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 
 import { BuilderImage } from "../components/builder-image";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
+import { ClipsLibraryMock } from "../components/template-landing/ClipsLibraryMock";
 import { SectionDivider } from "../components/SectionDivider";
 import { TemplateDocsLink } from "../components/template-docs";
 import {
@@ -12,7 +13,6 @@ import {
   TemplateLandingFaq,
   TemplateLandingShell,
 } from "../components/template-landing";
-import { ClipsLibraryMock } from "../components/template-landing/ClipsLibraryMock";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
 
@@ -259,6 +259,7 @@ export default function ClipsTemplate() {
           </a>
         }
         description={<p>{t("templateLanding.clips.s008")}</p>}
+        descriptionPlacement="below-title"
         media={
           <ClipsLibraryMock
             label={t("templateLanding.clips.s001")}
