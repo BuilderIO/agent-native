@@ -40,6 +40,7 @@ import {
   ensurePersonalDefaults,
   canWriteLocalWorkspaceResourcePath,
   isLocalWorkspaceResourceId,
+  isLegacySharedResourceVisibleToOrganization,
   organizationIdFromResourceOwner,
   sharedResourceOwner,
   SHARED_OWNER,
@@ -113,18 +114,13 @@ async function listSharedResources(
   options?: Parameters<typeof resourceList>[2],
 ): Promise<ResourceMeta[]> {
   const organizationOwner = sharedResourceOwner(orgId);
+  const scopedOptions = { ...options, orgId };
   if (organizationOwner === SHARED_OWNER) {
-    return options
-      ? resourceList(SHARED_OWNER, prefix, options)
-      : resourceList(SHARED_OWNER, prefix);
+    return resourceList(SHARED_OWNER, prefix, scopedOptions);
   }
   const [organization, legacyAppDefaults] = await Promise.all([
-    options
-      ? resourceList(organizationOwner, prefix, options)
-      : resourceList(organizationOwner, prefix),
-    options
-      ? resourceList(SHARED_OWNER, prefix, options)
-      : resourceList(SHARED_OWNER, prefix),
+    resourceList(organizationOwner, prefix, scopedOptions),
+    resourceList(SHARED_OWNER, prefix, scopedOptions),
   ]);
   return mergeScopedResources(organization, legacyAppDefaults);
 }
@@ -439,7 +435,10 @@ export async function handleGetResource(event: any) {
     return { error: "Resource not found" };
   }
 
-  if (!canReadOwner(resource.owner, email, orgId)) {
+  if (
+    !canReadOwner(resource.owner, email, orgId) ||
+    !isLegacySharedResourceVisibleToOrganization(resource, orgId)
+  ) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
@@ -567,7 +566,10 @@ export async function handleUpdateResource(event: any) {
   // Ownership check: only the owner (or shared resource editors) can update
   const email = await resolveEmail(event);
   const orgId = await resolveOrgId(event);
-  if (!canReadOwner(existing.owner, email, orgId)) {
+  if (
+    !canReadOwner(existing.owner, email, orgId) ||
+    !isLegacySharedResourceVisibleToOrganization(existing, orgId)
+  ) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
@@ -659,7 +661,10 @@ export async function handleDeleteResource(event: any) {
   // Ownership check: only the owner (or shared resource editors) can delete
   const email = await resolveEmail(event);
   const orgId = await resolveOrgId(event);
-  if (!canReadOwner(existing.owner, email, orgId)) {
+  if (
+    !canReadOwner(existing.owner, email, orgId) ||
+    !isLegacySharedResourceVisibleToOrganization(existing, orgId)
+  ) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }

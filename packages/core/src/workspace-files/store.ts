@@ -8,7 +8,7 @@
  */
 
 import {
-  SHARED_OWNER,
+  sharedResourceOwner,
   resourceDeleteByPath,
   resourceGetByPath,
   resourceList,
@@ -45,7 +45,9 @@ export interface WorkspaceFilesScope {
 }
 
 function ownerForScope(scope: WorkspaceFilesScope): string {
-  return scope.scope === "org" ? SHARED_OWNER : scope.scopeId;
+  return scope.scope === "org"
+    ? sharedResourceOwner(scope.scopeId)
+    : scope.scopeId;
 }
 
 /** True for `scratch/...` paths — hidden agent staging, never durable. */

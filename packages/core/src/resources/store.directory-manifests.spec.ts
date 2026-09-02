@@ -16,7 +16,11 @@ describe("resourceListContentByOwnersAndPrefixes", () => {
     executeMock.mockImplementation(
       async (input: string | { sql: string; args?: unknown[] }) => {
         const sql = typeof input === "string" ? input : input.sql;
-        if (sql.includes("SELECT id, path, owner, content FROM resources")) {
+        if (
+          sql.includes(
+            "SELECT id, path, owner, content, metadata FROM resources",
+          )
+        ) {
           return {
             rows: [
               {
@@ -72,5 +76,32 @@ describe("resourceListContentByOwnersAndPrefixes", () => {
       ),
     ).rejects.toThrow("connection reset");
     expect(executeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps legacy organization files inside their tagged organization", async () => {
+    const { isLegacySharedResourceVisibleToOrganization } =
+      await import("./store.js");
+
+    const resource = {
+      owner: "__shared__",
+      metadata: JSON.stringify({
+        source: "workspace-files",
+        scope: "org",
+        scopeId: "org-a",
+      }),
+    };
+
+    expect(isLegacySharedResourceVisibleToOrganization(resource, "org-a")).toBe(
+      true,
+    );
+    expect(isLegacySharedResourceVisibleToOrganization(resource, "org-b")).toBe(
+      false,
+    );
+    expect(
+      isLegacySharedResourceVisibleToOrganization(
+        { owner: "__shared__", metadata: null },
+        "org-b",
+      ),
+    ).toBe(true);
   });
 });

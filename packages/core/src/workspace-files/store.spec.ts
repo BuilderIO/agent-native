@@ -6,7 +6,8 @@ const mockResourceList = vi.hoisted(() => vi.fn());
 const mockResourceDeleteByPath = vi.hoisted(() => vi.fn());
 
 vi.mock("../resources/store.js", () => ({
-  SHARED_OWNER: "__shared__",
+  sharedResourceOwner: (orgId: string) =>
+    `__organization__:${encodeURIComponent(orgId)}`,
   resourcePut: mockResourcePut,
   resourceGetByPath: mockResourceGetByPath,
   resourceList: mockResourceList,
@@ -83,7 +84,7 @@ describe("workspace-files Resources adapter", () => {
     );
 
     expect(mockResourcePut).toHaveBeenCalledWith(
-      "__shared__",
+      "__organization__:org_123",
       "analysis/summary.md",
       "summary",
       "text/markdown",
@@ -112,6 +113,20 @@ describe("workspace-files Resources adapter", () => {
     expect(file?.content).toBe("cde");
     expect(file?.contentType).toBe("text/plain");
     expect(file?.sizeBytes).toBe(6);
+  });
+
+  it("reads organization files from the active organization owner", async () => {
+    mockResourceGetByPath.mockResolvedValue(resource("analysis/data.json"));
+
+    await readWorkspaceFile(
+      { scope: "org", scopeId: "org_123" },
+      "analysis/data.json",
+    );
+
+    expect(mockResourceGetByPath).toHaveBeenCalledWith(
+      "__organization__:org_123",
+      "analysis/data.json",
+    );
   });
 
   it("lists exact prefix folders without prefix lookalikes", async () => {
@@ -147,7 +162,7 @@ describe("workspace-files Resources adapter", () => {
       ),
     ).resolves.toBe(true);
     expect(mockResourceDeleteByPath).toHaveBeenCalledWith(
-      "__shared__",
+      "__organization__:org_123",
       "scratch/tmp.md",
     );
   });

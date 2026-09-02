@@ -30,6 +30,7 @@ vi.mock("./store.js", () => ({
     mockCanWriteLocalWorkspaceResourcePath(...args),
   isLocalWorkspaceResourceId: (...args: any[]) =>
     mockIsLocalWorkspaceResourceId(...args),
+  isLegacySharedResourceVisibleToOrganization: () => true,
   resourceGet: (...args: any[]) => mockResourceGet(...args),
   resourceGetByPath: (...args: any[]) => mockResourceGetByPath(...args),
   resourcePut: (...args: any[]) => mockResourcePut(...args),
@@ -151,7 +152,9 @@ describe("resource handlers", () => {
       const event = { _query: { scope: "shared" } };
       await handleListResources(event);
 
-      expect(mockResourceList).toHaveBeenCalledWith("__shared__", undefined);
+      expect(mockResourceList).toHaveBeenCalledWith("__shared__", undefined, {
+        orgId: null,
+      });
     });
 
     it("lists only workspace resources when scope=workspace", async () => {

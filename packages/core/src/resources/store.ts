@@ -71,6 +71,37 @@ export function sharedResourceOwner(orgId?: string | null): string {
   return activeOrgId ? organizationResourceOwner(activeOrgId) : SHARED_OWNER;
 }
 
+/**
+ * Rows written by the old organization workspace-files adapter used the
+ * global shared owner. Keep true app defaults visible, but do not let those
+ * tagged rows fall through to another organization's inherited resources.
+ */
+export function isLegacySharedResourceVisibleToOrganization(
+  resource: Pick<ResourceMeta, "owner" | "metadata">,
+  orgId?: string | null,
+): boolean {
+  if (resource.owner !== SHARED_OWNER || resource.metadata === null)
+    return true;
+
+  let metadata: unknown;
+  try {
+    metadata = JSON.parse(resource.metadata);
+  } catch {
+    return false;
+  }
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return true;
+  }
+
+  const candidate = metadata as Record<string, unknown>;
+  if (candidate.source !== "workspace-files") return true;
+  return candidate.scope === "org" && candidate.scopeId === orgId;
+}
+
+function resourceOrganizationId(orgId?: string | null): string | null {
+  return orgId === undefined ? (getRequestOrgId() ?? null) : orgId;
+}
+
 function escapeLike(value: string): string {
   return value.replace(/[!%_]/g, (char) => `!${char}`);
 }
@@ -1355,7 +1386,13 @@ export async function resourceGet(
     args: [id],
   });
   if (rows.length === 0) return grantedWorkspaceResourceById(id, options);
-  return rowToResource(rows[0]);
+  const resource = rowToResource(rows[0]);
+  return isLegacySharedResourceVisibleToOrganization(
+    resource,
+    resourceOrganizationId(options?.orgId),
+  )
+    ? resource
+    : null;
 }
 
 export async function resourceGetByPath(
@@ -1378,7 +1415,13 @@ export async function resourceGetByPath(
     return grantedWorkspaceResourceByPath(path, options);
   }
   if (rows.length === 0) return null;
-  return rowToResource(rows[0]);
+  const resource = rowToResource(rows[0]);
+  return isLegacySharedResourceVisibleToOrganization(
+    resource,
+    resourceOrganizationId(options?.orgId),
+  )
+    ? resource
+    : null;
 }
 
 export async function resourcePut(
@@ -1646,7 +1689,14 @@ export async function resourceList(
       sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '!'${visibilitySql}`,
       args: [owner, prefixLike(pathPrefix)],
     });
-    const resources = rows.map(rowToMeta);
+    const resources = rows
+      .map(rowToMeta)
+      .filter((resource) =>
+        isLegacySharedResourceVisibleToOrganization(
+          resource,
+          resourceOrganizationId(options?.orgId),
+        ),
+      );
     if (owner !== WORKSPACE_OWNER) return resources;
     const local = await localWorkspaceResourceMetas(pathPrefix);
     const granted = await grantedWorkspaceResources({
@@ -1665,7 +1715,14 @@ export async function resourceList(
     sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}`,
     args: [owner],
   });
-  const resources = rows.map(rowToMeta);
+  const resources = rows
+    .map(rowToMeta)
+    .filter((resource) =>
+      isLegacySharedResourceVisibleToOrganization(
+        resource,
+        resourceOrganizationId(options?.orgId),
+      ),
+    );
   if (owner !== WORKSPACE_OWNER) return resources;
   const local = await localWorkspaceResourceMetas();
   const granted = await grantedWorkspaceResources({
@@ -1698,7 +1755,7 @@ export async function resourceListContentByOwnersAndPrefixes(
     .map(() => "path LIKE ? ESCAPE '!'")
     .join(" OR ");
   const query = {
-    sql: `SELECT id, path, owner, content FROM resources WHERE owner IN (${ownerSql}) AND (${prefixSql})${scratchFilterSql()}`,
+    sql: `SELECT id, path, owner, content, metadata FROM resources WHERE owner IN (${ownerSql}) AND (${prefixSql})${scratchFilterSql()}`,
     args: [
       ...uniqueOwners,
       ...uniquePrefixes.map((prefix) => prefixLike(prefix)),
@@ -1716,12 +1773,21 @@ export async function resourceListContentByOwnersAndPrefixes(
     ({ rows } = await client.execute(query));
   }
   scheduleExpiredAgentScratchCleanup(client);
-  return rows.map((row) => ({
-    id: String(row.id),
-    path: String(row.path),
-    owner: String(row.owner),
-    content: String(row.content),
-  }));
+  return rows
+    .map((row) => ({
+      id: String(row.id),
+      path: String(row.path),
+      owner: String(row.owner),
+      content: String(row.content),
+      metadata: nullableString(row.metadata),
+    }))
+    .filter((resource) =>
+      isLegacySharedResourceVisibleToOrganization(
+        resource,
+        resourceOrganizationId(),
+      ),
+    )
+    .map(({ metadata: _metadata, ...resource }) => resource);
 }
 
 export async function resourceListAccessible(
@@ -1770,7 +1836,7 @@ export async function resourceEffectiveContext(
     organizationOwner === SHARED_OWNER
       ? Promise.resolve(null)
       : resourceGetByPath(organizationOwner, path),
-    resourceGetByPath(SHARED_OWNER, path),
+    resourceGetByPath(SHARED_OWNER, path, options),
     resourceGetByPath(userEmail, path),
   ]);
   const shared = organization ?? legacyShared;
