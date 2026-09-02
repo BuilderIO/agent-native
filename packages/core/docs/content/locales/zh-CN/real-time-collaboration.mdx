@@ -635,7 +635,7 @@ AGENT_NATIVE_REALTIME_TRANSPORT=hosted
 | **位于公网可达主机上的 Postgres** | 网关从自己的网络拨号连接数据库。PGlite、SQLite、`localhost`、`*.internal` 以及裸 IP 地址在连接字符串离开你的机器之前就会被拒绝。 | `DATABASE_URL` 指向 Neon 之类的托管 Postgres |
 | **把 `BUILDER_PRIVATE_KEY` 设为「部署级」环境变量** | 它为注册提供身份验证，并决定通道归属于哪个 Builder 组织。 | 见下方提示 —— 这是最容易被漏掉的一步 |
 | **是生产部署** | 部署预览会保持本地同步，因此一次性的分支凭据永远不会离开机器，活跃的仓库也不会为每个 pull request 创建一个通道。 | `CONTEXT=production` / `BRANCH=production`，或 `VERCEL_ENV=production` |
-| **平台能标识该部署** | 注册以应用的公开来源（origin）为键，因此并非该部署的进程不得声称拥有它。 | Netlify、Vercel、AWS Lambda、Cloud Run、Render 和 Cloudflare Pages 都会标记自身。在纯容器或虚拟机上，请把 `URL` 设为该部署自己的来源 |
+| **平台能标识该部署** | 注册以应用的公开来源（origin）为键，因此并非该部署的进程不得声称拥有它。 | Netlify、Vercel、AWS Lambda、Cloud Run、Render 和 Cloudflare Pages 都会标记自身。在纯容器或虚拟机上，请把 `AGENT_NATIVE_REALTIME_APP_URL` 设为该部署自己的来源 |
 
 <Callout tone="warning">
 

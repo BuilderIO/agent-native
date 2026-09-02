@@ -266,6 +266,34 @@ describe("resolveRegisteredRealtimeChannel", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("does not accept the generic URL variable as deployment evidence", async () => {
+    // `URL` lives in the app's own env file and is not per-deploy even on
+    // Netlify, where it is the site's canonical address. A copied production
+    // `.env` carries it to a laptop, which is exactly the process this gate
+    // exists to exclude.
+    vi.stubEnv("DEPLOY_PRIME_URL", "");
+    vi.stubEnv("URL", "https://slides.agent-native.com");
+    mockPlatformMarker.mockReturnValue(false);
+    await expect(resolveRegisteredRealtimeChannel()).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("registers the origin a self-hosted deploy declares for itself", async () => {
+    // A bare container has no platform marker to offer, so it asserts the
+    // origin it serves under a name nobody sets by accident.
+    vi.stubEnv("DEPLOY_PRIME_URL", "");
+    mockPlatformMarker.mockReturnValue(false);
+    vi.stubEnv(
+      "AGENT_NATIVE_REALTIME_APP_URL",
+      "https://self-hosted.example.com/ignored/path",
+    );
+    await expect(resolveRegisteredRealtimeChannel()).resolves.toEqual(CHANNEL);
+    // Collapsed to the origin, and it wins over the resolved self URL.
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).appUrl).toBe(
+      "https://self-hosted.example.com",
+    );
+  });
+
   it("does not register the canonical origin from a process that may not be the deploy", async () => {
     // No per-deploy platform var means `resolveSelfDispatchBaseUrl` fell back
     // to `app.url` — the CANONICAL origin, shared by every environment built

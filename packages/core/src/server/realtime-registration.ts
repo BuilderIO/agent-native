@@ -299,38 +299,60 @@ function collectInputs(): RegistrationInputs | null {
   // a preview posting the production origin with its own branch database would
   // repoint production's channel at the preview database.
   //
+  // Which origin this deployment may claim, and whether it may claim one at
+  // all.
+  //
   // `resolveSelfDispatchBaseUrl` prefers the platform's per-deploy vars but
   // falls back to `app.url`, the CANONICAL origin, which every environment
   // built from the production env file shares. Registering that from a process
   // that is NOT the production deployment is the failure the preview check
   // above exists to prevent, arriving by a different door: a built server run
   // on a laptop against a branch database resolves "production" (the default
-  // when no platform context vars are set) and repoints production's channel.
-  // Production never heals — its own stored fingerprint still matches, so it
-  // never re-registers — and tails the wrong database indefinitely.
+  // when no platform context vars are set) and repoints production's channel
+  // at that branch. Production never heals — its own stored fingerprint still
+  // matches, so it never re-registers — and tails the wrong database
+  // indefinitely.
   //
-  // So the fallback additionally requires a marker written by the PLATFORM —
-  // `hasPlatformRuntimeMarker`, not `isProductionLikeRuntime`. The difference
-  // is the whole guard: `NODE_ENV=production` lives in the app's own env file
-  // and therefore travels to a laptop with a copied `.env`, which is precisely
-  // the process this is meant to exclude.
+  // So claiming an origin needs positive evidence, and only two things count.
+  //
+  // A marker the PLATFORM wrote: `hasPlatformRuntimeMarker`, plus Netlify's
+  // per-deploy `DEPLOY_PRIME_URL`/`DEPLOY_URL`. Deliberately NOT
+  // `NODE_ENV=production`, and deliberately not the bare `URL` either. Both of
+  // those live in the app's own env file, so both travel to a laptop with a
+  // copied `.env` — and `URL` is not even per-deploy on Netlify, where it is
+  // the site's canonical address.
+  //
+  // Or this app saying so itself, via `AGENT_NATIVE_REALTIME_APP_URL`. A bare
+  // container or VM has no platform marker to offer and no way to prove it is
+  // the deployment, so it has to assert it. The point of a dedicated name is
+  // that asserting it is deliberate: nobody has this in a `.env` by accident,
+  // and copying one that does is a statement that this process serves that
+  // origin.
+  // config-ok: read raw, like the other realtime env vars in this module —
+  // it gates whether a credential leaves the machine, so it must not depend on
+  // app-config resolution order.
+  const declaredAppUrl = process.env.AGENT_NATIVE_REALTIME_APP_URL?.trim();
   const fromPlatform = Boolean(
-    process.env.DEPLOY_PRIME_URL || process.env.DEPLOY_URL || process.env.URL,
+    process.env.DEPLOY_PRIME_URL || process.env.DEPLOY_URL,
   );
-  if (!fromPlatform && !hasPlatformRuntimeMarker()) {
+  if (!declaredAppUrl && !fromPlatform && !hasPlatformRuntimeMarker()) {
     warnOnce(
       "self-url",
-      "[realtime] no per-deploy URL from the platform and no platform runtime marker, so " +
-        "this could be a local run of a production build; refusing to register the app's " +
-        "canonical origin. Staying on local sync. Set URL (or DEPLOY_URL) to this " +
-        "deployment's own origin on a self-hosted deploy.",
+      "[realtime] this process shows no sign of being the deployment that serves the app's " +
+        "origin (no platform runtime marker, no per-deploy platform URL), so registering " +
+        "that origin could repoint production's channel; staying on local sync. On a " +
+        "self-hosted deploy set AGENT_NATIVE_REALTIME_APP_URL to this deployment's own " +
+        "origin.",
     );
     return null;
   }
 
   let origin: string;
   try {
-    origin = new URL(resolveSelfDispatchBaseUrl()).origin;
+    // The declared value wins: an operator who names the origin is telling us
+    // which one this process serves, which is exactly what the platform vars
+    // would otherwise be inferred to mean.
+    origin = new URL(declaredAppUrl || resolveSelfDispatchBaseUrl()).origin;
   } catch {
     console.warn(
       "[realtime] this deployment has no parseable self URL; staying on local sync",
