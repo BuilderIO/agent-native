@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
+import { putUserSetting } from "@agent-native/core/settings";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
@@ -40,6 +42,7 @@ async function createDocument(args: {
   title: string;
   content?: string;
   ownerEmail?: string;
+  visibility?: "private" | "org" | "public";
   trashedAt?: string;
 }) {
   const now = new Date().toISOString();
@@ -52,7 +55,7 @@ async function createDocument(args: {
       title: args.title,
       content: args.content ?? "",
       position: nextPosition++,
-      visibility: "private",
+      visibility: args.visibility ?? "private",
       trashedAt: args.trashedAt,
       createdAt: now,
       updatedAt: now,
@@ -168,6 +171,35 @@ async function setPropertyValue(args: {
     });
 }
 
+async function setDatabaseViewFilters(
+  databaseId: string,
+  filters: Array<{
+    key: string;
+    label: string;
+    operator: "equals";
+    value: string;
+  }>,
+) {
+  await getDb()
+    .update(schema.contentDatabases)
+    .set({
+      viewConfigJson: JSON.stringify({
+        activeViewId: "primary",
+        views: [
+          {
+            id: "primary",
+            name: "Table",
+            type: "table",
+            filters,
+            sorts: [],
+            filterMode: "and",
+          },
+        ],
+      }),
+    })
+    .where(eq(schema.contentDatabases.id, databaseId));
+}
+
 describe("export-document database collections", () => {
   it.each(["table", "list"] as const)(
     "exports immediate authorized members from a %s view in membership order for every format",
@@ -177,6 +209,7 @@ describe("export-document database collections", () => {
       const faqId = `faq-${viewType}`;
       const announcementId = `announcement-${viewType}`;
       const sharedRecordId = `shared-record-${viewType}`;
+      const publicRecordId = `public-record-${viewType}`;
       const privateRecordId = `private-record-${viewType}`;
 
       await createDatabase({
@@ -205,6 +238,13 @@ describe("export-document database collections", () => {
         sharedRecordId,
         `shared-record-share-${viewType}`,
       );
+      await createDocument({
+        id: publicRecordId,
+        title: "Public record",
+        content: "Public body",
+        ownerEmail: "someone-else@example.com",
+        visibility: "public",
+      });
       await createDocument({
         id: privateRecordId,
         title: "Private record",
@@ -235,6 +275,12 @@ describe("export-document database collections", () => {
         documentId: privateRecordId,
         position: 0,
       });
+      await addDatabaseItem({
+        id: `public-item-${viewType}`,
+        databaseId,
+        documentId: publicRecordId,
+        position: 4,
+      });
 
       const [markdown, html, pdf, csv] = await runWithRequestContext(
         { userEmail: OWNER },
@@ -244,6 +290,12 @@ describe("export-document database collections", () => {
               exportDocumentAction.run({
                 id: databaseDocumentId,
                 format,
+                collection: {
+                  scope: { kind: "all_members" },
+                  propertyIds: [],
+                  includePrimaryBody: true,
+                  blockPropertyIds: [],
+                },
               }),
             ),
             exportDocumentAction.run({
@@ -252,15 +304,31 @@ describe("export-document database collections", () => {
               collection: {
                 scope: { kind: "all_members" },
                 propertyIds: [],
+                includePrimaryBody: true,
+                blockPropertyIds: [],
               },
             }),
           ]),
       );
 
-      expect(markdown.content).toBe(
-        "# Launch Library\n\n## Announcement\n\nLaunch copy\n\n## FAQ\n\nAnswers\n\n## Shared record\n\nShared body\n",
+      expect(markdown.filename).toBe("launch-library.zip");
+      expect(markdown.archiveFiles?.[0]).toEqual({
+        path: "index.md",
+        content: expect.stringContaining("[Announcement](records/0001-"),
+      });
+      expect(markdown.archiveFiles?.map((file) => file.path)).toHaveLength(5);
+      expect(markdown.archiveFiles?.[1]?.content).toContain(
+        'id: "announcement-',
       );
-      expect(markdown.content).not.toContain("Private record");
+      expect(markdown.archiveFiles?.[1]?.content).toContain("properties: {}");
+      expect(markdown.archiveFiles?.[1]?.content).toContain(
+        "## Content\n\nLaunch copy",
+      );
+      expect(
+        markdown.archiveFiles?.some((file) =>
+          file.content.includes("Private record"),
+        ),
+      ).toBe(false);
       for (const result of [html, pdf]) {
         expect(result.content).toContain("<h1>Launch Library</h1>");
         expect(result.content).toContain("<h2>Announcement</h2>");
@@ -269,13 +337,15 @@ describe("export-document database collections", () => {
         expect(result.content).toContain("<p>Answers</p>");
         expect(result.content).toContain("<h2>Shared record</h2>");
         expect(result.content).toContain("<p>Shared body</p>");
+        expect(result.content).toContain("<h2>Public record</h2>");
+        expect(result.content).toContain("<p>Public body</p>");
         expect(result.content).not.toContain("Private record");
         expect(result.content.indexOf("<h2>Announcement</h2>")).toBeLessThan(
           result.content.indexOf("<h2>FAQ</h2>"),
         );
       }
       expect(csv.content).toBe(
-        "Title\r\nAnnouncement\r\nFAQ\r\nShared record\r\n",
+        "Title,Content\r\nAnnouncement,Launch copy\r\nFAQ,Answers\r\nShared record,Shared body\r\nPublic record,Public body\r\n",
       );
 
       const currentViewCsv = await runWithRequestContext(
@@ -296,6 +366,8 @@ describe("export-document database collections", () => {
                 },
               },
               propertyIds: [],
+              includePrimaryBody: false,
+              blockPropertyIds: [],
             },
           }),
       );
@@ -317,7 +389,12 @@ describe("export-document database collections", () => {
       }),
     );
 
-    expect(result.content).toBe("# Empty Database\n\n_No accessible items._\n");
+    expect(result.archiveFiles).toEqual([
+      {
+        path: "index.md",
+        content: "# Empty Database\n\n_No accessible items._\n",
+      },
+    ]);
   });
 
   it("treats a database with only trashed members as having no accessible items", async () => {
@@ -346,9 +423,12 @@ describe("export-document database collections", () => {
       }),
     );
 
-    expect(result.content).toBe(
-      "# Trashed Database\n\n_No accessible items._\n",
-    );
+    expect(result.archiveFiles).toEqual([
+      {
+        path: "index.md",
+        content: "# Trashed Database\n\n_No accessible items._\n",
+      },
+    ]);
   });
 
   it("fails instead of silently omitting a member whose body is not ready", async () => {
@@ -404,9 +484,272 @@ describe("export-document database collections", () => {
       }),
     );
 
-    expect(result.content).toBe(
-      "# Unavailable Database\n\n## Unavailable Page\n",
+    expect(result.archiveFiles?.[1]?.content).toContain(
+      "# Unavailable Page\n\n## Content\n",
     );
+  });
+
+  it("intersects saved, personal, and transient filters so callers cannot remove, replace, or widen saved predicates", async () => {
+    const databaseId = "trusted-view-database";
+    const databaseDocumentId = "trusted-view-database-document";
+    await createDatabase({
+      id: databaseId,
+      documentId: databaseDocumentId,
+      title: "Trusted View",
+    });
+    await addProperty({
+      id: "trusted-status",
+      databaseId,
+      name: "Status",
+      type: "text",
+      position: 0,
+    });
+    await addProperty({
+      id: "trusted-cohort",
+      databaseId,
+      name: "Cohort",
+      type: "text",
+      position: 1,
+    });
+    await setDatabaseViewFilters(databaseId, [
+      {
+        key: "trusted-status",
+        label: "Status",
+        operator: "equals",
+        value: "allowed",
+      },
+    ]);
+    for (const [id, status, cohort, position] of [
+      ["allowed-personal", "allowed", "personal", 0],
+      ["allowed-other", "allowed", "other", 1],
+      ["blocked-personal", "blocked", "personal", 2],
+    ] as const) {
+      await createDocument({ id, title: id });
+      await addDatabaseItem({
+        id: `${id}-item`,
+        databaseId,
+        documentId: id,
+        position,
+      });
+      await setPropertyValue({
+        id: `${id}-status-value`,
+        documentId: id,
+        propertyId: "trusted-status",
+        value: status,
+      });
+      await setPropertyValue({
+        id: `${id}-cohort-value`,
+        documentId: id,
+        propertyId: "trusted-cohort",
+        value: cohort,
+      });
+    }
+    await putUserSetting(
+      OWNER,
+      `content-database-personal-view:${databaseId}`,
+      {
+        version: 2,
+        activeViewId: "primary",
+        views: [
+          {
+            id: "primary",
+            sorts: [],
+            filters: [
+              {
+                key: "trusted-cohort",
+                label: "Cohort",
+                operator: "equals",
+                value: "personal",
+              },
+            ],
+            filterMode: "and",
+          },
+        ],
+      },
+    );
+
+    const run = (filters: Array<any>, filterMode: "and" | "or" = "and") =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        exportDocumentAction.run({
+          id: databaseDocumentId,
+          format: "csv",
+          collection: {
+            scope: {
+              kind: "current_view",
+              viewId: "primary",
+              query: { search: "", filters, sorts: [], filterMode },
+            },
+            propertyIds: [],
+            includePrimaryBody: false,
+            blockPropertyIds: [],
+          },
+        }),
+      );
+
+    await expect(run([])).resolves.toMatchObject({
+      content: "Title\r\nallowed-personal\r\n",
+    });
+    await expect(
+      run([
+        {
+          key: "trusted-status",
+          label: "Status",
+          operator: "equals",
+          value: "blocked",
+        },
+      ]),
+    ).resolves.toMatchObject({ content: "Title\r\n" });
+    await expect(
+      run(
+        [
+          {
+            key: "trusted-status",
+            label: "Status",
+            operator: "equals",
+            value: "allowed",
+          },
+          {
+            key: "trusted-status",
+            label: "Status",
+            operator: "equals",
+            value: "blocked",
+          },
+        ],
+        "or",
+      ),
+    ).resolves.toMatchObject({
+      content: "Title\r\nallowed-personal\r\n",
+    });
+  });
+
+  it("checks body hydration after body-independent saved narrowing", async () => {
+    const databaseId = "hydration-narrowing-database";
+    const databaseDocumentId = "hydration-narrowing-document";
+    await createDatabase({
+      id: databaseId,
+      documentId: databaseDocumentId,
+      title: "Hydration Narrowing",
+    });
+    await addProperty({
+      id: "hydration-status",
+      databaseId,
+      name: "Status",
+      type: "text",
+      position: 0,
+    });
+    await setDatabaseViewFilters(databaseId, [
+      {
+        key: "hydration-status",
+        label: "Status",
+        operator: "equals",
+        value: "ready",
+      },
+    ]);
+    for (const [id, status, hydration, position] of [
+      ["ready-body", "ready", "hydrated", 0],
+      ["pending-excluded", "blocked", "pending", 1],
+    ] as const) {
+      await createDocument({ id, title: id, content: `${id} content` });
+      await addDatabaseItem({
+        id: `${id}-item`,
+        databaseId,
+        documentId: id,
+        position,
+        bodyHydrationStatus: hydration,
+      });
+      await setPropertyValue({
+        id: `${id}-status-value`,
+        documentId: id,
+        propertyId: "hydration-status",
+        value: status,
+      });
+    }
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      exportDocumentAction.run({
+        id: databaseDocumentId,
+        format: "html",
+        collection: {
+          scope: {
+            kind: "current_view",
+            viewId: "primary",
+            query: { search: "", filters: [], sorts: [], filterMode: "and" },
+          },
+          propertyIds: [],
+          includePrimaryBody: true,
+          blockPropertyIds: [],
+        },
+      }),
+    );
+    expect(result.content).toContain("ready-body content");
+    expect(result.content).not.toContain("pending-excluded");
+  });
+
+  it("evaluates selected formulas through their dependency closure and skips unrelated rollups", async () => {
+    const databaseId = "computed-export-database";
+    const databaseDocumentId = "computed-export-document";
+    await createDatabase({
+      id: databaseId,
+      documentId: databaseDocumentId,
+      title: "Computed Export",
+    });
+    await createDocument({ id: "computed-row", title: "Computed row" });
+    await addDatabaseItem({
+      id: "computed-row-item",
+      databaseId,
+      documentId: "computed-row",
+      position: 0,
+      bodyHydrationStatus: "pending",
+    });
+    await addProperty({
+      id: "computed-base",
+      databaseId,
+      name: "Base",
+      type: "number",
+      position: 0,
+    });
+    await addProperty({
+      id: "computed-formula",
+      databaseId,
+      name: "Doubled",
+      type: "formula",
+      position: 1,
+      optionsJson: JSON.stringify({ formula: "{Base} * 2" }),
+    });
+    await addProperty({
+      id: "unrelated-rollup",
+      databaseId,
+      name: "Unrelated",
+      type: "rollup",
+      position: 2,
+      optionsJson: JSON.stringify({
+        rollup: {
+          relationPropertyId: "missing-relation",
+          targetPropertyId: "computed-formula",
+          aggregation: "sum",
+        },
+      }),
+    });
+    await setPropertyValue({
+      id: "computed-base-value",
+      documentId: "computed-row",
+      propertyId: "computed-base",
+      value: 3,
+    });
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      exportDocumentAction.run({
+        id: databaseDocumentId,
+        format: "csv",
+        collection: {
+          scope: { kind: "all_members" },
+          propertyIds: ["computed-formula"],
+          includePrimaryBody: false,
+          blockPropertyIds: [],
+        },
+      }),
+    );
+    expect(result.content).toBe("Title,Doubled\r\nComputed row,6\r\n");
   });
 
   it("exports selected scalar CSV columns without waiting for unselected Blocks", async () => {
@@ -443,6 +786,23 @@ describe("export-document database collections", () => {
       position: 1,
       optionsJson: JSON.stringify({ blocks: { primary: true } }),
     });
+    await addProperty({
+      id: "csv-extra-blocks",
+      databaseId,
+      name: "Notes",
+      type: "blocks",
+      position: 2,
+      optionsJson: JSON.stringify({ blocks: { primary: false } }),
+    });
+    await getDb().insert(schema.documentBlockFieldContents).values({
+      id: "csv-extra-blocks-content",
+      ownerEmail: OWNER,
+      documentId: "csv-scalar-row",
+      propertyId: "csv-extra-blocks",
+      content: "## Notes\nline",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
     await setPropertyValue({
       id: "csv-status-value",
       documentId: "csv-scalar-row",
@@ -457,6 +817,8 @@ describe("export-document database collections", () => {
         collection: {
           scope: { kind: "all_members" },
           propertyIds: ["csv-status"],
+          includePrimaryBody: false,
+          blockPropertyIds: [],
         },
       }),
     );
@@ -469,12 +831,100 @@ describe("export-document database collections", () => {
           format: "csv",
           collection: {
             scope: { kind: "all_members" },
-            propertyIds: ["csv-blocks"],
+            propertyIds: [],
+            includePrimaryBody: true,
+            blockPropertyIds: [],
           },
         }),
       ),
-    ).rejects.toThrow('Database item "csv-scalar-row" is not ready for export');
+    ).rejects.toMatchObject({
+      errorCode: "collection_export_body_not_ready",
+    });
+
+    await getDb()
+      .update(schema.contentDatabaseItems)
+      .set({ bodyHydrationStatus: "hydrated" })
+      .where(eq(schema.contentDatabaseItems.id, "csv-scalar-item"));
+    const blocksResult = await runWithRequestContext({ userEmail: OWNER }, () =>
+      exportDocumentAction.run({
+        id: databaseDocumentId,
+        format: "csv",
+        collection: {
+          scope: { kind: "all_members" },
+          propertyIds: [],
+          includePrimaryBody: false,
+          blockPropertyIds: ["csv-extra-blocks"],
+        },
+      }),
+    );
+    expect(blocksResult.content).toBe(
+      'Title,Notes\r\n\'=formula,"## Notes\nline"\r\n',
+    );
   });
+
+  it("fails explicitly when authorized candidates cross the 5,000-record synchronous boundary", async () => {
+    const databaseId = "candidate-limit-database";
+    const databaseDocumentId = "candidate-limit-document";
+    await createDatabase({
+      id: databaseId,
+      documentId: databaseDocumentId,
+      title: "Candidate Limit",
+    });
+    const now = new Date().toISOString();
+    const rows = Array.from({ length: 5_001 }, (_, index) => ({
+      id: `candidate-limit-row-${index}`,
+      itemId: `candidate-limit-item-${index}`,
+    }));
+    for (let offset = 0; offset < rows.length; offset += 40) {
+      const batch = rows.slice(offset, offset + 40);
+      await getDb()
+        .insert(schema.documents)
+        .values(
+          batch.map((row, index) => ({
+            id: row.id,
+            ownerEmail: OWNER,
+            parentId: null,
+            title: row.id,
+            content: "",
+            position: offset + index,
+            visibility: "private",
+            createdAt: now,
+            updatedAt: now,
+          })),
+        );
+      await getDb()
+        .insert(schema.contentDatabaseItems)
+        .values(
+          batch.map((row, index) => ({
+            id: row.itemId,
+            ownerEmail: OWNER,
+            databaseId,
+            documentId: row.id,
+            position: offset + index,
+            bodyHydrationStatus: "hydrated",
+            createdAt: now,
+            updatedAt: now,
+          })),
+        );
+    }
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        exportDocumentAction.run({
+          id: databaseDocumentId,
+          format: "csv",
+          collection: {
+            scope: { kind: "all_members" },
+            propertyIds: [],
+            includePrimaryBody: false,
+            blockPropertyIds: [],
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "collection_export_limit_exceeded",
+    });
+  }, 60_000);
 
   it("keeps ordinary page exports unchanged", async () => {
     await createDocument({
