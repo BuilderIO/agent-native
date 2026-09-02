@@ -136,6 +136,10 @@ describe("appMountPath", () => {
     expect(appMountedPath("/settings/account", SETTINGS)).toBe(
       "/settings/settings/account",
     );
+    // ...and stays idempotent for a target that already carries that mount.
+    expect(appMountedPath("/settings/settings/account", SETTINGS)).toBe(
+      "/settings/settings/account",
+    );
   });
 
   it("does not double-prefix an already mounted path", () => {

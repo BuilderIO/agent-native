@@ -243,16 +243,14 @@ export function appMountedPath(path: string, appLocalRoute: string): string {
   const mountPath = appMountPath(appLocalRoute);
   if (!mountPath) return path;
 
-  // An app-local path always starts with the surface's own route, so it needs
-  // the mount even when the two happen to be spelled the same. Testing the
-  // idempotence guard first would treat "/settings/account" as already mounted
-  // under a "/settings" mount and drop the prefix.
-  const marker = normalizeBasePath(appLocalRoute);
-  if (marker && (path === marker || path.startsWith(`${marker}/`))) {
-    return `${mountPath}${path}`;
-  }
+  // An already-mounted URL reads as <mount><route>, so the idempotence check
+  // compares against that whole pair. Testing the mount alone cannot tell an
+  // app-local "/settings/account" from an already-mounted one when the mount
+  // and the route are spelled the same, and either reading of that prefix
+  // silently breaks the other case.
+  const mounted = `${mountPath}${normalizeBasePath(appLocalRoute)}`;
+  if (path === mounted || path.startsWith(`${mounted}/`)) return path;
 
-  if (path === mountPath || path.startsWith(`${mountPath}/`)) return path;
   return `${mountPath}${path}`;
 }
 
