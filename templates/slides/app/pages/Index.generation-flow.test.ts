@@ -62,9 +62,15 @@ describe("new deck generation flow", () => {
 
   it("carries hidden prompt context through generation retries", () => {
     expect(source).toContain("PENDING_PROMPT_CONTEXT_KEY");
+    expect(source).toContain("PENDING_PROMPT_MODEL_SELECTION_KEY");
     expect(source).toContain("retryContext?: string");
+    expect(source).toContain("modelSelection?: DeckModelSelection");
     expect(flow).toContain("retryContext: additionalContext || undefined");
+    expect(flow).toContain("modelSelection,");
     expect(source).toContain("newDeckRetryPrompt");
+    expect(source).toContain(
+      "initialModelSelection={newDeckRetryModelSelection}",
+    );
     expect(source).toContain(
       "prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined",
     );

@@ -380,6 +380,11 @@ export interface PromptAttachmentActions {
 
 export type PromptSubmitResult = "commit" | "retain" | "discard";
 
+type PromptModelSelection = Pick<
+  PromptComposerSubmitOptions,
+  "model" | "engine" | "effort"
+>;
+
 interface PromptPopoverProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -400,11 +405,14 @@ interface PromptPopoverProps {
   draftScope?: string;
   initialText?: string;
   initialTextKey?: string | number;
+  /** Restore a model choice when a prompt is replayed after auth or setup recovery. */
+  initialModelSelection?: PromptModelSelection;
   onBeforeUpload?: (
     prompt: string,
     files: File[],
     context?: string,
     attachments?: ReadonlyArray<PromptChatAttachment>,
+    options?: PromptComposerSubmitOptions,
   ) => boolean | void;
   onRetainedAttachmentsAbandoned?: () => void;
   onImport?: (
@@ -429,6 +437,7 @@ export default function PromptPopover({
   draftScope,
   initialText,
   initialTextKey,
+  initialModelSelection,
   onBeforeUpload,
   onRetainedAttachmentsAbandoned,
   onImport,
@@ -453,6 +462,24 @@ export default function PromptPopover({
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const pptxInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const [modelSelection, setModelSelection] = useState<
+    PromptModelSelection | undefined
+  >(initialModelSelection);
+
+  useEffect(() => {
+    setModelSelection(initialModelSelection);
+  }, [initialModelSelection]);
+
+  const handleModelChange = useCallback((model: string, engine: string) => {
+    setModelSelection((current) => ({ ...current, model, engine }));
+  }, []);
+
+  const handleEffortChange = useCallback(
+    (effort: NonNullable<PromptModelSelection["effort"]>) => {
+      setModelSelection((current) => ({ ...current, effort }));
+    },
+    [],
+  );
 
   // Position the popover after render so we can measure its actual size
   useEffect(() => {
@@ -582,6 +609,7 @@ export default function PromptPopover({
           files,
           googleDocContext || undefined,
           preUploadChatAttachments,
+          options,
         ) === false
       ) {
         return;
@@ -818,6 +846,21 @@ export default function PromptPopover({
                 draftScope={draftScope}
                 initialText={initialText}
                 initialTextKey={initialTextKey}
+                selectedModel={
+                  initialModelSelection ? modelSelection?.model : undefined
+                }
+                selectedEngine={
+                  initialModelSelection ? modelSelection?.engine : undefined
+                }
+                selectedEffort={
+                  initialModelSelection ? modelSelection?.effort : undefined
+                }
+                onModelChange={
+                  initialModelSelection ? handleModelChange : undefined
+                }
+                onEffortChange={
+                  initialModelSelection ? handleEffortChange : undefined
+                }
               />
             </div>
 

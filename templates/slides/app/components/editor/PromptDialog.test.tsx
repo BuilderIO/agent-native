@@ -603,6 +603,11 @@ describe("PromptPopover import mode", () => {
         [expect.objectContaining({ name: "large.pdf" })],
         undefined,
         [],
+        {
+          model: "gpt-5.6-terra",
+          engine: "builder",
+          effort: "high",
+        },
       );
     });
     expect(fetchMock).not.toHaveBeenCalled();
