@@ -100,6 +100,8 @@ describe("desktop passive-access regressions", () => {
     expect(startup).not.toContain("cleanupDueManagedCodeAgentWorktrees");
     expect(startup).not.toContain("resumeQueuedCodeAgentWorktreeRuns");
     expect(main).toContain("function ensureDesktopComputerMcpBridge()");
+    expect(main).toContain("remoteConnectorStartPromise");
+    expect(main).toContain("startRemoteCodeAgentConnectorInternal()");
   });
 
   it("does not revalidate a verified desktop identity on tab status reads", () => {

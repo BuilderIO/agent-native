@@ -2496,6 +2496,8 @@ const REMOTE_CONNECTOR_MAX_BACKOFF_MS = 60_000;
 
 let remoteConnectorEnabled = false;
 let remoteConnectorProcess: ChildProcess | null = null;
+let remoteConnectorStartPromise: Promise<CodeAgentRemoteConnectorStatus> | null =
+  null;
 let remoteConnectorRestartTimer: NodeJS.Timeout | null = null;
 let remoteConnectorRestartCount = 0;
 let remoteConnectorStartedAt: string | undefined;
@@ -3656,6 +3658,19 @@ function resolveRemoteConnectorCliInvocation(): {
 }
 
 async function startRemoteCodeAgentConnector(): Promise<CodeAgentRemoteConnectorStatus> {
+  if (remoteConnectorStartPromise) return remoteConnectorStartPromise;
+  const startPromise = startRemoteCodeAgentConnectorInternal();
+  remoteConnectorStartPromise = startPromise;
+  try {
+    return await startPromise;
+  } finally {
+    if (remoteConnectorStartPromise === startPromise) {
+      remoteConnectorStartPromise = null;
+    }
+  }
+}
+
+async function startRemoteCodeAgentConnectorInternal(): Promise<CodeAgentRemoteConnectorStatus> {
   if (!remoteConnectorEnabled || appIsQuitting)
     return getRemoteConnectorStatus();
   if (remoteConnectorProcess && !remoteConnectorProcess.killed) {
