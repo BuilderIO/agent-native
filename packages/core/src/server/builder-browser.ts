@@ -741,6 +741,15 @@ function applyBuilderConnectTrackingParams(
   if (template) params.set(BUILDER_AGENT_NATIVE_TEMPLATE_PARAM, template);
 }
 
+export function withBuilderConnectTrackingParams(
+  url: string,
+  tracking: BuilderConnectTrackingParams,
+): string {
+  const parsed = new URL(url);
+  applyBuilderConnectTrackingParams(parsed.searchParams, tracking);
+  return parsed.toString();
+}
+
 export interface BuilderBrowserStatus {
   configured: boolean;
   builderEnabled: boolean;

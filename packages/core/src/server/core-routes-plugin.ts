@@ -174,6 +174,7 @@ import {
   verifyBuilderConnectTokenAndGetOwner,
   signBuilderProvisioningToken,
   verifyBuilderProvisioningToken,
+  withBuilderConnectTrackingParams,
   type BuilderConnectTrackingParams,
   type BuilderRelayCredentials,
   type BuilderPreviewRelayState,
@@ -3141,7 +3142,10 @@ export function createCoreRoutesPlugin(
               state,
             });
             oauthFlow = started.pending;
-            authorizationUrl = started.authorizationUrl;
+            authorizationUrl = withBuilderConnectTrackingParams(
+              started.authorizationUrl,
+              connectTracking,
+            );
             await putSetting(`builder-connect-pending:${state}`, {
               ownerEmail,
               orgId: connectOrgId,
