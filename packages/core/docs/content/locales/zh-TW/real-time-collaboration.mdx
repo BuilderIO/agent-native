@@ -630,12 +630,12 @@ AGENT_NATIVE_REALTIME_TRANSPORT=hosted
 
 部署還必須滿足四項條件，而正常的正式環境應用程式本來就都滿足：
 
-| 需求 | 原因 | 如何檢查 |
-| ---- | ---- | -------- |
-| **位於公開可達主機上的 Postgres** | 閘道會從自己的網路撥接連線到資料庫。PGlite、SQLite、`localhost`、`*.internal` 以及裸 IP 位址，在連線字串離開你的機器之前就會被拒絕。 | `DATABASE_URL` 指向 Neon 之類的受管理 Postgres |
-| **把 `BUILDER_PRIVATE_KEY` 設為「部署層級」環境變數** | 它為註冊提供身分驗證，並決定通道歸屬於哪個 Builder 組織。 | 見下方提示 —— 這是最容易被漏掉的一步 |
-| **是正式環境部署** | 部署預覽會保持本機同步，因此一次性的分支憑證永遠不會離開機器，活躍的儲存庫也不會為每個 pull request 建立一個通道。 | `CONTEXT=production` / `BRANCH=production`，或 `VERCEL_ENV=production` |
-| **平台能識別該部署** | 註冊以應用程式的公開來源（origin）為索引鍵，因此並非該部署的處理程序不得聲稱擁有它。 | Netlify、Vercel、AWS Lambda、Cloud Run、Render 與 Cloudflare Pages 都會標記自身。在純容器或虛擬機上，請把 `AGENT_NATIVE_REALTIME_APP_URL` 設為該部署自己的來源 |
+| 需求                                                  | 原因                                                                                                                                 | 如何檢查                                                                                                                                                       |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **位於公開可達主機上的 Postgres**                     | 閘道會從自己的網路撥接連線到資料庫。PGlite、SQLite、`localhost`、`*.internal` 以及裸 IP 位址，在連線字串離開你的機器之前就會被拒絕。 | `DATABASE_URL` 指向 Neon 之類的受管理 Postgres                                                                                                                 |
+| **把 `BUILDER_PRIVATE_KEY` 設為「部署層級」環境變數** | 它為註冊提供身分驗證，並決定通道歸屬於哪個 Builder 組織。                                                                            | 見下方提示 —— 這是最容易被漏掉的一步                                                                                                                           |
+| **是正式環境部署**                                    | 部署預覽會保持本機同步，因此一次性的分支憑證永遠不會離開機器，活躍的儲存庫也不會為每個 pull request 建立一個通道。                   | `CONTEXT=production` / `BRANCH=production`，或 `VERCEL_ENV=production`                                                                                         |
+| **平台能識別該部署**                                  | 註冊以應用程式的公開來源（origin）為索引鍵，因此並非該部署的處理程序不得聲稱擁有它。                                                 | Netlify、Vercel、AWS Lambda、Cloud Run、Render 與 Cloudflare Pages 都會標記自身。在純容器或虛擬機上，請把 `AGENT_NATIVE_REALTIME_APP_URL` 設為該部署自己的來源 |
 
 <Callout tone="warning">
 
@@ -673,12 +673,12 @@ curl -s https://your-app.example.com/_agent-native/health | jq .realtime
 }
 ```
 
-| 欄位 | 意義 |
-| ---- | ---- |
-| `transport` | 環境變數設定後為 `"hosted"`，否則為 `"local"`。如果這裡是 `local`，表示變數沒有到達正在執行的部署。 |
-| `registered` | 已解析出通道。`false` 表示應用程式仍在使用自己的 `/_agent-native/poll`。 |
+| 欄位          | 意義                                                                                                                     |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `transport`   | 環境變數設定後為 `"hosted"`，否則為 `"local"`。如果這裡是 `local`，表示變數沒有到達正在執行的部署。                      |
+| `registered`  | 已解析出通道。`false` 表示應用程式仍在使用自己的 `/_agent-native/poll`。                                                 |
 | `channelHash` | 通道 ID 的 SHA-256 前 8 個字元 —— 足以區分兩個部署或確認一次輪替，但無法用於連線。此端點是公開的，所以 ID 本身從不公布。 |
-| `unavailable` | 僅在解析「失敗」時出現，與解析為「沒有通道」不同。閘道無法連通與應用程式未註冊是兩個不同的問題。 |
+| `unavailable` | 僅在解析「失敗」時出現，與解析為「沒有通道」不同。閘道無法連通與應用程式未註冊是兩個不同的問題。                         |
 
 當 `registered` 為 `false` 時，部署日誌中會有一行 `[realtime]` 說明原因 —— 被拒絕的
 憑證、無法解析的資料庫 URL、看起來不像該部署的處理程序。請依上面的需求表逐項排查。

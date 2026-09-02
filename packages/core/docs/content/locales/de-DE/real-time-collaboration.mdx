@@ -647,12 +647,12 @@ passiert hier nichts.
 Das Deployment muss außerdem vier Dinge erfüllen, die auf eine normale
 Produktions-App ohnehin zutreffen:
 
-| Voraussetzung | Warum | Wie prüfen |
-| ------------- | ----- | ---------- |
-| **Postgres auf einem öffentlich erreichbaren Host** | Das Gateway wählt die Datenbank aus seinem eigenen Netz an. PGlite, SQLite, `localhost`, `*.internal` und nackte IP-Adressen werden abgelehnt, bevor die Verbindungszeichenfolge Ihre Maschine überhaupt verlässt. | `DATABASE_URL` zeigt auf ein verwaltetes Postgres wie Neon |
-| **`BUILDER_PRIVATE_KEY` als DEPLOYMENT-Umgebungsvariable gesetzt** | Damit wird die Registrierung authentifiziert und entschieden, welcher Builder-Organisation der Kanal gehört. | Siehe den Hinweis unten — dieser Schritt wird am häufigsten übersehen |
-| **Ein Produktions-Deployment** | Deploy-Previews bleiben bei der lokalen Synchronisierung, damit ein kurzlebiges Branch-Credential die Maschine nie verlässt und ein aktives Repository nicht pro Pull Request einen Kanal erzeugt. | `CONTEXT=production` / `BRANCH=production` oder `VERCEL_ENV=production` |
-| **Die Plattform identifiziert das Deployment** | Die Registrierung ist an den öffentlichen Origin der App gebunden, daher darf ein Prozess, der nicht wirklich das Deployment ist, ihn nicht beanspruchen. | Netlify, Vercel, AWS Lambda, Cloud Run, Render und Cloudflare Pages kennzeichnen sich selbst. Auf einem einfachen Container oder einer VM setzen Sie `AGENT_NATIVE_REALTIME_APP_URL` auf den eigenen Origin des Deployments |
+| Voraussetzung                                                      | Warum                                                                                                                                                                                                              | Wie prüfen                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Postgres auf einem öffentlich erreichbaren Host**                | Das Gateway wählt die Datenbank aus seinem eigenen Netz an. PGlite, SQLite, `localhost`, `*.internal` und nackte IP-Adressen werden abgelehnt, bevor die Verbindungszeichenfolge Ihre Maschine überhaupt verlässt. | `DATABASE_URL` zeigt auf ein verwaltetes Postgres wie Neon                                                                                                                                                                  |
+| **`BUILDER_PRIVATE_KEY` als DEPLOYMENT-Umgebungsvariable gesetzt** | Damit wird die Registrierung authentifiziert und entschieden, welcher Builder-Organisation der Kanal gehört.                                                                                                       | Siehe den Hinweis unten — dieser Schritt wird am häufigsten übersehen                                                                                                                                                       |
+| **Ein Produktions-Deployment**                                     | Deploy-Previews bleiben bei der lokalen Synchronisierung, damit ein kurzlebiges Branch-Credential die Maschine nie verlässt und ein aktives Repository nicht pro Pull Request einen Kanal erzeugt.                 | `CONTEXT=production` / `BRANCH=production` oder `VERCEL_ENV=production`                                                                                                                                                     |
+| **Die Plattform identifiziert das Deployment**                     | Die Registrierung ist an den öffentlichen Origin der App gebunden, daher darf ein Prozess, der nicht wirklich das Deployment ist, ihn nicht beanspruchen.                                                          | Netlify, Vercel, AWS Lambda, Cloud Run, Render und Cloudflare Pages kennzeichnen sich selbst. Auf einem einfachen Container oder einer VM setzen Sie `AGENT_NATIVE_REALTIME_APP_URL` auf den eigenen Origin des Deployments |
 
 <Callout tone="warning">
 
@@ -699,12 +699,12 @@ curl -s https://your-app.example.com/_agent-native/health | jq .realtime
 }
 ```
 
-| Feld | Bedeutung |
-| ---- | --------- |
-| `transport` | `"hosted"`, sobald die Umgebungsvariable gesetzt ist, sonst `"local"`. Steht hier `local`, hat die Variable das laufende Deployment nicht erreicht. |
-| `registered` | Ein Kanal wurde aufgelöst. `false` bedeutet, dass die App weiterhin ihr eigenes `/_agent-native/poll` verwendet. |
+| Feld          | Bedeutung                                                                                                                                                                                                                        |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transport`   | `"hosted"`, sobald die Umgebungsvariable gesetzt ist, sonst `"local"`. Steht hier `local`, hat die Variable das laufende Deployment nicht erreicht.                                                                              |
+| `registered`  | Ein Kanal wurde aufgelöst. `false` bedeutet, dass die App weiterhin ihr eigenes `/_agent-native/poll` verwendet.                                                                                                                 |
 | `channelHash` | Die ersten 8 Zeichen eines SHA-256 der Kanal-ID — genug, um zwei Deployments zu unterscheiden oder eine Rotation zu bestätigen, nutzlos zum Verbinden. Der Endpunkt ist öffentlich, daher wird die ID selbst nie veröffentlicht. |
-| `unavailable` | Nur vorhanden, wenn die Auflösung FEHLGESCHLAGEN ist, im Unterschied zu „kein Kanal“. Ein nicht erreichbares Gateway und eine nicht registrierte App sind unterschiedliche Probleme. |
+| `unavailable` | Nur vorhanden, wenn die Auflösung FEHLGESCHLAGEN ist, im Unterschied zu „kein Kanal“. Ein nicht erreichbares Gateway und eine nicht registrierte App sind unterschiedliche Probleme.                                             |
 
 Wenn `registered` `false` ist, enthalten die Logs des Deployments eine
 `[realtime]`-Zeile mit dem Grund — ein abgelehntes Credential, eine nicht
@@ -725,7 +725,7 @@ keinen anderen Weg, der dieses Credential teilt.
 registrieren kann, kann auch einen bestehenden Origin erneut registrieren, was
 das Signaturgeheimnis dieses Kanals zurückgibt und seine Datenbank umlenkt. Wer
 dieses Geheimnis besitzt, kann ein Subscribe-Token für jeden Benutzer der App
-ausstellen, wodurch dessen *Änderungsstrom* offengelegt wird — welche Datensätze
+ausstellen, wodurch dessen _Änderungsstrom_ offengelegt wird — welche Datensätze
 sich wann geändert haben — aber nicht die Datensätze selbst, da Clients Inhalte
 mit ihrer eigenen Sitzung erneut aus der App lesen. Behandeln Sie ein
 Registrierungs-Credential als organisationsweit.
