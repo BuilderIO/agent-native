@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   and: vi.fn(),
   eq: vi.fn(),
   isNull: vi.fn(),
+  like: vi.fn(),
+  or: vi.fn(),
   extractJpegFrame: vi.fn(),
   uploadFile: vi.fn(),
   writeAppState: vi.fn(),
@@ -22,6 +24,8 @@ vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => mocks.and(...args),
   eq: (...args: unknown[]) => mocks.eq(...args),
   isNull: (...args: unknown[]) => mocks.isNull(...args),
+  like: (...args: unknown[]) => mocks.like(...args),
+  or: (...args: unknown[]) => mocks.or(...args),
 }));
 vi.mock("../db/index.js", () => ({
   getDb: (...args: unknown[]) => mocks.getDb(...args),
@@ -63,14 +67,14 @@ function createDb(
   references: Array<Record<string, unknown>> = [],
 ) {
   const selectWhere = vi.fn().mockResolvedValue([recording]);
-  const referenceLimit = vi.fn().mockResolvedValue(references);
+  const referenceResults = vi.fn().mockResolvedValue(references);
   const select = vi.fn((selection?: unknown) => {
     if (!selection) {
       return { from: vi.fn(() => ({ where: selectWhere })) };
     }
     return {
       from: vi.fn(() => ({
-        where: vi.fn(() => ({ limit: referenceLimit })),
+        where: referenceResults,
       })),
     };
   });
@@ -104,6 +108,8 @@ describe("ensureRecordingThumbnail", () => {
     mocks.and.mockReturnValue("conditions");
     mocks.eq.mockImplementation((column, value) => ({ column, value }));
     mocks.isNull.mockImplementation((column) => ({ column, isNull: true }));
+    mocks.like.mockImplementation((column, value) => ({ column, value }));
+    mocks.or.mockReturnValue("or-conditions");
     mocks.ownerEmailMatches.mockReturnValue("owner-match");
     mocks.extractJpegFrame.mockResolvedValue(new Uint8Array([1, 2, 3]));
     mocks.uploadFile.mockResolvedValue({
@@ -200,7 +206,7 @@ describe("ensureRecordingThumbnail", () => {
     const { db } = createDb(
       recording({ thumbnailUrl: oldThumbnailUrl }),
       [{ id: "rec-1", thumbnailUrl: "https://cdn.example.com/thumb.jpg" }],
-      [{ id: "other-recording" }],
+      [{ id: "other-recording", thumbnailUrl: oldThumbnailUrl }],
     );
     mocks.getDb.mockReturnValue(db);
 
@@ -209,6 +215,28 @@ describe("ensureRecordingThumbnail", () => {
       ownerEmail: "owner@example.com",
       mediaBytes: new Uint8Array([9, 9, 9]),
       replaceNonEditorThumbnail: true,
+    });
+
+    expect(mocks.deleteRecordingMediaObjects).not.toHaveBeenCalled();
+  });
+
+  it("keeps a thumbnail retained by an editor URL selection", async () => {
+    const oldThumbnailUrl = "https://cdn.example.com/editor.jpg";
+    const editsJson = JSON.stringify({
+      thumbnail: { kind: "url", value: oldThumbnailUrl },
+    });
+    const { db } = createDb(
+      recording({ thumbnailUrl: null, editsJson }),
+      [{ id: "rec-1", thumbnailUrl: "https://cdn.example.com/thumb.jpg" }],
+      [{ id: "rec-1", editsJson }],
+    );
+    mocks.getDb.mockReturnValue(db);
+
+    await ensureRecordingThumbnail({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+      mediaBytes: new Uint8Array([9, 9, 9]),
+      previousThumbnailUrl: oldThumbnailUrl,
     });
 
     expect(mocks.deleteRecordingMediaObjects).not.toHaveBeenCalled();
@@ -237,7 +265,7 @@ describe("ensureRecordingThumbnail", () => {
     const second = ensureRecordingThumbnail({
       recordingId: "rec-1",
       ownerEmail: "owner@example.com",
-      mediaBytes: new Uint8Array([9, 9, 9]),
+      thumbnailBytes: new Uint8Array([4, 5, 6]),
     });
 
     releaseExtraction();

@@ -231,6 +231,51 @@ describe("post-finalize worker", () => {
     });
   });
 
+  it("retries transient thumbnail failures with bounded durable delays", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "thumbnail",
+      token: "valid-token",
+      retryAttempt: 2,
+    });
+    mockDb.select.mockImplementationOnce(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => [
+          {
+            id: "rec-1",
+            ownerEmail: "owner@example.test",
+            orgId: "org-1",
+            status: "ready",
+            uploadGenerationId: null,
+          },
+        ]),
+      };
+      return builder;
+    });
+    mockEnsureRecordingThumbnail.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "skipped-media-fetch",
+      changed: false,
+      detail: "temporary storage outage",
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "thumbnail",
+      retryScheduled: true,
+      retryAttempt: 3,
+    });
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      kind: "thumbnail",
+      delayMs: 20_000,
+      retryAttempt: 3,
+      requireAccepted: true,
+    });
+  });
+
   it("skips a Loom import when its atomic claim is already held", async () => {
     mockReadBody.mockResolvedValue({
       recordingId: "rec-1",

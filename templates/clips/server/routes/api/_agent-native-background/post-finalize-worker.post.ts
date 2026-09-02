@@ -19,7 +19,10 @@ import { ensureRecordingSeekable } from "../../../../actions/lib/ensure-seekable
 import { runLoomImportJob } from "../../../../actions/lib/loom-import-job.js";
 import requestTranscript from "../../../../actions/request-transcript.js";
 import { getDb, schema } from "../../../db/index.js";
-import { ensureRecordingThumbnail } from "../../../lib/ensure-recording-thumbnail.js";
+import {
+  ensureRecordingThumbnail,
+  type EnsureRecordingThumbnailResult,
+} from "../../../lib/ensure-recording-thumbnail.js";
 import {
   dispatchPostFinalizeJob,
   POST_FINALIZE_JOB_TOKEN_KIND,
@@ -44,6 +47,19 @@ const bodySchema = z.object({
 });
 
 const LOOM_IMPORT_LEASE_MS = 30 * 60 * 1000;
+const MAX_THUMBNAIL_RETRIES = 5;
+const RETRYABLE_THUMBNAIL_STATUSES = new Set<
+  EnsureRecordingThumbnailResult["status"]
+>([
+  "skipped-media-fetch",
+  "skipped-frame-extraction",
+  "skipped-upload-failed",
+  "skipped-race",
+]);
+
+function thumbnailRetryDelayMs(retryAttempt: number): number {
+  return Math.min(30_000, 5_000 * 2 ** Math.max(0, retryAttempt));
+}
 
 export default defineEventHandler(async (event: H3Event) => {
   const parsed = bodySchema.safeParse(await readBody(event).catch(() => null));
@@ -140,6 +156,37 @@ export default defineEventHandler(async (event: H3Event) => {
           ownerEmail: recording.ownerEmail,
           ...(previousThumbnailUrl ? { previousThumbnailUrl } : {}),
         });
+        if (RETRYABLE_THUMBNAIL_STATUSES.has(result.status)) {
+          const nextRetryAttempt = (retryAttempt ?? 0) + 1;
+          if (nextRetryAttempt <= MAX_THUMBNAIL_RETRIES) {
+            await dispatchPostFinalizeJob({
+              recordingId,
+              kind,
+              delayMs: thumbnailRetryDelayMs(retryAttempt ?? 0),
+              retryAttempt: nextRetryAttempt,
+              ...(previousThumbnailUrl ? { previousThumbnailUrl } : {}),
+              requireAccepted: true,
+            });
+            return {
+              ok: true,
+              kind,
+              result,
+              retryScheduled: true,
+              retryAttempt: nextRetryAttempt,
+            };
+          }
+          console.warn("[post-finalize-worker] thumbnail retries exhausted", {
+            recordingId,
+            status: result.status,
+            retryAttempt,
+          });
+          return {
+            ok: true,
+            kind,
+            result,
+            retryExhausted: true,
+          };
+        }
         return { ok: true, kind, result };
       }
       if (kind === "media-ready") {

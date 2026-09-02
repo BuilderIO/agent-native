@@ -1,6 +1,6 @@
 import { writeAppState } from "@agent-native/core/application-state";
 import { uploadFile } from "@agent-native/core/file-upload";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, like, or } from "drizzle-orm";
 
 import { parseEdits } from "../../app/lib/timestamp-mapping.js";
 import { isLoomEmbedBackedRecording } from "../../shared/loom.js";
@@ -51,19 +51,10 @@ const inFlightThumbnailEnsures = new Map<
   string,
   Promise<EnsureRecordingThumbnailResult>
 >();
+const inFlightThumbnailCleanups = new Map<string, Promise<void>>();
 
 function thumbnailEnsureKey(params: EnsureRecordingThumbnailParams): string {
-  return JSON.stringify([
-    params.ownerEmail,
-    params.recordingId,
-    params.mediaBytes?.byteLength
-      ? "media"
-      : params.thumbnailBytes?.byteLength
-        ? "thumbnail"
-        : "stored-media",
-    Boolean(params.replaceNonEditorThumbnail),
-    params.previousThumbnailUrl?.trim() || null,
-  ]);
+  return JSON.stringify([params.ownerEmail.toLowerCase(), params.recordingId]);
 }
 
 function fallbackMimeType(videoFormat: string | null | undefined): string {
@@ -122,20 +113,61 @@ async function loadRecording(
   return recording ?? null;
 }
 
-async function deleteThumbnailIfUnreferenced(
+async function deleteThumbnailIfUnreferencedOnce(
   recordingId: string,
   thumbnailUrl: string,
 ): Promise<void> {
-  const [reference] = await getDb()
-    .select({ id: schema.recordings.id })
+  const references = await getDb()
+    .select({
+      id: schema.recordings.id,
+      thumbnailUrl: schema.recordings.thumbnailUrl,
+      editsJson: schema.recordings.editsJson,
+    })
     .from(schema.recordings)
-    .where(eq(schema.recordings.thumbnailUrl, thumbnailUrl))
-    .limit(1);
-  if (reference) return;
+    .where(
+      or(
+        eq(schema.recordings.thumbnailUrl, thumbnailUrl),
+        like(schema.recordings.editsJson, `%${thumbnailUrl}%`),
+      ),
+    );
+  if (
+    references.some((reference) => {
+      if (reference.thumbnailUrl === thumbnailUrl) return true;
+      const thumbnail = parseEdits(reference.editsJson).thumbnail;
+      if (!thumbnail) return false;
+      if (thumbnail.kind === "url") return thumbnail.value === thumbnailUrl;
+      if (thumbnail.kind !== "gif") return false;
+      try {
+        const gif = JSON.parse(thumbnail.value) as { url?: unknown };
+        return gif.url === thumbnailUrl;
+      } catch {
+        return true;
+      }
+    })
+  ) {
+    return;
+  }
 
   await deleteRecordingMediaObjects({
     id: recordingId,
     thumbnailUrl,
+  });
+}
+
+function deleteThumbnailIfUnreferenced(
+  recordingId: string,
+  thumbnailUrl: string,
+): Promise<void> {
+  const key = JSON.stringify([recordingId, thumbnailUrl]);
+  const pending = inFlightThumbnailCleanups.get(key);
+  if (pending) return pending;
+
+  const current = deleteThumbnailIfUnreferencedOnce(recordingId, thumbnailUrl);
+  inFlightThumbnailCleanups.set(key, current);
+  return current.finally(() => {
+    if (inFlightThumbnailCleanups.get(key) === current) {
+      inFlightThumbnailCleanups.delete(key);
+    }
   });
 }
 
@@ -250,9 +282,7 @@ async function ensureRecordingThumbnailOnce(
     return { recordingId, status: "skipped-upload-failed", changed: false };
   }
 
-  const previousThumbnailUrl =
-    params.previousThumbnailUrl?.trim() ||
-    (replaceExisting ? existingThumbnailUrl : null);
+  const previousThumbnailUrl = replaceExisting ? existingThumbnailUrl : null;
 
   const updated = await getDb()
     .update(schema.recordings)
@@ -333,12 +363,44 @@ export async function ensureRecordingThumbnail(
 ): Promise<EnsureRecordingThumbnailResult> {
   const key = thumbnailEnsureKey(params);
   const pending = inFlightThumbnailEnsures.get(key);
-  if (pending) return pending;
+  if (pending) {
+    const result = await pending;
+    const previousThumbnailUrl = params.previousThumbnailUrl?.trim() || null;
+    if (
+      previousThumbnailUrl &&
+      result.thumbnailUrl &&
+      previousThumbnailUrl !== result.thumbnailUrl
+    ) {
+      await deleteThumbnailIfUnreferenced(
+        params.recordingId,
+        previousThumbnailUrl,
+      ).catch(() => {});
+    }
+    return result;
+  }
 
   const current = ensureRecordingThumbnailOnce(params);
   inFlightThumbnailEnsures.set(key, current);
   try {
-    return await current;
+    const result = await current;
+    const previousThumbnailUrl = params.previousThumbnailUrl?.trim() || null;
+    if (
+      previousThumbnailUrl &&
+      result.thumbnailUrl &&
+      previousThumbnailUrl !== result.thumbnailUrl
+    ) {
+      await deleteThumbnailIfUnreferenced(
+        params.recordingId,
+        previousThumbnailUrl,
+      ).catch((error) => {
+        console.warn("[clips] superseded recording thumbnail cleanup skipped", {
+          recordingId: params.recordingId,
+          thumbnailUrl: previousThumbnailUrl,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
+    return result;
   } finally {
     if (inFlightThumbnailEnsures.get(key) === current) {
       inFlightThumbnailEnsures.delete(key);
