@@ -57,7 +57,9 @@ merging, except when the user explicitly invokes `/ship-now`.
    When no ACTIVE legacy heartbeat is present, use the remote Git ref
    `refs/heads/agent-native-babysit-lock-<number>` as the concrete serialized
    PR lease coordinator. Its tip is a lease-record commit, not application
-   code, and must record the PR, owner thread, version, and expiry. Create a
+   code, and must record the PR, owner thread, version, expiry, and the
+   observed legacy-heartbeat version plus a one-way `legacy_retired` fence.
+   Create a
    fresh record with `git commit-tree`, then claim an absent ref with a normal
    non-force `git push origin <record-oid>:<lease-ref>`; ref creation is the
    atomic create-if-absent operation. Read the lease with `git ls-remote` plus
@@ -94,16 +96,20 @@ merging, except when the user explicitly invokes `/ship-now`.
    owner's lease. This setup cleanup is required even when no heartbeat was
    created, and must not wait for the stop conditions.
 
-   The legacy-heartbeat check is part of the same serialized handoff: inspect
-   the exact legacy record before the lease claim, then reread it immediately
-   after a successful claim and immediately before `automation_update`. A
-   legacy record that becomes ACTIVE, changes version, or cannot be read fences
-   task-scoped creation; release this invocation's lease with its owner/version
-   precondition and remain foreground-only. A legacy watcher may be migrated
-   or changed only by an owner holding the same PR lease, so a legacy writer
-   cannot activate outside the coordinator while a task-scoped watcher is
-   being created. If that protocol cannot be enforced for the legacy writer,
-   leave the legacy path untouched and never create a second watcher.
+   The legacy-heartbeat check is part of the same serialized handoff, not an
+   independent preflight. Inspect the exact legacy record before the lease
+   claim. When it is quiescent, include its observed version in the atomic
+   lease record and set `legacy_retired=true`; reread the legacy record
+   immediately after a successful claim and immediately before
+   `automation_update`. A legacy record that becomes ACTIVE, changes version,
+   or cannot be read fences task-scoped creation; release this invocation's
+   lease with its owner/version precondition and remain foreground-only. Once
+   the retirement fence is published, no compliant invocation may activate or
+   update the legacy shared heartbeat: it must first hold the same PR lease
+   and use the task-scoped path. A legacy implementation that cannot honor
+   that fence is treated as an unknown active holder, so leave it untouched
+   and never create a second watcher. This prevents a late legacy start from
+   racing the new watcher during migration.
 
    Choose a lease expiry at least three times the two-minute cadence. At the
    start of every tick, after the required fetch, make the lease fence the

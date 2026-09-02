@@ -351,9 +351,16 @@ branch, stay on it.
    is the remote `agent-native-babysit-lock-<number>` ref described by
    `/babysit-pr`; never create the task-scoped heartbeat until that lease is
    held. An ACTIVE legacy per-PR heartbeat or task-scoped heartbeat targeting
-   another task is owned by that task: do not overwrite, pause, or duplicate it;
-   keep this ship invocation in the foreground while the existing owner
-   continues. Treat `babysit-pr` as the source of truth for how to watch the PR.
+   another task is owned by that task: do not overwrite, pause, or duplicate it.
+   For a task-scoped foreign heartbeat, read the PR lease ref before treating it
+   as blocking. It blocks only while its owner matches the current unexpired
+   lease record; a missing, expired, released, or owner-mismatched lease makes
+   the heartbeat stale. Do not mutate the stale heartbeat, but take over the
+   lease with the documented atomic precondition and let `/babysit-pr` create
+   the current watcher. If the lease cannot be read or the legacy retirement
+   fence cannot be verified, keep this ship invocation in the foreground and
+   do not overwrite the heartbeat. Treat `babysit-pr` as the source of truth for
+   how to watch the PR.
    Its Step 0 checks the current nonignored branch snapshot and publishes only
    actionable work, then checks mergeability, every unaddressed review comment
    by reply state, and CI.
