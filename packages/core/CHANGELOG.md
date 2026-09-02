@@ -51,6 +51,76 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.176.4
+
+### Patch Changes
+
+- 24c0a3e: Return HTTP 500 for unclassified signup failures instead of reporting them as account conflicts.
+- afea78a: Re-check the stored `_collab_docs` version on every cached Y.Doc read, so a
+  serverless instance no longer serves collaboration text that a peer instance
+  moved past. `applyText` gains a `validateBase` hook for callers that need the
+  converged pre-diff text checked inside the write lock.
+- 56404c7: Restore Creative context as a Share tab and compact its submission controls.
+- afea78a: Add an `emptyStateFooter` slot to the agent chat, rendered below the empty-state suggestions. Unlike `threadFooterSlot` it never survives the first message, so a first-run affordance can sit with the suggestions without following the user through the conversation. Also forwards `onMessageCountChange` through `AgentPanel`/`AgentChatSurface` so a host can tell an empty thread from a started one. Fixes `onMessageCountChange` being swallowed by the multi-tab chat's own tab counter instead of reaching the host.
+- 3e4a129: Prefer direct WebMCP and cataloged app actions before delegated app-agent work.
+- 9a1011e: Register direct WebMCP action tools on token-authenticated app surfaces.
+- 9de6cb9: `createDrizzleConfig` accepts a `url` option that takes precedence over `DATABASE_URL` and `<APP_NAME>_DATABASE_URL`, so an app can point drizzle-kit at a direct database endpoint while the app itself keeps querying through a pooler. A Neon pooler is PgBouncer in transaction mode and cannot run migration DDL. A blank or unset `url` still falls back to the environment, so `url: process.env.DATABASE_URL_UNPOOLED` is correct on hosts that set only `DATABASE_URL`.
+- 63dfbc8: Report effective deployment database configuration in env-status checks.
+- c9ed8ff: Batch provider secret reads when agent engine detection has to check provider keys. `detectEngineFromUserSecrets` probed each engine's keys one at a time and `resolveSecret` walks four scopes per key, so `/_agent-native/agent-engine/status` cost roughly 50 serial reads per poll for accounts without a Builder connection — bring-your-own-key users, and anyone with no provider configured at all. It now warms the request memo with one batched read per scope. Builder-connected accounts already resolved without reading a provider key and are unaffected.
+- 3275e6f: Make `detectEngineFromUserSecrets` batch-load candidate provider credentials
+  in one read per identity scope instead of sweeping the whole engine registry
+  one point read at a time. An unconfigured request (e.g. the polled
+  `/_agent-native/agent-engine/status` gate in local dev) previously issued ~80
+  sequential `app_secrets` reads per call; it now reuses the existing
+  `prefetchSecrets` memo so the per-engine usability checks answer from the
+  request cache. Same precedence, identity scoping, and unreadable-store
+  propagation.
+- 1cd665a: Redirect returning Builder employees from production to beta before the app bundle loads.
+- 8b060aa: Bound database admin table catalog row-count queries.
+- 6d5f99a: Avoid prefetching provider secrets before checking a connected Builder account.
+- 79861ce: Expose fetchable WebMCP compatibility manifests and direct action endpoints alongside the existing browser, MCP, and A2A surfaces.
+- ea7c5f3: Allow a usable Builder key pair to remain available when an unreadable OAuth row is present.
+- 0566ce9: Make `/act` implement the latest plan when the plan-mode callout is available.
+- 485642e: Keep hosted Dispatch app launches inline outside Builder editor sessions.
+- Release all public npm packages with a patch version bump.
+- 9c047e3: Batch provider credential reads while building the model catalog.
+- ee3a826: Keep the global chat shortcut from intercepting editable content.
+- 5404eca: Make MCP settings more scannable with a distinct app icon and click-to-reveal host instructions.
+- a5686be: Refresh open app data after successful mutating actions run through direct MCP tools.
+- 5eeee8d: Launch terminal providers with a reliable native PTY environment and lifecycle cleanup.
+- 1aad450: Let apps outside the Builder hosting pipeline use the hosted Realtime Gateway.
+
+  Set `AGENT_NATIVE_REALTIME_TRANSPORT=hosted` on a Postgres-backed production
+  deploy that already has a `BUILDER_PRIVATE_KEY`, and the app registers its own
+  database and origin with the gateway on demand, then mints subscribe tokens against the
+  channel it gets back. The gateway URL is now derived from
+  `BUILDER_GATEWAY_BASE_URL` when unset, so hosted realtime needs one env var
+  instead of four. Pipeline-injected channels still win, and anything missing
+  (no key, a non-Postgres database, a deploy preview, the org not in the rollout)
+  leaves the app on its own `/_agent-native/poll`.
+
+  Registering an origin requires positive evidence that this process is the
+  deployment serving it, so a production build run on a laptop cannot repoint
+  production's channel at another database. A platform runtime marker counts
+  (`NETLIFY`, `VERCEL`, `K_SERVICE`, `AWS_LAMBDA_FUNCTION_NAME` and the like, plus
+  Netlify's per-deploy `DEPLOY_PRIME_URL` / `DEPLOY_URL`); `NODE_ENV` and the
+  generic `URL` deliberately do not, because both travel with a copied `.env`.
+
+  A self-hosted container or VM has no such marker and declares its origin
+  instead, with `AGENT_NATIVE_REALTIME_APP_URL`. That value wins over the resolved
+  self URL when set. Without either, registration declines and logs why.
+
+- 8b393d4: Route chat health outage alerts to Slack instead of the in-app notification inbox.
+- 08aa90d: Allow OAuth state to carry a signed provider-resource target for reconnect flows.
+- d75ca12: Add `splitAgentChatContextFromMessage`, the inverse of `appendAgentChatContextToMessage`, so a consumer can tell the user's prompt apart from the context an app attached to it.
+- c9aa273: Keep ambient composer context chips stable when their label changes.
+- b9fd516: Sync generated action field guidance across workspace and template scaffolds.
+- 65abfdd: Redirect Builder employees to beta instantly from the cached browser marker, without waiting on a session round trip.
+- Updated dependencies
+- Updated dependencies [0566ce9]
+  - @agent-native/recap-cli@0.5.24
+  - @agent-native/toolkit@0.19.2
+
 ## 0.176.3
 
 ### Patch Changes
@@ -2011,12 +2081,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
   another failing write and another `onError`. It now falls back to the state's own
   identity, which still lets a genuinely different unserializable state reach the
   write path and surface its real error.
-
-## 0.161.19
-
-### Patch Changes
-
-- efc5f92: Improve the self-hosting documentation with a fast local Docker quickstart and downloadable Chat fixture.
-- 9fed363: Teach generated workspaces to reuse shared settings, vault, OAuth, and onboarding primitives before building custom integration setup UI.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

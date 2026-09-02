@@ -41,6 +41,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { collapseConsecutiveInboxEvents } from "@/lib/collapse-inbox-events";
 
 const INBOX_PAGE_SIZE = 50;
 
@@ -813,10 +814,11 @@ function InboxActionList({
   runs: InboxRun[];
   t: ReturnType<typeof useT>;
 }) {
-  if (events.length > 0) {
+  const visibleEvents = collapseConsecutiveInboxEvents(events);
+  if (visibleEvents.length > 0) {
     return (
       <div className="space-y-2">
-        {events.map((event) => (
+        {visibleEvents.map((event) => (
           <InboxEventCard key={event.id} event={event} />
         ))}
       </div>

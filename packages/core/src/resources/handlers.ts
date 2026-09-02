@@ -32,7 +32,9 @@ import {
   resourceGet,
   resourceGetByPath,
   resourcePut,
+  resourcePutIfAbsent,
   resourceDelete,
+  resourceDeleteIfCurrent,
   resourceList,
   resourceListAccessible,
   resourceMove,
@@ -40,6 +42,8 @@ import {
   ensurePersonalDefaults,
   canWriteLocalWorkspaceResourcePath,
   isLocalWorkspaceResourceId,
+  isLegacyOrganizationWorkspaceFile,
+  isLegacySharedResourceVisibleToOrganization,
   organizationIdFromResourceOwner,
   sharedResourceOwner,
   SHARED_OWNER,
@@ -113,18 +117,13 @@ async function listSharedResources(
   options?: Parameters<typeof resourceList>[2],
 ): Promise<ResourceMeta[]> {
   const organizationOwner = sharedResourceOwner(orgId);
+  const scopedOptions = { ...options, orgId };
   if (organizationOwner === SHARED_OWNER) {
-    return options
-      ? resourceList(SHARED_OWNER, prefix, options)
-      : resourceList(SHARED_OWNER, prefix);
+    return resourceList(SHARED_OWNER, prefix, scopedOptions);
   }
   const [organization, legacyAppDefaults] = await Promise.all([
-    options
-      ? resourceList(organizationOwner, prefix, options)
-      : resourceList(organizationOwner, prefix),
-    options
-      ? resourceList(SHARED_OWNER, prefix, options)
-      : resourceList(SHARED_OWNER, prefix),
+    resourceList(organizationOwner, prefix, scopedOptions),
+    resourceList(SHARED_OWNER, prefix, scopedOptions),
   ]);
   return mergeScopedResources(organization, legacyAppDefaults);
 }
@@ -331,7 +330,7 @@ export async function handleGetResourceTree(event: any) {
   const tree = buildTree(resources);
 
   // Enrich typed resources with parsed metadata for richer UI
-  await enrichTreeNodes(tree);
+  await enrichTreeNodes(tree, orgId);
 
   return { tree };
 }
@@ -354,7 +353,10 @@ export async function handleGetEffectiveResourceContext(event: any) {
 /**
  * Walk the tree and add typed metadata for jobs, skills, and agents.
  */
-async function enrichTreeNodes(nodes: TreeNode[]): Promise<void> {
+async function enrichTreeNodes(
+  nodes: TreeNode[],
+  orgId: string | null,
+): Promise<void> {
   let parseFn: typeof import("../jobs/scheduler.js").parseJobFrontmatter;
   let describeFn: typeof import("../jobs/cron.js").describeCron;
   try {
@@ -368,11 +370,11 @@ async function enrichTreeNodes(nodes: TreeNode[]): Promise<void> {
 
   for (const node of nodes) {
     if (node.type === "folder" && node.children) {
-      await enrichTreeNodes(node.children);
+      await enrichTreeNodes(node.children, orgId);
     }
     if (node.type === "file" && node.resource) {
       try {
-        const full = await resourceGet(node.resource.id);
+        const full = await resourceGet(node.resource.id, { orgId });
         if (!full?.content) continue;
 
         if (
@@ -439,7 +441,10 @@ export async function handleGetResource(event: any) {
     return { error: "Resource not found" };
   }
 
-  if (!canReadOwner(resource.owner, email, orgId)) {
+  if (
+    !canReadOwner(resource.owner, email, orgId) ||
+    !isLegacySharedResourceVisibleToOrganization(resource, orgId)
+  ) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
@@ -558,16 +563,19 @@ export async function handleUpdateResource(event: any) {
     return { error: "Resource ID is required" };
   }
 
-  const existing = await resourceGet(id);
+  const email = await resolveEmail(event);
+  const orgId = await resolveOrgId(event);
+  const existing = await resourceGet(id, { userEmail: email, orgId });
   if (!existing) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
 
   // Ownership check: only the owner (or shared resource editors) can update
-  const email = await resolveEmail(event);
-  const orgId = await resolveOrgId(event);
-  if (!canReadOwner(existing.owner, email, orgId)) {
+  if (
+    !canReadOwner(existing.owner, email, orgId) ||
+    !isLegacySharedResourceVisibleToOrganization(existing, orgId)
+  ) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
@@ -587,18 +595,46 @@ export async function handleUpdateResource(event: any) {
   const body = await readBody(event);
   const nextPath = body.path ?? existing.path;
   const activeSharedOwner = sharedResourceOwner(orgId);
+  const isLegacyOrganizationWorkspaceResource =
+    existing.owner === SHARED_OWNER &&
+    isLegacyOrganizationWorkspaceFile(existing, orgId);
 
   // Existing `__shared__` rows are legacy app defaults. In an organization,
   // editing one creates an organization override instead of mutating the
   // fallback seen by every tenant in the deployment.
   if (existing.owner === SHARED_OWNER && activeSharedOwner !== SHARED_OWNER) {
-    return resourcePut(
+    const metadata =
+      body.metadata !== undefined ? body.metadata : existing.metadata;
+    const writeOptions = isLegacyOrganizationWorkspaceResource
+      ? {
+          createdBy: existing.createdBy,
+          visibility: existing.visibility,
+          threadId: existing.threadId,
+          runId: existing.runId,
+          expiresAt: existing.expiresAt,
+          metadata,
+        }
+      : body.metadata !== undefined || typeof existing.metadata === "string"
+        ? { metadata }
+        : undefined;
+    const resource = await resourcePutIfAbsent(
       activeSharedOwner,
       nextPath,
       body.content ?? existing.content,
       body.mimeType ?? existing.mimeType,
-      body.metadata !== undefined ? { metadata: body.metadata } : undefined,
+      writeOptions,
     );
+    if (!resource) {
+      setResponseStatus(event, 409);
+      return { error: `A resource already exists at path "${nextPath}"` };
+    }
+    if (
+      isLegacyOrganizationWorkspaceResource &&
+      typeof existing.metadata === "string"
+    ) {
+      await resourceDeleteIfCurrent(existing);
+    }
+    return resource;
   }
 
   if (
@@ -650,16 +686,19 @@ export async function handleDeleteResource(event: any) {
     return { error: "Resource ID is required" };
   }
 
-  const existing = await resourceGet(id);
+  const email = await resolveEmail(event);
+  const orgId = await resolveOrgId(event);
+  const existing = await resourceGet(id, { userEmail: email, orgId });
   if (!existing) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
 
   // Ownership check: only the owner (or shared resource editors) can delete
-  const email = await resolveEmail(event);
-  const orgId = await resolveOrgId(event);
-  if (!canReadOwner(existing.owner, email, orgId)) {
+  if (
+    !canReadOwner(existing.owner, email, orgId) ||
+    !isLegacySharedResourceVisibleToOrganization(existing, orgId)
+  ) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
@@ -670,6 +709,9 @@ export async function handleDeleteResource(event: any) {
     setResponseStatus(event, 403);
     return { error: "Workspace resources are managed from Dispatch" };
   }
+  const isLocalWorkspaceResource =
+    existing.owner === WORKSPACE_OWNER &&
+    isLocalWorkspaceResourceId(existing.id);
   const existingOrganizationId = organizationIdFromResourceOwner(
     existing.owner,
   );
@@ -679,7 +721,8 @@ export async function handleDeleteResource(event: any) {
 
   if (
     existing.owner === SHARED_OWNER &&
-    sharedResourceOwner(orgId) !== SHARED_OWNER
+    sharedResourceOwner(orgId) !== SHARED_OWNER &&
+    !isLegacyOrganizationWorkspaceFile(existing, orgId)
   ) {
     setResponseStatus(event, 403);
     return {
@@ -688,7 +731,31 @@ export async function handleDeleteResource(event: any) {
     };
   }
 
-  await resourceDelete(id);
+  const deleted =
+    existing.owner === SHARED_OWNER &&
+    sharedResourceOwner(orgId) !== SHARED_OWNER &&
+    isLegacyOrganizationWorkspaceFile(existing, orgId) &&
+    typeof existing.metadata === "string"
+      ? await resourceDeleteIfCurrent(existing)
+      : isLocalWorkspaceResource
+        ? await resourceDelete(id)
+        : await resourceDeleteIfCurrent(existing);
+  if (deleted && existingOrganizationId === orgId) {
+    const legacy = await resourceGetByPath(SHARED_OWNER, existing.path, {
+      orgId,
+    });
+    if (
+      legacy &&
+      isLegacyOrganizationWorkspaceFile(legacy, orgId) &&
+      typeof legacy.metadata === "string"
+    ) {
+      await resourceDeleteIfCurrent(legacy);
+    }
+  }
+  if (!deleted) {
+    setResponseStatus(event, 409);
+    return { error: "Resource changed before it could be deleted" };
+  }
   return { ok: true };
 }
 

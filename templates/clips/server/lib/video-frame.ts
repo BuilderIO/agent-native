@@ -222,7 +222,7 @@ export async function extractJpegFrame({
     const dir = await mkdtemp(join(tmpdir(), "clips-frame-"));
     const inputPath = join(dir, `input.${mediaExtensionForMimeType(mimeType)}`);
     const outputPath = join(dir, "frame.jpg");
-    const seconds = Math.max(0, Math.round(atMs) / 1000);
+    const seconds = Math.max(0, atMs) / 1000;
 
     try {
       await writeFile(inputPath, mediaBytes);

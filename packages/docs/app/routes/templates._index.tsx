@@ -1,9 +1,9 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { useSearchParams } from "react-router";
+import { useLoaderData, useSearchParams } from "react-router";
 
+import { loadCommunityAppCatalog } from "../../server/lib/community-apps.server";
 import { BuildOnlinePopover } from "../components/BuilderWaitlistPopover";
-import { communityApps } from "../components/community-apps";
 import { CommunityAppCard } from "../components/CommunityAppCard";
 import { CommunityAppSubmissionDialog } from "../components/CommunityAppSubmissionDialog";
 import { sitePathForLocale } from "../components/docs-locale";
@@ -21,9 +21,14 @@ import {
 const SECTION_HEADING_CLASS =
   "font-[family-name:var(--b-font-sans)] text-[32px] font-medium leading-[1.1] tracking-[-0.02em] text-[var(--b-text-primary)]";
 
+export async function loader() {
+  return loadCommunityAppCatalog();
+}
+
 export default function TemplatesPage() {
   const t = useT();
   const { locale } = useLocale();
+  const { apps: communityApps } = useLoaderData<typeof loader>();
   const [searchParams] = useSearchParams();
   const submissionReceived =
     searchParams.get("community-submission") === "received";

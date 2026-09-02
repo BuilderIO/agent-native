@@ -7,6 +7,8 @@ const mockLoadPublicAgentAccess = vi.hoisted(() => vi.fn());
 const mockLoadRecordingMediaBytes = vi.hoisted(() => vi.fn());
 const mockExtractJpegFrame = vi.hoisted(() => vi.fn());
 const mockProbeMediaDurationMs = vi.hoisted(() => vi.fn());
+const mockEnsureRecordingThumbnail = vi.hoisted(() => vi.fn());
+const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
 const MockVideoFrameExtractionError = vi.hoisted(
   () =>
     class VideoFrameExtractionError extends Error {
@@ -24,6 +26,11 @@ vi.mock("h3", () => ({
   getRequestURL: (event: { url: string }) => new URL(event.url),
   setResponseHeader: (...args: unknown[]) => mockSetResponseHeader(...args),
   setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  runWithRequestContext: (...args: unknown[]) =>
+    mockRunWithRequestContext(...args),
 }));
 
 vi.mock("../../lib/public-agent-context.js", () => ({
@@ -51,6 +58,11 @@ vi.mock("../../lib/video-frame.js", () => ({
   probeMediaDurationMs: (...args: unknown[]) =>
     mockProbeMediaDurationMs(...args),
   VideoFrameExtractionError: MockVideoFrameExtractionError,
+}));
+vi.mock("../../lib/ensure-recording-thumbnail.js", () => ({
+  ensureRecordingThumbnail: (...args: unknown[]) =>
+    mockEnsureRecordingThumbnail(...args),
+  RECORDING_THUMBNAIL_AT_MS: 350,
 }));
 
 import { RecordingMediaFetchError } from "../../lib/public-agent-context.js";
@@ -110,6 +122,15 @@ describe("agent-frame.jpg route", () => {
     });
     mockExtractJpegFrame.mockResolvedValue(new Uint8Array([1, 2, 3]));
     mockProbeMediaDurationMs.mockResolvedValue(null);
+    mockEnsureRecordingThumbnail.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "generated",
+      changed: true,
+      thumbnailUrl: "https://cdn.example.com/thumb.jpg",
+    });
+    mockRunWithRequestContext.mockImplementation(
+      (_context: unknown, callback: () => unknown) => callback(),
+    );
   });
 
   it("caches anonymous public frames without shared caching", async () => {
@@ -206,6 +227,37 @@ describe("agent-frame.jpg route", () => {
     );
     expect(mockExtractJpegFrame).toHaveBeenLastCalledWith(
       expect.objectContaining({ atMs: 3999 }),
+    );
+  });
+
+  it("persists the generated social frame as the recording thumbnail", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        recording: {
+          id: "social-thumbnail",
+          ownerEmail: "owner@example.com",
+          videoUrl: "https://cdn.example.com/video.webm",
+          videoFormat: "webm",
+          thumbnailUrl: null,
+        },
+      }),
+    });
+
+    const result = await handler(
+      makeEvent({ id: "social-thumbnail", atMs: "350" }) as any,
+    );
+
+    expect(Buffer.from(result as Buffer)).toEqual(Buffer.from([1, 2, 3]));
+    expect(mockEnsureRecordingThumbnail).toHaveBeenCalledWith({
+      recordingId: "social-thumbnail",
+      ownerEmail: "owner@example.com",
+      thumbnailBytes: new Uint8Array([1, 2, 3]),
+      mimeType: "video/webm",
+    });
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com", orgId: undefined },
+      expect.any(Function),
     );
   });
 

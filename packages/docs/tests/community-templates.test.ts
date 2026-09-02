@@ -22,6 +22,7 @@ describe("community apps", () => {
 
     expect(nomad).toMatchObject({
       name: "Nomad",
+      demoUrl: "https://nomad.galite.ai",
       sourceUrl: "https://github.com/BuilderIO/agent-native/pull/2454",
       status: "new",
     });

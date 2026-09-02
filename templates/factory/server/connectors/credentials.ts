@@ -20,8 +20,14 @@ const WORKSPACE_PROVIDER_BY_KEY: Record<string, string> = {
   SLACK_BOT_TOKEN: "slack",
   SLACK_BOT_TOKEN_2: "slack",
 };
+const GITHUB_APP_KEYS = [
+  "GITHUB_APP_ID",
+  "GITHUB_APP_INSTALLATION_ID",
+  "GITHUB_APP_PRIVATE_KEY",
+] as const;
 const VAULT_ONLY_KEYS = new Set([
   ...Object.keys(WORKSPACE_PROVIDER_BY_KEY),
+  ...GITHUB_APP_KEYS,
   "SENTRY_ORG_SLUG",
 ]);
 
@@ -235,6 +241,19 @@ export async function hasConnectorSecret(
   return false;
 }
 
+async function hasGitHubConnectorSecret(
+  ownerEmail: string,
+  options: ResolveConnectorSecretOptions,
+): Promise<boolean> {
+  if (await hasConnectorSecret("GITHUB_TOKEN", ownerEmail, options)) {
+    return true;
+  }
+  const appSecrets = await Promise.all(
+    GITHUB_APP_KEYS.map((key) => hasConnectorSecret(key, ownerEmail, options)),
+  );
+  return appSecrets.every(Boolean);
+}
+
 export async function resolveFactoryConnectorReadiness(
   ownerEmail: string,
   options: ResolveConnectorSecretOptions = {},
@@ -248,7 +267,7 @@ export async function resolveFactoryConnectorReadiness(
   const [slack, slackSecondary, github, sentry] = await Promise.all([
     hasConnectorSecret("SLACK_BOT_TOKEN", ownerEmail, readinessOptions),
     hasConnectorSecret("SLACK_BOT_TOKEN_2", ownerEmail, readinessOptions),
-    hasConnectorSecret("GITHUB_TOKEN", ownerEmail, readinessOptions),
+    hasGitHubConnectorSecret(ownerEmail, readinessOptions),
     hasConnectorSecret(
       ["SENTRY_SERVER_TOKEN", "SENTRY_AUTH_TOKEN"],
       ownerEmail,
@@ -269,11 +288,14 @@ export async function assertFactoryConnectorReady(
   const verb = options.verb ?? "creating";
   const label =
     source === "slack" ? "Slack" : source === "github" ? "GitHub" : "Sentry";
-  const ready = await hasConnectorSecret(
-    connectorKeysForSource(source, options.slackWorkspace),
-    ownerEmail,
-    options,
-  );
+  const ready =
+    source === "github"
+      ? await hasGitHubConnectorSecret(ownerEmail, options)
+      : await hasConnectorSecret(
+          connectorKeysForSource(source, options.slackWorkspace),
+          ownerEmail,
+          options,
+        );
   if (!ready) {
     throw new Error(
       `Connect ${label} in Dispatch or add a vault token before ${verb} this job.`,

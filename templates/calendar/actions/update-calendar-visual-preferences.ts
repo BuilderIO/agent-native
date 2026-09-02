@@ -3,13 +3,17 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { listGoogleCalendars } from "../server/lib/google-calendar.js";
 import {
   CALENDAR_VIEW_PREFERENCES_KEY,
   isValidCalendarColor,
   normalizeCalendarViewPreferences,
 } from "../shared/calendar-view-preferences.js";
+import { SHARED_GOOGLE_CALENDARS } from "../shared/feature-flags.js";
 
 const hexColor = z
   .string()
@@ -53,6 +57,19 @@ export default defineAction({
         .describe(
           "Map of connected Google Calendar account email to hex color, for setting multiple accounts at once",
         ),
+      googleCalendarSourceKey: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Opaque sourceKey returned by list-google-calendars whose Agent-Native visibility should change",
+        ),
+      googleCalendarVisible: z
+        .boolean()
+        .optional()
+        .describe(
+          "Whether the Google calendar source should appear in Agent-Native; does not change Google Calendar selection",
+        ),
       hideWeekends: z
         .boolean()
         .optional()
@@ -66,8 +83,33 @@ export default defineAction({
           "accountColor and accountColorMode require accountEmail to be set",
         path: ["accountEmail"],
       },
+    )
+    .refine(
+      (args) =>
+        args.googleCalendarVisible === undefined ||
+        !!args.googleCalendarSourceKey,
+      {
+        message:
+          "googleCalendarVisible requires googleCalendarSourceKey to be set",
+        path: ["googleCalendarSourceKey"],
+      },
     ),
-  run: async (args) => {
+  run: async (args, ctx) => {
+    if (args.googleCalendarSourceKey) {
+      if (!(await isFeatureFlagEnabled(SHARED_GOOGLE_CALENDARS, ctx))) {
+        throw new Error("Shared Google calendars is not enabled");
+      }
+      const ownerEmail = getRequestUserEmail();
+      if (!ownerEmail) throw new Error("no authenticated user");
+      const sourceResult = await listGoogleCalendars(ownerEmail);
+      if (
+        !sourceResult.calendars.some(
+          (source) => source.sourceKey === args.googleCalendarSourceKey,
+        )
+      ) {
+        throw new Error("Unknown Google calendar source");
+      }
+    }
     const runUpdate = async () => {
       const current = normalizeCalendarViewPreferences(
         (await readAppState(CALENDAR_VIEW_PREFERENCES_KEY)) as any,
@@ -105,6 +147,15 @@ export default defineAction({
           : {}),
         accountColors,
         accountColorModes,
+        googleCalendarVisibility: {
+          ...current.googleCalendarVisibility,
+          ...(args.googleCalendarSourceKey &&
+          args.googleCalendarVisible !== undefined
+            ? {
+                [args.googleCalendarSourceKey]: args.googleCalendarVisible,
+              }
+            : {}),
+        },
       });
 
       await writeAppState(

@@ -142,8 +142,8 @@ describe("DocsSidebar", () => {
     expect(sectionIds.slice(0, 5)).toEqual([
       "overview",
       "deployment",
-      "core-architecture",
       "toolkits",
+      "core-architecture",
       "apps",
     ]);
   });

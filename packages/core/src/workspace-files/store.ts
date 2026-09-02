@@ -7,9 +7,13 @@
  * resource in the current personal or organization scope.
  */
 
+import { getOrgRoleForEmail } from "../mcp/actions/service-token-access.js";
+import { canManageOrg } from "../org/permissions.js";
 import {
   SHARED_OWNER,
-  resourceDeleteByPath,
+  isLegacyOrganizationWorkspaceFile,
+  sharedResourceOwner,
+  resourceDeleteIfCurrent,
   resourceGetByPath,
   resourceList,
   resourcePut,
@@ -17,6 +21,7 @@ import {
   type ResourceMeta,
   type ResourceVisibility,
 } from "../resources/store.js";
+import { getRequestUserEmail } from "../server/request-context.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -45,7 +50,29 @@ export interface WorkspaceFilesScope {
 }
 
 function ownerForScope(scope: WorkspaceFilesScope): string {
-  return scope.scope === "org" ? SHARED_OWNER : scope.scopeId;
+  return scope.scope === "org"
+    ? sharedResourceOwner(scope.scopeId)
+    : scope.scopeId;
+}
+
+function optionsForScope(scope: WorkspaceFilesScope) {
+  return scope.scope === "org" ? { orgId: scope.scopeId } : undefined;
+}
+
+async function resolveResourceForScope(
+  scope: WorkspaceFilesScope,
+  path: string,
+): Promise<{ resource: Resource; owner: string } | null> {
+  const owner = ownerForScope(scope);
+  const options = optionsForScope(scope);
+  const resource = await resourceGetByPath(owner, path, options);
+  if (resource) return { resource, owner };
+  if (scope.scope !== "org") return null;
+
+  const legacy = await resourceGetByPath(SHARED_OWNER, path, options);
+  return legacy && isLegacyOrganizationWorkspaceFile(legacy, scope.scopeId)
+    ? { resource: legacy, owner: SHARED_OWNER }
+    : null;
 }
 
 /** True for `scratch/...` paths — hidden agent staging, never durable. */
@@ -63,6 +90,20 @@ function workspaceFileMetadata(scope: WorkspaceFilesScope) {
     scope: scope.scope,
     scopeId: scope.scopeId,
   };
+}
+
+async function assertCanMutateWorkspaceFile(
+  scope: WorkspaceFilesScope,
+  path: string,
+): Promise<void> {
+  if (scope.scope !== "org" || isScratchWorkspacePath(path)) return;
+  const email = getRequestUserEmail()?.trim();
+  const role = email ? await getOrgRoleForEmail(scope.scopeId, email) : null;
+  if (!email || !canManageOrg(role)) {
+    throw new Error(
+      "Only organization owners and admins can edit organization files",
+    );
+  }
 }
 
 /**
@@ -157,6 +198,18 @@ export async function writeWorkspaceFile(
 ): Promise<WorkspaceFileMeta> {
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
+  await assertCanMutateWorkspaceFile(scope, path);
+
+  const legacy =
+    scope.scope === "org"
+      ? await resourceGetByPath(SHARED_OWNER, path, optionsForScope(scope))
+      : null;
+  const legacyOrganizationResource =
+    scope.scope === "org" &&
+    legacy &&
+    isLegacyOrganizationWorkspaceFile(legacy, scope.scopeId)
+      ? legacy
+      : null;
 
   const maxFileBytes = Math.min(
     opts?.maxFileBytes ?? MAX_FILE_BYTES,
@@ -175,11 +228,28 @@ export async function writeWorkspaceFile(
     content,
     contentType,
     {
-      createdBy: "agent",
-      visibility: visibilityForPath(path),
+      createdBy: legacyOrganizationResource?.createdBy ?? "agent",
+      visibility: legacyOrganizationResource
+        ? legacyOrganizationResource.visibility
+        : visibilityForPath(path),
+      ...(legacyOrganizationResource
+        ? {
+            threadId: legacyOrganizationResource.threadId,
+            runId: legacyOrganizationResource.runId,
+            expiresAt: legacyOrganizationResource.expiresAt,
+          }
+        : {}),
       metadata: workspaceFileMetadata(scope),
     },
   );
+
+  if (
+    scope.scope === "org" &&
+    legacyOrganizationResource &&
+    typeof legacyOrganizationResource.metadata === "string"
+  ) {
+    await resourceDeleteIfCurrent(legacyOrganizationResource);
+  }
 
   return resourceToMeta(resource);
 }
@@ -196,8 +266,8 @@ export async function appendWorkspaceFile(
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
 
-  const existing = await resourceGetByPath(ownerForScope(scope), path);
-  const newContent = existing ? existing.content + text : text;
+  const existing = await resolveResourceForScope(scope, path);
+  const newContent = existing ? existing.resource.content + text : text;
   return writeWorkspaceFile(scope, path, newContent, contentType);
 }
 
@@ -213,10 +283,10 @@ export async function readWorkspaceFile(
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
 
-  const resource = await resourceGetByPath(ownerForScope(scope), path);
-  if (!resource) return null;
+  const resolved = await resolveResourceForScope(scope, path);
+  if (!resolved) return null;
 
-  let content = resource.content;
+  let content = resolved.resource.content;
   if (opts?.offset || opts?.maxChars) {
     const off = opts.offset ?? 0;
     content = content.slice(
@@ -225,7 +295,7 @@ export async function readWorkspaceFile(
     );
   }
 
-  return resourceToFile(resource, scope, content);
+  return resourceToFile(resolved.resource, scope, content);
 }
 
 /**
@@ -238,8 +308,8 @@ export async function getWorkspaceFileMeta(
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
 
-  const resource = await resourceGetByPath(ownerForScope(scope), path);
-  return resource ? resourceToMeta(resource) : null;
+  const resolved = await resolveResourceForScope(scope, path);
+  return resolved ? resourceToMeta(resolved.resource) : null;
 }
 
 /**
@@ -254,14 +324,31 @@ export async function listWorkspaceFiles(
   const normalizedPrefix = normalizePrefix(prefix);
   const resources = await resourceList(owner, normalizedPrefix, {
     includeAgentScratch: true,
+    ...optionsForScope(scope),
   });
+  const allResources =
+    scope.scope === "org"
+      ? [
+          ...resources,
+          ...(
+            await resourceList(SHARED_OWNER, normalizedPrefix, {
+              includeAgentScratch: true,
+              ...optionsForScope(scope),
+            })
+          ).filter(
+            (resource) =>
+              isLegacyOrganizationWorkspaceFile(resource, scope.scopeId) &&
+              !resources.some((current) => current.path === resource.path),
+          ),
+        ]
+      : resources;
   const filtered = normalizedPrefix
-    ? resources.filter(
+    ? allResources.filter(
         (resource) =>
           resource.path === normalizedPrefix ||
           resource.path.startsWith(`${normalizedPrefix}/`),
       )
-    : resources;
+    : allResources;
 
   return filtered
     .map(resourceToMeta)
@@ -277,8 +364,27 @@ export async function deleteWorkspaceFile(
 ): Promise<boolean> {
   const pathErr = validatePath(path);
   if (pathErr) throw new Error(`Invalid path: ${pathErr}`);
+  await assertCanMutateWorkspaceFile(scope, path);
 
-  return resourceDeleteByPath(ownerForScope(scope), path);
+  const resolved = await resolveResourceForScope(scope, path);
+  if (!resolved) return false;
+
+  const deleted = await resourceDeleteIfCurrent(resolved.resource);
+  if (deleted && scope.scope === "org" && resolved.owner !== SHARED_OWNER) {
+    const legacy = await resourceGetByPath(
+      SHARED_OWNER,
+      path,
+      optionsForScope(scope),
+    );
+    if (
+      legacy &&
+      isLegacyOrganizationWorkspaceFile(legacy, scope.scopeId) &&
+      typeof legacy.metadata === "string"
+    ) {
+      await resourceDeleteIfCurrent(legacy);
+    }
+  }
+  return deleted;
 }
 
 /**

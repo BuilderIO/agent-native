@@ -39,9 +39,8 @@ Read the relevant skill before deeper work:
 3. **Escalate on a miss.** If the catalog has no usable result, make one discovery
    pass (`list-data-dictionary`, `search-bigquery-schema`, `data-source-status`),
    then query; don't cross-check or add unasked breakdowns.
-4. **Answer in chat.** Return a short table or inline chart, not only a
-   dashboard pointer; for >50 rows, state the total and top rows.
-5. **Deliver exports in chat.** Don't return only a path.
+4. **Answer in chat.** Return a short table, chart, or export, not just a path;
+   for >50 rows, state the total and top rows.
 6. **Chunk only reading.** Group 5-10 only for 30+ qualitative items when a query
    cannot answer; don't chunk queryable questions. See `adhoc-analysis`.
 
@@ -54,7 +53,7 @@ Read the relevant skill before deeper work:
   signups, conversions, and other curated product metrics. Answer sibling-app
   delegations with the built-in source and query catalog; sibling agents should
   send a natural-language question, never SQL.
-- Delegated requests: choose a safe default; label partial.
+- Delegation: choose defaults; label partial.
 - Data integrity first. Never invent numbers, dimensions, filters, or source
   semantics; present only retrieved values with source, window, filters,
   row-count/sample-size, join method, and caveats.
@@ -72,18 +71,16 @@ Read the relevant skill before deeper work:
 - When the user challenges coverage or asks why records are missing, rerun from
   the source cohort and include the updated answer directly — never claim a
   revision you didn't produce.
-- The `demo` source (Node Exporter) is demo data against a public endpoint.
-  Never cite it as real analytics evidence unless the user asks about the demo
-  dashboard.
+- Never cite the public `demo` source as real analytics evidence unless asked.
 - Store large payloads in file/blob storage, never SQL or app state. Persist
   only URLs, ids, or handles.
 - Never hardcode API keys, tokens, webhook URLs, secrets, private Builder data,
   or customer data. Use secrets/OAuth and obvious placeholders in examples.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
-- Use cataloged direct actions for bounded reads and allowlisted mutations. Use
-  `ask_app` for interpretation, source selection, multi-step work, unavailable
-  actions, or unsupported writes.
-- Reports/alerts use SQL actions; reports cap at five recipients.
+- External MCP callers: use cataloged direct actions for bounded reads and
+  allowlisted mutations. Use `ask_app` for interpretation, source selection,
+  multi-step work, unavailable actions, or unsupported writes.
+- Reports/alerts use SQL actions; cap at five recipients.
 
 ## Actions
 

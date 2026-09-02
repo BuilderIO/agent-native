@@ -99,8 +99,8 @@ For pull requests, follow review-prs: read the complete diff and review
 evidence, verify current BuilderIO membership, preserve the ultra-scary safety
 gate, and distinguish unknown or unresolved checks from clean ones. Never
 auto-merge. Keep Slack replies concise and link to the Factory item when a
-review is needed. The scheduled builder-io-bot PR babysitter posts its exact
-feedback-fix request through GitHub, persists a 20-minute quiet window, and
+review is needed. The scheduled builder-io-bot PR babysitter posts one hardcoded
+feedback-fix request through GitHub. Factory re-checks on its schedule and
 never approves or merges.`,
 } satisfies AgentChatPluginOptions;
 

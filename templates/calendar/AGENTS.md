@@ -55,6 +55,10 @@ Detailed event, availability, booking, storage, and UI rules live in
   `sourceCoverage`, and `coverageComplete` fields — a partial source failure is
   not an empty calendar. See `event-management` for the formats and the
   `accountEmails` rules.
+- Use `list-google-calendars` to discover primary and shared calendars available
+  through connected Google accounts, then pass its opaque `sourceKey` values to
+  `list-events`. Shared calendars are view-only in Calendar and do not affect
+  booking availability.
 - Treat Google Calendar working locations and full-day out-of-office events as
   native status events; see `event-management` for their action contracts.
 - Use framework sharing actions for calendar, event, and booking resources;
