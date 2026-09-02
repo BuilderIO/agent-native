@@ -91,8 +91,19 @@ merging, except when the user explicitly invokes `/ship-now`.
    `git push --force-with-lease` operation before continuing foreground work.
    Retry a failed release from a freshly observed lease version while ownership
    is still this invocation's; if ownership moved, never release the new
-   owner's lease. This cleanup is required even when no heartbeat was created,
-   and must not wait for the stop conditions.
+   owner's lease. This setup cleanup is required even when no heartbeat was
+   created, and must not wait for the stop conditions.
+
+   The legacy-heartbeat check is part of the same serialized handoff: inspect
+   the exact legacy record before the lease claim, then reread it immediately
+   after a successful claim and immediately before `automation_update`. A
+   legacy record that becomes ACTIVE, changes version, or cannot be read fences
+   task-scoped creation; release this invocation's lease with its owner/version
+   precondition and remain foreground-only. A legacy watcher may be migrated
+   or changed only by an owner holding the same PR lease, so a legacy writer
+   cannot activate outside the coordinator while a task-scoped watcher is
+   being created. If that protocol cannot be enforced for the legacy writer,
+   leave the legacy path untouched and never create a second watcher.
 
    Choose a lease expiry at least three times the two-minute cadence. At the
    start of every tick, after the required fetch, make the lease fence the
@@ -349,23 +360,26 @@ Only after 10 consecutive clean minutes, force merge with `gh pr merge <number> 
 - No new actionable feedback AND GitHub Actions green for 30 consecutive minutes
 - PR is merged or closed
 
-If this invocation claimed the PR lease but did not create or resume its
-task-scoped heartbeat, release that lease first with the same owner/version
-`git push --force-with-lease` operation; retry a failed release while the
-foreground loop remains active. Then, before stopping on either condition,
-reread this task's exact
-`babysit-pr-<number>-<this task's threadId>` heartbeat and capture its current
-version. While still holding the PR lease, update that exact heartbeat to
-`PAUSED` and verify the result. If the pause fails, do not stop: reread the
-lease and heartbeat, renew the lease when it is still ours, and retry the
-same-owner pause from the fresh version. If the lease has moved to another
-owner, never mutate or release that owner's lease; only pause this task's
-uniquely named heartbeat when its `targetThreadId` still matches this task, and
-remain foreground-only until cleanup is confirmed. If the heartbeat host is
-unavailable, keep retrying in the foreground rather than claiming completion.
-After the heartbeat pause succeeds, mark the PR lease released with
-`git push --force-with-lease` and the same owner/version precondition. Never
-pause or release the legacy shared per-PR identity or another owner's lease.
+Cleanup has two mutually exclusive paths. If this invocation claimed the PR
+lease but did not create or resume its task-scoped heartbeat, release that lease
+first with the same owner/version `git push --force-with-lease` operation;
+retry a failed release from a fresh version while the foreground loop remains
+active, and verify that the lease is released or has moved before stopping.
+Do not attempt to pause a heartbeat that this invocation never created or
+resumed. If this invocation did create or resume its task-scoped heartbeat,
+retain the PR lease while rereading that exact
+`babysit-pr-<number>-<this task's threadId>` heartbeat and capturing its current
+version, then update it to `PAUSED` and verify the result. If the pause fails,
+do not stop: reread the lease and heartbeat, renew the lease when it is still
+ours, and retry the same-owner pause from the fresh version. If the lease has
+moved to another owner, never mutate or release that owner's lease; only pause
+this task's uniquely named heartbeat when its `targetThreadId` still matches
+this task, and remain foreground-only until cleanup is confirmed. If the
+heartbeat host is unavailable, keep retrying in the foreground rather than
+claiming completion. After the heartbeat pause succeeds, mark the PR lease
+released with `git push --force-with-lease` and the same owner/version
+precondition. Never pause or release the legacy shared per-PR identity or
+another owner's lease.
 Verify the PR's final state. Never leave a heartbeat or lease owned by this
 task running after completion.
 
