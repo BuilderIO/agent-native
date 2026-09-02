@@ -24,7 +24,7 @@ export interface EligibleHostAvailability {
   timezone?: string;
 }
 
-async function overlaysBack(
+export async function overlaysBack(
   candidateEmail: string,
   ownerEmail: string,
 ): Promise<boolean> {
@@ -143,7 +143,9 @@ export async function getHostSchedulingStatus(
   const owner = ownerEmail.toLowerCase();
   const emails = Array.from(
     new Set(
-      hostEmails.map((email) => email.toLowerCase()).filter((email) => email !== owner),
+      hostEmails
+        .map((email) => email.toLowerCase())
+        .filter((email) => email !== owner),
     ),
   );
   if (emails.length === 0) return [];
@@ -165,9 +167,10 @@ export async function getHostSchedulingStatus(
         return { email, status: "awaiting-reciprocal-overlay" };
       }
       const [config, calendarSettings] = await Promise.all([
-        getUserSetting(email, "calendar-availability") as Promise<
-          AvailabilityConfig | null
-        >,
+        getUserSetting(
+          email,
+          "calendar-availability",
+        ) as Promise<AvailabilityConfig | null>,
         getUserSetting(email, "calendar-settings") as Promise<{
           timezone?: string;
         } | null>,

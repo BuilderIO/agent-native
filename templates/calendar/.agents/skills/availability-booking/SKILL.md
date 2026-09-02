@@ -101,8 +101,14 @@ An owner whose overlaid host hasn't reciprocated yet can nudge them: the
 (`server/lib/overlay-nudge.ts`). It emails the peer asking them to add the
 owner back to their own overlay, never mutates the owner's overlay list
 itself, and is rate-limited to one email per (owner, peer) pair every 24
-hours via a `calendar-overlay-nudges` setting on the owner. This only reduces
-friction toward satisfying the two-way check above — it does not weaken it.
+hours via a `calendar-overlay-nudges` setting on the owner, claimed atomically
+through `mutateUserSetting` so concurrent requests can't both pass the
+cooldown check. It skips sending (`reason: "already-reciprocal"`) if the peer
+has already overlaid the owner back, and releases its cooldown claim without
+counting it (`reason: "email-not-configured"`) if no email can actually be
+delivered — `sent: true` always means an email really went out. This only
+reduces friction toward satisfying the two-way check above — it does not
+weaken it.
 
 Management sharing is separate from public booking access:
 

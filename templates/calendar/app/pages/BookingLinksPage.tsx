@@ -583,7 +583,10 @@ function BookingHostsEditor({
   const { data: schedulingStatuses } =
     useHostSchedulingStatus(hostEmailsForStatus);
   const schedulingStatusByEmail = new Map(
-    (schedulingStatuses ?? []).map((entry) => [entry.email.toLowerCase(), entry]),
+    (schedulingStatuses ?? []).map((entry) => [
+      entry.email.toLowerCase(),
+      entry,
+    ]),
   );
   const requestReciprocation = useRequestOverlayReciprocation();
 
@@ -595,10 +598,12 @@ function BookingHostsEditor({
         onSuccess: (result) => {
           if (result.sent) {
             toast.success(t("bookingLinks.overlayAccessRequestSent", { name }));
-          } else {
+          } else if (result.reason === "cooldown") {
             toast.info(
               t("bookingLinks.overlayAccessRequestCooldown", { name }),
             );
+          } else {
+            toast.error(t("bookingLinks.overlayAccessRequestFailed", { name }));
           }
         },
         onError: () => {
@@ -683,7 +688,9 @@ function BookingHostsEditor({
     status: HostSchedulingStatus;
   } | null {
     const normalized = normalizeHostEmail(host.email);
-    const entry = normalized ? schedulingStatusByEmail.get(normalized) : undefined;
+    const entry = normalized
+      ? schedulingStatusByEmail.get(normalized)
+      : undefined;
     const status = entry?.status;
     const name = host.displayName || host.email;
     if (status === "active") {

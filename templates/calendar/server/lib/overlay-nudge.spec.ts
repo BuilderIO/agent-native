@@ -13,19 +13,63 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 const getUserSettingMock = vi.hoisted(() => vi.fn());
-const putUserSettingMock = vi.hoisted(() => vi.fn());
+const mutateUserSettingMock = vi.hoisted(() => vi.fn());
+
+// A minimal stand-in for the real atomic mutateUserSetting: reads the
+// current value through the same mock the rest of the test wires up, then
+// applies the updater. It intentionally does not model CAS retries — those
+// are covered by the store's own tests — only the single-attempt behavior
+// requestOverlayReciprocation depends on. Tests that need to model a real
+// race between concurrent claims override this per-test.
+async function defaultMutateUserSettingImpl(
+  email: string,
+  key: string,
+  updater: (
+    current: Record<string, unknown> | null,
+  ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+) {
+  return updater(await getUserSettingMock(email, key));
+}
 
 vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: getUserSettingMock,
-  putUserSetting: putUserSettingMock,
+  mutateUserSetting: mutateUserSettingMock,
 }));
 
 import { requestOverlayReciprocation } from "./overlay-nudge";
+
+/**
+ * `email === "owner@example.com"` always sees `peer@example.com` in their
+ * overlay list (the precondition every test needs); `peerOverlay` controls
+ * what the peer sees back, and `nudgeLog` seeds the owner's cooldown state.
+ */
+function settingsStore({
+  peerOverlay = { people: [] },
+  nudgeLog = null,
+}: {
+  peerOverlay?: { people: Array<{ email: string }> };
+  nudgeLog?: Record<string, string> | null;
+} = {}) {
+  return async (email: string, key: string) => {
+    if (key === "calendar-overlay-people") {
+      if (email === "owner@example.com") {
+        return { people: [{ email: "peer@example.com", color: "#fff" }] };
+      }
+      if (email === "peer@example.com") return peerOverlay;
+      return null;
+    }
+    if (key === "calendar-overlay-nudges" && email === "owner@example.com") {
+      return nudgeLog;
+    }
+    return null;
+  };
+}
 
 describe("requestOverlayReciprocation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(isEmailConfigured).mockResolvedValue(true);
+    mutateUserSettingMock.mockImplementation(defaultMutateUserSettingImpl);
   });
 
   it("throws when the peer is not in the owner's overlay list", async () => {
@@ -43,15 +87,7 @@ describe("requestOverlayReciprocation", () => {
   });
 
   it("sends the request email and records the nudge timestamp", async () => {
-    getUserSettingMock.mockImplementation(
-      async (_email: string, key: string) => {
-        if (key === "calendar-overlay-people") {
-          return { people: [{ email: "peer@example.com", color: "#fff" }] };
-        }
-        if (key === "calendar-overlay-nudges") return null;
-        return null;
-      },
-    );
+    getUserSettingMock.mockImplementation(settingsStore());
 
     const result = await requestOverlayReciprocation({
       ownerEmail: "owner@example.com",
@@ -65,10 +101,10 @@ describe("requestOverlayReciprocation", () => {
         replyTo: "owner@example.com",
       }),
     );
-    expect(putUserSettingMock).toHaveBeenCalledWith(
+    expect(mutateUserSettingMock).toHaveBeenCalledWith(
       "owner@example.com",
       "calendar-overlay-nudges",
-      expect.objectContaining({ "peer@example.com": expect.any(String) }),
+      expect.any(Function),
     );
   });
 
@@ -87,18 +123,27 @@ describe("requestOverlayReciprocation", () => {
     ).resolves.toEqual({ sent: true });
   });
 
+  it("does not send and returns already-reciprocal when the peer has already added the owner back", async () => {
+    getUserSettingMock.mockImplementation(
+      settingsStore({
+        peerOverlay: { people: [{ email: "owner@example.com" }] },
+      }),
+    );
+
+    const result = await requestOverlayReciprocation({
+      ownerEmail: "owner@example.com",
+      peerEmail: "peer@example.com",
+    });
+
+    expect(result).toEqual({ sent: false, reason: "already-reciprocal" });
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(mutateUserSettingMock).not.toHaveBeenCalled();
+  });
+
   it("blocks a resend within the 24-hour cooldown", async () => {
     const lastSent = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // 1h ago
     getUserSettingMock.mockImplementation(
-      async (_email: string, key: string) => {
-        if (key === "calendar-overlay-people") {
-          return { people: [{ email: "peer@example.com", color: "#fff" }] };
-        }
-        if (key === "calendar-overlay-nudges") {
-          return { "peer@example.com": lastSent };
-        }
-        return null;
-      },
+      settingsStore({ nudgeLog: { "peer@example.com": lastSent } }),
     );
 
     const result = await requestOverlayReciprocation({
@@ -107,23 +152,15 @@ describe("requestOverlayReciprocation", () => {
     });
 
     expect(result.sent).toBe(false);
+    expect(result.reason).toBe("cooldown");
     expect(result.nextAvailableAt).toBeDefined();
     expect(sendEmail).not.toHaveBeenCalled();
-    expect(putUserSettingMock).not.toHaveBeenCalled();
   });
 
   it("allows a resend once the cooldown has elapsed", async () => {
     const lastSent = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(); // 25h ago
     getUserSettingMock.mockImplementation(
-      async (_email: string, key: string) => {
-        if (key === "calendar-overlay-people") {
-          return { people: [{ email: "peer@example.com", color: "#fff" }] };
-        }
-        if (key === "calendar-overlay-nudges") {
-          return { "peer@example.com": lastSent };
-        }
-        return null;
-      },
+      settingsStore({ nudgeLog: { "peer@example.com": lastSent } }),
     );
 
     const result = await requestOverlayReciprocation({
@@ -135,21 +172,19 @@ describe("requestOverlayReciprocation", () => {
     expect(sendEmail).toHaveBeenCalledTimes(1);
   });
 
-  it("does not send when email is not configured, but still records the nudge", async () => {
+  it("does not send and releases the claim when email is not configured", async () => {
     vi.mocked(isEmailConfigured).mockResolvedValue(false);
-    getUserSettingMock.mockImplementation(async (_email: string, key: string) =>
-      key === "calendar-overlay-people"
-        ? { people: [{ email: "peer@example.com", color: "#fff" }] }
-        : null,
-    );
+    getUserSettingMock.mockImplementation(settingsStore());
 
     const result = await requestOverlayReciprocation({
       ownerEmail: "owner@example.com",
       peerEmail: "peer@example.com",
     });
 
-    expect(result).toEqual({ sent: true });
+    expect(result).toEqual({ sent: false, reason: "email-not-configured" });
     expect(sendEmail).not.toHaveBeenCalled();
-    expect(putUserSettingMock).toHaveBeenCalled();
+    // Claimed once, then released once — the cooldown must not be consumed
+    // by a request that never actually sent anything.
+    expect(mutateUserSettingMock).toHaveBeenCalledTimes(2);
   });
 });

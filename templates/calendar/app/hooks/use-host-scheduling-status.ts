@@ -27,6 +27,7 @@ export function useHostSchedulingStatus(hostEmails: string[]) {
 export interface RequestOverlayReciprocationResult {
   sent: boolean;
   nextAvailableAt?: string;
+  reason?: "cooldown" | "already-reciprocal" | "email-not-configured";
 }
 
 export function useRequestOverlayReciprocation() {

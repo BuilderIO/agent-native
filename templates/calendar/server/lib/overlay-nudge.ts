@@ -6,9 +6,10 @@ import {
   sendEmail,
   toAbsoluteOpenUrl,
 } from "@agent-native/core/server";
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { getUserSetting, mutateUserSetting } from "@agent-native/core/settings";
 
 import type { OverlayPerson } from "../../shared/api.js";
+import { overlaysBack } from "./booking-host-availability.js";
 import { CALENDAR_OVERLAY_ACCESS_REQUEST_EMAIL_ID } from "./emails.js";
 
 const NUDGE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
@@ -38,12 +39,61 @@ export function renderOverlayAccessRequestEmail({
 }
 
 /**
+ * Reserves the (owner, peer) nudge slot for `claimedAt` if the cooldown has
+ * elapsed, as one atomic derive-and-persist mutation. `mutateUserSetting`
+ * retries its updater on write conflicts, so this can run more than once and
+ * must stay a pure computation over `current` — no side effects here.
+ * Returns the still-active `nextAvailableAt` when the claim is refused.
+ */
+async function claimNudgeSlot(
+  ownerEmail: string,
+  peer: string,
+  claimedAt: string,
+): Promise<{ claimed: boolean; nextAvailableAt?: string }> {
+  let claimed = false;
+  let nextAvailableAt: string | undefined;
+  await mutateUserSetting(ownerEmail, "calendar-overlay-nudges", (current) => {
+    const log = (current as OverlayNudgeLog | null) ?? {};
+    const lastSent = log[peer];
+    if (lastSent) {
+      const nextAt = new Date(new Date(lastSent).getTime() + NUDGE_COOLDOWN_MS);
+      if (nextAt.getTime() > Date.parse(claimedAt)) {
+        claimed = false;
+        nextAvailableAt = nextAt.toISOString();
+        return log;
+      }
+    }
+    claimed = true;
+    nextAvailableAt = undefined;
+    return { ...log, [peer]: claimedAt };
+  });
+  return { claimed, nextAvailableAt };
+}
+
+/** Releases a claimed nudge slot, but only if it still holds our exact claim. */
+async function releaseNudgeSlot(
+  ownerEmail: string,
+  peer: string,
+  claimedAt: string,
+): Promise<void> {
+  await mutateUserSetting(ownerEmail, "calendar-overlay-nudges", (current) => {
+    const log = (current as OverlayNudgeLog | null) ?? {};
+    if (log[peer] !== claimedAt) return log;
+    const { [peer]: _removed, ...rest } = log;
+    return rest;
+  });
+}
+
+/**
  * Sends the peer an email asking them to reciprocally overlay the owner back
  * — the only thing that unlocks working-hours-aware scheduling for them (see
  * `booking-host-availability.ts`). Never mutates the owner's overlay list;
- * only nudges toward the peer taking that action themselves. A per-(owner,
- * peer) cooldown, stored on the owner's own settings, prevents this from
- * being used to spam the same person repeatedly.
+ * only nudges toward the peer taking that action themselves. The (owner,
+ * peer) cooldown slot is claimed atomically via `mutateUserSetting` before
+ * sending, so concurrent requests can't both pass the cooldown check and
+ * double-send. If the peer already overlays the owner back, or the email
+ * can't actually be delivered, the claim is released (or never taken) so
+ * `sent: true` always means an email really went out.
  */
 export async function requestOverlayReciprocation({
   ownerEmail,
@@ -51,8 +101,13 @@ export async function requestOverlayReciprocation({
 }: {
   ownerEmail: string;
   peerEmail: string;
-}): Promise<{ sent: boolean; nextAvailableAt?: string }> {
+}): Promise<{
+  sent: boolean;
+  nextAvailableAt?: string;
+  reason?: "cooldown" | "already-reciprocal" | "email-not-configured";
+}> {
   const peer = peerEmail.toLowerCase();
+  const owner = ownerEmail.toLowerCase();
 
   const overlayData = (await getUserSetting(
     ownerEmail,
@@ -65,22 +120,26 @@ export async function requestOverlayReciprocation({
     throw new Error("This person is not in your calendar overlay list");
   }
 
-  const log =
-    ((await getUserSetting(
-      ownerEmail,
-      "calendar-overlay-nudges",
-    )) as OverlayNudgeLog | null) ?? {};
-  const lastSent = log[peer];
-  if (lastSent) {
-    const nextAvailableAt = new Date(
-      new Date(lastSent).getTime() + NUDGE_COOLDOWN_MS,
-    );
-    if (nextAvailableAt.getTime() > Date.now()) {
-      return { sent: false, nextAvailableAt: nextAvailableAt.toISOString() };
-    }
+  if (await overlaysBack(peer, owner)) {
+    return { sent: false, reason: "already-reciprocal" };
   }
 
-  if (await isEmailConfigured()) {
+  const claimedAt = new Date().toISOString();
+  const claim = await claimNudgeSlot(ownerEmail, peer, claimedAt);
+  if (!claim.claimed) {
+    return {
+      sent: false,
+      nextAvailableAt: claim.nextAvailableAt,
+      reason: "cooldown",
+    };
+  }
+
+  if (!(await isEmailConfigured())) {
+    await releaseNudgeSlot(ownerEmail, peer, claimedAt);
+    return { sent: false, reason: "email-not-configured" };
+  }
+
+  try {
     const calendarUrl = toAbsoluteOpenUrl(
       buildDeepLink({ app: "calendar", view: "calendar" }),
       getAppProductionUrl(),
@@ -91,12 +150,10 @@ export async function requestOverlayReciprocation({
       replyTo: ownerEmail,
       templateId: CALENDAR_OVERLAY_ACCESS_REQUEST_EMAIL_ID,
     });
+  } catch (err) {
+    await releaseNudgeSlot(ownerEmail, peer, claimedAt);
+    throw err;
   }
-
-  await putUserSetting(ownerEmail, "calendar-overlay-nudges", {
-    ...log,
-    [peer]: new Date().toISOString(),
-  });
 
   return { sent: true };
 }
