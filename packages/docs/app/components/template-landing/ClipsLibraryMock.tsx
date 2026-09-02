@@ -711,17 +711,17 @@ const CLIPS_MOCK_CSS = [
   "@media (max-width: 640px) { .clips-mock { margin-top: 0; padding: 54px 16px 18px; } .clips-mock .clips-mock-popover { top: -44px; right: 12px; transform: scale(0.72); transform-origin: top right; } }",
 
   // Faux app window
-  ".clips-mock .library-window { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; background: #212121; color: #e6e6e6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.18); }",
-  ".clips-mock .library-window-topbar { flex-shrink: 0; display: flex; align-items: center; gap: 6px; padding: 10px 12px; background: #181818; border-bottom: 1px solid #2c2c2c; }",
+  ".clips-mock .library-window { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; background: #151515; color: #e6e6e6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.18); }",
+  ".clips-mock .library-window-topbar { flex-shrink: 0; display: flex; align-items: center; gap: 6px; padding: 10px 12px; background: #101010; border-bottom: 1px solid #232323; }",
   ".clips-mock .library-window-topbar span { width: 11px; height: 11px; border-radius: 999px; background: #4d4d4d; }",
   ".clips-mock .library-window-body { flex: 1; min-height: 0; display: flex; }",
 
   // Sidebar
-  ".clips-mock .library-sidebar { width: 216px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; padding: 14px 12px; background: #181818; border-right: 1px solid #2c2c2c; }",
+  ".clips-mock .library-sidebar { width: 216px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; padding: 14px 12px; background: #101010; border-right: 1px solid #232323; }",
   ".clips-mock .library-brand { display: flex; align-items: center; gap: 8px; padding: 4px 4px 12px; }",
   ".clips-mock .library-brand-mark { height: 14px; width: 24px; flex-shrink: 0; color: #e6e6e6; }",
   ".clips-mock .library-brand-name { font-weight: 600; font-size: 13px; color: #e6e6e6; }",
-  ".clips-mock .library-new-recording { margin-bottom: 6px; padding: 7px 0; border-radius: 6px; background: #303030; border: 1px solid #454545; color: #d4d4d4; font-size: 12.5px; font-weight: 600; text-align: center; }",
+  ".clips-mock .library-new-recording { margin-bottom: 6px; padding: 7px 0; border-radius: 6px; background: #262626; border: 1px solid #383838; color: #cccccc; font-size: 12.5px; font-weight: 600; text-align: center; }",
   ".clips-mock .library-import { margin-bottom: 12px; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 0; border-radius: 6px; border: 1px solid #333333; color: #cccccc; font-size: 12.5px; }",
   ".clips-mock .library-import-chev { margin-left: 2px; opacity: 0.7; }",
   ".clips-mock .library-nav { display: flex; flex-direction: column; gap: 1px; }",
@@ -733,14 +733,14 @@ const CLIPS_MOCK_CSS = [
   ".clips-mock .library-sidebar-section-header { display: flex; align-items: center; justify-content: space-between; padding: 0 8px; color: #7a7a7a; font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }",
   ".clips-mock .library-sidebar-empty { padding: 6px 8px 0; color: #6b6b6b; font-size: 12px; }",
   ".clips-mock .library-sidebar-spacer { flex: 1; }",
-  ".clips-mock .library-sidebar-bottom { display: flex; flex-direction: column; gap: 1px; border-top: 1px solid #2c2c2c; padding-top: 8px; }",
+  ".clips-mock .library-sidebar-bottom { display: flex; flex-direction: column; gap: 1px; border-top: 1px solid #232323; padding-top: 8px; }",
 
   // Main column
   ".clips-mock .library-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }",
   ".clips-mock .library-topbar { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid #333333; }",
   ".clips-mock .library-heading { font-size: 15px; font-weight: 600; color: #e6e6e6; }",
   ".clips-mock .library-topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }",
-  ".clips-mock .library-search { display: flex; align-items: center; gap: 6px; width: 220px; height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid #3d3d3d; background: #212121; color: #808080; font-size: 12px; }",
+  ".clips-mock .library-search { display: flex; align-items: center; gap: 6px; width: 220px; height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid #2e2e2e; background: #191919; color: #808080; font-size: 12px; }",
   ".clips-mock .library-icon-btn { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 6px; color: #999999; }",
 
   // Card grid
@@ -749,8 +749,8 @@ const CLIPS_MOCK_CSS = [
   ".clips-mock .library-grid::-webkit-scrollbar-track { background: transparent; }",
   ".clips-mock .library-grid::-webkit-scrollbar-thumb { border-radius: 999px; background: #4d4d4d; border: 3px solid transparent; background-clip: content-box; }",
   ".clips-mock .library-grid::-webkit-scrollbar-thumb:hover { background: #666666; background-clip: content-box; }",
-  ".clips-mock .library-card { border-radius: 8px; overflow: hidden; background: #262626; border: 1px solid #383838; }",
-  ".clips-mock .library-card-thumb { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: #292929; }",
+  ".clips-mock .library-card { border-radius: 8px; overflow: hidden; background: #1c1c1c; border: 1px solid #2b2b2b; }",
+  ".clips-mock .library-card-thumb { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: #202020; }",
   ".clips-mock .library-card-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }",
   ".clips-mock .library-card-thumb-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.15); color: #ffffff; }",
   ".clips-mock .library-card-duration { position: absolute; bottom: 6px; right: 6px; padding: 1px 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.8); color: #ffffff; font-size: 11px; font-variant-numeric: tabular-nums; }",
@@ -766,6 +766,7 @@ const CLIPS_MOCK_CSS = [
   ".clips-mock .clips-mock-popover { --brand: #f5f5f5; --brand-hover: #e5e5e5; --brand-ring: rgba(245, 245, 245, 0.28); --bg: #212121; --surface: #262626; --surface-hover: #2e2e2e; --surface-strong: #3d3d3d; --fg: #f5f5f5; --fg-muted: #a3a3a3; --fg-subtle: #737373; --border: #3d3d3d; --border-strong: #4d4d4d; --radius: 12px; --radius-sm: 8px; --radius-pill: 999px; --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4); --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3); position: absolute; top: -78px; right: 52px; width: 340px; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size: 13px; line-height: 1.4; color: var(--fg); box-shadow: 0 32px 64px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.3); }",
   ".clips-mock .app { margin: 0; padding: 14px; display: flex; flex-direction: column; gap: 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; }",
   ".clips-mock .app-recorder { gap: 0; padding: 0; overflow: hidden; }",
+  ".clips-mock .clips-mock-popover.app { border-color: #4a4a4a; box-shadow: 0 28px 64px rgba(0, 0, 0, 0.62), 0 6px 18px rgba(0, 0, 0, 0.45); }",
   ".clips-mock .app-recorder > .bottom-row { flex: 0 0 auto; padding: 7px 14px 10px; border-top: 1px solid var(--border); background: var(--bg); }",
   ".clips-mock .recorder-home-content { min-height: 0; padding: 14px; display: flex; flex: 1 1 auto; flex-direction: column; gap: 14px; }",
   ".clips-mock .header.header-centered { position: relative; display: flex; justify-content: center; align-items: center; min-height: 28px; }",
@@ -824,7 +825,7 @@ const CLIPS_MOCK_CSS = [
   ".clips-mock .library-nav-item:hover { background: rgba(255, 255, 255, 0.06); color: #f2f2f2; }",
   ".clips-mock .library-icon-btn:hover { background: rgba(255, 255, 255, 0.08); color: #e6e6e6; }",
   ".clips-mock .library-search:hover { border-color: #4d4d4d; }",
-  ".clips-mock .library-new-recording:hover { background: #3a3a3a; border-color: #545454; color: #e6e6e6; }",
+  ".clips-mock .library-new-recording:hover { background: #303030; border-color: #454545; color: #e6e6e6; }",
   ".clips-mock .library-import:hover { background: rgba(255, 255, 255, 0.05); color: #e6e6e6; }",
 ].join("\n");
 
