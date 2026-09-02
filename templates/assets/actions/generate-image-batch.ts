@@ -1,6 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
 import {
   recordGenerationCreativeContext,
   resolveGenerationCreativeContext,
@@ -13,6 +12,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { nowIso } from "../server/lib/json.js";
+import { assertCanDraft } from "../server/lib/library-access.js";
 import {
   ASPECT_RATIOS,
   GENERATION_INTENTS,
@@ -183,9 +183,13 @@ export default defineAction({
       ...inputBase,
       libraryId,
     };
-    await assertAccess("asset-library", base.libraryId, "editor");
+    const draftAccess = await assertCanDraft(base.libraryId);
     if (base.sessionId) {
-      await requireGenerationSessionInLibrary(base.sessionId, base.libraryId);
+      await requireGenerationSessionInLibrary(
+        base.sessionId,
+        base.libraryId,
+        draftAccess,
+      );
     }
     const creativeContextRequestId =
       base.creativeContextRequestId ?? (base.sessionId ? undefined : nanoid());

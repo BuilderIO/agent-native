@@ -574,7 +574,7 @@ const ptBR = {
     communitySubmissionName: "Nome do aplicativo",
     communitySubmissionNamePlaceholder: "Central de suporte ao cliente",
     communitySubmissionUrl: "URL do aplicativo",
-    communitySubmissionUrlPlaceholder: "example.com ou https://example.com",
+    communitySubmissionUrlPlaceholder: "example.com",
     communitySubmissionDescriptionLabel: "Descrição",
     communitySubmissionDescriptionPlaceholder:
       "O que o aplicativo faz e para quem ele é?",
@@ -591,8 +591,16 @@ const ptBR = {
     communitySubmissionSubmit: "Enviar aplicativo",
     communitySubmissionReady:
       "Obrigado. Vamos revisar seu aplicativo antes de publicá-lo.",
-    communitySubmissionValidation:
-      "Adicione um nome e uma descrição e insira um link do app, como example.com. Nós adicionaremos https:// para você. Se adicionar um repositório, use um link do github.com. Envie imagens PNG, JPG ou WebP de até 1,5 MB cada.",
+    communitySubmissionNameError: "Insira um nome para o aplicativo.",
+    communitySubmissionDescriptionError: "Adicione uma descrição curta.",
+    communitySubmissionUrlError: "Insira um link válido, como example.com.",
+    communitySubmissionRepositoryError:
+      "Insira um link de repositório do GitHub.",
+    communitySubmissionScreenshotsError:
+      "Use imagens PNG, JPG ou WebP de até 1,5 MB cada, com no máximo 5 imagens.",
+    communitySubmissionSubmitError:
+      "Não foi possível enviar agora. Verifique os campos destacados e tente novamente.",
+    communitySubmissionSubmitting: "Enviando…",
   },
   buildFromScratch: {
     title: "Criar do zero",
@@ -1485,7 +1493,7 @@ const ptBR = {
       s004: "Refinar",
       s005: "Todos os modelos",
       s006Primary: "Apresentações de slides",
-      s006Secondary: "para pessoas e agentes",
+      s006Secondary: "Com sua marca e editáveis",
       s007: "Gere apresentações com a identidade da sua marca usando seu agente de IA, faça suas próprias alterações manuais a qualquer momento e exporte para qualquer lugar.",
       s008: "Experimentar",
       s009: "Como funciona",

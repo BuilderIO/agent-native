@@ -3805,10 +3805,8 @@ export function App({
     };
   }, []);
 
-  // Gates every start-recording gesture (button, global shortcut, permission
-  // retry) on the mic toggle. When the mic is off we show the informational
-  // mic-off screen and wait for the user to go back and change that setting
-  // before the actual getDisplayMedia/getUserMedia call runs.
+  // Show the mic-off explanation once, then let the user continue without
+  // audio instead of trapping the start flow behind the toggle.
   function beginRecording(
     options?: Parameters<typeof handleStartRecording>[0],
     beginOptions?: { revealPopoverIfMicOff?: boolean },
@@ -4553,7 +4551,13 @@ export function App({
   return (
     <div className="app app-recorder" ref={appRef}>
       {micOffConfirmOpen ? (
-        <MicOffConfirmation onBack={closeMicOffConfirmation} />
+        <MicOffConfirmation
+          onBack={closeMicOffConfirmation}
+          onContinue={() => {
+            setMicOffConfirmOpen(false);
+            void handleStartRecording();
+          }}
+        />
       ) : null}
 
       <div
