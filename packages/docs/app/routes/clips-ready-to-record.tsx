@@ -109,6 +109,36 @@ const LIBRARY_RECORDINGS: Array<{
     ownerInitials: "PS",
     viewCount: 91,
   },
+  {
+    title: "Bug repro: upload retry stalls",
+    thumbnail: "/clips/U1f0uKYYKGF2.jpg",
+    duration: "1:24",
+    relative: "3 weeks ago",
+    visibility: "org",
+    ownerName: "Marcus Webb",
+    ownerInitials: "MW",
+    viewCount: 27,
+  },
+  {
+    title: "Walkthrough of the new share dialog",
+    thumbnail: "/clips/1J2KR4ryo2Wg.jpg",
+    duration: "5:09",
+    relative: "1 month ago",
+    visibility: "public",
+    ownerName: "Logan Affleck",
+    ownerInitials: "LA",
+    viewCount: 143,
+  },
+  {
+    title: "Kickoff notes for Q3 planning",
+    thumbnail: "/clips/B0AgxdvzuZ7H.jpg",
+    duration: "12:48",
+    relative: "1 month ago",
+    visibility: "private",
+    ownerName: "Priya Shah",
+    ownerInitials: "PS",
+    viewCount: 8,
+  },
 ];
 
 function LibraryPrivacyIcon({
@@ -590,7 +620,7 @@ const LIBRARY_BACKDROP_CSS = [
   ".library-search { display: flex; align-items: center; gap: 6px; width: 220px; height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid #3d3d3d; background: #212121; color: #808080; font-size: 12px; box-sizing: border-box; }",
   ".library-icon-btn { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 6px; border: none; background: transparent; color: #999999; }",
 
-  ".library-grid { flex: 1; overflow: hidden; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; padding: 20px; align-content: start; }",
+  ".library-grid { flex: 1; overflow: hidden; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); grid-auto-rows: max-content; gap: 16px; padding: 20px; align-content: start; }",
   ".library-card { border-radius: 8px; overflow: hidden; background: #262626; border: 1px solid #383838; }",
   ".library-card-thumb { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: #292929; }",
   ".library-card-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }",
