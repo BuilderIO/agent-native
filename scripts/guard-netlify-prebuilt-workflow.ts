@@ -40,6 +40,7 @@ export function validateReusableWorkflowConcurrency(
   if (
     typeof group !== "string" ||
     !group.includes("inputs.caller") ||
+    !group.includes("inputs.source_ref") ||
     !group.includes("netlify-prebuilt-child") ||
     !group.includes("inputs.target") ||
     !group.includes("inputs.site") ||
@@ -201,13 +202,13 @@ try {
 const reusableDocument = parsedWorkflows.get(reusablePath);
 issues.push(...validateReusableWorkflowConcurrency(reusableDocument ?? {}));
 
-for (const [path, document] of [
-  [reusablePath, reusableDocument],
-  [betaPath, parsedWorkflows.get(betaPath)],
-] as const) {
-  if (asRecord(document?.concurrency)?.["cancel-in-progress"] !== false) {
-    issues.push(`${path} beta deploys must queue every source SHA`);
-  }
+if (asRecord(reusableDocument?.concurrency)?.["cancel-in-progress"] !== false) {
+  issues.push(`${reusablePath} beta deploys must queue every source SHA`);
+}
+if (asRecord(parsedWorkflows.get(betaPath)?.concurrency)) {
+  issues.push(
+    `${betaPath} must not use a shared workflow concurrency group; GitHub keeps only one pending run per group`,
+  );
 }
 
 const productionConcurrency = asRecord(

@@ -109,13 +109,15 @@ concurrency:
   # manager, and promotion jobs. A called workflow gets a distinct child queue
   # because the fleet caller already owns the shared per-site lock.
   group: >-
-    ${{ inputs.caller == 'fleet'
+    ${{ inputs.target == 'beta'
+        && format('netlify-prebuilt-beta-{0}-{1}', inputs.source_ref || github.sha, inputs.site)
+        || inputs.caller == 'fleet'
         && format('netlify-prebuilt-child-{0}-{1}', inputs.target, inputs.site)
         || inputs.target == 'production'
         && format('agent-native-production-site-{0}', inputs.site)
         || format('netlify-prebuilt-{0}-{1}', inputs.target, inputs.site) }}
-  # Beta deploys are source-SHA pinned. Queue every merged SHA instead of
-  # cancelling one before its site receives an artifact.
+  # Beta groups include the source revision. A workflow-level shared group has
+  # only one pending slot in GitHub Actions and would silently drop main pushes.
   cancel-in-progress: false
 
 jobs:
@@ -168,8 +170,8 @@ jobs:
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          # Beta sites are dedicated production sites whose source branch is
-          # beta. Production sites continue to build from main.
+          # Beta and production sites both build from the exact source revision
+          # selected by their publisher.
           ref: ${{ steps.source.outputs.source_ref }}
           fetch-depth: 1
 
@@ -726,9 +728,37 @@ jobs:
           });
           NODE
 
+      - name: Verify beta source is current before publish
+        id: beta_freshness
+        if: inputs.target == 'beta' && inputs.deploy
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
+        with:
+          script: |
+            const sourceRef = process.env.SOURCE_REF.trim();
+            if (!/^[0-9a-f]{40}$/i.test(sourceRef)) {
+              core.setOutput('current', 'true');
+              return;
+            }
+            const mainSha = (await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/main',
+            })).data.object.sha;
+            const current = mainSha.toLowerCase() === sourceRef.toLowerCase();
+            core.setOutput('current', String(current));
+            if (!current) {
+              core.notice(
+                `Skipping stale beta source ${sourceRef}; main is now ${mainSha}.`,
+              );
+            }
+
       - name: Upload the prebuilt deploy
         id: deploy
-        if: inputs.deploy
+        if: >-
+          inputs.deploy &&
+          (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true')
         env:
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
           FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
@@ -775,7 +805,9 @@ jobs:
           echo "Uploaded prebuilt ${DEPLOY_MODE} deploy: $deploy_url"
 
       - name: Wait for the Netlify deploy to publish
-        if: inputs.deploy
+        if: >-
+          inputs.deploy &&
+          (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true')
         env:
           DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
@@ -837,7 +869,9 @@ jobs:
           NODE
 
       - name: Smoke-test the uploaded deploy
-        if: inputs.deploy && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'
+        if: >-
+          inputs.deploy && steps.beta_freshness.outputs.current != 'false' &&
+          inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'
         env:
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
           DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
@@ -863,7 +897,8 @@ jobs:
       - name: Verify Google OAuth redirect registration
         id: google_redirect
         if: >-
-          inputs.deploy && inputs.smoke && inputs.deploy_mode == 'production' &&
+          inputs.deploy && steps.beta_freshness.outputs.current != 'false' &&
+          inputs.smoke && inputs.deploy_mode == 'production' &&
           steps.target.outputs.source_template != '@agent-native/docs'
         continue-on-error: true
         env:
@@ -960,13 +995,17 @@ jobs:
       # concurrency pool the whole account shares. Source review and green
       # builds both missed this; only the live response shows it.
       - name: Verify the deployed site still caches a miss
-        if: inputs.deploy && inputs.smoke && inputs.deploy_mode == 'production'
+        if: >-
+          inputs.deploy && steps.beta_freshness.outputs.current != 'false' &&
+          inputs.smoke && inputs.deploy_mode == 'production'
         env:
           HOST: ${{ steps.target.outputs.host }}
         run: node scripts/check-production-cache-contract.mjs --host "$HOST"
 
       - name: Smoke-test the static docs deploy
-        if: inputs.deploy && inputs.smoke && steps.target.outputs.source_template == '@agent-native/docs'
+        if: >-
+          inputs.deploy && steps.beta_freshness.outputs.current != 'false' &&
+          inputs.smoke && steps.target.outputs.source_template == '@agent-native/docs'
         env:
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
           DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}

@@ -202,6 +202,40 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
+  it("keeps automatic beta runs independent and source-keyed", () => {
+    const beta = readWorkflow(
+      ".github/workflows/deploy-beta-sites-prebuilt.yml",
+    );
+    assert.equal(beta.concurrency, undefined);
+    const reusable = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    assert.match(
+      String((reusable.concurrency as Workflow).group),
+      /inputs\.source_ref/,
+    );
+    assert.match(
+      reusableSource,
+      /Verify beta source is current before publish/,
+    );
+    assert.match(
+      reusableSource,
+      /steps\.beta_freshness\.outputs\.current == 'true'/,
+    );
+    assert.match(
+      reusableSource,
+      /SOURCE_REF: \$\{\{ steps\.source\.outputs\.source_ref \}\}/,
+    );
+    const betaSource = readFileSync(
+      ".github/workflows/deploy-beta-sites-prebuilt.yml",
+      "utf8",
+    );
+    assert.match(betaSource, /actions\.listWorkflowRuns/);
+    assert.match(betaSource, /context\.payload\.before/);
+    assert.match(betaSource, /actions\.getWorkflowRun/);
+    assert.match(betaSource, /run\.event === 'push'/);
+  });
+
   it("rejects the dead workflow_call event check", () => {
     const mutated = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
@@ -419,7 +453,7 @@ describe("production Netlify site concurrency guard", () => {
     assert(appSmoke);
     assert.equal(
       appSmoke.if,
-      "inputs.deploy && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'",
+      "inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'",
     );
     assert.match(String(appSmoke.run), /\/_agent-native\/health/);
     assert.match(String(appSmoke.run), /--max-time 60/);
@@ -427,7 +461,7 @@ describe("production Netlify site concurrency guard", () => {
     assert(docsSmoke);
     assert.equal(
       docsSmoke.if,
-      "inputs.deploy && inputs.smoke && steps.target.outputs.source_template == '@agent-native/docs'",
+      "inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template == '@agent-native/docs'",
     );
     assert.doesNotMatch(String(docsSmoke.run), /\/_agent-native\/health/);
   });
