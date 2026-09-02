@@ -19,7 +19,14 @@ vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getQuery: (event: { query?: Record<string, unknown> }) => event.query ?? {},
   getRequestURL: (event: { url: string }) => new URL(event.url),
-  setResponseHeader: vi.fn(),
+  setResponseHeader: (
+    event: { responseHeaders?: Map<string, string> },
+    name: string,
+    value: string,
+  ) => {
+    event.responseHeaders ??= new Map();
+    event.responseHeaders.set(name.toLowerCase(), value);
+  },
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -114,8 +121,22 @@ describe("Clips page agent discovery", () => {
       html.indexOf("<body>"),
     );
     expect(html).toContain('id="clips-agent-context"');
+    expect(html).toContain("clips-get-transcript");
     expect(response.headers.get("cache-control")).toBe("public, max-age=60");
     expect(response.headers.get("content-length")).toBeNull();
+  });
+
+  it("puts transcript discovery metadata in the head of embed links", async () => {
+    const response = (await (handler as any)({
+      url: "https://clips.example.com/embed/rec-1",
+      query: {},
+    })) as Response;
+    const html = await response.text();
+
+    expect(html).toContain(
+      'href="https://clips.example.com/api/agent-context.json?id=rec-1"',
+    );
+    expect(html).toContain("clips-get-frame");
   });
 
   it("does not duplicate the discovery script already rendered by /share", async () => {
@@ -135,7 +156,7 @@ describe("Clips page agent discovery", () => {
     expect(html.match(/rel="alternate"/g)).toHaveLength(1);
   });
 
-  it("only exposes private clips through a valid scoped agent token", async () => {
+  it("does not inject tokenized discovery into the public SSR shell", async () => {
     mockRecording.value = recording({ visibility: "private" });
     const publicResponse = (await (handler as any)({
       url: "https://clips.example.com/r/rec-1",
@@ -144,16 +165,21 @@ describe("Clips page agent discovery", () => {
     expect(await publicResponse.text()).not.toContain("agent-context.json");
 
     mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
-    const tokenResponse = (await (handler as any)({
+    const tokenEvent = {
       url: "https://clips.example.com/r/rec-1?agent_access=tok%2B1",
       query: { agent_access: "tok+1" },
-    })) as Response;
+      responseHeaders: new Map<string, string>(),
+    };
+    const tokenResponse = (await (handler as any)(tokenEvent)) as Response;
     const html = await tokenResponse.text();
 
-    expect(html).toContain("agent_access=tok%2B1");
+    expect(html).not.toContain("clips-agent-context");
+    expect(html).not.toContain("agent_access=tok%2B1");
     expect(tokenResponse.headers.get("cache-control")).toBe(
       "public, max-age=60",
     );
-    expect(tokenResponse.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(tokenEvent.responseHeaders.get("referrer-policy")).toBe(
+      "no-referrer",
+    );
   });
 });

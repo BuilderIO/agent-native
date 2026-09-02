@@ -15,6 +15,7 @@ Rules:
 - Any other action (default `POST`, `PUT`, `DELETE`, or `http: false`) → treated as mutating, triggers a refresh on success.
 - To override the inference on an unusual action (e.g. a `POST` that only reads), pass `readOnly: true` on the action definition.
 - To let a mutating action run concurrently with other same-turn tool calls, pass `parallelSafe: true`. Only do this when the action is internally concurrency-safe and order-independent (for example, it uses an app-level lock or idempotent upsert semantics). Mutating actions remain serialized by default.
+- If a successful call hands control to the user — it renders a question, an intake form, or anything else the turn must wait on — pass `endsTurn: true` and make it the first or only call in the turn. It stops subsequent model steps and later calls, but cannot undo calls emitted before it. Without it a completion guard sees a turn that legitimately paused as one that failed to finish.
 
 Agents do NOT need to call `refresh-screen` after a normal action — it's already handled. `refresh-screen` is only needed when the agent mutates data via a path the framework can't see (e.g. writing to an external system the app mirrors) or when the agent wants to pass a `scope` hint for narrower invalidation.
 

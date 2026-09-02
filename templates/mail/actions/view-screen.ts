@@ -2,7 +2,11 @@ import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getSetting } from "@agent-native/core/settings";
-import { emailMessageMatchesSearch } from "@shared/search.js";
+import { isInboxScopedAppLabel } from "@shared/gmail-labels.js";
+import {
+  emailMessageMatchesSearch,
+  searchQueryNeedsAttachmentMetadata,
+} from "@shared/search.js";
 import { z } from "zod";
 
 import {
@@ -10,6 +14,9 @@ import {
   filterInboxTabEmails,
   OTHER_INBOX_TAB_PARAM,
   resolvePinnedLabels,
+  pinnedTriageLabels,
+  inboxThreadKey,
+  savedFilterThreadIds,
 } from "../app/lib/inbox-tabs.js";
 import { buildGmailEmailSearchQuery } from "../server/lib/gmail-query.js";
 import { gmailGetThread } from "../server/lib/google-api.js";
@@ -33,7 +40,7 @@ import { getAccessTokens, fetchLabelMap } from "./helpers.js";
 function latestPerThread(emails: any[]): any[] {
   const byThread = new Map<string, any>();
   for (const email of emails) {
-    const key = `${email.accountEmail ?? ""}:${email.threadId || email.id}`;
+    const key = inboxThreadKey(email);
     const existing = byThread.get(key);
     if (
       !existing ||
@@ -50,15 +57,15 @@ function latestPerThread(emails: any[]): any[] {
 async function fetchEmailList(
   view: string,
   search?: string,
-  _label?: string,
+  label?: string,
   activeInboxTab?: string,
   activeAccounts?: string[],
+  filterId?: string,
 ): Promise<any[]> {
   try {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
-    const shouldFilterOther =
-      view === "inbox" && !search && activeInboxTab === OTHER_INBOX_TAB_PARAM;
+    const requestedFilterId = filterId?.trim();
     const selectedAccountEmails = Array.isArray(activeAccounts)
       ? [
           ...new Set(
@@ -78,23 +85,42 @@ async function fetchEmailList(
       );
     };
 
-    if (view === "snoozed" || view === "scheduled") {
-      let emails = await getSyntheticEmailsForView(ownerEmail, view);
-      if (search) {
-        emails = emails.filter((e: any) =>
-          emailMessageMatchesSearch(e, search),
-        );
-      }
-      return filterSelectedAccounts(emails).slice(0, 50);
-    }
-
     const googleConnected = await isConnected(ownerEmail);
-    const settings =
-      googleConnected || shouldFilterOther
-        ? await readSettings(ownerEmail)
-        : undefined;
+    const shouldReadSettings =
+      googleConnected ||
+      Boolean(requestedFilterId) ||
+      (view === "inbox" &&
+        !search &&
+        (activeInboxTab === OTHER_INBOX_TAB_PARAM || Boolean(label)));
+    const settings = shouldReadSettings
+      ? await readSettings(ownerEmail)
+      : undefined;
+    const savedFilter = requestedFilterId
+      ? settings?.savedFilters?.find(
+          (filter) => filter.id === requestedFilterId,
+        )
+      : undefined;
+    const effectiveSearch = requestedFilterId ? savedFilter?.query : search;
+    const effectiveView = savedFilter ? "all" : view;
     const userPinnedLabels = settings?.pinnedLabels;
     const pinnedLabels = resolvePinnedLabels(userPinnedLabels, googleConnected);
+    const triageLabels = pinnedTriageLabels(pinnedLabels);
+    const activeTriageTab =
+      effectiveView === "inbox" && !effectiveSearch
+        ? activeInboxTab === OTHER_INBOX_TAB_PARAM
+          ? null
+          : label &&
+              triageLabels.includes(label) &&
+              isInboxScopedAppLabel(label)
+            ? label
+            : undefined
+        : undefined;
+    const savedFilterQueries =
+      settings?.savedFilters?.map((filter) => filter.query) ?? [];
+    const needsSavedFilterParts =
+      effectiveView === "inbox" &&
+      !effectiveSearch &&
+      savedFilterQueries.some(searchQueryNeedsAttachmentMetadata);
     const hasNoteToSelf = pinnedLabels.includes("note-to-self");
     const clients = googleConnected ? await getClients(ownerEmail) : [];
     const connectedEmails = new Set(
@@ -108,10 +134,37 @@ async function fetchEmailList(
       });
       return filterSelectedAccounts(augmented);
     };
-    const applyActiveInboxTab = (emails: any[]) =>
-      shouldFilterOther
-        ? filterInboxTabEmails(prepareEmails(emails), null, pinnedLabels)
-        : prepareEmails(emails);
+    const applyActiveInboxTab = (emails: any[]) => {
+      const prepared = prepareEmails(emails);
+      const filtered =
+        activeTriageTab !== undefined
+          ? filterInboxTabEmails(
+              prepared,
+              activeTriageTab,
+              pinnedLabels,
+              savedFilterQueries,
+            )
+          : prepared;
+      if (effectiveView !== "inbox" || effectiveSearch || label) {
+        return filtered;
+      }
+      const savedFilterThreads = savedFilterThreadIds(
+        filtered,
+        savedFilterQueries,
+      );
+      return filtered.filter(
+        (email) => !savedFilterThreads.has(inboxThreadKey(email)),
+      );
+    };
+    if (effectiveView === "snoozed" || effectiveView === "scheduled") {
+      let emails = await getSyntheticEmailsForView(ownerEmail, effectiveView);
+      if (effectiveSearch) {
+        emails = emails.filter((e: any) =>
+          emailMessageMatchesSearch(e, effectiveSearch),
+        );
+      }
+      return filterSelectedAccounts(emails).slice(0, 50);
+    }
     if (googleConnected) {
       const labelMap = new Map<string, string>();
       await Promise.all(
@@ -123,9 +176,14 @@ async function fetchEmailList(
         }),
       );
 
-      const gmailQuery = buildGmailEmailSearchQuery({ view, q: search });
+      const gmailQuery = buildGmailEmailSearchQuery({
+        view: effectiveView,
+        q: effectiveSearch,
+      });
       const effectiveQuery =
-        view === "all" && !search ? "" : gmailQuery || "in:inbox";
+        effectiveView === "all" && !effectiveSearch
+          ? ""
+          : gmailQuery || "in:inbox";
       const { messages } = await listGmailMessages(
         effectiveQuery,
         50,
@@ -133,33 +191,36 @@ async function fetchEmailList(
         undefined,
         {
           mode: "threads",
-          threadFormat: "metadata",
+          // Metadata responses omit MIME parts. Saved-filter partitioning
+          // needs attachment filenames for has:attachment/filename queries.
+          threadFormat: needsSavedFilterParts ? "full" : "metadata",
           accountEmails:
             selectedAccountEmails.length > 0
               ? selectedAccountEmails
               : undefined,
-          threadCandidateLimit: search ? 500 : undefined,
+          threadCandidateLimit: effectiveSearch ? 500 : undefined,
           threadRecentMessageCandidateLimit:
-            !search && (view === "inbox" || view === "unread")
+            !effectiveSearch &&
+            (effectiveView === "inbox" || effectiveView === "unread")
               ? DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT
               : undefined,
         },
       );
 
-      return applyActiveInboxTab(
-        latestPerThread(
-          messages.map((m: any) =>
-            gmailToEmailMessage(m, m._accountEmail, labelMap),
-          ),
-        ),
-      ).slice(0, 50);
+      const preparedMessages = messages.map((m: any) =>
+        gmailToEmailMessage(m, m._accountEmail, labelMap),
+      );
+      return latestPerThread(applyActiveInboxTab(preparedMessages)).slice(
+        0,
+        50,
+      );
     }
 
     // Fallback: local store
     const data = await getSetting("local-emails");
     if (data && Array.isArray((data as any).emails)) {
       let emails = (data as any).emails;
-      switch (view) {
+      switch (effectiveView) {
         case "inbox":
           emails = emails.filter(
             (e: any) =>
@@ -192,9 +253,9 @@ async function fetchEmailList(
           emails = emails.filter((e: any) => e.isTrashed);
           break;
       }
-      if (search) {
+      if (effectiveSearch) {
         emails = emails.filter((e: any) =>
-          emailMessageMatchesSearch(e, search),
+          emailMessageMatchesSearch(e, effectiveSearch),
         );
       }
       return applyActiveInboxTab(emails).slice(0, 50);
@@ -322,6 +383,7 @@ export default defineAction({
         nav.label,
         nav.activeInboxTab,
         nav.activeAccounts,
+        nav.filter,
       );
       const selectedThreadIds = Array.isArray(nav.selectedThreadIds)
         ? new Set(
@@ -346,6 +408,7 @@ export default defineAction({
       screen.emailList = {
         view: nav.view,
         label: nav.label ?? null,
+        filter: nav.filter ?? null,
         activeInboxTab: nav.activeInboxTab ?? null,
         activeAccounts: nav.activeAccounts ?? [],
         search: nav.search ?? null,

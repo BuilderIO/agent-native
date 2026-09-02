@@ -34,6 +34,7 @@ describe("projectFactoryAuditReport", () => {
           kind: "observed",
           summary: "`Analytics` stuck in an infinite re-confirmation loop",
           createdAt: "2026-08-21T23:01:21.000Z",
+          details: { added: true },
         }),
         event({
           id: "list-1",
@@ -96,8 +97,19 @@ describe("projectFactoryAuditReport", () => {
       held: 1,
       dispatched: 0,
       failed: 0,
+      added: 1,
+      listed: 2,
+      left: 1,
+      inboxLimit: null,
+      workLimit: null,
+      authorFiltered: null,
+      updated: null,
     });
-    expect(report.items).toHaveLength(1);
+    expect(report.work).toHaveLength(2);
+    expect(report.items).toHaveLength(2);
+    expect(report.work.filter((item) => item.outcome === "held")).toHaveLength(
+      1,
+    );
     expect(report.items[0]?.title).toContain("Analytics");
     expect(report.items[0]?.title).not.toMatch(/Slack thread/i);
     expect(report.items[0]?.summary).toBe(
@@ -202,6 +214,7 @@ describe("projectFactoryAuditReport", () => {
           sourceUrl: "https://github.com/example/repo/pull/3917",
           summary: "Fix inbox filters",
           createdAt: "2026-08-28T23:00:00.000Z",
+          details: { added: true },
         }),
         event({
           id: "scan-pr",
@@ -247,6 +260,13 @@ describe("projectFactoryAuditReport", () => {
       held: 1,
       dispatched: 0,
       failed: 0,
+      added: 1,
+      listed: 1,
+      left: 0,
+      inboxLimit: null,
+      workLimit: null,
+      authorFiltered: null,
+      updated: null,
     });
     expect(report.items[0]?.outcome).toBe("held");
     expect(report.items[0]?.rationale).toBe(
@@ -272,6 +292,7 @@ describe("projectFactoryAuditReport", () => {
         source: "github",
         summary: "Fix inbox filters",
         createdAt: "2026-08-28T23:00:01.000Z",
+        details: { added: true },
       }),
     ]);
     expect(report.counts.newlyObserved).toBe(1);
@@ -293,7 +314,9 @@ describe("projectFactoryAuditReport", () => {
       }),
     ]);
     expect(report.counts.scanned).toBe(2);
-    expect(report.items).toHaveLength(0);
+    expect(report.counts.listed).toBe(2);
+    expect(report.work).toHaveLength(2);
+    expect(report.work.every((item) => item.outcome === "left")).toBe(true);
     expect(report.trace).toEqual([
       expect.objectContaining({
         purpose: "repeat_scan",
@@ -301,6 +324,205 @@ describe("projectFactoryAuditReport", () => {
         summary: "Loaded 20 recent slack items.",
       }),
     ]);
+  });
+
+  it("reads inbox caps from the poll rollup and lists every review candidate", () => {
+    const report = projectFactoryAuditReport(
+      [
+        event({
+          id: "poll-rollup",
+          action: "poll-slack-channel",
+          kind: "observed",
+          summary: "No new Slack feedback was observed.",
+          details: {
+            inboxLimit: 25,
+            added: 0,
+            updated: 2,
+            authorFiltered: 1,
+            newerThanCursor: 3,
+            truncated: false,
+            itemIds: [],
+          },
+        }),
+        event({
+          id: "list",
+          action: "list-triage-items",
+          kind: "read",
+          summary: "Loaded 2 review candidates.",
+          details: {
+            purpose: "review_candidates",
+            needsReview: true,
+            limit: 5,
+            count: 2,
+            itemIds: ["kept", "left"],
+            listedItems: [
+              { itemId: "kept", status: "received", outcome: null },
+              {
+                itemId: "left",
+                status: "automation_started",
+                outcome: "propose_fix",
+              },
+            ],
+          },
+        }),
+        event({
+          id: "ctx",
+          itemId: "kept",
+          action: "get-slack-feedback-context",
+          kind: "read",
+          summary: "Read the Slack thread (1 message).",
+        }),
+        event({
+          id: "dec",
+          itemId: "kept",
+          action: "dispatch-factory-item",
+          kind: "decision",
+          status: "skipped",
+          summary: "Not a clear bug.",
+        }),
+      ],
+      [
+        {
+          id: "kept",
+          title: "Inbox overflow",
+          summary: "The inbox filter drops /dispatch",
+          source: "slack",
+          sourceUrl: null,
+          createdAt: "2026-08-01T00:00:00.000Z",
+        },
+        {
+          id: "left",
+          title: "Already moving",
+          summary: null,
+          source: "slack",
+          sourceUrl: null,
+          status: "automation_started",
+          slackBuilderReplyAt: "2026-08-20T00:00:00.000Z",
+        },
+      ],
+    );
+
+    expect(report.counts).toMatchObject({
+      added: 0,
+      listed: 2,
+      held: 1,
+      left: 1,
+      inboxLimit: 25,
+      workLimit: 5,
+      authorFiltered: 1,
+      updated: 2,
+    });
+    expect(report.inbox).toHaveLength(0);
+    expect(report.work.map((item) => item.outcome)).toEqual(["held", "left"]);
+    expect(report.work[1]?.builderAlreadyStarted).toBe(true);
+    expect(report.work[1]?.listedStatus).toBe("automation_started");
+    expect(report.actions).toHaveLength(0);
+  });
+
+  it("does not treat source-changed GitHub observations as inbox additions", () => {
+    const report = projectFactoryAuditReport([
+      event({
+        id: "rollup",
+        action: "poll-github-sources",
+        kind: "observed",
+        source: "github",
+        summary: "Polled 2 open pull requests.",
+        details: {
+          added: 0,
+          newlyObserved: 0,
+          updated: 1,
+          itemIds: [],
+        },
+      }),
+      event({
+        id: "changed-pr",
+        itemId: "item-pr-1",
+        action: "poll-github-sources",
+        kind: "observed",
+        source: "github",
+        summary: "Fix inbox filters",
+        details: { added: false, number: 1 },
+      }),
+      event({
+        id: "ingest",
+        itemId: "item-pr-1",
+        action: "ingest-github-observation",
+        kind: "observed",
+        source: "github",
+        summary: "Fix inbox filters",
+        details: { reviewCount: 2, checkCount: 4 },
+      }),
+    ]);
+
+    expect(report.counts.added).toBe(0);
+    expect(report.inbox).toHaveLength(0);
+  });
+
+  it("uses the latest poll rollup when a run recorded more than one", () => {
+    const report = projectFactoryAuditReport([
+      event({
+        id: "first",
+        action: "poll-github-sources",
+        kind: "observed",
+        source: "github",
+        summary: "Polled 2 open pull requests.",
+        createdAt: "2026-08-21T23:00:00.000Z",
+        details: { added: 2, newlyObserved: 2, itemIds: ["old-a", "old-b"] },
+      }),
+      event({
+        id: "last",
+        action: "poll-github-sources",
+        kind: "observed",
+        source: "github",
+        summary: "Polled 2 open pull requests.",
+        createdAt: "2026-08-21T23:05:00.000Z",
+        details: { added: 0, newlyObserved: 0, updated: 1, itemIds: [] },
+      }),
+    ]);
+
+    expect(report.counts.added).toBe(0);
+    expect(report.counts.updated).toBe(1);
+    expect(report.inbox).toHaveLength(0);
+  });
+
+  it("does not mark an earlier run already started from later item state", () => {
+    const window = {
+      startedAt: Date.parse("2026-08-21T23:00:00.000Z"),
+      finishedAt: Date.parse("2026-08-21T23:10:00.000Z"),
+    };
+    const report = projectFactoryAuditReport(
+      [
+        event({
+          id: "list",
+          action: "list-triage-items",
+          kind: "read",
+          summary: "Loaded 1 review candidate.",
+          details: {
+            listedItems: [
+              { itemId: "left", status: "received", outcome: null },
+            ],
+            itemIds: ["left"],
+          },
+        }),
+      ],
+      [
+        {
+          id: "left",
+          title: "Later started",
+          summary: null,
+          source: "slack",
+          sourceUrl: null,
+          status: "automation_started",
+          slackBuilderReplyAt: "2026-08-21T23:30:00.000Z",
+          slackDisposition: "propose_fix",
+        },
+      ],
+      [],
+      window,
+    );
+
+    expect(report.work[0]?.listedStatus).toBe("received");
+    expect(report.work[0]?.builderAlreadyStarted).toBe(false);
   });
 });
 

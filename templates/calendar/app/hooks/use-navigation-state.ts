@@ -8,6 +8,7 @@ import {
   useCalendarContext,
   type ViewMode,
 } from "@/components/layout/AppLayout";
+import { dateToCalendarDateKey } from "@/lib/calendar-timezone";
 
 interface NavigationState {
   view: string;
@@ -126,7 +127,7 @@ export function useNavigationState() {
 
       // Include the currently selected date
       if (selectedDate) {
-        state.date = selectedDate.toISOString().split("T")[0];
+        state.date = dateToCalendarDateKey(selectedDate);
       }
 
       // Include the selected event if one is open

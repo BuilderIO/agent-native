@@ -948,6 +948,22 @@ describe("route warmup config", () => {
     }
   });
 
+  it("uses the shared build id precedence for the client bundle", () => {
+    vi.stubEnv("DEPLOY_ID", "");
+    vi.stubEnv("AGENT_NATIVE_BUILD_ID", " agent-build-123 ");
+    vi.stubEnv("COMMIT_REF", "commit-auth-client-123");
+    vi.stubEnv("NETLIFY_COMMIT_REF", "netlify-auth-client-123");
+
+    try {
+      const config = defineConfig();
+      expect(config.define?.__AGENT_NATIVE_BUILD_ID__).toBe(
+        JSON.stringify("agent-build-123"),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("enables viewport React Router route warmup by default", () => {
     const config = defineConfig();
     const routeWarmup = JSON.parse(

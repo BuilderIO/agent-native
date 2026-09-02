@@ -115,6 +115,12 @@ export type MailboxView =
   | "all"
   | `label:${string}`;
 
+export type SavedMailFilter = {
+  id: string;
+  name: string;
+  query: string;
+};
+
 export type UserSettings = {
   name: string;
   email: string;
@@ -127,6 +133,7 @@ export type UserSettings = {
   sendAndArchive: boolean;
   undoSendDelay: number;
   pinnedLabels?: string[];
+  savedFilters?: SavedMailFilter[];
   /** Display aliases for label tabs — maps label ID to custom short name */
   labelAliases?: Record<string, string>;
   /** "show" = load all images, "block-trackers" = block known trackers only, "block-all" = block all remote images */

@@ -1970,6 +1970,7 @@ export type AssistantChatThreadFooterSlot =
 
 export interface AssistantChatAdapterContext {
   apiUrl: string;
+  streamingUrl?: string;
   tabId?: string;
   threadId?: string;
   modelRef: { current: string | undefined };
@@ -1986,6 +1987,8 @@ export interface AssistantChatAdapterContext {
 export interface AssistantChatProps {
   /** API endpoint URL. Default: "/_agent-native/agent-chat" */
   apiUrl?: string;
+  /** Optional Nitro response-streaming endpoint, usually supplied by VITE_AGENT_NATIVE_AGENT_CHAT_STREAM_URL. */
+  streamingUrl?: string;
   /** Stable tab identifier passed to the adapter for event correlation */
   tabId?: string;
   /** Stable browser tab id used for tab-scoped app-state context. */
@@ -2317,10 +2320,10 @@ export { extractThreadMeta };
 
 /**
  * Strip raw base64 payload from attachment content parts when a hosted URL
- * already exists in the same content entry. This keeps the periodic thread
- * save payload compact — the server already stored the URL reference when it
- * processed the POST, and re-shipping multi-megabyte base64 strings on every
- * 5-second poll save balloons the SQL thread_data column unnecessarily.
+ * already exists in the same content entry. This keeps thread save and fork
+ * payloads compact — the server already stored the URL reference when it
+ * processed the POST, and re-shipping multi-megabyte base64 strings balloons
+ * the SQL thread_data column and request body unnecessarily.
  *
  * Only strips the raw base64 data-URL string from `content[].image` / `content[].data`
  * when a `metadata.uploadUrl` reference is present on the same attachment object,
@@ -5839,7 +5842,7 @@ const AssistantChatInner = forwardRef<
         const repo = exportPersistableThreadRepo();
         const { title, preview } = extractThreadMeta(repo);
         return {
-          threadData: JSON.stringify(repo),
+          threadData: JSON.stringify(stripBase64FromRepo(repo)),
           title,
           preview,
           messageCount: messages.length,
@@ -7004,6 +7007,7 @@ export const AssistantChat = forwardRef<
     () => {
       const context: AssistantChatAdapterContext = {
         apiUrl,
+        streamingUrl: props.streamingUrl,
         tabId,
         threadId,
         modelRef,
@@ -7038,6 +7042,7 @@ export const AssistantChat = forwardRef<
       threadId,
       browserTabId,
       surface,
+      props.streamingUrl,
       props.runtime,
       props.adapterReloadKey,
     ],

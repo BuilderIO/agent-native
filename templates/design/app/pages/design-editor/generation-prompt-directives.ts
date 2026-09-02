@@ -213,6 +213,26 @@ export function referenceImageDirectives(
   ];
 }
 
+/**
+ * The selected element's markup is a potential structural specification the
+ * same way an attached screenshot is a visual one (see
+ * `referenceImageDirectives` above) — but grounded in real markup/CSS
+ * instead of pixels, so there is nothing to infer visually. Unlike an
+ * attached image, a selection isn't necessarily a reference: the user might
+ * just be pointing at something to edit. So this always ships with the
+ * selection, and leaves the "is this a reference" call to the agent reading
+ * the user's own next message — a client-side keyword guess would both miss
+ * real phrasings ("build off this", "keep the same vibe") and misfire on
+ * ordinary edits that happen to say "this".
+ */
+export function structuralReferenceDirectives(label: string): string[] {
+  return [
+    `If the user's message asks for a design modeled after, similar to, or based on the selected element ("${label}") — rather than an edit to it — treat this markup as the reference specification.`,
+    "In that case, read the real colors, spacing, typography, and hierarchy directly from the markup below rather than treating it as loose inspiration, and model the new design after those precise, literal values (hex/OKLCH colors, font families and sizes, padding/margin/gap numbers, border radii, class names) instead of approximating them.",
+    "If the user's message is instead asking to edit or discuss this selected element itself, ignore this reference framing and handle it as a normal edit/question against the selection.",
+  ];
+}
+
 export function designGenerationDirectives(
   designId: string,
   designSystemId?: string | null,

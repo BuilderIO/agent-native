@@ -293,6 +293,7 @@ describe("GitHub triage client", () => {
         observedAt: "2026-08-28T12:02:00Z",
       },
     ]);
+    expect(evidence.checksCoverage).toBe("complete");
     const paths = fetchImpl.mock.calls.map(
       ([input]) => new URL(String(input)).pathname,
     );
@@ -301,6 +302,64 @@ describe("GitHub triage client", () => {
       "/repos/builder/factory/pulls/7/comments",
       "/repos/builder/factory/commits/sha-7/check-runs",
     ]);
+  });
+
+  it("falls back to Actions workflow runs when Checks permission is unavailable", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith("/reviews") || path.endsWith("/comments")) {
+        return response([]);
+      }
+      if (path.endsWith("/check-runs")) {
+        return response(
+          { message: "Resource not accessible by personal access token" },
+          403,
+        );
+      }
+      if (path.endsWith("/actions/runs")) {
+        return response({
+          total_count: 1,
+          workflow_runs: [
+            {
+              name: "CI",
+              status: "completed",
+              conclusion: "success",
+              created_at: "2026-08-28T12:00:00Z",
+              updated_at: "2026-08-28T12:02:00Z",
+            },
+          ],
+        });
+      }
+      throw new Error(`unexpected ${path}`);
+    });
+
+    const evidence = await createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl,
+    }).getPullRequestEvidence(repository, 7, "sha-7");
+
+    expect(evidence.checks).toEqual([
+      {
+        name: "CI",
+        state: "passed",
+        observedAt: "2026-08-28T12:02:00Z",
+      },
+    ]);
+    expect(evidence.checksCoverage).toBe("partial");
+    expect(
+      fetchImpl.mock.calls.map(([input]) => new URL(String(input)).pathname),
+    ).toEqual([
+      "/repos/builder/factory/pulls/7/reviews",
+      "/repos/builder/factory/pulls/7/comments",
+      "/repos/builder/factory/commits/sha-7/check-runs",
+      "/repos/builder/factory/actions/runs",
+    ]);
+    const workflowRequest = fetchImpl.mock.calls.find(([input]) =>
+      new URL(String(input)).pathname.endsWith("/actions/runs"),
+    );
+    expect(new URL(String(workflowRequest?.[0])).searchParams).toEqual(
+      new URLSearchParams({ head_sha: "sha-7", per_page: "100" }),
+    );
   });
 
   it("lists review comments without fetching reviews or check runs", async () => {

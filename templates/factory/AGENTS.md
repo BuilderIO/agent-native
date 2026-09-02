@@ -34,7 +34,7 @@ decisions, feedback, agent runs, and provider audit records.
   MCP tools through the workspace grant boundary.
 - Never put provider keys in hosted deployment env or Factory bootstrap.
   Hosted Factory reads Slack/GitHub/Sentry from workspace connections or the
-  org vault. Local sqlite may read `.env` Slack/GitHub/Sentry keys as a last resort.
+  org vault. Local sqlite may read `.env` Slack/GitHub/Sentry keys last.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 
 ## Application state
@@ -60,8 +60,8 @@ decisions, feedback, agent runs, and provider audit records.
 | `dispatch-factory-item` | Tag Builder or record a skip. Optional `reaction` marks the source if that provider can. |
 | `govern-factory-pull-request` | Apply PR evidence and ownership gates. |
 | `babysit-factory-pull-request` / `propose-pr-babysit-status` | Post the bot PR poke, or propose babysit status without writing. |
-| `list-factory-automations` / `create-factory-automation` / `save-factory-automation` / `run-factory-automation` | List, create, edit, or run jobs. Factories start empty. Author filters use Slack `U`/`W` or GitHub numeric ids. Limits are action-enforced. |
-| `list-factory-audit` | Inspect runs, evidence, and provider actions for one factory. |
+| `list-factory-automations` / `create-factory-automation` / `save-factory-automation` / `run-factory-automation` | List, create, edit, or run jobs. Factories start empty. Hosted jobs need a workspace connection or vault token. Author filters use Slack `U`/`W` or GitHub numeric ids. Limits are action-enforced. |
+| `list-factory-audit` | Inspect inbox additions, worked items, and actions for one factory. |
 | `get-factory-automation-health` | Inspect scheduler heartbeat and last error. |
 | `suggest-factory-rules` | Mine feedback into proposals. |
 | `reconcile-triage-run` | Persist PR-monitor observations; no GitHub write. |

@@ -24,13 +24,19 @@ import { toast } from "sonner";
 
 import { CreateFactoryAutomationView } from "@/components/factory/CreateFactoryAutomationView";
 import {
+  canSaveFactoryAutomation,
+  dispatchIntegrationsHref,
   emptyAutomationForm,
+  factoryAutomationConnectionsFromConfig,
+  factoryAutomationReadinessFailed,
   formAuthorFilter,
   formatDailyTime,
+  isDestinationReady,
   parseDailyTime,
   persistAuthorFilter,
   type AutomationAuthorMode,
   type AutomationSource,
+  type FactoryAutomationConnections,
   type FactoryAutomationFormState,
 } from "@/components/factory/factory-automation-form";
 import { FactoryAgentsView } from "@/components/factory/FactoryAgentsView";
@@ -899,6 +905,16 @@ function AutomationsView({
     { factoryId },
     { refetchInterval: Object.keys(queuedRuns).length > 0 ? 1_000 : false },
   );
+  const configQuery = useActionQuery<{
+    connections?: FactoryAutomationConnections;
+    readinessError?: string | null;
+  }>("get-triage-config", { factoryId });
+  const connections = factoryAutomationConnectionsFromConfig(configQuery);
+  const readinessError = factoryAutomationReadinessFailed(configQuery);
+  const appsQuery = useActionQuery("list-workspace-apps", {
+    includeAgentCards: false,
+  });
+  const workspaceIntegrationsHref = dispatchIntegrationsHref(appsQuery.data);
   const saveMutation = useActionMutation("save-factory-automation");
   const runMutation = useActionMutation<
     RunFactoryAutomationResult,
@@ -1229,7 +1245,12 @@ function AutomationsView({
                   disabled={
                     runMutation.isPending ||
                     Boolean(queuedRuns[draft.id]) ||
-                    draft.canUpdate === false
+                    draft.canUpdate === false ||
+                    !isDestinationReady(
+                      draft.source ?? "slack",
+                      connections,
+                      draft.slackWorkspace ?? "primary",
+                    )
                   }
                 >
                   {runMutation.isPending && (
@@ -1242,7 +1263,14 @@ function AutomationsView({
                   type="button"
                   size="sm"
                   onClick={() => void saveAutomation()}
-                  disabled={saveMutation.isPending || draft.canUpdate === false}
+                  disabled={
+                    saveMutation.isPending ||
+                    draft.canUpdate === false ||
+                    !canSaveFactoryAutomation(
+                      automationToForm(draft),
+                      connections,
+                    )
+                  }
                 >
                   {saveMutation.isPending && (
                     <IconLoader2 className="animate-spin" />
@@ -1260,6 +1288,9 @@ function AutomationsView({
             <>
               <FactoryAutomationFields
                 form={automationToForm(draft)}
+                connections={connections}
+                readinessError={readinessError}
+                workspaceIntegrationsHref={workspaceIntegrationsHref}
                 onChange={(next) => {
                   const authors = persistAuthorFilter(
                     next.authorFilter,

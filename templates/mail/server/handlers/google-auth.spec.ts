@@ -207,6 +207,30 @@ describe("Mail Google auth-url handlers", () => {
     expect(message).not.toContain("second-login@example.com");
   });
 
+  it("gives an actionable recovery path for an unverified password account", async () => {
+    mocks.decodeOAuthState.mockReturnValue({
+      redirectUri:
+        "https://mail.agent-native.com/_agent-native/google/callback",
+      owner: "owner@example.com",
+    });
+    mocks.resolveOAuthOwner.mockResolvedValue({
+      owner: "owner@example.com",
+      hasProductionSession: true,
+    });
+    mocks.exchangeCode.mockRejectedValue(
+      new Error("Cannot link Google to an unverified email/password identity"),
+    );
+
+    await handleGoogleCallback(
+      createEvent({ code: "google-code", state: "encoded-state" }) as any,
+    );
+
+    const [message] = mocks.oauthErrorPage.mock.calls[0];
+    expect(message).toContain("unverified password account");
+    expect(message).toContain("Verify that account");
+    expect(message).not.toContain("Cannot link Google");
+  });
+
   it("treats scope failures from the primary callback query as missing permissions", async () => {
     mocks.decodeOAuthState.mockReturnValue({
       redirectUri:

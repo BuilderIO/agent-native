@@ -14,7 +14,7 @@ import {
 } from "h3";
 import type { H3Event } from "h3";
 
-import { getAppConfig } from "../app-config/index.js";
+import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import { isWorkspaceAppAccessAllowed } from "../org/workspace-app-access.js";
 import { EMBED_START_PATH } from "../shared/embed-auth.js";
@@ -400,6 +400,11 @@ export interface AuthOptions {
     tagline: string;
     description?: string;
     features?: string[];
+    screenshotPath?: string;
+    screenshotWidth?: number;
+    screenshotHeight?: number;
+    learnMoreUrl?: string;
+    learnMorePlacement?: "top-right" | "bottom-right";
     /** @deprecated Local execution is no longer offered from auth pages. */
     runLocalCommand?: string;
   };
@@ -603,8 +608,18 @@ async function getLegacyCookieSession(
   event: H3Event,
 ): Promise<AuthSession | null> {
   for (const { name, value } of getFrameworkSessionCookieEntries(event)) {
-    const email = await getSessionEmail(value);
-    if (email) {
+    let resolvedToken: string | undefined;
+    let email: string | null = null;
+    for (const candidate of sessionTokenLookupCandidates(value)) {
+      email =
+        (await getSessionEmail(candidate)) ??
+        (await emailFromBetterAuthSessionToken(candidate));
+      if (email) {
+        resolvedToken = candidate;
+        break;
+      }
+    }
+    if (email && resolvedToken) {
       let canonicalUser: CanonicalLegacyUser | null | undefined;
       try {
         canonicalUser = await resolveCanonicalUserForLegacySession(email);
@@ -614,9 +629,11 @@ async function getLegacyCookieSession(
           error instanceof Error ? error.message : error,
         );
       }
-      if (name !== COOKIE_NAME) setFrameworkSessionCookie(event, value);
+      if (name !== COOKIE_NAME || resolvedToken !== value) {
+        setFrameworkSessionCookie(event, resolvedToken);
+      }
       return enrichLegacySessionIdentity(
-        await mapLegacySession(email, value),
+        await mapLegacySession(email, resolvedToken),
         canonicalUser,
       );
     }
@@ -768,13 +785,14 @@ function betterAuthCallbackURL(
 export function getConfiguredLoginHtml(event: H3Event): string | null {
   const config = _authGuardConfig;
   if (!config) return null;
-  const url = event.node?.req?.url ?? event.path ?? "/";
-  const queryStart = url.indexOf("?");
-  const rawPath = queryStart >= 0 ? url.slice(0, queryStart) : url;
+  const { rawPath } = getRequestPathAndSearch(event);
   const loginHtml =
     config.getLoginHtml?.(event, rawPath) ?? config.loginHtml ?? null;
   return loginHtml
-    ? injectLoginSocialImageMeta(injectBetaOptOutPersistence(loginHtml), event)
+    ? injectLoginSocialImageMeta(
+        injectBetaOptOutPersistence(loginHtml, rawPath),
+        event,
+      )
     : null;
 }
 
@@ -898,6 +916,15 @@ function extractSessionTokenFromSetCookies(
     // Best-effort; treat as no token.
   }
   return undefined;
+}
+
+function extractSessionTokenFromAuthResponse(
+  response: Response,
+): string | undefined {
+  const bearer = response.headers.get("set-auth-token")?.trim();
+  if (bearer) return bearer;
+  const cookie = extractSessionTokenFromSetCookies(response);
+  return cookie ? decodeSessionCookieValue(cookie) : undefined;
 }
 
 function forwardBetterAuthSetCookies(event: H3Event, result: unknown): void {
@@ -1135,20 +1162,128 @@ async function ensureEmailVerifiedForRedirect(
   }
 }
 
-async function emailFromVerificationResponseSession(
-  response: Response,
+async function emailFromBetterAuthSessionToken(
+  token: string,
 ): Promise<string | null> {
-  const sessionToken = extractSessionTokenFromSetCookies(response);
-  if (!sessionToken) return null;
   try {
     const db = getDbExec();
     const { rows } = await db.execute({
       sql: 'SELECT u.email FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE s.token = ? LIMIT 1',
-      args: [sessionToken],
+      args: [token],
     });
     return normalizeAuthEmail(rows[0]?.email ?? rows[0]?.[0]);
   } catch {
     return null;
+  }
+}
+
+async function emailFromVerificationResponseSession(
+  response: Response,
+): Promise<string | null> {
+  const sessionToken = extractSessionTokenFromAuthResponse(response);
+  if (!sessionToken) return null;
+  const resolved = await resolveBetterAuthSessionToken(sessionToken);
+  if (!resolved) return null;
+  return resolved.email;
+}
+
+function decodeSessionCookieValue(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function sessionTokenLookupCandidates(value: string): string[] {
+  const decoded = decodeSessionCookieValue(value);
+  const tokens: string[] = [];
+  for (const token of [value, decoded]) {
+    if (token && !tokens.includes(token)) tokens.push(token);
+    const cut = token.lastIndexOf(".");
+    if (cut > 0) {
+      const unsigned = token.slice(0, cut);
+      if (unsigned && !tokens.includes(unsigned)) tokens.push(unsigned);
+    }
+  }
+  return tokens;
+}
+
+async function resolveBetterAuthSessionToken(
+  value: string,
+): Promise<{ token: string; email: string } | null> {
+  for (const token of sessionTokenLookupCandidates(value)) {
+    const email = await emailFromBetterAuthSessionToken(token);
+    if (email) return { token, email };
+  }
+  return null;
+}
+
+function decodeCookieHeader(raw: string): string {
+  return raw
+    .split(";")
+    .map((part) => {
+      const trimmed = part.trim();
+      const eq = trimmed.indexOf("=");
+      if (eq <= 0) return trimmed;
+      const name = trimmed.slice(0, eq).trim();
+      const value = decodeSessionCookieValue(trimmed.slice(eq + 1).trim());
+      return `${name}=${value}`;
+    })
+    .filter(Boolean)
+    .join("; ");
+}
+
+/**
+ * Better Auth's getSession reads `headers.get("cookie")`. h3's `event.headers`
+ * is not always a WHATWG Headers with Cookie populated — getHeader() is.
+ * Chrome may resend a percent-encoded cookie value; decode it before asking
+ * Better Auth to verify the signature.
+ */
+function betterAuthRequestHeaders(event: H3Event): Headers {
+  const headers = new Headers();
+  const cookie = getHeader(event, "cookie");
+  if (cookie) headers.set("cookie", decodeCookieHeader(cookie));
+  const authorization = getHeader(event, "authorization");
+  if (authorization) headers.set("authorization", authorization);
+  return headers;
+}
+
+// h3 skips merging event.res cookies onto non-2xx Responses, so a 302
+// would otherwise drop the framework session cookie we just staged.
+function mergeStagedCookies(event: H3Event, response: Response): Response {
+  const staged = event.res?.headers?.getSetCookie?.() ?? [];
+  if (staged.length === 0) return response;
+  const headers = new Headers();
+  for (const [key, value] of response.headers.entries()) {
+    if (key.toLowerCase() === "set-cookie") continue;
+    headers.append(key, value);
+  }
+  for (const cookie of getSetCookieHeaders(response.headers)) {
+    headers.append("set-cookie", cookie);
+  }
+  for (const cookie of staged) headers.append("set-cookie", cookie);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+async function persistMagicLinkLegacySession(
+  event: H3Event,
+  response: Response,
+): Promise<void> {
+  const rawToken = extractSessionTokenFromAuthResponse(response);
+  if (!rawToken) return;
+  const resolved = await resolveBetterAuthSessionToken(rawToken);
+  const token = resolved?.token ?? decodeSessionCookieValue(rawToken);
+  setFrameworkSessionCookie(event, token);
+  if (!resolved) return;
+  try {
+    await addSession(resolved.token, resolved.email);
+  } catch (error) {
+    console.error("[auth] failed to persist magic-link session", error);
   }
 }
 
@@ -3062,13 +3197,19 @@ function loginHtmlResponse(
   } = {},
 ): Response {
   let html = injectLoginSocialImageMeta(
-    injectBetaOptOutPersistence(loginHtml),
+    injectBetaOptOutPersistence(
+      loginHtml,
+      getRequestPathAndSearch(event).rawPath,
+    ),
     options.requestIndependent ? undefined : event,
   );
   if (options.includeRootAuthRedirect) {
     html = injectHeadScript(
       html,
-      getSsrAuthRedirectScript(SESSION_HINT_COOKIE),
+      getSsrAuthRedirectScript(
+        SESSION_HINT_COOKIE,
+        resolveAppHomePath(getAppConfig().app),
+      ),
     );
   }
   return new Response(injectAnalyticsIntoHtml(html), {
@@ -3154,6 +3295,11 @@ function createAuthGuardFn(
     // Integration webhook endpoints verify authenticity via platform-specific
     // signature verification (Slack HMAC, Telegram token, etc.), not sessions.
     if (/^\/_agent-native\/integrations\/[^/]+\/webhook$/.test(p)) {
+      return;
+    }
+
+    // Automation webhook tokens are the public credential for this route.
+    if (/^\/_agent-native\/automations\/webhook\/[^/]+$/.test(p)) {
       return;
     }
 
@@ -3401,6 +3547,7 @@ function createAuthGuardFn(
           continuation: query.get(SIGN_IN_CONTINUATION_PARAM),
           legacyReturn: query.get(SIGN_IN_LEGACY_RETURN_PARAM),
           basePath: getAppBasePath(),
+          homePath: resolveAppHomePath(getAppConfig().app),
         });
         const autoSession = await maybeAutoCreateDevSession(event, resumeHref);
         if (autoSession) return autoSession;
@@ -3427,6 +3574,7 @@ function createAuthGuardFn(
       p.endsWith(".ico") ||
       p.endsWith(".png") ||
       p.endsWith(".svg") ||
+      p.endsWith(".webp") ||
       p.endsWith(".woff2") ||
       p.endsWith(".woff")
     ) {
@@ -3496,6 +3644,7 @@ function createAuthGuardFn(
         const { resumeHref } = signInJourney({
           at: url,
           basePath: getAppBasePath(),
+          homePath: resolveAppHomePath(getAppConfig().app),
         });
         const autoSession = await maybeAutoCreateDevSession(event, resumeHref);
         if (autoSession) return autoSession;
@@ -4046,10 +4195,10 @@ async function resolveSessionUncached(
 
     // 5. Better Auth session (cookie or Bearer token)
     try {
-      const ba = getBetterAuthSync();
+      const ba = getBetterAuthSync() ?? (await getBetterAuth());
       if (ba) {
         const baSession = await ba.api.getSession({
-          headers: event.headers,
+          headers: betterAuthRequestHeaders(event),
         });
         if (baSession?.user?.email) {
           return mapBetterAuthSession(baSession);
@@ -5465,7 +5614,7 @@ async function mountBetterAuthRoutes(
         if (
           (response as Response).status >= 200 &&
           (response as Response).status < 400 &&
-          extractSessionTokenFromSetCookies(response as Response)
+          extractSessionTokenFromAuthResponse(response as Response)
         ) {
           // Existing users do not run Better Auth's user-create hook when
           // magic-link verification flips emailVerified, so reconcile their
@@ -5474,17 +5623,20 @@ async function mountBetterAuthRoutes(
             authRequest,
             response as Response,
           );
+          await persistMagicLinkLegacySession(event, response as Response);
+          response = mergeStagedCookies(event, response as Response);
         }
       }
 
       // A rotated BETTER_AUTH_SECRET leaves the persisted JWKS key
       // undecryptable, and Better Auth turns that into a 500 on any endpoint
-      // that signs a JWT (e.g. /token). The get-session hook heals itself via
-      // withJwksRotationRecovery; this backstop covers the endpoints that
-      // sign directly. healUndecryptableJwks verifies the key against the
-      // live secret before expiring anything, so a coincidental 500 is a
-      // no-op here. Magic-link verify is excluded: its one-time token is
-      // already consumed, so a replay can only produce a worse redirect.
+      // that signs a JWT (e.g. /token). The session response does not mint an
+      // optional JWT header, so it cannot turn a valid cookie session into a
+      // 500 when a key is stale. This backstop covers the endpoints that sign
+      // directly. healUndecryptableJwks verifies the key against the live
+      // secret before expiring anything, so a coincidental 500 is a no-op
+      // here. Magic-link verify is excluded: its one-time token is already
+      // consumed, so a replay can only produce a worse redirect.
       if (
         isResponse &&
         (response as Response).status >= 500 &&
@@ -5907,7 +6059,7 @@ async function mountBetterAuthRoutes(
           captureAuthError(e, { route: "signup", email });
         }
         const authError = publicAuthError(e, AUTH_SIGNUP_FALLBACK);
-        setResponseStatus(event, authError.statusCode ?? 409);
+        setResponseStatus(event, authError.statusCode ?? 500);
         return { error: authError.message };
       }
     }),
@@ -6193,7 +6345,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
           captureAuthError(e, { route: "signup", email });
         }
         const authError = publicAuthError(e, AUTH_SIGNUP_FALLBACK);
-        setResponseStatus(event, authError.statusCode ?? 409);
+        setResponseStatus(event, authError.statusCode ?? 500);
         return { error: authError.message };
       }
     }),

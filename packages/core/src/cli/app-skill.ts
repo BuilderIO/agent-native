@@ -692,7 +692,9 @@ function standardAgentPluginMcpConfig(manifest: AppSkillManifest) {
 }
 
 function pluginName(manifest: AppSkillManifest): string {
-  return `agent-native-${manifest.id}`;
+  return manifest.id === "agent-native"
+    ? manifest.id
+    : `agent-native-${manifest.id}`;
 }
 
 function claudeMarketplaceName(): string {

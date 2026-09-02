@@ -98,6 +98,9 @@ const messages = {
     conditionContains: "contains",
     conditionValue: "Answer",
     conditionValuePlaceholder: "Enter an answer...",
+    allowMultiple: "Allow multiple files",
+    accept: "Accepted file types",
+    acceptPlaceholder: "image/*, .pdf",
     fieldTypes: {
       text: "Short Text",
       email: "Email",
@@ -110,6 +113,7 @@ const messages = {
       date: "Date",
       rating: "Rating",
       scale: "Scale",
+      file: "File upload",
     },
   },
   builder: {
@@ -180,6 +184,7 @@ const messages = {
       dateLabel: "Date",
       ratingLabel: "Rating",
       scaleLabel: "Scale",
+      fileLabel: "File upload",
       option1: "Option 1",
       option2: "Option 2",
       option3: "Option 3",

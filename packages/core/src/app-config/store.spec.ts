@@ -29,6 +29,7 @@ describe("app config store", () => {
   it("applies declared defaults when nothing is configured", () => {
     expect(getAppConfig().privateBlob.publicUploadFallback).toBe(true);
     expect(getAppConfig().privateBlob.provider).toBeUndefined();
+    expect(getAppConfig().app.homePath).toBeUndefined();
   });
 
   it("reads a declared environment alias", () => {
@@ -90,6 +91,27 @@ describe("app config store", () => {
         privateBlob: { provider: "" },
       }),
     ).toThrow();
+  });
+
+  it("validates and trims the configured private app home path", () => {
+    defineAppConfig({ app: { homePath: " /inbox " } });
+    expect(getAppConfig().app.homePath).toBe("/inbox");
+
+    expect(() =>
+      defineAppConfig({ app: { homePath: "https://evil.example" } }),
+    ).toThrow();
+    for (const homePath of [
+      "/sign-in",
+      "/_agent-native/sign-in",
+      "/login",
+      "/signup",
+      "/workspace/sign-in",
+      "/workspace/_agent-native/sign-in",
+      "/workspace/login",
+      "/workspace/signup",
+    ]) {
+      expect(() => defineAppConfig({ app: { homePath } })).toThrow();
+    }
   });
 
   it("treats an empty environment value as unset", () => {

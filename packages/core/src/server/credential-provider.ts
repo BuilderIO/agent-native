@@ -402,8 +402,8 @@ function readOptionalBuilderBoolean(
   return /^(1|true)$/i.test(value);
 }
 
-export function isBuilderPrivateKey(value: string | null | undefined): boolean {
-  return typeof value === "string" && value.trim().startsWith("bpk-");
+function isBuilderAuthToken(value: string | null | undefined): boolean {
+  return typeof value === "string" && /^(?:bpk|btk)-/.test(value.trim());
 }
 
 async function readBuilderCredentialScope(
@@ -1561,9 +1561,9 @@ export async function writeBuilderCredentials(
 ): Promise<{ scope: "user" | "org"; scopeId: string }> {
   const privateKey = creds.privateKey.trim();
   const publicKey = creds.publicKey.trim();
-  if (!isBuilderPrivateKey(privateKey)) {
+  if (!isBuilderAuthToken(privateKey)) {
     throw new Error(
-      "Builder returned a credential that is not a Builder private key (expected bpk-...). Restart the Builder connect flow and choose a space that can issue a private key.",
+      "Builder returned an unsupported credential (expected a bpk- private key or btk- personal access token). Restart the Builder connect flow and choose a space that can issue a usable credential.",
     );
   }
   if (!publicKey) {

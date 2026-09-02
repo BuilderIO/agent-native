@@ -42,6 +42,7 @@ export interface NavigationState {
   usageScope?: "me" | "workspace" | "app";
   usageUserEmail?: string;
   usageAppId?: string;
+  automationId?: string;
 }
 
 export function useNavigationState(extensions?: DispatchExtensionConfig) {
@@ -212,6 +213,11 @@ export function buildDispatchNavigationState(
       state.usageScope = usageScope;
     }
     if (usageUserEmail) state.usageUserEmail = usageUserEmail;
+  }
+
+  if (state.view === "automations") {
+    const automationId = new URLSearchParams(search).get("automationId");
+    if (automationId) state.automationId = automationId;
   }
 
   return state;

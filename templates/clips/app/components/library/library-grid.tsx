@@ -467,6 +467,7 @@ export function LibraryGrid({
             "min-h-0 flex-1 overflow-y-auto",
             selected.size > 0 && "pb-20",
           )}
+          aria-busy={isLoading}
         >
           <div className="p-5">
             {isLoading ? (

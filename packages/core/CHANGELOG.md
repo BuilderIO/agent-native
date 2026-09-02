@@ -51,6 +51,140 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.176.3
+
+### Patch Changes
+
+- 453cb52: Accept Builder personal access tokens when saving credentials returned by account activation.
+- b734fd1: Let actions declare `endsTurn`, and unwrap a JSON-encoded tool argument on its container type.
+
+  `endsTurn` already stopped the agent loop for core's own `ask-question`, but
+  `defineAction` never exposed it, so a template action that puts a question or
+  form on screen could not say the turn was over. The loop asked the model for
+  another step and a completion guard scored the paused turn as a failure.
+
+  `coerceStringifiedJsonToolValues` also required a stringified argument's parsed
+  contents to fully validate before unwrapping it. A model that JSON-encoded an
+  array whose items were missing a property was told only "must be array" — never
+  the per-item defect — so it re-encoded the same payload until its retry budget
+  ran out.
+
+- 4d86bff: Update shared auth pages with per-app product previews and learn-more links.
+- aa826fc: Prevent optional Better Auth JWT response headers from breaking valid session checks.
+- f83b944: Add the /an Agent-Native app skill with Dispatch MCP and inline app workflows.
+- ab2d987: Offer the Builder.io models in the chat and prompt-box model pickers on the gateway lane, so an AI-enabled app in a Fusion preview or a Builder-credits deploy no longer needs a connect step before a model can be selected
+- 17740f6: Allow apps to configure their authenticated home route while defaulting every app to `/home`; set `homePath: "/"` to keep an app at the root.
+- e32b034: Allow workspace credential lookups to skip last-used recording for read-only readiness checks.
+- 8a151f8: Keep the hydrated auth client aligned with the cacheable SSR auth shell.
+- 2b38c4d: Fix Clips share loading and mobile viewport behavior.
+- 1fc5184: Add friendly automation schedules and webhook triggers.
+- ad860e5: Keep framework SSE connections alive through idle edge timeouts.
+- bbbac69: Keep pending Builder app reservations visible for 30 days.
+- dc10e35: Keep delegated objectives on their already-selected receiver's bounded local action surface without requiring an app-specific rollout flag.
+- 4b83a0d: Fix magic-link sign-in dropping the session after verify. Better Auth's `set-auth-token` is a signed `token.signature`, which is not the session table row. `getSession` now tries the unsigned token, decodes percent-encoded cookies before asking Better Auth, and persists that unsigned token as the framework session cookie.
+- Release all public npm packages with a patch version bump.
+- b67ffff: Dont include the template migrate-production script as something that can be auto-discovered by the actions framework
+- 2e531c9: Preserve verified artifact receipts across truncated tool results and interrupted-run recovery.
+- aa826fc: Keep the first-run onboarding surface available until its explicit completion succeeds.
+- b302bcf: Hold the root auth document until the auth routes finish mounting during a cold start.
+- 4deb8a1: Suppress synthetic signup identities that were reaching production analytics.
+  `isQaTestEmail` only matched plus-addressed `+qa-test-bot-…@`, so bare
+  `qa-test-bot-…@`, `an-e2e-probe-…@e2e.agent-native.test` and `e2e-…@example.com`
+  were tracked as real users. Matching now covers those shapes plus the RFC 2606
+  reserved TLDs, and stays narrow enough that ordinary addresses — including bare
+  `example.com` fixtures and plus-addresses — remain trackable.
+- 067307e: Improve desktop chat surfaces, terminal failure reporting, and scrollbar contrast.
+- 4deb8a1: Make hosted ask_app submissions retry-safe and return before the MCP transport deadline.
+- d8cd1c4: Make macOS Electron PTY spawning resilient to packaged helper paths and reliably clean up terminal processes.
+- 1355b35: Use direct Neon endpoints for serverless runtime database clients when the configured pooler stalls.
+- Updated dependencies [e74593d]
+- Updated dependencies
+  - @agent-native/toolkit@0.19.1
+  - @agent-native/recap-cli@0.5.23
+
+## 0.176.2
+
+### Patch Changes
+
+- d7d12c0: Add owner-scoped app adoption metrics to the Dispatch admin.
+- 84c74f9: Keep synthetic beta E2E traffic out of analytics, prevent provider-key fallback, and preserve authenticated failure semantics across background runs.
+- ab839c1: Keep synthetic beta E2E credentials isolated to the test user's validated key.
+- 657658c: keep synthetic beta E2E OpenAI turns on the validated direct endpoint
+- 215308c: Enforce byte limits for response bodies without a readable stream.
+- 3de12aa: Bound Builder design-system status polling to one lightweight docs page.
+- 1350263: Use the canonical app URL for integration thread links.
+- b7e1cc9: Add chat-side revert controls for supported app history.
+- 443ce1a: Keep shared agent chat scrollers inside their flex boundaries.
+- 46abef1: Declare managed Google OAuth capability in app health contracts so deploy verification checks only apps that own the managed connection.
+- 790f15a: Keep side app surfaces from stealing the active chat while desktop terminal and app tabs are open.
+- e2a65ed: Allow trusted desktop hosts to add CLI launch arguments to PTY sessions.
+- d0d8721: fix: keep authentication email links on their canonical HTTPS origin
+- 7c26a81: Resume agent runs that end while an action input is still being prepared instead of reporting a completed turn.
+- 6be8173: Fix Nitro AWS Amplify SSR startup and preserve framework email runtime variables.
+- 383e1f6: Fix Builder desktop OAuth handoff and mounted preview auth routes.
+- 7836ff8: Keep recovery-card fork snapshots compact when chats contain uploaded attachments.
+- 2e03d60: Fix provider-aware model selection, shared Builder reconnect access, and provider tool limits.
+- d142c4f: Fix `mergeThreadDataForClientSave` pairing two structurally identical messages (same role/content/attachments, different ids) by whichever incoming entry a content fingerprint happened to hit first. A strong identity key (id/runId/turnId) now always wins over a fingerprint-only match, and a fingerprint tie is resolved deterministically by array position instead of silently keeping the first candidate — a wrong pairing could rewrite parent links onto the wrong message id.
+- 43f0da1: Read agent engine status from the current request instead of sharing stale serverless lookups across credential writes.
+- 1350263: Fix Google Drive Docs push authentication to use native channel tokens.
+- 3de12aa: Keep active assistant work grouped behind the work disclosure while a response is running.
+- 7d8e14d: Use build-time package evidence when detecting agent engines bundled into serverless functions.
+- b0c24e4: Invalidate stale in-flight agent engine status lookups after provider credential writes.
+- b0c24e4: Invalidate agent engine status lookups after every successful provider credential mutation.
+- 77ab9e9: Self-heal Better Auth JWKS keys orphaned by a `BETTER_AUTH_SECRET` rotation. The JWT plugin decrypts the persisted signing key on every `get-session`, so a rotated secret used to 500 every session check and sign the whole deployment out. The key is now verified against the live secret when that failure appears, stale rows are expired so a fresh key is minted, and the optional `set-auth-jwt` header is skipped (loudly) rather than failing the session response if recovery cannot help.
+- 28fd3ea: Keep a signed-in visitor from being stranded on the login form when the session
+  endpoint is briefly unreachable. The login document's probe read any non-ok
+  status, unparseable body, or failed fetch as "signed out" — the signed-out
+  answer is a 200 carrying `{ error }`, so those all mean the question went
+  unanswered — and nothing retried it.
+- Release all public npm packages with a patch version bump.
+- 9902c3b: Render the shared integrations catalog immediately while saved connections load.
+- ae94b70: Treat Netlify function bundles as having their inlined agent-engine packages when resolving runtime availability.
+- 786418b: Use Netlify's runtime site marker when detecting bundled agent-engine packages.
+- 0b8d452: Persist onboarding roles through Better Auth's user adapter.
+- 349ce5c: Persist Agent-Native prompt drafts synchronously and keep prompt surfaces isolated across refreshes.
+- 01d2112: Preserve typed HTTP status codes when formatting MCP connection errors.
+- 353f95a: Split template marketing home routes from authenticated app entries and add the shared browser auth handoff.
+- 99609ee: Suppress synthetic signup identities that were reaching production analytics.
+  `isQaTestEmail` only matched plus-addressed `+qa-test-bot-…@`, so bare
+  `qa-test-bot-…@`, `an-e2e-probe-…@e2e.agent-native.test` and `e2e-…@example.com`
+  were tracked as real users. Matching now covers those shapes plus the RFC 2606
+  reserved TLDs, and stays narrow enough that ordinary addresses — including bare
+  `example.com` fixtures and plus-addresses — remain trackable.
+- b953ef6: Keep desktop chat tab creation aligned with the selected UI or CLI mode.
+- a1869cc: Render the shared authentication surface with hydratable React and reuse its marketing composition for SSR app entry pages.
+- 7c1565b: Register the workspace connection catalog action in Dispatch's server action surface.
+- b7e1cc9: Fail a `CONTEXT=production` release migration whose database URL is local or
+  unconnectable, instead of silently migrating a throwaway file. Netlify hands the
+  CLI a masked secret outside its own build infra, so the prebuilt deploy lane
+  applied the whole schema to a SQLite file in the build container, logged
+  `Applied migration ...`, exited 0, and published green while the deployed
+  functions kept using a remote database that never received the schema. A masked
+  value is neither empty nor a `file:` URL, so a local-database check alone does
+  not see it — the guard now also requires a real URL scheme. Scoped to the
+  production context so the beta lane, which builds under branch-deploy against
+  masked secrets and is migrated by its production twin, is unaffected.
+- ed97046: Retry transient Builder design-system indexing gateway failures.
+- f0fb6c5: Use the cube spinner for shared loading indicators and the worded loader for full-page states across apps.
+- 050fffb: Make the shared skeleton loading shine more subtle.
+- 6d0d1d7: Soften the contrast of the shared skeleton loading shine.
+- 03711a6: Keep app launch loaders animated across remounts, randomize their labels, and smoothly resize the centered label.
+- 8c198b8: Add regression coverage for recovery card action spacing.
+- 75253cc: Support AWS Amplify Hosting with Nitro's `aws_amplify` deployment preset.
+- a120516: fix: suppress analytics for reserved signup canary addresses
+- 07452a5: Allow synthetic browser checks to verify a user-scoped engine when the deploy-selected engine is intentionally unavailable to synthetic traffic.
+- d0d8721: fix: use deployment email credentials for scheduled dashboard reports
+- 56beef0: Use the registered root callback for managed Google OAuth and fail closed when template OAuth code has no redirect URI.
+- ff39391: Prefetch internal route data and JavaScript for links entering the viewport by default.
+- Updated dependencies
+- Updated dependencies [349ce5c]
+- Updated dependencies [353f95a]
+- Updated dependencies [a1869cc]
+- Updated dependencies [f0fb6c5]
+- Updated dependencies [03711a6]
+  - @agent-native/recap-cli@0.5.22
+  - @agent-native/toolkit@0.19.0
+
 ## 0.176.1
 
 ### Patch Changes
@@ -1884,26 +2018,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 
 - efc5f92: Improve the self-hosting documentation with a fast local Docker quickstart and downloadable Chat fixture.
 - 9fed363: Teach generated workspaces to reuse shared settings, vault, OAuth, and onboarding primitives before building custom integration setup UI.
-
-## 0.161.18
-
-### Patch Changes
-
-- 9dd50a0: Drop JSON Schema keywords OpenAI's function validator rejects: unsupported
-  `format` values (`uri` from `z.string().url()` among them) and constraint-only
-  keywords like `patternProperties`, `not`, and `if`/`then`/`else`. Any one of them
-  400s the entire chat request, so a single `z.string().url()` in one tool broke
-  every turn that offered it.
-- f294ae3: Keep the Connect Builder and Custom keys actions side by side in the agent sidebar.
-
-## 0.161.17
-
-### Patch Changes
-
-- 34496d7: Sanitize every tool schema at the engine boundary, not just `defineAction` ones.
-  Hand-written tools (extensions, MCP, context tools) and third-party MCP server
-  schemas bypassed the sanitizer entirely, so `extension-data-set` shipped a `data`
-  property with no `type` and OpenAI 400'd the whole request — every tool in the
-  payload, not just that one.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -121,6 +121,11 @@ describe("npm package release workflow", () => {
       (step) => step.name === "Hold pending changesets for stable publication",
     );
     assert(hold);
+    const policy = releaseSteps.find(
+      (step) => step.name === "Enforce package bump policy",
+    );
+    assert(policy);
+    assert.equal(policy.run, "node scripts/guard-no-major-changeset.mjs");
     assert.match(String(hold.if), /github\.event_name == 'push'/);
     assert.match(JSON.stringify(hold), /RUNNER_TEMP/);
     assert.match(String(hold.run), /changeset status --output/);
@@ -168,10 +173,12 @@ describe("npm package release workflow", () => {
       (step) => step.name === "Validate changesets",
     );
     const holdIndex = releaseSteps.indexOf(hold);
+    const policyIndex = releaseSteps.indexOf(policy);
     const changesetsIndex = releaseSteps.indexOf(changesets);
     const consumeIndex = releaseSteps.indexOf(consume);
     const restoreIndex = releaseSteps.indexOf(restore);
     assert(holdIndex < validateIndex);
+    assert(policyIndex < holdIndex);
     assert(holdIndex < changesetsIndex);
     assert(changesetsIndex < consumeIndex);
     assert(consumeIndex < restoreIndex);
