@@ -87,6 +87,16 @@ describe("readAutomationFactoryId", () => {
     ).toBe("enzo-test-factory-3");
   });
 
+  it("uses the nested folder for a custom-named job", () => {
+    expect(
+      readAutomationFactoryId(
+        {},
+        "---\nenabled: true\n---\n",
+        "jobs/factories/demo-factory/my-slack-watch.md",
+      ),
+    ).toBe("demo-factory");
+  });
+
   it("keeps frontmatter fallback for legacy flat paths", () => {
     expect(
       readAutomationFactoryId(

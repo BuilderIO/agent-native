@@ -257,6 +257,54 @@ describe("automation domain service", () => {
     ).toBe(true);
   });
 
+  it("lets a Factory org member queue a recovered folder job that lost domain", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
+    const recovered = resource(`---
+enabled: true
+createdBy: alice@example.com
+orgId: "org-1"
+---
+
+Observe Slack.`);
+    recovered.path = "jobs/factories/demo-factory/factory-slack-feedback.md";
+
+    expect(
+      await canQueueAutomationRunNow(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "factory" },
+        recovered,
+        "organization",
+      ),
+    ).toBe(true);
+    expect(
+      await canQueueAutomationRunNow(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "mail" },
+        recovered,
+        "organization",
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses a recovered Factory-folder job owned by another app", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
+    const calendarJob = resource(`---
+enabled: true
+createdBy: alice@example.com
+orgId: "org-1"
+appId: calendar
+---
+
+Send the digest.`);
+    calendarJob.path = "jobs/factories/demo-factory/calendar-digest.md";
+
+    expect(
+      await canQueueAutomationRunNow(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "factory" },
+        calendarJob,
+        "organization",
+      ),
+    ).toBe(false);
+  });
+
   it("still refuses a Mail org member who is not the creator or admin", async () => {
     executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
 

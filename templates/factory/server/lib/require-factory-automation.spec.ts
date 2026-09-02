@@ -275,6 +275,37 @@ describe("requireFactoryAutomation", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("accepts a custom-named factory-folder job", async () => {
+    findFactoryAutomationDefinitionMock.mockResolvedValue({
+      name: `factories/${factoryId}/my-slack-watch`,
+      body: "Observe Slack.",
+      resource: {
+        id: "resource-custom",
+        path: `jobs/factories/${factoryId}/my-slack-watch.md`,
+        content:
+          "---\nenabled: true\ncreatedBy: teammate@example.com\nsource: slack\n---\n",
+      },
+      meta: {
+        createdBy: teammateEmail,
+      },
+    });
+
+    await expect(
+      requireFactoryAutomation(
+        {
+          caller: "automation",
+          automation: {
+            triggerId: "resource-custom",
+            triggerName: `factories/${factoryId}/my-slack-watch`,
+          },
+        },
+        { userEmail: teammateEmail, orgId: "org-1" },
+        "sourcePolling",
+        factoryId,
+      ),
+    ).resolves.toBeUndefined();
+  });
+
   it("accepts the virtual default Factory when no definition row exists", async () => {
     getDbMock.mockReturnValue(factoryLookupDb(false));
     findFactoryAutomationDefinitionMock.mockResolvedValue({

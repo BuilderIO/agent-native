@@ -340,7 +340,7 @@ export function factoryAutomationLeafName(nameOrPath: string): string {
 }
 
 export function readFactoryIdFromAutomationPath(path: string): string | null {
-  const match = path.match(/^jobs\/factories\/([^/]+)\/factory-[^/]+\.md$/);
+  const match = path.match(/^jobs\/factories\/([^/]+)\/[^/]+\.md$/);
   return match?.[1] ?? null;
 }
 

@@ -602,7 +602,7 @@ function setOrRemoveFrontmatterField(
     const nextFrontmatter = frontmatter.replace(pattern, "").trimEnd();
     return nextFrontmatter
       ? `${opener}${nextFrontmatter}${content.slice(end)}`
-      : content;
+      : `${opener}${content.slice(end)}`;
   }
   if (pattern.test(frontmatter)) {
     return `${opener}${frontmatter.replace(pattern, `${key}: ${serialized}${newline}`)}${content.slice(end)}`;

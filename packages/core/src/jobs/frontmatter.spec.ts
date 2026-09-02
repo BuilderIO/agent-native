@@ -138,6 +138,19 @@ Observe Slack.`;
     expect(patched).toContain('lastRun: "2026-09-01T21:45:00.000Z"');
   });
 
+  it("removes the last scheduler-owned field instead of leaving it stale", () => {
+    const content = `---
+lastStatus: running
+---
+
+Observe Slack.`;
+    const patched = patchJobFrontmatterFields(content, {
+      lastStatus: undefined,
+    });
+    expect(patched).not.toContain("lastStatus:");
+    expect(patched).toContain("Observe Slack.");
+  });
+
   it("does not serialize webhook automation credentials into resource content", () => {
     const meta: JobFrontmatter = {
       schedule: "",
