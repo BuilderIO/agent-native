@@ -41,6 +41,11 @@ interface CommentComposerProps {
   "aria-label"?: string;
 }
 
+function resizeTextarea(element: HTMLTextAreaElement) {
+  element.style.height = "auto";
+  element.style.height = `${element.scrollHeight}px`;
+}
+
 export const CommentComposer = forwardRef<
   HTMLTextAreaElement,
   CommentComposerProps
@@ -82,9 +87,16 @@ export const CommentComposer = forwardRef<
   useLayoutEffect(() => {
     const element = innerRef.current;
     if (!element) return;
-    element.style.height = "auto";
-    element.style.height = `${element.scrollHeight}px`;
+    resizeTextarea(element);
   }, [rows, value]);
+
+  useLayoutEffect(() => {
+    const element = innerRef.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => resizeTextarea(element));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [rows]);
 
   const filtered =
     query === null

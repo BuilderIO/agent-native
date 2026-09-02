@@ -52,6 +52,21 @@ const rootComment: Comment = {
   updatedAt: "2026-07-10T12:00:00.000Z",
 };
 
+let notifyResize: (() => void) | undefined;
+
+class MockResizeObserver implements ResizeObserver {
+  constructor(callback: ResizeObserverCallback) {
+    notifyResize = () => callback([], this as unknown as ResizeObserver);
+  }
+
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+  takeRecords() {
+    return [];
+  }
+}
+
 function setTextareaValue(element: HTMLTextAreaElement, value: string) {
   const valueSetter = Object.getOwnPropertyDescriptor(
     HTMLTextAreaElement.prototype,
@@ -108,6 +123,7 @@ describe("CommentsPanel reply composer", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("ResizeObserver", MockResizeObserver);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -121,6 +137,7 @@ describe("CommentsPanel reply composer", () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+    notifyResize = undefined;
     vi.clearAllMocks();
   });
 
@@ -165,6 +182,21 @@ describe("CommentsPanel reply composer", () => {
 
     expect(composer?.style.height).toBe("144px");
     expect(composer?.className).toContain("overflow-y-hidden");
+  });
+
+  it("regrows comment textareas when their width changes wrapping", () => {
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    );
+    expect(composer).not.toBeNull();
+    Object.defineProperty(composer, "scrollHeight", {
+      configurable: true,
+      value: 192,
+    });
+
+    act(() => notifyResize?.());
+
+    expect(composer?.style.height).toBe("192px");
   });
 
   it("renders inline Markdown while flattening headings", () => {
