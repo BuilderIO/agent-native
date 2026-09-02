@@ -1,7 +1,8 @@
 # Analytics — Agent Guide
 
 Analytics is an agent-native BI workspace for sources, queries, dashboards,
-charts, and warehouse integrations; dashboards are canonical.
+charts, and warehouse integrations; dashboards are canonical and legacy
+analyses remain readable.
 
 ## Skills
 
@@ -38,8 +39,8 @@ Read the relevant skill before deeper work:
 3. **Escalate on a miss.** If the catalog has no usable result, make one discovery
    pass (`list-data-dictionary`, `search-bigquery-schema`, `data-source-status`),
    then query; don't cross-check or add unasked breakdowns.
-4. **Answer in chat.** Return a short table, chart, or export, not only a
-   dashboard pointer or path; for >50 rows, state the total and top rows.
+4. **Answer in chat.** Return a short table, chart, or export, not just a path;
+   for >50 rows, state the total and top rows.
 6. **Chunk only reading.** Group 5-10 only for 30+ qualitative items when a query
    cannot answer; don't chunk queryable questions. See `adhoc-analysis`.
 
@@ -76,11 +77,9 @@ Read the relevant skill before deeper work:
 - Never hardcode API keys, tokens, webhook URLs, secrets, private Builder data,
   or customer data. Use secrets/OAuth and obvious placeholders in examples.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
-- External MCP callers should prefer a cataloged direct action for a bounded
-  read or explicitly requested mutation. Use `ask_app` for interpretation,
-  source selection, multi-step analysis, or when the requested capability is
-  not exposed directly. Writes remain limited to intentionally allowlisted
-  actions.
+- External MCP callers: use cataloged direct actions for bounded reads and
+  allowlisted mutations. Use `ask_app` for interpretation, source selection,
+  multi-step work, unavailable actions, or unsupported writes.
 - Reports/alerts use SQL actions; cap at five recipients.
 
 ## Actions
