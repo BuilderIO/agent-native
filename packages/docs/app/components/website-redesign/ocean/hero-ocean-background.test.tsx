@@ -189,6 +189,43 @@ describe("HeroOceanBackground", () => {
     expect(renderer.setPointer).toHaveBeenLastCalledWith([2, 0, 0]);
   });
 
+  it("remaps the active pointer on scroll and fades it on window blur", async () => {
+    const { container } = render(<HeroOceanBackground onError={vi.fn()} />);
+    const box = container.firstElementChild as HTMLElement;
+    const rect = {
+      left: 10,
+      top: 20,
+      width: 200,
+      height: 100,
+    } as DOMRect;
+    vi.spyOn(box, "getBoundingClientRect").mockReturnValue(rect);
+
+    await waitFor(() => expect(createRenderer).toHaveBeenCalled());
+    renderer.setPointer.mockClear();
+
+    document.body.dispatchEvent(
+      new MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 110,
+        clientY: 70,
+      }),
+    );
+    expect(renderer.setPointer).toHaveBeenLastCalledWith([0, 0, 1]);
+
+    vi.spyOn(box, "getBoundingClientRect").mockReturnValue({
+      ...rect,
+      left: 60,
+    } as DOMRect);
+    window.dispatchEvent(new Event("scroll"));
+    expect(renderer.setPointer).toHaveBeenLastCalledWith([-0.5, 0, 1]);
+
+    window.dispatchEvent(new Event("blur"));
+    expect(renderer.setPointer).toHaveBeenLastCalledWith([-0.5, 0, 0]);
+
+    window.dispatchEvent(new Event("scroll"));
+    expect(renderer.setPointer).toHaveBeenLastCalledWith([-0.5, 0, 0]);
+  });
+
   it("disposes the GPU and both observers on unmount", async () => {
     const { unmount } = render(<HeroOceanBackground onError={vi.fn()} />);
     await waitFor(() => expect(createRenderer).toHaveBeenCalled());
