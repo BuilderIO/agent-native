@@ -346,8 +346,11 @@ export async function googleFetch(
     if (res.status === 204) return null;
 
     // Parse body early when we might need it for quota-error classification.
-    // 503 has no body worth inspecting; short-circuit to the retry path.
-    if (res.status === 503 && attempt < maxRetries) {
+    // Transient 5xx responses have no useful body; retry before parsing them.
+    if (
+      (res.status === 500 || res.status === 502 || res.status === 503) &&
+      attempt < maxRetries
+    ) {
       const delay = Math.min(1000 * 2 ** attempt, 8000);
       await new Promise((r) => setTimeout(r, delay));
       continue;

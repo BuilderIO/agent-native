@@ -12,6 +12,25 @@ function jsonResponse(status: number, body: unknown, headers?: HeadersInit) {
 describe("googleFetch quota handling", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("retries transient Gmail gateway failures", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(502, { error: "bad gateway" }))
+      .mockResolvedValueOnce(jsonResponse(200, { messages: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const resultPromise = googleFetch(
+      "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+      "gateway-token-a",
+    );
+    await vi.advanceTimersByTimeAsync(1000);
+
+    await expect(resultPromise).resolves.toEqual({ messages: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("trips cooldown on the first quota response instead of retrying inside the exhausted window", async () => {
