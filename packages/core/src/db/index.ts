@@ -45,6 +45,7 @@ export {
   getDbExec,
   createDbExec,
   getDatabaseUrl,
+  getDatabaseAuthToken,
   getRuntimeDatabaseUrl,
   getDialect,
   isLocalDatabase,

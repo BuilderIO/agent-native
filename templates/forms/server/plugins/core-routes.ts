@@ -13,6 +13,11 @@ export default createCoreRoutesPlugin({
       label: "Forms Unpooled Database URL",
       required: false,
     },
+    {
+      key: "FORMS_DATABASE_AUTH_TOKEN",
+      label: "Forms Database Auth Token",
+      required: false,
+    },
     { key: "DATABASE_URL", label: "Database URL", required: false },
     {
       key: "DATABASE_URL_UNPOOLED",

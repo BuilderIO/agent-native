@@ -1,4 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
+import {
+  getDatabaseAuthToken,
+  getRuntimeDatabaseUrl,
+} from "@agent-native/core/db";
 import { createClient } from "@libsql/client";
 import { z } from "zod";
 
@@ -7,13 +11,13 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   run: async () => {
-    const url = process.env.DATABASE_URL || "file:./data/app.db";
+    const url = getRuntimeDatabaseUrl("file:./data/app.db");
     const isLocal = url.startsWith("file:");
 
     try {
       const client = createClient({
         url,
-        authToken: process.env.DATABASE_AUTH_TOKEN,
+        authToken: getDatabaseAuthToken(),
       });
       const result = await client.execute("SELECT 1 as ok");
       return {
