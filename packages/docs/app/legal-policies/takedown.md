@@ -22,7 +22,7 @@ The Service operator may suspend an account, restrict access to the Services, or
 
 2.1 Standard Notice. Where practical and not prohibited by law or an urgent need to protect the Services or others, the Service operator will notify the affected user of a suspension or takedown, including the reason and steps required to restore service.
 
-2.2 Immediate Action. For urgent threats  -  including active malware, phishing, CSAM, or a credible security or legal emergency  -  the Service operator may act immediately and provide notice afterward.
+2.2 Immediate Action. For urgent threats - including active malware, phishing, CSAM, or a credible security or legal emergency - the Service operator may act immediately and provide notice afterward.
 
 3. Tiered Response
 
