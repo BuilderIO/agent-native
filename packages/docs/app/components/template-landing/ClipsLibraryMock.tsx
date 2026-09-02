@@ -784,7 +784,7 @@ const CLIPS_MOCK_CSS = [
   ".clips-mock .readiness-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; min-height: 36px; background: transparent; border-radius: var(--radius-sm); color: var(--fg-muted); padding: 7px 12px; text-align: left; }",
   ".clips-mock .readiness-title { color: inherit; font-size: 13px; font-weight: 500; line-height: 1; }",
   ".clips-mock .readiness-action { display: flex; align-items: center; gap: 3px; color: inherit; font-size: 11px; font-weight: 600; line-height: 1; }",
-  ".clips-mock .primary { width: 100%; border-radius: var(--radius); padding: 12px 16px; background: var(--surface-strong); border: 1px solid var(--border-strong); color: var(--fg-muted); font-size: 14px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 10px; height: 44px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2); }",
+  ".clips-mock .primary { width: 100%; border-radius: var(--radius); padding: 12px 16px; background: var(--surface-strong); border: 1px solid var(--border-strong); color: var(--fg-muted); font-size: 14px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 10px; height: 44px; }",
   ".clips-mock .primary.start { margin-top: 2px; }",
   ".clips-mock .bottom-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }",
   ".clips-mock .bottom-btn { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; background: transparent; border-radius: var(--radius-sm); color: var(--fg-muted); }",
