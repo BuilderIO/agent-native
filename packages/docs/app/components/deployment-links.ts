@@ -1,6 +1,4 @@
-import {
-  resolveEnvironmentTargets,
-} from "@agent-native/core/shared";
+import { resolveEnvironmentTargets } from "@agent-native/core/shared";
 
 const BETA_DOCS_HOST = "beta.agent-native.com";
 const BUILD_ENVIRONMENT =
