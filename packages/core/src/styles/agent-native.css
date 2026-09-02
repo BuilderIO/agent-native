@@ -610,7 +610,27 @@
 
   * {
     scrollbar-width: thin;
-    scrollbar-color: gray transparent;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.22) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: padding-box;
+    background-color: hsl(var(--muted-foreground) / 0.22);
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.34);
   }
 
   button,
