@@ -150,6 +150,7 @@ describe("MCP app host client helpers", () => {
           context: { route: { pathname: "/customers" } },
           capabilities: { openLink: true, displayModes: ["inline", "pip"] },
           version: "1.0.0",
+          hostInfo: { name: "Claude Code", version: "1.0.0" },
         },
       });
     });
@@ -158,6 +159,7 @@ describe("MCP app host client helpers", () => {
       context: { route: { pathname: "/customers" } },
       capabilities: { openLink: true, displayModes: ["inline", "pip"] },
       version: "1.0.0",
+      hostInfo: { name: "Claude Code", version: "1.0.0" },
     });
     expect(snapshots.at(-1)).toEqual(getMcpAppHostContext());
   });

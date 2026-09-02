@@ -26,6 +26,7 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { PromptComposer } from "../composer/index.js";
+import { ExternalAgentNudge } from "../external-agent-host.js";
 import { useT } from "../i18n.js";
 import { cn } from "../utils.js";
 import {
@@ -228,7 +229,7 @@ export function ExtensionsListPage({
             <PopoverContent
               align="end"
               sideOffset={6}
-              className="w-[420px] p-3"
+              className="relative w-[420px] p-3"
             >
               <p className="px-1 pb-2 text-sm font-semibold text-foreground">
                 {t("extensions.newExtensionTitle")}
@@ -239,6 +240,7 @@ export function ExtensionsListPage({
                 draftScope="extensions:create-popover"
                 onSubmit={handleCreate}
               />
+              <ExternalAgentNudge variant="prompt" />
             </PopoverContent>
           </Popover>
           <DropdownMenu>

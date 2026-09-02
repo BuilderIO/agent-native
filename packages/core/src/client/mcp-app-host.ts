@@ -60,10 +60,17 @@ export interface McpAppHostContext {
   [key: string]: unknown;
 }
 
+export interface McpAppHostInfo {
+  name?: string;
+  version?: string;
+  [key: string]: unknown;
+}
+
 export interface McpAppHostContextSnapshot {
   context: McpAppHostContext | null;
   capabilities: McpAppHostCapabilities | null;
   version: unknown;
+  hostInfo?: McpAppHostInfo;
 }
 
 type PendingRequest = {
@@ -83,6 +90,7 @@ type HostContextMessage = {
     context?: unknown;
     capabilities?: unknown;
     version?: unknown;
+    hostInfo?: unknown;
   };
 };
 
@@ -199,7 +207,7 @@ function notify() {
 
 function updateSnapshot(data: HostContextMessage["data"]): void {
   if (!isRecord(data)) return;
-  snapshot = {
+  const nextSnapshot: McpAppHostContextSnapshot = {
     context: isRecord(data.context)
       ? (data.context as McpAppHostContext)
       : snapshot.context,
@@ -208,6 +216,11 @@ function updateSnapshot(data: HostContextMessage["data"]): void {
       : snapshot.capabilities,
     version: data.version !== undefined ? data.version : snapshot.version,
   };
+  const hostInfo = isRecord(data.hostInfo)
+    ? (data.hostInfo as McpAppHostInfo)
+    : snapshot.hostInfo;
+  if (hostInfo) nextSnapshot.hostInfo = hostInfo;
+  snapshot = nextSnapshot;
   notify();
 }
 
@@ -217,6 +230,7 @@ function updateSnapshotFromInitialize(result: unknown): void {
     context: result.hostContext,
     capabilities: result.hostCapabilities,
     version: result.hostInfo ?? result.protocolVersion,
+    hostInfo: result.hostInfo,
   });
 }
 
@@ -498,6 +512,10 @@ async function ensureDirectMcpAppInitialized(): Promise<boolean> {
   }
 
   return directMcpAppInit;
+}
+
+export function initializeMcpAppHost(): Promise<boolean> {
+  return ensureDirectMcpAppInitialized();
 }
 
 async function waitForDirectMcpAppInitialized(): Promise<void> {

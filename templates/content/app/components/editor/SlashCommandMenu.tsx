@@ -1,4 +1,7 @@
-import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
+import {
+  ExternalAgentNudge,
+  useSendToAgentChat,
+} from "@agent-native/core/client/agent-chat";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
 import type { CreateInlineDatabaseResponse } from "@shared/api";
@@ -1331,7 +1334,7 @@ export function SlashCommandMenu({
           <PopoverContent
             align="start"
             side="bottom"
-            className="w-[calc(100vw-2rem)] p-3 sm:w-[420px]"
+            className="relative w-[calc(100vw-2rem)] p-3 sm:w-[420px]"
           >
             <p className="px-1 pb-2 text-sm font-semibold text-foreground">
               {t("editor.generateWithAi")}
@@ -1343,6 +1346,7 @@ export function SlashCommandMenu({
               draftScope={`content:generate:${documentId ?? "document"}`}
               onSubmit={submitGeneratePrompt}
             />
+            <ExternalAgentNudge variant="prompt" />
           </PopoverContent>
         </Popover>
       )}

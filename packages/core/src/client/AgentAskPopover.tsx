@@ -8,6 +8,7 @@ import {
   PopoverTrigger,
 } from "./components/ui/popover.js";
 import { PromptComposer } from "./composer/index.js";
+import { ExternalAgentNudge } from "./external-agent-host.js";
 import { useT } from "./i18n.js";
 
 export interface AgentAskPopoverProps {
@@ -66,7 +67,7 @@ export function AgentAskPopover({
         align="end"
         sideOffset={8}
         collisionPadding={12}
-        className="z-[260] w-[calc(100vw-32px)] max-w-[420px] p-3"
+        className="relative z-[260] w-[calc(100vw-32px)] max-w-[420px] p-3"
       >
         <p className="px-1 pb-2 text-sm font-semibold text-foreground">
           {title ??
@@ -89,6 +90,7 @@ export function AgentAskPopover({
           voiceEnabled={false}
           onSubmit={handleSubmit}
         />
+        <ExternalAgentNudge variant="prompt" />
       </PopoverContent>
     </Popover>
   );

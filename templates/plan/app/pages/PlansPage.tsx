@@ -1,5 +1,6 @@
 import {
   SIDEBAR_STATE_CHANGE_EVENT,
+  ExternalAgentNudge,
   sendToAgentChat,
   setAgentChatContextItem,
   useAgentEngineConfigured,
@@ -8474,7 +8475,7 @@ function CreatePlanDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[680px]">
+      <DialogContent className="relative sm:max-w-[680px]">
         <DialogHeader>
           <DialogTitle>{t("plansPage.create.title")}</DialogTitle>
           <DialogDescription>
@@ -8496,6 +8497,7 @@ function CreatePlanDialog({
               onSubmit={submit}
             />
           </div>
+          <ExternalAgentNudge variant="prompt" />
           <div className="flex flex-wrap gap-2">
             {CREATE_PLAN_PROMPTS.map((preset) => (
               <Button

@@ -1,4 +1,7 @@
-import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
+import {
+  ExternalAgentNudge,
+  useSendToAgentChat,
+} from "@agent-native/core/client/agent-chat";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
@@ -810,12 +813,13 @@ export function PanelEditorDialog(props: PanelEditorDialogProps) {
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="relative max-h-[90vh] overflow-y-auto sm:max-w-[640px]">
         <DialogHeader>
           <DialogTitle>{t("panelEditor.editPanel")}</DialogTitle>
         </DialogHeader>
 
         <PanelEditorContent {...props} />
+        <ExternalAgentNudge variant="prompt" />
       </DialogContent>
     </Dialog>
   );

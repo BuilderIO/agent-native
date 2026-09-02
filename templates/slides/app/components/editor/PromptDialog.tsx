@@ -1,3 +1,4 @@
+import { ExternalAgentNudge } from "@agent-native/core/client/agent-chat";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import {
   PromptComposer,
@@ -784,7 +785,7 @@ export default function PromptPopover({
       )}
       <div
         ref={panelRef}
-        className="fixed z-[200] w-[min(500px,calc(100vw-24px))] rounded-xl border border-border/80 bg-popover shadow-xl shadow-black/15"
+        className="fixed relative z-[200] w-[min(500px,calc(100vw-24px))] rounded-xl border border-border/80 bg-popover shadow-xl shadow-black/15"
         role="dialog"
         aria-modal="true"
         aria-label={title}
@@ -1031,6 +1032,7 @@ export default function PromptPopover({
             </div>
           )}
         </div>
+        <ExternalAgentNudge variant="prompt" />
       </div>
     </>
   );

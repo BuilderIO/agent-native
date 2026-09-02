@@ -1,3 +1,4 @@
+import { ExternalAgentNudge } from "@agent-native/core/client/agent-chat";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import {
   PromptComposer,
@@ -320,7 +321,7 @@ export function AddSlidePopover({
     <div
       ref={panelRef}
       data-add-slide-popover
-      className="fixed w-[min(420px,calc(100vw-24px))] rounded-xl border border-border bg-popover shadow-2xl shadow-black/60 z-[200] p-3"
+      className="fixed relative w-[min(420px,calc(100vw-24px))] rounded-xl border border-border bg-popover shadow-2xl shadow-black/60 z-[200] p-3"
       style={{
         top,
         left,
@@ -398,6 +399,7 @@ export function AddSlidePopover({
           onSourceContextChange={setGoogleDocContext}
         />
       </div>
+      <ExternalAgentNudge variant="prompt" />
     </div>,
     document.body,
   );
