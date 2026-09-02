@@ -201,14 +201,32 @@ describe("comments sidebar layout", () => {
     expect(source).not.toContain('t("comments.resolved", {');
   });
 
+  it("uses the same eased emphasis for active and hovered comment cards", () => {
+    const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain(
+      "transition-[transform,box-shadow] duration-200 ease-[var(--ease-out-strong)]",
+    );
+    expect(source).toContain('? "-translate-x-2 shadow-lg"');
+    expect(source).toContain(': "hover:-translate-x-2 hover:shadow-lg"');
+  });
+
   it("captures inline comment activation at the document state boundary", () => {
     const source = readFileSync("app/components/editor/DocumentEditor.tsx", {
       encoding: "utf8",
     });
 
     expect(source).toContain('target?.closest("[data-comment-thread]")');
+    expect(source).toContain("onPointerOverCapture");
+    expect(source).toContain("onPointerOutCapture");
+    expect(source).toContain("setHoveredThreadId(threadId)");
     expect(source).toContain("activateCommentThread(threadId)");
     expect(source).toContain("data-comments-flow-lane");
+    expect(source).toContain("commentLaneRef");
+    expect(source).toContain('querySelector(".notion-editor")');
+    expect(source).toContain("translate-x-8");
     expect(source).toContain("data-comments-anchored-popover");
     expect(source).toContain("useElementMinWidth(documentLayoutRef, 960)");
     expect(source).toContain('window.addEventListener("resize", update)');

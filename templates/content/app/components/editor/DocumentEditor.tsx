@@ -1927,6 +1927,7 @@ function DocumentEditorBody({
     !isLocalFileDocument ? documentId : null,
   );
   const documentLayoutRef = useRef<HTMLDivElement>(null);
+  const commentLaneRef = useRef<HTMLElement>(null);
   const anchoredCommentRef = useRef<HTMLElement>(null);
   const [anchoredCommentPosition, setAnchoredCommentPosition] = useState<{
     left: number;
@@ -1934,6 +1935,7 @@ function DocumentEditorBody({
     width: number;
     placement: "above" | "below";
   } | null>(null);
+  const [commentLaneOffset, setCommentLaneOffset] = useState(0);
   const hasUtilityRailSpace = useElementMinWidth(documentLayoutRef, 960);
   const showCommentsHistoryDrawer =
     utilityPanel === "comments" && commentsBrowseOpen;
@@ -1950,6 +1952,32 @@ function DocumentEditorBody({
   useEffect(() => {
     if (utilityPanel) setLastUtilityPanel(utilityPanel);
   }, [utilityPanel]);
+
+  useLayoutEffect(() => {
+    if (!showDesktopUtilityPanel || utilityPanel !== "comments") {
+      setCommentLaneOffset(0);
+      return;
+    }
+    const lane = commentLaneRef.current;
+    const readingColumn =
+      scrollContainerRef.current?.querySelector(".notion-editor");
+    if (!lane || !readingColumn) return;
+    const update = () => {
+      const laneLeft = lane.getBoundingClientRect().left - commentLaneOffset;
+      const readingRight = readingColumn.getBoundingClientRect().right;
+      setCommentLaneOffset(Math.min(0, readingRight - laneLeft));
+    };
+    update();
+    window.addEventListener("resize", update);
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    observer?.observe(lane);
+    observer?.observe(readingColumn);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, [commentLaneOffset, showDesktopUtilityPanel, utilityPanel]);
 
   const handleComment = useCallback(
     (
@@ -2355,6 +2383,24 @@ function DocumentEditorBody({
           }
           dismissCommentFocus();
         }}
+        onPointerOverCapture={(event) => {
+          const target = event.target as HTMLElement | null;
+          const threadId = target
+            ?.closest("[data-comment-thread]")
+            ?.getAttribute("data-comment-thread");
+          if (threadId) setHoveredThreadId(threadId);
+        }}
+        onPointerOutCapture={(event) => {
+          const target = event.target as HTMLElement | null;
+          const highlight = target?.closest("[data-comment-thread]");
+          if (!highlight) return;
+          const nextHighlight = (event.relatedTarget as HTMLElement | null)
+            ?.closest("[data-comment-thread]")
+            ?.getAttribute("data-comment-thread");
+          if (nextHighlight !== highlight.getAttribute("data-comment-thread")) {
+            setHoveredThreadId(null);
+          }
+        }}
       >
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <DocumentToolbar
@@ -2755,36 +2801,40 @@ function DocumentEditorBody({
               {showDesktopUtilityPanel ? (
                 utilityPanel === "comments" ? (
                   <aside
+                    ref={commentLaneRef}
                     className="relative w-80 shrink-0"
                     aria-label={t("comments.title")}
                     data-comments-flow-lane
+                    style={{ transform: `translateX(${commentLaneOffset}px)` }}
                   >
-                    <div className="absolute end-2 top-2 z-20 flex items-center rounded-md bg-background/90 shadow-sm ring-1 ring-border/50 backdrop-blur-sm">
-                      <button
-                        type="button"
-                        className="flex size-8 items-center justify-center rounded-s-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        aria-pressed={showCommentIndicators}
-                        aria-label={t("comments.title")}
-                        onClick={() =>
-                          setShowCommentIndicators((visible) => !visible)
-                        }
-                      >
-                        {showCommentIndicators ? (
-                          <IconMessageCircle size={16} />
-                        ) : (
-                          <IconMessageCircleOff size={16} />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        className="flex size-8 items-center justify-center rounded-e-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        aria-label={t("editor.toolbar.closeUtilityPanel")}
-                        onClick={() => handleUtilityPanelChange(null)}
-                      >
-                        <IconX size={16} />
-                      </button>
+                    <div className="relative min-h-full translate-x-8">
+                      <div className="absolute end-2 top-2 z-20 flex items-center rounded-md bg-background/90 shadow-sm ring-1 ring-border/50 backdrop-blur-sm">
+                        <button
+                          type="button"
+                          className="flex size-8 items-center justify-center rounded-s-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          aria-pressed={showCommentIndicators}
+                          aria-label={t("comments.title")}
+                          onClick={() =>
+                            setShowCommentIndicators((visible) => !visible)
+                          }
+                        >
+                          {showCommentIndicators ? (
+                            <IconMessageCircle size={16} />
+                          ) : (
+                            <IconMessageCircleOff size={16} />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          className="flex size-8 items-center justify-center rounded-e-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          aria-label={t("editor.toolbar.closeUtilityPanel")}
+                          onClick={() => handleUtilityPanelChange(null)}
+                        >
+                          <IconX size={16} />
+                        </button>
+                      </div>
+                      {renderCommentsSidebar()}
                     </div>
-                    {renderCommentsSidebar()}
                   </aside>
                 ) : (
                   <aside className="w-80 shrink-0 border-s border-border">

@@ -1057,10 +1057,10 @@ function ThreadView({
     <div
       ref={cardRef}
       data-thread-card={thread.threadId}
-      className={`group/thread mx-2 mr-4 cursor-pointer rounded-lg bg-popover shadow-md ring-1 ring-border/50 transition-[transform,box-shadow] duration-150 ease-[var(--ease-collapse)] ${
+      className={`group/thread mx-2 mr-4 cursor-pointer rounded-lg bg-popover shadow-md ring-1 ring-border/50 transition-[transform,box-shadow] duration-200 ease-[var(--ease-out-strong)] ${
         isActive
-          ? "-translate-x-1 shadow-lg"
-          : "hover:-translate-x-1 hover:shadow-lg"
+          ? "-translate-x-2 shadow-lg"
+          : "hover:-translate-x-2 hover:shadow-lg"
       }`}
       style={{ marginTop }}
       onClick={() => {
