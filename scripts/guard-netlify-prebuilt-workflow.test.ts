@@ -214,6 +214,14 @@ describe("production Netlify site concurrency guard", () => {
       String((reusable.concurrency as Workflow).group),
       /inputs\.source_ref/,
     );
+    assert.match(
+      reusableSource,
+      /Verify beta source is current before publish/,
+    );
+    assert.match(
+      reusableSource,
+      /steps\.beta_freshness\.outputs\.current == 'true'/,
+    );
   });
 
   it("rejects the dead workflow_call event check", () => {
@@ -433,7 +441,7 @@ describe("production Netlify site concurrency guard", () => {
     assert(appSmoke);
     assert.equal(
       appSmoke.if,
-      "inputs.deploy && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'",
+      "inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'",
     );
     assert.match(String(appSmoke.run), /\/_agent-native\/health/);
     assert.match(String(appSmoke.run), /--max-time 60/);
@@ -441,7 +449,7 @@ describe("production Netlify site concurrency guard", () => {
     assert(docsSmoke);
     assert.equal(
       docsSmoke.if,
-      "inputs.deploy && inputs.smoke && steps.target.outputs.source_template == '@agent-native/docs'",
+      "inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template == '@agent-native/docs'",
     );
     assert.doesNotMatch(String(docsSmoke.run), /\/_agent-native\/health/);
   });
