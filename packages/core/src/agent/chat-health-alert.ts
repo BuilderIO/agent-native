@@ -32,6 +32,8 @@ const MIN_TURNS = 5;
 const BAD_RATE_THRESHOLD = 0.5;
 /** One page per outage, not one per sweep. */
 const COOLDOWN_MS = 60 * 60_000;
+/** Slack sends time out well inside this lease; failed sends release it early. */
+const CLAIM_LEASE_MS = 5 * 60_000;
 
 const LAST_ALERT_SETTING_KEY = "chat-health-alert:last-slack-alert-at";
 
@@ -149,11 +151,11 @@ export async function checkChatHealthAndAlert(
     return { status: "healthy", turns: counts.turns, badRate };
   }
 
-  // Claim the page before awaiting the external send. The claim lasts as long
-  // as the cooldown so overlapping sweeps cannot both send; failed sends
-  // release it below, while a crashed send becomes retryable after the lease.
+  // Claim the page before awaiting the external send. The short lease keeps
+  // overlapping sweeps from both sending; failed sends release it below,
+  // while a crashed send becomes retryable after the lease.
   const claimId = randomUUID();
-  const claimExpiresAt = now + COOLDOWN_MS;
+  const claimExpiresAt = now + CLAIM_LEASE_MS;
   let claim: Record<string, unknown>;
   try {
     claim = await mutateSetting(LAST_ALERT_SETTING_KEY, (current) => {

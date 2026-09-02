@@ -4,6 +4,7 @@ let turnRows: Array<Record<string, unknown>> = [];
 let memberRows: Array<Record<string, unknown>> = [];
 let turnQueryThrows = false;
 let memberQueryThrows = false;
+let deleteClaimThrows = false;
 
 const execute = vi.fn(async ({ sql }: { sql: string }) => {
   if (sql.includes("org_members")) {
@@ -44,6 +45,7 @@ const mutateSetting = vi.fn(
 );
 const deleteSettingIfValue = vi.fn(
   async (key: string, expected: Record<string, unknown>) => {
+    if (deleteClaimThrows) throw new Error("claim release failed");
     const current = settings.get(key);
     if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
     settings.delete(key);
@@ -74,6 +76,7 @@ beforeEach(() => {
   memberRows = [{ org_id: "org-1", email: "owner@example.com", role: "owner" }];
   turnQueryThrows = false;
   memberQueryThrows = false;
+  deleteClaimThrows = false;
   settings.clear();
   settingsReadThrows = false;
   settingsWriteThrows = false;
@@ -246,6 +249,22 @@ describe("checkChatHealthAndAlert", () => {
     expect(deleteSettingIfValue).toHaveBeenCalledTimes(1);
 
     await checkChatHealthAndAlert(NOW + 60_000);
+    expect(notifyWithDelivery).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries after a failed claim release once its short lease expires", async () => {
+    turns(20, 15);
+    deleteClaimThrows = true;
+    notifyWithDelivery.mockResolvedValueOnce({
+      notification: undefined,
+      deliveredChannels: [],
+    });
+    const first = await checkChatHealthAndAlert(NOW);
+    expect(first.status).toBe("delivery-failed");
+
+    deleteClaimThrows = false;
+    const second = await checkChatHealthAndAlert(NOW + 5 * 60_000 + 1);
+    expect(second.status).toBe("alerted");
     expect(notifyWithDelivery).toHaveBeenCalledTimes(2);
   });
 
