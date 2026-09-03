@@ -1316,13 +1316,14 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     aspect-ratio: 914 / 818;
     border-radius: 0.75rem;
     overflow: hidden;
+    box-shadow: 0 12px 36px rgba(0,0,0,0.38); /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
   }
   .auth-marketing-screenshot {
     display: block;
     width: 100%;
     height: 100%;
     max-height: calc(100vh - 3rem);
-    object-fit: contain;
+    object-fit: cover;
   }
   .marketing-panel {
     flex: 1;
@@ -1533,6 +1534,37 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       border-color: color-mix(in srgb, CanvasText 14%, transparent);
     }
     .auth-marketing-home .card .signup-local-mode-note code { color: CanvasText; }
+    .auth-marketing-home .card .progress-step { color: GrayText; }
+    .auth-marketing-home .card .progress-step::before {
+      background: color-mix(in srgb, CanvasText 12%, transparent);
+    }
+    .auth-marketing-home .card .progress-step span {
+      background: color-mix(in srgb, CanvasText 4%, Canvas);
+      border-color: color-mix(in srgb, CanvasText 18%, transparent);
+      color: GrayText;
+    }
+    .auth-marketing-home .card .progress-step.complete,
+    .auth-marketing-home .card .progress-step.current { color: CanvasText; }
+    .auth-marketing-home .card .progress-step.complete span {
+      background: color-mix(in srgb, LinkText 16%, transparent);
+      border-color: color-mix(in srgb, LinkText 55%, transparent);
+      color: LinkText;
+    }
+    .auth-marketing-home .card .progress-step.current span {
+      background: CanvasText;
+      border-color: CanvasText;
+      color: Canvas;
+      box-shadow: 0 0 0 4px color-mix(in srgb, CanvasText 8%, transparent);
+    }
+    .auth-marketing-home .card .verification-panel {
+      background: color-mix(in srgb, CanvasText 4%, transparent);
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+    }
+    .auth-marketing-home .card .verification-kicker { color: LinkText; }
+    .auth-marketing-home .card .verification-copy,
+    .auth-marketing-home .card .verification-copy strong { color: CanvasText; }
+    .auth-marketing-home .card .verification-note,
+    .auth-marketing-home .card .link-button { color: GrayText; }
     body.has-marketing .locale-menu {
       background: Canvas;
       color: CanvasText;
@@ -2254,6 +2286,7 @@ ${embeddedAuthCss}
     max-width: none;
     padding: 0;
     justify-content: center;
+    align-items: flex-start;
   }
   .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot-wrap,
   .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot {

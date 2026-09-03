@@ -1467,6 +1467,7 @@ export function AuthPage(props: AuthPageProps) {
       setVerificationEmail(normalized);
       rememberPendingSignupEmail(normalized);
       setNotice("verification", null);
+      setFullAuthOptionsVisible(true);
       setView("verification");
       writeStorage(TAB_STORAGE_KEY, "signup");
     },
