@@ -281,24 +281,57 @@ export function enforceBigQueryRestrictedDatasetPolicy(
   }
 }
 
-function stripSqlCommentsAndStrings(sql: string): string {
+interface SqlScanResult {
+  sanitized: string;
+  hasEscapedIdentifier: boolean;
+}
+
+function scanBigQuerySql(sql: string): SqlScanResult {
   let sanitized = "";
+  let hasEscapedIdentifier = false;
   let index = 0;
 
-  const replaceUntil = (end: number) => {
-    sanitized += sql.slice(index, end).replace(/[^\r\n]/g, " ");
-    index = end;
+  const appendWhitespace = (start: number, end: number) => {
+    sanitized += sql.slice(start, end).replace(/[^\r\n]/g, " ");
   };
 
   while (index < sql.length) {
+    if (sql[index] === "`") {
+      let cursor = index + 1;
+      let identifier = "";
+      while (cursor < sql.length && sql[cursor] !== "`") {
+        if (sql[cursor] === "\\") hasEscapedIdentifier = true;
+        identifier += sql[cursor];
+        cursor += 1;
+      }
+      sanitized += identifier;
+      index = cursor < sql.length ? cursor + 1 : cursor;
+      continue;
+    }
+
     if (sql.startsWith("--", index) || sql[index] === "#") {
       const newline = sql.indexOf("\n", index);
-      replaceUntil(newline === -1 ? sql.length : newline);
+      const end = newline === -1 ? sql.length : newline;
+      appendWhitespace(index, end);
+      index = end;
       continue;
     }
     if (sql.startsWith("/*", index)) {
-      const close = sql.indexOf("*/", index + 2);
-      replaceUntil(close === -1 ? sql.length : close + 2);
+      let cursor = index + 2;
+      let depth = 1;
+      while (cursor < sql.length && depth > 0) {
+        if (sql.startsWith("/*", cursor)) {
+          depth += 1;
+          cursor += 2;
+        } else if (sql.startsWith("*/", cursor)) {
+          depth -= 1;
+          cursor += 2;
+        } else {
+          cursor += 1;
+        }
+      }
+      appendWhitespace(index, cursor);
+      index = cursor;
       continue;
     }
 
@@ -312,9 +345,13 @@ function stripSqlCommentsAndStrings(sql: string): string {
     const delimiter = sql.startsWith(quote.repeat(3), index)
       ? quote.repeat(3)
       : quote;
+    const prefix = sql
+      .slice(0, index)
+      .match(/(?:^|[^A-Za-z0-9_])([rRbB]{1,2})$/)?.[1];
+    const raw = prefix?.toLowerCase().includes("r") === true;
     let cursor = index + delimiter.length;
     while (cursor < sql.length) {
-      if (sql[cursor] === "\\") {
+      if (!raw && sql[cursor] === "\\") {
         cursor += 2;
         continue;
       }
@@ -324,22 +361,21 @@ function stripSqlCommentsAndStrings(sql: string): string {
       }
       cursor += 1;
     }
-    replaceUntil(cursor);
+    appendWhitespace(index, cursor);
+    index = cursor;
   }
 
-  return sanitized;
+  return { sanitized, hasEscapedIdentifier };
 }
 
 function normalizedSqlIdentifiers(sql: string): string {
-  return stripSqlCommentsAndStrings(sql)
-    .replace(/`([^`]*)`/g, "$1")
-    .replace(/\s*\.\s*/g, ".");
+  return scanBigQuerySql(sql).sanitized.replace(/\s*\.\s*/g, ".");
 }
 
 export function findRestrictedBigQueryDataset(sql: string): string | null {
   const normalized = normalizedSqlIdentifiers(sql);
   const match = normalized.match(
-    /(?:^|[^A-Za-z0-9_-])(dbt_dev|dbt_backup)\.[A-Za-z_][A-Za-z0-9_$]*/i,
+    /(?:^|[^A-Za-z0-9_-])(dbt_dev|dbt_backup)\.[A-Za-z0-9_$-]+/i,
   );
   const datasetId = match?.[1]?.toLowerCase();
   return datasetId && RESTRICTED_BIGQUERY_DATASETS.has(datasetId)
@@ -353,8 +389,14 @@ export function enforceBigQueryRestrictedSchemaPolicy(
 ): void {
   if (options.restrictedSchemaAccess === "user-explicit-request") return;
 
-  const sanitized = stripSqlCommentsAndStrings(sql);
-  if (/\bEXECUTE\s+IMMEDIATE\b/i.test(sanitized)) {
+  const scan = scanBigQuerySql(sql);
+  if (scan.hasEscapedIdentifier) {
+    throw new BigQueryRestrictedSchemaError(
+      "escaped-identifier",
+      "BigQuery quoted identifiers with escape sequences are restricted because their dataset names cannot be safely verified. Use ordinary identifiers instead.",
+    );
+  }
+  if (/\bEXECUTE\s+IMMEDIATE\b/i.test(scan.sanitized)) {
     throw new BigQueryRestrictedSchemaError(
       "dynamic-sql",
       "BigQuery dynamic SQL is restricted because its table references cannot be safely verified. Use static SQL, or use it only when the latest end-user request explicitly names dbt_dev or dbt_backup.",

@@ -52,6 +52,12 @@ describe("restricted BigQuery schema policy", () => {
     ["SELECT * FROM `dbt_backup`.signups", "dbt_backup"],
     ["SELECT * FROM `example-project`.`dbt_dev`.`signups`", "dbt_dev"],
     ["SELECT * FROM dbt_backup /* hidden */ . signups", "dbt_backup"],
+    ["SELECT r'\\' AS example FROM dbt_dev.signups", "dbt_dev"],
+    ["SELECT * FROM `dbt_backup`.`2024_signups`", "dbt_backup"],
+    [
+      "SELECT * FROM `example-project.allowed.foo--bar` JOIN `example-project.dbt_dev.signups` ON TRUE",
+      "dbt_dev",
+    ],
   ])("detects restricted table references in %s", (sql, datasetId) => {
     expect(findRestrictedBigQueryDataset(sql)).toBe(datasetId);
     expect(() => enforceBigQueryRestrictedSchemaPolicy(sql)).toThrow(
@@ -69,6 +75,14 @@ describe("restricted BigQuery schema policy", () => {
     `;
 
     expect(findRestrictedBigQueryDataset(sql)).toBeNull();
+  });
+
+  it("fails closed for escaped quoted identifiers", () => {
+    expect(() =>
+      enforceBigQueryRestrictedSchemaPolicy(
+        "SELECT * FROM `example-project`.`dbt_\\\\u0064ev`.`signups`",
+      ),
+    ).toThrow(/escape sequences are restricted/);
   });
 
   it("rejects dynamic SQL unless the direct path has explicit access", () => {
