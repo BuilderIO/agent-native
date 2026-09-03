@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { sanitizeSlideHtml } from "@/lib/sanitize-slide-html";
 
@@ -60,6 +60,10 @@ function createFreeformObject(
 }
 
 describe("slide object interactions", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("marks layer clipboard HTML so native text and layer copies are exclusive", () => {
     const copied = {
       html: ['<div data-slide-object-id="layer-1">Layer</div>'],
@@ -91,7 +95,110 @@ describe("slide object interactions", () => {
     expect(await item.items["text/html"]?.text()).toContain(
       'data-agent-native-slide-object-clipboard="copy-1"',
     );
-    vi.unstubAllGlobals();
+  });
+
+  it("uses plain text when rich clipboard writing is unavailable", async () => {
+    const writeText = vi.fn(async (_text: string) => undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    vi.stubGlobal("ClipboardItem", undefined);
+
+    await expect(
+      writeSlideObjectClipboard(
+        "copy-1",
+        { html: ['<div data-slide-object-id="layer-1">Layer</div>'] },
+        null,
+      ),
+    ).resolves.toBe("text-only");
+    expect(writeText).toHaveBeenCalledWith("Layer");
+  });
+
+  it("keeps the marker when the legacy copy event writes clipboard HTML", async () => {
+    const written = new Map<string, string>();
+    const originalExecCommand = Object.getOwnPropertyDescriptor(
+      document,
+      "execCommand",
+    );
+    const execCommand = vi.fn(() => {
+      const event = new Event("copy", { cancelable: true });
+      Object.defineProperty(event, "clipboardData", {
+        value: {
+          setData: (type: string, value: string) => written.set(type, value),
+        },
+      });
+      document.dispatchEvent(event);
+      return true;
+    });
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: execCommand,
+    });
+
+    try {
+      await expect(
+        writeSlideObjectClipboard(
+          "copy-1",
+          { html: ['<div data-slide-object-id="layer-1">Layer</div>'] },
+          document,
+        ),
+      ).resolves.toBe("rich");
+      expect(
+        readSlideObjectClipboardId(written.get("text/html"), document),
+      ).toBe("copy-1");
+      expect(written.get("text/html")).toContain(
+        "<div data-agent-native-slide-object-clipboard=",
+      );
+    } finally {
+      if (originalExecCommand) {
+        Object.defineProperty(document, "execCommand", originalExecCommand);
+      } else {
+        Reflect.deleteProperty(document, "execCommand");
+      }
+    }
+  });
+
+  it("serializes asynchronous native clipboard writes", async () => {
+    let releaseFirst: () => void = () => undefined;
+    const firstWrite = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    class FakeClipboardItem {
+      constructor(readonly items: Record<string, Blob>) {}
+    }
+    const htmlWrites: string[] = [];
+    const write = vi.fn(async (items: FakeClipboardItem[]) => {
+      const html = await items[0]!.items["text/html"]!.text();
+      htmlWrites.push(html);
+      if (html.includes('data-agent-native-slide-object-clipboard="copy-1"')) {
+        await firstWrite;
+      }
+    });
+    vi.stubGlobal("navigator", { clipboard: { write } });
+    vi.stubGlobal("ClipboardItem", FakeClipboardItem);
+
+    const first = writeSlideObjectClipboard(
+      "copy-1",
+      { html: ['<div data-slide-object-id="layer-1">First</div>'] },
+      null,
+    );
+    await Promise.resolve();
+    const second = writeSlideObjectClipboard(
+      "copy-2",
+      { html: ['<div data-slide-object-id="layer-2">Second</div>'] },
+      null,
+    );
+    await Promise.resolve();
+
+    expect(write).toHaveBeenCalledTimes(1);
+    releaseFirst();
+    await expect(first).resolves.toBe("rich");
+    await expect(second).resolves.toBe("rich");
+    expect(htmlWrites).toHaveLength(2);
+    expect(htmlWrites[0]).toContain(
+      'data-agent-native-slide-object-clipboard="copy-1"',
+    );
+    expect(htmlWrites[1]).toContain(
+      'data-agent-native-slide-object-clipboard="copy-2"',
+    );
   });
 
   it("lets explicit image sizing override image size caps", () => {

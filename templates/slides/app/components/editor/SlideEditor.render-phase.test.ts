@@ -206,6 +206,10 @@ describe("SlideEditor render-phase safety", () => {
     expect(pasteBody.indexOf("nativeClipboardId")).toBeLessThan(
       pasteBody.indexOf("const hasNativeText"),
     );
+    expect(pasteBody).toContain(
+      'clipboard.nativeClipboardMode === "text-only"',
+    );
+    expect(pasteBody).toContain('e.clipboardData?.getData("text/plain") ?? ""');
   });
 
   it("re-measures portaled selection chrome after the editor layout moves", () => {
