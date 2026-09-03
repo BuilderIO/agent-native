@@ -54,10 +54,15 @@ describe("AuthPage", () => {
     expect(onboardingHtml).toContain("width: 100%");
     expect(onboardingHtml).toContain("filter: blur(0.3px)");
     expect(onboardingHtml).toContain("opacity: 0.8");
+    expect(onboardingHtml).toContain("object-fit: cover");
+    expect(onboardingHtml).toContain(
+      "box-shadow: 0 12px 36px rgba(0,0,0,0.38)",
+    );
     expect(onboardingHtml).toContain(
       "box-shadow: 0 18px 50px rgba(0,0,0,0.62)",
     );
     expect(onboardingHtml).toContain("flex: 1 1 0;");
+    expect(onboardingHtml).toContain("align-items: flex-start;");
     expect(onboardingHtml).toContain("flex: 0 0 28rem;");
     expect(onboardingHtml).toContain("margin-inline: 0;");
     expect(onboardingHtml).toContain("border-radius: 0.75rem;");
@@ -66,6 +71,9 @@ describe("AuthPage", () => {
       "background: color-mix(in srgb, CanvasText 4%, Canvas);",
     );
     expect(onboardingHtml).toContain("color-scheme: light;");
+    expect(onboardingHtml).toContain(
+      ".auth-marketing-home .card .verification-copy",
+    );
     expect(onboardingHtml).toContain(
       "@media (min-width: 901px) and (max-width: 1500px)",
     );
