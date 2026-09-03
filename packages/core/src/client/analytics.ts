@@ -123,7 +123,8 @@ type PageviewTrackingState = {
 };
 
 type AppEntryTrackingState = {
-  entryKey: string | null;
+  entryKey?: string | null;
+  entryKeys?: Set<string>;
 };
 
 type AgentChatTrackingState = {
@@ -271,6 +272,7 @@ const LLM_CONNECTION_CACHE_TTL_MS = 5 * 60 * 1000;
 const FIRST_TOUCH_STORAGE_KEY = "an_attribution";
 const FIRST_TOUCH_COOKIE_NAME = "an_ft";
 const APP_ENTRY_STORAGE_KEY = "agent-native.app_entry";
+const MAX_APP_ENTRY_KEYS = 100;
 // 30 days, matching the session cookie lifetime — long enough to bridge a
 // "land today, sign up next week" path without retaining attribution forever.
 const FIRST_TOUCH_COOKIE_MAX_AGE_SECONDS = 2592000;
@@ -1260,7 +1262,12 @@ function getAppEntryTrackingState(): AppEntryTrackingState {
     [APP_ENTRY_TRACKING_STATE_KEY]?: AppEntryTrackingState;
   };
   if (!g[APP_ENTRY_TRACKING_STATE_KEY]) {
-    g[APP_ENTRY_TRACKING_STATE_KEY] = { entryKey: null };
+    g[APP_ENTRY_TRACKING_STATE_KEY] = { entryKeys: new Set() };
+  } else if (!g[APP_ENTRY_TRACKING_STATE_KEY].entryKeys) {
+    const entryKey = g[APP_ENTRY_TRACKING_STATE_KEY].entryKey;
+    g[APP_ENTRY_TRACKING_STATE_KEY].entryKeys = entryKey
+      ? new Set([entryKey])
+      : new Set();
   }
   return g[APP_ENTRY_TRACKING_STATE_KEY];
 }
@@ -1987,9 +1994,60 @@ function pageviewProperties(reason: string): Record<string, unknown> {
   return properties;
 }
 
+function readAppEntryKeys(): string[] {
+  const stored = safeStorageGet(APP_ENTRY_STORAGE_KEY);
+  if (!stored) return [];
+  try {
+    const parsed = JSON.parse(stored) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((value): value is string => typeof value === "string")
+        .slice(-MAX_APP_ENTRY_KEYS);
+    }
+    // coercion-ok: invalid JSON is treated as the legacy single entry marker.
+  } catch {
+    // Migrate the previous single-key value below.
+  }
+  return [stored];
+}
+
+function rememberAppEntryKey(entryKey: string): boolean {
+  const state = getAppEntryTrackingState();
+  const keys = new Set(state.entryKeys ?? []);
+  for (const storedKey of readAppEntryKeys()) keys.add(storedKey);
+  if (keys.has(entryKey)) {
+    state.entryKeys = new Set([...keys].slice(-MAX_APP_ENTRY_KEYS));
+    state.entryKey = entryKey;
+    return false;
+  }
+
+  keys.add(entryKey);
+  const boundedKeys = [...keys].slice(-MAX_APP_ENTRY_KEYS);
+  state.entryKeys = new Set(boundedKeys);
+  state.entryKey = entryKey;
+  safeStorageSet(APP_ENTRY_STORAGE_KEY, JSON.stringify(boundedKeys));
+  return true;
+}
+
+let _appEntryAuthRetry: Promise<void> | null = null;
+
+function waitForTrackingIdentityBeforeAppEntry(): boolean {
+  const pending = _trackingSessionRefresh;
+  if (!pending || _trackingIdentityResolved) return false;
+  if (!_appEntryAuthRetry) {
+    _appEntryAuthRetry = pending
+      .catch(() => {})
+      .then(() => {
+        _appEntryAuthRetry = null;
+        emitAppEntered();
+      });
+  }
+  return true;
+}
+
 function emitAppEntered(): void {
   if (typeof window === "undefined" || !_getDefaultProps) return;
-  const state = getAppEntryTrackingState();
+  if (waitForTrackingIdentityBeforeAppEntry()) return;
   const properties = resolveProps(AGENT_NATIVE_LIFECYCLE_EVENTS.appEntered, {
     entry_path: window.location.pathname,
   });
@@ -2002,14 +2060,7 @@ function emitAppEntered(): void {
       : undefined;
   if (!appName) return;
   const entryKey = sessionId ? `${appName}:${sessionId}` : appName;
-  if (state.entryKey === entryKey) return;
-  const storedEntry = safeStorageGet(APP_ENTRY_STORAGE_KEY);
-  if (storedEntry === entryKey) {
-    state.entryKey = entryKey;
-    return;
-  }
-  safeStorageSet(APP_ENTRY_STORAGE_KEY, entryKey);
-  state.entryKey = entryKey;
+  if (!rememberAppEntryKey(entryKey)) return;
   const attribution = getFirstTouchAttribution();
   trackEvent(AGENT_NATIVE_LIFECYCLE_EVENTS.appEntered, {
     app_name: appName,

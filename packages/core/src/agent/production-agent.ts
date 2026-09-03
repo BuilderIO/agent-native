@@ -3410,6 +3410,8 @@ export interface ExecuteAgentToolCallOptions {
   signal?: AbortSignal;
   ownerEmail?: string | null;
   orgId?: string | null;
+  /** Hosting app/template id for action attribution. */
+  appId?: string;
   /** Audit/action attribution for this externally selected call. */
   caller?: ActionCaller;
   networkProtocol?: "a2a" | "mcp" | "provider-api";
@@ -3527,6 +3529,7 @@ export async function executeAgentToolCall(
       signal,
       ownerEmail: options.ownerEmail,
       orgId: options.orgId,
+      appId: options.appId,
       actionCaller: options.caller,
       networkProtocol: options.networkProtocol,
       networkId: options.networkId,
@@ -10966,6 +10969,7 @@ export function createProductionAgentHandler(
               signal: agentLoopOpts.signal,
               ownerEmail,
               orgId: getRequestOrgId() ?? null,
+              appId: options.appId,
               threadId: effectiveThreadId,
               turnId: effectiveTurnId,
               approvedToolCalls: approvedToolCallsForExecution,

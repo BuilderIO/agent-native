@@ -1764,6 +1764,7 @@ export function createAgentChatPlugin(
             callId: `a2a-action-${invocationId}`,
             ownerEmail: getRequestUserEmail(),
             orgId: getRequestOrgId() ?? null,
+            appId: options?.appId,
             caller: "a2a",
             networkProtocol: "a2a",
             networkId: invocationId,
@@ -1784,6 +1785,7 @@ export function createAgentChatPlugin(
             callId: approval.callId,
             ownerEmail: approval.ownerEmail,
             orgId: approval.orgId ?? null,
+            appId: options?.appId,
             approvedToolCalls: [approval.approvalKey],
           });
           if (result.status === "approval_required") {
@@ -3406,6 +3408,7 @@ export function createAgentChatPlugin(
             callId: request.callId,
             ownerEmail: request.userEmail,
             orgId: request.orgId,
+            appId: options?.appId,
             threadId: request.sessionId
               ? `realtime:${request.sessionId}`
               : `realtime:${request.callId}`,

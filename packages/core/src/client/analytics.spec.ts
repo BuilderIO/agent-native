@@ -131,11 +131,22 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
     ),
   };
   const gtag = vi.fn();
+  const storage = new Map<string, string>();
+  const localStorage = {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      storage.set(key, value);
+    },
+    removeItem: (key: string) => {
+      storage.delete(key);
+    },
+  };
   let cookie = "";
   const windowMock = {
     location,
     history,
     gtag,
+    localStorage,
     addEventListener: vi.fn((event: string, listener: () => void) => {
       listeners[event] = [...(listeners[event] ?? []), listener];
     }),
@@ -158,6 +169,7 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
     fetchMock: vi.fn().mockResolvedValue(new Response("{}")),
     gtag,
     history,
+    localStorage,
     listeners,
     location,
     getCookie: () => cookie,
@@ -241,6 +253,101 @@ describe("browser analytics pageviews", () => {
     expect(body.anonymousId).toMatch(/^[A-Za-z0-9_-]+$/);
     const latestBody = JSON.parse(String(analyticsCalls[1][1].body));
     expect(getCookie()).toContain(`an_aid=${latestBody.anonymousId}`);
+  });
+
+  it("deduplicates app entry per app and session across app switches", async () => {
+    const { history, localStorage } = installBrowser();
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    let app = "agent-native-mail";
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      getDefaultProps: (_name, properties) => ({ ...properties, app }),
+    });
+    await tick();
+
+    app = "agent-native-calendar";
+    history.pushState({}, "", "/calendar");
+    await tick();
+    app = "agent-native-mail";
+    history.pushState({}, "", "/inbox");
+    await tick();
+
+    const appEntries = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .filter((body) => body.event === "app_entered");
+    expect(appEntries.map((body) => body.properties.app_name)).toEqual([
+      "mail",
+      "calendar",
+    ]);
+    expect(
+      JSON.parse(localStorage.getItem("agent-native.app_entry") ?? "[]"),
+    ).toHaveLength(2);
+  });
+
+  it("waits for slow auth before sending app entry identity", async () => {
+    installBrowser();
+    const analyticsCalls: Array<[unknown, RequestInit]> = [];
+    let resolveSession!: (response: Response) => void;
+    const pendingSession = new Promise<Response>((resolve) => {
+      resolveSession = resolve;
+    });
+    const fetchMock = vi.fn((url: unknown, init?: RequestInit) => {
+      if (String(url).includes("/_agent-native/agent-engine/status")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ configured: false }), {
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+      if (String(url).includes("/_agent-native/auth/session")) {
+        return pendingSession;
+      }
+      analyticsCalls.push([url, init ?? {}]);
+      return Promise.resolve(new Response("{}"));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      llmConnectionStatus: false,
+      getDefaultProps: (_name, properties) => ({
+        ...properties,
+        app: "agent-native-mail",
+      }),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await tick();
+
+    expect(
+      analyticsCalls
+        .map(([, init]) => JSON.parse(String(init.body)))
+        .filter((body) => body.event === "app_entered"),
+    ).toHaveLength(0);
+
+    resolveSession(
+      new Response(
+        JSON.stringify({
+          email: "owner@example.test",
+          userId: "auth-user-1",
+          orgId: "org-1",
+        }),
+        { headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    await tick();
+
+    const appEntries = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .filter((body) => body.event === "app_entered");
+    expect(appEntries).toHaveLength(1);
+    expect(appEntries[0].properties).toMatchObject({
+      app_name: "mail",
+      user_email: "owner@example.test",
+      workspace_id: "org-1",
+    });
   });
 
   it("suppresses browser analytics for synthetic E2E traffic", async () => {
