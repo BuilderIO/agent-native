@@ -74,6 +74,7 @@ export function isTextLeaf(element: HTMLElement): boolean {
   if (!element || isInlineTextElement(element) || element.tagName === "IMG") {
     return false;
   }
+  if (element.tagName === "H5" || element.tagName === "H6") return false;
   if (element.classList.contains("fmd-img-placeholder")) return false;
   // A user-placed text box stays editable after its content is deleted.
   if (element.classList.contains("fmd-text-box")) return true;
@@ -107,6 +108,7 @@ export function isRichTextBlock(element: HTMLElement): boolean {
   if (!element || isInlineTextElement(element) || element.tagName === "IMG") {
     return false;
   }
+  if (element.tagName === "H5" || element.tagName === "H6") return false;
   if (
     element.classList.contains("fmd-slide") ||
     element.classList.contains("slide-content") ||

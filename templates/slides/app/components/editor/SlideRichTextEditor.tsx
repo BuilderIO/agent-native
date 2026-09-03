@@ -64,7 +64,7 @@ export function contentForSlideTextContainer(
   const doc = new DOMParser().parseFromString(html, "text/html");
   const first = doc.body.firstElementChild;
   return doc.body.children.length === 1 &&
-    first?.tagName === tagName.toUpperCase()
+    first?.tagName.toUpperCase() === tagName.toUpperCase()
     ? first.innerHTML
     : html;
 }
@@ -78,6 +78,10 @@ export function restoreSlideTextContainerContent(
     element.innerHTML = html;
     return element;
   }
+  if (!html || typeof DOMParser === "undefined") {
+    element.innerHTML = html;
+    return element;
+  }
 
   const content = contentForSlideTextContainer(element.tagName, html);
   if (content !== html) {
@@ -88,6 +92,20 @@ export function restoreSlideTextContainerContent(
   const replacement = element.ownerDocument.createElement("div");
   for (const attribute of Array.from(element.attributes)) {
     replacement.setAttribute(attribute.name, attribute.value);
+  }
+  if (element.tagName === "UL" || element.tagName === "OL") {
+    const nextRoot = new DOMParser().parseFromString(html, "text/html").body
+      .firstElementChild;
+    if (nextRoot?.tagName !== "UL" && nextRoot?.tagName !== "OL") {
+      for (const property of [
+        "list-style",
+        "list-style-position",
+        "list-style-type",
+        "padding-left",
+      ]) {
+        replacement.style.removeProperty(property);
+      }
+    }
   }
   replacement.innerHTML = html;
   element.replaceWith(replacement);
@@ -145,7 +163,7 @@ const SlideBlockStyle = Extension.create({
         },
       },
       {
-        types: ["paragraph"],
+        types: ["listItem", "paragraph"],
         attributes: {
           "data-pptx-paragraph": {
             default: null,
@@ -252,7 +270,7 @@ export function selectionOffsetsWithin(
 
 function isLegacyBulletRow(element: Element): boolean {
   return (
-    element.tagName === "DIV" &&
+    (element.tagName === "DIV" || element.tagName === "P") &&
     !!element.firstElementChild &&
     isBulletMarker(element.firstElementChild)
   );
@@ -295,18 +313,34 @@ export function normalizeSlideEditorContent(html: string): string {
   const doc = new DOMParser().parseFromString(html, "text/html");
 
   const convert = (container: Element) => {
-    const rows = Array.from(container.children).filter(isLegacyBulletRow);
-    if (rows.length > 0 && rows.length === container.children.length) {
-      const list = doc.createElement("ul");
-      for (const row of rows) {
-        const item = doc.createElement("li");
-        const content = row.cloneNode(true) as HTMLElement;
-        content.firstElementChild?.remove();
-        item.innerHTML = content.innerHTML;
-        copyRowTextStyles(row as HTMLElement, item);
-        list.appendChild(item);
+    const children = Array.from(container.children);
+    const rows = children.filter(isLegacyBulletRow);
+    if (rows.length > 0) {
+      const converted: Element[] = [];
+      let list: HTMLUListElement | null = null;
+      for (const child of children) {
+        if (isLegacyBulletRow(child)) {
+          if (!list) {
+            list = doc.createElement("ul");
+            converted.push(list);
+          }
+          const item = doc.createElement("li");
+          const content = child.cloneNode(true) as HTMLElement;
+          content.firstElementChild?.remove();
+          item.innerHTML = content.innerHTML;
+          for (const attribute of Array.from(child.attributes)) {
+            if (attribute.name !== "style") {
+              item.setAttribute(attribute.name, attribute.value);
+            }
+          }
+          copyRowTextStyles(child as HTMLElement, item);
+          list.appendChild(item);
+        } else {
+          list = null;
+          converted.push(child);
+        }
       }
-      container.replaceChildren(list);
+      container.replaceChildren(...converted);
       return;
     }
 

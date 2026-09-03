@@ -51,6 +51,21 @@ describe("slide rich text normalization", () => {
     expect(items[1]?.textContent).toBe("");
   });
 
+  it("normalizes PPTX bullet paragraphs and keeps paragraph metadata", () => {
+    const html = normalizeSlideEditorContent(
+      '<div><p data-pptx-paragraph="3" dir="rtl" style="font-size: 18px"><span aria-hidden="true">•</span>First</p></div>',
+    );
+
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = html;
+    const item = wrapper.querySelector("li")!;
+
+    expect(item.textContent).toBe("First");
+    expect(item.getAttribute("data-pptx-paragraph")).toBe("3");
+    expect(item.getAttribute("dir")).toBe("rtl");
+    expect(item.style.fontSize).toBe("18px");
+  });
+
   it("keeps selection offsets stable when legacy bullet markers are removed", () => {
     const root = document.createElement("div");
     root.innerHTML = "<div><span>●</span><span>First point</span></div>";
@@ -86,5 +101,20 @@ describe("slide rich text normalization", () => {
     expect(restored.getAttribute("data-builder-id")).toBe("text");
     expect(restored.style.fontSize).toBe("24px");
     expect(restored.querySelectorAll("p")).toHaveLength(2);
+  });
+
+  it("removes list-only styles when unlisting a semantic list", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<ul style="margin:0;padding-left:1.25em;list-style-position:outside;list-style-type:disc;color:red"><li>First</li></ul>';
+    const list = root.firstElementChild as HTMLElement;
+
+    const restored = restoreSlideTextContainerContent(list, "<p>First</p>");
+
+    expect(restored.tagName).toBe("DIV");
+    expect(restored.style.paddingLeft).toBe("");
+    expect(restored.style.listStylePosition).toBe("");
+    expect(restored.style.listStyleType).toBe("");
+    expect(restored.style.color).toBe("red");
   });
 });

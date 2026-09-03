@@ -84,4 +84,15 @@ describe("slide text targets", () => {
     expect(resolveRichTextEditingBlock(list)).toBe(block);
     expect(findSmartBlock(item, root)).toBe(block);
   });
+
+  it("does not rewrite unsupported h5 and h6 headings", () => {
+    const root = document.createElement("div");
+    root.innerHTML = "<h5>Small heading</h5><h6>Smaller heading</h6>";
+
+    for (const heading of Array.from(root.children) as HTMLElement[]) {
+      expect(isTextLeaf(heading)).toBe(false);
+      expect(isRichTextBlock(heading)).toBe(false);
+      expect(findSmartBlock(heading, root)).toBeNull();
+    }
+  });
 });
