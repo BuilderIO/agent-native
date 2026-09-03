@@ -19,6 +19,7 @@ import {
   ensureUniqueSlideIds,
   repairDeckSlideReferences,
 } from "../shared/slide-ids.js";
+import { getDeckUrl } from "./_app-url.js";
 import { withDeckLock } from "./patch-deck.js";
 
 const MAX_REPAIR_ATTEMPTS = 3;
@@ -261,6 +262,7 @@ export default defineAction({
         sourceEditability: sourceEditabilityForDeck(sourceImport),
         sourceCoverage,
         slideCount: slides.length,
+        appUrl: getDeckUrl(row.id),
         slideNumbering:
           'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',
         deepLink: deckDeepLink(row.id),
@@ -311,6 +313,7 @@ export default defineAction({
       sourceEditability: sourceEditabilityForDeck(sourceImport),
       sourceCoverage,
       slideCount: slides.length,
+      appUrl: getDeckUrl(row.id),
       slideNumbering:
         'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',
       createdAt:

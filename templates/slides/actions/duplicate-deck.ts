@@ -35,6 +35,7 @@ export default defineAction({
         "Optional client-supplied ids for the copied slides, in slide order. Same purpose as `newId`: when the UI opens an optimistic copy the user can edit immediately, its slide ids must match the persisted copy or those edits address slides the server never had.",
       ),
   }),
+  http: { method: "POST" },
   run: async ({ deckId, title, newId: clientNewId, slideIds }) => {
     const access = await resolveAccess("deck", deckId);
     if (!access) throw new Error(`Deck not found: ${deckId}`);
@@ -101,6 +102,7 @@ export default defineAction({
       title: newTitle,
       slideCount: (deckData.slides || []).length,
       url: getDeckUrl(newId),
+      appUrl: getDeckUrl(newId),
     };
   },
 });

@@ -24,6 +24,7 @@ export default defineAction({
     deckId: z.string().describe("Deck ID"),
     versionId: z.string().describe("Version snapshot ID to restore"),
   }),
+  http: { method: "POST" },
   run: async ({ deckId, versionId }, ctx) => {
     const access = await assertAccess("deck", deckId, "editor");
     const current = access.resource;
@@ -97,6 +98,7 @@ export default defineAction({
       restoredVersionId: versionId,
       updatedAt: now,
       url: getDeckUrl(deckId),
+      appUrl: getDeckUrl(deckId),
     };
   },
 });
