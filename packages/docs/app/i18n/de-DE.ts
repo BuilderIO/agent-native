@@ -2096,6 +2096,7 @@ const deDE = {
     actionsAgentTools: "Agent-Zugriff in Produktion",
     publicAgentWeb: "Öffentliches Agent Web",
     database: "Datenbank",
+    databaseProviders: "Datenbankanbieter",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
     databaseTurso: "libSQL / Turso",

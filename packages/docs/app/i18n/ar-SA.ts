@@ -2068,6 +2068,7 @@ const arSA = {
     actionsAgentTools: "وصول الوكيل في بيئة الإنتاج",
     publicAgentWeb: "ويب الوكيل العام",
     database: "قاعدة البيانات",
+    databaseProviders: "موفرو قواعد البيانات",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
     databaseTurso: "libSQL / Turso",

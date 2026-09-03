@@ -2096,6 +2096,7 @@ const frFR = {
     actionsAgentTools: "Accès de l'Agent en Production",
     publicAgentWeb: "Agent Web public",
     database: "Base de données",
+    databaseProviders: "Fournisseurs de bases de données",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
     databaseTurso: "libSQL / Turso",

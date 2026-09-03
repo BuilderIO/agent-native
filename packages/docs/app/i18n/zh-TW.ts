@@ -2042,6 +2042,7 @@ const messages = {
     actionsAgentTools: "正式環境 Agent 存取權限",
     publicAgentWeb: "公開 Agent Web",
     database: "資料庫",
+    databaseProviders: "資料庫提供者",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
     databaseTurso: "libSQL / Turso",
