@@ -1,0 +1,127 @@
+---
+title: "Sincronização interna"
+description: "O mecanismo de versão de mudança por trás de useDbSync: useChangeVersion/useChangeVersions para sincronizar um useQuery bruto, e os dois caminhos de latência que uma nova busca pode seguir."
+---
+
+# Sincronização interna
+
+[Sincronização ao vivo](/docs/key-concepts#polling-sync) cobre o modelo mental: uma gravação do agente se torna um evento de mudança, `useDbSync()` a capta, e as consultas afetadas buscam novamente. Esta página cobre o mecanismo por trás disso que a maioria dos aplicativos nunca toca diretamente: os contadores de versão de mudança que `useDbSync()` incrementa, e como incorporá-los em uma chamada `useQuery()` bruta que não está passando por `useActionQuery()`.
+
+`useActionQuery()` já busca novamente automaticamente quando uma action de mutação é concluída (veja [Dados e sincronização](/docs/client-data#fetching-mutating)). Recorra a `useChangeVersion()`/`useChangeVersions()` apenas quando você estiver sincronizando uma chamada `useQuery()` bruta fora desse caminho, como um auxiliar de cliente de nível mais baixo lendo o status de uma integração.
+
+## Como funcionam as versões de mudança {#how-it-works}
+
+Quando uma mutação de banco de dados do lado do servidor ocorre, o servidor registra um evento de mudança marcado com uma chave `source`. `useDbSync()` recebe esse evento e incrementa um contador local para essa origem. Incorporar o contador em uma chave do React Query faz a consulta buscar novamente automaticamente sempre que o backend reportar nova atividade para essa origem.
+
+## useChangeVersion / useChangeVersions {#use-change-version}
+
+<Signature
+  id="doc-block-client-sync-internals-1"
+  name="useChangeVersion"
+  params={[
+    {
+      name: "source",
+      type: "string",
+      description:
+        'A origem de evento de mudança a observar, ex. `"dashboards"`.',
+    },
+  ]}
+  returns={{
+    type: "number",
+    description:
+      "Um contador que incrementa sempre que a origem informada sofre mutação.",
+  }}
+/>
+
+<Signature
+  id="doc-block-client-sync-internals-2"
+  name="useChangeVersions"
+  params={[
+    {
+      name: "sources",
+      type: "readonly string[]",
+      description:
+        "Múltiplas origens de evento de mudança a observar de uma vez.",
+    },
+  ]}
+  returns={{
+    type: "number",
+    description: "A soma dos contadores de versão para cada origem informada.",
+  }}
+/>
+
+No exemplo abaixo, uma chamada `useQuery()` bruta lê um dashboard diretamente, incorporando o contador de versão da origem `"dashboards"` em sua chave de consulta para que ela busque novamente sempre que essa origem mudar:
+
+```tsx
+import { useQuery } from "@tanstack/react-query";
+import { useChangeVersion } from "@agent-native/core/client/hooks";
+
+function DashboardView({ id }) {
+  const version = useChangeVersion("dashboards");
+
+  const { data } = useQuery({
+    queryKey: ["dashboard", id, version],
+    queryFn: () => fetchDashboard(id),
+    placeholderData: (prev) => prev,
+  });
+
+  return <div>{data?.title}</div>;
+}
+```
+
+`placeholderData: (prev) => prev` mantém os dados anteriores na tela durante a nova busca, então a visualização não pisca para um estado de carregamento.
+
+## Dois caminhos para uma nova busca {#latency-models}
+
+Uma mutação chega à UI de uma de duas formas, e elas têm latências diferentes.
+
+Uma mutação local, uma que sua própria chamada `useActionMutation()` acabou de fazer, dispara um evento `source: "action"` no momento em que tem sucesso. Toda consulta que depende dessa action busca novamente imediatamente. Não há atraso de ida e volta, já que a aba que fez a gravação já sabe sobre ela.
+
+Uma mutação remota, do agente, um webhook, outra aba, ou outro usuário, precisa chegar a esta aba primeiro. `useDbSync()` a capta via SSE quase imediatamente, ou via o fallback de pesquisa em cerca de dois segundos se o SSE não estiver disponível. Somente quando esse evento chega é que o contador de versão relevante incrementa e a consulta busca novamente em segundo plano.
+
+<Diagram id="doc-block-client-sync-internals-3" title="Dois caminhos para uma nova busca" summary="Uma mutação local invalida seus próprios caches instantaneamente. Uma gravação remota chega a esta aba via SSE, ou o tick de pesquisa como fallback.">
+
+```html
+<div class="diagram-latency">
+  <div class="diagram-col">
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill ok">Esta aba</span
+      ><strong>useActionMutation</strong
+      ><small class="diagram-muted"
+        >dispara source: "action" no sucesso &rarr; nova busca local
+        instantânea</small
+      >
+    </div>
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill accent">Agente · webhook · outra aba</span
+      ><strong>Gravação remota</strong
+      ><small class="diagram-muted"
+        >push via SSE, ou o tick de pesquisa de ~2s como fallback &rarr;
+        contador de versão incrementa &rarr; nova busca em segundo plano</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-latency .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diagram-latency .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+}
+```
+
+</Diagram>
+
+## O que vem a seguir
+
+- [**Sincronização ao vivo**](/docs/key-concepts#polling-sync) — o modelo mental conceitual por baixo do qual esta página vai
+- [**Dados e sincronização**](/docs/client-data) — `useActionQuery`/`useDbSync`, que a maioria das páginas deve usar em vez dessas primitivas
+- [**Avançado**](/docs/client-advanced) — as outras primitivas de cliente de nível mais baixo e válvulas de escape

@@ -1,0 +1,84 @@
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  IconVideo,
+  IconFolder,
+  IconUsersGroup,
+  IconArchive,
+  IconTrash,
+} from "@tabler/icons-react";
+import { useNavigate } from "react-router";
+
+import { Button } from "@/components/ui/button";
+
+type EmptyKind =
+  | "library"
+  | "shared"
+  | "folder"
+  | "space"
+  | "archive"
+  | "trash"
+  | "search";
+
+const ICONS: Record<EmptyKind, React.ComponentType<{ className?: string }>> = {
+  library: IconVideo,
+  shared: IconUsersGroup,
+  folder: IconFolder,
+  space: IconUsersGroup,
+  archive: IconArchive,
+  trash: IconTrash,
+  search: IconVideo,
+};
+
+const CTA_KINDS = new Set<EmptyKind>(["library", "folder", "space"]);
+
+interface EmptyStateProps {
+  kind: EmptyKind;
+  spaceId?: string | null;
+  folderId?: string | null;
+  onCtaClick?: () => void;
+}
+
+export function EmptyState({
+  kind,
+  spaceId,
+  folderId,
+  onCtaClick,
+}: EmptyStateProps) {
+  const navigate = useNavigate();
+  const t = useT();
+  const Icon = ICONS[kind];
+  const hasCta = CTA_KINDS.has(kind);
+
+  const handleCta = () => {
+    if (onCtaClick) {
+      onCtaClick();
+    } else {
+      const params = new URLSearchParams();
+      if (spaceId) params.set("spaceId", spaceId);
+      if (folderId) params.set("folderId", folderId);
+      const qs = params.toString();
+      void navigate(qs ? `/record?${qs}` : "/record");
+    }
+  };
+
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center py-20 px-8 text-center">
+      <Icon className="mb-6 h-10 w-10 text-primary" />
+      <h2 className="text-base font-semibold text-foreground mb-1">
+        {t(`empty.${kind}.title`)}
+      </h2>
+      <p className="text-sm text-muted-foreground max-w-sm mb-5">
+        {t(`empty.${kind}.body`)}
+      </p>
+      {hasCta && (
+        <Button
+          onClick={handleCta}
+          className="bg-primary text-primary-foreground hover:bg-primary/90"
+          size="sm"
+        >
+          {t(`empty.${kind}.cta`)}
+        </Button>
+      )}
+    </div>
+  );
+}

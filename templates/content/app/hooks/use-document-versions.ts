@@ -1,0 +1,38 @@
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import type { Document, DocumentVersion } from "@shared/api";
+import { useQueryClient } from "@tanstack/react-query";
+
+import { documentQueryFilter } from "./use-documents";
+
+export function useDocumentVersions(documentId: string | null) {
+  return useActionQuery<DocumentVersion[]>(
+    "list-document-versions",
+    documentId ? { documentId } : undefined,
+    {
+      enabled: !!documentId,
+      select: (data: any) => {
+        const versions = data?.versions ?? data;
+        return Array.isArray(versions) ? versions : [];
+      },
+      placeholderData: (prev: any) => prev,
+    } as any,
+  );
+}
+
+export function useRestoreDocumentVersion(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<Document, { documentId: string; versionId: string }>(
+    "restore-document-version",
+    {
+      onSuccess: () => {
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "list-document-versions", { documentId }],
+        });
+        void queryClient.invalidateQueries(documentQueryFilter(documentId));
+      },
+    },
+  );
+}

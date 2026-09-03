@@ -1,0 +1,744 @@
+import { readdirSync, readFileSync } from "node:fs";
+
+import { describe, expect, it } from "vitest";
+
+import { parseBreakpointWidthInput } from "@/components/design/BreakpointBar";
+
+import { shouldPopToOverviewOnZoomOut } from "./design-editor/overview-camera";
+import {
+  applyScopedVisualStyleEdit,
+  formatPendingVisualStylePrompt,
+} from "./design-editor/pending-edits";
+
+const html = `<html><head></head><body><section data-agent-native-node-id="hero" class="text-sm p-4">Hello</section></body></html>`;
+
+describe("applyScopedVisualStyleEdit (§6.4 single write path)", () => {
+  it("base scope (null bound) writes a plain inline style", () => {
+    const patch = applyScopedVisualStyleEdit({
+      content: html,
+      target: { nodeId: "hero" },
+      property: "left",
+      value: "137px",
+      upperBoundPx: null,
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("left: 137px");
+    expect(patch.content).not.toContain("data-agent-native-breakpoints");
+  });
+
+  it("Tailwind-utility values become width-scoped classes", () => {
+    const patch = applyScopedVisualStyleEdit({
+      content: html,
+      target: { nodeId: "hero" },
+      property: "fontSize",
+      value: "text-lg",
+      upperBoundPx: 809,
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("max-[809px]:text-lg");
+    // Base font size keeps rendering at wider viewports.
+    expect(patch.content).toContain("text-sm");
+    expect(patch.content).not.toContain("data-agent-native-breakpoints");
+  });
+
+  it("raw CSS values become managed @media rules", () => {
+    const patch = applyScopedVisualStyleEdit({
+      content: html,
+      target: { nodeId: "hero" },
+      property: "left",
+      value: "137px",
+      upperBoundPx: 809,
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("<style data-agent-native-breakpoints>");
+    expect(patch.content).toContain("@media (max-width: 809px)");
+    expect(patch.content).toContain("left: 137px;");
+    // The element's inline style is untouched.
+    expect(patch.content).not.toContain('style="');
+  });
+
+  it("bounds breakpoint-only edits to the selected responsive range", () => {
+    const patch = applyScopedVisualStyleEdit({
+      content: html,
+      target: { nodeId: "hero" },
+      property: "left",
+      value: "137px",
+      lowerBoundPx: 390,
+      upperBoundPx: 809,
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain(
+      "@media (min-width: 390px) and (max-width: 809px)",
+    );
+    expect(patch.content).toContain("data-agent-native-breakpoint-range");
+    expect(patch.content).not.toContain("@media (max-width: 809px)");
+  });
+
+  it("replaces an exact-range property when switching back to the normal cascade", () => {
+    const exact = applyScopedVisualStyleEdit({
+      content: html,
+      target: { nodeId: "hero" },
+      property: "left",
+      value: "137px",
+      lowerBoundPx: 390,
+      upperBoundPx: 809,
+    });
+    const cascade = applyScopedVisualStyleEdit({
+      content: exact.content,
+      target: { nodeId: "hero" },
+      property: "left",
+      value: "144px",
+      upperBoundPx: 809,
+    });
+    expect(cascade.result.status).toBe("applied");
+    expect(cascade.content).not.toContain("data-agent-native-breakpoint-range");
+    expect(cascade.content).toContain("@media (max-width: 809px)");
+    expect(cascade.content).toContain("left: 144px");
+  });
+
+  it("scoped failures do not silently fall back to base writes", () => {
+    // "display" only accepts a known-value list, so a bogus raw value fails
+    // the media path — the failure must surface instead of mutating base.
+    const patch = applyScopedVisualStyleEdit({
+      content: html,
+      target: { nodeId: "hero" },
+      property: "display",
+      value: "url(bad)",
+      upperBoundPx: 809,
+    });
+    expect(patch.result.status).not.toBe("applied");
+    expect(patch.content).toBe(html);
+  });
+
+  it("a fill (backgroundImage) commit with a breakpoint active becomes a width-scoped @media write, not a base inline style", () => {
+    // Bug repro: adding/replacing an image fill while a non-base breakpoint
+    // is active used to fall through the deterministic scoped path (url()
+    // was rejected outright) into the legacy base-inline fallback, so both
+    // breakpoint frames changed together. `url("...")` is not a Tailwind
+    // utility, so a safe reference must land in the managed @media block,
+    // scoped to the active bound — never as a plain inline style.
+    const patch = applyScopedVisualStyleEdit({
+      content: html,
+      target: { nodeId: "hero" },
+      property: "backgroundImage",
+      value: 'url("https://example.com/fill.png") center / cover no-repeat',
+      upperBoundPx: 809,
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("<style data-agent-native-breakpoints>");
+    expect(patch.content).toContain("@media (max-width: 809px)");
+    expect(patch.content).toContain(
+      'background-image: url("https://example.com/fill.png") center / cover no-repeat;',
+    );
+    // The element's inline style must be untouched — a base write here would
+    // clobber every breakpoint frame instead of just the active one.
+    expect(patch.content).not.toContain('style="');
+  });
+
+  it("tolerates the image-fill fit marker comment in a scoped backgroundImage write", () => {
+    // imageFillToBackgroundStyles embeds a `/* agent-native-image-fit:<mode> */`
+    // marker directly in the committed backgroundImage value so the fit mode
+    // round-trips. That marker must not be treated as a comment-breakout risk.
+    const patch = applyScopedVisualStyleEdit({
+      content: html,
+      target: { nodeId: "hero" },
+      property: "backgroundImage",
+      value:
+        'url("https://example.com/fill.png") /* agent-native-image-fit:fill */',
+      upperBoundPx: 809,
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("agent-native-image-fit:fill");
+  });
+
+  it("still rejects an unsafe url() scheme on backgroundImage even though url() is now allowed", () => {
+    const patch = applyScopedVisualStyleEdit({
+      content: html,
+      target: { nodeId: "hero" },
+      property: "backgroundImage",
+      value: "url(javascript:alert(1))",
+      upperBoundPx: 809,
+    });
+    expect(patch.result.status).not.toBe("applied");
+    expect(patch.content).toBe(html);
+  });
+
+  it("still rejects url() on the base scope for an unsafe scheme", () => {
+    const patch = applyScopedVisualStyleEdit({
+      content: html,
+      target: { nodeId: "hero" },
+      property: "backgroundImage",
+      value: "url(javascript:alert(1))",
+      upperBoundPx: null,
+    });
+    expect(patch.result.status).not.toBe("applied");
+    expect(patch.content).toBe(html);
+  });
+
+  it("a safe backgroundImage url() at the base scope still writes a plain inline style", () => {
+    // Base-breakpoint behavior must stay byte-identical to before this fix.
+    const patch = applyScopedVisualStyleEdit({
+      content: html,
+      target: { nodeId: "hero" },
+      property: "backgroundImage",
+      value: 'url("https://example.com/fill.png")',
+      upperBoundPx: null,
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain(
+      'style="background-image: url(&quot;https://example.com/fill.png&quot;)"',
+    );
+    expect(patch.content).not.toContain("data-agent-native-breakpoints");
+  });
+});
+
+describe("Fill 'Add layer' single-property commit with a breakpoint active", () => {
+  // Mirrors EditPanel's FillProperties "Add layer" button (the +) for an
+  // element with no existing visible fill: a single onStyleChange("backgroundColor",
+  // ...) call — not a multi-property patch — must still scope through
+  // applyScopedVisualStyleEdit instead of silently landing as a base inline
+  // style while a non-base breakpoint (e.g. Mobile 390) is active.
+  it("a single backgroundColor commit scopes to the active breakpoint's @media block", () => {
+    const patch = applyScopedVisualStyleEdit({
+      content: html,
+      target: { nodeId: "hero" },
+      property: "backgroundColor",
+      value: "#ffffff",
+      upperBoundPx: 809,
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("<style data-agent-native-breakpoints>");
+    expect(patch.content).toContain("@media (max-width: 809px)");
+    expect(patch.content).toContain("background-color: #ffffff;");
+    // The base inline style must be untouched — a plain inline write here
+    // would clobber every breakpoint frame, not just the active one.
+    expect(patch.content).not.toContain('style="');
+  });
+
+  it("the same backgroundColor commit at the base scope still writes a plain inline style (byte-identical base behavior)", () => {
+    const patch = applyScopedVisualStyleEdit({
+      content: html,
+      target: { nodeId: "hero" },
+      property: "backgroundColor",
+      value: "#ffffff",
+      upperBoundPx: null,
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('style="background-color: #ffffff"');
+    expect(patch.content).not.toContain("data-agent-native-breakpoints");
+  });
+
+  it("the 'mixed fill' Add-layer patch (color + backgroundColor + backgroundImage: none) scopes every property, none silently falls back to base", () => {
+    // Mirrors the fillIsMixed branch's commitStylePatch call, which batches
+    // three properties into one commit. If ANY property in that batch fails
+    // the scoped path, the whole commit must fail loud (per commitVisualStyles'
+    // all-or-nothing reduce) rather than one property silently landing base
+    // while a breakpoint is active.
+    const properties: Array<[string, string]> = [
+      ["color", "#000000"],
+      ["backgroundColor", "#ffffff"],
+      ["backgroundImage", "none"],
+    ];
+    let content = html;
+    for (const [property, value] of properties) {
+      const patch = applyScopedVisualStyleEdit({
+        content,
+        target: { nodeId: "hero" },
+        property,
+        value,
+        upperBoundPx: 809,
+      });
+      expect(patch.result.status).toBe("applied");
+      content = patch.content;
+    }
+    expect(content).toContain("<style data-agent-native-breakpoints>");
+    expect(content).toContain("color: #000000;");
+    expect(content).toContain("background-color: #ffffff;");
+    expect(content).toContain("background-image: none;");
+    expect(content).not.toContain('style="');
+  });
+});
+
+describe("pending visual edit breakpoint stamping (gesture parity)", () => {
+  const edit = {
+    screenId: "screen-1",
+    filename: "home.html",
+    screenName: "Home",
+    selector: ".hero",
+    classes: [],
+    styles: { left: "137px" },
+    originalStyles: { left: "120px" },
+    updatedAt: 1,
+    breakpoint: { activeWidthPx: 390, upperBoundPx: 809 },
+  };
+
+  it("includes the breakpoint scope in the agent prompt payload", () => {
+    const prompt = formatPendingVisualStylePrompt({
+      designId: "design-1",
+      designTitle: "Test",
+      activeFileId: "screen-1",
+      activeFilename: "home.html",
+      edits: [edit],
+    });
+    expect(prompt).toContain('"activeWidthPx": 390');
+    expect(prompt).toContain('"upperBoundPx": 809');
+    expect(prompt).toContain("activeFrameWidthPx");
+    expect(prompt).toContain("width-scoped overrides");
+  });
+
+  it("omits the scoped-edit instruction for base-only edits", () => {
+    const prompt = formatPendingVisualStylePrompt({
+      designId: "design-1",
+      designTitle: "Test",
+      activeFileId: "screen-1",
+      activeFilename: "home.html",
+      edits: [{ ...edit, breakpoint: undefined }],
+    });
+    expect(prompt).not.toContain("width-scoped overrides");
+  });
+});
+
+describe("delete-to-display:none at an active breakpoint (item 7b)", () => {
+  it("scopes a display:none delete override to the active breakpoint's @media block, leaving the base element intact", () => {
+    const patch = applyScopedVisualStyleEdit({
+      content: html,
+      target: { nodeId: "hero" },
+      property: "display",
+      value: "none",
+      upperBoundPx: 809,
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("<style data-agent-native-breakpoints>");
+    expect(patch.content).toContain("@media (max-width: 809px)");
+    expect(patch.content).toContain("display: none;");
+    // The element itself (and its base classes) must still be in the
+    // document — this is a scoped override, not a structural removal.
+    expect(patch.content).toContain(
+      '<section data-agent-native-node-id="hero" class="text-sm p-4">Hello</section>',
+    );
+  });
+
+  it("at the base scope (no active breakpoint), a display:none write is a plain inline style — callers must route base deletes through structural removal instead", () => {
+    // This function is scope-agnostic; the base-vs-scoped BRANCHING decision
+    // (structural remove vs. display:none override) lives in
+    // handleDeleteSelection, asserted below via source checks. This case
+    // documents why: at upperBoundPx === null there is no @media scoping to
+    // hide the element at a specific width only, so a real delete must stay
+    // structural at the base scope.
+    const patch = applyScopedVisualStyleEdit({
+      content: html,
+      target: { nodeId: "hero" },
+      property: "display",
+      value: "none",
+      upperBoundPx: null,
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('style="display: none"');
+    expect(patch.content).not.toContain("data-agent-native-breakpoints");
+  });
+});
+
+describe("DesignEditor breakpoint wiring (source assertions)", () => {
+  const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const commandSource = (file: string) =>
+    readFileSync(`app/pages/design-editor/commands/${file}`, "utf8");
+  // Editor behaviour that moved into command modules is still editor wiring.
+  const editorSurface =
+    source +
+    readdirSync("app/pages/design-editor/commands")
+      .map((f) => commandSource(f))
+      .join("\n");
+  const canvasSource = readFileSync(
+    "app/components/design/MultiScreenCanvas.tsx",
+    "utf8",
+  );
+
+  it("mounts a full editable DesignCanvas in every responsive overview frame", () => {
+    expect(source).toContain(
+      "renderBreakpointContent={renderBreakpointContent}",
+    );
+    expect(source).toContain("previewFrameId={");
+    expect(source).toContain("breakpointWidthPx,");
+    expect(canvasSource).toContain(
+      "const editableContent = renderBreakpointContent?.(",
+    );
+    expect(canvasSource).toContain("editableContent ? (");
+  });
+
+  it("keeps the current responsive scope visible and offers a bounded-only option", () => {
+    expect(source).toContain('value="cascade-smaller"');
+    expect(source).toContain('value="only"');
+    expect(source).toContain("handleResponsiveEditScopeChange");
+  });
+
+  it("keeps the responsive scope control inline beside the breakpoints", () => {
+    expect(source).toContain(
+      'className="mt-[var(--design-baseline-half)] flex h-[var(--design-row-height)] min-w-0 flex-nowrap items-center gap-[var(--design-baseline-half)]"',
+    );
+    expect(source).toContain(
+      'className="flex min-w-0 flex-1 flex-nowrap items-center gap-[var(--design-baseline-half)] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"',
+    );
+    expect(source).toContain(
+      'className="size-7 shrink-0 justify-center p-0 [&>svg:last-child]:hidden"',
+    );
+    expect(source).toContain("IconArrowsDown");
+    expect(source).not.toContain("w-[190px] max-w-full shrink-0 !text-[11px]");
+  });
+
+  it("confirms that deleting a base screen includes all responsive variants", () => {
+    const deletionDialogSource = readFileSync(
+      "app/components/design/editor/PendingScreenDeletionDialog.tsx",
+      "utf8",
+    );
+    expect(deletionDialogSource).toContain(
+      "designEditor.screenDeletion.descriptionOne",
+    );
+    expect(deletionDialogSource).toContain(
+      "designEditor.screenDeletion.descriptionMany",
+    );
+  });
+
+  it("routes every style-commit path through the scoped write helper", () => {
+    // commitVisualStyles + commitStylesToSelectedLayers +
+    // commitRelativeStyleDeltaToSelectedLayers all call the single
+    // class-vs-media routing helper instead of raw kind:"style" patches.
+    const calls = editorSurface.match(/applyScopedVisualStyleEdit\(\{/g) ?? [];
+    expect(calls.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("BP-DEEP v2: breakpoint targeting lives ONLY in the inspector-header segmented control — no canvas bar, no chrome row", () => {
+    // History: a floating BreakpointBar overlay covered the top of the
+    // focused screen; its chrome-row replacement bumped the whole canvas
+    // down. Both are gone — the unified BreakpointDeviceControl renders in
+    // the right-inspector header slot the old device-preview dropdown used.
+    expect(source).toContain('from "@/components/design/BreakpointBar"');
+    expect(source.match(/<BreakpointBar\b/g) ?? []).toHaveLength(0);
+    const mounts = source.match(/<BreakpointDeviceControl\b/g) ?? [];
+    expect(mounts).toHaveLength(1);
+    // The old standalone device-preview dropdown is fully replaced.
+    expect(source).not.toContain('t("designEditor.devicePreview")');
+  });
+
+  it("switches the editing viewport AND the persisted edit scope on segment click", () => {
+    const handler = source.slice(
+      source.indexOf("const handleBreakpointBarSelect"),
+      source.indexOf("// Item 9 — agent→UI breakpoint sync"),
+    );
+    expect(handler).toContain("setActiveBreakpointWidthState(widthPx)");
+    expect(handler).toContain("persistActiveBreakpoint");
+  });
+
+  it("keeps a newer local responsive target ahead of an older app-state echo", () => {
+    const persistence = source.slice(
+      source.indexOf("const persistActiveBreakpoint"),
+      source.indexOf('// §6.4 — "show all breakpoints" toggle'),
+    );
+    expect(persistence).toContain(
+      "activeBreakpointWriteQueueRef.current?.enqueue",
+    );
+
+    const sync = source.slice(
+      source.indexOf("// Item 9 — agent→UI breakpoint sync"),
+      source.indexOf("// Agent→UI: open the write-consent dialog"),
+    );
+    expect(
+      sync.match(/activeBreakpointWriteQueueRef\.current\?\.hasPending\(\)/g),
+    ).toHaveLength(2);
+  });
+
+  it("BP-DEEP item 5: every overview click-to-target path returns the edit scope to Base", () => {
+    // Escape (priority branch), base-frame pick, element select/clear inside
+    // the base frame's content, and empty-canvas selection clears all route
+    // through the same handleBreakpointBarSelect(undefined) reset.
+    const resets =
+      editorSurface.match(/handleBreakpointBarSelect\(undefined\)/g) ?? [];
+    expect(resets.length).toBeGreaterThanOrEqual(5);
+    // Escape's reset is gated on the latest-ref mirror, not stale state.
+    const escape = commandSource("escape-hotkey.ts");
+    expect(escape).toContain(
+      "activeBreakpointWidthStateRef.current !== undefined",
+    );
+    expect(escape).toContain("handleBreakpointBarSelect(undefined)");
+  });
+
+  it("BP-DEEP v2 item 6: change-width swaps through add + re-target + remove (add-first, orphan-proof)", () => {
+    const handler = source.slice(
+      source.indexOf("const handleBreakpointChangeWidth"),
+      source.indexOf("const handleOverviewAddBreakpoint"),
+    );
+    expect(handler).toContain("removeBreakpointMutation.mutateAsync");
+    expect(handler).toContain("addBreakpointMutation.mutateAsync");
+    expect(handler).toContain(
+      "if (wasActive) handleBreakpointBarSelect(widthPx)",
+    );
+    // Orphan-proof ordering: the add call must appear before the remove call
+    // (add-then-remove, not remove-then-add), so a failed/slow add never
+    // leaves the active edit scope pointed at a width with no backing
+    // breakpoint.
+    const addIndex = handler.indexOf("addBreakpointMutation.mutateAsync");
+    const removeIndex = handler.indexOf("removeBreakpointMutation.mutateAsync");
+    expect(addIndex).toBeGreaterThanOrEqual(0);
+    expect(removeIndex).toBeGreaterThan(addIndex);
+    // The re-target call must happen between add and remove, so the UI's
+    // edit scope follows the new width before the old breakpoint is torn
+    // down (success path: active target follows the width change).
+    const retargetIndex = handler.indexOf(
+      "if (wasActive) handleBreakpointBarSelect(widthPx)",
+    );
+    expect(retargetIndex).toBeGreaterThan(addIndex);
+    expect(retargetIndex).toBeLessThan(removeIndex);
+  });
+
+  it("BP-DEEP v2 item 6: an add failure aborts before touching the old breakpoint (failure path — old breakpoint stays intact and targeted)", () => {
+    const handler = source.slice(
+      source.indexOf("const handleBreakpointChangeWidth"),
+      source.indexOf("const handleOverviewAddBreakpoint"),
+    );
+    // The add call is wrapped in its own try/catch that returns early,
+    // before the re-target or remove calls run — so a rejected add never
+    // reaches handleBreakpointBarSelect or removeBreakpointMutation, leaving
+    // the old breakpoint (and, if it was active, the active target) fully
+    // intact.
+    const tryIndex = handler.indexOf("try {");
+    const addIndex = handler.indexOf("addBreakpointMutation.mutateAsync");
+    const catchIndex = handler.indexOf("} catch {", addIndex);
+    const returnIndex = handler.indexOf("return;", catchIndex);
+    const retargetIndex = handler.indexOf(
+      "if (wasActive) handleBreakpointBarSelect(widthPx)",
+    );
+    expect(tryIndex).toBeGreaterThanOrEqual(0);
+    expect(tryIndex).toBeLessThan(addIndex);
+    expect(catchIndex).toBeGreaterThan(addIndex);
+    expect(returnIndex).toBeGreaterThan(catchIndex);
+    expect(returnIndex).toBeLessThan(retargetIndex);
+  });
+
+  it("gates overview side-by-side frames on the show-all toggle", () => {
+    const overviewScreensSource = readFileSync(
+      "app/pages/design-editor/derive/overview-screens.ts",
+      "utf8",
+    );
+    expect(overviewScreensSource).toContain("!breakpointFramesHidden &&");
+    expect(source).toContain("breakpointFramesHidden,");
+  });
+
+  it("stamps the active breakpoint scope onto pending gesture edits", () => {
+    const recorder = commandSource("record-pending-visual-style-edit.ts");
+    expect(recorder).toContain("breakpoint: {");
+    expect(recorder).toContain("activeWidthPx: activeBreakpointWidthState");
+    expect(recorder).toContain("upperBoundPx: activeBreakpointUpperBoundPx");
+  });
+
+  it("derives the Framer bound from breakpoints + the base frame width", () => {
+    expect(source).toContain("const activeBreakpointUpperBoundPx");
+    expect(source).toContain("breakpointUpperBoundPx(");
+    expect(source).toContain("activeScreenBaseWidthPx");
+  });
+
+  it("never falls back to a base inline write while a breakpoint is active", () => {
+    // On scoped-patch failure the legacy selector-based fallback would
+    // clobber every viewport width — the commit must fail loud instead. The
+    // decision now lives in the pure resolveVisualStyleCommitContent helper
+    // (behaviorally pinned in DesignEditor.styleCommitAndDropAnchor.spec.ts:
+    // breakpointScoped + failure → hard error even when a legacy fallback
+    // exists); this source assertion pins that commitVisualStyles actually
+    // routes through it with the breakpoint-scope flag wired.
+    const commitVisualStylesSource = readFileSync(
+      "app/pages/design-editor/commands/commit-visual-styles.ts",
+      "utf8",
+    );
+    const start = commitVisualStylesSource.indexOf(
+      "const commitResolution = resolveVisualStyleCommitContent",
+    );
+    expect(start).toBeGreaterThanOrEqual(0);
+    const fallback = commitVisualStylesSource.slice(start, start + 400);
+    expect(fallback).toContain(
+      "breakpointScoped: activeBreakpointUpperBoundPx != null",
+    );
+  });
+
+  it("item 7b: Delete routes through a display:none scoped write, not structural removal, while a breakpoint is active", () => {
+    const handler = readFileSync(
+      "app/pages/design-editor/commands/delete-selection.ts",
+      "utf8",
+    );
+    expect(handler).toContain("useBreakpointScopedDelete");
+    expect(handler).toContain('property: "display"');
+    expect(handler).toContain('value: "none"');
+    expect(handler).toContain("applyScopedVisualStyleEdit");
+    // Structural removal (removeCodeLayerNodeFromHtml / removeElementFromHtml)
+    // must still be present for the base-editing (non-scoped) case — this is
+    // an added branch, not a replacement.
+    expect(handler).toContain("removeCodeLayerNodeFromHtml");
+    expect(handler).toContain("removeElementFromHtml");
+
+    const singleElementStart = handler.indexOf(
+      "// Item 7b — same breakpoint-scoped display:none routing",
+    );
+    const multiElementBranch = handler.slice(0, singleElementStart);
+    expect(multiElementBranch).toContain(
+      "file.id === activeFile?.id && !useBreakpointScopedDelete",
+    );
+    expect(multiElementBranch).toContain(
+      "if (updated && useBreakpointScopedDelete)",
+    );
+    expect(multiElementBranch).toContain(
+      "syncLiveScreenSnapshotPreview(file.id, content)",
+    );
+    // Indentation-insensitive: the contract is that the live-DOM delete is the
+    // first statement in the guard, not how deeply the guard happens to nest.
+    expect(multiElementBranch).toMatch(
+      /if \(shouldDeleteActiveLiveDom\) \{\s*deleteFromLiveDom\(activeRuntimeSelectors\);/,
+    );
+    const singleElementEnd = handler.indexOf(
+      "const nextContent = removeElementFromHtml",
+      singleElementStart,
+    );
+    const singleElementBranch = handler.slice(
+      singleElementStart,
+      singleElementEnd,
+    );
+    expect(singleElementStart).toBeGreaterThanOrEqual(0);
+    expect(singleElementEnd).toBeGreaterThan(singleElementStart);
+    expect(singleElementBranch).not.toContain("deleteFromLiveDom(");
+    expect(singleElementBranch).toContain(
+      "syncLiveScreenSnapshotPreview(activeFile!.id, patch.content)",
+    );
+  });
+
+  it("item 8b: overview breakpoint frame '…' menu and full-view callbacks are wired to MultiScreenCanvas", () => {
+    expect(source).toContain("onRemoveBreakpoint={");
+    expect(source).toContain("onChangeBreakpointWidth={");
+    expect(source).toContain("onEditBreakpoint={handleOverviewEditBreakpoint}");
+    const remover = source.slice(
+      source.indexOf("const handleOverviewRemoveBreakpoint"),
+      source.indexOf("const handleOverviewChangeBreakpointWidth"),
+    );
+    expect(remover).toContain("handleBreakpointBarRemove(bp.id)");
+    const changer = source.slice(
+      source.indexOf("const handleOverviewChangeBreakpointWidth"),
+      source.indexOf("const handleOverviewEditBreakpoint"),
+    );
+    expect(changer).toContain(
+      "handleBreakpointChangeWidth(bp.id, nextWidthPx)",
+    );
+    const editor = source.slice(
+      source.indexOf("const handleOverviewEditBreakpoint"),
+      source.indexOf("// Hooks must not be called conditionally"),
+    );
+    expect(editor).toContain("handleOverviewFrameAction(screenId)");
+  });
+
+  it("enters responsive Interact immediately from overview", () => {
+    const modeHandler = commandSource("mode-change.ts");
+    expect(modeHandler).toContain("resolveModeChangeView({");
+    expect(modeHandler).toContain('if (routing === "enter-single-interact")');
+    expect(modeHandler).toContain("enterSingleScreen(nextActiveFile?.id)");
+    // The other direction: Edit/Annotate picked from a focused screen must
+    // route back to the canvas, never fall through to a bare setMode that
+    // leaves viewMode "single" (the forbidden single-screen editing state).
+    expect(modeHandler).toContain('if (routing === "enter-overview")');
+    expect(modeHandler).toContain("enterOverviewFromZoom(next)");
+    expect(source).toContain('interactMode={mode === "interact"}');
+    // Two-view model: the infinite canvas is the editing view, so returning
+    // to overview always drops Interact. Annotate is a tool overlay on that
+    // same canvas, not a third view, so it survives the trip.
+    expect(source).toContain(
+      'currentMode === "annotate" ? "annotate" : "edit"',
+    );
+
+    const frameActionStart = source.indexOf(
+      "const handleOverviewFrameAction = useCallback",
+    );
+    const frameAction = source.slice(
+      frameActionStart,
+      source.indexOf("  useEffect(() => {", frameActionStart),
+    );
+    expect(frameAction).toContain('if (mode === "interact")');
+    expect(frameAction).toContain("enterSingleScreenInteract(screenId)");
+    expect(frameAction).toContain(
+      'handleModeChange("interact", { targetFileId: screenId })',
+    );
+  });
+
+  it("item 8b: single-view already renders at the active breakpoint's width on entry", () => {
+    // previewWidthPx resolves to activeBreakpointWidthState, and
+    // BreakpointPreviewRow's activateThisFrame (MultiScreenCanvas.tsx) sets
+    // that state BEFORE onEditBreakpoint/enterSingleScreen fires — so no
+    // separate wiring is needed here for responsive Interact to land at the
+    // right width; this just guards against a future refactor silently dropping
+    // the prop. Responsive Interact overrides it with its own device width,
+    // so this asserts the breakpoint width is still the non-interact answer
+    // rather than pinning one exact expression.
+    const propStart = source.indexOf("previewWidthPx={");
+    expect(propStart).toBeGreaterThan(-1);
+    const propExpression = source.slice(propStart, propStart + 240);
+    expect(propExpression).toContain("activeBreakpointWidthState");
+  });
+});
+
+describe("shouldPopToOverviewOnZoomOut (BP-DEEP v2 item 2 — focused-view flicker)", () => {
+  const threshold = 60;
+
+  it("never pops on entry (no previously observed single-view zoom)", () => {
+    // enterSingleScreen restoring a remembered sub-threshold zoom was the
+    // "Focused view flashes then bounces back to overview" bug: the old
+    // level-triggered check fired on the entry-restored value itself.
+    expect(
+      shouldPopToOverviewOnZoomOut({ previousZoom: null, zoom: 16, threshold }),
+    ).toBe(false);
+  });
+
+  it("pops when the user crosses the threshold from above in single view", () => {
+    expect(
+      shouldPopToOverviewOnZoomOut({ previousZoom: 62, zoom: 48, threshold }),
+    ).toBe(true);
+  });
+
+  it("does not pop while zooming further below an already-sub-threshold zoom", () => {
+    // Entering at 30% is a legitimate focused view; continuing to 25% is not
+    // a fresh "zoom out of the screen" gesture.
+    expect(
+      shouldPopToOverviewOnZoomOut({ previousZoom: 30, zoom: 25, threshold }),
+    ).toBe(false);
+  });
+
+  it("does not pop at or above the threshold", () => {
+    expect(
+      shouldPopToOverviewOnZoomOut({ previousZoom: 100, zoom: 60, threshold }),
+    ).toBe(false);
+    expect(
+      shouldPopToOverviewOnZoomOut({ previousZoom: 40, zoom: 100, threshold }),
+    ).toBe(false);
+  });
+
+  it("ignores non-finite zoom values", () => {
+    expect(
+      shouldPopToOverviewOnZoomOut({
+        previousZoom: 100,
+        zoom: Number.NaN,
+        threshold,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("parseBreakpointWidthInput (BP-DEEP v2 item 6 — add/change width)", () => {
+  it("parses an in-range integer width", () => {
+    expect(parseBreakpointWidthInput("810", [390])).toBe(810);
+  });
+
+  it("rejects non-numeric, out-of-range, and duplicate widths", () => {
+    expect(parseBreakpointWidthInput("", [])).toBeNull();
+    expect(parseBreakpointWidthInput("abc", [])).toBeNull();
+    expect(parseBreakpointWidthInput("100", [])).toBeNull(); // < 320
+    expect(parseBreakpointWidthInput("5000", [])).toBeNull(); // > 3840
+    expect(parseBreakpointWidthInput("390", [390, 810])).toBeNull();
+  });
+
+  it("accepts a width equal to the one being changed when the caller excludes it", () => {
+    // Change-width callers filter the breakpoint's own current width out of
+    // existingWidths so re-typing the same number is a no-op, not an error.
+    expect(parseBreakpointWidthInput("810", [390])).toBe(810);
+  });
+});

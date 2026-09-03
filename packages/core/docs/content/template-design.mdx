@@ -1,0 +1,130 @@
+---
+title: "Design"
+description: "An agent-native HTML prototyping studio — describe a screen, compare variants, tweak the result, and export real Alpine/Tailwind code with the agent."
+---
+
+# Design
+
+Design is an agent-native HTML prototyping studio. Instead of a layered drawing canvas, the agent generates complete, self-contained Alpine/Tailwind HTML prototypes, shows them in a live preview, and lets you refine the result with prompts and tweak controls.
+
+<WireframeBlock id="doc-block-design1">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Product launch page</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;flex-direction:column;gap:12px;min-height:230px;padding:20px'><div style='display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center'><strong style='font-size:22px'>Launch faster with Agent-Native</strong><span class='wf-muted' style='max-width:70%'>Generate a working prototype from a prompt, then refine it in place.</span><button class='primary'>Get started</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;flex:1'><div class='wf-card' style='min-height:56px'></div><div class='wf-card' style='min-height:56px'></div><div class='wf-card' style='min-height:56px'></div></div></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>Make the hero denser and the CTA clearer.</span><div style='flex:1'></div><button class='primary'>Apply revision</button></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+When you open the app, the generated prototype is the center of the workspace, with preview modes, prompt revisions, and export controls close at hand. Everything the agent produces is real HTML you can refine, export, or hand off.
+
+<Diagram id="doc-block-design2" title="One artifact, no translation" summary={"The agent generates standalone Alpine/Tailwind HTML; the preview, the editable source, and every export all read the same files. A linked design system feeds tokens into each pass."}>
+
+```html
+<div class="diagram-design">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Prompt<br /><small class="diagram-muted">describe screen / page</small>
+    </div>
+    <div class="diagram-pill">Design system</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">Agent generate</span
+    ><small class="diagram-muted">standalone HTML / JSX files</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Live preview<br /><small class="diagram-muted"
+      >tweak knobs · Cmd+I refine</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill ok">Export</span
+    ><small class="diagram-muted">HTML · ZIP · PDF · Figma SVG</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-design {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-design .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.diagram-design .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-design .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-design .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## When to pick it
+
+- **You want a polished landing-page concept, product UI direction, or brand exploration** that can leave the tool as real HTML — not a layered drawing canvas.
+- **You want a working interactive prototype**, with Alpine interactions and Tailwind styling, instead of static mockups.
+- **You want to compare directions fast**, generate a few variants, pick the strongest, and keep refining.
+- **You want design output you own** — export HTML, ZIP, PDF, or a Figma-ready vector file, or hand the prototype to a coding tool.
+
+## What you can do with it
+
+- **Generate complete prototypes.** Describe the screen or page you need and the agent writes a working HTML document with Tailwind styling and Alpine interactions.
+- **Start from a template.** Choose a sized starter for ads, one-pagers, landing pages, and more, or save any inline design as a template. A prompt refines the copied design while locked layers — logo, background, other fixed pieces — stay unchanged.
+- **Compare variants.** Start with a few different directions, pick the strongest one, then continue refining.
+- **Tweak visually.** Use the built-in tweak controls for common changes, or ask the agent for copy, layout, color, spacing, and interaction updates.
+- **Apply a brand.** Link a design system so every generation stays on-brand, import brand from a website or codebase, or bring in a Figma frame or file for a pixel-accurate starting point. See [Brand Systems and Figma](/docs/template-design-brand-and-figma).
+- **Keep quality consistent.** The agent runs an accessibility and visual check before calling a prototype ready, and repeated patterns can become reusable components. See [Quality Passes and Components](/docs/template-design-quality-and-components).
+- **Export real files.** Export HTML, ZIP, PDF, or a genuinely vector Figma SVG, or hand the prototype to a coding agent with a ready-made handoff bundle. See [Review, Handoff, and Full Apps](/docs/template-design-collaboration-and-full-apps).
+
+## Getting started
+
+Live demo: [design.agent-native.com](https://design.agent-native.com).
+
+1. **Describe the artifact.** Ask for the screen, flow, landing page, or visual
+   direction you want. Include audience, tone, and any product constraints.
+2. **Compare directions.** Generate a few variants, pick the strongest one, and
+   keep refining instead of starting over.
+3. **Tune the details.** Use tweak controls for common visual changes, or ask
+   the agent for layout, copy, responsive, and interaction changes.
+4. **Export when it is useful.** Download HTML, ZIP, or PDF once the prototype
+   is ready to hand to another tool or teammate.
+
+### Useful prompts
+
+- "Create three landing-page directions for a technical analytics product."
+- "Make this dashboard denser and easier to scan for an operations team."
+- "Apply our saved design system and simplify the mobile layout."
+- "Paste in this Figma frame link and match it exactly."
+- "Turn this repeated card into a reusable component."
+- "Export this prototype as a ZIP once the final variant is selected."
+
+Building on Design or customizing the template? See [Extending Design](/docs/template-design-developers).
+
+## What's next
+
+- [**Brand Systems and Figma**](/docs/template-design-brand-and-figma) — design systems, brand import, and Figma
+- [**Quality Passes and Components**](/docs/template-design-quality-and-components) — the audit/screenshot pass, reusable components, motion, shaders
+- [**Review, Handoff, and Full Apps**](/docs/template-design-collaboration-and-full-apps) — visual editing, review feedback, export, and fusion mode
+- [**Extending Design**](/docs/template-design-developers) — data model, actions, and editor extension points
+- [**Templates**](/docs/cloneable-saas) — the Cloneable SaaS model
+- [**Context Awareness**](/docs/context-awareness) — how the agent knows what the user is viewing

@@ -1,0 +1,35 @@
+---
+title: "Render"
+description: "Deploy an Agent-Native app to Render with Nitro's render-com preset."
+search: "Render deployment Nitro preset Node.js"
+---
+
+# Render
+
+Use Nitro's `render-com` preset to build an output for a Render web service.
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "render-com" } })],
+});
+```
+
+Build the app and use Render's normal web service workflow to run the output:
+
+```bash
+npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+Set `DATABASE_URL`, `BETTER_AUTH_SECRET`, and any app secrets in Render's
+environment configuration. Use a persistent SQL database instead of local
+files.
+
+See [Nitro's Render provider guide](https://nitro.build/deploy/providers/render)
+for the current provider workflow.
+
+## What's next
+
+- [**Deploy an app**](/docs/deploy-an-app) - the complete app path
+- [**Node.js**](/docs/node-js) - the default runtime
+- [**Koyeb**](/docs/koyeb) - another managed Node.js target

@@ -1,0 +1,81 @@
+import { defineAction } from "@agent-native/core/action";
+import { buildDeepLink } from "@agent-native/core/server";
+import { z } from "zod";
+
+import type { ContentDatabaseRowMutationResult } from "../shared/api.js";
+import {
+  canonicalizeDatabasePropertyInput,
+  databasePropertyEntriesSchema,
+  databasePropertyValuesSchema,
+} from "./_database-property-input.js";
+import {
+  databaseMutationAgentTargetSchema,
+  databaseMutationEnvelopeSchema,
+  updateDatabaseRow,
+} from "./_database-row-mutation.js";
+
+const schema = databaseMutationEnvelopeSchema.extend({
+  itemId: z
+    .string()
+    .min(1)
+    .describe(
+      "Exact database membership row ID from the selected item's id in a fresh get-content-database read; never use the row page document ID here",
+    ),
+  documentId: z
+    .string()
+    .min(1)
+    .describe(
+      "Exact row page ID from the selected item's document.id in a fresh get-content-database read; this is distinct from itemId",
+    ),
+  expectedRowRevision: z
+    .string()
+    .min(1)
+    .describe("Row revision returned by get-content-database"),
+  title: z.string().trim().min(1).max(500).optional(),
+  propertyValues: databasePropertyValuesSchema,
+  propertyEntries: databasePropertyEntriesSchema.describe(
+    "Sparse typed property patch as explicit entries; omitted fields are preserved and explicit null clears a value. Copy each propertyType from the discovered mutation contract and include one entry for every writable property value the user requested, using the exact immutable property definition ID. When at least one value was requested, never pass an empty array. Do not invent or clear unmentioned properties.",
+  ),
+});
+const agentSchema = schema
+  .extend({ target: databaseMutationAgentTargetSchema })
+  .omit({ propertyValues: true });
+
+export default defineAction({
+  description:
+    "Sparsely update one exact Content database row using identifiers and revisions copied from a fresh get-content-database read: item.id is the membership itemId, document.id is the distinct page documentId, and rowRevision is expectedRowRevision. Requires the fresh schema revision, preserves omitted properties, validates every provided non-Blocks property, and returns a verified idempotent receipt.",
+  mcpTool: true,
+  agentInputSchema: agentSchema,
+  schema,
+  http: { method: "PUT" },
+  audit: {
+    recordInputs: false,
+    target: (args) => ({
+      type: "document",
+      id: args.documentId,
+      visibility: "private",
+    }),
+    summary: (_args, result) => {
+      const receipt = (result as ContentDatabaseRowMutationResult | null)
+        ?.receipt;
+      return receipt
+        ? `${receipt.outcome === "unchanged" ? "Checked" : "Updated"} Content database row ${receipt.row.itemId}`
+        : "Updated Content database row";
+    },
+  },
+  run: (args) => updateDatabaseRow(canonicalizeDatabasePropertyInput(args)),
+  link: ({ result }) => {
+    const documentId = (result as ContentDatabaseRowMutationResult | null)
+      ?.receipt.row.documentId;
+    if (!documentId) return null;
+    return {
+      url: buildDeepLink({
+        app: "content",
+        view: "editor",
+        params: { documentId },
+      }),
+      label: "Open database row",
+      view: "editor",
+    };
+  },
+});

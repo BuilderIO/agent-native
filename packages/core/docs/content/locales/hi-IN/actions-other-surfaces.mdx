@@ -1,0 +1,169 @@
+---
+title: "अन्य सतहें"
+description: "UI हुक से परे किसी action को कॉल करने वाली हर चीज़: नेटिव चैट UI widget results, CLI, A2A, MCP, और वे दो स्टैंडर्ड actions जो हर टेम्पलेट शिप करता है।"
+---
+
+# अन्य सतहें
+
+UI-हुक सतह [Data & Sync](/docs/client-data) पर कवर की गई है: `useActionQuery()`, `useActionMutation()`, और `callAction()`। यह पेज बाकी हर उस चीज़ को कवर करता है जो किसी action को कॉल कर सकती है, या उससे संचालित हो सकती है।
+
+## नेटिव चैट UI रेंडर करना {#native-chat-ui}
+
+Actions structured widget डेटा लौटा सकते हैं जिसे in-app चैट नेटिव रूप से
+रेंडर करता है। यह reusable टेबल, चार्ट, सेटअप सारांश, और insight कार्ड्स के
+लिए first-party चैट पथ है। जब एजेंट को in-app चैट के अंदर मनमाने interactive
+controls generate करने हों तो [Generative UI](/docs/generative-ui) का उपयोग
+करें, और बाहरी MCP होस्ट्स में inline UI के लिए [MCP Apps](/docs/mcp-apps) का
+उपयोग करें।
+
+```ts
+import { defineAction } from "@agent-native/core/action";
+import { ACTION_CHAT_UI_DATA_CHART_RENDERER } from "@agent-native/core/action-ui";
+import {
+  createDataChartWidgetResult,
+  dataChartWidgetResultSchema,
+} from "@agent-native/core/data-widgets";
+
+export default defineAction({
+  description: "Summarize response trends.",
+  readOnly: true,
+  outputSchema: dataChartWidgetResultSchema,
+  chatUI: { renderer: ACTION_CHAT_UI_DATA_CHART_RENDERER },
+  run: async () =>
+    createDataChartWidgetResult({
+      title: "Response trends",
+      chartSeries: {
+        type: "line",
+        xKey: "day",
+        series: [{ key: "responses", label: "Responses" }],
+        data: [
+          { day: "Mon", responses: 12 },
+          { day: "Tue", responses: 18 },
+        ],
+      },
+    }),
+});
+```
+
+built-in discriminants हैं `"data-table"`, `"data-chart"`, और
+`"data-insights"`, इनके server-safe builders और schemas
+`@agent-native/core/data-widgets` में हैं। केवल-chart उत्तरों के लिए
+`data-chart` का उपयोग करें, SQL/list results के लिए `data-table`, और
+`data-insights` केवल तब जब summary/chart/table का संयुक्त कार्ड सही आउटपुट
+हो। पूरे result कॉन्ट्रैक्ट के लिए [Native Chat UI](/docs/native-chat-ui)
+देखें, या अगर आप built-in चैट लूप के बजाय एक कस्टम एजेंट runtime वायर कर रहे
+हैं तो [BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes) देखें।
+कैसे एक ही action automation-friendly बना रह सकता है, चैट में रेंडर हो सकता
+है, या पूरी स्क्रीन में बढ़ सकता है, इसके लिए [Agent Surfaces](/docs/agent-surfaces)
+देखें।
+
+## इसे CLI से कॉल करना {#cli}
+
+हर action `pnpm action` के माध्यम से चलाने योग्य है:
+
+```bash
+pnpm action reply-to-email '{"emailId":"thread-123","body":"Thanks!"}'
+```
+
+JSON इनपुट एजेंट्स और जटिल ऑब्जेक्ट्स के लिए पसंदीदा shape है। साधारण मैनुअल
+रन और मौजूदा स्क्रिप्ट्स के लिए flags उसी तरह काम करते हैं:
+
+```bash
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
+```
+
+यह agent-dev लूप्स, स्क्रिप्ट्स, और cron jobs के लिए उपयोगी है।
+
+## इसे किसी अन्य एजेंट से कॉल करना (A2A) {#a2a}
+
+अगर आपका ऐप एक [A2A](/docs/a2a-protocol) peer है, तो अन्य एजेंट-नेटिव ऐप्स आपके actions को अपने आप खोज लेते हैं और उन्हें नाम से कॉल कर सकते हैं। Same-origin deploys JWT signing को छोड़ देते हैं। Cross-origin deploys इसके बजाय एक साझा `A2A_SECRET` का उपयोग करते हैं।
+
+## इसे MCP पर एक्सपोज़ करना {#mcp}
+
+MCP सक्षम होने पर, आपके actions फ्रेमवर्क के MCP सर्वर में `/mcp` पर दिखाई देते हैं। हर कॉलर को डिफ़ॉल्ट रूप से एक compact catalog मिलता है (app-facing builtins प्लस टेम्पलेट-घोषित app actions), और `tool-search` हमेशा मौजूद रहता है ताकि कोई भी अन्य टूल मांग पर पहुंच योग्य बना रहे। पूरी action सतह केवल स्पष्ट opt-in पर परोसी जाती है (`--full-catalog` टोकन या `AGENT_NATIVE_MCP_FULL_CATALOG=1`), और [`publicAgent.expose`](/docs/actions-access-control#public-agent) किसी सुरक्षित read/ingest टूल को public सतह पर opt करता है। catalog tiers, auth, और `mcpApp` resource विवरण के लिए [MCP Protocol](/docs/mcp-protocol) देखें।
+
+UI-सक्षम MCP होस्ट्स के लिए, कोई action `mcpApp` फ़ील्ड (प्लस एक मेल खाता `link`) के माध्यम से एक वैकल्पिक MCP Apps resource घोषित कर सकता है ताकि सक्षम होस्ट्स result को inline रेंडर करें। जब `link` और `mcpApp` को एक ही route पर पॉइंट करना हो, `embedRoute()` एक शुद्ध path builder से दोनों बनाता है:
+
+```ts
+import { embedRoute } from "@agent-native/core";
+
+export default defineAction({
+  description: "Create an email draft for review.",
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => ({ body }),
+  ...embedRoute({
+    title: "Review draft",
+    openLabel: "Open in Mail",
+    path: ({ result }) => ({
+      label: "Open draft in Mail",
+      url: "/_agent-native/open?app=mail&view=inbox",
+    }),
+  }),
+});
+```
+
+`link` को CLI और non-UI MCP होस्ट्स के लिए fallback के रूप में रखें। यह embed का launch target भी है। embed ब्रिज (signed embed-start session, transplant बनाम controlled-frame rendering, `ui/*` host ब्रिज, CSP, और height clamping) [External Agents](/docs/external-agents#mcp-app-bridge) के स्वामित्व में है।
+
+## स्टैंडर्ड actions {#standard-actions}
+
+हर टेम्पलेट को [context awareness](/docs/context-awareness) के लिए ये दोनों शामिल करने चाहिए।
+
+### view-screen {#view-screen}
+
+वर्तमान navigation स्थिति पढ़ता है, contextual डेटा fetch करता है, और उपयोगकर्ता जो देखता है उसका एक snapshot लौटाता है। एजेंट इसे तब कॉल करता है जब उसे स्क्रीन का एक ताज़ा लुक चाहिए।
+
+```ts
+// actions/view-screen.ts
+import { defineAction } from "@agent-native/core/action";
+import { readAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Read the current screen state for context.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  run: async () => {
+    const navigation = await readAppState("navigation");
+    const screen: Record<string, unknown> = { navigation };
+
+    if (navigation?.view === "inbox") {
+      screen.emailList = await listEmailsForLabel(navigation.label);
+    }
+
+    return screen;
+  },
+});
+```
+
+### navigate {#navigate}
+
+application state में एक one-shot navigation कमांड लिखता है। UI इसे पढ़ता है, navigate करता है, और entry को delete कर देता है।
+
+```ts
+// actions/navigate.ts
+import { defineAction } from "@agent-native/core/action";
+import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Navigate the user to a view.",
+  schema: z.object({
+    view: z.string(),
+    threadId: z.string().optional(),
+  }),
+  run: async (args) => {
+    await writeAppState("navigate", args);
+    return { ok: true };
+  },
+});
+```
+
+## आगे क्या
+
+- [**डेटा और सिंक**](/docs/client-data) — UI से `useActionQuery`, `useActionMutation`, और `callAction`
+- [**अवलोकन**](/docs/actions-overview) — action क्या है और hello-world वॉकथ्रू
+- [**Context Awareness**](/docs/context-awareness) — `view-screen` + `navigate` पैटर्न विस्तार से
+- [**A2A Protocol**](/docs/a2a-protocol) — कैसे अन्य एजेंट्स आपके actions को खोजते और कॉल करते हैं
+- [**MCP Protocol**](/docs/mcp-protocol) — catalog tiers, auth, और `mcpApp` resources
+- [**Generative UI**](/docs/generative-ui) — चैट में transient या persisted generated UI को inline रेंडर करना
+- [**Native Chat UI**](/docs/native-chat-ui) — पूरा widget result कॉन्ट्रैक्ट

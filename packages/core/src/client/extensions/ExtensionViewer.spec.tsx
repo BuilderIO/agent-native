@@ -1,0 +1,371 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+// @vitest-environment happy-dom
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { ExtensionViewer } from "./ExtensionViewer.js";
+
+const embedState = vi.hoisted(() => ({ active: false }));
+const chatMocks = vi.hoisted(() => ({
+  sendToAgentChat: vi.fn(),
+}));
+
+vi.mock("../agent-chat.js", () => ({
+  sendToAgentChat: chatMocks.sendToAgentChat,
+}));
+
+vi.mock("../embed-auth.js", () => ({
+  ensureEmbedAuthFetchInterceptor: vi.fn(),
+  isEmbedMcpChatBridgeActive: () => embedState.active,
+}));
+
+vi.mock("../sharing/ShareButton.js", () => ({
+  ShareButton: ({
+    onOpenChange,
+  }: {
+    onOpenChange?: (open: boolean) => void;
+  }) => (
+    <>
+      <button type="button" onClick={() => onOpenChange?.(true)}>
+        Share
+      </button>
+      <button type="button" onClick={() => onOpenChange?.(false)}>
+        Close share
+      </button>
+    </>
+  ),
+}));
+
+vi.mock("../AgentPanel.js", () => ({
+  AgentToggleButton: () => <button type="button">Agent</button>,
+}));
+
+vi.mock("../composer/index.js", () => ({
+  PromptComposer: () => <div />,
+}));
+
+vi.mock("../components/ui/popover.js", () => ({
+  Popover: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  PopoverContent: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  PopoverTrigger: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+}));
+
+vi.mock("../components/ui/tooltip.js", () => ({
+  Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipContent: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  TooltipProvider: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  TooltipTrigger: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+}));
+
+const extensionResponse = {
+  id: "ext-1",
+  name: "GitHub Stars Over Time",
+  description: "Tracks stars",
+  content: "<section>Star history chart</section>",
+  updatedAt: "2026-05-22T00:00:00.000Z",
+  ownerEmail: "owner@example.test",
+  role: "owner",
+  canEdit: true,
+  canDelete: true,
+};
+
+describe("ExtensionViewer MCP embeds", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json(extensionResponse)),
+    );
+    embedState.active = false;
+    chatMocks.sendToAgentChat.mockReset();
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    container = document.createElement("div");
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    queryClient.clear();
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  async function renderViewer() {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/extensions/ext-1/github-stars"]}>
+            <ExtensionViewer extensionId="ext-1" />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+    await vi.waitFor(() => {
+      expect(container.querySelector("iframe")).toBeTruthy();
+    });
+    return container.querySelector("iframe") as HTMLIFrameElement;
+  }
+
+  it("uses the extension render route in the normal app", async () => {
+    const iframe = await renderViewer();
+
+    expect(iframe.getAttribute("src")).toContain(
+      "/_agent-native/extensions/ext-1/render",
+    );
+    expect(iframe.getAttribute("srcdoc")).toBeNull();
+    expect(iframe.getAttribute("sandbox")).toBe(
+      "allow-scripts allow-forms allow-popups allow-downloads",
+    );
+  });
+
+  it("uses sandboxed srcdoc inside MCP chat embeds to avoid a blocked nested route frame", async () => {
+    embedState.active = true;
+    const iframe = await renderViewer();
+
+    expect(iframe.getAttribute("src")).toBeNull();
+    expect(iframe.getAttribute("srcdoc")).toContain("Star history chart");
+    expect(iframe.getAttribute("srcdoc")).toContain(
+      "agent-native-extension-binding",
+    );
+    expect(iframe.getAttribute("sandbox")).toBe(
+      "allow-scripts allow-forms allow-popups allow-downloads",
+    );
+  });
+
+  it("does not flash not-found while a cached null extension is refetching", async () => {
+    let resolveFetch: (response: Response) => void = () => {};
+    const pendingFetch = new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    });
+    vi.mocked(fetch).mockImplementationOnce(() => pendingFetch);
+    queryClient.setQueryData(["extension", "ext-1"], null);
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/extensions/ext-1/github-stars"]}>
+            <ExtensionViewer extensionId="ext-1" />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container.textContent).not.toContain("Extension not found");
+    expect(container.querySelector(".animate-pulse")).toBeTruthy();
+
+    await act(async () => {
+      resolveFetch(Response.json(extensionResponse));
+      await pendingFetch;
+    });
+
+    await vi.waitFor(() => {
+      expect(container.querySelector("iframe")).toBeTruthy();
+    });
+  });
+
+  it("shows a clear unavailable state when the extension is not shared", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({ error: "Forbidden" }, { status: 403 }),
+    );
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/extensions/ext-1/github-stars"]}>
+            <ExtensionViewer extensionId="ext-1" />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Extension is not shared");
+    });
+    expect(container.textContent).toContain(
+      "Ask the owner to share it with your organization",
+    );
+    expect(container.textContent).toContain("Back to extensions");
+    expect(container.querySelector("iframe")).toBeFalsy();
+  });
+
+  it("does not keep rendering cached extension data after latest fetch denies access", async () => {
+    queryClient.setQueryData(["extension", "ext-1"], extensionResponse, {
+      updatedAt: 0,
+    });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({ error: "Not found" }, { status: 404 }),
+    );
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/extensions/ext-1/github-stars"]}>
+            <ExtensionViewer extensionId="ext-1" />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Extension is unavailable");
+    });
+    expect(container.textContent).not.toContain("GitHub Stars Over Time");
+    expect(container.querySelector("iframe")).toBeFalsy();
+  });
+
+  it("shows expired-session copy separately from no-access responses", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({ error: "Unauthorized" }, { status: 401 }),
+    );
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/extensions/ext-1/github-stars"]}>
+            <ExtensionViewer extensionId="ext-1" />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Session expired");
+    });
+    expect(container.textContent).toContain("Sign in again");
+    expect(container.textContent).not.toContain("Extension is not shared");
+    expect(container.querySelector("iframe")).toBeFalsy();
+  });
+
+  it("places the more menu before Share and omits the notifications bell", async () => {
+    await renderViewer();
+
+    const buttons = Array.from(container.querySelectorAll("button"));
+    const moreIndex = buttons.findIndex(
+      (button) => button.getAttribute("aria-label") === "More options",
+    );
+    const shareIndex = buttons.findIndex(
+      (button) => button.textContent === "Share",
+    );
+
+    expect(moreIndex).toBeGreaterThan(-1);
+    expect(shareIndex).toBeGreaterThan(-1);
+    expect(moreIndex).toBeLessThan(shareIndex);
+    expect(container.textContent).not.toContain("Notifications");
+    expect(container.textContent).not.toContain("View / edit source");
+  });
+
+  it("labels database extensions as sandboxed custom blocks and promotes by id", async () => {
+    await renderViewer();
+
+    expect(container.textContent).toContain("Custom block · sandboxed");
+    expect(container.textContent).toContain(
+      "Created by owner@example.test · History shows source versions",
+    );
+    const promoteButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Promote to app code",
+    );
+    expect(promoteButton).toBeTruthy();
+
+    await act(async () => {
+      promoteButton?.click();
+    });
+
+    expect(chatMocks.sendToAgentChat).toHaveBeenCalledOnce();
+    const request = chatMocks.sendToAgentChat.mock.calls[0][0];
+    expect(request.message).toContain(
+      'Promote "GitHub Stars Over Time" from a sandboxed custom block',
+    );
+    expect(request.context).toContain("id: ext-1");
+    expect(request.context).toContain(
+      "Do not copy extension HTML from the browser",
+    );
+    expect(request.context).not.toContain(extensionResponse.content);
+    expect(request).toMatchObject({
+      submit: true,
+      openSidebar: true,
+      newTab: true,
+    });
+  });
+
+  it("does not offer promotion for read-only or repo-backed extensions", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        ...extensionResponse,
+        canEdit: false,
+      }),
+    );
+    await renderViewer();
+
+    expect(container.textContent).toContain("Custom block · sandboxed");
+    expect(container.textContent).not.toContain("Promote to app code");
+
+    act(() => root.unmount());
+    queryClient.clear();
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    root = createRoot(container);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        ...extensionResponse,
+        source: {
+          mode: "local-files",
+          entryPath: "extensions/revenue/index.html",
+        },
+      }),
+    );
+    await renderViewer();
+
+    expect(container.textContent).not.toContain("Custom block · sandboxed");
+    expect(container.textContent).not.toContain("Promote to app code");
+    expect(container.textContent).toContain("Repo-backed extension");
+  });
+
+  it("lets toolbar popovers take outside clicks over the extension iframe", async () => {
+    const iframe = await renderViewer();
+    const buttonNamed = (label: string) =>
+      Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === label,
+      );
+
+    expect(iframe.style.pointerEvents).toBe("auto");
+
+    await act(async () => {
+      buttonNamed("Share")?.click();
+    });
+
+    expect(iframe.style.pointerEvents).toBe("none");
+
+    await act(async () => {
+      buttonNamed("Close share")?.click();
+    });
+
+    expect(iframe.style.pointerEvents).toBe("auto");
+  });
+});

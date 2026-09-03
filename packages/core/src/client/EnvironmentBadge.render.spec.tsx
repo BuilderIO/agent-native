@@ -1,0 +1,342 @@
+// @vitest-environment happy-dom
+
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const useSessionMock = vi.fn();
+const injectedAgentNativeConfigMock = vi.fn();
+
+vi.mock("./use-session.js", () => ({
+  useSession: () => useSessionMock(),
+}));
+vi.mock("./app-config.js", () => ({
+  injectedAgentNativeConfig: () => injectedAgentNativeConfigMock(),
+}));
+
+import {
+  BETA_REDIRECT_STORAGE_KEY,
+  EnvironmentBadge,
+} from "./EnvironmentBadge.js";
+
+describe("EnvironmentBadge render", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let originalLocation: Location;
+  let originalUserAgent: string;
+
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    injectedAgentNativeConfigMock.mockReturnValue({});
+    originalLocation = window.location;
+    originalUserAgent = window.navigator.userAgent;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        hostname: "beta.plan.agent-native.com",
+        href: "https://beta.plan.agent-native.com/inbox?tab=all#runs",
+        replace: vi.fn(),
+      },
+    });
+    window.localStorage?.removeItem("agent-native:beta-opt-out-until");
+    window.localStorage?.removeItem(BETA_REDIRECT_STORAGE_KEY);
+    window.sessionStorage?.removeItem("agent-native:force-production");
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: originalLocation,
+    });
+    Object.defineProperty(window.navigator, "userAgent", {
+      configurable: true,
+      value: originalUserAgent,
+    });
+    vi.clearAllMocks();
+  });
+
+  it("does not render a dev pill for configured local development", () => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        hostname: "localhost",
+        href: "http://localhost:3000/dispatch",
+        replace: vi.fn(),
+      },
+    });
+    injectedAgentNativeConfigMock.mockReturnValue({
+      deployment: { environment: "local" },
+    });
+    useSessionMock.mockReturnValue({
+      session: null,
+      status: "unauthenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+
+    expect(container.querySelector('[role="status"]')).toBeNull();
+    expect(container.querySelector("button")).toBeNull();
+    expect(container.querySelector("a")).toBeNull();
+  });
+
+  it("keeps local development empty after hydration", async () => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        hostname: "localhost",
+        href: "http://localhost:3000/dispatch",
+        replace: vi.fn(),
+      },
+    });
+    injectedAgentNativeConfigMock.mockReturnValue({
+      deployment: { environment: "local" },
+    });
+    useSessionMock.mockReturnValue({
+      session: null,
+      status: "unauthenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+    expect(container.querySelector('[role="status"]')).toBeNull();
+
+    await act(async () => {});
+
+    expect(container.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it.each([
+    ["localhost", "http://localhost:3000/dispatch"],
+    ["preview.example.com", "https://preview.example.com/dispatch"],
+  ])("hides the badge on unconfigured host %s", (hostname, href) => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { hostname, href, replace: vi.fn() },
+    });
+    useSessionMock.mockReturnValue({
+      session: null,
+      status: "unauthenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+
+    expect(container.innerHTML).toBe("");
+  });
+
+  it("renders the beta chip for signed-out visitors", () => {
+    useSessionMock.mockReturnValue({
+      session: null,
+      status: "unauthenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+
+    const trigger = container.querySelector("button");
+    expect(trigger?.textContent).toContain("beta");
+    expect(trigger?.className).toContain("border-primary/80");
+    expect(trigger?.className).toContain("bottom-3");
+    expect(trigger?.className).toContain("left-3");
+    expect(trigger?.className).not.toContain("top-3");
+    expect(trigger?.className).not.toContain("right-3");
+    expect(trigger?.className).not.toContain("bg-background/95");
+    expect(container.textContent).toContain("beta");
+  });
+
+  it("renders the beta chip for non-builder users", () => {
+    useSessionMock.mockReturnValue({
+      session: { email: "person@example.com" },
+      status: "authenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+
+    expect(container.querySelector("button")?.textContent).toContain("beta");
+    expect(container.textContent).toContain("beta");
+  });
+
+  it("keeps the beta chip linked to production for every visitor", () => {
+    useSessionMock.mockReturnValue({
+      session: null,
+      status: "unauthenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+    const trigger = container.querySelector("button");
+    expect(trigger).not.toBeNull();
+
+    act(() => {
+      trigger?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+      trigger?.click();
+    });
+
+    const popover = document.body.querySelector('[data-side="top"]');
+    expect(popover?.getAttribute("data-align")).toBe("start");
+
+    const productionLink = [...document.body.querySelectorAll("a")].find(
+      (link) => link.textContent?.includes("Switch to production"),
+    );
+    const productionHref = productionLink?.getAttribute("href");
+    expect(productionHref).toContain(
+      "https://plan.agent-native.com/inbox?tab=all&agentNativeBetaOptOut=",
+    );
+    const expiry = Number(
+      new URL(productionHref!).searchParams.get("agentNativeBetaOptOut"),
+    );
+    expect(expiry).toBeGreaterThan(Date.now());
+  });
+
+  it("hides the badge for the current page without persisting the choice", () => {
+    useSessionMock.mockReturnValue({
+      session: null,
+      status: "unauthenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+    const trigger = container.querySelector("button");
+    expect(trigger).not.toBeNull();
+
+    act(() => {
+      trigger?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+      trigger?.click();
+    });
+
+    const hideButton = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("Hide badge"),
+    );
+    expect(hideButton).not.toBeUndefined();
+    expect(hideButton?.className).toContain("mt-2");
+    expect(hideButton?.className).toContain("-mb-2");
+    expect(hideButton?.className).toContain("w-full");
+    expect(hideButton?.className).toContain("justify-center");
+
+    act(() => hideButton?.click());
+
+    expect(container.innerHTML).toBe("");
+    expect(document.body.querySelector('[data-side="top"]')).toBeNull();
+    expect(window.sessionStorage.getItem("agent-native:force-production")).toBe(
+      null,
+    );
+  });
+
+  it("hides the production chip for non-employee sessions", () => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        hostname: "plan.agent-native.com",
+        href: "https://plan.agent-native.com/inbox?tab=all#runs",
+        replace: vi.fn(),
+      },
+    });
+    useSessionMock.mockReturnValue({
+      session: { email: "person@example.com" },
+      status: "authenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+
+    expect(container.querySelector("button")).toBeNull();
+  });
+
+  it("automatically redirects an employee from production to beta", () => {
+    const replace = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        hostname: "plan.agent-native.com",
+        href: "https://plan.agent-native.com/inbox?tab=all#runs",
+        replace,
+      },
+    });
+    useSessionMock.mockReturnValue({
+      session: { email: "employee@builder.io" },
+      status: "authenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+
+    expect(replace).toHaveBeenCalledWith(
+      "https://beta.plan.agent-native.com/inbox?tab=all#runs",
+    );
+    expect(
+      Number(window.localStorage.getItem(BETA_REDIRECT_STORAGE_KEY)),
+    ).toBeGreaterThan(Date.now());
+  });
+
+  it("keeps an employee on production for a forced browser session", () => {
+    const replace = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        hostname: "plan.agent-native.com",
+        href: "https://plan.agent-native.com/inbox?force=true",
+        replace,
+      },
+    });
+    useSessionMock.mockReturnValue({
+      session: { email: "employee@builder.io" },
+      status: "authenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+
+    expect(replace).not.toHaveBeenCalled();
+    expect(window.sessionStorage.getItem("agent-native:force-production")).toBe(
+      "1",
+    );
+  });
+
+  it("keeps an Electron employee on production after sign-in", () => {
+    const replace = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        hostname: "plan.agent-native.com",
+        href: "https://plan.agent-native.com/inbox?tab=all#runs",
+        replace,
+      },
+    });
+    Object.defineProperty(window.navigator, "userAgent", {
+      configurable: true,
+      value:
+        "Mozilla/5.0 AgentNative/0.1.150-nightly.253 Electron/43.4.0 AgentNativeDesktop/0.1.150-nightly.253",
+    });
+    useSessionMock.mockReturnValue({
+      session: { email: "employee@builder.io" },
+      status: "authenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("does not redirect when production carries a valid opt-out", () => {
+    const replace = vi.fn();
+    const expiry = Date.now() + 60 * 60 * 1000;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        hostname: "plan.agent-native.com",
+        href: `https://plan.agent-native.com/inbox?agentNativeBetaOptOut=${expiry}`,
+        replace,
+      },
+    });
+    useSessionMock.mockReturnValue({
+      session: { email: "employee@builder.io" },
+      status: "authenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+
+    expect(replace).not.toHaveBeenCalled();
+    expect(window.history.replaceState).toBeDefined();
+  });
+});

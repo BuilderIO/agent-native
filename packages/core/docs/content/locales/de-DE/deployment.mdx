@@ -1,0 +1,49 @@
+---
+title: "Deployment"
+description: "Stelle eine Agent-Native App oder einen Workspace auf einer Nitro-kompatiblen Plattform mit einer dauerhaften SQL-Datenbank bereit."
+---
+
+<!-- i18n-docs-ignore -->
+
+# Deployment
+
+<a id="self-host-quickstart"></a>
+<a id="skip-ensure-tables"></a>
+
+Agent-Native Apps laufen auf Nitro. Wähle den Weg, der zu dem passt, was du bereitstellst:
+
+<Cards columns={2}>
+
+### [Eine App bereitstellen](/docs/deploy-an-app)
+
+Eine einzelne App erstellen und auf einer eigenen Domain starten.
+
+### [Einen Workspace bereitstellen](/docs/workspace-deployment)
+
+Mehrere Apps mit gemeinsamem Login unter einer Origin ausführen.
+
+</Cards>
+
+## Vor dem Deployment: dauerhafte Datenbank wählen {#persistent-database}
+
+Jede bereitgestellte App benötigt eine dauerhafte SQL-Datenbank. Setze `DATABASE_URL` vor dem ersten Produktions-Deployment in der Deployment-Umgebung. Verwende `DATABASE_AUTH_TOKEN`, wenn dein Anbieter ein separates Token verlangt.
+
+Standalone-Apps benötigen ein stabiles `BETTER_AUTH_SECRET`. Workspaces mit signierten App-zu-App-Anfragen benötigen `A2A_SECRET`.
+
+## E-Mail-Zustellung ist optional, aber empfohlen {#email-provider}
+
+Ein E-Mail-Anbieter ist für die E-Mail-/Passwort-Authentifizierung nicht erforderlich. Ohne Anbieter verwenden bereitgestellte Apps E-Mail/Passwort für Registrierung und Anmeldung, überspringen die E-Mail-Verifizierung bei der Registrierung und bieten keine Magic-Link-Authentifizierung an.
+
+Verbinde Resend oder SendGrid vor dem Deployment, wenn du Magic Links, E-Mail-Verifizierung, Passwortzurücksetzungen, Einladungen oder Freigabebenachrichtigungen benötigst. Setze `RESEND_API_KEY` oder `SENDGRID_API_KEY`; SendGrid benötigt zusätzlich `EMAIL_FROM`. Siehe [Authentifizierung](/docs/authentication) für die verfügbaren Authentifizierungsmodi.
+
+## Unterstützte Ziele
+
+Agent-Native unterstützt [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify), [Cloudflare Pages](/docs/cloudflare#cloudflare-pages), [Cloudflare Workers](/docs/cloudflare#cloudflare-workers), [AWS Amplify](/docs/aws-amplify), [AWS Lambda](/docs/aws-lambda), [Deno Deploy](/docs/deno-deploy), [Azure Static Web Apps](/docs/azure-static-web-apps), [Koyeb](/docs/koyeb) und [Render](/docs/render).
+
+Weitere Einstellungen, Secrets und Produktionswerte findest du in der [Referenz der Deployment-Umgebungsvariablen](/docs/deployment-environment-variables).
+
+## Weiter
+
+- [Eine App bereitstellen](/docs/deploy-an-app)
+- [Einen Workspace bereitstellen](/docs/workspace-deployment)
+- [Datenbank](/docs/server-database#production)

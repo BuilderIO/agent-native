@@ -1,0 +1,253 @@
+---
+title: "行事曆：功能"
+description: "行事曆的每一項核心功能，包括檢視、可用性、尋找時段和預訂連結，並附上各項的設定步驟。"
+---
+
+# 功能
+
+行事曆的每一項核心功能：運作方式，以及如何設定。總覽請參閱
+[行事曆](/docs/template-calendar)，完整的提示清單請參閱
+[與 Agent 對話](/docs/template-calendar-agent)。
+
+## 行事曆檢視
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd033f1071872452687ea570ed2ab6da3?alt=media&token=c6318aee-94cc-4898-be16-32b8fbf4fb2f&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="行事曆檢視的簡短導覽。"
+  caption="行事曆檢視的導覽，包括檢視他人的行事曆和新增活動。"
+  autoplay={true}
+  loop={true}
+/>
+
+從工具列切換日、週、月檢視。每個檢視都讀取您真實、已連線的 Google
+Calendar，沒有任何內容是快取或虛擬的。
+
+- **多個帳戶**：如果您連線一個以上的 Google 帳戶（工作 + 個人），它們會以顏色
+  區分並顯示在同一個網格中。
+- **唯讀的 ICS/`webcal://` 訂閱來源**，可涵蓋公司假日、會議行程或隊友的公開
+  行事曆等內容。它們會以自己的顏色混入同一個檢視畫面，不過您無法編輯來自訂閱
+  來源的活動。
+- **疊加隊友的行事曆**，讓他們的活動與您的活動並排顯示，各自使用不同顏色。這
+  在主管需要查看直屬部屬行程時很有幫助。
+- **與會者時區**會顯示訪客當地的開始時間，資料來源是 Google 回報的時區，若
+  Google 未回報，則使用已儲存的個別訪客時區覆寫設定。
+- **工作地點**（住家、辦公室、其他）會以真實狀態顯示，而不是一般的全天活動，
+  且永遠不會佔用您的可用時間。**重複活動**從頭到尾都受到支援，您可以編輯
+  單一次活動，或整個系列。
+
+<Callout tone="warning">
+
+如果您行程的某個部分載入失敗，不論是某個帳戶的權杖過期，還是訂閱來源的網址
+逾時，應用程式都會告訴您是哪個來源失敗，而不是悄悄顯示一個空白的日子。空白
+的行事曆和連線中斷在設計上呈現不同的樣子，讓您絕不會把「沒有載入」誤認為
+「沒有排程」。
+
+</Callout>
+
+<Steps>
+
+### 連線您的行事曆
+
+開啟**設定**，點選**連線 Google Calendar**，然後核准。若想同時疊加個人和
+工作行事曆，請以相同方式連線更多帳戶。
+
+### 訂閱唯讀來源
+
+在**設定 → 外部行事曆**中，貼上 ICS 或 `webcal://` 網址。
+
+### 疊加隊友的行事曆
+
+請代理「把 Priya 的行事曆用藍色加到我的檢視畫面中」，或從**設定 → 疊加**
+新增他們。
+
+</Steps>
+
+## 尋找時段
+
+請代理尋找時段，它會檢查您的可用性和您真實的 Google Calendar 活動。當您指名
+其他人時，它也會檢查對方的空閒/忙碌狀態，然後提出具體的時段建議。一旦您選定
+其中一個，代理就會直接在 Google Calendar 上完成預訂。
+
+當您要和新對象安排會議時，可以用姓名或電子郵件搜尋，不必輸入完整的地址。行
+事曆會搜尋您的 Google 聯絡人和 Workspace 目錄，因此您可以問「Acme 的 Dana
+是誰」或「找出名叫 Priya 的人」，取得真實的比對結果供您選擇。
+
+<Diagram id="doc-block-calendar3" title="從可用性到完成預訂的活動" summary="代理會先綜合您的可用性規則、現有活動，以及（在指名時）其他與會者的空閒/忙碌狀態，然後才提出時段建議。">
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-box">
+      您的可用性<br /><small class="diagram-muted"
+        >每週時段、緩衝、提前通知</small
+      >
+    </div>
+    <div class="diagram-box">
+      現有活動<br /><small class="diagram-muted">即時 Google Calendar</small>
+    </div>
+    <div class="diagram-box">
+      與會者的空閒/忙碌狀態<br /><small class="diagram-muted">指名對象時</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">尋找時段</span
+    ><small class="diagram-muted">候選時段</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">您選擇其中一個</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">活動在 Google Calendar 上建立完成</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+<Steps>
+
+### 提出時段請求
+
+「下週找一個和 Sam 及 Priya 的 1 小時時段。」
+
+### 選擇一個
+
+代理會提出具體的時段建議。您可以在聊天中選擇一個，或從 UI 中顯示的建議
+選項中選取。
+
+### 預訂完成
+
+代理會直接在 Google Calendar 上建立活動，並立即顯示在您的檢視畫面中。
+
+</Steps>
+
+## 預訂連結
+
+預訂連結是公開頁面，任何人都可以在上面選擇時間，直接預訂到您的行事曆上。這
+是行事曆中 Calendly 風格的部分：設定會議類型、它們所依據的可用性，並追蹤誰
+進行了預訂。
+
+### 會議類型
+
+一個會議類型就是一個具體的預訂連結，例如「15 分鐘介紹」或「30 分鐘示範」，
+各自有自己的時長、欄位和會議工具選擇。
+
+<Steps>
+
+### 建立會議類型
+
+為它取一個標題和時長（例如「15 分鐘介紹」對應 15 分鐘），然後請代理處理，
+或點選**新增預訂連結**。
+
+### 新增選項
+
+設定替代時長，讓訪客可以在同一個連結上選擇 15、30 或 60 分鐘；設定自訂欄位
+以收集公司名稱或主題；選擇會議工具（Google Meet、Zoom 或自訂連結）；設定
+顏色；以及設定必要的共同主持人，也就是必須同樣有空才會提供時段的其他人員。
+當有人預訂時，所有人（您和您的共同主持人）都會被邀請加入產生的 Google
+Calendar 活動。
+
+### 連線 Zoom（可選）
+
+Google Meet 不需要任何設定，它的加入方式和任何 Google Calendar 邀請取得
+Meet 連結一樣。至於 Zoom，請從**設定**連線您的帳戶一次即可。之後，任何設為
+Zoom 的會議類型都會在每次新預訂時建立真正的 Zoom 會議，並將加入連結附加到
+確認訊息中。
+
+### 分享它
+
+在任何地方分享這個公開網址。如果需要隊友協助管理，可以從連結的**共用**選單
+授予他們檢視者/編輯者/管理員權限。這與公開預訂存取權是分開的，只要連結處於
+啟用狀態，任何持有網址的人都能進行預訂。
+
+</Steps>
+
+每個會議類型都有一個公開網址，格式為 `/book/{your-booking-name}/{slug}`，
+例如 `/book/steve/30min`。您的預訂名稱會在您第一次建立連結時，根據您的電子
+郵件自動產生，之後您可以在設定中變更它（每 30 天最多三次，因為它是您分享
+出去的每個公開連結的一部分）。
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3dda132ad91b44dfa11c9d4e4b9e1b79?alt=media&token=b25577a1-ef91-48f8-a474-e5a39b246c25&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="示範如何建立新的預訂會議類型的影片。"
+  caption="示範如何建立新的預訂會議類型的影片。"
+  autoplay={true}
+  loop={true}
+/>
+
+- **重新命名會議類型**：您可以隨時變更它的網址 slug，例如從
+  `/book/steve/into-call` 改為 `/book/steve/intro`。舊的網址仍然可以使用：
+  持有舊網址的訪客會自動被轉往新的網址，因此您已經分享出去的內容不會失效。
+
+### 可用性
+
+可用性是一份每週時間表：您哪幾天工作，以及每天的哪些時段開放，再加上您的
+時區。除此之外，您還可以設定會議之間的**緩衝時間**，避免連續不間斷的預訂；
+設定**最短通知時間**，避免有人在五分鐘後就把您約走；設定**可提前多久**進行
+預訂（提前預訂範圍）；以及新會議類型的**預設時段長度**。
+
+代理讀取的是 UI 所編輯的同一份時間表，因此「把我的時段設為平日 9 點到 5
+點」和在可用性分頁中拖動滑桿，得到的結果是一樣的。
+
+<Steps>
+
+### 設定每週時段
+
+切換到**可用性**分頁，開啟您有空的天數和時段，需要的話可以逐日設定。
+
+### 新增緩衝和通知時間
+
+設定會議之間的**緩衝時間**，以及**最短通知時間**視窗，避免有人在五分鐘後就
+把您約走。
+
+### 設定提前預訂範圍和預設時段長度
+
+選擇他人可以提前多久進行預訂，以及新會議類型預設使用的時長。
+
+</Steps>
+
+或者直接請代理：「把我週五下午的時段標記為不可用。」
+
+### 預訂
+
+訪客會從您真實的可用時段中選擇一個時間，填寫姓名、電子郵件，以及您新增的
+任何自訂欄位，然後確認。他們會收到一份確認訊息，附上一個私人的管理連結。不
+需要登入，因為連結本身就是憑證。
+
+- **管理預訂**：您（主辦人）可以在**預訂**分頁中看到所有預訂，包括過去和
+  未來的，並可依全部、已確認或已取消進行篩選。
+- **重新安排或取消**：訪客可以使用他們的管理連結改到其他有空的時段，或直接
+  取消，不需要帳戶。您也可以自己從**預訂**分頁取消一筆預訂。
+
+或者請代理：「顯示我這週的預訂。」
+
+## 接下來
+
+- [**行事曆**](/docs/template-calendar) — 總覽和入門步驟
+- [**與 Agent 對話**](/docs/template-calendar-agent) — 依任務分類的每個提示、application state 和擴充功能
+- [**行事曆的跨應用使用**](/docs/template-calendar-integrations) — 整合策略，以及如何連接到調度
+- [**開發者指南**](/docs/template-calendar-developers) — 支撐這些功能的 actions 和資料模型
+- [**共用**](/docs/sharing) — 預訂連結所建立的共用授權模型

@@ -1,0 +1,682 @@
+import fs from "fs";
+import os from "os";
+import path from "path";
+
+/**
+ * Adversarial INSTALL / CLI / FIRST-RUN coverage focused on the Plans
+ * (`templates/plan`) app and its shipped skills.
+ *
+ * Goals:
+ *   1. A fresh standalone Plans scaffold produces a bootable app: it is in the
+ *      public template allow-list, scaffolds the expected files, and every dep
+ *      resolves to a real version (no `workspace:*` / no bare `catalog:` leak),
+ *      with the Postgres runtime injected.
+ *   2. `agent-native skills add visual-plan` (and its aliases) materializes the
+ *      correct user-facing SKILL.md files for the hosted Plans MCP app.
+ *   3. The three shipped copies of each Plans skill stay byte-identical (deep
+ *      sync guard beyond the existing one) and the materialized output matches
+ *      the canonical template copy exactly.
+ *   4. Adversarial first-run inputs: non-empty target dir, unknown template
+ *      name, path-traversal repo names, alias normalization, etc.
+ *
+ * These exercise packages/core/src/cli/create.ts + skills.ts +
+ * templates-meta.ts as the user hits them on a fresh machine.
+ */
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
+import {
+  createApp,
+  addAppToWorkspace,
+  _scaffoldWorkspaceRoot,
+  _scaffoldAppTemplate,
+  _postProcessStandalone,
+  _getCoreDependencyVersion,
+} from "./create.js";
+import {
+  addAgentNativeSkill,
+  CANVAS_REFERENCE_MD,
+  CONNECTION_REFERENCE_MD,
+  DOCUMENT_QUALITY_REFERENCE_MD,
+  EXEMPLAR_REFERENCE_MD,
+  LOCAL_FILES_REFERENCE_MD,
+  parseSkillsArgs,
+  VISUAL_PLANS_SKILL_MD,
+  VISUAL_RECAP_SKILL_MD,
+  VISUALIZE_REPO_SKILL_MD,
+  WIREFRAME_REFERENCE_MD,
+} from "./skills.js";
+import { getTemplate, allTemplateNames, TEMPLATES } from "./templates-meta.js";
+
+let tmpDir: string;
+let origCwd: string;
+
+const PLANS_INSTALL_SKILLS: Array<[string, string]> = [
+  ["visual-plan", VISUAL_PLANS_SKILL_MD],
+  ["visual-recap", VISUAL_RECAP_SKILL_MD],
+  ["visualize-repo", VISUALIZE_REPO_SKILL_MD],
+];
+
+const PLANS_INSTALL_SKILL_NAMES = PLANS_INSTALL_SKILLS.map(([name]) => name);
+
+const PLANS_INSTALL_REFERENCES: Record<string, Record<string, string>> = {
+  "visual-plan": {
+    "references/wireframe.md": WIREFRAME_REFERENCE_MD,
+    "references/canvas.md": CANVAS_REFERENCE_MD,
+    "references/connection.md": CONNECTION_REFERENCE_MD,
+    "references/document-quality.md": DOCUMENT_QUALITY_REFERENCE_MD,
+    "references/exemplar.md": EXEMPLAR_REFERENCE_MD,
+    "references/local-files.md": LOCAL_FILES_REFERENCE_MD,
+  },
+  "visual-recap": {
+    "references/connection.md": CONNECTION_REFERENCE_MD,
+    "references/local-files.md": LOCAL_FILES_REFERENCE_MD,
+    "references/wireframe.md": WIREFRAME_REFERENCE_MD,
+  },
+};
+
+// Bundle aliases install every Plan skill. The single-skill names install only
+// their own skill and are covered separately.
+const PLANS_INSTALL_ALIASES = [
+  "visual-plans",
+  "code-review-recap",
+  "code-review-recaps",
+  "plannotate",
+  "html-plan",
+];
+
+const PLAN_STANDALONE_SCAFFOLD_TIMEOUT_MS = 120_000;
+
+beforeEach(() => {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-plan-install-"));
+  origCwd = process.cwd();
+  process.chdir(tmpDir);
+});
+
+afterEach(async () => {
+  process.chdir(origCwd);
+  // The full core lane runs this filesystem-heavy scaffold suite under load;
+  // let pending writes settle between recursive removal retries.
+  await fs.promises.rm(tmpDir, {
+    recursive: true,
+    force: true,
+    maxRetries: 20,
+    retryDelay: 250,
+  });
+});
+
+function readPkg(dir: string): Record<string, any> {
+  return JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf-8"));
+}
+
+function allDeps(pkg: Record<string, any>): Record<string, string> {
+  return {
+    ...pkg.dependencies,
+    ...pkg.devDependencies,
+    ...pkg.peerDependencies,
+  };
+}
+
+function workspaceRoot(): string {
+  let current = origCwd;
+  while (current !== path.dirname(current)) {
+    if (fs.existsSync(path.join(current, "pnpm-workspace.yaml"))) {
+      return current;
+    }
+    current = path.dirname(current);
+  }
+  throw new Error("Could not locate workspace root.");
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * 1. Plan template is a real, allow-listed, bootable target
+ * ───────────────────────────────────────────────────────────────────────── */
+
+describe("Plans template — allow-list & metadata", () => {
+  it("is a known, non-hidden core template scaffoldable via --template plan", () => {
+    expect(allTemplateNames()).toContain("plan");
+    const meta = getTemplate("plan");
+    expect(meta).toBeDefined();
+    expect(meta?.core).toBe(true);
+    // Plans is a public, featured app — it must not be hidden from the picker.
+    expect(meta?.hidden).toBeFalsy();
+    expect(meta?.prodUrl).toBe("https://plan.agent-native.com");
+  });
+
+  it("resolves the visual-plans legacy alias to the plan template", () => {
+    expect(getTemplate("visual-plans")?.name).toBe("plan");
+  });
+
+  it("declares no first-party workspace package deps that need scaffolding", () => {
+    // The plan template only depends on @agent-native/core (an npm package),
+    // so it must NOT declare requiredPackages — otherwise the CLI would try to
+    // download a nonexistent packages/<x> on a fresh install.
+    const meta = getTemplate("plan");
+    expect(meta?.requiredPackages ?? []).toEqual([]);
+  });
+});
+
+describe(
+  "Plans standalone scaffold — bootable output",
+  { timeout: PLAN_STANDALONE_SCAFFOLD_TIMEOUT_MS },
+  () => {
+    it(
+      "scaffolds the plan app with its package name and key files",
+      async () => {
+        await createApp("plan", { template: "plan" });
+        const root = path.join(tmpDir, "plan");
+        expect(fs.existsSync(root)).toBe(true);
+        expect(fs.existsSync(path.join(root, "package.json"))).toBe(true);
+        expect(fs.existsSync(path.join(root, "app", "root.tsx"))).toBe(true);
+        // _gitignore must be renamed to .gitignore so the scaffold is git-clean.
+        expect(fs.existsSync(path.join(root, ".gitignore"))).toBe(true);
+        expect(fs.existsSync(path.join(root, "_gitignore"))).toBe(false);
+      },
+      PLAN_STANDALONE_SCAFFOLD_TIMEOUT_MS,
+    );
+
+    it(
+      "resolves every dependency to a real version (no workspace:* or bare catalog: left)",
+      async () => {
+        await createApp("plan", { template: "plan" });
+        const pkg = readPkg(path.join(tmpDir, "plan"));
+        const deps = allDeps(pkg);
+        for (const [key, val] of Object.entries(deps)) {
+          expect(val, `${key} must not be workspace:*`).not.toMatch(
+            /^workspace:/,
+          );
+          expect(val, `${key} must not be bare catalog:`).not.toBe("catalog:");
+        }
+        // @agent-native/core must resolve to the CLI's published range.
+        expect(deps["@agent-native/core"]).toBe(_getCoreDependencyVersion());
+      },
+      PLAN_STANDALONE_SCAFFOLD_TIMEOUT_MS,
+    );
+
+    it(
+      "injects the Postgres runtime so a hosted DB install works",
+      async () => {
+        await createApp("plan", { template: "plan" });
+        const pkg = readPkg(path.join(tmpDir, "plan"));
+        expect(pkg.dependencies?.postgres).toBeDefined();
+      },
+      PLAN_STANDALONE_SCAFFOLD_TIMEOUT_MS,
+    );
+
+    it(
+      "resolves the catalog: tailwind/vite refs to semver strings",
+      async () => {
+        await createApp("plan", { template: "plan" });
+        const pkg = readPkg(path.join(tmpDir, "plan"));
+        const deps = allDeps(pkg);
+        for (const key of ["tailwindcss", "@tailwindcss/vite", "vite"]) {
+          if (deps[key]) {
+            expect(deps[key], `${key} should be a version`).toMatch(/^\^?\d/);
+          }
+        }
+      },
+      PLAN_STANDALONE_SCAFFOLD_TIMEOUT_MS,
+    );
+
+    it(
+      "ships the Plans skills inside the scaffold (.agents/skills)",
+      async () => {
+        await createApp("plan", { template: "plan" });
+        const skillsDir = path.join(tmpDir, "plan", ".agents", "skills");
+        for (const name of ["visual-plan", "visual-recap", "visualize-repo"]) {
+          expect(
+            fs.existsSync(path.join(skillsDir, name, "SKILL.md")),
+            `expected scaffolded skill ${name}/SKILL.md`,
+          ).toBe(true);
+        }
+        // Guard against the circular `.agents/skills/skills` symlink that crashes
+        // Vite's watcher.
+        expect(fs.readdirSync(skillsDir)).not.toContain("skills");
+      },
+      PLAN_STANDALONE_SCAFFOLD_TIMEOUT_MS,
+    );
+
+    it(
+      "writes pnpm build approvals to the workspace settings",
+      async () => {
+        await createApp("plan", { template: "plan" });
+        const root = path.join(tmpDir, "plan");
+        const pkg = readPkg(root);
+        const workspaceYaml = fs.readFileSync(
+          path.join(root, "pnpm-workspace.yaml"),
+          "utf-8",
+        );
+
+        expect(pkg.pnpm).toBeUndefined();
+        expect(workspaceYaml).toContain("allowBuilds:");
+        expect(workspaceYaml).toContain("better-sqlite3: true");
+        expect(workspaceYaml).toContain("esbuild: true");
+        expect(workspaceYaml).toContain("node-pty: true");
+        expect(workspaceYaml).toContain("tesseract.js: true");
+        expect(workspaceYaml).not.toContain("onlyBuiltDependencies:");
+      },
+      PLAN_STANDALONE_SCAFFOLD_TIMEOUT_MS,
+    );
+  },
+);
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * 2. Tracking app-id rewrite for a renamed Plans app
+ *
+ * Every other template hardcodes `app: "agent-native-<name>"` in root.tsx,
+ * which the scaffolder rewrites to the chosen app name + a `template:` tag.
+ * If the plan template hardcodes `app: "plan"` instead, a renamed plan app
+ * silently reports analytics under the wrong app id and loses the template
+ * tag. These tests pin the EXPECTED behaviour (rename => correct id).
+ * ───────────────────────────────────────────────────────────────────────── */
+
+describe(
+  "Plans tracking id — renamed standalone/app",
+  { timeout: 60000 },
+  () => {
+    it("rewrites the tracking app id when scaffolded under a custom name", async () => {
+      // BUG REPRO: createApp("my-roadmap", {template:"plan"}) should brand the
+      // tracking call as the new app, not leave it as the source template.
+      await createApp("my-roadmap", { template: "plan" });
+      const root = fs.readFileSync(
+        path.join(tmpDir, "my-roadmap", "app", "root.tsx"),
+        "utf-8",
+      );
+      expect(root).toContain('app: "my-roadmap"');
+      expect(root).not.toContain('app: "plan"');
+    });
+
+    it("rewrites the tracking app id when added to a workspace under a custom name", async () => {
+      const wsDir = path.join(tmpDir, "my-ws");
+      await _scaffoldWorkspaceRoot(wsDir, "my-ws");
+      process.chdir(wsDir);
+      await addAppToWorkspace("roadmap", { template: "plan" });
+
+      const root = fs.readFileSync(
+        path.join(wsDir, "apps", "roadmap", "app", "root.tsx"),
+        "utf-8",
+      );
+      expect(root).toContain('app: "roadmap"');
+      // And it should carry the source template tag for analytics segmentation.
+      expect(root).toContain('template: "plan"');
+    });
+  },
+);
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * 3. Skills install materializes the right SKILL.md for end users
+ * ───────────────────────────────────────────────────────────────────────── */
+
+describe("Plans skills install — materialized output", () => {
+  /**
+   * Run a Plans install via `alias`, capturing each materialized SKILL.md's
+   * contents from inside the runCommand callback. The CLI writes the skills to
+   * a temp dir that is rmSync'd as soon as `addAgentNativeSkill` returns, so we
+   * must read them while the npx invocation is still pending — mirroring the
+   * existing skills.spec.ts pattern.
+   */
+  async function materializeViaAlias(
+    alias: string,
+    extraArgs: string[] = [],
+  ): Promise<{
+    result: Awaited<ReturnType<typeof addAgentNativeSkill>>;
+    captured: Record<string, string>;
+    capturedReferences: Record<string, string>;
+    codexConfigExists: boolean;
+  }> {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-plan-skill-"));
+    const codexHome = path.join(root, "codex-home");
+    fs.mkdirSync(codexHome, { recursive: true });
+    const prevCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = codexHome;
+    const captured: Record<string, string> = {};
+    const capturedReferences: Record<string, string> = {};
+    try {
+      const result = await addAgentNativeSkill(
+        parseSkillsArgs([
+          "add",
+          alias,
+          "--client",
+          "codex",
+          "--scope",
+          "project",
+          ...extraArgs,
+        ]),
+        { baseDir: root, runCommand: async () => 0 },
+      );
+      // Built-in skills are written straight into the client's skills dir;
+      // project-scope codex lands in .agents/skills.
+      const skillsDir = path.join(root, ".agents", "skills");
+      if (fs.existsSync(skillsDir)) {
+        for (const name of fs.readdirSync(skillsDir)) {
+          const file = path.join(skillsDir, name, "SKILL.md");
+          if (fs.existsSync(file)) {
+            captured[name] = fs.readFileSync(file, "utf-8");
+          }
+          const referencesDir = path.join(skillsDir, name, "references");
+          if (fs.existsSync(referencesDir)) {
+            for (const entry of fs.readdirSync(referencesDir, {
+              withFileTypes: true,
+            })) {
+              if (!entry.isFile()) continue;
+              const rel = `references/${entry.name}`;
+              capturedReferences[`${name}/${rel}`] = fs.readFileSync(
+                path.join(referencesDir, entry.name),
+                "utf-8",
+              );
+            }
+          }
+        }
+      }
+      const codexConfigExists = fs.existsSync(
+        path.join(codexHome, "config.toml"),
+      );
+      return { result, captured, capturedReferences, codexConfigExists };
+    } finally {
+      if (prevCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = prevCodexHome;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  it("materializes exactly the Plans SKILL.md files and points at the hosted MCP", async () => {
+    const { result, captured, capturedReferences, codexConfigExists } =
+      await materializeViaAlias("visual-plans");
+    expect(result.id).toBe("visual-plans");
+    expect(result.skillNames).toEqual(PLANS_INSTALL_SKILL_NAMES);
+    expect(result.mcpUrl).toBe("https://plan.agent-native.com/mcp");
+    expect(codexConfigExists).toBe(false);
+    expect(result.commands).toContain(
+      "npx @agent-native/core@latest connect https://plan.agent-native.com --client codex --scope project",
+    );
+
+    for (const [name, constant] of PLANS_INSTALL_SKILLS) {
+      // The materialized file the user receives must be byte-identical to the
+      // shipped constant.
+      expect(captured[name], `materialized ${name}/SKILL.md`).toBe(constant);
+    }
+    // No extra surprise skills materialized.
+    expect(Object.keys(captured).sort()).toEqual(
+      [...PLANS_INSTALL_SKILL_NAMES].sort(),
+    );
+
+    const expectedReferenceKeys = Object.entries(PLANS_INSTALL_REFERENCES)
+      .flatMap(([name, refs]) =>
+        Object.keys(refs).map((rel) => `${name}/${rel}`),
+      )
+      .sort();
+    expect(Object.keys(capturedReferences).sort()).toEqual(
+      expectedReferenceKeys,
+    );
+    for (const [name, refs] of Object.entries(PLANS_INSTALL_REFERENCES)) {
+      for (const [rel, constant] of Object.entries(refs)) {
+        expect(
+          capturedReferences[`${name}/${rel}`],
+          `materialized ${name}/${rel}`,
+        ).toBe(constant);
+      }
+    }
+  });
+
+  it("parses explicit Plans install modes", () => {
+    expect(
+      parseSkillsArgs(["add", "visual-plan", "--mode", "local-files"]).planMode,
+    ).toBe("local-files");
+    expect(
+      parseSkillsArgs([
+        "add",
+        "visual-plan",
+        "--mode",
+        "self-hosted",
+        "--mcp-url",
+        "https://plans.example.com",
+      ]).planMode,
+    ).toBe("self-hosted");
+    expect(() =>
+      parseSkillsArgs([
+        "add",
+        "visual-plan",
+        "--mode",
+        "local-files",
+        "--mcp-url",
+        "https://plans.example.com",
+      ]),
+    ).toThrow("--mode local-files cannot be combined with --mcp-url");
+  });
+
+  it("local-files mode installs mode-aware instructions without MCP/auth", async () => {
+    const { result, captured, codexConfigExists } = await materializeViaAlias(
+      "visual-plans",
+      ["--mode", "local-files"],
+    );
+    expect(result.planMode).toBe("local-files");
+    expect(result.mcpUrl).toBe("");
+    expect(result.mcpClients).toEqual([]);
+    expect(result.connected).toBe(false);
+    expect(result.connectCommand).toBeUndefined();
+    expect(codexConfigExists).toBe(false);
+    expect(result.commands).not.toContain(
+      "npx @agent-native/core@latest connect https://plan.agent-native.com --client codex --scope project",
+    );
+
+    for (const name of PLANS_INSTALL_SKILL_NAMES) {
+      expect(captured[name], `materialized ${name}/SKILL.md`).toContain(
+        "Default storage for this installation: local files.",
+      );
+      expect(captured[name], `materialized ${name}/SKILL.md`).toContain(
+        "no hosted Plan database writes",
+      );
+      expect(captured[name], `materialized ${name}/SKILL.md`).toContain(
+        "plan blocks --out plan-blocks.md",
+      );
+      expect(captured[name], `materialized ${name}/SKILL.md`).toContain(
+        "plan local serve",
+      );
+    }
+  });
+
+  it("installs both Plans skills for every bundle alias", async () => {
+    for (const alias of PLANS_INSTALL_ALIASES) {
+      const { result } = await materializeViaAlias(alias);
+      expect(result.id, `alias ${alias}`).toBe("visual-plans");
+      expect(result.skillNames, `alias ${alias} skills`).toEqual(
+        PLANS_INSTALL_SKILL_NAMES,
+      );
+    }
+  });
+
+  it("installs only the named skill for visual-plan / visual-recap / visualize-repo", async () => {
+    const plan = await materializeViaAlias("visual-plan");
+    expect(plan.result.id).toBe("visual-plans");
+    expect(plan.result.skillNames).toEqual(["visual-plan"]);
+    expect(Object.keys(plan.captured)).toEqual(["visual-plan"]);
+    expect(plan.captured["visual-plan"]).toContain(
+      "npx @agent-native/core@latest skills add visual-plans",
+    );
+    expect(plan.captured["visual-plan"]).toContain(
+      "use\n`skills add visual-plan`, `skills add visual-recap`, or\n`skills add visualize-repo` instead",
+    );
+
+    const recap = await materializeViaAlias("visual-recap");
+    expect(recap.result.id).toBe("visual-plans");
+    expect(recap.result.skillNames).toEqual(["visual-recap"]);
+    expect(Object.keys(recap.captured)).toEqual(["visual-recap"]);
+
+    // Both single-skill installs still return the shared hosted plan MCP
+    // connect command without writing URL-only Codex auth config.
+    expect(recap.codexConfigExists).toBe(false);
+    expect(recap.result.commands).toContain(
+      "npx @agent-native/core@latest connect https://plan.agent-native.com --client codex --scope project",
+    );
+
+    const repo = await materializeViaAlias("visualize-repo");
+    expect(repo.result.id).toBe("visual-plans");
+    expect(repo.result.skillNames).toEqual(["visualize-repo"]);
+    expect(Object.keys(repo.captured)).toEqual(["visualize-repo"]);
+    expect(repo.captured["visualize-repo"]).toContain(
+      "npx @agent-native/core@latest visualize-repo --open",
+    );
+
+    for (const alias of ["visualize", "repo-visualizer", "visual-docs"]) {
+      const aliasResult = await materializeViaAlias(alias);
+      expect(aliasResult.result.id, `alias ${alias}`).toBe("visual-plans");
+      expect(aliasResult.result.skillNames, `alias ${alias}`).toEqual([
+        "visualize-repo",
+      ]);
+      expect(Object.keys(aliasResult.captured), `alias ${alias}`).toEqual([
+        "visualize-repo",
+      ]);
+    }
+  });
+
+  it("materialized visual-plan handles existing plan text and avoids legacy HTML", async () => {
+    const { captured } = await materializeViaAlias("visual-plan");
+    const md = captured["visual-plan"];
+    expect(md).toBeDefined();
+    expect(md).toContain("pass it as `planText`");
+    expect(md).not.toContain("data-plan-tabs");
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * 4. Deep three-copy byte-identity sync guard
+ * ───────────────────────────────────────────────────────────────────────── */
+
+describe("Plans skill three-copy sync (deep)", () => {
+  const SKILLS = [
+    {
+      constant: VISUAL_PLANS_SKILL_MD,
+      templateDir: "visual-plan",
+      exportedDir: "visual-plans",
+    },
+    {
+      constant: VISUAL_RECAP_SKILL_MD,
+      templateDir: "visual-recap",
+      exportedDir: "visual-recap",
+    },
+    {
+      constant: VISUALIZE_REPO_SKILL_MD,
+      templateDir: "visualize-repo",
+      exportedDir: "visualize-repo",
+    },
+  ];
+
+  it("constant === template copy === exported mirror, byte for byte", () => {
+    const root = workspaceRoot();
+    for (const s of SKILLS) {
+      const tmpl = fs.readFileSync(
+        path.join(
+          root,
+          "templates",
+          "plan",
+          ".agents",
+          "skills",
+          s.templateDir,
+          "SKILL.md",
+        ),
+        "utf-8",
+      );
+      const exp = fs.readFileSync(
+        path.join(root, "skills", s.exportedDir, "SKILL.md"),
+        "utf-8",
+      );
+      expect(tmpl, `${s.templateDir}: template vs constant`).toBe(s.constant);
+      expect(exp, `${s.exportedDir}: exported vs constant`).toBe(s.constant);
+    }
+  });
+
+  it("each skill constant has valid frontmatter with a name and visibility", () => {
+    for (const s of SKILLS) {
+      expect(
+        s.constant.startsWith("---\n"),
+        `${s.templateDir} frontmatter`,
+      ).toBe(true);
+      expect(s.constant).toMatch(/\nname:\s*\S+/);
+      // Plans skills may be exported or both. Either way each skill must
+      // declare a visibility.
+      expect(s.constant, `${s.templateDir} visibility`).toMatch(
+        /visibility:\s*(exported|both)/,
+      );
+    }
+  });
+
+  it("the canonical headline skill declares name: visual-plan and the slash command", () => {
+    expect(VISUAL_PLANS_SKILL_MD).toMatch(/^---\nname: visual-plan\n/);
+    expect(VISUAL_PLANS_SKILL_MD).toContain("`/visual-plan`");
+    expect(VISUALIZE_REPO_SKILL_MD).toMatch(/^---\nname: visualize-repo\n/);
+    expect(VISUALIZE_REPO_SKILL_MD).toContain("`/visualize-repo`");
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * 5. Adversarial first-run inputs
+ * ───────────────────────────────────────────────────────────────────────── */
+
+describe("Plans first-run — adversarial inputs", { timeout: 60000 }, () => {
+  it("refuses to scaffold into a non-empty existing directory", async () => {
+    fs.mkdirSync(path.join(tmpDir, "plan"));
+    fs.writeFileSync(path.join(tmpDir, "plan", "keep.txt"), "do not clobber");
+
+    const origExit = process.exit.bind(process);
+    let exited = false;
+    // @ts-ignore
+    process.exit = (() => {
+      exited = true;
+      throw new Error("process.exit called");
+    }) as never;
+    try {
+      await createApp("plan", { template: "plan" });
+    } catch {
+      // expected — clack.cancel + process.exit(1)
+    } finally {
+      process.exit = origExit;
+    }
+    expect(exited).toBe(true);
+    // The user's existing file must survive.
+    expect(
+      fs.readFileSync(path.join(tmpDir, "plan", "keep.txt"), "utf-8"),
+    ).toBe("do not clobber");
+  });
+
+  it("rejects an invalid app name before touching the filesystem", async () => {
+    const origExit = process.exit.bind(process);
+    let code: number | undefined;
+    // @ts-ignore
+    process.exit = ((c?: number) => {
+      code = c;
+      throw new Error("process.exit called");
+    }) as never;
+    try {
+      await createApp("Plan With Spaces!", { template: "plan" });
+    } catch {
+      // expected
+    } finally {
+      process.exit = origExit;
+    }
+    expect(code).toBe(1);
+    expect(fs.existsSync(path.join(tmpDir, "Plan With Spaces!"))).toBe(false);
+  });
+
+  it("throws a helpful error for an unknown template name", async () => {
+    await expect(
+      _scaffoldAppTemplate(path.join(tmpDir, "x"), "definitely-not-a-template"),
+    ).rejects.toThrow(/Unknown template/);
+  });
+
+  it("rejects path-traversal / malformed github: repo specs", async () => {
+    for (const bad of [
+      "github:../../etc/passwd",
+      "github:owner",
+      "github:owner/repo/extra",
+      "github:owner repo",
+    ]) {
+      await expect(
+        _scaffoldAppTemplate(path.join(tmpDir, "trav"), bad),
+        `expected rejection for ${bad}`,
+      ).rejects.toThrow();
+      // Nothing should have been written outside the target.
+      expect(fs.existsSync(path.join(tmpDir, "trav", "package.json"))).toBe(
+        false,
+      );
+    }
+  });
+});

@@ -1,0 +1,1351 @@
+/**
+ * Tests for generate-design.
+ *
+ * Coverage focus (in addition to the pre-existing tool-schema test): the
+ * existing-file UPDATE path now goes through writeInlineSourceFile with a
+ * freshly-read expectedVersionHash, closing the stale-diff-base race where
+ * `file.content` is LLM-generated content that can be arbitrarily stale by
+ * the time this action persists it (the same bug class already fixed in
+ * insert-design-native-asset.ts / insert-asset.ts). The NEW-file creation
+ * path (db.insert + seedFromText) uses the same core write mechanics as
+ * before. Both paths now also stamp missing data-agent-native-node-id
+ * attributes before persisting (shared/screen-annotation.ts) so generated
+ * screens are born fully addressable by id-keyed editor operations instead
+ * of depending on a client-side backfill the first time someone opens them.
+ */
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => {
+  // `where()` must behave both as a directly-awaited result (this action's
+  // own existingFiles/select lookups) AND as a chain that supports a
+  // trailing `.limit(1)` (writeInlineSourceFile's internal re-select in
+  // server/source-workspace.ts, now used by the existing-file update path).
+  // Returning a real Promise with an extra `.limit()` method attached covers
+  // both call shapes with the same mocked resolved rows.
+  function makeWhereResult(rows: unknown[]) {
+    const promise = Promise.resolve(rows) as Promise<unknown[]> & {
+      limit: (n: number) => Promise<unknown[]>;
+    };
+    promise.limit = vi.fn().mockResolvedValue(rows);
+    return promise;
+  }
+
+  // Backing rows for the design's files. The action's own lookup filters by
+  // designId only (the fake `eq` doesn't narrow further in that shape);
+  // writeInlineSourceFile's internal re-select filters by a single file id
+  // (`eq(designFiles.id, file.id)`), which this fake `where` recognizes by
+  // predicate shape and narrows to.
+  let fileRows: Array<Record<string, unknown>> = [];
+  let designRows: Array<Record<string, unknown>> = [
+    { id: "design-1", data: null },
+  ];
+  let designData: Record<string, unknown> = {};
+
+  const fileSelectChain = { from: vi.fn(), where: vi.fn() };
+  fileSelectChain.from.mockReturnValue(fileSelectChain);
+  fileSelectChain.where.mockImplementation(
+    (predicate?: { left?: unknown; right?: unknown }) => {
+      if (predicate && predicate.left === "designFiles.id") {
+        return makeWhereResult(
+          fileRows.filter((row) => row.id === predicate.right),
+        );
+      }
+      if (predicate && predicate.left === "designFiles.designId") {
+        return makeWhereResult(
+          fileRows.filter((row) => row.designId === predicate.right),
+        );
+      }
+      return makeWhereResult(fileRows);
+    },
+  );
+
+  const designSelectChain = { from: vi.fn(), where: vi.fn() };
+  designSelectChain.from.mockReturnValue(designSelectChain);
+  designSelectChain.where.mockImplementation(
+    (predicate?: { left?: unknown; right?: unknown }) => {
+      if (predicate && predicate.left === "designs.id") {
+        return makeWhereResult(
+          designRows.filter((row) => row.id === predicate.right),
+        );
+      }
+      return makeWhereResult(designRows);
+    },
+  );
+
+  // select() is called with either no args (designFiles lookups) or a
+  // projection object (the tx.select({ data: ... }) design-data read).
+  // Dispatch on whether a projection was requested to the right chain.
+  const select = vi.fn((projection?: Record<string, unknown>) => {
+    if (projection && "data" in projection) return designSelectChain;
+    return fileSelectChain;
+  });
+
+  const insert = vi.fn(() => ({
+    values: vi.fn().mockResolvedValue(undefined),
+  }));
+
+  const fileUpdateChain = { set: vi.fn(), where: vi.fn() };
+  fileUpdateChain.set.mockReturnValue(fileUpdateChain);
+  fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+
+  const designUpdateChain = { set: vi.fn(), where: vi.fn() };
+  designUpdateChain.set.mockReturnValue(designUpdateChain);
+  designUpdateChain.where.mockResolvedValue(undefined);
+
+  const update = vi.fn((table: unknown) => {
+    if (table === schemaRef.designs) return designUpdateChain;
+    return fileUpdateChain;
+  });
+
+  // Populated after the db.mock schema object is constructed below (needed
+  // so `update()` can dispatch by table identity).
+  const schemaRef: { designFiles?: unknown; designs?: unknown } = {};
+
+  const tx = {
+    select,
+    update,
+  };
+
+  const transaction = vi.fn(async (fn: (tx: typeof tx) => Promise<void>) => {
+    await fn(tx);
+  });
+
+  const db = {
+    select,
+    insert,
+    update,
+    transaction,
+  };
+
+  // Shared with the @agent-native/core/collab mock below: writeInlineSourceFile
+  // (used by the existing-file update path) re-reads getText() right after
+  // seedFromText/applyText to persist the "authoritative" collab content back
+  // to SQL, so seedFromText must actually store what getText reads back.
+  // Cleared per-test in beforeEach (the vi.mock factory only runs once per
+  // file, so without an explicit reset this map would leak across tests).
+  const seededCollabText = new Map<string, string>();
+
+  return {
+    db,
+    schemaRef,
+    fileSelectChain,
+    designSelectChain,
+    fileUpdateChain,
+    designUpdateChain,
+    insert,
+    transaction,
+    seededCollabText,
+    setFileRows: (next: Array<Record<string, unknown>>) => {
+      fileRows = next;
+    },
+    setDesignRows: (next: Array<Record<string, unknown>>) => {
+      designRows = next;
+    },
+    setDesignData: (next: Record<string, unknown>) => {
+      designData = next;
+    },
+    getDesignData: () => designData,
+    mutateDesignData: vi.fn(),
+    assertAccess: vi.fn().mockResolvedValue(undefined),
+    and: vi.fn((...conditions) => ({ conditions })),
+    eq: vi.fn((left, right) => ({ left, right })),
+    isNull: vi.fn((value) => ({ isNull: value })),
+    readAppState: vi.fn().mockResolvedValue(null),
+    writeAppState: vi.fn().mockResolvedValue(undefined),
+    getGenerationCreativeContext: vi.fn().mockResolvedValue(null),
+    recordGenerationCreativeContext: vi.fn().mockResolvedValue(undefined),
+    resolveGenerationCreativeContext: vi.fn().mockResolvedValue({
+      contextMode: "auto",
+      contextPackId: null,
+      reuseLabels: [],
+      results: [],
+    }),
+    validateGenerationCreativeContext: vi.fn(
+      async (input: {
+        contextPackId?: string | null;
+        contextModeOverride?: "off";
+        reuseLabels?: Array<Record<string, unknown>>;
+      }) => ({
+        contextMode:
+          input.contextModeOverride === "off"
+            ? "off"
+            : input.contextPackId
+              ? "pinned"
+              : "auto",
+        contextPackId:
+          input.contextModeOverride === "off"
+            ? null
+            : (input.contextPackId ?? null),
+        reuseLabels: input.reuseLabels ?? [],
+        results: [],
+      }),
+    ),
+  };
+});
+
+vi.mock("@agent-native/core/sharing", () => ({
+  assertAccess: mocks.assertAccess,
+}));
+
+vi.mock("drizzle-orm", () => ({
+  and: mocks.and,
+  eq: mocks.eq,
+  isNull: mocks.isNull,
+  sql: vi.fn((strings, ...values) => ({ strings, values })),
+}));
+
+vi.mock("@agent-native/core/application-state", () => ({
+  readAppState: mocks.readAppState,
+  writeAppState: mocks.writeAppState,
+}));
+
+vi.mock("@agent-native/core/collab", () => {
+  const seeded = mocks.seededCollabText;
+  return {
+    hasCollabState: vi.fn(async (docId: string) => seeded.has(docId)),
+    getText: vi.fn(async (docId: string) => seeded.get(docId) ?? ""),
+    applyText: vi.fn(async (docId: string, text: string) => {
+      seeded.set(docId, text);
+      return text;
+    }),
+    seedFromText: vi.fn(async (docId: string, text: string) => {
+      if (!seeded.has(docId)) seeded.set(docId, text);
+    }),
+    agentEnterDocument: vi.fn(),
+    agentLeaveDocument: vi.fn(),
+    agentUpdateSelection: vi.fn(),
+  };
+});
+
+vi.mock("../server/db/index.js", () => {
+  const schema = {
+    designFiles: {
+      id: "designFiles.id",
+      designId: "designFiles.designId",
+      filename: "designFiles.filename",
+      fileType: "designFiles.fileType",
+      content: "designFiles.content",
+    },
+    designs: {
+      id: "designs.id",
+      data: "designs.data",
+    },
+  };
+  mocks.schemaRef.designFiles = schema.designFiles;
+  mocks.schemaRef.designs = schema.designs;
+  return {
+    getDb: () => mocks.db,
+    schema,
+  };
+});
+
+vi.mock("../server/lib/design-data-mutation.js", () => ({
+  mutateDesignData: mocks.mutateDesignData,
+}));
+
+vi.mock("@agent-native/creative-context/server", () => ({
+  getGenerationCreativeContext: mocks.getGenerationCreativeContext,
+  recordGenerationCreativeContext: mocks.recordGenerationCreativeContext,
+  resolveGenerationCreativeContext: mocks.resolveGenerationCreativeContext,
+  validateGenerationCreativeContext: mocks.validateGenerationCreativeContext,
+  validateCreativeContextReuseLabels: (
+    labels: Array<Record<string, unknown>>,
+  ) => labels,
+  mergeCreativeContextReuseLabels: (
+    previous: Array<Record<string, unknown>>,
+    next: Array<Record<string, unknown>>,
+  ) => [...previous, ...next],
+  replaceCreativeContextElementProvenance: (
+    previous: Array<{ elementId: string }>,
+    next: Array<{ elementId: string }>,
+  ) => {
+    const replaced = new Set(next.map((entry) => entry.elementId));
+    return [
+      ...previous.filter((entry) => !replaced.has(entry.elementId)),
+      ...next,
+    ];
+  },
+}));
+
+import action from "./generate-design.js";
+
+function resetDesignDataMutation() {
+  mocks.setDesignData({ concurrentSibling: { keep: true } });
+  mocks.mutateDesignData.mockImplementation(
+    async (options: {
+      mutate: (
+        current: Record<string, unknown>,
+        context: { updatedAt: string },
+      ) => Record<string, unknown>;
+      isApplied: (current: Record<string, unknown>) => boolean;
+    }) => {
+      const updatedAt = "2026-07-09T12:00:00.000Z";
+      const next = options.mutate(mocks.getDesignData(), { updatedAt });
+      mocks.setDesignData(next);
+      expect(options.isApplied(next)).toBe(true);
+      return { data: next, updatedAt };
+    },
+  );
+}
+
+function setExistingFile(
+  content: string,
+  overrides: Partial<{
+    id: string;
+    designId: string;
+    filename: string;
+    fileType: string;
+  }> = {},
+) {
+  mocks.setFileRows([
+    {
+      id: overrides.id ?? "file-1",
+      designId: overrides.designId ?? "design-1",
+      filename: overrides.filename ?? "index.html",
+      fileType: overrides.fileType ?? "html",
+      content,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+  ]);
+}
+
+describe("generate-design action tool schema", () => {
+  it("exposes a lean native-tool schema while retaining Zod validation", () => {
+    const parameters = action.tool.parameters as {
+      properties?: Record<
+        string,
+        { type?: string | readonly string[]; description?: string }
+      >;
+      required?: string[];
+    };
+
+    expect(parameters.required).toEqual(["designId", "prompt", "files"]);
+    expect(parameters.properties?.files?.type).toBe("string");
+    expect(parameters.properties?.files?.description).toContain(
+      "Do not use generate-design to replace a selected variant screen",
+    );
+    expect(parameters.properties?.files?.description).toContain("edit-design");
+    expect(parameters.properties?.designSystemId?.type).toEqual([
+      "string",
+      "null",
+    ]);
+    expect(parameters.properties?.tweaks?.type).toBe("string");
+    expect(parameters.properties?.canvasFrames?.type).toBe("string");
+    expect(parameters.properties?.reuseLabels?.type).toBe("string");
+    expect(parameters.properties?.contextModeOverride?.type).toBe("string");
+
+    const parsed = (action as any).schema.safeParse({
+      designId: "design_123",
+      prompt: "Dark SaaS landing page",
+      designSystemId: null,
+      files: JSON.stringify([
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Hello</body></html>",
+        },
+      ]),
+    });
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.designSystemId).toBeNull();
+    expect(parsed.data.files).toEqual([
+      {
+        filename: "index.html",
+        fileType: "html",
+        content: "<!doctype html><html><body>Hello</body></html>",
+      },
+    ]);
+  });
+});
+
+describe("generate-design: canvasFrames duplicate-target rejection", () => {
+  // mergeCanvasFramePlacements folds two placements for the same target into
+  // one canvasFrames[fileId] value (last one wins), but the mutateDesignData
+  // isApplied check verifies EVERY placedFrames entry against that single
+  // folded value, so the earlier (now-overwritten) entry always mismatches.
+  // Since the mutate callback is deterministic, every retry recomputes the
+  // same mismatch, so the action would always fail with a "concurrent write
+  // conflicts" error after burning through every retry. Reject the malformed
+  // input up front instead.
+  it("rejects two canvasFrames entries targeting the same fileId", () => {
+    const parsed = (action as any).schema.safeParse({
+      designId: "design-1",
+      prompt: "Add a screen",
+      files: [
+        { filename: "index.html", fileType: "html", content: "<html></html>" },
+      ],
+      canvasFrames: JSON.stringify([
+        { fileId: "file-1", x: 0, y: 0, width: 100, height: 100 },
+        { fileId: "file-1", x: 50, y: 50, width: 100, height: 100 },
+      ]),
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects two canvasFrames entries targeting the same filename", () => {
+    const parsed = (action as any).schema.safeParse({
+      designId: "design-1",
+      prompt: "Add a screen",
+      files: [
+        { filename: "index.html", fileType: "html", content: "<html></html>" },
+      ],
+      canvasFrames: JSON.stringify([
+        { filename: "index.html", x: 0, y: 0, width: 100, height: 100 },
+        { filename: "index.html", x: 50, y: 50, width: 100, height: 100 },
+      ]),
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("still accepts distinct canvasFrames targets", () => {
+    const parsed = (action as any).schema.safeParse({
+      designId: "design-1",
+      prompt: "Add screens",
+      files: [
+        { filename: "index.html", fileType: "html", content: "<html></html>" },
+        {
+          filename: "details.html",
+          fileType: "html",
+          content: "<html></html>",
+        },
+      ],
+      canvasFrames: JSON.stringify([
+        { filename: "index.html", x: 0, y: 0, width: 100, height: 100 },
+        { filename: "details.html", x: 200, y: 0, width: 100, height: 100 },
+      ]),
+    });
+    expect(parsed.success).toBe(true);
+  });
+});
+
+describe("generate-design: existing-file update path (hash-guarded write)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  it("updates an existing file's content via the hash-guarded write path", async () => {
+    setExistingFile("<html><body>old</body></html>");
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Update copy",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>new</body></html>",
+        },
+      ],
+    });
+
+    expect(result.savedFiles).toEqual([
+      { id: "file-1", filename: "index.html", fileType: "html" },
+    ]);
+    // writeInlineSourceFile persists the authoritative collab content via
+    // db.update(schema.designFiles).set({ content, updatedAt }). Content is
+    // annotated with data-agent-native-node-id before persisting (see
+    // shared/screen-annotation.ts), so the saved html/body tags carry stamped
+    // ids rather than the byte-exact input string.
+    expect(mocks.fileUpdateChain.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringMatching(
+          /^<html data-agent-native-node-id="[^"]+"><body data-agent-native-node-id="[^"]+">new<\/body><\/html>$/,
+        ),
+      }),
+    );
+    expect(mocks.seededCollabText.get("file-1")).toEqual(
+      expect.stringContaining("new</body></html>"),
+    );
+    expect(mocks.seededCollabText.get("file-1")).toContain(
+      "data-agent-native-node-id",
+    );
+  });
+
+  it("reports (never throws) the conflict when the live content changed since it was read (concurrent write)", async () => {
+    setExistingFile("<html><body>old</body></html>");
+
+    // Simulate a concurrent writer's collab mutation landing in the exact
+    // race window this fix closes: AFTER this action's own
+    // readLiveSourceFile() call (which establishes expectedVersionHash from
+    // the then-current base) but BEFORE writeInlineSourceFile's internal
+    // re-check. hasCollabState() flips true and getText() returns the
+    // concurrent content on the FIRST read (inside the action's own
+    // readLiveSourceFile) so the captured expectedVersionHash reflects the
+    // pre-race base; a second, different value on the SECOND read (inside
+    // writeInlineSourceFile) simulates the concurrent write having landed in
+    // between, so writeInlineSourceFile's own hash re-check must reject it.
+    const collab = await import("@agent-native/core/collab");
+    let hasCollabCalls = 0;
+    (collab.hasCollabState as any).mockImplementation(async () => {
+      hasCollabCalls += 1;
+      return hasCollabCalls > 0; // collab doc already exists from the start
+    });
+    let getTextCalls = 0;
+    (collab.getText as any).mockImplementation(async () => {
+      getTextCalls += 1;
+      // First call: the action's pre-write read (establishes the base hash).
+      // Second call: writeInlineSourceFile's internal re-check, after a
+      // concurrent write has landed.
+      return getTextCalls === 1
+        ? "<html><body>old</body></html>"
+        : "<html><body>concurrent-edit</body></html>";
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Update copy",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>stale-generated</body></html>",
+        },
+      ],
+    });
+
+    // Must fail loud: the stale content must never be persisted...
+    expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+    // ...but a single-file batch is just a batch of size one — the conflict
+    // is reported the same retryable way a multi-file batch reports it, not
+    // as a thrown error, so the caller has one consistent shape to check.
+    expect(result.savedFiles).toEqual([]);
+    expect(result.fileErrors).toEqual([
+      {
+        filename: "index.html",
+        message: expect.stringContaining("changed since it was read"),
+      },
+    ]);
+  });
+
+  it("keeps an earlier file's save and reports a later file's write conflict instead of discarding both", async () => {
+    mocks.setFileRows([
+      {
+        id: "file-1",
+        designId: "design-1",
+        filename: "index.html",
+        fileType: "html",
+        content: "<html><body>old-1</body></html>",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "file-2",
+        designId: "design-1",
+        filename: "details.html",
+        fileType: "html",
+        content: "<html><body>old-2</body></html>",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    // Only file-2 gets the "concurrent write" race from the test above: its
+    // collab doc already exists, and the live content differs between this
+    // action's own pre-write read and writeInlineSourceFile's internal
+    // re-check, so its write is rejected as a genuine conflict. file-1 has no
+    // collab doc and takes the plain seedFromText path used by every other
+    // test in this block, so it must save normally in the same batch.
+    const collab = await import("@agent-native/core/collab");
+    let file2GetTextCalls = 0;
+    (collab.hasCollabState as any).mockImplementation(
+      async (docId: string) => docId === "file-2",
+    );
+    (collab.getText as any).mockImplementation(async (docId: string) => {
+      if (docId !== "file-2") return mocks.seededCollabText.get(docId) ?? "";
+      file2GetTextCalls += 1;
+      return file2GetTextCalls === 1
+        ? "<html><body>old-2</body></html>"
+        : "<html><body>concurrent-edit</body></html>";
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Update two screens",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>new-1</body></html>",
+        },
+        {
+          filename: "details.html",
+          fileType: "html",
+          content: "<html><body>new-2</body></html>",
+        },
+      ],
+    });
+
+    // file-1 saved (and got its canvas frame placed) even though file-2
+    // failed later in the same batch — a partial failure must not discard an
+    // already-committed sibling's bookkeeping.
+    expect(result.savedFiles).toEqual([
+      { id: "file-1", filename: "index.html", fileType: "html" },
+    ]);
+    expect(mocks.fileUpdateChain.set).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining("new-1") }),
+    );
+    const data = mocks.getDesignData();
+    expect(
+      (data.canvasFrames as Record<string, unknown> | undefined)?.["file-1"],
+    ).toBeDefined();
+
+    // file-2's conflict is reported back, not thrown and not swallowed.
+    expect(result.fileErrors).toEqual([
+      {
+        filename: "details.html",
+        message: expect.stringContaining("changed since it was read"),
+      },
+    ]);
+  });
+
+  it("updates fileType separately when it changes, alongside the guarded content write", async () => {
+    setExistingFile("<html><body>old</body></html>", { fileType: "html" });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Convert to jsx",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "jsx",
+          content: "<html><body>new</body></html>",
+        },
+      ],
+    });
+
+    const fileTypeCall = mocks.fileUpdateChain.set.mock.calls.find(
+      (call) => (call[0] as Record<string, unknown>).fileType === "jsx",
+    );
+    expect(fileTypeCall).toBeDefined();
+  });
+
+  it("rethrows an unclassified infrastructure failure instead of reporting it as a fileError", async () => {
+    setExistingFile("<html><body>old</body></html>");
+
+    // The first assertAccess call is this action's own top-level access
+    // check (line ~709); the second is writeInlineSourceFile's internal
+    // check for this one file. Reject only the second call, simulating a
+    // transient provider/DB failure unrelated to any conflict or integrity
+    // rule — the kind of failure a caller must be able to tell apart from a
+    // legitimate per-file rejection so it retries the WHOLE call instead of
+    // reading "index.html" as durably rejected.
+    mocks.assertAccess
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("ECONNREFUSED: connection lost"));
+
+    await expect(
+      action.run({
+        designId: "design-1",
+        prompt: "Update copy",
+        files: [
+          {
+            filename: "index.html",
+            fileType: "html",
+            content: "<html><body>new</body></html>",
+          },
+        ],
+      }),
+    ).rejects.toThrow("ECONNREFUSED");
+
+    // Nothing about this failure is a legitimate per-file outcome: the write
+    // never happened and the caller must see a failed action call, not a
+    // successful response with the DB error text tucked into fileErrors.
+    expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+  });
+});
+
+describe("generate-design: generation-session lock guards concurrent fan-out", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  // generate-screens' own tool description recommends fanning out parallel
+  // generate-design calls per returned frame. Both calls read-modify-write
+  // the same design-generation-session:<designId> application-state key with
+  // no CAS/versioning primitive available, so without in-process
+  // serialization, whichever write lands second silently discards the first
+  // call's frame-done update (classic lost-update race). Artificial delays on
+  // the mocked readAppState/writeAppState make the race deterministic: without
+  // the lock, both reads land on the same pre-update session before either
+  // write commits.
+  it("marks both fanned-out frames done instead of losing one to a last-write-wins race", async () => {
+    const sessionStore = new Map<string, Record<string, unknown>>();
+    const key = "design-generation-session:design-1";
+    sessionStore.set(key, {
+      designId: "design-1",
+      status: "generating",
+      prompt: "Build two screens",
+      contextRefs: [],
+      frames: [
+        {
+          frameId: "frame-1",
+          filename: "index.html",
+          agentId: "agent-1",
+          agentName: "Atlas",
+          agentColor: "red",
+          region: { x: 0, y: 0, width: 100, height: 100 },
+          role: "screen",
+          status: "queued",
+          progress: 0,
+        },
+        {
+          frameId: "frame-2",
+          filename: "details.html",
+          agentId: "agent-2",
+          agentName: "Nova",
+          agentColor: "blue",
+          region: { x: 0, y: 0, width: 100, height: 100 },
+          role: "screen",
+          status: "queued",
+          progress: 0,
+        },
+      ],
+      startedAt: "2026-07-09T00:00:00.000Z",
+    });
+
+    mocks.readAppState.mockImplementation(async (k: string) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return sessionStore.get(k) ?? null;
+    });
+    mocks.writeAppState.mockImplementation(
+      async (k: string, value: Record<string, unknown>) => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        sessionStore.set(k, value);
+      },
+    );
+
+    await Promise.all([
+      action.run({
+        designId: "design-1",
+        prompt: "Build two screens",
+        files: [
+          {
+            filename: "index.html",
+            fileType: "html",
+            content: "<html><body>index</body></html>",
+          },
+        ],
+      }),
+      action.run({
+        designId: "design-1",
+        prompt: "Build two screens",
+        files: [
+          {
+            filename: "details.html",
+            fileType: "html",
+            content: "<html><body>details</body></html>",
+          },
+        ],
+      }),
+    ]);
+
+    const finalSession = sessionStore.get(key) as {
+      status: string;
+      frames: Array<{ filename?: string; status: string }>;
+    };
+    expect(
+      finalSession.frames.find((f) => f.filename === "index.html")?.status,
+    ).toBe("done");
+    expect(
+      finalSession.frames.find((f) => f.filename === "details.html")?.status,
+    ).toBe("done");
+    expect(finalSession.status).toBe("done");
+  });
+});
+
+describe("generate-design: new-file creation path (unchanged)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  it("creates a brand-new file via insert + seedFromText, with no pre-existing base to race against", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "New landing page",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Hello</body></html>",
+        },
+      ],
+    });
+
+    expect(result.savedFiles).toHaveLength(1);
+    expect(mocks.insert).toHaveBeenCalled();
+    // The new-file path seeds collab state directly; it must not go through
+    // the update path's db.update(designFiles) content write.
+    expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+    // Content is annotated with data-agent-native-node-id before persisting
+    // (see shared/screen-annotation.ts) so the new screen is fully
+    // addressable by id-keyed editor operations immediately, instead of the
+    // byte-exact unannotated input string.
+    const seededValues = Array.from(mocks.seededCollabText.values());
+    expect(seededValues).toHaveLength(1);
+    expect(seededValues[0]).toContain("<body");
+    expect(seededValues[0]).toContain("Hello</body></html>");
+    expect(seededValues[0]).toContain("data-agent-native-node-id");
+    expect(mocks.getDesignData()).toMatchObject({
+      concurrentSibling: { keep: true },
+      lastPrompt: "New landing page",
+      fileCount: 1,
+    });
+  });
+
+  it("defaults a generated web screen to a desktop canvas and responsive breakpoints", async () => {
+    await action.run({
+      designId: "design-1",
+      prompt: "Create a task manager",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Tasks</body></html>",
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const [frame] = Object.values(
+      data.canvasFrames as Record<string, Record<string, unknown>>,
+    );
+    expect(frame).toMatchObject({
+      x: 0,
+      y: 0,
+      width: 1440,
+      height: 900,
+    });
+    expect(data.breakpointSet).toMatchObject({
+      breakpoints: [expect.objectContaining({ label: "Mobile", widthPx: 390 })],
+    });
+    expect(
+      (data.breakpointSet as { breakpoints: unknown[] }).breakpoints,
+    ).toHaveLength(1);
+  });
+
+  it("uses the requested mobile viewport when the agent supplies it", async () => {
+    await action.run({
+      designId: "design-1",
+      prompt: "Create a mobile task manager",
+      primaryViewport: "mobile",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Tasks</body></html>",
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const [frame] = Object.values(
+      data.canvasFrames as Record<string, Record<string, unknown>>,
+    );
+    expect(frame).toMatchObject({ width: 390, height: 844 });
+  });
+
+  it("derives the base frame and breakpoint set from an explicit devices list", async () => {
+    await action.run({
+      designId: "design-1",
+      prompt: "Create a responsive landing page",
+      devices: ["mobile", "tablet", "desktop"],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Landing</body></html>",
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const [frame] = Object.values(
+      data.canvasFrames as Record<string, Record<string, unknown>>,
+    );
+    // Widest device (desktop) seeds the primary frame.
+    expect(frame).toMatchObject({ width: 1440, height: 900 });
+    // Breakpoints are the narrower devices only, ascending, never the base width.
+    expect(data.breakpointSet).toMatchObject({
+      breakpoints: [
+        expect.objectContaining({ label: "Mobile", widthPx: 390 }),
+        expect.objectContaining({ label: "Tablet", widthPx: 768 }),
+      ],
+    });
+    expect(
+      (data.breakpointSet as { breakpoints: unknown[] }).breakpoints,
+    ).toHaveLength(2);
+  });
+
+  it("produces a single frame with no breakpoints for a one-device request", async () => {
+    await action.run({
+      designId: "design-1",
+      prompt: "Create a phone-only screen",
+      devices: ["mobile"],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Phone</body></html>",
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const [frame] = Object.values(
+      data.canvasFrames as Record<string, Record<string, unknown>>,
+    );
+    expect(frame).toMatchObject({ width: 390, height: 844 });
+    // Single device => empty breakpoint set => no breakpointSet is seeded.
+    expect(data.breakpointSet).toBeUndefined();
+  });
+
+  it("pins session evidence to the saved frame and preserves exact versions", async () => {
+    const evidence = {
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      kind: "figma-frame",
+      label: "Pricing hero",
+      dataRole: "untrusted-reference" as const,
+    };
+    mocks.readAppState.mockResolvedValue({
+      id: "session-1",
+      designId: "design-1",
+      status: "generating",
+      prompt: "Pricing",
+      contextRefs: [],
+      creativeContext: {
+        contextMode: "pinned",
+        contextPackId: "pack-1",
+        reuseLabels: [evidence],
+      },
+      frames: [
+        {
+          frameId: "frame-1",
+          filename: "index.html",
+          agentId: "agent-1",
+          agentName: "Atlas",
+          agentColor: "red",
+          region: { x: 0, y: 0, width: 1440, height: 1024 },
+          role: "screen",
+          status: "queued",
+        },
+      ],
+      startedAt: "2026-07-16T00:00:00.000Z",
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Pricing",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Pricing</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith({
+      contextPackId: "pack-1",
+      contextPackSource: "inherited",
+      reuseLabels: [evidence],
+      reuseLabelsSource: "inherited",
+    });
+    expect(mocks.recordGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "design",
+        artifactType: "design",
+        artifactId: "design-1",
+        contextPackId: "pack-1",
+        elementProvenance: [
+          expect.objectContaining({
+            elementId: "frame-1",
+            influence: "reference-conditioned",
+            itemId: "item-1",
+            itemVersionId: "version-1",
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("makes a one-generation off override structural even with a pinned session", async () => {
+    mocks.readAppState.mockResolvedValue({
+      designId: "design-1",
+      creativeContext: {
+        contextMode: "pinned",
+        contextPackId: "pack-1",
+        reuseLabels: [],
+      },
+      frames: [],
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Unbranded concept",
+      contextModeOverride: "off",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Concept</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.resolveGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(mocks.getGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith({
+      contextPackId: undefined,
+      contextModeOverride: "off",
+      reuseLabels: [],
+    });
+    expect(mocks.recordGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contextMode: "off",
+        contextPackId: null,
+        elementProvenance: [
+          expect.objectContaining({ influence: "generated" }),
+        ],
+      }),
+    );
+  });
+});
+
+describe("generate-design: new screens never stack on existing frames", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  it("relocates a second screen that requests the first screen's coordinates", async () => {
+    // A screen already sits at the origin (state after the first generation).
+    mocks.setDesignData({
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 1440, height: 900, z: 0 },
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Add a pricing screen",
+      files: [
+        {
+          filename: "pricing.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Pricing</body></html>",
+        },
+      ],
+      // The agent reuses the skill example's x:0,y:0 for the new screen.
+      canvasFrames: [
+        { filename: "pricing.html", x: 0, y: 0, width: 1440, height: 900 },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number; y: number; width: number; height: number }
+    >;
+    const first = frames["file-1"]!;
+    const second = Object.entries(frames).find(([id]) => id !== "file-1")![1];
+
+    expect(first).toMatchObject({ x: 0, y: 0 });
+    const overlaps =
+      first.x < second.x + second.width &&
+      first.x + first.width > second.x &&
+      first.y < second.y + second.height &&
+      first.y + first.height > second.y;
+    expect(overlaps).toBe(false);
+    expect(second.x).toBeGreaterThanOrEqual(1440);
+  });
+});
+
+describe("generate-design: single-device regen clears stale breakpoints", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  const responsiveData = () => ({
+    breakpointSet: {
+      id: "old",
+      breakpoints: [{ id: "m", label: "Mobile", widthPx: 390 }],
+    },
+  });
+  const oneFile = [
+    {
+      filename: "index.html",
+      fileType: "html",
+      content: "<!doctype html><html><body>x</body></html>",
+    },
+  ];
+
+  it("removes an existing breakpointSet on an explicit single-device request", async () => {
+    mocks.setDesignData(responsiveData());
+    await action.run({
+      designId: "design-1",
+      prompt: "Make it desktop only",
+      devices: ["desktop"],
+      files: oneFile,
+    });
+    expect(mocks.getDesignData().breakpointSet).toBeUndefined();
+  });
+
+  it("keeps the breakpointSet when devices is not explicitly narrowed", async () => {
+    mocks.setDesignData(responsiveData());
+    await action.run({
+      designId: "design-1",
+      prompt: "Tweak the copy",
+      files: oneFile,
+    });
+    expect(mocks.getDesignData().breakpointSet).toBeDefined();
+  });
+
+  it("does not overwrite a malformed breakpointSet when seeding generated-responsive breakpoints", async () => {
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "broken",
+        breakpoints: "not-an-array",
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Seed responsive screens",
+      files: oneFile,
+    });
+
+    expect(mocks.getDesignData().breakpointSet).toEqual({
+      id: "broken",
+      breakpoints: "not-an-array",
+    });
+  });
+
+  it("does not overwrite a breakpointSet object with no breakpoint array", async () => {
+    mocks.setDesignData({
+      breakpointSet: { id: "broken" },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Seed responsive screens",
+      files: oneFile,
+    });
+
+    expect(mocks.getDesignData().breakpointSet).toEqual({ id: "broken" });
+  });
+});
+
+describe("generate-design: placement clears rotated existing frames", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  it("relocates a new screen clear of a rotated frame's real footprint", async () => {
+    // A wide-short frame at y=1000 rotated 90° becomes a tall band whose AABB
+    // is x∈[670,770], y∈[330,1770] — overlapping a new origin screen even
+    // though its UNROTATED rect (y∈[1000,1100]) does not. Requires
+    // rotation-aware collision to relocate the new screen.
+    mocks.setDesignData({
+      canvasFrames: {
+        "file-1": {
+          x: 0,
+          y: 1000,
+          width: 1440,
+          height: 100,
+          rotation: 90,
+          z: 0,
+        },
+      },
+    });
+    await action.run({
+      designId: "design-1",
+      prompt: "Add a screen",
+      files: [
+        {
+          filename: "b.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>b</body></html>",
+        },
+      ],
+      canvasFrames: [
+        { filename: "b.html", x: 0, y: 0, width: 1440, height: 900 },
+      ],
+    });
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number; width: number }
+    >;
+    const placed = Object.entries(frames).find(([id]) => id !== "file-1")![1];
+    // Without rotation awareness the new screen would stay at x:0 (its
+    // unrotated rect misses); rotation-aware collision bumps it past the band.
+    expect(placed.x).toBeGreaterThanOrEqual(770);
+  });
+});
+
+describe("generate-design: explicit device requests reconcile breakpoints & rotated placement", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  const oneFile = [
+    {
+      filename: "index.html",
+      fileType: "html",
+      content: "<!doctype html><html><body>x</body></html>",
+    },
+  ];
+
+  it("replaces a stale set when an explicit multi-device request adds a device", async () => {
+    // Existing design has only Mobile; regenerating as mobile+tablet+desktop
+    // must add the Tablet breakpoint, not silently keep only Mobile.
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "old",
+        breakpoints: [{ id: "m", label: "Mobile", widthPx: 390 }],
+      },
+    });
+    await action.run({
+      designId: "design-1",
+      prompt: "Make it responsive across devices",
+      devices: ["mobile", "tablet", "desktop"],
+      files: oneFile,
+    });
+    const set = mocks.getDesignData().breakpointSet as {
+      breakpoints: Array<{ widthPx: number }>;
+    };
+    expect(set.breakpoints.map((b) => b.widthPx).sort((a, b) => a - b)).toEqual(
+      [390, 768],
+    );
+  });
+
+  it("relocates a new ROTATED screen whose rotated footprint overlaps", async () => {
+    // Existing frame occupies x∈[0,1440]. A new 200x200 screen requested at
+    // x:1450 (unrotated: clears it) rotated 45° has an AABB reaching back to
+    // ~1409, overlapping the existing frame — so it must be relocated.
+    mocks.setDesignData({
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 1440, height: 900, z: 0 },
+      },
+    });
+    await action.run({
+      designId: "design-1",
+      prompt: "Add a rotated screen",
+      files: [
+        {
+          filename: "b.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>b</body></html>",
+        },
+      ],
+      canvasFrames: [
+        {
+          filename: "b.html",
+          x: 1450,
+          y: 0,
+          width: 200,
+          height: 200,
+          rotation: 45,
+        },
+      ],
+    });
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number }
+    >;
+    const placed = Object.entries(frames).find(([id]) => id !== "file-1")![1];
+    expect(placed.x).not.toBe(1450);
+  });
+});
+
+describe("generate-design: explicit device request resizes an existing frame", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  it("resizes a persisted desktop frame to mobile (keeping position) on devices:[mobile]", async () => {
+    // Existing index.html (file-1) with a persisted desktop-sized frame.
+    setExistingFile("<html><body>old</body></html>");
+    mocks.setDesignData({
+      canvasFrames: {
+        "file-1": { x: 300, y: 120, width: 1440, height: 900, z: 0 },
+      },
+    });
+    await action.run({
+      designId: "design-1",
+      prompt: "Make this a mobile screen",
+      devices: ["mobile"],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>x</body></html>",
+        },
+      ],
+    });
+    const frame = (
+      mocks.getDesignData().canvasFrames as Record<
+        string,
+        { x: number; y: number; width: number; height: number }
+      >
+    )["file-1"];
+    expect(frame).toMatchObject({ x: 300, y: 120, width: 390, height: 844 });
+  });
+});

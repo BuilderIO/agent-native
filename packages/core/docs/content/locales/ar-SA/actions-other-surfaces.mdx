@@ -1,0 +1,163 @@
+---
+title: "أسطح أخرى"
+description: "كل ما يستدعي action غير خطافات واجهة المستخدم: نتائج عناصر واجهة المحادثة الأصلية، وCLI، وA2A، وMCP، وactions القياسيان الاثنان اللذان يشحنهما كل قالب."
+---
+
+# أسطح أخرى
+
+يُغطّى سطح خطافات واجهة المستخدم في [البيانات والمزامنة](/docs/client-data): `useActionQuery()` و`useActionMutation()` و`callAction()`. تغطي هذه الصفحة كل شيء آخر يمكنه استدعاء action أو أن يُدار بواسطته.
+
+## عرض واجهة المحادثة الأصلية {#native-chat-ui}
+
+يمكن لـ actions إرجاع بيانات عنصر واجهة منظَّمة تعرضها محادثة التطبيق أصليًا. هذا هو مسار المحادثة الأساسي للجداول والمخططات وملخصات الإعداد وبطاقات الرؤى القابلة لإعادة الاستخدام. استخدم [واجهة المستخدم التوليدية](/docs/generative-ui) عندما يحتاج الوكيل إلى توليد عناصر تحكم تفاعلية عشوائية داخل محادثة التطبيق، واستخدم [تطبيقات MCP](/docs/mcp-apps) لواجهة مستخدم مضمَّنة في مضيفي MCP الخارجيين.
+
+```ts
+import { defineAction } from "@agent-native/core/action";
+import { ACTION_CHAT_UI_DATA_CHART_RENDERER } from "@agent-native/core/action-ui";
+import {
+  createDataChartWidgetResult,
+  dataChartWidgetResultSchema,
+} from "@agent-native/core/data-widgets";
+
+export default defineAction({
+  description: "Summarize response trends.",
+  readOnly: true,
+  outputSchema: dataChartWidgetResultSchema,
+  chatUI: { renderer: ACTION_CHAT_UI_DATA_CHART_RENDERER },
+  run: async () =>
+    createDataChartWidgetResult({
+      title: "Response trends",
+      chartSeries: {
+        type: "line",
+        xKey: "day",
+        series: [{ key: "responses", label: "Responses" }],
+        data: [
+          { day: "Mon", responses: 12 },
+          { day: "Tue", responses: 18 },
+        ],
+      },
+    }),
+});
+```
+
+المُميِّزات المدمجة هي `"data-table"` و`"data-chart"` و`"data-insights"`، مع
+أدوات بناء ومخططات آمنة من جانب الخادم في `@agent-native/core/data-widgets`.
+استخدم `data-chart` للإجابات المخصصة للمخططات فقط، و`data-table` لنتائج
+SQL/القوائم، و`data-insights` فقط عندما تكون بطاقة ملخص/مخطط/جدول مجمَّعة هي
+المخرج الصحيح. راجع
+[واجهة المحادثة الأصلية](/docs/native-chat-ui) للاطلاع على عقد النتيجة الكامل، أو
+[أنظمة تشغيل وكيل خاصة بك](/docs/native-chat-ui#byo-agent-runtimes) إذا كنت
+تربط نظام تشغيل وكيل مخصصًا بدلاً من حلقة المحادثة المدمجة. راجع
+[واجهات الوكيل](/docs/agent-surfaces) لمعرفة كيف يمكن لـ action نفسه أن يبقى
+ملائمًا للأتمتة، أو يُعرض في المحادثة، أو ينمو إلى شاشة كاملة.
+
+## استدعاؤه من CLI {#cli}
+
+كل action قابل للتشغيل عبر `pnpm action`:
+
+```bash
+pnpm action reply-to-email '{"emailId":"thread-123","body":"Thanks!"}'
+```
+
+مدخل JSON هو الشكل المفضَّل للوكلاء والكائنات المعقَّدة. تعمل الأعلام
+بالطريقة نفسها للتشغيلات اليدوية البسيطة والنصوص البرمجية الحالية:
+
+```bash
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
+```
+
+هذا مفيد لحلقات تطوير الوكيل، والنصوص البرمجية، ومهام cron.
+
+## استدعاؤه من وكيل آخر (A2A) {#a2a}
+
+إذا كان تطبيقك نظيرًا في [A2A](/docs/a2a-protocol)، تكتشف تطبيقات agent-native أخرى actions الخاصة بك تلقائيًا ويمكنها استدعاءها بالاسم. تتخطى عمليات النشر من الأصل نفسه توقيع JWT. تستخدم عمليات النشر عبر الأصول `A2A_SECRET` مشتركًا بدلاً من ذلك.
+
+## تعريضه عبر MCP {#mcp}
+
+مع تفعيل MCP، تظهر actions الخاصة بك في خادم MCP التابع لإطار العمل عند `/mcp`. يحصل كل مستدعٍ على كتالوج مُختصر بشكل افتراضي (الأدوات المدمجة الموجَّهة للتطبيق بالإضافة إلى actions التطبيق المُعلَنة في القالب)، وتكون `tool-search` حاضرة دائمًا بحيث تبقى أي أداة أخرى قابلة للوصول عند الطلب. لا يُقدَّم سطح actions الكامل إلا بالاشتراك الصريح (رمز `--full-catalog` أو `AGENT_NATIVE_MCP_FULL_CATALOG=1`)، ويُدخل [`publicAgent.expose`](/docs/actions-access-control#public-agent) أداة قراءة/استيعاب آمنة إلى السطح العام. راجع [بروتوكول MCP](/docs/mcp-protocol) للاطلاع على مستويات الكتالوج، والمصادقة، وتفاصيل مورد `mcpApp`.
+
+بالنسبة إلى مضيفي MCP القادرين على عرض واجهة المستخدم، يمكن لـ action الإعلان عن مورد تطبيقات MCP اختياري عبر حقل `mcpApp` (بالإضافة إلى `link` مطابق) بحيث تعرض المضيفات القادرة النتيجة مضمَّنة. عندما ينبغي أن يشير `link` و`mcpApp` إلى المسار نفسه، يبني `embedRoute()` كليهما من دالة بناء مسار نقية واحدة:
+
+```ts
+import { embedRoute } from "@agent-native/core";
+
+export default defineAction({
+  description: "Create an email draft for review.",
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => ({ body }),
+  ...embedRoute({
+    title: "Review draft",
+    openLabel: "Open in Mail",
+    path: ({ result }) => ({
+      label: "Open draft in Mail",
+      url: "/_agent-native/open?app=mail&view=inbox",
+    }),
+  }),
+});
+```
+
+أبقِ `link` كخيار احتياطي لـ CLI ومضيفي MCP غير القادرين على عرض واجهة المستخدم. وهو أيضًا هدف الإطلاق الخاص بالتضمين. جسر التضمين (جلسة بدء التضمين الموقَّعة، وعرض النقل مقابل الإطار المتحكَّم به، وجسر المضيف `ui/*`، وCSP، وتقييد الارتفاع) تملكه [الوكلاء الخارجيون](/docs/external-agents#mcp-app-bridge).
+
+## Actions قياسية {#standard-actions}
+
+ينبغي أن يتضمن كل قالب هذين الاثنين من أجل [الوعي بالسياق](/docs/context-awareness).
+
+### view-screen {#view-screen}
+
+يقرأ حالة التنقل الحالية، ويجلب بيانات سياقية، ويُرجع لقطة لما يراه المستخدم. يستدعي الوكيل هذا عندما يحتاج إلى نظرة حديثة على الشاشة.
+
+```ts
+// actions/view-screen.ts
+import { defineAction } from "@agent-native/core/action";
+import { readAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Read the current screen state for context.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  run: async () => {
+    const navigation = await readAppState("navigation");
+    const screen: Record<string, unknown> = { navigation };
+
+    if (navigation?.view === "inbox") {
+      screen.emailList = await listEmailsForLabel(navigation.label);
+    }
+
+    return screen;
+  },
+});
+```
+
+### navigate {#navigate}
+
+يكتب أمر تنقل لمرة واحدة إلى حالة التطبيق. تقرأه واجهة المستخدم، وتتنقل، وتحذف الإدخال.
+
+```ts
+// actions/navigate.ts
+import { defineAction } from "@agent-native/core/action";
+import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Navigate the user to a view.",
+  schema: z.object({
+    view: z.string(),
+    threadId: z.string().optional(),
+  }),
+  run: async (args) => {
+    await writeAppState("navigate", args);
+    return { ok: true };
+  },
+});
+```
+
+## ما هي الخطوة التالية
+
+- [**البيانات والمزامنة**](/docs/client-data) — `useActionQuery` و`useActionMutation` و`callAction` من واجهة المستخدم
+- [**نظرة عامة**](/docs/actions-overview) — ما هو action وجولة hello-world
+- [**الوعي بالسياق**](/docs/context-awareness) — نمط `view-screen` + `navigate` بالتفصيل
+- [**بروتوكول A2A**](/docs/a2a-protocol) — كيف تكتشف الوكلاء الآخرون actions الخاصة بك وتستدعيها
+- [**بروتوكول MCP**](/docs/mcp-protocol) — مستويات الكتالوج، والمصادقة، وموارد `mcpApp`
+- [**واجهة المستخدم التوليدية**](/docs/generative-ui) — عرض واجهة مستخدم مولَّدة مؤقتة أو محفوظة مضمَّنة في المحادثة
+- [**الدردشة الأصلية UI**](/docs/native-chat-ui) — عقد نتيجة عنصر الواجهة الكامل
