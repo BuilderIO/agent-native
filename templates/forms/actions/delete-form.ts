@@ -24,7 +24,7 @@ export default defineAction({
   run: async (args) => {
     const db = getDb();
     const ids = Array.isArray(args.id) ? args.id : [args.id];
-    const results = [];
+    const existingForms: (typeof schema.forms.$inferSelect)[] = [];
     for (const id of ids) {
       await assertAccess("form", id, "admin");
       const [existing] = await db
@@ -33,24 +33,35 @@ export default defineAction({
         .where(eq(schema.forms.id, id))
         .limit(1);
       if (!existing) throw new Error(`Form ${id} not found`);
+      existingForms.push(existing);
+    }
 
-      if (args.purge) {
-        await db
-          .delete(schema.responses)
-          .where(eq(schema.responses.formId, id));
-        await db.delete(schema.forms).where(eq(schema.forms.id, id));
-        invalidatePublicFormCache(existing);
-        results.push({ id, success: true, purged: true });
-        continue;
+    const results: Array<
+      | { id: string; success: true; purged: true }
+      | { id: string; success: true; purged: false; deletedAt: string }
+    > = [];
+    await db.transaction(async (tx) => {
+      for (const existing of existingForms) {
+        const id = existing.id;
+        if (args.purge) {
+          await tx
+            .delete(schema.responses)
+            .where(eq(schema.responses.formId, id));
+          await tx.delete(schema.forms).where(eq(schema.forms.id, id));
+          results.push({ id, success: true, purged: true });
+          continue;
+        }
+
+        const now = new Date().toISOString();
+        await tx
+          .update(schema.forms)
+          .set({ deletedAt: now, updatedAt: now })
+          .where(eq(schema.forms.id, id));
+        results.push({ id, success: true, purged: false, deletedAt: now });
       }
-
-      const now = new Date().toISOString();
-      await db
-        .update(schema.forms)
-        .set({ deletedAt: now, updatedAt: now })
-        .where(eq(schema.forms.id, id));
+    });
+    for (const existing of existingForms) {
       invalidatePublicFormCache(existing);
-      results.push({ id, success: true, purged: false, deletedAt: now });
     }
     return Array.isArray(args.id) ? { results } : results[0];
   },

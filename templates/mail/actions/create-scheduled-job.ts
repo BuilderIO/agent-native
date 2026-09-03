@@ -5,6 +5,7 @@ import { z } from "zod";
 import { createScheduledJobRecord } from "../server/lib/jobs.js";
 
 export default defineAction({
+  agentTool: false,
   description:
     "Create a scheduled job (snooze or send_later) that runs at a future timestamp.",
   schema: z.object({

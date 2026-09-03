@@ -912,16 +912,21 @@ export default defineAction({
         revision: actionSource.revision,
       };
       let content = actionSource.html ?? "";
-      let patch;
+      let patch = applyVisualEdit(content, editIntents[0], {
+        source: codeLayerSource,
+      });
+      content = patch.content;
       for (const editIntent of editIntents) {
+        if (editIntent === editIntents[0]) continue;
         patch = applyVisualEdit(content, editIntent, {
           source: codeLayerSource,
         });
         content = patch.content;
+        if (patch.result.status !== "applied") break;
       }
       return {
-        result: patch!.result,
-        projection: patch!.projection,
+        result: patch.result,
+        projection: patch.projection,
         patchedContent: includeContent ? content : undefined,
         bytesBefore: (actionSource.html ?? "").length,
         bytesAfter: content.length,
@@ -987,16 +992,22 @@ export default defineAction({
     }
 
     let content = file.content;
-    let patch;
+    let patch = applyVisualEdit(content, editIntents[0], {
+      source: file.codeLayerSource,
+    });
+    content = patch.content;
+    let changed = patch.result.status === "applied" && patch.result.changed;
     for (const editIntent of editIntents) {
+      if (editIntent === editIntents[0]) continue;
       patch = applyVisualEdit(content, editIntent, {
         source: file.codeLayerSource,
       });
       content = patch.content;
+      changed ||= patch.result.status === "applied" && patch.result.changed;
       if (patch.result.status !== "applied") break;
     }
 
-    if (patch?.result.target) {
+    if (patch.result.target) {
       // Publish a RESOLVABLE selection descriptor so live viewers can render a
       // ring over the element being edited. Prefer the stable
       // `data-agent-native-node-id` anchor over the projection CSS selector.
@@ -1011,7 +1022,7 @@ export default defineAction({
       });
     }
 
-    if (patch?.result.status === "applied" && patch.result.changed) {
+    if (changed) {
       await snapshotDesignBeforeAgentEdit(file.designId, context);
       await persistDesignFileEdit({
         id: file.id,
@@ -1024,12 +1035,12 @@ export default defineAction({
     }
 
     return {
-      result: patch!.result,
-      projection: patch!.projection,
+      result: patch.result,
+      projection: patch.projection,
       designId: file.designId,
       fileId: file.id,
       filename: file.filename,
-      persisted: patch!.result.status === "applied" && patch!.result.changed,
+      persisted: changed,
       patchedContent: includeContent ? content : undefined,
       bytesBefore: file.content.length,
       bytesAfter: content.length,
