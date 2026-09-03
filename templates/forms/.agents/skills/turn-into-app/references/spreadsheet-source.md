@@ -136,9 +136,12 @@ choice card:
 ```text
 Candidate: Pipeline forecast
 Uses: Assumptions, Historical Pipeline, Forecast
-Inputs: yellow assumptions in Assumptions!B4:B12 (high confidence)
-Outputs: blue forecast summary in Forecast!B3:H10 (medium confidence)
-Historical context: Historical Pipeline!A1:K500
+Inputs: Assumptions!B4:B12 - typed values on the assumptions tab, rows
+  labelled "Win rate" and "Avg deal size", and the tab's own note says
+  "edit these to test a scenario" (high confidence)
+Outputs: Forecast!B3:H10 - every cell a formula referencing Assumptions!B
+  (high confidence)
+Historical context: Historical Pipeline!A1:K500 - dated actuals, read-only
 Question: Confirm that forecast assumptions should be editable?
 ```
 
