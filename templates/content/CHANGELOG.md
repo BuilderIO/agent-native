@@ -7,6 +7,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Builder Publish connections made in Settings can now discover, attach, and refresh read-only database sources without separate legacy keys or Builder write access.
 - Delegated Content requests now stay on Content's own actions for every authorized caller, including managed Slack channels.
 
 ## 2026-08-26
