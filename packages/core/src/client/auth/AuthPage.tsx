@@ -677,6 +677,7 @@ export function AuthPage(props: AuthPageProps) {
   const nativeOAuthAbandonTimer = React.useRef<number | null>(null);
   const verificationCheckInFlight = React.useRef(false);
   const verifiedReturnHandled = React.useRef(false);
+  const verificationStepStartedRef = React.useRef(false);
 
   const [runtimeAppBasePath, setRuntimeAppBasePath] =
     React.useState(appBasePath);
@@ -962,6 +963,10 @@ export function AuthPage(props: AuthPageProps) {
         const available = response.ok && data.available === true;
         setLocalDevAvailable(available);
         if (!available) {
+          setFullAuthOptionsVisible(true);
+          return;
+        }
+        if (verificationStepStartedRef.current) {
           setFullAuthOptionsVisible(true);
           return;
         }
@@ -1467,6 +1472,8 @@ export function AuthPage(props: AuthPageProps) {
       setVerificationEmail(normalized);
       rememberPendingSignupEmail(normalized);
       setNotice("verification", null);
+      verificationStepStartedRef.current = true;
+      setFullAuthOptionsVisible(true);
       setView("verification");
       writeStorage(TAB_STORAGE_KEY, "signup");
     },

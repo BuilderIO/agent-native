@@ -15,6 +15,7 @@ import {
 import {
   isSlideClipboardStillArmed,
   isSourceImportedDeck,
+  getAltDragPlacement,
   SLIDE_CLIPBOARD_ARM_WINDOW_MS,
   syncSlideContentSnapshots,
 } from "./DeckEditor";
@@ -90,6 +91,17 @@ describe("slide paste fallback", () => {
   });
 });
 
+describe("slide thumbnail shortcuts", () => {
+  it("keeps Cmd/Ctrl+D scoped to the focused thumbnail", () => {
+    expect(deckEditorSource).toContain(
+      'if (key !== "c" && key !== "v" && key !== "d") return;',
+    );
+    expect(deckEditorSource).toContain(
+      "handleDuplicateSlideFromRail([activeSlideId]);",
+    );
+  });
+});
+
 describe("source-imported deck structure", () => {
   it("recognizes source-preserving import metadata", () => {
     expect(
@@ -103,6 +115,19 @@ describe("source-imported deck structure", () => {
     ).toBe(true);
   });
 
+  it("does not block an editable source snapshot", () => {
+    expect(
+      isSourceImportedDeck({
+        sourceImport: {
+          mode: "source-preserving",
+          format: "pptx",
+          slides: [],
+          editableSnapshot: true,
+        },
+      } as unknown as Deck),
+    ).toBe(false);
+  });
+
   it("does not block ordinary or malformed deck metadata", () => {
     expect(isSourceImportedDeck(null)).toBe(false);
     expect(isSourceImportedDeck(undefined)).toBe(false);
@@ -111,6 +136,23 @@ describe("source-imported deck structure", () => {
         sourceImport: { mode: "source-preserving", format: "pptx" },
       } as unknown as Deck),
     ).toBe(false);
+  });
+});
+
+describe("alt-drag slide placement", () => {
+  const slides = [{ id: "slide-1" }, { id: "slide-2" }, { id: "slide-3" }];
+
+  it("inserts a copy before the drop target when dragged upward", () => {
+    expect(getAltDragPlacement(slides, "slide-3", "slide-1")).toEqual({
+      afterSlideId: "slide-1",
+      beforeSlideId: "slide-1",
+    });
+  });
+
+  it("inserts a copy after the drop target when dragged downward", () => {
+    expect(getAltDragPlacement(slides, "slide-1", "slide-3")).toEqual({
+      afterSlideId: "slide-3",
+    });
   });
 });
 

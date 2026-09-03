@@ -94,6 +94,8 @@ interface EditorToolbarProps {
   canEdit?: boolean;
   /** Whether the user may create and manage comments without editing slides. */
   canComment?: boolean;
+  /** Source-preserving imports keep slide structure fixed while canvas edits remain available. */
+  sourceImported?: boolean;
   onTitleChange: (title: string) => void;
   currentSlideIndex: number;
   sidebarOpen: boolean;
@@ -225,6 +227,7 @@ export default function EditorToolbar({
   addSlideGenerating,
   canEdit = true,
   canComment = canEdit,
+  sourceImported = false,
 }: EditorToolbarProps) {
   const t = useT();
   // Public decks default to the read-only presentation URL so recipients do
@@ -731,6 +734,21 @@ export default function EditorToolbar({
       />
 
       {/* "View only" badge — mirrors Google Slides' viewer chrome */}
+      {sourceImported && canEdit && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              tabIndex={0}
+              className="inline-flex flex-shrink-0 cursor-help items-center rounded-full border border-border bg-muted/50 px-2.5 py-1 text-xs font-medium text-muted-foreground"
+            >
+              {t("editorToolbar.sourcePreserving")}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-72 whitespace-normal text-center">
+            {t("editorToolbar.sourcePreservingDescription")}
+          </TooltipContent>
+        </Tooltip>
+      )}
       {!canEdit && (
         <span className="flex-shrink-0 inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2.5 py-1 text-xs font-medium text-muted-foreground">
           {t("editorToolbar.viewOnly")}
@@ -862,49 +880,6 @@ export default function EditorToolbar({
               </>
             )}
 
-            {canEdit && currentSlide && onChangeSlideTransition && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel>
-                  {t("editorToolbar.transition")}
-                </DropdownMenuLabel>
-                <DropdownMenuGroup>
-                  {SLIDE_TRANSITIONS.map((transition) => (
-                    <DropdownMenuItem
-                      key={transition.value}
-                      onSelect={() => onChangeSlideTransition(transition.value)}
-                      className={
-                        activeSlideTransition === transition.value
-                          ? "bg-accent text-accent-foreground"
-                          : undefined
-                      }
-                    >
-                      {t(transition.labelKey)}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuGroup>
-              </>
-            )}
-
-            {canEdit && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel>
-                  {t("editorToolbar.media")}
-                </DropdownMenuLabel>
-                <DropdownMenuGroup>
-                  <DropdownMenuItem onSelect={onGenerateImage}>
-                    <IconPhoto className="size-4" />
-                    {t("editorToolbar.generateImage")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={onOpenAssetLibrary}>
-                    <IconFolderOpen className="size-4" />
-                    {t("editorToolbar.assetLibrary")}
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-              </>
-            )}
-
             {onToggleComments && (
               <>
                 <DropdownMenuSeparator />
@@ -960,19 +935,6 @@ export default function EditorToolbar({
               {importing
                 ? t("editorToolbar.importing")
                 : t("editorToolbar.importFile")}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onSelect={() => setTheme(isDark ? "light" : "dark")}
-            >
-              {isDark ? (
-                <IconSun className="size-4" />
-              ) : (
-                <IconMoon className="size-4" />
-              )}
-              {isDark
-                ? t("editorToolbar.lightTheme")
-                : t("editorToolbar.darkTheme")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

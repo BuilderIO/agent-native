@@ -6,7 +6,6 @@ import {
   type CollabUser,
 } from "@agent-native/core/client/collab";
 import {
-  readClientAppState,
   setClientAppState,
   usePinchZoom,
   useAvatarUrl,
@@ -1324,13 +1323,6 @@ function syncOverflowToAppState(
   }
 }
 
-function layoutWarningDismissalStateKey(
-  deckId: string | undefined,
-  slideId: string,
-): string {
-  return `slides-layout-warning-dismissed:${deckId ?? "local"}:${slideId}`;
-}
-
 export default function SlideEditor({
   slide,
   onUpdateSlide,
@@ -1508,54 +1500,19 @@ export default function SlideEditor({
   const repairRequestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
-  const overflowWarningStateKey = layoutWarningDismissalStateKey(
-    deckId,
-    slide.id,
+  const [overflowWarningDismissed, setOverflowWarningDismissed] = useState(() =>
+    Boolean(slide.layoutWarningDismissed),
   );
-  const overflowContentHash = hashSlideContent(slide.content);
-  const [dismissedOverflowWarningHash, setDismissedOverflowWarningHash] =
-    useState<string | null>(null);
-  const [overflowWarningDismissalStatus, setOverflowWarningDismissalStatus] =
-    useState<"loading" | "loaded" | "error">("loading");
   useEffect(() => {
-    let cancelled = false;
-    setDismissedOverflowWarningHash(null);
-    setOverflowWarningDismissalStatus("loading");
-    void readClientAppState<unknown>(overflowWarningStateKey)
-      .then((value) => {
-        if (cancelled) return;
-        setDismissedOverflowWarningHash(
-          typeof value === "string" ? value : null,
-        );
-        setOverflowWarningDismissalStatus("loaded");
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        console.error("Could not read slide overflow warning dismissal", error);
-        setDismissedOverflowWarningHash(null);
-        setOverflowWarningDismissalStatus("error");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [overflowWarningStateKey]);
-  const warningVisible =
-    overflowWarningDismissalStatus === "error" ||
-    (overflowWarningDismissalStatus === "loaded" &&
-      dismissedOverflowWarningHash !== overflowContentHash);
+    setOverflowWarningDismissed(Boolean(slide.layoutWarningDismissed));
+  }, [slide.id, slide.layoutWarningDismissed]);
+  const warningVisible = !overflowWarningDismissed;
   const dismissWarning = useCallback(() => {
-    setDismissedOverflowWarningHash(overflowContentHash);
-    setOverflowWarningDismissalStatus("loaded");
-    void setClientAppState(overflowWarningStateKey, overflowContentHash, {
-      keepalive: true,
-      requestSource: TAB_ID,
-    }).catch((error: unknown) => {
-      console.error(
-        "Could not persist slide overflow warning dismissal",
-        error,
-      );
+    setOverflowWarningDismissed(true);
+    onUpdateSlide({ layoutWarningDismissed: true }, slide.id, {
+      persistence: "immediate",
     });
-  }, [overflowContentHash, overflowWarningStateKey]);
+  }, [onUpdateSlide, slide.id]);
   const dims = getAspectRatioDims(aspectRatio);
   const [, setFitCanvasZoom] = useState(100);
   const userSetCanvasZoomRef = useRef(false);
@@ -1667,8 +1624,8 @@ export default function SlideEditor({
 
   // Reset overflow state whenever the slide changes — the renderer will
   // report the next measurement (or stay null if the new slide fits). The
-  // dismissal key is derived from slide content, so a delayed save cannot
-  // make the same warning reappear after the user closes it.
+  // warning dismissal itself is persisted on the slide and is cleared by
+  // agent layout writes, not by ordinary human edits.
   useEffect(() => {
     if (repairRequestTimerRef.current) {
       clearTimeout(repairRequestTimerRef.current);

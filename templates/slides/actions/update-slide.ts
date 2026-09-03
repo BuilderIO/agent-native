@@ -38,7 +38,7 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
-import { withDeckLock } from "./patch-deck.js";
+import { isAgentPatchCaller, withDeckLock } from "./patch-deck.js";
 
 function deckDeepLink(deckId: string): string {
   return buildDeepLink({
@@ -388,6 +388,7 @@ export default defineAction({
   }),
   http: false,
   run: async (args, ctx) => {
+    const isAgentCaller = isAgentPatchCaller(ctx?.caller);
     const {
       deckId,
       slideId,
@@ -558,7 +559,10 @@ export default defineAction({
         }
       }
 
-      if (applied) slide.layoutFitRevision = createLayoutFitRevision();
+      if (applied) {
+        slide.layoutFitRevision = createLayoutFitRevision();
+        if (isAgentCaller) delete slide.layoutWarningDismissed;
+      }
 
       // Animation targets are paths into the persisted HTML. A content edit
       // can keep every path valid while changing which visual element lives at
