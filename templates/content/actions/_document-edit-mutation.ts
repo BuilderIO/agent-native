@@ -141,6 +141,10 @@ export async function mutateDocumentBody(args: {
   idempotencyKey: string;
   edits: DocumentTextEdit[];
   creativeContext?: DocumentEditCreativeContext;
+  creativeContextDigest?: unknown;
+  resolveCreativeContext?: () => Promise<
+    DocumentEditCreativeContext | undefined
+  >;
   ctx: ActionRunContext;
   db?: Db;
 }): Promise<DocumentEditMutationResult> {
@@ -164,7 +168,7 @@ export async function mutateDocumentBody(args: {
     documentId: args.documentId,
     baseRevision: args.baseRevision,
     edits: normalizedEdits,
-    creativeContext: args.creativeContext ?? null,
+    creativeContext: args.creativeContextDigest ?? args.creativeContext ?? null,
   });
 
   try {
@@ -233,6 +237,9 @@ export async function mutateDocumentBody(args: {
           { validation: resolved.error },
         );
       }
+      const creativeContext = args.resolveCreativeContext
+        ? await args.resolveCreativeContext()
+        : args.creativeContext;
 
       const changed = resolved.content !== beforeContent;
       const afterRevision = changed
@@ -292,13 +299,13 @@ export async function mutateDocumentBody(args: {
             now,
           });
         }
-        if (args.creativeContext) {
+        if (creativeContext) {
           await recordGenerationCreativeContext(
             {
               appId: "content",
               artifactType: "document",
               artifactId: document.id,
-              ...args.creativeContext,
+              ...creativeContext,
             },
             { db: tx },
           );

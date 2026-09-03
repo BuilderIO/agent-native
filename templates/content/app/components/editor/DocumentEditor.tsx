@@ -368,6 +368,7 @@ type PendingDocumentSave = {
 type DocumentSaveOptions = {
   allowQueuedSave?: boolean;
   expectedLocalSourceRevision?: string | null;
+  adoptCurrentServerBase?: boolean;
 };
 
 type DocumentSaveResult = {
@@ -1487,6 +1488,12 @@ function DocumentEditorBody({
       content: string,
       options: DocumentSaveOptions = {},
     ): Promise<DocumentSaveResult> => {
+      if (options.adoptCurrentServerBase) {
+        lastSavedContentRef.current = {
+          content: documentContentRef.current,
+          updatedAt: documentUpdatedAtRef.current,
+        };
+      }
       lastSavedContentRef.current = refreshUnchangedContentSaveWatermark({
         serverContent: documentContentRef.current,
         serverUpdatedAt: documentUpdatedAtRef.current,
@@ -1933,7 +1940,7 @@ function DocumentEditorBody({
   );
 
   const handleContentSaveNow = useCallback(
-    async (newContent: string) => {
+    async (newContent: string, adoptCurrentServerBase = false) => {
       if (!editorCanEdit) return false;
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
@@ -1942,7 +1949,13 @@ function DocumentEditorBody({
       }
       localContentRef.current = newContent;
       setLocalContent(newContent);
-      const result = await queueDocumentSave(localTitleRef.current, newContent);
+      const result = await queueDocumentSave(
+        localTitleRef.current,
+        newContent,
+        {
+          adoptCurrentServerBase,
+        },
+      );
       return result.contentPersisted;
     },
     [editorCanEdit, queueDocumentSave],
@@ -1951,7 +1964,7 @@ function DocumentEditorBody({
   const handleBaseAwareReconcile = useCallback(
     (result: { status: "merged" | "conflict" | "failed"; content: string }) => {
       if (result.status === "merged") {
-        void handleContentSaveNow(result.content).then((persisted) => {
+        void handleContentSaveNow(result.content, true).then((persisted) => {
           if (persisted) setDocumentReconcileConflict(null);
           else setDocumentReconcileConflict({ localDraft: result.content });
         });
@@ -2622,10 +2635,12 @@ function DocumentEditorBody({
                 size="sm"
                 onClick={() => {
                   const localDraft = documentReconcileConflict.localDraft;
-                  void handleContentSaveNow(localDraft).then((persisted) => {
-                    if (persisted) setDocumentReconcileConflict(null);
-                    else setDocumentReconcileConflict({ localDraft });
-                  });
+                  void handleContentSaveNow(localDraft, true).then(
+                    (persisted) => {
+                      if (persisted) setDocumentReconcileConflict(null);
+                      else setDocumentReconcileConflict({ localDraft });
+                    },
+                  );
                 }}
               >
                 {t("editor.keepLocalDraft")}

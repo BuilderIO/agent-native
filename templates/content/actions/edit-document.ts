@@ -263,18 +263,23 @@ export default defineAction({
           },
         );
       }
-      const creativeContext = await resolveEditCreativeContext({
-        documentId: id,
-        contextPackId: args.contextPackId,
-        contextModeOverride: args.contextModeOverride,
-        reuseLabels: args.reuseLabels,
-      });
       const result = await mutateDocumentBody({
         documentId: id,
         baseRevision: args.baseRevision,
         idempotencyKey: args.idempotencyKey,
         edits,
-        creativeContext,
+        creativeContextDigest: {
+          contextPackId: args.contextPackId ?? null,
+          contextModeOverride: args.contextModeOverride ?? null,
+          reuseLabels: args.reuseLabels,
+        },
+        resolveCreativeContext: () =>
+          resolveEditCreativeContext({
+            documentId: id,
+            contextPackId: args.contextPackId,
+            contextModeOverride: args.contextModeOverride,
+            reuseLabels: args.reuseLabels,
+          }),
         ctx,
       });
       await writeAppState("refresh-signal", { ts: Date.now() });

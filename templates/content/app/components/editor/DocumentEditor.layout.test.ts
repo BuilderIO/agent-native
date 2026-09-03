@@ -165,8 +165,10 @@ describe("document editor layout", () => {
     );
     expect(source).toContain('{t("editor.keepLocalDraft")}');
     expect(source).toContain(
-      "void handleContentSaveNow(localDraft).then((persisted)",
+      "void handleContentSaveNow(localDraft, true).then(",
     );
+    expect(source).toContain("handleContentSaveNow(result.content, true)");
+    expect(source).toContain("if (options.adoptCurrentServerBase)");
     expect(source).toContain(
       "if (persisted) setDocumentReconcileConflict(null)",
     );

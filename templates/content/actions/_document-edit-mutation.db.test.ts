@@ -255,6 +255,39 @@ describe("revisioned document edit mutation", () => {
     ).rejects.toMatchObject({ errorCode: "IDEMPOTENCY_KEY_REUSED" });
   });
 
+  it("replays a receipt before revalidating mutable creative context", async () => {
+    let resolutionCount = 0;
+    const input = {
+      documentId: DOCUMENT_ID,
+      baseRevision: documentRevisionToken(0, "alpha beta"),
+      idempotencyKey: "stable-context-replay",
+      edits: [{ find: "alpha", replace: "omega" }],
+      creativeContextDigest: {
+        contextPackId: "pack-from-request",
+        contextModeOverride: null,
+        reuseLabels: [],
+      },
+      ctx,
+    };
+    const first = await mutateDocumentBody({
+      ...input,
+      resolveCreativeContext: async () => {
+        resolutionCount += 1;
+        return undefined;
+      },
+    });
+    const replay = await mutateDocumentBody({
+      ...input,
+      resolveCreativeContext: async () => {
+        throw new Error("mutable context should not be revalidated");
+      },
+    });
+
+    expect(resolutionCount).toBe(1);
+    expect(replay.receipt.receiptId).toBe(first.receipt.receiptId);
+    expect(replay.receipt.idempotency.result).toBe("replayed");
+  });
+
   it("uses stable base matching for a batch without replacement cascade", async () => {
     const result = await mutateDocumentBody({
       documentId: DOCUMENT_ID,
