@@ -23,5 +23,10 @@ registerShareableResource({
     getContextPath: () => DOCUMENT_AGENT_CONTEXT_ENDPOINT,
     getPagePath: (document) => `/p/${document.id}`,
   },
+  // No persistVisibilityChange: the framework default (update the single
+  // requested resourceId) is correct here. Do not cascade to descendants —
+  // a child page can have its own, deliberately narrower visibility, and a
+  // parent going public/org must never widen it. Bulk visibility changes are
+  // a separate, explicit, opt-in operation, not a side effect of this hook.
   getDb,
 });

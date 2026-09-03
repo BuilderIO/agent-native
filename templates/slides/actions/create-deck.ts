@@ -271,6 +271,7 @@ export default defineAction({
       const writeNow = nextDeckRevision(existing[0].updatedAt);
       const prevData = JSON.parse(existing[0].data);
       const data = {
+        ...prevData,
         title: existingDeckTitle,
         slides,
         updatedAt: writeNow,

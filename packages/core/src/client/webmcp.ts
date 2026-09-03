@@ -156,6 +156,93 @@ function getModelContext(
   return value;
 }
 
+/** Where {@link getAgentNativeWebMcpStatus} publishes progress in the page world. */
+const WEBMCP_STATUS_KEY = "__agentNativeWebMcpStatus";
+
+export type AgentNativeWebMcpRegistrationState =
+  | "registering"
+  | "ready"
+  | "failed";
+
+export interface AgentNativeWebMcpStatus {
+  state: AgentNativeWebMcpRegistrationState;
+  /** Tools registered so far. Only equals `total` once state is "ready". */
+  registered: number;
+  /** Tools this registration pass intends to register. */
+  total: number;
+  /** Present only when state is "failed". */
+  error?: string;
+}
+
+const registrationStatuses = new WeakMap<
+  object,
+  Map<symbol, AgentNativeWebMcpStatus>
+>();
+
+function statusHost(
+  targetDocument: Document | undefined,
+): Record<string, unknown> | undefined {
+  const view = getDocument(targetDocument)?.defaultView;
+  if (view) return view as unknown as Record<string, unknown>;
+  if (typeof window === "undefined") return undefined;
+  return window as unknown as Record<string, unknown>;
+}
+
+/**
+ * Publish registration progress into the page world.
+ *
+ * Tools register one at a time, so a discovery caller reading `getTools()`
+ * mid-flight sees a truncated list that is otherwise indistinguishable from a
+ * complete one — the caller then reports a live tool as missing. This is the
+ * only signal that separates "still registering" from "this is all there is".
+ */
+function publishRegistrationStatus(
+  targetDocument: Document | undefined,
+  registrationId: symbol,
+  status: AgentNativeWebMcpStatus | undefined,
+): void {
+  const host = statusHost(targetDocument);
+  if (!host) return;
+  let statuses = host[WEBMCP_STATUS_KEY]
+    ? registrationStatuses.get(host)
+    : undefined;
+  if (!statuses) registrationStatuses.delete(host);
+  if (!status) {
+    statuses?.delete(registrationId);
+    if (!statuses?.size) {
+      registrationStatuses.delete(host);
+      delete host[WEBMCP_STATUS_KEY];
+      return;
+    }
+  } else {
+    if (!statuses) {
+      statuses = new Map();
+      registrationStatuses.set(host, statuses);
+    }
+    statuses.set(registrationId, { ...status });
+  }
+
+  const records = [...statuses.values()];
+  const failed = records.find((record) => record.state === "failed");
+  const registering = records.some((record) => record.state === "registering");
+  host[WEBMCP_STATUS_KEY] = {
+    state: failed ? "failed" : registering ? "registering" : "ready",
+    registered: records.reduce((sum, record) => sum + record.registered, 0),
+    total: records.reduce((sum, record) => sum + record.total, 0),
+    ...(failed?.error ? { error: failed.error } : {}),
+  } satisfies AgentNativeWebMcpStatus;
+}
+
+/** Read WebMCP registration progress for the current page. */
+export function getAgentNativeWebMcpStatus(
+  targetDocument?: Document,
+): AgentNativeWebMcpStatus | undefined {
+  const value = statusHost(targetDocument)?.[WEBMCP_STATUS_KEY];
+  return isRecord(value)
+    ? (value as unknown as AgentNativeWebMcpStatus)
+    : undefined;
+}
+
 /**
  * Make the page-local WebMCP surface available when the browser does not
  * provide it natively. The polyfill only owns the current document. A host
@@ -697,11 +784,15 @@ export function createAgentNativeWebMcpRegistration(
   let registered = 0;
   let started = false;
   let generation = 0;
+  let startPromise: Promise<void> | undefined;
+  const registrationId = Symbol("webmcp-registration");
 
-  async function start(): Promise<void> {
+  async function runStart(): Promise<void> {
     if (started || options.enabled === false || !modelContext) return;
     const startGeneration = ++generation;
+    registered = 0;
     started = true;
+    let total = 0;
     const runController =
       typeof AbortController === "undefined"
         ? undefined
@@ -730,6 +821,12 @@ export function createAgentNativeWebMcpRegistration(
         "WebMCP tool manifest",
         options.maxManifestChars ?? DEFAULT_MANIFEST_CHARS,
       );
+      total = actions.length;
+      publishRegistrationStatus(options.document, registrationId, {
+        state: "registering",
+        registered: 0,
+        total,
+      });
       const session = createSession(options.session);
       for (const action of actions) {
         if (!isActive()) return;
@@ -777,7 +874,7 @@ export function createAgentNativeWebMcpRegistration(
                 : {}),
             },
             execute: async (input, executionOptions) => {
-              if (executionOptions?.signal.aborted) {
+              if (executionOptions?.signal?.aborted) {
                 throw new Error(`WebMCP action "${action.name}" was aborted`);
               }
               validateBoundedJson(
@@ -838,7 +935,7 @@ export function createAgentNativeWebMcpRegistration(
                   executionOptions?.signal,
                 ),
               );
-              if (executionOptions?.signal.aborted) {
+              if (executionOptions?.signal?.aborted) {
                 throw new Error(`WebMCP action "${action.name}" was aborted`);
               }
               return serializeWebMcpResult(
@@ -855,15 +952,40 @@ export function createAgentNativeWebMcpRegistration(
         );
         if (!isActive()) return;
         registered += 1;
+        publishRegistrationStatus(options.document, registrationId, {
+          state: "registering",
+          registered,
+          total,
+        });
       }
+      publishRegistrationStatus(options.document, registrationId, {
+        state: "ready",
+        registered,
+        total,
+      });
     } catch (error) {
       if (!isActive()) return;
       runController?.abort();
-      registered = 0;
       started = false;
       controller = undefined;
+      publishRegistrationStatus(options.document, registrationId, {
+        state: "failed",
+        registered,
+        total,
+        error: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
+  }
+
+  function start(): Promise<void> {
+    if (startPromise) return startPromise;
+    const promise = runStart();
+    const settled = promise.finally(() => {
+      if (startPromise === settled) startPromise = undefined;
+    });
+    startPromise = settled;
+    return settled;
   }
 
   return {
@@ -880,6 +1002,8 @@ export function createAgentNativeWebMcpRegistration(
       controller = undefined;
       registered = 0;
       started = false;
+      startPromise = undefined;
+      publishRegistrationStatus(options.document, registrationId, undefined);
     },
   };
 }

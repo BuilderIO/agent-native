@@ -116,6 +116,11 @@ vi.mock("./patch-deck.js", () => ({
   isAgentPatchCaller: (caller?: string) =>
     caller === "tool" || caller === "mcp" || caller === "a2a",
   withDeckLock: (_deckId: string, fn: () => Promise<unknown>) => fn(),
+  isAgentPatchCaller: (caller: string | undefined) =>
+    caller === "tool" ||
+    caller === "mcp" ||
+    caller === "a2a" ||
+    caller === "webmcp",
 }));
 
 vi.mock("../server/lib/deck-versions.js", () => ({

@@ -59,6 +59,7 @@ vi.mock("@agent-native/core/client/review", () => ({
     value: string;
     onChange: (value: string) => void;
     onSubmit: (target: "human" | "agent") => void;
+    showCommentAction?: boolean;
     showAgentAction?: boolean;
     commentLabel?: string;
     contextLabel?: string;
@@ -76,13 +77,15 @@ vi.mock("@agent-native/core/client/review", () => ({
         data-review-test-question
         onClick={() => props.onChange("What is this section for?")}
       />
-      <button
-        type="button"
-        data-review-test-submit
-        onClick={() => props.onSubmit("human")}
-      >
-        {props.commentLabel}
-      </button>
+      {props.showCommentAction !== false ? (
+        <button
+          type="button"
+          data-review-test-submit
+          onClick={() => props.onSubmit("human")}
+        >
+          {props.commentLabel}
+        </button>
+      ) : null}
       {props.showAgentAction
         ? (props.agentAction ?? (
             <button type="button" data-review-test-agent-action />
@@ -187,6 +190,30 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     });
     expect(document.body.textContent).not.toContain("Keep this popover open");
+  });
+
+  it("portals review chrome outside a transformed canvas owner", async () => {
+    container.style.transform = "scale(0.2)";
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active={false}
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+
+    const reviewChrome = document.querySelector<HTMLElement>(
+      "[data-review-popover]",
+    );
+    expect(reviewChrome).not.toBeNull();
+    expect(reviewChrome?.parentElement).toBe(document.body);
   });
 
   it("moves one empty draft and persists only after feedback is entered", async () => {
@@ -474,7 +501,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     });
   });
 
-  it("opens a pre-anchored regenerate draft without creating a review comment", async () => {
+  it("opens a dedicated Edit with AI draft without creating a review comment", async () => {
     const onClose = vi.fn();
     const iframe = document.createElement("iframe");
     iframe.setAttribute("data-design-preview-iframe", "");
@@ -539,8 +566,26 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     expect(document.body.textContent).toContain(
       "designEditor.nodeRewrite.willPreview",
     );
-    expect(document.body.textContent).toContain("review.commentMode");
+    expect(document.body.textContent).not.toContain("review.commentMode");
     expect(document.body.textContent).not.toContain("review.clickToPin");
+    const modeMenuTrigger = document.querySelector<HTMLButtonElement>(
+      '[aria-label="designEditor.nodeRewrite.agentModeOptions"]',
+    );
+    await act(async () => {
+      modeMenuTrigger?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      modeMenuTrigger?.click();
+    });
+    expect(
+      document
+        .querySelector("[data-review-mode-menu]")
+        ?.hasAttribute("data-review-popover"),
+    ).toBe(true);
     await act(async () => send?.click());
 
     expect(mocks.createMutate).not.toHaveBeenCalled();
@@ -586,6 +631,48 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       pinsBeforePreview.length - 1,
     );
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves an overview reprompt for the active visible canvas to consume", async () => {
+    const onConsumed = vi.fn();
+    const onClose = vi.fn();
+    const request = {
+      nonce: 3,
+      fileId: "screen-1",
+      target: {
+        nodeId: "hero",
+        selector: '[data-agent-native-node-id="hero"]',
+      },
+      point: { xPct: 50, yPct: 40 },
+    };
+    const renderPins = (active: boolean, hidden: boolean) => (
+      <ReviewCanvasPins
+        active={active}
+        hidden={hidden}
+        onClose={onClose}
+        canvasSelector=".review-test-canvas"
+        resourceType="design"
+        resourceId="design-1"
+        targetId="screen-1"
+        canPost
+        canResolve
+        sourceType="inline"
+        repromptDraftRequest={request}
+        onRepromptDraftConsumed={onConsumed}
+      />
+    );
+
+    await act(async () => root.render(renderPins(false, true)));
+    expect(onConsumed).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain(
+      "designEditor.nodeRewrite.composerTitle",
+    );
+
+    await act(async () => root.render(renderPins(true, false)));
+    expect(onConsumed).toHaveBeenCalledWith(3);
+    expect(document.body.textContent).toContain(
+      "designEditor.nodeRewrite.composerTitle",
+    );
   });
 
   it("resets composer-local mode when a reprompt replaces an open comment draft", async () => {
@@ -679,5 +766,6 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     expect(document.body.textContent).toContain(
       "designEditor.nodeRewrite.modeRegenerate",
     );
+    expect(document.querySelector("[data-review-test-submit]")).toBeNull();
   });
 });

@@ -3320,6 +3320,15 @@ function createAuthGuardFn(
       return;
     }
 
+    // Creative Context processors are self-fired with a short-lived HMAC
+    // bearer token and no browser session. Let their handlers verify the token.
+    if (
+      p === "/_agent-native/creative-context/process-import" ||
+      p === "/_agent-native/creative-context/process-background"
+    ) {
+      return;
+    }
+
     // Scheduled recurring-job sweeps are self-fired by the platform scheduler
     // through the durable background function and authenticate with the same
     // short-lived HMAC token as the other internal processors. They do not
@@ -3506,7 +3515,20 @@ function createAuthGuardFn(
     // framework sign-in entry. This is unconditional and does not inspect the
     // request session, so the cached root document stays identical for every
     // visitor; the head handoff handles existing sessions in the browser.
-    if (config.rootAuth && p === "/" && isHtmlDocumentRequest(event, p)) {
+    //
+    // An app that sets `homePath: "/"` makes the root its authenticated home,
+    // not a public marketing surface. Serving the login document there would
+    // bounce a signed-in visitor back to "/", which re-serves the login
+    // document — an infinite redirect. Reading the deployment-wide home path
+    // (never the session) keeps this decision request-independent, so "/" falls
+    // through to the anonymous app shell and the client session gate owns
+    // sign-in.
+    if (
+      config.rootAuth &&
+      p === "/" &&
+      resolveAppHomePath(getAppConfig().app) !== "/" &&
+      isHtmlDocumentRequest(event, p)
+    ) {
       return loginHtmlResponse(config.loginHtml, event, {
         includeRootAuthRedirect: true,
         requestIndependent: true,

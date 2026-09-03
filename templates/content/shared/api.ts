@@ -1043,6 +1043,24 @@ export interface DatabaseItemsBatchRequest {
   documentIds?: string[];
 }
 
+export interface UpdateDatabaseItemsRequest extends DatabaseItemsBatchRequest {
+  propertyId: string;
+  value: DocumentPropertyValue;
+}
+
+export interface UpdateDatabaseItemsResponse {
+  databaseId: string;
+  propertyId: string;
+  updated: number;
+  failed: number;
+  results: Array<{
+    itemId: string;
+    documentId: string;
+    success: boolean;
+    error?: string;
+  }>;
+}
+
 export interface MoveDatabaseItemRequest {
   /** Required with itemId for unambiguous membership moves. */
   databaseId?: string;

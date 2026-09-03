@@ -203,6 +203,7 @@ import {
 import {
   useConfigureDocumentProperty,
   useSetDocumentProperty,
+  useUpdateDatabaseItems,
 } from "@/hooks/use-document-properties";
 import {
   isDocumentUpdateConflict,
@@ -5604,6 +5605,7 @@ function DatabaseTableView({
     databaseId,
     databaseDocumentId,
   );
+  const updateItems = useUpdateDatabaseItems(databaseDocumentId);
   const removeItems = useRemoveDatabaseItems(databaseDocumentId);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [dropTargetItemId, setDropTargetItemId] = useState<string | null>(null);
@@ -5985,6 +5987,35 @@ function DatabaseTableView({
     if (!canEditSelected || selectedItems.length === 0) return;
     const selectedSnapshot = selectedItems;
 
+    if (operation.kind === "set") {
+      try {
+        const response = await updateItems.mutateAsync({
+          databaseId,
+          itemIds: selectedSnapshot.map((item) => item.id),
+          propertyId: property.definition.id,
+          value: operation.value,
+        });
+        await queryClient.invalidateQueries({
+          queryKey: [
+            "action",
+            "get-content-database",
+            { documentId: databaseDocumentId },
+          ],
+        });
+        if (response.failed > 0) {
+          toast.error(dbText("failedToUpdateEverySelectedRow"), {
+            description: `${response.updated} updated, ${response.failed} failed.`,
+          });
+        }
+      } catch (err) {
+        toast.error(dbText("failedToUpdateEverySelectedRow"), {
+          description:
+            err instanceof Error ? err.message : dbText("somethingWentWrong"),
+        });
+      }
+      return;
+    }
+
     let updatedCount = 0;
     let failedCount = 0;
     for (const item of selectedSnapshot) {
@@ -6036,7 +6067,7 @@ function DatabaseTableView({
           }
           removeDisabled={removeItems.isPending}
           removesFavoriteMembership={removesFavoriteMembership}
-          updateDisabled={setProperty.isPending}
+          updateDisabled={setProperty.isPending || updateItems.isPending}
           onClearSelection={onClearSelection}
           onSetPropertyValue={setSelectedPropertyValue}
           onDuplicateSelected={() => void duplicateSelectedRows()}
