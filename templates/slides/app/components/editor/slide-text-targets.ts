@@ -65,7 +65,7 @@ function isRichTextLayerAncestor(element: HTMLElement): boolean {
   return false;
 }
 
-function isSlideCanvasShell(element: HTMLElement): boolean {
+export function isSlideCanvasShell(element: HTMLElement): boolean {
   return (
     element.classList.contains("fmd-slide") ||
     element.classList.contains("fmd-autofit-scale") ||

@@ -139,6 +139,7 @@ import { decideSlideEscape } from "./slide-escape-arbiter";
 import {
   alignSlideObjectMembers,
   applySlideObjectMoveDelta,
+  arrangeSlideLayerInParent,
   buildPastedSlideObjects,
   canDropSlideLayerAdjacent,
   canDropSlideLayerInside,
@@ -160,6 +161,7 @@ import {
   findPersistedImageObject,
   isDeletableFlowImage,
   isDeletableSlideElement,
+  isSlideTableStructureElement,
   isValidSlideClipboardRoot,
   removeSlideObjectAndLayoutSpacer,
   preserveSlideObjectLayoutSpacer,
@@ -282,79 +284,6 @@ function resolveSlidePositioningLayer(
     );
   }
   return element.closest<HTMLElement>("[data-slide-canvas]");
-}
-
-function reorderSlideLayerInParent(
-  element: HTMLElement,
-  target: SlideObjectZOrderTarget,
-): boolean {
-  const parent = element.parentElement;
-  if (!parent) return false;
-  const layers = Array.from(parent.children).filter((child) => {
-    const candidate = child as HTMLElement;
-    return !isSlideCanvasShell(candidate) && shouldStampBuilderId(candidate);
-  });
-  if (layers.length < 2 || !layers.includes(element)) return false;
-
-  if (target === "front") {
-    const lastLayer = layers[layers.length - 1];
-    if (lastLayer === element) return false;
-    parent.insertBefore(element, lastLayer.nextSibling);
-  } else {
-    const firstLayer = layers[0];
-    if (firstLayer === element) return false;
-    parent.insertBefore(element, firstLayer);
-  }
-  return true;
-}
-
-function arrangeFlowSlideLayerInParent(
-  element: HTMLElement,
-  target: SlideObjectZOrderTarget,
-): boolean {
-  const parent = element.parentElement;
-  if (!parent) return false;
-  const positionedSiblings = Array.from(parent.children).filter((child) => {
-    const candidate = child as HTMLElement;
-    return candidate !== element && isPersistedFreeformObject(candidate);
-  });
-  if (positionedSiblings.length === 0) {
-    return reorderSlideLayerInParent(element, target);
-  }
-
-  const parentDisplay = window.getComputedStyle(parent).display;
-  const isFlexOrGridItem = parentDisplay === "flex" || parentDisplay === "grid";
-  const hasPositionedDescendant = Array.from(
-    element.querySelectorAll<HTMLElement>("*"),
-  ).some(
-    (descendant) => window.getComputedStyle(descendant).position === "absolute",
-  );
-  if (
-    hasPositionedDescendant &&
-    !isFlexOrGridItem &&
-    window.getComputedStyle(element).position === "static"
-  ) {
-    return reorderSlideLayerInParent(element, target);
-  }
-
-  const zIndexes = positionedSiblings.map((sibling) =>
-    readSlideObjectZIndex(sibling as HTMLElement),
-  );
-  const nextZIndex =
-    target === "front"
-      ? Math.max(...zIndexes) + 1
-      : Math.max(0, Math.min(...zIndexes) - 1);
-  const currentZIndex = readSlideObjectZIndex(element);
-  if (
-    window.getComputedStyle(element).position === "static" &&
-    !isFlexOrGridItem
-  ) {
-    element.style.position = "relative";
-  }
-  element.style.zIndex = String(nextZIndex);
-  return (
-    currentZIndex !== nextZIndex || reorderSlideLayerInParent(element, target)
-  );
 }
 
 function ensureBuilderId(element: HTMLElement): string {
@@ -6769,6 +6698,7 @@ export default function SlideEditor({
           ? contextMenuTarget
           : null) ?? resolveSelectedElement();
       if (!element) return;
+      if (isSlideTableStructureElement(element)) return;
       const selector = getBuilderSelector(element);
       if (!selector) return;
 
@@ -6789,7 +6719,7 @@ export default function SlideEditor({
         for (const shift of change.shiftPeers) {
           shift.element.style.zIndex = String(shift.value);
         }
-      } else if (!arrangeFlowSlideLayerInParent(element, target)) {
+      } else if (!arrangeSlideLayerInParent(element, target)) {
         return;
       }
 

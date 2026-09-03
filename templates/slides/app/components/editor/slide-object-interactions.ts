@@ -4,7 +4,11 @@ import {
   type CanvasResizeHandle,
 } from "@agent-native/toolkit/canvas-interactions";
 
-import { isSlideRichTextLayer } from "./slide-text-targets";
+import {
+  isSlideCanvasShell,
+  isSlideRichTextLayer,
+  shouldStampBuilderId,
+} from "./slide-text-targets";
 
 export const MIN_SLIDE_OBJECT_SIZE = 24;
 
@@ -65,13 +69,10 @@ const SLIDE_LAYER_NON_CONTAINER_ELEMENTS = new Set([
   "VAR",
 ]);
 
-const SLIDE_CLIPBOARD_STRUCTURAL_CHILDREN = new Set([
+const SLIDE_TABLE_STRUCTURE_ELEMENTS = new Set([
   "CAPTION",
   "COL",
   "COLGROUP",
-  "DD",
-  "DT",
-  "LI",
   "TBODY",
   "TD",
   "TFOOT",
@@ -79,6 +80,17 @@ const SLIDE_CLIPBOARD_STRUCTURAL_CHILDREN = new Set([
   "THEAD",
   "TR",
 ]);
+
+const SLIDE_CLIPBOARD_STRUCTURAL_CHILDREN = new Set([
+  ...SLIDE_TABLE_STRUCTURE_ELEMENTS,
+  "DD",
+  "DT",
+  "LI",
+]);
+
+export function isSlideTableStructureElement(element: Element): boolean {
+  return SLIDE_TABLE_STRUCTURE_ELEMENTS.has(element.tagName);
+}
 
 const SLIDE_LAYER_REQUIRED_CHILDREN = new Map<string, Set<string>>([
   ["COLGROUP", new Set(["COL"])],
@@ -1087,6 +1099,102 @@ export function computeSlideObjectZOrder(
       value: index + 1,
     })),
   };
+}
+
+/**
+ * Effective stacking index of a layer, or null when it has none.
+ *
+ * `auto` is not 0. Both paint in the same layer, but an `auto` sibling that
+ * comes later in the DOM still paints above an explicit 0, so collapsing the
+ * two is what let "send to back" report success while the layer stayed on top.
+ */
+function readSlideLayerZIndex(element: HTMLElement): number | null {
+  const raw = element.style.zIndex || window.getComputedStyle(element).zIndex;
+  if (!raw || raw === "auto") return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * z-index only takes effect on a positioned box or a flex/grid item. A static
+ * layer in a plain block parent needs `position: relative` first, or the index
+ * it is handed is inert.
+ */
+function ensureSlideLayerCanStack(
+  element: HTMLElement,
+  parent: HTMLElement,
+): void {
+  const parentDisplay = window.getComputedStyle(parent).display;
+  if (parentDisplay === "flex" || parentDisplay === "grid") return;
+  const position =
+    element.style.position || window.getComputedStyle(element).position;
+  if (!position || position === "static") element.style.position = "relative";
+}
+
+function slideLayerSiblings(
+  element: HTMLElement,
+  parent: HTMLElement,
+): HTMLElement[] {
+  return Array.from(parent.children).filter(
+    (child): child is HTMLElement =>
+      child instanceof HTMLElement &&
+      child !== element &&
+      !isSlideCanvasShell(child) &&
+      shouldStampBuilderId(child) &&
+      // Negative layers are reserved for slide backgrounds. They stay below
+      // every editable layer and must never be lifted by normalization.
+      (readSlideLayerZIndex(child) ?? 0) >= 0,
+  );
+}
+
+/**
+ * Raise or lower `element` past its sibling layers by z-index.
+ *
+ * Arrange means stacking order, so this only ever writes z-index. It must not
+ * reorder the DOM: `.fmd-slide` is a flex column, where moving a node changes
+ * where the layer sits on the slide instead of what it paints over.
+ */
+export function arrangeSlideLayerInParent(
+  element: HTMLElement,
+  target: SlideObjectZOrderTarget,
+): boolean {
+  const parent = element.parentElement;
+  if (!parent) return false;
+  const siblings = slideLayerSiblings(element, parent);
+  if (siblings.length === 0) return false;
+
+  ensureSlideLayerCanStack(element, parent);
+
+  if (target === "front") {
+    const next =
+      Math.max(0, ...siblings.map((s) => readSlideLayerZIndex(s) ?? 0)) + 1;
+    if (readSlideLayerZIndex(element) === next) return false;
+    element.style.zIndex = String(next);
+    return true;
+  }
+
+  // Reaching the back means clearing every sibling, including the ones still
+  // on `auto`. Park the element at 0 and give each sibling a unique positive
+  // slot in the order it already paints.
+  const domOrder = new Map(
+    Array.from(parent.children).map((child, index) => [child, index]),
+  );
+  const ordered = [...siblings].sort(
+    (left, right) =>
+      (readSlideLayerZIndex(left) ?? 0) - (readSlideLayerZIndex(right) ?? 0) ||
+      (domOrder.get(left) ?? 0) - (domOrder.get(right) ?? 0),
+  );
+
+  let changed = readSlideLayerZIndex(element) !== 0;
+  element.style.zIndex = "0";
+  ordered.forEach((sibling, index) => {
+    const value = index + 1;
+    if (readSlideLayerZIndex(sibling) === value) return;
+    ensureSlideLayerCanStack(sibling, parent);
+    sibling.style.zIndex = String(value);
+    changed = true;
+  });
+  return changed;
 }
 
 export interface SlideObjectMoveMember {

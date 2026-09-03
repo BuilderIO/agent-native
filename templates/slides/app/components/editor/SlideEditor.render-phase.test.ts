@@ -80,20 +80,21 @@ describe("SlideEditor render-phase safety", () => {
     );
   });
 
-  it("arranges flow layers by sibling order when they have no z-index stack", () => {
+  it("arranges flow layers through the shared z-order primitive", () => {
     const start = source.indexOf("const handleArrangeSelected");
     const end = source.indexOf("const handleToggleList", start);
     const arrangeBody = source.slice(start, end);
 
-    expect(arrangeBody).toContain(
-      "arrangeFlowSlideLayerInParent(element, target)",
-    );
+    expect(arrangeBody).toContain("arrangeSlideLayerInParent(element, target)");
     expect(arrangeBody).toContain("isPersistedFreeformObject(element)");
     expect(arrangeBody).toContain("resolveSlidePositioningLayer(element)");
-    expect(source).toContain("function arrangeFlowSlideLayerInParent");
-    expect(source).toContain("reorderSlideLayerInParent(element, target)");
     expect(source).toContain("persistSlideObjectZOrderFromDom(source");
     expect(source).toContain("function isZIndexedSlideLayer");
+    // Arrange means stacking order. Reordering the DOM here moved the layer
+    // down the `.fmd-slide` flex column instead of changing what it paints
+    // over, which is what made send-to-front look like it did nothing.
+    expect(source).not.toContain("function reorderSlideLayerInParent");
+    expect(source).not.toContain("function arrangeFlowSlideLayerInParent");
   });
 
   it("keeps portaled context-menu presses from clearing canvas selection", () => {

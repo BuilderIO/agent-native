@@ -7,6 +7,7 @@ import { sanitizeSlideHtml } from "@/lib/sanitize-slide-html";
 import {
   alignSlideObjectMembers,
   applySlideObjectMoveDelta,
+  arrangeSlideLayerInParent,
   buildPastedSlideObjects,
   canDropSlideLayerAdjacent,
   canDropSlideLayerInside,
@@ -1351,5 +1352,107 @@ describe("resolveSlideClipboardElement", () => {
     const selected = document.createElement("div");
 
     expect(resolveSlideClipboardElement(selected, null, root)).toBe(selected);
+  });
+});
+
+describe("arrangeSlideLayerInParent", () => {
+  /** The shape DeckContext's layout templates persist: a flex-column slide. */
+  function mountSlide(inner: string): HTMLElement {
+    document.body.innerHTML = `
+      <div data-slide-canvas="s1">
+        <div class="slide-content">
+          <div class="fmd-slide" style="position:relative;display:flex;flex-direction:column">${inner}</div>
+        </div>
+      </div>`;
+    return document.querySelector(".fmd-slide") as HTMLElement;
+  }
+
+  const zOf = (element: HTMLElement) => element.style.zIndex;
+
+  it("raises a flow layer above its siblings instead of moving it down the column", () => {
+    const slide = mountSlide(
+      `<h1 id="a">Title</h1><p id="b">One</p><p id="c">Two</p>`,
+    );
+    const a = slide.querySelector<HTMLElement>("#a")!;
+
+    expect(arrangeSlideLayerInParent(a, "front")).toBe(true);
+    // Layout order is untouched — only the stacking index changed.
+    expect(Array.from(slide.children).map((n) => n.id)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+    expect(Number(zOf(a))).toBeGreaterThan(0);
+  });
+
+  it("sends a text layer behind an image that carries no explicit z-index", () => {
+    const slide = mountSlide(
+      `<img id="img" data-slide-object-id="i1" style="position:absolute;left:0;top:0" />
+       <h1 id="a">Overlay title</h1>`,
+    );
+    const a = slide.querySelector<HTMLElement>("#a")!;
+    const img = slide.querySelector<HTMLElement>("#img")!;
+
+    expect(arrangeSlideLayerInParent(a, "back")).toBe(true);
+    // `auto` is not 0: the image has to be lifted for the text to be behind it.
+    expect(Number(zOf(a))).toBeLessThan(Number(zOf(img)));
+  });
+
+  it("keeps a sole layer reporting no change rather than silently reordering", () => {
+    const slide = mountSlide(`<div id="wrap"><h1>Title</h1></div>`);
+    const wrap = slide.querySelector<HTMLElement>("#wrap")!;
+
+    expect(arrangeSlideLayerInParent(wrap, "front")).toBe(false);
+    expect(arrangeSlideLayerInParent(wrap, "back")).toBe(false);
+  });
+
+  it("reports no change once the layer already sits at that end", () => {
+    const slide = mountSlide(`<h1 id="a">Title</h1><p id="b">One</p>`);
+    const a = slide.querySelector<HTMLElement>("#a")!;
+
+    expect(arrangeSlideLayerInParent(a, "front")).toBe(true);
+    expect(arrangeSlideLayerInParent(a, "front")).toBe(false);
+  });
+
+  it("round-trips front and back across repeated presses", () => {
+    const slide = mountSlide(
+      `<div id="a">A</div><div id="b">B</div><div id="c">C</div>`,
+    );
+    const a = slide.querySelector<HTMLElement>("#a")!;
+    const b = slide.querySelector<HTMLElement>("#b")!;
+
+    arrangeSlideLayerInParent(a, "front");
+    expect(Number(zOf(a))).toBeGreaterThan(Number(zOf(b) || 0));
+
+    arrangeSlideLayerInParent(a, "back");
+    expect(Number(zOf(a))).toBeLessThan(Number(zOf(b)));
+
+    arrangeSlideLayerInParent(b, "back");
+    expect(Number(zOf(b))).toBeLessThan(Number(zOf(a)));
+  });
+
+  it("promotes a static layer so the index it is handed is not inert", () => {
+    document.body.innerHTML = `
+      <div data-slide-canvas="s1"><div class="slide-content">
+        <div class="fmd-slide" style="position:relative;display:block">
+          <div id="a">A</div><div id="b">B</div>
+        </div>
+      </div></div>`;
+    const a = document.querySelector<HTMLElement>("#a")!;
+
+    expect(arrangeSlideLayerInParent(a, "front")).toBe(true);
+    expect(a.style.position).toBe("relative");
+  });
+
+  it("leaves reserved negative background layers below every editable layer", () => {
+    const slide = mountSlide(
+      `<div id="bg" style="position:absolute;z-index:-1">bg</div>
+       <h1 id="a">Title</h1><p id="b">One</p>`,
+    );
+    const a = slide.querySelector<HTMLElement>("#a")!;
+
+    arrangeSlideLayerInParent(a, "back");
+    expect(slide.querySelector<HTMLElement>("#bg")!.style.zIndex).toBe("-1");
+    expect(Number(zOf(a))).toBeGreaterThanOrEqual(0);
   });
 });
