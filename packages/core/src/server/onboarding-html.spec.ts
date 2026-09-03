@@ -83,6 +83,8 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain(".full-auth-options { margin-top: 1rem; }");
     expect(html).toContain("function __anIsLoopbackHostname()");
     expect(html).toContain("function __anSetFullAuthOptionsVisible(visible)");
+    expect(html).toContain("var __anVerificationStepStarted = false;");
+    expect(html).toContain("if (__anVerificationStepStarted) {");
     expect(html).toContain("fetch(__anPath('/_agent-native/auth/local-dev')");
     expect(html).toContain("method: 'GET'");
     expect(html).toContain("cache: 'no-store'");
@@ -529,6 +531,10 @@ describe("getOnboardingHtml", () => {
     );
     expect(html).toContain(
       "if (loginEmail && rememberedEmail) loginEmail.value = rememberedEmail",
+    );
+    expect(html).toContain("__anVerificationStepStarted = true;");
+    expect(html.indexOf("if (__anVerificationStepStarted) {")).toBeLessThan(
+      html.indexOf("var startWithLocalDev = __anShouldStartWithLocalDev();"),
     );
   });
 

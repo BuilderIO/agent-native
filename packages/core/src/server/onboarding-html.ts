@@ -2543,6 +2543,7 @@ ${signInJourneyInlineScript()}
     var __anAuthLocalePreference = 'system';
     var __AN_AUTH_MODE = ${JSON.stringify(authMode)};
     var __anAuthView = ${JSON.stringify(googleOnly ? "googleOnly" : "signup")};
+    var __anVerificationStepStarted = false;
     var __AN_AUTH_APP = ${JSON.stringify(trackingApp)};
     function __anTrackAuth(name, properties) {
       try {
@@ -2950,6 +2951,10 @@ ${signInJourneyInlineScript()}
       if (!container || !button || !__anCanUseLocalDevSignin()) return;
       function __anShowLocalDevSignin() {
         container.hidden = false;
+        if (__anVerificationStepStarted) {
+          __anSetFullAuthOptionsVisible(true);
+          return;
+        }
         var startWithLocalDev = __anShouldStartWithLocalDev();
         __anSetFullAuthOptionsVisible(!startWithLocalDev);
         if (startWithLocalDev) button.focus();
@@ -3694,6 +3699,7 @@ ${
       }
     }
     function showVerificationStep(email, password) {
+      __anVerificationStepStarted = true;
       pendingSignupEmail = email || '';
       pendingSignupPassword = password || '';
       rememberPendingSignupEmail(pendingSignupEmail);
