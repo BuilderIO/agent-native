@@ -13,7 +13,15 @@ export type McpConnectGuideId =
   | "cursor"
   | "claude-code"
   | "codex"
+  | "grok"
   | "other";
+
+export interface McpConnectHost {
+  id: string;
+  label: string;
+  aliases: readonly string[];
+  guideId: McpConnectGuideId;
+}
 
 export interface McpConnectTemplateValues {
   appName: string;
@@ -98,6 +106,21 @@ export const MCP_CONNECT_GUIDES: readonly McpConnectGuide[] = [
     note: "Opens this page in your browser and writes Codex's ~/.codex/config.toml automatically. The same command works for Claude Cowork and Goose.",
   },
   {
+    id: "grok",
+    label: "Grok",
+    steps: [
+      "Open grok.com/connectors and choose New Connector → Custom.",
+      "Paste the MCP URL above and complete the requested authentication.",
+      "Enable the connector in a chat after Grok discovers the tools.",
+    ],
+    action: {
+      kind: "link",
+      label: "Open Grok → Connectors",
+      href: "https://grok.com/connectors",
+    },
+    note: "Grok requires a publicly reachable MCP server. Connector availability and authentication options depend on your plan and workspace policy.",
+  },
+  {
     id: "other",
     label: "Other",
     intro:
@@ -113,6 +136,123 @@ export const MCP_CONNECT_GUIDES: readonly McpConnectGuide[] = [
     action: { kind: "copy", label: "Copy config" },
   },
 ] as const;
+
+export const MCP_CONNECT_HOSTS: readonly McpConnectHost[] = [
+  {
+    id: "claude",
+    label: "Claude",
+    aliases: ["claude", "claude desktop", "anthropic"],
+    guideId: "claude",
+  },
+  {
+    id: "claude-code",
+    label: "Claude Code",
+    aliases: ["claude code"],
+    guideId: "claude-code",
+  },
+  {
+    id: "chatgpt",
+    label: "ChatGPT",
+    aliases: ["chatgpt", "openai"],
+    guideId: "chatgpt",
+  },
+  {
+    id: "codex",
+    label: "Codex",
+    aliases: ["openai codex", "codex"],
+    guideId: "codex",
+  },
+  {
+    id: "cowork",
+    label: "Claude Cowork",
+    aliases: ["claude cowork", "cowork"],
+    guideId: "codex",
+  },
+  {
+    id: "cursor",
+    label: "Cursor",
+    aliases: ["cursor"],
+    guideId: "cursor",
+  },
+  {
+    id: "grok",
+    label: "Grok",
+    aliases: ["grok", "xai", "x.ai"],
+    guideId: "grok",
+  },
+] as const;
+
+export const MCP_CONNECT_HOST_SEARCH_TEXT = MCP_CONNECT_HOSTS.flatMap(
+  (host) => [host.label, ...host.aliases],
+).join(" ");
+
+const MCP_CONNECT_GENERIC_SEARCH_TERMS = [
+  "external ai host",
+  "mcp",
+  "model context protocol",
+  "connect",
+] as const;
+
+function normalizeMcpConnectQuery(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function queryContainsTerm(query: string, term: string): boolean {
+  if (query.length < 3) return false;
+  const normalizedTerm = normalizeMcpConnectQuery(term);
+  if (query === normalizedTerm) return true;
+  return ` ${query} `.includes(` ${normalizedTerm} `);
+}
+
+function queryMatchesHostAlias(query: string, alias: string): boolean {
+  const normalizedAlias = normalizeMcpConnectQuery(alias);
+  return (
+    queryContainsTerm(query, alias) ||
+    (query.length >= 3 &&
+      !query.includes(" ") &&
+      !normalizedAlias.includes(" ") &&
+      normalizedAlias.startsWith(query))
+  );
+}
+
+function matchingMcpConnectHosts(query: string): McpConnectHost[] {
+  return MCP_CONNECT_HOSTS.map((host) => ({
+    host,
+    specificity: Math.max(
+      0,
+      ...host.aliases
+        .filter((alias) => queryMatchesHostAlias(query, alias))
+        .map((alias) => normalizeMcpConnectQuery(alias).length),
+    ),
+  }))
+    .filter(({ specificity }) => specificity > 0)
+    .sort((left, right) => right.specificity - left.specificity)
+    .map(({ host }) => host);
+}
+
+export function resolveMcpConnectGuideId(
+  query: string | null | undefined,
+): McpConnectGuideId {
+  const normalized = normalizeMcpConnectQuery(query ?? "");
+  if (!normalized) return "claude";
+  return matchingMcpConnectHosts(normalized)[0]?.guideId ?? "other";
+}
+
+export function matchesMcpConnectHost(query: string): boolean {
+  const normalized = normalizeMcpConnectQuery(query);
+  if (!normalized) return true;
+  return (
+    matchingMcpConnectHosts(normalized).length > 0 ||
+    MCP_CONNECT_GENERIC_SEARCH_TERMS.some((term) =>
+      queryContainsTerm(normalized, term),
+    )
+  );
+}
 
 type McpConnectGuideTranslation = Partial<
   Pick<McpConnectGuide, "steps" | "intro" | "note">
@@ -167,6 +307,15 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
       actionLabel: "Copiar comando",
       note: "Esta página se abre en tu navegador y escribe automáticamente la configuración de Codex en ~/.codex/config.toml. El mismo comando funciona con Claude Cowork y Goose.",
     },
+    grok: {
+      steps: [
+        "Abre grok.com/connectors y elige New Connector → Custom.",
+        "Pega la URL de MCP de arriba y completa la autenticación solicitada.",
+        "Activa el conector en un chat después de que Grok detecte las herramientas.",
+      ],
+      actionLabel: "Abrir Grok → Connectors",
+      note: "Grok requiere un servidor MCP accesible públicamente. La disponibilidad y la autenticación dependen de tu plan y de la política del espacio de trabajo.",
+    },
     other: {
       intro:
         "Cualquier cliente compatible con MCP y OAuth remoto: pega la URL de MCP de arriba. Para clientes sin OAuth, pega este fragmento .mcp.json y genera abajo un bearer estático:",
@@ -210,6 +359,15 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
       intro: "Dans votre terminal, exécutez :",
       actionLabel: "Copier la commande",
       note: "Cette page s’ouvre dans votre navigateur et écrit automatiquement la configuration de Codex dans ~/.codex/config.toml. La même commande fonctionne avec Claude Cowork et Goose.",
+    },
+    grok: {
+      steps: [
+        "Ouvrez grok.com/connectors et choisissez New Connector → Custom.",
+        "Collez l’URL MCP ci-dessus et terminez l’authentification demandée.",
+        "Activez le connecteur dans un chat après la découverte des outils par Grok.",
+      ],
+      actionLabel: "Ouvrir Grok → Connectors",
+      note: "Grok exige un serveur MCP accessible publiquement. La disponibilité et l’authentification dépendent de votre forfait et de la politique de votre espace de travail.",
     },
     other: {
       intro:
@@ -255,6 +413,15 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
       actionLabel: "Befehl kopieren",
       note: "Diese Seite wird in deinem Browser geöffnet und schreibt die Codex-Konfiguration automatisch in ~/.codex/config.toml. Derselbe Befehl funktioniert mit Claude Cowork und Goose.",
     },
+    grok: {
+      steps: [
+        "Öffne grok.com/connectors und wähle New Connector → Custom.",
+        "Füge die MCP-URL oben ein und schließe die angeforderte Authentifizierung ab.",
+        "Aktiviere den Connector in einem Chat, nachdem Grok die Tools erkannt hat.",
+      ],
+      actionLabel: "Grok → Connectors öffnen",
+      note: "Grok benötigt einen öffentlich erreichbaren MCP-Server. Verfügbarkeit und Authentifizierung hängen von deinem Tarif und den Richtlinien deines Arbeitsbereichs ab.",
+    },
     other: {
       intro:
         "Jeder MCP-kompatible Client mit Remote-OAuth-Unterstützung: Füge die MCP-URL oben ein. Für Clients ohne OAuth füge diesen .mcp.json-Ausschnitt ein und erstelle unten einen statischen Bearer-Token:",
@@ -298,6 +465,15 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
       intro: "No terminal, execute:",
       actionLabel: "Copiar comando",
       note: "Esta página é aberta no navegador e grava automaticamente a configuração do Codex em ~/.codex/config.toml. O mesmo comando funciona com Claude Cowork e Goose.",
+    },
+    grok: {
+      steps: [
+        "Abra grok.com/connectors e escolha New Connector → Custom.",
+        "Cole a URL MCP acima e conclua a autenticação solicitada.",
+        "Ative o conector em um chat depois que o Grok descobrir as ferramentas.",
+      ],
+      actionLabel: "Abrir Grok → Connectors",
+      note: "O Grok exige um servidor MCP acessível publicamente. A disponibilidade e a autenticação dependem do seu plano e da política do espaço de trabalho.",
     },
     other: {
       intro:
@@ -343,6 +519,15 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
       actionLabel: "复制命令",
       note: "此页面会在浏览器中打开，并自动将 Codex 配置写入 ~/.codex/config.toml。同一命令也适用于 Claude Cowork 和 Goose。",
     },
+    grok: {
+      steps: [
+        "打开 grok.com/connectors，然后选择 New Connector → Custom。",
+        "粘贴上面的 MCP URL，并完成要求的身份验证。",
+        "Grok 发现工具后，在聊天中启用该连接器。",
+      ],
+      actionLabel: "打开 Grok → Connectors",
+      note: "Grok 需要可公开访问的 MCP 服务器。连接器可用性和身份验证选项取决于你的套餐和工作区策略。",
+    },
     other: {
       intro:
         "任何支持远程 OAuth 的 MCP 兼容客户端：粘贴上面的 MCP URL。对于不支持 OAuth 的客户端，粘贴此 .mcp.json 片段，然后在下方生成静态 bearer：",
@@ -386,6 +571,15 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
       intro: "在終端機中執行：",
       actionLabel: "複製指令",
       note: "此頁面會在瀏覽器中開啟，並自動將 Codex 設定寫入 ~/.codex/config.toml。同一個指令也適用於 Claude Cowork 和 Goose。",
+    },
+    grok: {
+      steps: [
+        "開啟 grok.com/connectors，然後選擇 New Connector → Custom。",
+        "貼上上方的 MCP URL，並完成要求的驗證。",
+        "Grok 探索工具後，在聊天中啟用連接器。",
+      ],
+      actionLabel: "開啟 Grok → Connectors",
+      note: "Grok 需要可公開連線的 MCP 伺服器。連接器可用性和驗證選項取決於你的方案和工作區政策。",
     },
     other: {
       intro:
@@ -431,6 +625,15 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
       actionLabel: "コマンドをコピー",
       note: "このページがブラウザで開き、Codex の設定を ~/.codex/config.toml に自動的に書き込みます。同じコマンドは Claude Cowork と Goose でも使えます。",
     },
+    grok: {
+      steps: [
+        "grok.com/connectors を開き、New Connector → Custom を選びます。",
+        "上の MCP URL を貼り付け、要求された認証を完了します。",
+        "Grok がツールを検出したら、チャットでコネクタを有効にします。",
+      ],
+      actionLabel: "Grok → Connectors を開く",
+      note: "Grok には公開アクセス可能な MCP サーバーが必要です。コネクタの利用可否と認証方法はプランとワークスペースポリシーによります。",
+    },
     other: {
       intro:
         "リモート OAuth に対応する MCP 互換クライアントの場合：上の MCP URL を貼り付けます。OAuth に対応していないクライアントの場合は、この .mcp.json スニペットを貼り付け、下で静的 bearer を生成します：",
@@ -474,6 +677,15 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
       intro: "터미널에서 다음을 실행합니다:",
       actionLabel: "명령 복사",
       note: "이 페이지가 브라우저에서 열리고 Codex 설정을 ~/.codex/config.toml에 자동으로 씁니다. 같은 명령은 Claude Cowork와 Goose에서도 작동합니다.",
+    },
+    grok: {
+      steps: [
+        "grok.com/connectors를 열고 New Connector → Custom을 선택합니다.",
+        "위의 MCP URL을 붙여 넣고 요청된 인증을 완료합니다.",
+        "Grok이 도구를 검색한 후 채팅에서 커넥터를 활성화합니다.",
+      ],
+      actionLabel: "Grok → Connectors 열기",
+      note: "Grok에는 공개적으로 접근 가능한 MCP 서버가 필요합니다. 커넥터 사용 가능 여부와 인증 옵션은 요금제와 워크스페이스 정책에 따라 달라집니다.",
     },
     other: {
       intro:
@@ -519,6 +731,15 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
       actionLabel: "कमांड कॉपी करें",
       note: "यह पेज आपके browser में खुलता है और Codex का config अपने आप ~/.codex/config.toml में लिखता है। यही command Claude Cowork और Goose के साथ भी काम करती है।",
     },
+    grok: {
+      steps: [
+        "grok.com/connectors खोलें और New Connector → Custom चुनें।",
+        "ऊपर दिया MCP URL पेस्ट करें और मांगा गया authentication पूरा करें।",
+        "Grok के tools खोज लेने के बाद chat में connector चालू करें।",
+      ],
+      actionLabel: "Grok → Connectors खोलें",
+      note: "Grok को सार्वजनिक रूप से उपलब्ध MCP server चाहिए। Connector availability और authentication options आपके plan और workspace policy पर निर्भर हैं।",
+    },
     other: {
       intro:
         "Remote-OAuth support वाला कोई भी MCP-compatible client: ऊपर दिया MCP URL पेस्ट करें। OAuth के बिना clients के लिए यह .mcp.json snippet पेस्ट करें और नीचे static bearer बनाएँ:",
@@ -562,6 +783,15 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
       intro: "شغّل الأمر التالي في الطرفية:",
       actionLabel: "نسخ الأمر",
       note: "تفتح هذه الصفحة في متصفحك وتكتب إعدادات Codex تلقائيًا في ~/.codex/config.toml. يعمل الأمر نفسه مع Claude Cowork وGoose.",
+    },
+    grok: {
+      steps: [
+        "افتح grok.com/connectors واختر New Connector → Custom.",
+        "الصق عنوان MCP أعلاه وأكمل المصادقة المطلوبة.",
+        "فعّل الموصل في محادثة بعد أن يكتشف Grok الأدوات.",
+      ],
+      actionLabel: "فتح Grok → Connectors",
+      note: "يتطلب Grok خادم MCP متاحًا للعامة. يعتمد توفر الموصل وخيارات المصادقة على خطتك وسياسة مساحة العمل.",
     },
     other: {
       intro:

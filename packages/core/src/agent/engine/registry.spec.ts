@@ -2701,7 +2701,6 @@ describe("AgentEngine registry", () => {
         readAppSecret,
         readAppSecrets,
       }));
-
       const { registerAgentEngine, detectEngineFromUserSecrets } =
         await import("./registry.js");
 
@@ -2755,6 +2754,23 @@ describe("AgentEngine registry", () => {
         readAppSecret,
         readAppSecrets,
       }));
+      vi.doMock(
+        "../../server/credential-provider.js",
+        async (importOriginal) => {
+          const actual =
+            await importOriginal<
+              typeof import("../../server/credential-provider.js")
+            >();
+          return {
+            ...actual,
+            resolveBuilderCredentialsDetailed: vi.fn(async () => ({
+              privateKey: "p-key",
+              publicKey: "space",
+              lookupFailed: false,
+            })),
+          };
+        },
+      );
       vi.stubEnv("AGENT_ENGINE_PREFER_BYO_KEY", undefined);
 
       const {

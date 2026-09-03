@@ -21,6 +21,19 @@ const INLINE_TEXT_TAGS = new Set([
   "FONT",
 ]);
 
+const RICH_TEXT_BLOCK_TAGS = new Set([
+  "BLOCKQUOTE",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "HR",
+  "LI",
+  "OL",
+  "P",
+  "UL",
+]);
+
 export function isInlineTextElement(element: Element): boolean {
   return INLINE_TEXT_TAGS.has(element.tagName);
 }
@@ -62,6 +75,7 @@ export function isTextLeaf(element: HTMLElement): boolean {
   if (!element || isInlineTextElement(element) || element.tagName === "IMG") {
     return false;
   }
+  if (element.tagName === "H5" || element.tagName === "H6") return false;
   if (element.classList.contains("fmd-img-placeholder")) return false;
   // A user-placed text box stays editable after its content is deleted.
   if (element.classList.contains("fmd-text-box")) return true;
@@ -90,6 +104,57 @@ export function isSmartGroup(element: HTMLElement): boolean {
   return true;
 }
 
+/** A single canvas target whose descendants are rich-text structure, not layers. */
+export function isRichTextBlock(element: HTMLElement): boolean {
+  if (!element || isInlineTextElement(element) || element.tagName === "IMG") {
+    return false;
+  }
+  if (element.tagName === "H5" || element.tagName === "H6") return false;
+  if (
+    element.classList.contains("fmd-slide") ||
+    element.classList.contains("slide-content") ||
+    element.classList.contains("fmd-autofit-scale") ||
+    element.hasAttribute("data-fmd-autofit-content") ||
+    element.hasAttribute("data-slide-canvas")
+  ) {
+    return false;
+  }
+  if (
+    element.classList.contains("fmd-text-box") ||
+    element.getAttribute("data-editing-block") === "true" ||
+    isTextLeaf(element) ||
+    isSmartGroup(element)
+  ) {
+    return true;
+  }
+  const children = Array.from(element.children);
+  return (
+    children.length > 0 &&
+    (Boolean(element.textContent?.trim()) ||
+      children.some((child) => child.tagName === "HR")) &&
+    children.every((child) => {
+      const childElement = child as HTMLElement;
+      return (
+        RICH_TEXT_BLOCK_TAGS.has(childElement.tagName) ||
+        (children.length === 1 && isRichTextBlock(childElement))
+      );
+    })
+  );
+}
+
+/** Keep a semantic list inside its containing canvas text block while editing. */
+export function resolveRichTextEditingBlock(element: HTMLElement): HTMLElement {
+  let block = element;
+  while (
+    RICH_TEXT_BLOCK_TAGS.has(block.tagName) &&
+    block.parentElement &&
+    isRichTextBlock(block.parentElement)
+  ) {
+    block = block.parentElement;
+  }
+  return block;
+}
+
 /** Resolve a click inside inline markup to the containing editable text block. */
 export function findSmartBlock(
   target: HTMLElement,
@@ -107,10 +172,11 @@ export function findSmartBlock(
     }
     if (isTextLeaf(element)) {
       const list = findEnclosingList(element, root);
-      if (list) return list;
-      return element;
+      if (list) return resolveRichTextEditingBlock(list);
+      return resolveRichTextEditingBlock(element);
     }
     if (isSmartGroup(element)) return element;
+    if (isRichTextBlock(element)) return resolveRichTextEditingBlock(element);
     element = element.parentElement;
   }
   return null;

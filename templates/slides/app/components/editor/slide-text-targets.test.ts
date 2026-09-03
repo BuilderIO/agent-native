@@ -4,14 +4,17 @@ import { describe, expect, it } from "vitest";
 
 import {
   findSmartBlock,
+  isRichTextBlock,
   isTextLeaf,
   isSlideTextEditingTarget,
+  resolveRichTextEditingBlock,
   shouldStampBuilderId,
 } from "./slide-text-targets";
 
 describe("slide text targets", () => {
   it("keeps inline style runs inside their containing text block", () => {
     const root = document.createElement("div");
+    root.className = "slide-content";
     root.innerHTML =
       '<h2>Keep <span data-slide-inline-style="true">this word</span></h2>';
 
@@ -66,5 +69,54 @@ describe("slide text targets", () => {
         includeTextBoxes: false,
       }),
     ).toBeNull();
+  });
+
+  it("treats semantic rich text as one canvas block", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<div class="fmd-slide"><div data-fmd-autofit-content><div data-builder-id="text"><ul><li>First</li><li>Second</li></ul></div></div></div>';
+
+    const block = root.querySelector("[data-builder-id='text']") as HTMLElement;
+    const list = block.querySelector("ul") as HTMLElement;
+    const item = block.querySelector("li") as HTMLElement;
+
+    expect(isRichTextBlock(block)).toBe(true);
+    expect(resolveRichTextEditingBlock(list)).toBe(block);
+    expect(findSmartBlock(item, root)).toBe(block);
+  });
+
+  it("keeps dividers inside one canvas text block", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<div class="fmd-slide"><div data-fmd-autofit-content><div data-builder-id="text"><p>Before</p><hr><p>After</p></div></div></div>';
+
+    const block = root.querySelector("[data-builder-id='text']") as HTMLElement;
+    const paragraph = block.querySelector("p:last-of-type") as HTMLElement;
+
+    expect(isRichTextBlock(block)).toBe(true);
+    expect(findSmartBlock(paragraph, root)).toBe(block);
+  });
+
+  it("keeps a divider-only editor wrapper as one canvas text block", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<div class="fmd-slide"><div data-fmd-autofit-content><div data-builder-id="text"><hr></div></div></div>';
+
+    const block = root.querySelector("[data-builder-id='text']") as HTMLElement;
+    const divider = block.querySelector("hr") as HTMLElement;
+
+    expect(isRichTextBlock(block)).toBe(true);
+    expect(findSmartBlock(divider, root)).toBe(block);
+  });
+
+  it("does not rewrite unsupported h5 and h6 headings", () => {
+    const root = document.createElement("div");
+    root.innerHTML = "<h5>Small heading</h5><h6>Smaller heading</h6>";
+
+    for (const heading of Array.from(root.children) as HTMLElement[]) {
+      expect(isTextLeaf(heading)).toBe(false);
+      expect(isRichTextBlock(heading)).toBe(false);
+      expect(findSmartBlock(heading, root)).toBeNull();
+    }
   });
 });
