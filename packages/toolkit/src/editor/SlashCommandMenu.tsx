@@ -369,6 +369,7 @@ export function SlashCommandMenu({
       }
       data-plan-interactive
       onMouseDown={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
     >
       <div className="an-rich-md-slash-heading">Blocks</div>
       {filteredCommands.map((command, index) => (

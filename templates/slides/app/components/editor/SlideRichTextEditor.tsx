@@ -89,10 +89,30 @@ export function restoreSlideTextContainerContent(
     return element;
   }
 
-  const nextRoot = new DOMParser().parseFromString(html, "text/html").body
-    .firstElementChild;
-  if (/^H[1-6]$/.test(element.tagName) && nextRoot?.tagName === "P") {
+  const nextDocument = new DOMParser().parseFromString(html, "text/html");
+  const nextRoot = nextDocument.body.firstElementChild;
+  const nextChildren = Array.from(nextDocument.body.children);
+  const nextTags = nextChildren.map((child) => child.tagName);
+  const preservesRoot =
+    (element.tagName === "BLOCKQUOTE" &&
+      nextTags.length > 0 &&
+      nextTags.every((tagName) => tagName === "P")) ||
+    (element.tagName === "LI" &&
+      nextTags.length > 0 &&
+      nextTags.every((tagName) => tagName === "P")) ||
+    ((element.tagName === "UL" || element.tagName === "OL") &&
+      nextTags.length > 0 &&
+      nextTags.every((tagName) => tagName === "LI"));
+  if (
+    nextChildren.length === 1 &&
+    /^H[1-6]$/.test(element.tagName) &&
+    nextRoot?.tagName === "P"
+  ) {
     element.innerHTML = nextRoot.innerHTML;
+    return element;
+  }
+  if (preservesRoot) {
+    element.innerHTML = html;
     return element;
   }
 

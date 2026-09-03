@@ -112,6 +112,48 @@ describe("slide rich text normalization", () => {
     expect(restored.style.left).toBe("107px");
   });
 
+  it("keeps all blocks when a heading becomes structurally multi-block", () => {
+    const root = document.createElement("div");
+    root.innerHTML = "<h2>Title</h2>";
+    const heading = root.firstElementChild as HTMLElement;
+
+    const restored = restoreSlideTextContainerContent(
+      heading,
+      "<p>Title</p><p>Second line</p>",
+    );
+
+    expect(restored.tagName).toBe("DIV");
+    expect(restored.querySelectorAll("p")).toHaveLength(2);
+    expect(restored.textContent).toBe("TitleSecond line");
+  });
+
+  it("round-trips blockquote and list roots from editor block output", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<blockquote style="position:absolute;left:10px"><p>Quote</p></blockquote><ul><li>First</li></ul>';
+    const quote = root.firstElementChild as HTMLElement;
+    const list = root.lastElementChild as HTMLElement;
+    const item = list.firstElementChild as HTMLElement;
+
+    const restoredQuote = restoreSlideTextContainerContent(
+      quote,
+      contentForSlideTextContainer("BLOCKQUOTE", quote.outerHTML),
+    );
+    const restoredList = restoreSlideTextContainerContent(
+      list,
+      contentForSlideTextContainer("UL", list.outerHTML),
+    );
+    const restoredItem = restoreSlideTextContainerContent(item, "<p>First</p>");
+
+    expect(restoredQuote).toBe(quote);
+    expect(restoredQuote.querySelector("p")?.textContent).toBe("Quote");
+    expect(restoredQuote.style.left).toBe("10px");
+    expect(restoredList).toBe(list);
+    expect(restoredList.querySelector("li")?.textContent).toBe("First");
+    expect(restoredItem).toBe(item);
+    expect(restoredItem.tagName).toBe("LI");
+  });
+
   it("promotes semantic containers to one wrapper for structural edits", () => {
     const root = document.createElement("div");
     root.innerHTML =
