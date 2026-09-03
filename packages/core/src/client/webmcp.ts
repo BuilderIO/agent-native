@@ -156,6 +156,67 @@ function getModelContext(
   return value;
 }
 
+/** Where {@link getAgentNativeWebMcpStatus} publishes progress in the page world. */
+const WEBMCP_STATUS_KEY = "__agentNativeWebMcpStatus";
+
+export type AgentNativeWebMcpRegistrationState =
+  | "registering"
+  | "ready"
+  | "failed";
+
+export interface AgentNativeWebMcpStatus {
+  state: AgentNativeWebMcpRegistrationState;
+  /** Tools registered so far. Only equals `total` once state is "ready". */
+  registered: number;
+  /** Tools this registration pass intends to register. */
+  total: number;
+  /** Present only when state is "failed". */
+  error?: string;
+}
+
+function statusHost(
+  targetDocument: Document | undefined,
+): Record<string, unknown> | undefined {
+  const view = getDocument(targetDocument)?.defaultView;
+  if (view) return view as unknown as Record<string, unknown>;
+  if (typeof window === "undefined") return undefined;
+  return window as unknown as Record<string, unknown>;
+}
+
+/**
+ * Publish registration progress into the page world.
+ *
+ * Tools register one at a time, so a discovery caller reading `getTools()`
+ * mid-flight sees a truncated list that is otherwise indistinguishable from a
+ * complete one — the caller then reports a live tool as missing. This is the
+ * only signal that separates "still registering" from "this is all there is".
+ */
+function publishRegistrationStatus(
+  targetDocument: Document | undefined,
+  status: AgentNativeWebMcpStatus | undefined,
+): void {
+  const host = statusHost(targetDocument);
+  if (!host) return;
+  if (!status) {
+    delete host[WEBMCP_STATUS_KEY];
+    return;
+  }
+  host[WEBMCP_STATUS_KEY] = { ...status };
+}
+
+/**
+ * Read WebMCP registration progress for the current page. `undefined` means no
+ * registration has started, which is not the same as an empty tool list.
+ */
+export function getAgentNativeWebMcpStatus(
+  targetDocument?: Document,
+): AgentNativeWebMcpStatus | undefined {
+  const value = statusHost(targetDocument)?.[WEBMCP_STATUS_KEY];
+  return isRecord(value)
+    ? (value as unknown as AgentNativeWebMcpStatus)
+    : undefined;
+}
+
 /**
  * Make the page-local WebMCP surface available when the browser does not
  * provide it natively. The polyfill only owns the current document. A host
@@ -702,6 +763,7 @@ export function createAgentNativeWebMcpRegistration(
     if (started || options.enabled === false || !modelContext) return;
     const startGeneration = ++generation;
     started = true;
+    let total = 0;
     const runController =
       typeof AbortController === "undefined"
         ? undefined
@@ -730,6 +792,12 @@ export function createAgentNativeWebMcpRegistration(
         "WebMCP tool manifest",
         options.maxManifestChars ?? DEFAULT_MANIFEST_CHARS,
       );
+      total = actions.length;
+      publishRegistrationStatus(options.document, {
+        state: "registering",
+        registered: 0,
+        total,
+      });
       const session = createSession(options.session);
       for (const action of actions) {
         if (!isActive()) return;
@@ -855,13 +923,29 @@ export function createAgentNativeWebMcpRegistration(
         );
         if (!isActive()) return;
         registered += 1;
+        publishRegistrationStatus(options.document, {
+          state: "registering",
+          registered,
+          total,
+        });
       }
+      publishRegistrationStatus(options.document, {
+        state: "ready",
+        registered,
+        total,
+      });
     } catch (error) {
       if (!isActive()) return;
       runController?.abort();
       registered = 0;
       started = false;
       controller = undefined;
+      publishRegistrationStatus(options.document, {
+        state: "failed",
+        registered: 0,
+        total,
+        error: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
   }
@@ -880,6 +964,7 @@ export function createAgentNativeWebMcpRegistration(
       controller = undefined;
       registered = 0;
       started = false;
+      publishRegistrationStatus(options.document, undefined);
     },
   };
 }

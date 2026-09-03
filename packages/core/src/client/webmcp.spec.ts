@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { initializeWebMCPPolyfill } = vi.hoisted(() => ({
   initializeWebMCPPolyfill: vi.fn(),
@@ -15,8 +15,10 @@ import {
   createAgentNativeWebMcpClient,
   createAgentNativeWebMcpRegistration,
   createAgentNativeServerActionWebMcpRegistration,
+  getAgentNativeWebMcpStatus,
   initializeAgentNativeWebMcp,
 } from "./webmcp.js";
+import type { AgentNativeWebMcpStatus } from "./webmcp.js";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -368,6 +370,85 @@ describe("automatic server action WebMCP registration", () => {
 
     expect(registration.registered).toBe(101);
     expect(modelContext.registerTool).toHaveBeenCalledTimes(101);
+  });
+});
+
+describe("WebMCP registration readiness", () => {
+  // The status lives on the page's window, so a registration from an earlier
+  // test in this file would otherwise leak into these assertions.
+  beforeEach(() => {
+    delete (window as unknown as Record<string, unknown>)
+      .__agentNativeWebMcpStatus;
+  });
+
+  function action(name: string): AgentNativeClientAction {
+    return {
+      name,
+      description: `Do ${name}`,
+      parameters: { type: "object", properties: {} },
+      readOnly: true,
+      run: async () => ({ ok: true }),
+    } as unknown as AgentNativeClientAction;
+  }
+
+  it("reports a partial tool list as still registering, not as complete", async () => {
+    // A caller that reads getTools() mid-flight sees a truncated list which is
+    // otherwise indistinguishable from the finished one.
+    const midFlight: Array<AgentNativeWebMcpStatus | undefined> = [];
+    const modelContext = {
+      registerTool: vi.fn(async () => {
+        midFlight.push(getAgentNativeWebMcpStatus());
+      }),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+
+    const registration = createAgentNativeWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      actions: [action("one"), action("two"), action("three")],
+    });
+
+    expect(getAgentNativeWebMcpStatus()).toBeUndefined();
+    await registration.start();
+
+    expect(midFlight.map((status) => status?.registered)).toEqual([0, 1, 2]);
+    expect(midFlight.every((status) => status?.state === "registering")).toBe(
+      true,
+    );
+    expect(midFlight.every((status) => status?.total === 3)).toBe(true);
+    expect(getAgentNativeWebMcpStatus()).toEqual({
+      state: "ready",
+      registered: 3,
+      total: 3,
+    });
+
+    registration.stop();
+    expect(getAgentNativeWebMcpStatus()).toBeUndefined();
+  });
+
+  it("marks a failed registration instead of leaving it stuck at registering", async () => {
+    const modelContext = {
+      registerTool: vi.fn(async (tool: { name: string }) => {
+        if (tool.name === "two") throw new Error("registerTool exploded");
+      }),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+
+    const registration = createAgentNativeWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      actions: [action("one"), action("two")],
+    });
+
+    await expect(registration.start()).rejects.toThrow("registerTool exploded");
+    expect(getAgentNativeWebMcpStatus()).toEqual({
+      state: "failed",
+      registered: 0,
+      total: 2,
+      error: "registerTool exploded",
+    });
+
+    registration.stop();
   });
 });
 
