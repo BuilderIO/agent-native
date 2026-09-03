@@ -401,7 +401,10 @@ fn anchored_rect(
                 let right_margin = (PILL_RIGHT_MARGIN_LOGICAL as f64 * scale_factor(app)) as i32;
                 let legacy_right_edge = position.x + expanded_w as i32;
                 let monitor_right = mx + mw as i32;
-                if (legacy_right_edge - (monitor_right - right_margin)).abs() <= 4 {
+                // Legacy coordinates are physical pixels, so scale the logical tolerance too.
+                let migration_tolerance = edge_margin_physical(app, 4);
+                if (legacy_right_edge - (monitor_right - right_margin)).abs() <= migration_tolerance
+                {
                     save_meeting_position_to_disk(app, position.x, position.y, expanded_w);
                     (
                         right_anchored_x(legacy_right_edge, w, mx, max_x),
