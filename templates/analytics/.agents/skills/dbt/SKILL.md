@@ -29,6 +29,14 @@ When Semantic Layer tools are available:
 
 Report the metric name, dimensions, filters, date range and time grain, plus environment or freshness caveats. dbt calls use the shared workspace dbt identity, not a personal warehouse identity.
 
+## Restricted Schemas
+
+`dbt_dev` and `dbt_backup` are testing or archival schemas. Do not discover or query either schema by default. The direct `search-bigquery-schema` and `bigquery` actions may receive `restrictedSchemaAccess: "user-explicit-request"` only when the latest end-user request explicitly names the restricted schema and asks to inspect or query it. Never infer consent from SQL that the agent generated. Saved dashboards, dry runs, background reports, and broad schema searches remain production-schema-only.
+
+## Freshness
+
+A visible dbt health or freshness capability does not mean the data is fresh. Warn that data is stale only when returned dbt source/model metadata explicitly says it is beyond the expected refresh window, and include the observed timestamp or window when available. If freshness is unknown, do not claim freshness; mention that it could not be verified only when freshness materially affects the answer.
+
 If MetricFlow cannot express the request, fall back to dbt metadata plus the `bigquery` action and label the result as ad hoc SQL. Missing Semantic Layer tools are a capability gap, not evidence that no metrics exist. Use Discovery metadata and BigQuery only when they can answer without inventing semantic definitions.
 
 ## Failure Semantics

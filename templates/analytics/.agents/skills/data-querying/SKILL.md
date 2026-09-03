@@ -196,6 +196,17 @@ Keep each entry short and actionable: what to do, what not to do, and why.
 This is the learnings flywheel — discoveries persist across sessions and improve
 future analyses.
 
+## Conditional Caveats
+
+Keep routine exploratory answers direct. Add a concise caveat only when the evidence or requested use triggers one:
+
+- **Known stale data:** warn only when authoritative source metadata explicitly reports data beyond its expected refresh window. Include the observed refresh timestamp or window when available. Query-cache age and availability of freshness tools do not establish freshness.
+- **Unknown freshness:** do not claim that data is current. Mention unverified freshness only when it materially affects the answer.
+- **High-stakes distribution:** when the user explicitly says the output is for a client, board, investor, QBR, or executive distribution, recommend verifying figures against the source of record before distribution. Do not add this warning to routine internal exploration.
+- **Complex inferred joins:** if an undocumented relationship or grain requires an inferred, email-only, ID-only, fuzzy, or row-multiplying join, label the join as inferred and the result as lower confidence. If the ambiguity could materially change the answer, clarify instead of merely hedging. Documented joins need no generic warning.
+
+Combine applicable caveats into one short note rather than stacking repetitive warnings.
+
 ## Important Notes
 
 - Always query real data — never guess or approximate. Only present numbers you actually retrieved; do not claim a figure you did not query.

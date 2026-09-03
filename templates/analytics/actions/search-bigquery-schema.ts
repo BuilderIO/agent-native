@@ -1,7 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { getBigQueryProjectId } from "../server/lib/bigquery";
+import {
+  enforceBigQueryRestrictedDatasetPolicy,
+  getBigQueryProjectId,
+  isRestrictedBigQueryDataset,
+} from "../server/lib/bigquery";
 import { getAccessToken } from "../server/lib/gcloud";
 import { cliBoolean } from "./schema-helpers";
 
@@ -237,6 +241,12 @@ async function listDatasets(projectId: string, limit: number, search: string) {
       location: dataset.location,
     }))
     .filter((dataset) => {
+      if (
+        typeof dataset.datasetId === "string" &&
+        isRestrictedBigQueryDataset(dataset.datasetId)
+      ) {
+        return false;
+      }
       if (!q) return true;
       return [dataset.datasetId, dataset.friendlyName, dataset.location]
         .filter(Boolean)
@@ -407,6 +417,12 @@ export default defineAction({
       .max(200)
       .optional()
       .describe("Maximum results to return (default 50, max 200)"),
+    restrictedSchemaAccess: z
+      .literal("user-explicit-request")
+      .optional()
+      .describe(
+        "Set only when the latest end-user request explicitly names dbt_dev or dbt_backup and asks to inspect it",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -418,6 +434,9 @@ export default defineAction({
 
     if (args.table) {
       const ref = parseTableRef(configuredProjectId, args.dataset, args.table);
+      enforceBigQueryRestrictedDatasetPolicy(ref.datasetId, {
+        restrictedSchemaAccess: args.restrictedSchemaAccess,
+      });
       const meta = await getTableMetadata(
         ref.projectId,
         ref.datasetId,
@@ -443,6 +462,9 @@ export default defineAction({
     }
 
     const datasetId = assertIdentifier("dataset", args.dataset);
+    enforceBigQueryRestrictedDatasetPolicy(datasetId, {
+      restrictedSchemaAccess: args.restrictedSchemaAccess,
+    });
     const tables = await listTables(configuredProjectId, datasetId, limit);
     const includeColumns = args.includeColumns === true || !!search;
 

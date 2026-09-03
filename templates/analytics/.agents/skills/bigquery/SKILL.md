@@ -55,7 +55,7 @@ table; `BIGQUERY_PROJECT_ID` is only the default project.
 are deduplicated, tested, and have canonical column names. Raw tables may have
 duplicates, schema drift, and inconsistent naming.
 
-**Avoid `dbt_dev.*`** — development schema, excluded globally.
+**Restrict `dbt_dev.*` and `dbt_backup.*` by default.** These schemas hold development, testing, or archived data. Do not discover or query them unless the latest end-user request explicitly names the schema and asks to inspect or query it. Only then pass `restrictedSchemaAccess: "user-explicit-request"` to the direct `search-bigquery-schema` or `bigquery` action. Never infer consent from agent-generated SQL. Broad schema search, saved dashboards, dry runs, and background query paths remain production-schema-only.
 
 ## Always Bound Queries by Date
 
@@ -151,7 +151,7 @@ ON signups.user_id = contacts.user_id
 ```
 
 IDs can be reassigned after deletes/merges. Email alone over-matches shared addresses.
-Require both for exact matches; flag email-only or id-only joins as low-confidence caveats.
+Require both for exact matches. When the relationship or grain is undocumented and the query proceeds with an inferred, email-only, ID-only, fuzzy, or row-multiplying join, state that the join was inferred and the result is lower confidence. Ask for clarification instead when the ambiguity could materially change the answer. Documented joins need no generic hedge.
 
 ## SQL Patterns
 

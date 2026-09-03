@@ -15,6 +15,14 @@ const dbtSkill = readFileSync(
   new URL("../../.agents/skills/dbt/SKILL.md", import.meta.url),
   "utf8",
 );
+const bigquerySkill = readFileSync(
+  new URL("../../.agents/skills/bigquery/SKILL.md", import.meta.url),
+  "utf8",
+);
+const dataQueryingSkill = readFileSync(
+  new URL("../../.agents/skills/data-querying/SKILL.md", import.meta.url),
+  "utf8",
+);
 
 const { agentChatPluginOptions, representativeAnalyticsActions } = vi.hoisted(
   () => ({
@@ -99,6 +107,7 @@ import {
   ANALYTICS_CUSTOM_BLOCK_GUIDANCE,
   ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
   ANALYTICS_ACCOUNT_HEALTH_GUIDANCE,
+  ANALYTICS_CONDITIONAL_CAVEAT_GUIDANCE,
   INTERNAL_PRODUCT_USAGE_GUIDANCE,
   BOUNDED_STRUCTURED_LOOKUP_GUIDANCE,
   DASHBOARD_REFERENCE_GUIDANCE,
@@ -131,6 +140,7 @@ describe("Analytics agent Plan mode policy", () => {
     expect(guidance).toContain("<data-source-guidance>");
     expect(guidance).toContain(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE);
     expect(guidance).toContain(ANALYTICS_ACCOUNT_HEALTH_GUIDANCE);
+    expect(guidance).toContain(ANALYTICS_CONDITIONAL_CAVEAT_GUIDANCE);
     expect(guidance).toContain(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE);
     expect(guidance).toContain(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE);
     expect(guidance).toContain(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE);
@@ -293,8 +303,47 @@ describe("Analytics agent Plan mode policy", () => {
     );
     expect(unreadable).toContain("status is unreadable");
     expect(unreadable).toContain("Do not infer that dbt is disconnected");
-    expect(connected.length).toBeLessThan(700);
+    expect(connected).toContain(
+      "visible health/freshness capability does not mean the underlying data is fresh",
+    );
+    expect(connected.length).toBeLessThan(900);
     expect(unreadable.length).toBeLessThan(500);
+  });
+
+  it("applies restricted-schema access only to explicit direct requests", () => {
+    for (const skill of [dbtSkill, bigquerySkill]) {
+      expect(skill).toMatch(/dbt_dev/);
+      expect(skill).toMatch(/dbt_backup/);
+      expect(skill).toContain(
+        'restrictedSchemaAccess: "user-explicit-request"',
+      );
+      expect(skill).toMatch(/latest end-user request explicitly names/i);
+      expect(skill).toMatch(
+        /Never infer consent from (?:SQL|agent-generated SQL)/i,
+      );
+    }
+    expect(dbtSkill).toMatch(/Saved dashboards, dry runs, background reports/);
+    expect(bigquerySkill).toMatch(
+      /Broad schema search, saved dashboards, dry runs/,
+    );
+  });
+
+  it("keeps stale, high-stakes, and inferred-join caveats conditional", () => {
+    const guidance = ANALYTICS_CONDITIONAL_CAVEAT_GUIDANCE;
+
+    expect(guidance).toContain("explicitly reports");
+    expect(guidance).toContain("does not prove that data is fresh or stale");
+    expect(guidance).toContain("client-facing, board, investor, QBR");
+    expect(guidance).toContain(
+      "routine internal exploration needs no such warning",
+    );
+    expect(guidance).toContain("join was inferred");
+    expect(guidance).toContain("Documented joins need no generic hedge");
+    expect(guidance).toContain("Combine multiple applicable caveats");
+
+    expect(dataQueryingSkill).toMatch(/Known stale data/);
+    expect(dataQueryingSkill).toMatch(/High-stakes distribution/);
+    expect(dataQueryingSkill).toMatch(/Complex inferred joins/);
   });
 
   it("documents the governed dbt and MetricFlow decision order", () => {

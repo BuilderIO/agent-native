@@ -258,6 +258,9 @@ export const ANALYTICS_ACCOUNT_HEALTH_GUIDANCE =
 export const DASHBOARD_REFERENCE_GUIDANCE =
   "DASHBOARD REFERENCE DISCOVERY — When the user asks to replicate, clone, or adapt an existing dashboard, this branch takes precedence over the ordinary metric fast path: call `search-dashboard-references` with focused terms before creating, editing, or querying anything. It searches accessible active saved dashboard ids, names, descriptions, and serialized config with bounded SQL wildcard matches, including legacy saved dashboards. Treat each result as a reference to inspect with `get-sql-dashboard` when `kind` is `sql` or `get-explorer-dashboard` when `kind` is `explorer`, not as proof that its source is authoritative for the new request. Do not automatically route a replication request to first-party Analytics or copy its source semantics without checking the user's requested provider and scope. ";
 
+export const ANALYTICS_CONDITIONAL_CAVEAT_GUIDANCE =
+  "CONDITIONAL CAVEATS — Do not add generic confidence or verification warnings. Treat data as stale only when dbt health/source freshness or another authoritative source explicitly reports that it is beyond its expected refresh window; include the observed refresh timestamp or window when available. A freshness-capable tool, query-cache age, or unknown freshness does not prove that data is fresh or stale. Mention unverified freshness only when it materially affects the requested answer. For explicitly client-facing, board, investor, QBR, or executive-distribution output, recommend verifying figures against the source of record before distribution; routine internal exploration needs no such warning. When an undocumented relationship or grain requires an inferred, email-only, ID-only, fuzzy, or row-multiplying join, say that the join was inferred and the result is lower confidence. If the ambiguity could materially change the answer, clarify instead of merely hedging. Documented joins need no generic hedge. Combine multiple applicable caveats into one concise note. ";
+
 export const BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE =
   "BUILT-IN FIRST-PARTY SOURCE — Analytics always provides one built-in first-party source alongside connected external providers such as BigQuery, HubSpot, Gong, Slack, and the other configured integrations. This does not replace or restrict external sources. When `search-analytics-query-catalog` identifies a first-party dashboard/chart definition, preserve its event semantics and use `query-agent-native-analytics` over `analytics_events` or `session_recordings` as appropriate. When the user names an external provider, or the catalog identifies one as authoritative, query that provider instead. Do not report the first-party source as disconnected merely because an external provider is not configured. If the authoritative query returns no rows, report that grounded result with its scope and time window. ";
 
@@ -310,6 +313,7 @@ export function analyticsSourceGuidanceOpening(): string {
     BOUNDED_STRUCTURED_LOOKUP_GUIDANCE +
     INTERNAL_PRODUCT_USAGE_GUIDANCE +
     ANALYTICS_ACCOUNT_HEALTH_GUIDANCE +
+    ANALYTICS_CONDITIONAL_CAVEAT_GUIDANCE +
     BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE +
     ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE +
     `DATA-SOURCE SETUP UX — Chat remains available when no external data source is connected. For a live-data request that needs an unavailable external provider, explain what is missing in the context of the user's question and guide them naturally to [Connect data sources](${ANALYTICS_DATA_SOURCES_LINK}). Use that real link from the app; do not emit a generic canned no-data sentence. For general conversation, conceptual questions, and questions the built-in first-party source can answer, continue helping normally. ` +
@@ -354,7 +358,7 @@ No dynamic dbt capability was visible in a successful connection check. This is 
     ? "Use MetricFlow for governed metric requests."
     : "Missing Semantic Layer tools are a capability gap, not evidence that no metrics exist.";
   return `<dbt-routing>
-dbt is connected with these visible capabilities: ${capabilities.join(", ") || "none classified"}. Read the dbt skill, then discover the exact dynamic dbt tools with tool-search. dbt owns model semantics and lineage; verify physical BigQuery relations with search-bigquery-schema and run direct SQL only through the bigquery action. ${semanticLayerGuidance}
+dbt is connected with these visible capabilities: ${capabilities.join(", ") || "none classified"}. Read the dbt skill, then discover the exact dynamic dbt tools with tool-search. dbt owns model semantics and lineage; verify physical BigQuery relations with search-bigquery-schema and run direct SQL only through the bigquery action. A visible health/freshness capability does not mean the underlying data is fresh; use the returned status and timestamps. ${semanticLayerGuidance}
 </dbt-routing>`;
 }
 

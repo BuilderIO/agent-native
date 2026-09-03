@@ -11,6 +11,25 @@ vi.mock("@agent-native/core", () => ({
 }));
 vi.mock("../server/lib/bigquery", () => ({
   getBigQueryProjectId: mocks.getBigQueryProjectId,
+  isRestrictedBigQueryDataset: (datasetId: string) =>
+    ["dbt_dev", "dbt_backup"].includes(datasetId.trim().toLowerCase()),
+  enforceBigQueryRestrictedDatasetPolicy: (
+    datasetId: string,
+    options?: { restrictedSchemaAccess?: string },
+  ) => {
+    const normalized = datasetId.trim().toLowerCase();
+    if (
+      ["dbt_dev", "dbt_backup"].includes(normalized) &&
+      options?.restrictedSchemaAccess !== "user-explicit-request"
+    ) {
+      const error = new Error(
+        `BigQuery dataset "${normalized}" is restricted.`,
+      ) as Error & { code: string; datasetId: string };
+      error.code = "bigquery_restricted_schema";
+      error.datasetId = normalized;
+      throw error;
+    }
+  },
 }));
 vi.mock("../server/lib/gcloud", () => ({
   getAccessToken: mocks.getAccessToken,
@@ -46,6 +65,18 @@ beforeEach(() => {
               datasetId: "product",
             },
           },
+          {
+            datasetReference: {
+              projectId: "test-project",
+              datasetId: "dbt_dev",
+            },
+          },
+          {
+            datasetReference: {
+              projectId: "test-project",
+              datasetId: "dbt_backup",
+            },
+          },
         ],
       });
     }
@@ -70,6 +101,32 @@ beforeEach(() => {
             type: "TABLE",
           },
         ],
+      });
+    }
+
+    if (path.endsWith("/datasets/dbt_backup/tables")) {
+      return jsonResponse({
+        tables: [
+          {
+            tableReference: {
+              projectId: "test-project",
+              datasetId: "dbt_backup",
+              tableId: "archived_signups",
+            },
+            type: "TABLE",
+          },
+        ],
+      });
+    }
+
+    if (path.endsWith("/datasets/dbt_backup/tables/archived_signups")) {
+      return jsonResponse({
+        tableReference: {
+          projectId: "test-project",
+          datasetId: "dbt_backup",
+          tableId: "archived_signups",
+        },
+        schema: { fields: [{ name: "created_at", type: "TIMESTAMP" }] },
       });
     }
 
@@ -148,13 +205,61 @@ describe("search-bigquery-schema", () => {
     ]);
   });
 
-  it("keeps the no-argument call as a lightweight dataset listing", async () => {
-    const result = await action.run({});
+  it("keeps restricted datasets out of no-argument and global searches", async () => {
+    const datasetsResult = await action.run({});
+    const searchResult = await action.run({ search: "created", limit: 10 });
 
-    expect(result).toMatchObject({
+    expect(datasetsResult).toMatchObject({
       mode: "datasets",
       datasets: [{ datasetId: "product" }],
     });
-    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    expect(searchResult.datasetsScanned).toBe(1);
+    expect(
+      mocks.fetch.mock.calls.some(([input]) =>
+        String(input).includes("/datasets/dbt_backup/tables"),
+      ),
+    ).toBe(false);
+    expect(
+      mocks.fetch.mock.calls.some(([input]) =>
+        String(input).includes("/datasets/dbt_dev/tables"),
+      ),
+    ).toBe(false);
+  });
+
+  it.each([
+    [{ dataset: "dbt_backup" }, "dbt_backup"],
+    [{ table: "dbt_dev.signups" }, "dbt_dev"],
+  ])(
+    "rejects direct restricted metadata access by default",
+    async (args, datasetId) => {
+      await expect(action.run(args)).rejects.toMatchObject({
+        code: "bigquery_restricted_schema",
+        datasetId,
+      });
+    },
+  );
+
+  it("allows a specifically requested restricted dataset with the explicit marker", async () => {
+    const tablesResult = await action.run({
+      dataset: "dbt_backup",
+      restrictedSchemaAccess: "user-explicit-request",
+    });
+    const tableResult = await action.run({
+      table: "dbt_backup.archived_signups",
+      restrictedSchemaAccess: "user-explicit-request",
+    });
+
+    expect(tablesResult).toMatchObject({
+      mode: "tables",
+      datasetId: "dbt_backup",
+      tables: [{ tableId: "archived_signups" }],
+    });
+    expect(tableResult).toMatchObject({
+      mode: "table",
+      table: {
+        datasetId: "dbt_backup",
+        tableId: "archived_signups",
+      },
+    });
   });
 });

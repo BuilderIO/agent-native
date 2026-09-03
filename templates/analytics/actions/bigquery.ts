@@ -51,6 +51,35 @@ function stopForBigQueryNotConfigured(message: string): never {
   });
 }
 
+function stopForRestrictedBigQuerySchema(err: unknown): never {
+  const error = err as {
+    code?: unknown;
+    datasetId?: unknown;
+    message?: unknown;
+  };
+  const datasetId =
+    typeof error.datasetId === "string"
+      ? error.datasetId
+      : "restricted dataset";
+  const message =
+    typeof error.message === "string"
+      ? error.message
+      : `BigQuery dataset "${datasetId}" is restricted.`;
+  throw new AgentActionStopError(message, {
+    errorCode: "bigquery_restricted_schema",
+    toolResult: JSON.stringify(
+      {
+        error: "bigquery_restricted_schema",
+        datasetId,
+        message,
+        recoverable: false,
+      },
+      null,
+      2,
+    ),
+  });
+}
+
 function stopForBigQueryCancellation(): never {
   const message =
     "The BigQuery query was cancelled because the agent run ended before it could finish.";
@@ -129,6 +158,12 @@ export default defineAction({
     "Query the user-configured BigQuery data warehouse. Use this when the user asks for warehouse SQL, BigQuery, or a data-dictionary metric/table that lives in BigQuery. If the user names a provider action such as Jira or Pylon, use that provider action first and do not use BigQuery unless the user explicitly asks for a warehouse copy. For a named customer or organization ID, resolve the canonical CRM/contract identity first and verify the returned rows carry the same customer and org/root-org identifiers. For account health, distinguish completed-month usage from current partial snapshots, contract metrics from similarly named platform metrics, total distinct contracted users from DAU/WAU, and actual usage from contracted capacity. Pass standard SQL via the `sql` arg. Do NOT use `db-query` for warehouse data (it only reaches the app's own SQL database). If a query fails with a schema or SQL error (unknown dataset/table/column, syntax), treat it as a normal debugging signal: inspect the real schema with `search-bigquery-schema` (or query INFORMATION_SCHEMA), correct the query based on the error, and run it again — a few corrective attempts are expected. Surface the error to the user only if it still fails after a few attempts or is non-recoverable (missing credentials, permission, quota). Never rerun identical failing SQL, and never substitute made-up numbers for data you could not query.",
   schema: z.object({
     sql: z.string().describe("SQL query to execute"),
+    restrictedSchemaAccess: z
+      .literal("user-explicit-request")
+      .optional()
+      .describe(
+        "Set only when the latest end-user request explicitly names dbt_dev or dbt_backup and asks to query it",
+      ),
   }),
   readOnly: true,
   toolCallable: true,
@@ -138,13 +173,24 @@ export default defineAction({
       stopForRepeatedBigQueryQuery();
     }
     try {
-      return await runQuery(args.sql, { signal: context?.signal });
+      return await runQuery(args.sql, {
+        signal: context?.signal,
+        restrictedSchemaAccess: args.restrictedSchemaAccess,
+      });
     } catch (err) {
       // A run cancellation is terminal for this invocation. Returning it as a
       // recoverable SQL error would invite the agent to retry work after the
       // parent run has already ended. Normalize the provider's AbortError so
       // the generic tool-error path cannot record it as a warehouse failure.
       if (context?.signal?.aborted) stopForBigQueryCancellation();
+
+      const errorCode =
+        err && typeof err === "object" && "code" in err
+          ? (err as { code?: unknown }).code
+          : undefined;
+      if (errorCode === "bigquery_restricted_schema") {
+        stopForRestrictedBigQuerySchema(err);
+      }
 
       const msg = err instanceof Error ? err.message : String(err);
       if (

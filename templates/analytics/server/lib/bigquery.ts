@@ -244,7 +244,116 @@ export interface QueryResult {
   truncated?: boolean;
 }
 
-export interface RunQueryOptions {
+export type RestrictedSchemaAccess = "user-explicit-request";
+
+export interface RestrictedSchemaPolicyOptions {
+  restrictedSchemaAccess?: RestrictedSchemaAccess;
+}
+
+export class BigQueryRestrictedSchemaError extends Error {
+  readonly code = "bigquery_restricted_schema";
+
+  constructor(readonly datasetId: string) {
+    super(
+      `BigQuery dataset "${datasetId}" is restricted because it is reserved for archived or testing data. Access it only when the latest end-user request explicitly names this dataset.`,
+    );
+    this.name = "BigQueryRestrictedSchemaError";
+  }
+}
+
+const RESTRICTED_BIGQUERY_DATASETS = new Set(["dbt_dev", "dbt_backup"]);
+
+export function isRestrictedBigQueryDataset(datasetId: string): boolean {
+  return RESTRICTED_BIGQUERY_DATASETS.has(datasetId.trim().toLowerCase());
+}
+
+export function enforceBigQueryRestrictedDatasetPolicy(
+  datasetId: string,
+  options: RestrictedSchemaPolicyOptions = {},
+): void {
+  const normalizedDatasetId = datasetId.trim().toLowerCase();
+  if (
+    isRestrictedBigQueryDataset(normalizedDatasetId) &&
+    options.restrictedSchemaAccess !== "user-explicit-request"
+  ) {
+    throw new BigQueryRestrictedSchemaError(normalizedDatasetId);
+  }
+}
+
+function stripSqlCommentsAndStrings(sql: string): string {
+  let sanitized = "";
+  let index = 0;
+
+  const replaceUntil = (end: number) => {
+    sanitized += sql.slice(index, end).replace(/[^\r\n]/g, " ");
+    index = end;
+  };
+
+  while (index < sql.length) {
+    if (sql.startsWith("--", index) || sql[index] === "#") {
+      const newline = sql.indexOf("\n", index);
+      replaceUntil(newline === -1 ? sql.length : newline);
+      continue;
+    }
+    if (sql.startsWith("/*", index)) {
+      const close = sql.indexOf("*/", index + 2);
+      replaceUntil(close === -1 ? sql.length : close + 2);
+      continue;
+    }
+
+    const quote = sql[index];
+    if (quote !== "'" && quote !== '"') {
+      sanitized += quote;
+      index += 1;
+      continue;
+    }
+
+    const delimiter = sql.startsWith(quote.repeat(3), index)
+      ? quote.repeat(3)
+      : quote;
+    let cursor = index + delimiter.length;
+    while (cursor < sql.length) {
+      if (sql[cursor] === "\\") {
+        cursor += 2;
+        continue;
+      }
+      if (sql.startsWith(delimiter, cursor)) {
+        cursor += delimiter.length;
+        break;
+      }
+      cursor += 1;
+    }
+    replaceUntil(cursor);
+  }
+
+  return sanitized;
+}
+
+export function findRestrictedBigQueryDataset(sql: string): string | null {
+  const sanitized = stripSqlCommentsAndStrings(sql);
+  const referencePattern =
+    /(?:`(?:[A-Za-z][A-Za-z0-9-]*\.)?(dbt_dev|dbt_backup)\.[^`]+`|(?:^|[^A-Za-z0-9_-])(?:[A-Za-z][A-Za-z0-9-]*\.)?(dbt_dev|dbt_backup)\.[A-Za-z_][A-Za-z0-9_$]*)/gi;
+
+  for (const match of sanitized.matchAll(referencePattern)) {
+    const datasetId = (match[1] ?? match[2])?.toLowerCase();
+    if (datasetId && RESTRICTED_BIGQUERY_DATASETS.has(datasetId)) {
+      return datasetId;
+    }
+  }
+  return null;
+}
+
+export function enforceBigQueryRestrictedSchemaPolicy(
+  sql: string,
+  options: RestrictedSchemaPolicyOptions = {},
+): void {
+  const datasetId = findRestrictedBigQueryDataset(sql);
+  if (datasetId && options.restrictedSchemaAccess !== "user-explicit-request") {
+    throw new BigQueryRestrictedSchemaError(datasetId);
+  }
+}
+
+export interface RunQueryOptions extends RestrictedSchemaPolicyOptions {
   /**
    * The current agent run's abort signal. This cancels in-flight BigQuery
    * requests and, importantly, stops the one-second job polling wait without
@@ -392,6 +501,7 @@ export async function dryRunQuery(
   sql: string,
   options: DryRunQueryOptions = {},
 ): Promise<string | null> {
+  enforceBigQueryRestrictedSchemaPolicy(sql);
   if (options.signal?.aborted) {
     throw new Error("BigQuery validation was cancelled before it started");
   }
@@ -462,6 +572,7 @@ export async function runQuery(
   sql: string,
   options: RunQueryOptions = {},
 ): Promise<QueryResult> {
+  enforceBigQueryRestrictedSchemaPolicy(sql, options);
   const { signal } = options;
   throwIfAborted(signal);
   const { projectId, cacheScope, appEventsTable } = await getProjectInfo();

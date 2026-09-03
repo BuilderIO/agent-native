@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { DEFAULT_MCP_INTEGRATIONS as RUNTIME_DEFAULT_MCP_INTEGRATIONS } from "../client/resources/mcp-integration-catalog.js";
 import {
   getProviderApiConfig,
   listProviderApiCatalog,
@@ -18,6 +19,26 @@ import {
 describe("ejected catalog wrappers", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("keeps the dbt preset identical in runtime and ejected catalogs", () => {
+    const runtimeDbt = RUNTIME_DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "dbt",
+    );
+    const ejectedDbt = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "dbt",
+    );
+
+    expect(ejectedDbt).toEqual(runtimeDbt);
+    expect(ejectedDbt).toMatchObject({
+      authMode: "headers",
+      connectionMode: "manual",
+      availability: "provider-setup",
+      supportsOrganizationScope: true,
+      setupNoteKey: "mcpIntegrations.catalog.dbt.setupNote",
+      headerPlaceholder:
+        "Authorization: Token <DBT_SERVICE_TOKEN>\nx-dbt-prod-environment-id: <DBT_PROD_ENVIRONMENT_ID>",
+    });
   });
 
   it("lets caller MCP overrides win and injects the merged catalog into UI", () => {

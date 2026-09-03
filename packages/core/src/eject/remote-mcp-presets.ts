@@ -62,6 +62,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
   preset("fullstory"),
   preset("notion"),
   preset("granola"),
+  preset("dbt"),
   preset("semgrep"),
   preset("linear"),
   preset("atlassian"),
