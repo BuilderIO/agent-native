@@ -7,9 +7,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const { useDecksMock } = vi.hoisted(() => ({ useDecksMock: vi.fn() }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  AgentSidebar: ({ children }: { children: ReactNode }) => (
-    <div data-testid="agent-sidebar">{children}</div>
-  ),
+  AgentSidebar: ({ children, ...props }: { children: ReactNode }) => {
+    void props;
+    return <div data-testid="agent-sidebar">{children}</div>;
+  },
+  focusAgentChat: vi.fn(),
+  isAgentChatHomeHandoffActive: vi.fn(() => false),
+  navigateWithAgentChatViewTransition: vi.fn(),
+  useAgentChatHomeHandoff: vi.fn(() => false),
+  useAgentChatHomeHandoffLinks: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -92,6 +98,14 @@ describe("Slides Layout", () => {
     expect(
       screen.queryByRole("button", { name: "sidebar.openNavigation" }),
     ).toBeNull();
+    expect(screen.getByTestId("page-content")).toBeTruthy();
+  });
+
+  it("renders full-page chat without the sidebar wrapper", () => {
+    renderLayout("/chat");
+
+    expect(screen.queryByTestId("agent-sidebar")).toBeNull();
+    expect(screen.getByTestId("app-sidebar")).toBeTruthy();
     expect(screen.getByTestId("page-content")).toBeTruthy();
   });
 });

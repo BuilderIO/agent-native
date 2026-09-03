@@ -122,6 +122,29 @@ describe("Slides reference upload limits", () => {
     expect(mockWriteFile).toHaveBeenCalledTimes(2);
   });
 
+  it("uses the detected raster type when an image extension is mislabeled", async () => {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0x00]);
+
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        originalName: "reference.png",
+        data: jpeg,
+        type: "image/png",
+      }),
+    ).resolves.toMatchObject({
+      originalName: "reference.png",
+      filename: expect.stringMatching(/\.jpg$/),
+      type: "image/jpeg",
+      size: jpeg.length,
+    });
+
+    expect(mockWriteFile).toHaveBeenCalledWith(
+      expect.stringMatching(/\.jpg$/),
+      jpeg,
+    );
+  });
+
   it("stores hosted reference uploads in durable private blob storage", async () => {
     mockIsHostedSlidesRuntime.mockReturnValue(true);
     mockStoreUploadedReferenceBlob.mockResolvedValue(
