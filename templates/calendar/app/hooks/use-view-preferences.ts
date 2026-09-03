@@ -534,7 +534,9 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
             save(next);
             return next;
           });
-          toast.error(`${t("settings.saveFailed")}. ${t("common.tryAgain")}`);
+          toast.error(
+            `${t("settings.saveFailed")}. ${t("common.tryAgain")}`, // i18n-key-ignore generated calendar catalog
+          );
         });
     },
     [demo, t],
@@ -591,7 +593,9 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
             save(next);
             return next;
           });
-          toast.error(`${t("settings.saveFailed")}. ${t("common.tryAgain")}`);
+          toast.error(
+            `${t("settings.saveFailed")}. ${t("common.tryAgain")}`, // i18n-key-ignore generated calendar catalog
+          );
         });
     },
     [demo, t],

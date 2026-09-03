@@ -622,8 +622,12 @@ function GoogleCalendarsSections({
           onClick={() => setShowAllCalendars((current) => !current)}
           className="mx-3 mt-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
         >
-          {showAllCalendars ? t("common.showLess") : t("common.showMore")} (
-          {otherCalendars.length - 8})
+          {
+            showAllCalendars
+              ? t("common.showLess") // i18n-key-ignore generated calendar catalog
+              : t("common.showMore") // i18n-key-ignore generated calendar catalog
+          }{" "}
+          ({otherCalendars.length - 8})
         </button>
       )}
     </div>
