@@ -179,6 +179,21 @@ export function isSlideRichTextLayer(element: HTMLElement): boolean {
   return false;
 }
 
+function findSlideRichTextOwner(
+  target: HTMLElement,
+  root: HTMLElement,
+): HTMLElement | null {
+  if (target.closest(".fmd-text-box[data-slide-object-id]")) return null;
+  let owner: HTMLElement | null = null;
+  let element: HTMLElement | null = target;
+  while (element && element !== root && root.contains(element)) {
+    if (isSlideCanvasShell(element)) break;
+    if (isSlideRichTextLayer(element)) owner = element;
+    element = element.parentElement;
+  }
+  return owner;
+}
+
 /** Resolve a click inside inline markup to the containing editable text block. */
 export function findSmartBlock(
   target: HTMLElement,
@@ -186,6 +201,8 @@ export function findSmartBlock(
   options?: { includeTextBoxes?: boolean },
 ): HTMLElement | null {
   const includeTextBoxes = options?.includeTextBoxes ?? true;
+  const richTextOwner = findSlideRichTextOwner(target, root);
+  if (richTextOwner) return richTextOwner;
   let element: HTMLElement | null = target;
   while (element && root.contains(element)) {
     if (

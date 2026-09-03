@@ -114,6 +114,13 @@ describe("slide object interactions", () => {
     expect(canDropSlideLayerInside(document.createElement("div"))).toBe(true);
   });
 
+  it("rejects nesting into rich-text layer targets", () => {
+    const richText = document.createElement("div");
+    richText.innerHTML = "<p>Heading</p><p>Body</p>";
+
+    expect(canDropSlideLayerInside(richText)).toBe(false);
+  });
+
   it("rejects adjacent drops that would violate structural parent rules", () => {
     const paragraph = document.createElement("p");
     const span = document.createElement("span");

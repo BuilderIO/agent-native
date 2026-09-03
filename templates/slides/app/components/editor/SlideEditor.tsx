@@ -164,6 +164,7 @@ import {
   isValidSlideClipboardRoot,
   removeSlideObjectAndLayoutSpacer,
   preserveSlideObjectLayoutSpacer,
+  readSlideObjectZIndex,
   resolveSlideObjectContainingBlock,
   resizeSlideObjectMembers,
   resolveSlideClipboardElement,
@@ -356,6 +357,34 @@ function layerKindForElement(
   return hasChildren ? "container" : "shape";
 }
 
+function sortSlideLayerElements(elements: HTMLElement[]): HTMLElement[] {
+  return elements
+    .map((element, index) => ({ element, index }))
+    .sort((left, right) => {
+      const leftFreeform = isPersistedFreeformObject(left.element);
+      const rightFreeform = isPersistedFreeformObject(right.element);
+      const leftBucket = leftFreeform
+        ? readSlideObjectZIndex(left.element) < 0
+          ? -1
+          : 1
+        : 0;
+      const rightBucket = rightFreeform
+        ? readSlideObjectZIndex(right.element) < 0
+          ? -1
+          : 1
+        : 0;
+      if (leftBucket !== rightBucket) return leftBucket - rightBucket;
+      if (leftFreeform && rightFreeform) {
+        return (
+          readSlideObjectZIndex(left.element) -
+            readSlideObjectZIndex(right.element) || left.index - right.index
+        );
+      }
+      return left.index - right.index;
+    })
+    .map(({ element }) => element);
+}
+
 function buildSlidesLayerTree(root: HTMLElement | null): SlidesLayerNode[] {
   if (!root) return [];
   stampBuilderIds(root);
@@ -384,7 +413,7 @@ function buildSlidesLayerTree(root: HTMLElement | null): SlidesLayerNode[] {
     const richTextLayer = isSlideRichTextLayer(element);
     const children = richTextLayer
       ? []
-      : Array.from(element.children)
+      : sortSlideLayerElements(Array.from(element.children) as HTMLElement[])
           .map((child, childIndex) => visit(child as HTMLElement, childIndex))
           .filter((child): child is SlidesLayerNode => child !== null);
     return {
@@ -395,7 +424,9 @@ function buildSlidesLayerTree(root: HTMLElement | null): SlidesLayerNode[] {
     };
   };
 
-  return Array.from(positioningLayer.children)
+  return sortSlideLayerElements(
+    Array.from(positioningLayer.children) as HTMLElement[],
+  )
     .map((element, index) => visit(element as HTMLElement, index))
     .filter((node): node is SlidesLayerNode => node !== null);
 }
@@ -6411,6 +6442,7 @@ export default function SlideEditor({
       // highlighting, shortcuts, and Enter-to-add-bullet all work, and the
       // style dock targets the same block being edited.
       if (!readOnly && slideContent) {
+        stampBuilderIds(slideContent);
         const block = findSmartBlock(target, slideContent, {
           includeTextBoxes: false,
         });
@@ -6871,6 +6903,7 @@ export default function SlideEditor({
         ".slide-content",
       ) as HTMLElement | null;
       if (!slideContent) return;
+      stampBuilderIds(slideContent);
       const block = findSmartBlock(target, slideContent);
       if (!block) return;
 

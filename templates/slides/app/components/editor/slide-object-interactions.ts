@@ -4,6 +4,8 @@ import {
   type CanvasResizeHandle,
 } from "@agent-native/toolkit/canvas-interactions";
 
+import { isSlideRichTextLayer } from "./slide-text-targets";
+
 export const MIN_SLIDE_OBJECT_SIZE = 24;
 
 const SLIDE_LAYER_VOID_ELEMENTS = new Set([
@@ -94,6 +96,7 @@ const SLIDE_LAYER_REQUIRED_CHILDREN = new Map<string, Set<string>>([
 
 export function canDropSlideLayerInside(target: Element): boolean {
   return (
+    !isSlideRichTextLayer(target as HTMLElement) &&
     !SLIDE_LAYER_VOID_ELEMENTS.has(target.tagName) &&
     !SLIDE_LAYER_NON_CONTAINER_ELEMENTS.has(target.tagName)
   );
@@ -912,7 +915,7 @@ export function resizeSlideObjectMembers(
 
 export type SlideObjectZOrderTarget = "front" | "back";
 
-function readSlideObjectZIndex(element: HTMLElement): number {
+export function readSlideObjectZIndex(element: HTMLElement): number {
   const raw = element.style.zIndex || window.getComputedStyle(element).zIndex;
   const value = Number(raw);
   return Number.isFinite(value) ? value : 0;

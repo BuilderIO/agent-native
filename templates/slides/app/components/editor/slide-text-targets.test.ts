@@ -86,5 +86,6 @@ describe("slide text targets", () => {
     expect(isSlideRichTextLayer(layer)).toBe(true);
     expect(shouldStampBuilderId(layer)).toBe(true);
     expect(shouldStampBuilderId(paragraph)).toBe(false);
+    expect(findSmartBlock(paragraph, root)).toBe(layer);
   });
 });
