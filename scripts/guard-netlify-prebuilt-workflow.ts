@@ -7,6 +7,7 @@ const clipsNetlifyPath = "templates/clips/netlify.toml";
 const chatNetlifyPath = "templates/chat/netlify.toml";
 const productionPath = ".github/workflows/deploy-production-sites-prebuilt.yml";
 const betaPath = ".github/workflows/deploy-beta-sites-prebuilt.yml";
+const docsProductionPath = ".github/workflows/deploy-docs-production.yml";
 const manageProductionPath = ".github/workflows/manage-production-sites.yml";
 const promotePath = ".github/workflows/promote-netlify-deploy.yml";
 
@@ -22,6 +23,7 @@ const clipsNetlify = readFileSync(clipsNetlifyPath, "utf8");
 const chatNetlify = readFileSync(chatNetlifyPath, "utf8");
 const production = readFileSync(productionPath, "utf8");
 const beta = readFileSync(betaPath, "utf8");
+const docsProduction = readFileSync(docsProductionPath, "utf8");
 const manageProduction = readFileSync(manageProductionPath, "utf8");
 const promote = readFileSync(promotePath, "utf8");
 
@@ -40,8 +42,8 @@ export function validateReusableWorkflowConcurrency(
   if (
     typeof group !== "string" ||
     !group.includes("inputs.caller") ||
-    !group.includes("inputs.source_ref") ||
     !group.includes("netlify-prebuilt-child") ||
+    !group.includes("agent-native-release-migrations") ||
     !group.includes("inputs.target") ||
     !group.includes("inputs.site") ||
     !group.includes("agent-native-production-site") ||
@@ -181,6 +183,7 @@ try {
     [reusablePath, reusable],
     [productionPath, production],
     [betaPath, beta],
+    [docsProductionPath, docsProduction],
     [manageProductionPath, manageProduction],
     [promotePath, promote],
   ] as const) {
@@ -205,9 +208,22 @@ issues.push(...validateReusableWorkflowConcurrency(reusableDocument ?? {}));
 if (asRecord(reusableDocument?.concurrency)?.["cancel-in-progress"] !== false) {
   issues.push(`${reusablePath} beta deploys must queue every source SHA`);
 }
-if (asRecord(parsedWorkflows.get(betaPath)?.concurrency)) {
+const betaConcurrency = asRecord(parsedWorkflows.get(betaPath)?.concurrency);
+if (betaConcurrency) {
   issues.push(
-    `${betaPath} must not use a shared workflow concurrency group; GitHub keeps only one pending run per group`,
+    `${betaPath} must let every main push reach its per-site publish queue instead of canceling the workflow`,
+  );
+}
+const reusableConcurrencyGroup = String(
+  asRecord(reusableDocument?.concurrency)?.group ?? "",
+);
+if (
+  !reusableConcurrencyGroup.includes(
+    "format('netlify-prebuilt-beta-{0}', inputs.site)",
+  )
+) {
+  issues.push(
+    `${reusablePath} beta publishes must share one non-canceling remote queue per site`,
   );
 }
 
@@ -220,6 +236,38 @@ if (
 ) {
   issues.push(
     `${productionPath} must keep fleet runs in a dedicated production queue`,
+  );
+}
+const docsProductionDocument = parsedWorkflows.get(docsProductionPath);
+const docsProductionJobs = asRecord(docsProductionDocument?.jobs);
+for (const jobName of ["pause-netlify-builds", "restore-netlify-builds"]) {
+  const concurrency = asRecord(
+    asRecord(docsProductionJobs?.[jobName])?.concurrency,
+  );
+  if (
+    concurrency?.group !== "agent-native-production-site-fw" ||
+    concurrency?.["cancel-in-progress"] !== false
+  ) {
+    issues.push(
+      `${docsProductionPath} ${jobName} must share the fw production site queue without cancellation`,
+    );
+  }
+}
+const docsPauseJob = asRecord(docsProductionJobs?.["pause-netlify-builds"]);
+const docsRestoreJob = asRecord(docsProductionJobs?.["restore-netlify-builds"]);
+if (
+  !asRecord(docsPauseJob?.outputs)?.cutover_acquired ||
+  !asRecord(docsPauseJob?.outputs)?.was_stopped ||
+  typeof docsRestoreJob?.if !== "string" ||
+  !docsRestoreJob.if.includes("always()") ||
+  !String(docsRestoreJob.needs).includes("pause-netlify-builds") ||
+  !docsProduction.includes("stop_builds: false") ||
+  !docsProduction.includes(
+    "needs.pause-netlify-builds.outputs.cutover_acquired",
+  )
+) {
+  issues.push(
+    `${docsProductionPath} must restore the prior Git-connected build setting after every pause attempt`,
   );
 }
 
@@ -304,6 +352,8 @@ for (const input of [
   "deploy_mode",
   "smoke",
   "caller",
+  "migration_only",
+  "skip_build_migrations",
 ]) {
   if (!asRecord(workflowCallInputs?.[input])) {
     issues.push(`${reusablePath} workflow_call must define the ${input} input`);
@@ -615,26 +665,28 @@ for (const [path, target, buildContext] of [
   }
   if (
     path === betaPath &&
-    asRecord(deployJob?.strategy)?.["max-parallel"] !== 1
+    asRecord(deployJob?.strategy)?.["max-parallel"] !== 8
   ) {
     issues.push(
-      `${path} must serialize beta builds because release migrations share database capacity`,
+      `${path} must allow beta artifact builds to run concurrently after migration preflight`,
     );
   }
 }
 
-for (const required of [
-  "context.runId",
-  "run.id < context.runId",
-  "run.event",
-  "workflow_dispatch",
-  "actions.getWorkflowRun",
-] as const) {
-  if (!beta.includes(required)) {
-    issues.push(
-      `${betaPath} must queue push and manual beta runs behind the prior workflow run (${required})`,
-    );
-  }
+const betaMigrateJob = asRecord(
+  asRecord(parsedWorkflows.get(betaPath)?.jobs)?.migrate,
+);
+const betaMigrateWith = asRecord(betaMigrateJob?.with);
+if (
+  betaMigrateJob?.uses !== "./.github/workflows/deploy-netlify-prebuilt.yml" ||
+  asRecord(betaMigrateJob?.strategy)?.["max-parallel"] !== 1 ||
+  betaMigrateWith?.caller !== "release-migration" ||
+  betaMigrateWith?.migration_only !== true ||
+  betaMigrateWith?.deploy !== false
+) {
+  issues.push(
+    `${betaPath} must run one serialized reusable migration preflight before beta artifact builds`,
+  );
 }
 
 if (issues.length) {
