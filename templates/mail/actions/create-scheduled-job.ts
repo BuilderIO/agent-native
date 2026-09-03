@@ -21,7 +21,6 @@ export default defineAction({
       .describe("Job-specific payload"),
     runAt: z.coerce.number().describe("Epoch milliseconds to run the job at"),
   }),
-  agentTool: false,
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("Unauthenticated");

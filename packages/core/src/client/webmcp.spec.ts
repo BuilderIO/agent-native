@@ -292,6 +292,12 @@ describe("automatic server action WebMCP registration", () => {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "order-1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
       );
 
     const registration = createAgentNativeServerActionWebMcpRegistration({
@@ -314,6 +320,9 @@ describe("automatic server action WebMCP registration", () => {
     ).resolves.toBe('{"id":"order-1"}');
     await expect(
       registrations[0]?.tool.execute({ id: "order-1" }),
+    ).resolves.toBe('{"id":"order-1"}');
+    await expect(
+      registrations[0]?.tool.execute({ id: "order-1" }, {}),
     ).resolves.toBe('{"id":"order-1"}');
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,

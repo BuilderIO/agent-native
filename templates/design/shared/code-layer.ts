@@ -280,7 +280,7 @@ export type EditCapability =
     }
   | {
       kind: "structure";
-      operations: Array<"moveNode">;
+      operations: Array<"moveNode" | "deleteNode">;
       confidence: number;
       reason?: string;
     }
@@ -452,6 +452,11 @@ export interface AttributeEditIntent {
   value: string;
 }
 
+export interface DeleteNodeEditIntent {
+  kind: "deleteNode";
+  target: EditIntentTarget;
+}
+
 export interface MoveNodeEditIntent {
   kind: "moveNode";
   target: EditIntentTarget;
@@ -602,6 +607,7 @@ export type EditIntent =
   | ClassEditIntent
   | TextEditIntent
   | AttributeEditIntent
+  | DeleteNodeEditIntent
   | MoveNodeEditIntent
   | WrapNodesEditIntent
   | UnwrapEditIntent
@@ -3915,6 +3921,7 @@ function applyAutoLayout(
   if (!enabled) {
     const childRects = intent.childRects;
     const hasRects = !!childRects && Object.keys(childRects).length > 0;
+    if (!hasRects) return "needsAgent";
     const currentStyle = attributeValue(element, "style");
     const declarations = parseStyleDeclarations(currentStyle);
     const setOnContainer = (property: string, value: string) => {
@@ -3955,13 +3962,6 @@ function applyAutoLayout(
       "style",
       serializeStyleDeclarations(declarations),
     );
-    if (!hasRects) {
-      return {
-        content: result,
-        capability: { kind: "style", properties: ["display"], confidence: 0.9 },
-      };
-    }
-
     const updatedElements = parseHtmlElements(result);
     const targetAttr = attributeValue(element, "data-agent-native-node-id");
     const updatedTarget =
@@ -4332,6 +4332,44 @@ export function applyVisualEdit(
         "The target node does not have editable source spans.",
         beforeNode,
         undefined,
+        before,
+      ),
+    };
+  }
+
+  if (intent.kind === "deleteNode") {
+    const deleted = removeCodeLayerNodeFromHtml(html, beforeNode);
+    if (deleted === null) {
+      return {
+        content: html,
+        projection: initial.projection,
+        result: patchResult(
+          "unsupported",
+          source,
+          intent,
+          false,
+          "This node cannot be deleted from the editable source.",
+          beforeNode,
+          undefined,
+          before,
+        ),
+      };
+    }
+    return {
+      content: deleted,
+      projection: buildCodeLayerProjection(deleted, { source }),
+      result: patchResult(
+        "applied",
+        source,
+        intent,
+        deleted !== html,
+        "Node deleted.",
+        beforeNode,
+        {
+          kind: "structure",
+          operations: ["deleteNode"],
+          confidence: 0.95,
+        },
         before,
       ),
     };

@@ -1,5 +1,5 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
-import { callAction } from "@agent-native/core/client/hooks";
+import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { archiveFailureToastMessage } from "@shared/archive-errors";
 import { markdownPreviewSnippet } from "@shared/markdown";
@@ -1474,20 +1474,17 @@ export function useLabels(accountEmails?: readonly string[]) {
   const accountFilter = accountEmails?.length
     ? [...new Set(accountEmails.map((email) => email.toLowerCase()))].sort()
     : undefined;
-  return useQuery<Label[]>({
-    queryKey: ["labels", accountFilter],
-    queryFn: () => {
-      const params = accountFilter?.length
-        ? `?accountEmails=${encodeURIComponent(accountFilter.join(","))}`
-        : "";
-      return apiFetch(`/api/labels${params}`);
+  return useActionQuery<Label[]>(
+    "list-labels",
+    accountFilter?.length ? { accountEmails: accountFilter } : {},
+    {
+      // A failed background refresh must not erase the last complete label map.
+      // The layout still surfaces isError so an initial failure has an explicit
+      // retry path instead of looking like an empty mailbox.
+      placeholderData: (previousData) => previousData,
+      staleTime: 60_000,
     },
-    // A failed background refresh must not erase the last complete label map.
-    // The layout still surfaces isError so an initial failure has an explicit
-    // retry path instead of looking like an empty mailbox.
-    placeholderData: (previousData) => previousData,
-    staleTime: 60_000,
-  });
+  );
 }
 
 // ─── Settings ────────────────────────────────────────────────────────────────

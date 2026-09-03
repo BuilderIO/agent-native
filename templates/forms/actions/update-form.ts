@@ -8,10 +8,12 @@ import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
 import { invalidatePublicFormCache } from "../server/lib/public-form-ssr.js";
 import {
   assertValidFields,
+  FIELD_TYPES,
   normalizeFieldIds,
 } from "../server/lib/validate-fields.js";
 import {
   assertValidFormCompletionSettings,
+  FORM_SETTINGS_KEYS,
   type FormField,
   type FormSettings,
 } from "../shared/types.js";
@@ -40,13 +42,13 @@ export default defineAction({
       .union([z.string(), z.array(z.any())])
       .optional()
       .describe(
-        "Array of complete field objects with id, type, label, and required (or JSON string of the same); never use shorthand strings such as 'text: Enter a name'.",
+        `Array of complete field objects with id, type, label, and required (or JSON string of the same). Field types: ${FIELD_TYPES.join(", ")}. Never use shorthand strings such as 'text: Enter a name'.`,
       ),
     settings: z
       .union([z.string(), z.record(z.string(), z.any())])
       .optional()
       .describe(
-        "Form settings object (or JSON string of the same). Set completionMode to message, redirect, message_then_refresh, or refresh. Use completionRefreshSeconds with message_then_refresh. Set emailOnNewResponses=true to email the form owner for each new response.",
+        `Form settings object (or JSON string of the same). Valid settings: ${FORM_SETTINGS_KEYS.join(", ")}. Set completionMode to message, redirect, message_then_refresh, or refresh. Use completionRefreshSeconds with message_then_refresh. Set emailOnNewResponses=true to email the form owner for each new response.`,
       ),
     status: z
       .enum(["draft", "published", "closed"])
@@ -112,8 +114,8 @@ export default defineAction({
         // Keep malformed legacy settings recoverable by replacing them with
         // the valid settings supplied by this update.
       }
+      assertValidFormCompletionSettings(incomingSettings);
       const parsedSettings = { ...existingSettings, ...incomingSettings };
-      assertValidFormCompletionSettings(parsedSettings);
       // Reject blocked integration URLs at save time (private IPs,
       // cloud-metadata, non-http(s) schemes). fireIntegrations also
       // re-checks at runtime as defense-in-depth.

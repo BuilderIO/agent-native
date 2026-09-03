@@ -9,6 +9,7 @@ import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
+import { saveGmailDraft } from "../server/lib/gmail-drafts.js";
 import { appendSignatureToBody } from "../shared/signature.js";
 
 const COMPOSE_FULLSCREEN_PARAM = "composeFullscreen";
@@ -117,12 +118,26 @@ export default defineAction({
       const rawId = args.id || `draft-${Date.now()}`;
       const id = sanitizeDraftId(rawId) ?? `draft-${Date.now()}`;
       const signature = await readConfiguredSignature();
+      const ownerEmail = getRequestUserEmail();
+      const body = appendSignatureToBody(args.body || "", signature);
+      const savedGmailDraft = ownerEmail
+        ? await saveGmailDraft({
+            ownerEmail,
+            accountEmail: args.accountEmail,
+            to: args.to || "",
+            cc: args.cc,
+            bcc: args.bcc,
+            subject: args.subject || "",
+            body,
+          })
+        : null;
       const draft: Record<string, string> = {
         id,
         to: args.to || "",
         subject: args.subject || "",
-        body: appendSignatureToBody(args.body || "", signature),
+        body,
         mode: args.mode || "compose",
+        ...(savedGmailDraft ? { savedDraftId: savedGmailDraft.draftId } : {}),
       };
       if (args.cc) draft.cc = args.cc;
       if (args.bcc) draft.bcc = args.bcc;
@@ -142,8 +157,19 @@ export default defineAction({
       if (!args.id) throw new Error("--id is required for update");
       const safeId = sanitizeDraftId(args.id);
       if (!safeId) throw new Error(`Invalid draft ID "${args.id}"`);
-      const draft = await readAppState(`compose-${safeId}`);
-      if (!draft) throw new Error(`Draft "${safeId}" not found`);
+      const storedDraft = await readAppState(`compose-${safeId}`);
+      if (!storedDraft) throw new Error(`Draft "${safeId}" not found`);
+      if (typeof storedDraft !== "object" || Array.isArray(storedDraft)) {
+        throw new Error(`Draft "${safeId}" has invalid stored data`);
+      }
+      const draft = Object.fromEntries(
+        Object.entries(storedDraft).map(([key, value]) => {
+          if (typeof value !== "string") {
+            throw new Error(`Draft "${safeId}" has invalid ${key}`);
+          }
+          return [key, value];
+        }),
+      ) as Record<string, string>;
       for (const key of [
         "to",
         "cc",
@@ -158,6 +184,20 @@ export default defineAction({
         if ((args as any)[key] !== undefined)
           (draft as any)[key] = (args as any)[key];
       }
+      const ownerEmail = getRequestUserEmail();
+      const savedGmailDraft = ownerEmail
+        ? await saveGmailDraft({
+            ownerEmail,
+            accountEmail: draft.accountEmail,
+            draftId: draft.savedDraftId,
+            to: draft.to || "",
+            cc: draft.cc,
+            bcc: draft.bcc,
+            subject: draft.subject || "",
+            body: draft.body || "",
+          })
+        : null;
+      if (savedGmailDraft) draft.savedDraftId = savedGmailDraft.draftId;
       await writeAppState(`compose-${safeId}`, draft);
       return {
         id: safeId,

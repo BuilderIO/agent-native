@@ -26,6 +26,7 @@ import { applyFieldOps } from "../server/lib/merge-fields.js";
 import { invalidatePublicFormCache } from "../server/lib/public-form-ssr.js";
 import {
   assertValidFields,
+  FIELD_TYPES,
   normalizePersistedFields,
 } from "../server/lib/validate-fields.js";
 import type { FormField } from "../shared/types.js";
@@ -67,7 +68,7 @@ const fieldOpSchema = z.union([
     field: z
       .record(z.string(), z.any())
       .describe(
-        "Complete field object with id, type, label, and required; never use shorthand strings.",
+        `Complete field object with id, type, label, and required. Field types: ${FIELD_TYPES.join(", ")}. Never use shorthand strings.`,
       ),
   }),
   z.object({

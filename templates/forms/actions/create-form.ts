@@ -11,10 +11,12 @@ import { getDb, schema } from "../server/db/index.js";
 import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
 import {
   assertValidFields,
+  FIELD_TYPES,
   normalizeFieldIds,
 } from "../server/lib/validate-fields.js";
 import {
   assertValidFormCompletionSettings,
+  FORM_SETTINGS_KEYS,
   type FormField,
   type FormSettings,
 } from "../shared/types.js";
@@ -54,13 +56,13 @@ export default defineAction({
       .union([z.string(), z.array(z.any())])
       .optional()
       .describe(
-        "Array of complete field objects with id, type, label, and required (or JSON string of the same); never use shorthand strings such as 'text: Enter a name'.",
+        `Array of complete field objects with id, type, label, and required (or JSON string of the same). Field types: ${FIELD_TYPES.join(", ")}. Never use shorthand strings such as 'text: Enter a name'.`,
       ),
     settings: z
       .union([z.string(), z.record(z.string(), z.any())])
       .optional()
       .describe(
-        "Form settings object (or JSON string). Set completionMode to message, redirect, message_then_refresh, or refresh. Use completionRefreshSeconds with message_then_refresh. Set anonymous=true for strict no-IP, no-identity, no-source-metadata responses.",
+        `Form settings object (or JSON string). Valid settings: ${FORM_SETTINGS_KEYS.join(", ")}. Set completionMode to message, redirect, message_then_refresh, or refresh. Use completionRefreshSeconds with message_then_refresh. Set anonymous=true for strict no-IP, no-identity, no-source-metadata responses.`,
       ),
     slug: z.string().optional().describe("Custom URL slug"),
     status: z
@@ -107,22 +109,20 @@ export default defineAction({
       emailOnNewResponses: false,
     };
 
-    let settings = defaultSettings;
+    let incomingSettings: FormSettings = {};
     if (args.settings) {
       if (typeof args.settings === "string") {
         try {
-          settings = { ...defaultSettings, ...JSON.parse(args.settings) };
+          incomingSettings = JSON.parse(args.settings) as FormSettings;
         } catch {
           throw new Error("--settings must be valid JSON");
         }
       } else {
-        settings = {
-          ...defaultSettings,
-          ...(args.settings as unknown as FormSettings),
-        };
+        incomingSettings = args.settings as unknown as FormSettings;
       }
     }
-    assertValidFormCompletionSettings(settings);
+    assertValidFormCompletionSettings(incomingSettings);
+    const settings = { ...defaultSettings, ...incomingSettings };
     // Reject blocked integration URLs at save time. fireIntegrations also
     // re-checks at runtime as defense-in-depth.
     assertIntegrationUrlsAllowed(settings);

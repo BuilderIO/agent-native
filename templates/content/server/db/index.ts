@@ -1,5 +1,6 @@
 import { createGetDb } from "@agent-native/core/db";
 import { registerShareableResource } from "@agent-native/core/sharing";
+import { inArray } from "drizzle-orm";
 
 import {
   DOCUMENT_AGENT_CONTEXT_ENDPOINT,
@@ -22,6 +23,25 @@ registerShareableResource({
     resourceKind: DOCUMENT_AGENT_RESOURCE_KIND,
     getContextPath: () => DOCUMENT_AGENT_CONTEXT_ENDPOINT,
     getPagePath: (document) => `/p/${document.id}`,
+  },
+  persistVisibilityChange: async ({
+    resource,
+    resourceId,
+    update,
+    userEmail,
+  }) => {
+    const ownerEmail = String(resource.ownerEmail ?? userEmail ?? "");
+    const { collectDocumentSubtreeIds } =
+      await import("../../actions/set-document-discoverability.js");
+    const ids = await collectDocumentSubtreeIds({
+      db: getDb(),
+      rootId: resourceId,
+      ownerEmail,
+    });
+    await getDb()
+      .update(schema.documents)
+      .set(update)
+      .where(inArray(schema.documents.id, ids));
   },
   getDb,
 });

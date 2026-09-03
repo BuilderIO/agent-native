@@ -10,30 +10,49 @@ export default defineAction({
   description:
     "Restore a soft-deleted form. The form returns to the main list with its responses intact.",
   schema: z.object({
-    id: z.string().describe("Form ID to restore (required)"),
+    id: z
+      .union([z.string(), z.array(z.string()).min(1)])
+      .describe("Form ID or IDs to restore (required)"),
   }),
   run: async (args) => {
-    await assertAccess("form", args.id, "admin");
+    const ids = Array.isArray(args.id) ? args.id : [args.id];
+    const results = [];
+    for (const id of ids) {
+      try {
+        await assertAccess("form", id, "admin");
 
-    const db = getDb();
-    const [existing] = await db
-      .select()
-      .from(schema.forms)
-      .where(eq(schema.forms.id, args.id))
-      .limit(1);
+        const db = getDb();
+        const [existing] = await db
+          .select()
+          .from(schema.forms)
+          .where(eq(schema.forms.id, id))
+          .limit(1);
 
-    if (!existing) {
-      throw new Error(`Form ${args.id} not found`);
+        if (!existing) {
+          throw new Error(`Form ${id} not found`);
+        }
+
+        const now = new Date().toISOString();
+        await db
+          .update(schema.forms)
+          .set({ deletedAt: null, updatedAt: now })
+          .where(eq(schema.forms.id, id));
+
+        invalidatePublicFormCache(existing);
+        results.push({ id, success: true, restoredAt: now });
+      } catch (error) {
+        results.push({
+          id,
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
 
-    const now = new Date().toISOString();
-    await db
-      .update(schema.forms)
-      .set({ deletedAt: null, updatedAt: now })
-      .where(eq(schema.forms.id, args.id));
-
-    invalidatePublicFormCache(existing);
-
-    return { success: true };
+    if (ids.length === 1) return results[0];
+    return {
+      success: results.every((result) => result.success),
+      results,
+    };
   },
 });

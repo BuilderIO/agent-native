@@ -777,7 +777,7 @@ export function createAgentNativeWebMcpRegistration(
                 : {}),
             },
             execute: async (input, executionOptions) => {
-              if (executionOptions?.signal.aborted) {
+              if (executionOptions?.signal?.aborted) {
                 throw new Error(`WebMCP action "${action.name}" was aborted`);
               }
               validateBoundedJson(
@@ -838,7 +838,7 @@ export function createAgentNativeWebMcpRegistration(
                   executionOptions?.signal,
                 ),
               );
-              if (executionOptions?.signal.aborted) {
+              if (executionOptions?.signal?.aborted) {
                 throw new Error(`WebMCP action "${action.name}" was aborted`);
               }
               return serializeWebMcpResult(
