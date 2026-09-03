@@ -50,7 +50,7 @@ function chatContextFromAction(
 
 export default defineAction({
   description:
-    "Create or update a Factory's versioned visual graph. Pass expectedGraphVersion from the graph you inspected so stale edits are rejected. Use source=ai for an agent-proposed graph and source=manual for a direct editor save. This changes configuration only; it never starts provider work.",
+    "Update an existing Factory's versioned visual map. Do not use this to create a factory or an automation. Do not rename a factory from an AI save — keep the current name. Pass expectedGraphVersion from the graph you inspected so stale edits are rejected. Use source=ai for an agent-proposed graph and source=manual for a direct editor save. This changes configuration only; it never starts provider work.",
   schema: z.object({
     factoryId: z
       .string()
@@ -107,17 +107,25 @@ export default defineAction({
           )
           .limit(1)
       )[0];
+      if (!existing && factoryId !== DEFAULT_FACTORY_ID) {
+        throw new Error(
+          "Factory not found. Use create-factory to create a named Factory, then save the map.",
+        );
+      }
       if ((existing?.graphVersion ?? 0) !== expectedGraphVersion) {
         throw new Error(
           "Factory changed while saving. Refresh the Factory and try again.",
         );
       }
+      const nextName = source === "ai" && existing ? existing.name : name;
+      const nextDescription =
+        source === "ai" && existing ? existing.description : description;
       const nextVersion = (existing?.graphVersion ?? 0) + 1;
       const normalizedGraph = normalizeFactoryGraph({
         ...graph,
         version: nextVersion,
-        name,
-        description,
+        name: nextName,
+        description: nextDescription,
       });
       const now = new Date().toISOString();
       const versionId = stableId(
@@ -131,8 +139,8 @@ export default defineAction({
         const updated = await tx
           .update(factoryDefinitions)
           .set({
-            name,
-            description,
+            name: nextName,
+            description: nextDescription,
             prompt,
             graphVersion: nextVersion,
             graphJson: JSON.stringify(normalizedGraph),
@@ -155,8 +163,8 @@ export default defineAction({
       } else {
         await tx.insert(factoryDefinitions).values({
           id: factoryId,
-          name,
-          description,
+          name: nextName,
+          description: nextDescription,
           prompt,
           graphVersion: nextVersion,
           graphJson: JSON.stringify(normalizedGraph),
@@ -184,7 +192,7 @@ export default defineAction({
       return {
         ok: true,
         factoryId,
-        name,
+        name: nextName,
         graphVersion: nextVersion,
         source,
       };

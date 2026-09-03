@@ -14,10 +14,12 @@ import { z } from "zod";
 
 import {
   defaultFactoryDefinition,
-  DEFAULT_FACTORY_ID,
+  listFactoryDefinitions,
+  listFactoryInboxPreview,
   parseFactoryGraph,
   readFactoryDefinition,
 } from "../server/factory-graph/store.js";
+import { listFactoryAutomationPreview } from "../server/lib/factory-automation-preview.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -29,9 +31,13 @@ async function runDispatchAction(name: string, args: Record<string, unknown>) {
   return action.run(args);
 }
 
+function stringField(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state for chat or Factory. Always call this first when the visible selection matters.",
+    "See what the user is currently looking at on screen. Returns the factory list, Inbox, Automations jobs, Map selection, or other visible tab — not a graph unless the user is on the Map. Always call this first when the visible selection matters.",
   schema: z.object({}),
   http: false,
   readOnly: true,
@@ -47,32 +53,74 @@ export default defineAction({
       "view" in navigation &&
       navigation.view === "factory"
     ) {
-      const { orgId } = await requireWorkspaceMember(
+      const { userEmail, orgId } = await requireWorkspaceMember(
         workspaceMemberIdentityFromContext(context),
       );
       const state = navigation as Record<string, unknown>;
       if (state.creatingFactory === true) {
         screen.factory = { creating: true };
       } else {
-        const factoryId =
-          typeof state.factoryId === "string" && state.factoryId.trim()
-            ? state.factoryId
-            : DEFAULT_FACTORY_ID;
-        const row = await readFactoryDefinition(orgId, factoryId);
-        const fallback = defaultFactoryDefinition();
-        const graph = row ? parseFactoryGraph(row.graphJson) : fallback.graph;
-        const selectedNodeId =
-          typeof state.factoryNodeId === "string" ? state.factoryNodeId : null;
-        const selectedEdgeId =
-          typeof state.factoryEdgeId === "string" ? state.factoryEdgeId : null;
+        const factoryId = stringField(state.factoryId);
+        const tab =
+          stringField(state.factoryTab) ?? (factoryId ? "inbox" : "list");
 
-        screen.factory = {
-          id: factoryId,
-          name: row?.name ?? fallback.name,
-          graphVersion: row?.graphVersion ?? graph.version,
-          selectedNode: graph.nodes.find((node) => node.id === selectedNodeId),
-          selectedEdge: graph.edges.find((edge) => edge.id === selectedEdgeId),
-        };
+        if (!factoryId) {
+          const rows = await listFactoryDefinitions(orgId);
+          const fallback = defaultFactoryDefinition();
+          screen.surface = "factory-list";
+          screen.factories = [
+            ...(rows.some((row) => row.id === fallback.id)
+              ? []
+              : [{ id: fallback.id, name: fallback.name }]),
+            ...rows.map((row) => ({ id: row.id, name: row.name })),
+          ];
+        } else {
+          const row = await readFactoryDefinition(orgId, factoryId);
+          const fallback = defaultFactoryDefinition();
+          const name =
+            row?.name ??
+            (factoryId === fallback.id ? fallback.name : factoryId);
+          const factory: Record<string, unknown> = {
+            id: factoryId,
+            name,
+            tab,
+          };
+
+          if (tab === "map") {
+            const graph = row
+              ? parseFactoryGraph(row.graphJson)
+              : fallback.graph;
+            const selectedNodeId = stringField(state.factoryNodeId);
+            const selectedEdgeId = stringField(state.factoryEdgeId);
+            factory.graphVersion = row?.graphVersion ?? graph.version;
+            factory.selectedNode = selectedNodeId
+              ? graph.nodes.find((node) => node.id === selectedNodeId)
+              : undefined;
+            factory.selectedEdge = selectedEdgeId
+              ? graph.edges.find((edge) => edge.id === selectedEdgeId)
+              : undefined;
+          } else if (tab === "inbox") {
+            const inbox = await listFactoryInboxPreview(orgId, factoryId);
+            factory.inbox = inbox;
+            const selectedItemId = stringField(state.factoryItemId);
+            if (selectedItemId) factory.selectedItemId = selectedItemId;
+          } else if (tab === "automations") {
+            factory.automations = await listFactoryAutomationPreview(
+              userEmail,
+              orgId,
+              factoryId,
+            );
+            if (state.factoryCreatingAutomation === true) {
+              factory.creatingAutomation = true;
+            }
+            const selectedAutomationId = stringField(state.factoryAutomationId);
+            if (selectedAutomationId) {
+              factory.selectedAutomationId = selectedAutomationId;
+            }
+          }
+
+          screen.factory = factory;
+        }
       }
 
       if (state.factoryTab === "agents") {

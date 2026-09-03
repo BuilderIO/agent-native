@@ -5,6 +5,15 @@ const workspaceMemberIdentityFromContextMock = vi.hoisted(() => vi.fn());
 const readFactoryDefinitionMock = vi.hoisted(() => vi.fn());
 const createFactoryAutomationMock = vi.hoisted(() => vi.fn());
 const assertFactoryConnectorReadyMock = vi.hoisted(() => vi.fn());
+const writeAppStateForCurrentTabMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/application-state", () => ({
+  writeAppStateForCurrentTab: writeAppStateForCurrentTabMock,
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  buildDeepLink: vi.fn(() => "/factory"),
+}));
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
@@ -184,5 +193,23 @@ describe("create-factory-automation", () => {
       statusCode: 400,
     });
     expect(createFactoryAutomationMock).not.toHaveBeenCalled();
+  });
+
+  it("opens Automations when the agent creates a job", async () => {
+    const { default: action } = await import("./create-factory-automation.js");
+    await action.run(
+      {
+        factoryId: "support-triage",
+        displayName: "Slack feedback",
+        source: "slack",
+        slackChannelId: "C123",
+      },
+      { userEmail: "owner@example.com", caller: "tool" },
+    );
+    expect(writeAppStateForCurrentTabMock).toHaveBeenCalledWith("navigate", {
+      view: "factory",
+      path: "/factory?factoryId=support-triage&tab=automations&automationId=resource-1",
+      _writeId: expect.any(String),
+    });
   });
 });
