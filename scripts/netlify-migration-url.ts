@@ -24,13 +24,34 @@ type NetlifyEnvironmentValue = {
   value?: unknown;
 };
 
+type NetlifyDatabaseResponse = {
+  connection_string?: unknown;
+  connection_strings?: unknown;
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
+
+const isPostgresUrl = (value: unknown): value is string =>
+  typeof value === "string" && value.startsWith("postgres");
+
+function resolveNetlifyDatabaseUrl(
+  response: NetlifyDatabaseResponse,
+): string | undefined {
+  if (isPostgresUrl(response.connection_string)) {
+    return response.connection_string;
+  }
+  if (!isRecord(response.connection_strings)) return undefined;
+  return Object.values(response.connection_strings).find(isPostgresUrl);
+}
 
 export function resolveNetlifyMigrationUrl(
   variables: unknown,
   context: string,
 ): string | undefined {
+  if (isRecord(variables)) {
+    return resolveNetlifyDatabaseUrl(variables);
+  }
   if (!Array.isArray(variables)) {
     throw new Error("Netlify environment response must be an array.");
   }
@@ -55,7 +76,7 @@ export function resolveNetlifyMigrationUrl(
       )
       .find(Boolean);
     const value = selected?.value;
-    if (typeof value === "string" && value.startsWith("postgres")) {
+    if (isPostgresUrl(value)) {
       return value;
     }
   }
