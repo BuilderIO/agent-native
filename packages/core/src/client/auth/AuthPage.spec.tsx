@@ -40,8 +40,10 @@ describe("AuthPage", () => {
     expect(html).toContain('data-agent-native-marketing-home="true"');
     expect(html).toContain('class="auth-marketing-screenshot"');
     expect(html).toContain("/auth-marketing/slides.webp");
-    expect(html).not.toContain("New to Slides?");
-    expect(html).not.toContain("auth-marketing-learn-more");
+    expect(html).toContain("New to Slides?");
+    expect(html).toContain('href="https://agent-native.com/apps/slides"');
+    expect(html).toContain('class="auth-marketing-learn-more"');
+    expect(html).toContain("has-bottom-right-learn-more");
     expect(html).not.toContain('data-agent-native-starfield="true"');
     expect(html).toContain('class="split');
     expect(html).toContain('class="marketing-panel"');
@@ -72,7 +74,7 @@ describe("AuthPage", () => {
     const html = renderToString(<AuthPage {...props} />);
 
     expect(props.marketing?.learnMorePlacement).toBe("bottom-right");
-    expect(html).not.toContain("has-bottom-right-learn-more");
+    expect(html).toContain("has-bottom-right-learn-more");
   });
 
   it.each([

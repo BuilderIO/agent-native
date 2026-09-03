@@ -2660,6 +2660,9 @@ export function AuthPage(props: AuthPageProps) {
       className={[
         "auth-marketing-home",
         marketingCopy.screenshotSrc ? "has-product-screenshot" : "",
+        marketingCopy.learnMorePlacement === "bottom-right"
+          ? "has-bottom-right-learn-more"
+          : "",
       ]
         .filter(Boolean)
         .join(" ")}
