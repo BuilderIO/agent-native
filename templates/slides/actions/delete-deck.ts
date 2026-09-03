@@ -1,9 +1,5 @@
 /**
  * delete-deck — remove a deck and its version history.
- *
- * Hidden from the agent: deck deletion has always been a UI-only operation and
- * this action exists to give the editor the same permission rule it had on the
- * route it replaced.
  */
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
@@ -20,7 +16,6 @@ export default defineAction({
     id: z.string().min(1).describe("Deck ID"),
   }),
   http: { method: "DELETE" },
-  agentTool: false,
   run: async ({ id }) => {
     try {
       // assertAccess loads the row and verifies the caller has admin role on

@@ -1,6 +1,12 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
-import type { ReactNode } from "react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
+import { useState, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Slide } from "@/context/DeckContext";
@@ -293,5 +299,110 @@ describe("EditorSidebar arrow navigation", () => {
 
     expect(onSelectSlide).not.toHaveBeenCalled();
     selectedCanvas.remove();
+  });
+});
+
+describe("slide thumbnail deletion", () => {
+  const slides: Slide[] = [
+    { id: "slide-1", content: "<div />", notes: "", layout: "content" },
+    { id: "slide-2", content: "<div />", notes: "", layout: "content" },
+    { id: "slide-3", content: "<div />", notes: "", layout: "content" },
+  ];
+
+  it("deletes the focused thumbnail selection, including multiple slides", () => {
+    const onDeleteSlide = vi.fn();
+    const { container } = render(
+      <EditorSidebar
+        slides={slides}
+        activeSlideId="slide-1"
+        selectedSlideIds={["slide-1", "slide-2"]}
+        deckId="deck-1"
+        deckTitle="Test deck"
+        onSelectSlide={() => {}}
+        onDeleteSlide={onDeleteSlide}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+      />,
+    );
+    const thumbnail = container.querySelector<HTMLButtonElement>(
+      '[data-slide-thumbnail-id="slide-2"]',
+    );
+    thumbnail?.focus();
+
+    fireEvent.keyDown(thumbnail ?? document, { key: "Backspace" });
+
+    expect(onDeleteSlide).toHaveBeenCalledOnce();
+    expect(onDeleteSlide).toHaveBeenCalledWith(["slide-1", "slide-2"]);
+  });
+
+  it("refocuses the next thumbnail after deleting the focused slide", async () => {
+    const onDeleteSlide = vi.fn();
+
+    function Harness() {
+      const [visibleSlides, setVisibleSlides] = useState(slides);
+      const [activeSlideId, setActiveSlideId] = useState("slide-1");
+      return (
+        <EditorSidebar
+          slides={visibleSlides}
+          activeSlideId={activeSlideId}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          selectedSlideIds={[activeSlideId]}
+          onSelectSlide={setActiveSlideId}
+          onDeleteSlide={(slideIds) => {
+            onDeleteSlide(slideIds);
+            const nextSlides = visibleSlides.filter(
+              (slide) => !slideIds.includes(slide.id),
+            );
+            setVisibleSlides(nextSlides);
+            setActiveSlideId(nextSlides[0]?.id ?? "");
+          }}
+          describeSlideId={null}
+          onCloseDescribe={() => {}}
+          addSlideAgentSubmit={() => {}}
+        />
+      );
+    }
+
+    const { container } = render(<Harness />);
+    const firstThumbnail = container.querySelector<HTMLButtonElement>(
+      '[data-slide-thumbnail-id="slide-1"]',
+    );
+    firstThumbnail?.focus();
+
+    fireEvent.keyDown(firstThumbnail ?? document, { key: "Delete" });
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        container.querySelector('[data-slide-thumbnail-id="slide-2"]'),
+      );
+    });
+    expect(onDeleteSlide).toHaveBeenCalledWith(["slide-1"]);
+  });
+
+  it("does not delete a read-only thumbnail", () => {
+    const onDeleteSlide = vi.fn();
+    const { container } = render(
+      <EditorSidebar
+        slides={slides}
+        activeSlideId="slide-1"
+        deckId="deck-1"
+        deckTitle="Test deck"
+        readOnly
+        onSelectSlide={() => {}}
+        onDeleteSlide={onDeleteSlide}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+      />,
+    );
+    const thumbnail = container.querySelector<HTMLButtonElement>(
+      '[data-slide-thumbnail-id="slide-1"]',
+    );
+
+    fireEvent.keyDown(thumbnail ?? document, { key: "Delete" });
+
+    expect(onDeleteSlide).not.toHaveBeenCalled();
   });
 });

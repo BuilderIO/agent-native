@@ -10,4 +10,5 @@ data/*.db-shm
 data/*.db-wal
 .env
 .env.local
+.tmp/
 .agent-native/

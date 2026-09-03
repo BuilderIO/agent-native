@@ -209,6 +209,9 @@ const messages = {
     usingDesignSystem: "{{title}} wird verwendet",
     usingLinkedDesignSystem: "Verknüpftes Designsystem wird verwendet",
     viewOnly: "Nur ansehen",
+    sourcePreserving: "Eingeschränkte Bearbeitung",
+    sourcePreservingDescription:
+      "Text- und Objektänderungen sind möglich. Das Hinzufügen, Löschen oder Neuanordnen von Folien ist für dieses importierte Deck deaktiviert.",
     commenterRoleLabel: "Kommentator",
     commenterRoleDescription: "Kann ansehen und Kommentare hinzufügen",
     slideSettings: "Folieneinstellungen",

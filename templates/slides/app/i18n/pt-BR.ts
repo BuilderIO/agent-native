@@ -206,6 +206,9 @@ const messages = {
     usingDesignSystem: "Usando {{title}}",
     usingLinkedDesignSystem: "Usando um sistema de design vinculado",
     viewOnly: "Somente visualização",
+    sourcePreserving: "Edição limitada",
+    sourcePreservingDescription:
+      "Edições de texto e objetos estão disponíveis. Adicionar, excluir ou reordenar slides está desativado para este deck importado.",
     commenterRoleLabel: "Comentarista",
     commenterRoleDescription: "Pode visualizar e adicionar comentários",
     slideSettings: "Configurações do slide",

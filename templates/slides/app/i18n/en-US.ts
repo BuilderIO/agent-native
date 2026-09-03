@@ -205,6 +205,9 @@ const messages = {
     usingDesignSystem: "Using {{title}}",
     usingLinkedDesignSystem: "Using a linked design system",
     viewOnly: "View only",
+    sourcePreserving: "Limited editing",
+    sourcePreservingDescription:
+      "Text and object edits are available. Adding, deleting, or reordering slides is disabled for this imported deck.",
     commenterRoleLabel: "Commenter",
     commenterRoleDescription: "Can view and add comments",
     slideSettings: "Slide settings",

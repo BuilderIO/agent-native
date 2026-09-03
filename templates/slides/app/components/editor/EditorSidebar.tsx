@@ -358,6 +358,12 @@ function SortableSlideThumb({
             {...(readOnly ? {} : attributes)}
             {...(readOnly ? {} : listeners)}
             onKeyDown={(event) => {
+              if (event.key === "Delete" || event.key === "Backspace") {
+                event.preventDefault();
+                event.stopPropagation();
+                if (!readOnly && canDelete) onDeleteSlide?.(actionSlideIds);
+                return;
+              }
               listeners?.onKeyDown?.(event);
               if (event.defaultPrevented) return;
               if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
@@ -457,6 +463,7 @@ function SortableSlideThumb({
           </button>
         </ContextMenuTrigger>
         <ContextMenuContent
+          style={{ animation: "none", transition: "none" }}
           onCloseAutoFocus={(event) => {
             // Radix restores focus to the trigger (this slide's thumbnail
             // button) when the menu closes. That button's onFocus reselects
@@ -471,18 +478,24 @@ function SortableSlideThumb({
             onSelect={() => onCutSlide?.(actionSlideIds)}
           >
             {t("editorSidebar.cut")}
-            <ContextMenuShortcut>{shortcutLabel("cmd+x")}</ContextMenuShortcut>
+            <ContextMenuShortcut className="tracking-normal">
+              {shortcutLabel("cmd+x")}
+            </ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuItem onSelect={() => onCopySlide?.(actionSlideIds)}>
             {t("editorSidebar.copy")}
-            <ContextMenuShortcut>{shortcutLabel("cmd+c")}</ContextMenuShortcut>
+            <ContextMenuShortcut className="tracking-normal">
+              {shortcutLabel("cmd+c")}
+            </ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuItem
             disabled={!hasSlideClipboard}
             onSelect={() => onPasteSlide?.(slide.id)}
           >
             {t("editorSidebar.paste")}
-            <ContextMenuShortcut>{shortcutLabel("cmd+v")}</ContextMenuShortcut>
+            <ContextMenuShortcut className="tracking-normal">
+              {shortcutLabel("cmd+v")}
+            </ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem onSelect={() => onNewSlideAfter?.(slide.id)}>
@@ -589,6 +602,7 @@ export default function EditorSidebar({
     useState<HTMLButtonElement | null>(null);
   const [thumbnailListScrolled, setThumbnailListScrolled] = useState(false);
   const slideButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const focusAfterDeleteRef = useRef<string | null>(null);
   const measurementsRef = useRef(
     new Map<
       string,
@@ -711,6 +725,46 @@ export default function EditorSidebar({
     [describeSlideId],
   );
 
+  useEffect(() => {
+    const slideId = focusAfterDeleteRef.current;
+    if (!slideId) return;
+
+    const frame = requestAnimationFrame(() => {
+      const button = slideButtonRefs.current.get(slideId);
+      if (!button) return;
+      button.focus({ preventScroll: true });
+      button.scrollIntoView({ block: "nearest" });
+      if (focusAfterDeleteRef.current === slideId) {
+        focusAfterDeleteRef.current = null;
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [slides]);
+
+  const handleDeleteSlide = useCallback(
+    (slideIds: string[]) => {
+      if (readOnly || !onDeleteSlide) return;
+      const deletedIds = new Set(slideIds);
+      const firstDeletedIndex = slides.findIndex((slide) =>
+        deletedIds.has(slide.id),
+      );
+      if (firstDeletedIndex === -1) return;
+      const nextSlide =
+        slides.find(
+          (slide, index) =>
+            index > firstDeletedIndex && !deletedIds.has(slide.id),
+        ) ??
+        slides.find(
+          (slide, index) =>
+            index < firstDeletedIndex && !deletedIds.has(slide.id),
+        );
+      if (!nextSlide) return;
+      focusAfterDeleteRef.current = nextSlide.id;
+      onDeleteSlide(slideIds);
+    },
+    [onDeleteSlide, readOnly, slides],
+  );
+
   const navigateToSlide = useCallback(
     (fromSlideId: string, key: "ArrowUp" | "ArrowDown") => {
       const nextSlideId = getNextSlideId(slides, fromSlideId, key);
@@ -804,7 +858,7 @@ export default function EditorSidebar({
                 onCutSlide={onCutSlide}
                 onCopySlide={onCopySlide}
                 onPasteSlide={onPasteSlide}
-                onDeleteSlide={onDeleteSlide}
+                onDeleteSlide={handleDeleteSlide}
                 onNewSlideAfter={onNewSlideAfter}
                 onDuplicateSlide={onDuplicateSlide}
                 onToggleSkipSlide={onToggleSkipSlide}

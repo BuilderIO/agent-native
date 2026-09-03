@@ -20,6 +20,10 @@ import { runLoomImportJob } from "../../../../actions/lib/loom-import-job.js";
 import requestTranscript from "../../../../actions/request-transcript.js";
 import { getDb, schema } from "../../../db/index.js";
 import {
+  ensureRecordingThumbnail,
+  isRetryableRecordingThumbnailStatus,
+} from "../../../lib/ensure-recording-thumbnail.js";
+import {
   dispatchPostFinalizeJob,
   POST_FINALIZE_JOB_TOKEN_KIND,
   postFinalizeJobResourceId,
@@ -30,6 +34,7 @@ const bodySchema = z.object({
   kind: z.enum([
     "media-ready",
     "seekable",
+    "thumbnail",
     "transcript",
     "brain-export",
     "loom-import",
@@ -41,6 +46,27 @@ const bodySchema = z.object({
 });
 
 const LOOM_IMPORT_LEASE_MS = 30 * 60 * 1000;
+const MAX_THUMBNAIL_RETRIES = 5;
+
+function thumbnailRetryDelayMs(retryAttempt: number): number {
+  return Math.min(30_000, 5_000 * 2 ** Math.max(0, retryAttempt));
+}
+
+async function scheduleThumbnailRetry(
+  recordingId: string,
+  retryAttempt: number | undefined,
+): Promise<number | null> {
+  const nextRetryAttempt = (retryAttempt ?? 0) + 1;
+  if (nextRetryAttempt > MAX_THUMBNAIL_RETRIES) return null;
+  await dispatchPostFinalizeJob({
+    recordingId,
+    kind: "thumbnail",
+    delayMs: thumbnailRetryDelayMs(retryAttempt ?? 0),
+    retryAttempt: nextRetryAttempt,
+    requireAccepted: true,
+  });
+  return nextRetryAttempt;
+}
 
 export default defineEventHandler(async (event: H3Event) => {
   const parsed = bodySchema.safeParse(await readBody(event).catch(() => null));
@@ -106,7 +132,7 @@ export default defineEventHandler(async (event: H3Event) => {
           kind,
           retryAttempt,
           regenerate,
-          requireAccepted: kind === "media-ready",
+          requireAccepted: kind === "media-ready" || kind === "thumbnail",
         });
         return {
           ok: true,
@@ -122,6 +148,69 @@ export default defineEventHandler(async (event: H3Event) => {
           ownerEmail: recording.ownerEmail,
         });
         return { ok: true, kind, result };
+      }
+      if (kind === "thumbnail") {
+        try {
+          const result = await ensureRecordingThumbnail({
+            recordingId,
+            ownerEmail: recording.ownerEmail,
+          });
+          if (isRetryableRecordingThumbnailStatus(result.status)) {
+            const nextRetryAttempt = await scheduleThumbnailRetry(
+              recordingId,
+              retryAttempt,
+            );
+            if (nextRetryAttempt !== null) {
+              return {
+                ok: true,
+                kind,
+                result,
+                retryScheduled: true,
+                retryAttempt: nextRetryAttempt,
+              };
+            }
+            console.warn("[post-finalize-worker] thumbnail retries exhausted", {
+              recordingId,
+              status: result.status,
+              retryAttempt,
+            });
+            return {
+              ok: true,
+              kind,
+              result,
+              retryExhausted: true,
+            };
+          }
+          return { ok: true, kind, result };
+        } catch (error) {
+          const nextRetryAttempt = await scheduleThumbnailRetry(
+            recordingId,
+            retryAttempt,
+          );
+          if (nextRetryAttempt !== null) {
+            return {
+              ok: true,
+              kind,
+              retryScheduled: true,
+              retryAttempt: nextRetryAttempt,
+              error: error instanceof Error ? error.message : String(error),
+            };
+          }
+          console.warn(
+            "[post-finalize-worker] thumbnail retries exhausted after error",
+            {
+              recordingId,
+              retryAttempt,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          );
+          return {
+            ok: true,
+            kind,
+            retryExhausted: true,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
       }
       if (kind === "media-ready") {
         const result = await finalizeRecording.run({

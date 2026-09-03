@@ -13,6 +13,8 @@ WebMCP 是一项实验性的浏览器 API，网页可以注册工具，经过授
 使用 `sessionBypass` 的已认证页面（例如 MCP 嵌入路由）也会注册后端操作工具。
 公共页面和未登录页面不会注册这些工具。
 
+当浏览器没有可用的原生 WebMCP 表面时，Agent-Native 核心会初始化 `@mcp-b/webmcp-polyfill`。它只作用于当前页面，不会创建网络 MCP 连接。
+
 ## HTTP 发现与 fetch 回退
 
 对于不运行浏览器的代理，Agent-Native 还会在 `GET /.well-known/mcp.json`

@@ -53,6 +53,16 @@ export default defineAction({
         submitterEmail: publicSubmitterEmail(r.submitterEmail),
         pageUrl: r.pageUrl ?? null,
         clientSurface: r.clientSurface ?? null,
+        communityPromotion: r.promotionStatus
+          ? {
+              status: r.promotionStatus,
+              builderContentId: r.builderContentId ?? null,
+              communitySlug: r.communitySlug ?? null,
+              error: r.promotionError ?? null,
+              promotedAt: r.promotedAt ?? null,
+              promotedBy: r.promotedBy ?? null,
+            }
+          : null,
       })) as FormResponse[],
       total: (total as any)?.count ?? 0,
       fields: JSON.parse(form.fields),

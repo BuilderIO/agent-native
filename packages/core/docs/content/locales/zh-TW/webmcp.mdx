@@ -13,6 +13,8 @@ WebMCP 指南](/docs/webmcp)。
 使用 `sessionBypass` 的已驗證頁面（例如 MCP 嵌入路由）也會註冊後端動作工具。
 公開頁面和未登入頁面不會註冊這些工具。
 
+當瀏覽器沒有可用的原生 WebMCP 表面時，Agent-Native 核心會初始化 `@mcp-b/webmcp-polyfill`。它只作用於目前頁面，不會建立網路 MCP 連線。
+
 ## HTTP 探索與 fetch 備援
 
 對於不執行瀏覽器的代理，Agent-Native 也會在 `GET /.well-known/mcp.json`

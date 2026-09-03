@@ -15,6 +15,7 @@ import {
   hashSlideContent,
   slideFitRenderFieldsChanged,
 } from "@shared/slide-fit";
+import { repairDeckSlideReferences } from "@shared/slide-ids";
 import { nanoid } from "nanoid";
 import {
   createContext,
@@ -130,6 +131,8 @@ export interface Slide {
   layout: SlideLayout;
   /** Changes on every persisted content write so fit measurements cannot cross writes. */
   layoutFitRevision?: string;
+  /** Suppresses the overflow warning until an agent changes rendered layout. */
+  layoutWarningDismissed?: boolean;
   background?: string;
   /** URL of the generated/loaded image for this slide */
   imageUrl?: string;
@@ -295,6 +298,7 @@ interface DeckContextType {
     deckId: string,
     afterSlideId: string,
     slideFields: Omit<Slide, "id">[],
+    options?: { beforeSlideId?: string },
   ) => string[];
   reorderSlides: (
     deckId: string,
@@ -1263,12 +1267,17 @@ export function deriveInverseOp(
         // undefined).
         if (!equalDeckValue(prior[key], op.fields[key])) {
           let priorValue: unknown = prior[key];
-          // `skipped` is undefined on a slide that was never skipped, but
+          // Boolean fields are undefined on slides that never set them, but
           // `undefined` doesn't survive JSON transport to the server — its
           // `patch-slide` handler treats an absent field as "don't touch",
-          // so the persisted deck would stay skipped after undo. `false` is
-          // equivalent for this boolean field and does survive.
-          if (key === "skipped" && priorValue === undefined) priorValue = false;
+          // so the persisted deck would stay changed after undo. `false` is
+          // equivalent for these boolean fields and does survive.
+          if (
+            (key === "skipped" || key === "layoutWarningDismissed") &&
+            priorValue === undefined
+          ) {
+            priorValue = false;
+          }
           (priorFields as Record<string, unknown>)[key] = priorValue;
         }
       }
@@ -2975,10 +2984,31 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         shareToken: undefined,
       };
       delete optimistic.previewSlide;
-      optimistic.slides = getDuplicateSourceSlides(source).map((s) => ({
+      const sourceSlides = getDuplicateSourceSlides(source);
+      const copiedSlides = sourceSlides.map((s) => ({
         ...s,
         id: `slide-${nanoid(8)}`,
       }));
+      Object.assign(
+        optimistic,
+        repairDeckSlideReferences(
+          { ...optimistic, slides: copiedSlides },
+          copiedSlides,
+          sourceSlides.map((slide) => slide.id),
+        ),
+      );
+      const sourceImport = (optimistic as Deck & { sourceImport?: unknown })
+        .sourceImport;
+      if (
+        sourceImport &&
+        typeof sourceImport === "object" &&
+        !Array.isArray(sourceImport)
+      ) {
+        (optimistic as Deck & { sourceImport?: unknown }).sourceImport = {
+          ...sourceImport,
+          editableSnapshot: true,
+        };
+      }
 
       // Track as pending so the poll doesn't wipe the optimistic deck before
       // the duplicate-deck action's INSERT lands.
@@ -3509,12 +3539,25 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       deckId: string,
       afterSlideId: string,
       slideFields: Omit<Slide, "id">[],
+      options?: { beforeSlideId?: string },
     ) => {
       const before = decksRef.current.find((d) => d.id === deckId);
       if (!before || slideFields.length === 0) return [];
 
       markDeckDirty(deckId);
-      let insertAfter = afterSlideId;
+      const beforeIndex = options?.beforeSlideId
+        ? before.slides.findIndex((slide) => slide.id === options.beforeSlideId)
+        : -1;
+      const afterIndex = before.slides.findIndex(
+        (slide) => slide.id === afterSlideId,
+      );
+      const insertAt =
+        beforeIndex !== -1
+          ? beforeIndex
+          : afterIndex === -1
+            ? before.slides.length
+            : afterIndex + 1;
+      let insertAfter = before.slides[insertAt - 1]?.id;
       const newSlides: Slide[] = [];
       const ops: PatchDeckOp[] = [];
       for (const fields of slideFields) {
@@ -3528,15 +3571,19 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         });
         insertAfter = newSlide.id;
       }
+      if (insertAt === 0) {
+        ops.push({
+          op: "reorder-slides",
+          orderedIds: [
+            ...newSlides.map((slide) => slide.id),
+            ...before.slides.map((slide) => slide.id),
+          ],
+        });
+      }
       const addSlides = (d: Deck) => {
         if (d.id !== deckId) return d;
-        const index = d.slides.findIndex((slide) => slide.id === afterSlideId);
         const slides = [...d.slides];
-        slides.splice(
-          index === -1 ? slides.length : index + 1,
-          0,
-          ...newSlides,
-        );
+        slides.splice(insertAt, 0, ...newSlides);
         return { ...d, slides, updatedAt: new Date().toISOString() };
       };
       decksRef.current = decksRef.current.map(addSlides);

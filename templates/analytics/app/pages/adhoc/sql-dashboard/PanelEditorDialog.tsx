@@ -810,7 +810,7 @@ export function PanelEditorDialog(props: PanelEditorDialogProps) {
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="relative max-h-[90vh] overflow-y-auto sm:max-w-[640px]">
         <DialogHeader>
           <DialogTitle>{t("panelEditor.editPanel")}</DialogTitle>
         </DialogHeader>

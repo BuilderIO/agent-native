@@ -772,6 +772,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     connectionMode: "oauth",
     availability: "ready",
     verification: "preflight-only",
+    supportsOrganizationScope: true,
     logoUrl: mcpIntegrationLogo("builder-cms"),
     docsUrl: "https://www.builder.io/c/docs/mcp-builder-server/",
     setupNoteKey: "mcpIntegrations.catalog.builder.setupNote",

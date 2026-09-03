@@ -376,6 +376,13 @@ const messages = {
     page: "Page",
     source: "来源",
     sortBy: "Sort by {{label}}",
+    communityReview: "审核",
+    communityPublish: "发布到网站",
+    communityPublishing: "正在发布...",
+    communityPublished: "已发布",
+    communityView: "查看网站",
+    communityNeedsCheck: "重试前请检查 Builder",
+    communityPromotionFailed: "无法发布此提交。",
   },
 };
 

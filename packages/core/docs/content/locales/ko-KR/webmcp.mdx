@@ -14,6 +14,8 @@ WebMCP는 페이지가 도구를 등록하면 권한이 있는 에이전트가 �
 MCP 임베드 경로와 같은 인증된 `sessionBypass` 표면에서도 백엔드 작업 도구가
 등록됩니다. 공개 페이지와 로그아웃 상태의 페이지에는 등록되지 않습니다.
 
+브라우저가 사용 가능한 네이티브 WebMCP 표면을 제공하지 않으면 Agent-Native 코어가 `@mcp-b/webmcp-polyfill`을 초기화합니다. 이 polyfill은 페이지에만 적용되며 네트워크 MCP 연결을 만들지 않습니다.
+
 ## HTTP 검색과 fetch 대체 경로
 
 브라우저를 실행하지 않는 에이전트를 위해 Agent-Native는
