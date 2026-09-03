@@ -116,6 +116,46 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     });
   });
 
+  it("reports release only after the final persistence settles", async () => {
+    vi.useFakeTimers();
+    let resolveSave!: () => void;
+    const save = vi.fn(
+      async (_request: SaveCall) =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+    const releaseSettled = vi.fn();
+    let onChange!: (markdown: string) => void;
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root!.render(
+        createElement(Harness, {
+          documentId: "doc",
+          propertyId: "field",
+          initialContent: "persisted",
+          save,
+          onReady: (callback) => {
+            onChange = callback;
+          },
+          onReleaseSettled: releaseSettled,
+        }),
+      );
+    });
+    act(() => onChange("latest live value"));
+    act(() => root!.unmount());
+    root = null;
+
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(releaseSettled).not.toHaveBeenCalled();
+
+    await act(async () => resolveSave());
+    expect(releaseSettled).toHaveBeenCalledWith(true);
+  });
+
   it("an edit after switching docs persists to the NEW doc's field", async () => {
     vi.useFakeTimers();
     const calls: SaveCall[] = [];
