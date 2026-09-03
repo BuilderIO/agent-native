@@ -1,7 +1,7 @@
 ---
-title: "Agents externes : Claude, ChatGPT, Codex, Curseur, Cowork"
-description: "Connectez Claude, ChatGPT, Codex, Cursor, Claude Cowork ou tout hôte compatible MCP à une application native d'agent hébergée, puis transférez les artefacts aller-retour dans le UI en cours d'exécution avec les applications MCP et les liens profonds."
-search: "Claude ChatGPT Claude Code Codex Curseur Claude Cowork MCP Applications agent natif connecter outils d'agent local agents externes"
+title: "Agents externes : Claude, ChatGPT, Codex, Curseur, Cowork, Grok"
+description: "Connectez Claude, ChatGPT, Codex, Cursor, Claude Cowork, Grok ou tout hôte compatible MCP à une application native d'agent hébergée, puis transférez les artefacts aller-retour dans le UI en cours d'exécution avec les applications MCP et les liens profonds."
+search: "Claude Anthropic ChatGPT OpenAI Claude Code Codex Curseur Claude Cowork Grok xAI MCP Applications agent natif connecter outils d'agent local agents externes"
 ---
 
 # Agents externes
@@ -99,10 +99,12 @@ Chaque application Agent-Native expose une URL MCP canonique :
 https://<your-app>.agent-native.com/mcp
 ```
 
-Dans l'application, ouvrez **Settings**, recherchez **MCP** et copiez la **MCP
-server URL**. Collez cette URL dans l'hôte d'IA que vous souhaitez utiliser.
-L'URL correspond à l'URL de base de l'application déployée suivie de `/mcp` ;
-aucun réglage développeur n'est nécessaire.
+Dans l'application, ouvrez **Settings → Integrations** et recherchez le nom
+d'hôte que vous connaissez déjà : Claude, Claude Cowork, Claude Code,
+Anthropic, ChatGPT, OpenAI, Codex, Grok ou xAI. L'unique résultat d'hôte
+externe ouvre **Settings → MCP** avec le guide le plus adapté déjà sélectionné.
+Copiez la **MCP server URL** et collez-la dans l'hôte d'IA. L'URL correspond à
+l'URL de base de l'application déployée suivie de `/mcp`.
 
 Pour le travail dans un espace de travail ou entre applications, utilisez Dispatch :
 
@@ -124,7 +126,7 @@ https://<your-app>.agent-native.com/mcp
 
 Chaque application hébergée dispose également d'une page d'aide à l'adresse
 `https://&lt;app&gt;/mcp/connect` avec le URL copiable et
-Onglets spécifiques à l'hôte pour Claude, ChatGPT, Cursor, Claude Code, Codex et autres.
+onglets spécifiques à l'hôte pour Claude, ChatGPT, Cursor, Claude Code, Codex, Grok et autres.
 
 <a id="access-tab"></a>
 
