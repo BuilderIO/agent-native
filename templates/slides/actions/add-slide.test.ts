@@ -1,3 +1,4 @@
+import { isAgentActionStopError } from "@agent-native/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { hashSlideContent } from "../shared/slide-fit";
@@ -181,16 +182,19 @@ describe("add-slide", () => {
     async (caller) => {
       deckData.generationContext = { targetSlideCount: 2 };
 
-      await expect(
-        action.run(
+      const error = await action
+        .run(
           {
             deckId: "deck-1",
             slideId: "slide-new",
             content: "<div>New</div>",
           },
           { caller },
-        ),
-      ).rejects.toMatchObject({
+        )
+        .catch((caught: unknown) => caught);
+
+      expect(isAgentActionStopError(error)).toBe(true);
+      expect(error).toMatchObject({
         name: "AgentActionStopError",
         errorCode: "target_slide_count_reached",
         details: {
