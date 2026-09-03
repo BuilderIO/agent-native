@@ -241,6 +241,10 @@ describe("production Netlify site concurrency guard", () => {
       reusableSource,
       /SOURCE_REF: \$\{\{ steps\.source\.outputs\.source_ref \}\}/,
     );
+    assert.match(
+      reusableSource,
+      /for variable in NETLIFY_DATABASE_URL_UNPOOLED NETLIFY_DATABASE_URL DATABASE_URL/,
+    );
     const betaMigrate = (beta.jobs as Workflow).migrate as Workflow;
     assert.equal((betaMigrate.with as Workflow).caller, "release-migration");
     assert.equal((betaMigrate.with as Workflow).migration_only, true);

@@ -258,7 +258,7 @@ jobs:
           pnpm install --frozen-lockfile
 
           migration_database_url=""
-          for variable in NETLIFY_DATABASE_URL_UNPOOLED NETLIFY_DATABASE_URL; do
+          for variable in NETLIFY_DATABASE_URL_UNPOOLED NETLIFY_DATABASE_URL DATABASE_URL; do
             if value="$(netlify env:get "$variable" --context "$BUILD_CONTEXT" --site "$NETLIFY_SITE_ID" 2>/dev/null)" && [[ "$value" == postgres* ]]; then
               migration_database_url="$value"
               break
