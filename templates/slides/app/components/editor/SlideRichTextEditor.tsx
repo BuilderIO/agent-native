@@ -63,7 +63,35 @@ export function contentForSlideTextContainer(
   }
   const doc = new DOMParser().parseFromString(html, "text/html");
   const first = doc.body.firstElementChild;
-  return doc.body.children.length === 1 && first ? first.innerHTML : html;
+  return doc.body.children.length === 1 &&
+    first?.tagName === tagName.toUpperCase()
+    ? first.innerHTML
+    : html;
+}
+
+/** Keep a semantic canvas target valid when rich text changes its block root. */
+export function restoreSlideTextContainerContent(
+  element: HTMLElement,
+  html: string,
+): HTMLElement {
+  if (!isSlideTextContainerTag(element.tagName)) {
+    element.innerHTML = html;
+    return element;
+  }
+
+  const content = contentForSlideTextContainer(element.tagName, html);
+  if (content !== html) {
+    element.innerHTML = content;
+    return element;
+  }
+
+  const replacement = element.ownerDocument.createElement("div");
+  for (const attribute of Array.from(element.attributes)) {
+    replacement.setAttribute(attribute.name, attribute.value);
+  }
+  replacement.innerHTML = html;
+  element.replaceWith(replacement);
+  return replacement;
 }
 
 const CSS_STYLE_NAMES: Record<keyof InlineTextStylePatch, string> = {
@@ -225,7 +253,6 @@ export function selectionOffsetsWithin(
 function isLegacyBulletRow(element: Element): boolean {
   return (
     element.tagName === "DIV" &&
-    element.children.length >= 2 &&
     !!element.firstElementChild &&
     isBulletMarker(element.firstElementChild)
   );

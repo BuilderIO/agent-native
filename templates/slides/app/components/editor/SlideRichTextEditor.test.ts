@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   contentForSlideTextContainer,
   normalizeSlideEditorContent,
+  restoreSlideTextContainerContent,
   selectionOffsetsWithin,
 } from "./SlideRichTextEditor";
 
@@ -36,6 +37,20 @@ describe("slide rich text normalization", () => {
     expect(html).toContain("min-height: 24px");
   });
 
+  it("normalizes legacy bullet rows with bare or empty text", () => {
+    const html = normalizeSlideEditorContent(
+      "<div><div><span>•</span>First</div><div><span>•</span></div></div>",
+    );
+
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = html;
+    const items = wrapper.querySelectorAll("li");
+
+    expect(items).toHaveLength(2);
+    expect(items[0]?.textContent).toBe("First");
+    expect(items[1]?.textContent).toBe("");
+  });
+
   it("keeps selection offsets stable when legacy bullet markers are removed", () => {
     const root = document.createElement("div");
     root.innerHTML = "<div><span>●</span><span>First point</span></div>";
@@ -54,5 +69,22 @@ describe("slide rich text normalization", () => {
     expect(contentForSlideTextContainer("UL", "<ul><li>First</li></ul>")).toBe(
       "<li>First</li>",
     );
+  });
+
+  it("promotes semantic containers to one wrapper for structural edits", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<p data-builder-id="text" style="font-size: 24px">Old</p>';
+    const paragraph = root.firstElementChild as HTMLElement;
+
+    const restored = restoreSlideTextContainerContent(
+      paragraph,
+      "<p>First</p><p>Second</p>",
+    );
+
+    expect(restored.tagName).toBe("DIV");
+    expect(restored.getAttribute("data-builder-id")).toBe("text");
+    expect(restored.style.fontSize).toBe("24px");
+    expect(restored.querySelectorAll("p")).toHaveLength(2);
   });
 });

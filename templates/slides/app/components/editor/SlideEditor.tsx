@@ -192,8 +192,8 @@ import {
 import { SlideContextToolbar } from "./SlideContextToolbar";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
 import {
-  contentForSlideTextContainer,
   isSlideTextContainerTag,
+  restoreSlideTextContainerContent,
   selectionOffsetsWithin,
   SlideRichTextEditor,
   type SlideRichTextEditorHandle,
@@ -235,6 +235,9 @@ let builderIdCounter = 0;
 type RichTextEditorSession = {
   slideId: string;
   element: HTMLElement;
+  slideContentSnapshot: HTMLElement;
+  sourceContent: string;
+  path: number[];
   host: HTMLDivElement;
   root: Root;
   apiRef: { current: SlideRichTextEditorHandle | null };
@@ -1767,72 +1770,79 @@ export default function SlideEditor({
   const activeRichTextPathRef = useRef<number[] | null>(null);
   const [richTextEditorRevision, setRichTextEditorRevision] = useState(0);
 
+  const serializeSlideContentHtml = useCallback(
+    (
+      slideContent: HTMLElement,
+      sourceContent: string,
+      activePath: number[] | null = null,
+      activeHtml: string | null = null,
+    ) => {
+      // SlideRenderer swaps each `<div class="mermaid">` for a
+      // `data-mermaid-index` placeholder and renders the diagram as SVG via
+      // MermaidRenderer — the live DOM never contains the original mermaid
+      // syntax. Serializing it as-is here would permanently bake the rendered
+      // SVG into slide.content and turn a diagram edited or moved alongside
+      // (e.g. another text block on the same slide) into inert markup that can
+      // never be resized, edited, or re-rendered again. Restore the original
+      // `<div class="mermaid">` markup from the untouched source before saving.
+      const clone = slideContent.cloneNode(true) as HTMLElement;
+      if (activeHtml !== null && activePath) {
+        const activeClone = resolveElementPath(clone, activePath);
+        if (activeClone) {
+          restoreSlideTextContainerContent(activeClone, activeHtml);
+        }
+      }
+      const placeholders = clone.querySelectorAll("[data-mermaid-index]");
+      // Look up source blocks by index before touching the DOM. If slide.content
+      // changed since this placeholder last rendered (e.g. a concurrent update),
+      // its index may no longer have a matching block — leave that placeholder's
+      // node untouched rather than swapping in a marker with nothing to restore
+      // it, which would otherwise persist as inert marker text.
+      const { blocks } = extractMermaidBlocks(sourceContent);
+      // Swap each rendered node for a plain-text marker now, and splice the
+      // real `<div class="mermaid">` markup back in as a raw string AFTER
+      // stripBuilderIds() below. stripBuilderIds round-trips through
+      // DOMParser + innerHTML, which HTML-escapes `>` in text nodes (mangling
+      // `A --> B` into `A --&gt; B`) — the same reason SlideRenderer extracts
+      // mermaid blocks before its own sanitization pass. Doing the real
+      // substitution as a plain string replace, after all DOM round-trips,
+      // avoids that entirely.
+      const nonce = Math.random().toString(36).slice(2);
+      const markerFor = (idx: number) => `__mermaid_${nonce}_${idx}__`;
+      const restorable = new Map<number, string>();
+      placeholders.forEach((placeholder) => {
+        const idx = Number(placeholder.getAttribute("data-mermaid-index"));
+        const definition = blocks[idx];
+        if (definition === undefined) return;
+        restorable.set(idx, definition);
+        placeholder.replaceWith(
+          clone.ownerDocument.createTextNode(markerFor(idx)),
+        );
+      });
+      let html = stripBuilderIds(clone.innerHTML);
+      restorable.forEach((definition, idx) => {
+        html = html.replace(
+          markerFor(idx),
+          `<div class="mermaid">${definition}</div>`,
+        );
+      });
+      return html;
+    },
+    [],
+  );
+
   const readCurrentSlideContentHtml = useCallback(() => {
     const slideContent = containerRef.current?.querySelector(
       ".slide-content",
     ) as HTMLElement | null;
     if (!slideContent) return null;
-    // SlideRenderer swaps each `<div class="mermaid">` for a
-    // `data-mermaid-index` placeholder and renders the diagram as SVG via
-    // MermaidRenderer — the live DOM never contains the original mermaid
-    // syntax. Serializing it as-is here would permanently bake the rendered
-    // SVG into slide.content and turn a diagram edited or moved alongside
-    // (e.g. another text block on the same slide) into inert markup that can
-    // never be resized, edited, or re-rendered again. Restore the original
-    // `<div class="mermaid">` markup from slide.content — the untouched
-    // source of truth — before saving.
-    const clone = slideContent.cloneNode(true) as HTMLElement;
-    if (
-      activeRichTextHtmlRef.current !== null &&
-      activeRichTextPathRef.current
-    ) {
-      const activeClone = resolveElementPath(
-        clone,
-        activeRichTextPathRef.current,
-      );
-      if (activeClone) {
-        activeClone.innerHTML = contentForSlideTextContainer(
-          activeClone.tagName,
-          activeRichTextHtmlRef.current,
-        );
-      }
-    }
-    const placeholders = clone.querySelectorAll("[data-mermaid-index]");
-    // Look up source blocks by index before touching the DOM. If slide.content
-    // changed since this placeholder last rendered (e.g. a concurrent update),
-    // its index may no longer have a matching block — leave that placeholder's
-    // node untouched rather than swapping in a marker with nothing to restore
-    // it, which would otherwise persist as inert marker text.
-    const { blocks } = extractMermaidBlocks(slide.content);
-    // Swap each rendered node for a plain-text marker now, and splice the
-    // real `<div class="mermaid">` markup back in as a raw string AFTER
-    // stripBuilderIds() below. stripBuilderIds round-trips through
-    // DOMParser + innerHTML, which HTML-escapes `>` in text nodes (mangling
-    // `A --> B` into `A --&gt; B`) — the same reason SlideRenderer extracts
-    // mermaid blocks before its own sanitization pass. Doing the real
-    // substitution as a plain string replace, after all DOM round-trips,
-    // avoids that entirely.
-    const nonce = Math.random().toString(36).slice(2);
-    const markerFor = (idx: number) => `__mermaid_${nonce}_${idx}__`;
-    const restorable = new Map<number, string>();
-    placeholders.forEach((placeholder) => {
-      const idx = Number(placeholder.getAttribute("data-mermaid-index"));
-      const definition = blocks[idx];
-      if (definition === undefined) return;
-      restorable.set(idx, definition);
-      placeholder.replaceWith(
-        clone.ownerDocument.createTextNode(markerFor(idx)),
-      );
-    });
-    let html = stripBuilderIds(clone.innerHTML);
-    restorable.forEach((definition, idx) => {
-      html = html.replace(
-        markerFor(idx),
-        `<div class="mermaid">${definition}</div>`,
-      );
-    });
-    return html;
-  }, [slide.content]);
+    return serializeSlideContentHtml(
+      slideContent,
+      slide.content,
+      activeRichTextPathRef.current,
+      activeRichTextHtmlRef.current,
+    );
+  }, [serializeSlideContentHtml, slide.content]);
 
   const readCurrentSlideContentHtmlRef = useRef(readCurrentSlideContentHtml);
   useEffect(() => {
@@ -1863,54 +1873,66 @@ export default function SlideEditor({
     [readCurrentSlideContentHtml, slide.id],
   );
 
-  const disposeRichTextEditor = useCallback((restoreLiveDom = true) => {
-    const session = richTextEditorSessionRef.current;
-    if (!session) return null;
+  const disposeRichTextEditor = useCallback(
+    (restoreLiveDom = true) => {
+      const session = richTextEditorSessionRef.current;
+      if (!session) return null;
 
-    const latest =
-      session.apiRef.current?.getHTML() ?? session.latestHtml ?? "";
-    session.latestHtml = latest;
-    activeRichTextHtmlRef.current = latest;
-    const draftContent = readCurrentSlideContentHtmlRef.current();
-    if (draftContent !== null) {
-      inlineEditDraftRef.current = {
-        slideId: session.slideId,
-        content: draftContent,
-      };
-    }
-    session.root.unmount();
-
-    if (restoreLiveDom && session.element.isConnected) {
-      session.element.replaceChildren();
-      session.element.innerHTML = contentForSlideTextContainer(
-        session.element.tagName,
-        latest,
-      );
-      if (session.originalContentEditable === null) {
-        session.element.removeAttribute("contenteditable");
-      } else {
-        session.element.setAttribute(
-          "contenteditable",
-          session.originalContentEditable,
-        );
+      const latest =
+        session.apiRef.current?.getHTML() ?? session.latestHtml ?? "";
+      session.latestHtml = latest;
+      activeRichTextHtmlRef.current = latest;
+      const draftContent =
+        session.slideId === previousSlideIdRef.current
+          ? readCurrentSlideContentHtmlRef.current()
+          : serializeSlideContentHtml(
+              session.slideContentSnapshot,
+              session.sourceContent,
+              session.path,
+              latest,
+            );
+      if (draftContent !== null) {
+        inlineEditDraftRef.current = {
+          slideId: session.slideId,
+          content: draftContent,
+        };
       }
-      if (session.originalEditingBlock === null) {
-        session.element.removeAttribute("data-editing-block");
-      } else {
-        session.element.setAttribute(
-          "data-editing-block",
-          session.originalEditingBlock,
-        );
-      }
-    }
+      session.root.unmount();
 
-    richTextEditorSessionRef.current = null;
-    richTextEditorRef.current = null;
-    activeRichTextHtmlRef.current = null;
-    activeRichTextPathRef.current = null;
-    setRichTextEditorRevision((revision) => revision + 1);
-    return latest;
-  }, []);
+      let restoredElement = session.element;
+      if (restoreLiveDom && session.element.isConnected) {
+        restoredElement = restoreSlideTextContainerContent(
+          session.element,
+          latest,
+        );
+        session.element = restoredElement;
+        if (session.originalContentEditable === null) {
+          restoredElement.removeAttribute("contenteditable");
+        } else {
+          restoredElement.setAttribute(
+            "contenteditable",
+            session.originalContentEditable,
+          );
+        }
+        if (session.originalEditingBlock === null) {
+          restoredElement.removeAttribute("data-editing-block");
+        } else {
+          restoredElement.setAttribute(
+            "data-editing-block",
+            session.originalEditingBlock,
+          );
+        }
+      }
+
+      richTextEditorSessionRef.current = null;
+      richTextEditorRef.current = null;
+      activeRichTextHtmlRef.current = null;
+      activeRichTextPathRef.current = null;
+      setRichTextEditorRevision((revision) => revision + 1);
+      return { html: latest, element: restoredElement };
+    },
+    [serializeSlideContentHtml],
+  );
 
   const flushInlineEditDraft = useCallback(() => {
     const draft = inlineEditDraftRef.current;
@@ -2231,8 +2253,7 @@ export default function SlideEditor({
     // Selection and freeform promotion are separate operations. Merely ending
     // text editing must not turn a flow-layout block into an absolutely
     // positioned object, because that changes its available wrapping width.
-    const selected = el;
-    const selector = getBuilderSelector(selected);
+    const selector = getBuilderSelector(el);
 
     const session = richTextEditorSessionRef.current;
     if (session) {
@@ -2241,7 +2262,8 @@ export default function SlideEditor({
       activeRichTextHtmlRef.current = latest;
     }
     const html = readCurrentSlideContentHtml();
-    disposeRichTextEditor();
+    const disposed = disposeRichTextEditor();
+    const selected = disposed?.element ?? el;
     editingElRef.current = null;
     richTextSelectionRef.current = null;
     window.getSelection()?.removeAllRanges();
@@ -2310,6 +2332,7 @@ export default function SlideEditor({
         : el.innerHTML;
       const path = elementPathFromRoot(slideContent, el);
       if (path.length === 0) return;
+      const slideContentSnapshot = slideContent.cloneNode(true) as HTMLElement;
 
       const host = document.createElement("div");
       host.className = "slide-rich-editor-host";
@@ -2319,6 +2342,9 @@ export default function SlideEditor({
       const session: RichTextEditorSession = {
         slideId: slide.id,
         element: el,
+        slideContentSnapshot,
+        sourceContent: slide.content,
+        path,
         host,
         root: createRoot(host),
         apiRef,
@@ -2380,6 +2406,7 @@ export default function SlideEditor({
       exitInlineEdit,
       getSlideContent,
       onInlineEditStart,
+      slide.content,
       slide.id,
     ],
   );
