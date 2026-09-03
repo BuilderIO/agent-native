@@ -8,6 +8,31 @@ export interface ResolvedDocumentTextEdit extends DocumentTextEdit {
   end: number;
 }
 
+export function parseDocumentTextEditsJson(value: string): DocumentTextEdit[] {
+  const parsed: unknown = JSON.parse(value);
+  if (!Array.isArray(parsed)) {
+    throw new Error("--edits must be a JSON array");
+  }
+  return parsed.map((edit, index) => {
+    if (!edit || typeof edit !== "object" || Array.isArray(edit)) {
+      throw new Error(`Edit ${index + 1} must be an object`);
+    }
+    const candidate = edit as Record<string, unknown>;
+    if (typeof candidate.find !== "string" || candidate.find.length === 0) {
+      throw new Error(
+        `Edit ${index + 1} must have a non-empty string 'find' field`,
+      );
+    }
+    if (
+      candidate.replace !== undefined &&
+      typeof candidate.replace !== "string"
+    ) {
+      throw new Error(`Edit ${index + 1} must have a string 'replace' field`);
+    }
+    return { find: candidate.find, replace: candidate.replace ?? "" };
+  });
+}
+
 export type DocumentTextEditValidationError =
   | { kind: "missing"; editIndex: number; find: string }
   | { kind: "ambiguous"; editIndex: number; find: string; matches: number }

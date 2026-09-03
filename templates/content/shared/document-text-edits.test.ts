@@ -2,8 +2,20 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyDocumentTextEdits,
+  parseDocumentTextEditsJson,
   resolveDocumentTextEdits,
 } from "./document-text-edits.js";
+
+describe("parseDocumentTextEditsJson", () => {
+  it("rejects non-string fields in JSON edit batches", () => {
+    expect(() =>
+      parseDocumentTextEditsJson('[{"find":42,"replace":"valid"}]'),
+    ).toThrow("non-empty string 'find'");
+    expect(() =>
+      parseDocumentTextEditsJson('[{"find":"alpha","replace":42}]'),
+    ).toThrow("string 'replace'");
+  });
+});
 
 describe("applyDocumentTextEdits", () => {
   it("applies bounded edits without rebuilding surrounding MDX", () => {

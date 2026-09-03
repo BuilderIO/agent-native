@@ -59,12 +59,7 @@ function conflict(
 }
 
 function callerScope(ctx: ActionRunContext): string {
-  const authority = ctx.orgId
-    ? `org:${ctx.orgId}`
-    : ctx.userEmail
-      ? `user:${ctx.userEmail}`
-      : null;
-  if (!authority) {
+  if (!ctx.userEmail) {
     throw new ActionContractError(
       "External document edits require an authenticated caller scope.",
       { errorCode: "CALLER_SCOPE_REQUIRED", statusCode: 401 },
@@ -73,7 +68,8 @@ function callerScope(ctx: ActionRunContext): string {
   // The surface and authenticated authority are durable retry identity.
   // Network request/run/peer IDs describe one delivery attempt and therefore
   // must not split identical retries into separate receipt scopes.
-  return `${ctx.caller}:${authority}`;
+  const organization = ctx.orgId ? `:org:${ctx.orgId}` : "";
+  return `${ctx.caller}:user:${ctx.userEmail.toLowerCase()}${organization}`;
 }
 
 function replayResult(stored: typeof schema.documentEditReceipts.$inferSelect) {

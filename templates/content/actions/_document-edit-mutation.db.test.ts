@@ -140,6 +140,33 @@ describe("revisioned document edit mutation", () => {
     ).toHaveLength(1);
   });
 
+  it("keeps idempotency receipts distinct for users in the same organization", async () => {
+    const base = {
+      documentId: DOCUMENT_ID,
+      baseRevision: documentRevisionToken(0, "alpha beta"),
+      idempotencyKey: "shared-org-key",
+      edits: [{ find: "alpha", replace: "omega" }],
+    };
+    const first = await mutateDocumentBody({
+      ...base,
+      ctx: { caller: "mcp", userEmail: OWNER, orgId: "org-1" },
+    });
+    await expect(
+      mutateDocumentBody({
+        ...base,
+        ctx: {
+          caller: "mcp",
+          userEmail: "another-editor@example.com",
+          orgId: "org-1",
+        },
+      }),
+    ).rejects.toMatchObject({ errorCode: "STALE_BASE_REVISION" });
+    expect(first.receipt.idempotency.result).toBe("applied");
+    expect(
+      await getDb().select().from(schema.documentEditReceipts),
+    ).toHaveLength(1);
+  });
+
   it("does not overwrite a content-only legacy write racing after the base read", async () => {
     const { getDbExec } = await import("@agent-native/core/db");
     await getDbExec().execute(`CREATE TRIGGER document_edit_legacy_race

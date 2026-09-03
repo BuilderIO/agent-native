@@ -19,7 +19,10 @@ import {
   documentVersionChatContextFromAction,
   serializeDocumentVersionChatContext,
 } from "../server/lib/document-version-context.js";
-import { applyDocumentTextEdits } from "../shared/document-text-edits.js";
+import {
+  applyDocumentTextEdits,
+  parseDocumentTextEditsJson,
+} from "../shared/document-text-edits.js";
 import { inspectNfmFidelity } from "../shared/nfm.js";
 import {
   lockPrimaryBlocksFields,
@@ -132,9 +135,7 @@ export default defineAction({
 
     if (args.edits) {
       try {
-        edits = JSON.parse(args.edits);
-        if (!Array.isArray(edits))
-          throw new Error("--edits must be a JSON array");
+        edits = parseDocumentTextEditsJson(args.edits);
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Unable to parse JSON";
