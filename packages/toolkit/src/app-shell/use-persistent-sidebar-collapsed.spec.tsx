@@ -174,7 +174,12 @@ describe("usePersistentSidebarCollapsed", () => {
         defaultCollapsed: false,
       });
       state = result;
-      return <div>{result.collapsed ? "collapsed" : "expanded"}</div>;
+      return (
+        <div>
+          {result.collapsed ? "collapsed" : "expanded"}:
+          {result.persistenceStatus}
+        </div>
+      );
     }
 
     const browserWindow = window;
@@ -193,7 +198,8 @@ describe("usePersistentSidebarCollapsed", () => {
     });
 
     expect(state.collapsed).toBe(true);
-    expect(container.textContent).toBe("collapsed");
+    expect(state.persistenceStatus).toBe("available");
+    expect(container.textContent).toBe("collapsed:available");
     expect(consoleError).not.toHaveBeenCalled();
   });
 });

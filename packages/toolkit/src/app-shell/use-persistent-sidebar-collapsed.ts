@@ -59,8 +59,7 @@ export function usePersistentSidebarCollapsed({
 }: UsePersistentSidebarCollapsedOptions): PersistentSidebarCollapsedState {
   const [state, setState] = useState<StoredSidebarState>({
     collapsed: defaultCollapsed,
-    persistenceStatus:
-      typeof window === "undefined" ? "unavailable" : "available",
+    persistenceStatus: "unavailable",
   });
   const collapsedRef = useRef(state.collapsed);
 
