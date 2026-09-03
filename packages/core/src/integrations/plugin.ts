@@ -200,6 +200,7 @@ import {
 } from "./usage-budget-store.js";
 import {
   handleWebhook,
+  integrationResponseIdempotencyKey,
   processIntegrationTask,
   recordIntegrationResponseDelivery,
   type IntegrationResponseDeliveryTaskPayload,
@@ -2233,6 +2234,13 @@ export function createIntegrationsPlugin(
                       ...(taskPayload.placeholderRef
                         ? { placeholderRef: taskPayload.placeholderRef }
                         : {}),
+                      ...(taskPayload.strictTargetRef
+                        ? { strictTargetRef: true }
+                        : {}),
+                      idempotencyKey: integrationResponseIdempotencyKey(
+                        task.id,
+                      ),
+                      reconcileAfter: task.createdAt,
                     },
                   );
                 }
