@@ -1,7 +1,7 @@
 import { fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import type {
@@ -58,6 +58,7 @@ type Candidate = {
     documentId: string;
     position: number;
     bodyHydrationStatus: string;
+    rowNumber: number;
   };
   document: {
     id: string;
@@ -99,7 +100,8 @@ async function loadCandidates(
   databaseId: string,
   includeContent: boolean,
   clauses: ReturnType<typeof accessClauses>,
-  limitBeforeViewNarrowing: boolean,
+  limit: number,
+  offset: number,
 ): Promise<Candidate[]> {
   const documentColumns = {
     id: schema.documents.id,
@@ -114,40 +116,47 @@ async function loadCandidates(
     updatedAt: schema.documents.updatedAt,
     ...(includeContent ? { content: schema.documents.content } : {}),
   };
-  const query = getDb()
+  const rankedItems = getDb()
+    .select({
+      id: schema.contentDatabaseItems.id,
+      databaseId: schema.contentDatabaseItems.databaseId,
+      documentId: schema.contentDatabaseItems.documentId,
+      position: schema.contentDatabaseItems.position,
+      bodyHydrationStatus: schema.contentDatabaseItems.bodyHydrationStatus,
+      createdAt: schema.contentDatabaseItems.createdAt,
+      rowNumber:
+        sql<number>`row_number() over (order by ${schema.contentDatabaseItems.position}, ${schema.contentDatabaseItems.createdAt}, ${schema.contentDatabaseItems.id})`.as(
+          "row_number",
+        ),
+    })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, databaseId))
+    .as("ranked_export_items");
+  return getDb()
     .select({
       item: {
-        id: schema.contentDatabaseItems.id,
-        databaseId: schema.contentDatabaseItems.databaseId,
-        documentId: schema.contentDatabaseItems.documentId,
-        position: schema.contentDatabaseItems.position,
-        bodyHydrationStatus: schema.contentDatabaseItems.bodyHydrationStatus,
+        id: rankedItems.id,
+        databaseId: rankedItems.databaseId,
+        documentId: rankedItems.documentId,
+        position: rankedItems.position,
+        bodyHydrationStatus: rankedItems.bodyHydrationStatus,
+        rowNumber: rankedItems.rowNumber,
       },
       document: documentColumns,
     })
-    .from(schema.contentDatabaseItems)
+    .from(rankedItems)
     .innerJoin(
       schema.documents,
-      eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+      eq(schema.documents.id, rankedItems.documentId),
     )
-    .where(
-      and(
-        eq(schema.contentDatabaseItems.databaseId, databaseId),
-        isNull(schema.documents.trashedAt),
-        or(...clauses),
-      ),
-    )
+    .where(and(isNull(schema.documents.trashedAt), or(...clauses)))
     .orderBy(
-      asc(schema.contentDatabaseItems.position),
-      asc(schema.contentDatabaseItems.createdAt),
-      asc(schema.contentDatabaseItems.id),
+      asc(rankedItems.position),
+      asc(rankedItems.createdAt),
+      asc(rankedItems.id),
     )
-    .$dynamic();
-  return (
-    limitBeforeViewNarrowing
-      ? query.limit(CONTENT_DATABASE_MAX_READ_LIMIT + 1)
-      : query
-  ) as Promise<Candidate[]>;
+    .limit(limit)
+    .offset(offset) as Promise<Candidate[]>;
 }
 
 function assertUnique(ids: readonly string[], label: string) {
@@ -519,199 +528,200 @@ export async function buildCollectionExportProjection(
     userEmail,
     memberships.map((membership) => membership.orgId),
   );
-  const candidates = await loadCandidates(
-    database.id,
-    includePrimaryContent,
-    clauses,
-    request.scope.kind === "all_members",
-  );
-  const documentIds = candidates.map(({ document }) => document.id);
-  const storedPropertyIds = requiredProperties
-    .filter(
-      (property) =>
-        !isBlocksPropertyType(property.definition.type) &&
-        !isComputedPropertyType(property.definition.type),
-    )
-    .map((property) => property.definition.id);
-  const storedValues = await loadStoredValues(documentIds, storedPropertyIds);
-  const additionalBlockIds = requiredBlocks
-    .filter((property) => !isPrimaryBlocksField(property.definition.options))
-    .map((property) => property.definition.id);
-  const additionalBlocks = await loadAdditionalBlocks(
-    documentIds,
-    additionalBlockIds,
-  );
-  const rowNumberByDocumentId = new Map(
-    candidates.map(({ document }, index) => [document.id, index + 1]),
-  );
+  const hydrateCandidates = async (
+    candidates: Candidate[],
+  ): Promise<ContentDatabaseItem[]> => {
+    const documentIds = candidates.map(({ document }) => document.id);
+    const storedPropertyIds = requiredProperties
+      .filter(
+        (property) =>
+          !isBlocksPropertyType(property.definition.type) &&
+          !isComputedPropertyType(property.definition.type),
+      )
+      .map((property) => property.definition.id);
+    const storedValues = await loadStoredValues(documentIds, storedPropertyIds);
+    const additionalBlockIds = requiredBlocks
+      .filter((property) => !isPrimaryBlocksField(property.definition.options))
+      .map((property) => property.definition.id);
+    const additionalBlocks = await loadAdditionalBlocks(
+      documentIds,
+      additionalBlockIds,
+    );
+    const rowNumberByDocumentId = new Map(
+      candidates.map(({ document, item }) => [document.id, item.rowNumber]),
+    );
 
-  const rollupValues = new Map<string, DocumentPropertyValue>();
-  const requiredRollups = requiredProperties.filter(
-    (property) => property.definition.type === "rollup",
-  );
-  const linkedIds = new Set<string>();
-  for (const rollup of requiredRollups) {
-    const relationId = rollup.definition.options.rollup?.relationPropertyId;
-    if (!relationId) continue;
-    for (const documentId of documentIds) {
-      const relationValue = storedValues.get(
-        propertyKey(documentId, relationId),
-      );
-      const ids = Array.isArray(relationValue)
-        ? relationValue.filter(
-            (value): value is string => typeof value === "string",
-          )
-        : typeof relationValue === "string" && relationValue
-          ? [relationValue]
-          : [];
-      for (const id of ids) linkedIds.add(id);
-    }
-  }
-  const linkedDocuments = new Map<string, Candidate["document"]>();
-  if (linkedIds.size) {
-    for (const idChunk of chunks([...linkedIds], 180)) {
-      const rows = await getDb()
-        .select({
-          id: schema.documents.id,
-          parentId: schema.documents.parentId,
-          title: schema.documents.title,
-          icon: schema.documents.icon,
-          position: schema.documents.position,
-          isFavorite: schema.documents.isFavorite,
-          hideFromSearch: schema.documents.hideFromSearch,
-          ownerEmail: schema.documents.ownerEmail,
-          createdAt: schema.documents.createdAt,
-          updatedAt: schema.documents.updatedAt,
-        })
-        .from(schema.documents)
-        .where(
-          and(
-            inArray(schema.documents.id, idChunk),
-            isNull(schema.documents.trashedAt),
-            or(...clauses),
-          ),
+    const rollupValues = new Map<string, DocumentPropertyValue>();
+    const requiredRollups = requiredProperties.filter(
+      (property) => property.definition.type === "rollup",
+    );
+    const linkedIds = new Set<string>();
+    for (const rollup of requiredRollups) {
+      const relationId = rollup.definition.options.rollup?.relationPropertyId;
+      if (!relationId) continue;
+      for (const documentId of documentIds) {
+        const relationValue = storedValues.get(
+          propertyKey(documentId, relationId),
         );
-      for (const row of rows) linkedDocuments.set(row.id, row);
-    }
-  }
-  const rollupTargetIds = [
-    ...new Set(
-      requiredRollups
-        .map((property) => property.definition.options.rollup?.targetPropertyId)
-        .filter((id): id is string => !!id),
-    ),
-  ];
-  for (const rollup of requiredRollups) {
-    const config = rollup.definition.options.rollup;
-    if (!config?.targetPropertyId || config.aggregation === "count") continue;
-    const target = propertyById.get(config.targetPropertyId);
-    if (
-      target &&
-      (isComputedPropertyType(target.definition.type) ||
-        isBlocksPropertyType(target.definition.type))
-    ) {
-      fail(
-        `Rollup "${rollup.definition.name}" targets a computed or Blocks property that this bounded export cannot hydrate safely.`,
-        {
-          errorCode: "collection_export_rollup_target_unsupported",
-          statusCode: 422,
-        },
-      );
-    }
-  }
-  const linkedStoredValues = await loadStoredValues(
-    [...linkedDocuments.keys()],
-    rollupTargetIds,
-  );
-  for (const rollup of requiredRollups) {
-    const config = rollup.definition.options.rollup;
-    if (!config?.relationPropertyId) continue;
-    for (const documentId of documentIds) {
-      const relationValue = storedValues.get(
-        propertyKey(documentId, config.relationPropertyId),
-      );
-      const ids = (
-        Array.isArray(relationValue)
-          ? relationValue
-          : typeof relationValue === "string"
+        const ids = Array.isArray(relationValue)
+          ? relationValue.filter(
+              (value): value is string => typeof value === "string",
+            )
+          : typeof relationValue === "string" && relationValue
             ? [relationValue]
-            : []
-      ).filter(
-        (id): id is string => typeof id === "string" && linkedDocuments.has(id),
-      );
-      const values = config.targetPropertyId
-        ? ids.map(
-            (id) =>
-              linkedStoredValues.get(
-                propertyKey(id, config.targetPropertyId!),
-              ) ?? null,
-          )
-        : [];
-      rollupValues.set(
-        propertyKey(documentId, rollup.definition.id),
-        aggregateRollup(config.aggregation ?? "count", ids, values),
-      );
+            : [];
+        for (const id of ids) linkedIds.add(id);
+      }
     }
-  }
-
-  const propertiesByDocumentId = new Map<string, DocumentProperty[]>();
-  for (const { document } of candidates) {
-    const memo = new Map<string, DocumentPropertyValue>();
-    const evaluating = new Set<string>();
-    const valueFor = (property: DocumentProperty): DocumentPropertyValue => {
-      const id = property.definition.id;
-      if (memo.has(id)) return memo.get(id) ?? null;
-      if (evaluating.has(id)) return null;
-      evaluating.add(id);
-      let value: DocumentPropertyValue;
-      if (isBlocksPropertyType(property.definition.type)) {
-        value = resolveBlocksFieldValue({
-          options: property.definition.options,
-          documentBody: document.content,
-          blockFieldContent: additionalBlocks.get(propertyKey(document.id, id)),
-        });
-      } else if (property.definition.type === "formula") {
-        const names = formulaDependencyNames(
-          property.definition.options.formula,
-        );
-        const valuesByName = Object.fromEntries(
-          names.map((name) => {
-            const dependency = propertyByName.get(name);
-            return [name, dependency ? valueFor(dependency) : null];
-          }),
-        );
-        value = evaluatePropertyFormula(
-          property.definition.options.formula,
-          valuesByName,
-        );
-      } else if (property.definition.type === "rollup") {
-        value = rollupValues.get(propertyKey(document.id, id)) ?? null;
-      } else if (isComputedPropertyType(property.definition.type)) {
-        value = computedPropertyValue(
-          property.definition.type,
-          document as never,
+    const linkedDocuments = new Map<string, Candidate["document"]>();
+    if (linkedIds.size) {
+      for (const idChunk of chunks([...linkedIds], 180)) {
+        const rows = await getDb()
+          .select({
+            id: schema.documents.id,
+            parentId: schema.documents.parentId,
+            title: schema.documents.title,
+            icon: schema.documents.icon,
+            position: schema.documents.position,
+            isFavorite: schema.documents.isFavorite,
+            hideFromSearch: schema.documents.hideFromSearch,
+            ownerEmail: schema.documents.ownerEmail,
+            createdAt: schema.documents.createdAt,
+            updatedAt: schema.documents.updatedAt,
+          })
+          .from(schema.documents)
+          .where(
+            and(
+              inArray(schema.documents.id, idChunk),
+              isNull(schema.documents.trashedAt),
+              or(...clauses),
+            ),
+          );
+        for (const row of rows) linkedDocuments.set(row.id, row);
+      }
+    }
+    const rollupTargetIds = [
+      ...new Set(
+        requiredRollups
+          .map(
+            (property) => property.definition.options.rollup?.targetPropertyId,
+          )
+          .filter((id): id is string => !!id),
+      ),
+    ];
+    for (const rollup of requiredRollups) {
+      const config = rollup.definition.options.rollup;
+      if (!config?.targetPropertyId || config.aggregation === "count") continue;
+      const target = propertyById.get(config.targetPropertyId);
+      if (
+        target &&
+        (isComputedPropertyType(target.definition.type) ||
+          isBlocksPropertyType(target.definition.type))
+      ) {
+        fail(
+          `Rollup "${rollup.definition.name}" targets a computed or Blocks property that this bounded export cannot hydrate safely.`,
           {
-            databaseRowNumber: rowNumberByDocumentId.get(document.id),
+            errorCode: "collection_export_rollup_target_unsupported",
+            statusCode: 422,
           },
         );
-      } else {
-        value = storedValues.get(propertyKey(document.id, id)) ?? null;
       }
-      evaluating.delete(id);
-      memo.set(id, value);
-      return value;
-    };
-    propertiesByDocumentId.set(
-      document.id,
-      requiredProperties.map((property) => ({
-        ...property,
-        value: valueFor(property),
-      })),
+    }
+    const linkedStoredValues = await loadStoredValues(
+      [...linkedDocuments.keys()],
+      rollupTargetIds,
     );
-  }
+    for (const rollup of requiredRollups) {
+      const config = rollup.definition.options.rollup;
+      if (!config?.relationPropertyId) continue;
+      for (const documentId of documentIds) {
+        const relationValue = storedValues.get(
+          propertyKey(documentId, config.relationPropertyId),
+        );
+        const ids = (
+          Array.isArray(relationValue)
+            ? relationValue
+            : typeof relationValue === "string"
+              ? [relationValue]
+              : []
+        ).filter(
+          (id): id is string =>
+            typeof id === "string" && linkedDocuments.has(id),
+        );
+        const values = config.targetPropertyId
+          ? ids.map(
+              (id) =>
+                linkedStoredValues.get(
+                  propertyKey(id, config.targetPropertyId!),
+                ) ?? null,
+            )
+          : [];
+        rollupValues.set(
+          propertyKey(documentId, rollup.definition.id),
+          aggregateRollup(config.aggregation ?? "count", ids, values),
+        );
+      }
+    }
 
-  let queryItems: ContentDatabaseItem[] = candidates.map(
-    ({ item, document }) => ({
+    const propertiesByDocumentId = new Map<string, DocumentProperty[]>();
+    for (const { document } of candidates) {
+      const memo = new Map<string, DocumentPropertyValue>();
+      const evaluating = new Set<string>();
+      const valueFor = (property: DocumentProperty): DocumentPropertyValue => {
+        const id = property.definition.id;
+        if (memo.has(id)) return memo.get(id) ?? null;
+        if (evaluating.has(id)) return null;
+        evaluating.add(id);
+        let value: DocumentPropertyValue;
+        if (isBlocksPropertyType(property.definition.type)) {
+          value = resolveBlocksFieldValue({
+            options: property.definition.options,
+            documentBody: document.content,
+            blockFieldContent: additionalBlocks.get(
+              propertyKey(document.id, id),
+            ),
+          });
+        } else if (property.definition.type === "formula") {
+          const names = formulaDependencyNames(
+            property.definition.options.formula,
+          );
+          const valuesByName = Object.fromEntries(
+            names.map((name) => {
+              const dependency = propertyByName.get(name);
+              return [name, dependency ? valueFor(dependency) : null];
+            }),
+          );
+          value = evaluatePropertyFormula(
+            property.definition.options.formula,
+            valuesByName,
+          );
+        } else if (property.definition.type === "rollup") {
+          value = rollupValues.get(propertyKey(document.id, id)) ?? null;
+        } else if (isComputedPropertyType(property.definition.type)) {
+          value = computedPropertyValue(
+            property.definition.type,
+            document as never,
+            {
+              databaseRowNumber: rowNumberByDocumentId.get(document.id),
+            },
+          );
+        } else {
+          value = storedValues.get(propertyKey(document.id, id)) ?? null;
+        }
+        evaluating.delete(id);
+        memo.set(id, value);
+        return value;
+      };
+      propertiesByDocumentId.set(
+        document.id,
+        requiredProperties.map((property) => ({
+          ...property,
+          value: valueFor(property),
+        })),
+      );
+    }
+
+    return candidates.map(({ item, document }) => ({
       id: item.id,
       databaseId: item.databaseId,
       document: {
@@ -728,27 +738,19 @@ export async function buildCollectionExportProjection(
       },
       position: item.position,
       properties: propertiesByDocumentId.get(document.id) ?? [],
-    }),
-  );
-  const queryStages = [
+    }));
+  };
+  const queryFilterStages = [
     ...savedQueries,
     ...(personalQuery ? [personalQuery] : []),
     ...(transientQuery ? [{ ...transientQuery, sorts: [] }] : []),
-    ...(request.scope.kind === "current_view"
-      ? [
-          {
-            search: "",
-            filters: [],
-            sorts: effectiveSorts,
-            filterMode: "and" as const,
-          },
-        ]
-      : []),
   ];
-  let hydrationChecked = false;
-  const assertBodiesReady = () => {
-    const remainingIds = new Set(queryItems.map((item) => item.document.id));
-    const unreadable = candidates.find(
+  const assertBodiesReady = (
+    items: ContentDatabaseItem[],
+    itemCandidates: Candidate[],
+  ) => {
+    const remainingIds = new Set(items.map((item) => item.document.id));
+    const unreadable = itemCandidates.find(
       ({ item }) =>
         remainingIds.has(item.documentId) &&
         item.bodyHydrationStatus !== "hydrated",
@@ -771,35 +773,75 @@ export async function buildCollectionExportProjection(
         },
       );
     }
-    hydrationChecked = true;
   };
-  for (const query of queryStages) {
+
+  const pageSize =
+    request.scope.kind === "all_members"
+      ? CONTENT_DATABASE_MAX_READ_LIMIT + 1
+      : 500;
+  const candidates: Candidate[] = [];
+  let queryItems: ContentDatabaseItem[] = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const pageCandidates = await loadCandidates(
+      database.id,
+      includePrimaryContent,
+      clauses,
+      pageSize,
+      offset,
+    );
+    let pageItems = await hydrateCandidates(pageCandidates);
+    for (const query of queryFilterStages) {
+      if (queryNeedsPrimaryBody(query, propertyById, propertyByName)) {
+        assertBodiesReady(pageItems, pageCandidates);
+      }
+      pageItems = applyContentDatabaseTableQuery(
+        pageItems,
+        requiredProperties,
+        { ...query, sorts: [] },
+      );
+    }
+    const remainingIds = new Set(pageItems.map((item) => item.document.id));
+    candidates.push(
+      ...pageCandidates.filter(({ document }) => remainingIds.has(document.id)),
+    );
+    queryItems.push(...pageItems);
+    if (queryItems.length > CONTENT_DATABASE_MAX_READ_LIMIT) {
+      fail(
+        `Collection export supports up to ${CONTENT_DATABASE_MAX_READ_LIMIT} authorized records. Narrow the current View and try again.`,
+        { errorCode: "collection_export_limit_exceeded", statusCode: 413 },
+      );
+    }
     if (
-      !hydrationChecked &&
-      queryNeedsPrimaryBody(query, propertyById, propertyByName)
+      request.scope.kind === "all_members" ||
+      pageCandidates.length < pageSize
     ) {
-      assertBodiesReady();
+      break;
+    }
+  }
+
+  if (request.scope.kind === "current_view" && effectiveSorts.length > 0) {
+    const sortQuery: ContentDatabaseTableQuery = {
+      search: "",
+      filters: [],
+      sorts: effectiveSorts,
+      filterMode: "and",
+    };
+    if (queryNeedsPrimaryBody(sortQuery, propertyById, propertyByName)) {
+      assertBodiesReady(queryItems, candidates);
     }
     queryItems = applyContentDatabaseTableQuery(
       queryItems,
       requiredProperties,
-      query,
-    );
-  }
-  if (queryItems.length > CONTENT_DATABASE_MAX_READ_LIMIT) {
-    fail(
-      `Collection export supports up to ${CONTENT_DATABASE_MAX_READ_LIMIT} authorized records. Narrow the current View and try again.`,
-      { errorCode: "collection_export_limit_exceeded", statusCode: 413 },
+      sortQuery,
     );
   }
   if (
-    !hydrationChecked &&
-    (includePrimaryBody ||
-      selectedScalars.some((property) =>
-        propertyNeedsPrimaryBody(property, propertyByName),
-      ))
+    includePrimaryBody ||
+    selectedScalars.some((property) =>
+      propertyNeedsPrimaryBody(property, propertyByName),
+    )
   ) {
-    assertBodiesReady();
+    assertBodiesReady(queryItems, candidates);
   }
 
   const bodyFields = [

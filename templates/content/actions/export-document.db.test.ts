@@ -826,6 +826,55 @@ describe("export-document database collections", () => {
     expect(result.content).toBe("Title,Doubled\r\nComputed row,6\r\n");
   });
 
+  it("preserves canonical database row numbers across inaccessible members", async () => {
+    const databaseId = "canonical-row-number-database";
+    const databaseDocumentId = "canonical-row-number-document";
+    await createDatabase({
+      id: databaseId,
+      documentId: databaseDocumentId,
+      title: "Canonical Row Numbers",
+    });
+    await createDocument({
+      id: "inaccessible-first-row",
+      title: "Hidden first row",
+      ownerEmail: "someone-else@example.com",
+    });
+    await addDatabaseItem({
+      id: "inaccessible-first-item",
+      databaseId,
+      documentId: "inaccessible-first-row",
+      position: 0,
+    });
+    await createDocument({ id: "visible-second-row", title: "Visible row" });
+    await addDatabaseItem({
+      id: "visible-second-item",
+      databaseId,
+      documentId: "visible-second-row",
+      position: 1,
+    });
+    await addProperty({
+      id: "canonical-row-number",
+      databaseId,
+      name: "ID",
+      type: "id",
+      position: 0,
+    });
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      exportDocumentAction.run({
+        id: databaseDocumentId,
+        format: "csv",
+        collection: {
+          scope: { kind: "all_members" },
+          propertyIds: ["canonical-row-number"],
+          includePrimaryBody: false,
+          blockPropertyIds: [],
+        },
+      }),
+    );
+    expect(result.content).toBe("Title,ID\r\nVisible row,2\r\n");
+  });
+
   it("exports selected scalar CSV columns without waiting for unselected Blocks", async () => {
     const databaseId = "csv-scalar-database";
     const databaseDocumentId = "csv-scalar-database-document";
