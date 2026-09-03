@@ -1,7 +1,7 @@
 pr=4294
 owner_thread=01a068d2-66eb-75f0-8fa5-345ba7ecf6c4
-version=22
-expires_at=1788468634
+version=23
+expires_at=1788468692
 status=active
 observed_legacy_version=absent
 legacy_retired=true
