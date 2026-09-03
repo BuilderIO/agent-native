@@ -500,9 +500,10 @@ const intentSchema = z.preprocess(
         .string()
         .optional()
         .describe("Gap value when enabling. Defaults to 8px."),
-      containerStyles: z.record(z.string()).optional(),
+      containerStyles: z.record(z.string(), z.string()).optional(),
       childRects: z
         .record(
+          z.string(),
           z.object({
             x: z.number(),
             y: z.number(),
@@ -1028,7 +1029,7 @@ export default defineAction({
       designId: file.designId,
       fileId: file.id,
       filename: file.filename,
-      persisted: patch.result.status === "applied" && patch.result.changed,
+      persisted: patch!.result.status === "applied" && patch!.result.changed,
       patchedContent: includeContent ? content : undefined,
       bytesBefore: file.content.length,
       bytesAfter: content.length,
