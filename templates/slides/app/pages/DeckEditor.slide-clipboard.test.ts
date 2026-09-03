@@ -8,9 +8,13 @@ import type { Deck } from "../context/DeckContext";
 import {
   getSlideClipboardStorageKey,
   normalizeSlideClipboard,
+  normalizeSlideClipboards,
   readSlideClipboard,
+  readSlideClipboards,
   resolveSlideClipboardForPaste,
+  resolveSlideClipboardsForPaste,
   writeSlideClipboard,
+  writeSlideClipboards,
 } from "../lib/slide-clipboard";
 import {
   isSlideClipboardStillArmed,
@@ -98,6 +102,16 @@ describe("slide thumbnail shortcuts", () => {
     );
     expect(deckEditorSource).toContain(
       "handleDuplicateSlideFromRail([activeSlideId]);",
+    );
+  });
+
+  it("persists multi-slide copies for another deck tab to paste", () => {
+    expect(deckEditorSource).toContain("saveSlidesToClipboard(slides);");
+    expect(deckEditorSource).toContain(
+      "readSlideClipboards(slideClipboardStorageKey)",
+    );
+    expect(deckEditorSource).toContain(
+      "const clipboard = slideClipboardSlidesRef.current ?? syncSlideClipboard();",
     );
   });
 });
@@ -205,6 +219,47 @@ describe("slide clipboard storage", () => {
     });
   });
 
+  it("round-trips an ordered multi-slide snapshot", () => {
+    const storage = createStorage();
+    const storageKey = getSlideClipboardStorageKey("alice@example.com");
+    const slides = [
+      slide,
+      { ...slide, id: "slide-2", content: "<div>Second</div>" },
+    ];
+
+    expect(writeSlideClipboards(storageKey, slides, 1_500, storage)).toBe(true);
+    expect(readSlideClipboards(storageKey, storage)).toEqual({
+      status: "ready",
+      slides,
+      copiedAt: 1_500,
+    });
+    expect(readSlideClipboard(storageKey, storage)).toEqual({
+      status: "ready",
+      slide,
+      copiedAt: 1_500,
+    });
+  });
+
+  it("reads legacy single-slide snapshots as one-slide clipboards", () => {
+    const storageKey = getSlideClipboardStorageKey("alice@example.com");
+    expect(
+      readSlideClipboards(
+        storageKey,
+        createStorage({
+          [storageKey]: JSON.stringify({
+            version: 1,
+            slide,
+            copiedAt: 1_750,
+          }),
+        }),
+      ),
+    ).toEqual({
+      status: "ready",
+      slides: [slide],
+      copiedAt: 1_750,
+    });
+  });
+
   it("distinguishes an empty or malformed clipboard", () => {
     const storageKey = getSlideClipboardStorageKey("alice@example.com");
     expect(readSlideClipboard(storageKey, createStorage())).toEqual({
@@ -255,6 +310,7 @@ describe("slide clipboard storage", () => {
           version: 1,
           slide: {
             ...slide,
+            layoutWarningDismissed: true,
             imageLoading: true,
             unexpected: "stale data",
             animations: [{ id: "animation-1", elementIndex: 0, type: "fade" }],
@@ -268,6 +324,7 @@ describe("slide clipboard storage", () => {
       status: "ready",
       slide: {
         ...slide,
+        layoutWarningDismissed: true,
         animations: [{ id: "animation-1", elementIndex: 0, type: "fade" }],
       },
       copiedAt: 2_500,
@@ -282,6 +339,7 @@ describe("slide clipboard storage", () => {
         unexpected: true,
       }),
     ).toEqual(slide);
+    expect(normalizeSlideClipboards([slide])).toEqual([slide]);
   });
 
   it("rejects malformed optional fields", () => {
@@ -331,6 +389,24 @@ describe("slide clipboard storage", () => {
         storageKey,
       ),
     ).toEqual(latestSlide);
+  });
+
+  it("uses a newer multi-slide cross-tab snapshot instead of stale cached slides", () => {
+    const storageKey = getSlideClipboardStorageKey("alice@example.com");
+    const cachedSlides = [{ ...slide, content: "Cached" }];
+    const latestSlides = [
+      { ...slide, content: "Latest" },
+      { ...slide, id: "slide-2", content: "Second" },
+    ];
+
+    expect(
+      resolveSlideClipboardsForPaste(
+        { status: "ready", slides: latestSlides, copiedAt: 4_000 },
+        cachedSlides,
+        storageKey,
+        storageKey,
+      ),
+    ).toEqual(latestSlides);
   });
 
   it("keeps a fresh in-memory snapshot when persistence is rejected", () => {

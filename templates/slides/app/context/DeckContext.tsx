@@ -3561,7 +3561,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       const newSlides: Slide[] = [];
       const ops: PatchDeckOp[] = [];
       for (const fields of slideFields) {
-        const newSlide: Slide = { ...fields, id: nanoid(8) };
+        const newSlide: Slide = {
+          ...fields,
+          id: nanoid(8),
+          content: normalizeSlidePadding(fields.content),
+        };
         newSlides.push(newSlide);
         ops.push({
           op: "add-slide",
