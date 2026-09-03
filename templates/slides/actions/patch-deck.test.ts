@@ -319,6 +319,26 @@ describe("applyOperation — reorder-slides", () => {
     expect(ids).toContain("s3");
     expect(ids).toEqual(["s2", "s1", "s3"]);
   });
+
+  it("rejects duplicate slide IDs instead of persisting duplicate slides", () => {
+    const deck = {
+      slides: [
+        { id: "s1", content: "1" },
+        { id: "s2", content: "2" },
+      ],
+    };
+
+    expect(() =>
+      applyOperation(deck, {
+        op: "reorder-slides",
+        orderedIds: ["s2", "s1", "s2"],
+      }),
+    ).toThrow(/duplicate ID s2/);
+    expect(deck.slides.map((slide: { id: string }) => slide.id)).toEqual([
+      "s1",
+      "s2",
+    ]);
+  });
 });
 
 describe("applyOperation — add-slide", () => {
@@ -547,6 +567,43 @@ describe("source-imported deck structure", () => {
         true,
       ),
     ).not.toThrow();
+  });
+
+  it("rejects rewriteSource for a regular deck before changing it", async () => {
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<div>One</div>",
+            animations: [{ id: "a1", elementIndex: 0, type: "fade" }],
+          },
+        ],
+      }),
+    };
+
+    await expect(
+      patchDeckAction.run(
+        {
+          deckId: "deck-1",
+          rewriteSource: true,
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: { content: "<div>Updated</div>" },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toThrow("only applies to a source-preserving deck");
+    expect(lastUpdatedDeckData).toBeUndefined();
   });
 });
 

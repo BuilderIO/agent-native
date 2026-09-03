@@ -171,12 +171,24 @@ const DeleteSlideOp = z.object({
  * Server reorders existing slides to match. Slides not present in the
  * orderedIds list are appended at the end (safe for concurrent adds).
  */
-const ReorderSlidesOp = z.object({
-  op: z.literal("reorder-slides"),
-  orderedIds: z
-    .array(z.string())
-    .describe("Desired slide ID order; concurrent additions remain appended."),
-});
+const ReorderSlidesOp = z
+  .object({
+    op: z.literal("reorder-slides"),
+    orderedIds: z
+      .array(z.string())
+      .describe(
+        "Desired slide ID order; concurrent additions remain appended.",
+      ),
+  })
+  .superRefine(({ orderedIds }, context) => {
+    const duplicateId = firstDuplicate(orderedIds);
+    if (duplicateId === undefined) return;
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["orderedIds"],
+      message: `Slide ID ${duplicateId} appears more than once`,
+    });
+  });
 
 /** Add a new slide. slideId must be provided by the client. */
 const AddSlideOp = z.object({
@@ -230,6 +242,15 @@ export const OperationSchema = z.discriminatedUnion("op", [
 ]);
 
 export type Operation = z.infer<typeof OperationSchema>;
+
+function firstDuplicate(values: readonly string[]): string | undefined {
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) return value;
+    seen.add(value);
+  }
+  return undefined;
+}
 
 export function assertSourceImportOperationsPreserved(
   metadata: SourceImportMetadata | null,
@@ -422,6 +443,12 @@ export function applyOperation(deck: any, op: Operation): void {
 
     case "reorder-slides": {
       const { orderedIds } = op;
+      const duplicateId = firstDuplicate(orderedIds);
+      if (duplicateId !== undefined) {
+        throw new Error(
+          `Cannot reorder slides with duplicate ID ${duplicateId}`,
+        );
+      }
       const byId = new Map(slides.map((s: { id: string }) => [s.id, s]));
       // Build the new order from the client's desired order, keeping only
       // slides that actually exist in the server copy.
@@ -726,22 +753,27 @@ export default defineAction({
       const sourceImport = sourceImportForDeck(deck.sourceImport);
       const sourceRewriteRequested =
         isAgentCaller && rewriteSource && sourceImport !== null;
+      if (isAgentCaller && rewriteSource && sourceImport === null) {
+        throw new Error(
+          "rewriteSource=true only applies to a source-preserving deck; omit it for a regular deck",
+        );
+      }
       if (isAgentCaller) {
         assertSourceImportOperationsPreserved(
           sourceImport,
           operations,
-          rewriteSource,
+          sourceRewriteRequested,
         );
         assertSourceImportSlidesCovered(
           sourceImport,
           operations,
-          rewriteSource ? false : requireAllSourceSlides,
+          sourceRewriteRequested ? false : requireAllSourceSlides,
         );
       }
       for (const op of operations) {
         if (
           !isAgentCaller ||
-          rewriteSource ||
+          sourceRewriteRequested ||
           op.op !== "patch-slide" ||
           (op.fields.content === undefined && op.fields.notes === undefined)
         ) {
