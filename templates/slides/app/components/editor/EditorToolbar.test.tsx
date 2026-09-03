@@ -59,6 +59,7 @@ vi.mock("@/lib/utils", () => ({
 
 vi.mock("./ExportMenu", () => ({
   ExportMenu: () => null,
+  ExportStatusDialog: () => null,
 }));
 
 vi.mock("./editor-command-model", () => ({

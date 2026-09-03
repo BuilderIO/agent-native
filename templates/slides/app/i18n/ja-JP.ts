@@ -271,6 +271,7 @@ const messages = {
   editorExport: {
     pptxFailed: "PPTX ファイルを生成できませんでした。",
     exportFailed: "エクスポートに失敗しました",
+    exporting: "エクスポート中...",
     exportPptxError: "PPTX としてエクスポート中に問題が発生しました。",
     googleSlidesDownloaded: "Google Slides 用にダウンロードしました",
     googleSlidesImportHint:

@@ -101,6 +101,7 @@ describe.each([
 
 describe("google-slides connection failures", () => {
   beforeEach(() => {
+    mockSetResponseStatus.mockReset();
     vi.stubGlobal("fetch", mockFetch);
     mockGetSession.mockResolvedValue({
       email: "owner@example.com",
@@ -162,6 +163,26 @@ describe("google-slides connection failures", () => {
         "Google Drive connection expired. Connect Google again, then retry.",
       code: "google-not-connected",
     });
+  });
+
+  it("builds a stable Slides URL when Drive omits webViewLink", async () => {
+    mockGetGoogleDocsAccessToken.mockResolvedValue({
+      accessToken: "access-token",
+      accountEmail: "owner@example.com",
+    });
+    mockFetch.mockResolvedValue({
+      status: 200,
+      ok: true,
+      json: vi.fn().mockResolvedValue({ id: "presentation-123" }),
+    });
+
+    const result = await exportGoogleSlides({ node: { res: {} } } as any);
+
+    expect(result).toEqual({
+      url: "https://docs.google.com/presentation/d/presentation-123/edit",
+      accountEmail: "owner@example.com",
+    });
+    expect(mockSetResponseStatus).not.toHaveBeenCalled();
   });
 
   it("keeps invalid OAuth client configuration out of the reconnect flow", async () => {
