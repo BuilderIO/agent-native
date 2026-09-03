@@ -7109,7 +7109,7 @@ export default function SlideEditor({
                           onSelect={cutSelectedObjects}
                         >
                           {t("editorSidebar.cut")}
-                          <ContextMenuShortcut>
+                          <ContextMenuShortcut className="tracking-normal">
                             {shortcutLabel("cmd+x")}
                           </ContextMenuShortcut>
                         </ContextMenuItem>
@@ -7118,7 +7118,7 @@ export default function SlideEditor({
                           onSelect={copySelectedObjects}
                         >
                           {t("styleInspector.copy")}
-                          <ContextMenuShortcut>
+                          <ContextMenuShortcut className="tracking-normal">
                             {shortcutLabel("cmd+c")}
                           </ContextMenuShortcut>
                         </ContextMenuItem>
@@ -7127,7 +7127,7 @@ export default function SlideEditor({
                           onSelect={pasteSelectedObjects}
                         >
                           {t("styleInspector.paste")}
-                          <ContextMenuShortcut>
+                          <ContextMenuShortcut className="tracking-normal">
                             {shortcutLabel("cmd+v")}
                           </ContextMenuShortcut>
                         </ContextMenuItem>
@@ -7136,7 +7136,7 @@ export default function SlideEditor({
                           onSelect={duplicateSelectedObjects}
                         >
                           {t("editorSidebar.duplicate")}
-                          <ContextMenuShortcut>
+                          <ContextMenuShortcut className="tracking-normal">
                             {shortcutLabel("cmd+d")}
                           </ContextMenuShortcut>
                         </ContextMenuItem>
@@ -7145,7 +7145,9 @@ export default function SlideEditor({
                           onSelect={() => deleteSelectedElements()}
                         >
                           {t("editorSidebar.delete")}
-                          <ContextMenuShortcut>⌫</ContextMenuShortcut>
+                          <ContextMenuShortcut className="tracking-normal">
+                            ⌫
+                          </ContextMenuShortcut>
                         </ContextMenuItem>
                         <ContextMenuSeparator />
                         <ContextMenuItem
@@ -7153,7 +7155,7 @@ export default function SlideEditor({
                           onSelect={copySelectedElementStyle}
                         >
                           {t("styleInspector.copyStyle")}
-                          <ContextMenuShortcut>
+                          <ContextMenuShortcut className="tracking-normal">
                             {shortcutLabel("cmd+alt+c")}
                           </ContextMenuShortcut>
                         </ContextMenuItem>
@@ -7165,7 +7167,7 @@ export default function SlideEditor({
                           onSelect={pasteCopiedElementStyle}
                         >
                           {t("styleInspector.pasteStyle")}
-                          <ContextMenuShortcut>
+                          <ContextMenuShortcut className="tracking-normal">
                             {shortcutLabel("cmd+alt+v")}
                           </ContextMenuShortcut>
                         </ContextMenuItem>
