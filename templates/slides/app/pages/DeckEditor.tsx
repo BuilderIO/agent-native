@@ -1345,63 +1345,6 @@ export default function DeckEditor() {
       document.removeEventListener("keydown", handleItalicShortcut, true);
   }, []);
 
-  // Delete key deletes the current slide
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!deck || !id || !activeSlideId) return;
-      if (e.key !== "Delete" && e.key !== "Backspace") return;
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      // Don't intercept while the user is in an annotation mode (pin / draw)
-      // — they are clearly composing, not navigating slides.
-      if (pinMode || drawMode) return;
-      // Bail if the focused element OR the event target is editable, lives
-      // inside the agent sidebar, lives inside a pin popover, or is a slide
-      // element selection. Walking ancestors instead of relying on tagName
-      // alone catches Tiptap (contenteditable), portaled popovers, and
-      // shadcn wrappers that re-route focus.
-      const isInsideSafeZone = (el: Element | null) => {
-        if (!el) return false;
-        if (el instanceof HTMLInputElement) return true;
-        if (el instanceof HTMLTextAreaElement) return true;
-        if (el instanceof HTMLElement) {
-          if (el.isContentEditable) return true;
-          if (el.closest("[contenteditable='true']")) return true;
-          if (el.closest("input, textarea, [role='textbox']")) return true;
-          if (el.closest("[data-pin-popover]")) return true;
-          if (el.closest(".agent-panel-root")) return true;
-        }
-        return false;
-      };
-      const target = e.target as Element | null;
-      if (isInsideSafeZone(target)) return;
-      if (isInsideSafeZone(document.activeElement)) return;
-      // Belt-and-suspenders: if a pin composer is mounted anywhere, the user
-      // is in mid-comment. The textarea has autoFocus but autoFocus isn't
-      // instantaneous, so the first keystroke can land on the canvas before
-      // focus moves — without this check, Backspace would delete the slide
-      // the user is trying to comment on.
-      if (document.querySelector("[data-pin-popover]")) return;
-      // Skip if the SlideEditor reports an element is selected (image, text
-      // block, or builder-id selector). Slide-level delete is reserved for
-      // when the canvas itself has focus.
-      if (document.querySelector("[data-slide-element-selected='true']"))
-        return;
-      deleteSlideIds(
-        selectedSlideIds.length > 0 ? selectedSlideIds : [activeSlideId],
-      );
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [
-    deck,
-    id,
-    activeSlideId,
-    deleteSlideIds,
-    selectedSlideIds,
-    pinMode,
-    drawMode,
-  ]);
-
   // Slide-level clipboard backing both the Cmd+C/Cmd+V shortcut below and the
   // rail's right-click Cut/Copy/Paste menu. Holds a full slide snapshot
   // (rather than just an id) so paste still works after Cut has already
