@@ -209,12 +209,9 @@ if (asRecord(reusableDocument?.concurrency)?.["cancel-in-progress"] !== false) {
   issues.push(`${reusablePath} beta deploys must queue every source SHA`);
 }
 const betaConcurrency = asRecord(parsedWorkflows.get(betaPath)?.concurrency);
-if (
-  betaConcurrency?.group !== "agent-native-release-pipeline" ||
-  betaConcurrency["cancel-in-progress"] !== false
-) {
+if (betaConcurrency) {
   issues.push(
-    `${betaPath} must serialize shared release migrations without canceling the current workflow`,
+    `${betaPath} must not use a workflow-level queue that can evict a pending main push`,
   );
 }
 const reusableConcurrencyGroup = String(
@@ -244,11 +241,11 @@ if (
 const docsProductionDocument = parsedWorkflows.get(docsProductionPath);
 const docsProductionConcurrency = asRecord(docsProductionDocument?.concurrency);
 if (
-  docsProductionConcurrency?.group !== "agent-native-release-pipeline" ||
+  docsProductionConcurrency?.group !== "agent-native-docs-production" ||
   docsProductionConcurrency["cancel-in-progress"] !== false
 ) {
   issues.push(
-    `${docsProductionPath} must share the release pipeline queue without cancellation`,
+    `${docsProductionPath} must keep its path-filtered production queue independent`,
   );
 }
 const docsProductionJobs = asRecord(docsProductionDocument?.jobs);
@@ -689,12 +686,33 @@ const betaMigrateJob = asRecord(
 const betaDeployJob = asRecord(
   asRecord(parsedWorkflows.get(betaPath)?.jobs)?.deploy,
 );
+const betaSchemaGateJob = asRecord(
+  asRecord(parsedWorkflows.get(betaPath)?.jobs)?.["schema-gate"],
+);
+const betaSchemaGateStep = (
+  (betaSchemaGateJob?.steps as Array<Record<string, unknown>> | undefined) ?? []
+).find(
+  (step) =>
+    step.name === "Block schema-dependent beta code until production migration",
+);
 const betaDeployNeeds = Array.isArray(betaDeployJob?.needs)
   ? betaDeployJob.needs
   : [];
 if (betaMigrateJob || betaDeployNeeds.includes("migrate")) {
   issues.push(
     `${betaPath} must not run release migrations against masked beta site secrets`,
+  );
+}
+if (
+  betaSchemaGateJob?.needs !== "resolve-source" ||
+  typeof betaSchemaGateStep?.run !== "string" ||
+  !betaSchemaGateStep.run.includes("inputs.schema_migrated") ||
+  !betaSchemaGateStep.run.includes("git diff --name-only") ||
+  !betaSchemaGateStep.run.includes("schema_files") ||
+  !betaDeployNeeds.includes("schema-gate")
+) {
+  issues.push(
+    `${betaPath} must block schema-dependent beta code until production migration is confirmed`,
   );
 }
 

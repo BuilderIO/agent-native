@@ -8,16 +8,16 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      schema_migrated:
+        description: Set true only after the production twin migration succeeds
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
   actions: read
-
-# Beta sites share databases with production. Serialize beta publishes with
-# the docs production cutover while retaining the newest queued main revision.
-concurrency:
-  group: agent-native-release-pipeline
-  cancel-in-progress: false
 
 jobs:
   resolve-source:
@@ -77,9 +77,43 @@ jobs:
           console.log(`Discovered ${sites.length} beta sites.`);
           NODE
 
+  schema-gate:
+    name: Require production migration for schema changes
+    needs: resolve-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.resolve-source.outputs.source_sha }}
+          fetch-depth: 2
+
+      - name: Block schema-dependent beta code until production migration
+        env:
+          SOURCE_SHA: ${{ needs.resolve-source.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ inputs.schema_migrated }}" == "true" ]]; then
+            echo "Production migration was explicitly confirmed for $SOURCE_SHA."
+            exit 0
+          fi
+
+          base_sha="$(git rev-parse "$SOURCE_SHA^")"
+          changed_files="$(git diff --name-only "$base_sha" "$SOURCE_SHA")"
+          # ponytail: path-based schema gate; replace with production migration
+          # status when GitHub Actions can access Netlify's masked secrets.
+          schema_files="$(printf '%s\n' "$changed_files" | rg -N '(^|/)(server/db/schema\.ts|server/db/migrations\.ts|server/plugins/(db|factory-migrations)\.ts|(?:scripts/)?migrate-production\.ts|drizzle(?:\.local)?\.config\.ts|netlify\.toml)$|(^|/)(migrations|supabase/migrations)/|(^|/).*schema\.ts$|(^|/).*migrations\.ts$' || true)"
+          if [[ -n "$schema_files" ]]; then
+            echo "::error::Beta is withheld until the production twin is migrated. Changed schema paths:"
+            printf '%s\n' "$schema_files"
+            echo "Re-run this workflow manually with schema_migrated=true after production migration succeeds."
+            exit 1
+          fi
+          echo "No schema-dependent paths changed; beta may publish automatically."
+
   deploy:
     name: ${{ matrix.site }} beta prebuilt deploy
-    needs: [resolve-source, discover-sites]
+    needs: [resolve-source, discover-sites, schema-gate]
     strategy:
       fail-fast: false
       max-parallel: 8

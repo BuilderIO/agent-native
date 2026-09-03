@@ -128,8 +128,8 @@ concurrency:
         || inputs.target == 'production'
         && format('agent-native-production-site-{0}', inputs.site)
         || format('netlify-prebuilt-{0}-{1}', inputs.target, inputs.site) }}
-  # The beta and docs caller workflows serialize their shared release pipeline.
-  # These per-site child queues remain non-canceling for accepted uploads.
+  # Caller workflows own their workflow-level queues. These per-site child
+  # queues remain non-canceling for accepted uploads.
   cancel-in-progress: false
 
 jobs:

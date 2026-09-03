@@ -207,10 +207,7 @@ describe("production Netlify site concurrency guard", () => {
     const beta = readWorkflow(
       ".github/workflows/deploy-beta-sites-prebuilt.yml",
     );
-    assert.deepEqual(beta.concurrency, {
-      group: "agent-native-release-pipeline",
-      "cancel-in-progress": false,
-    });
+    assert.equal(beta.concurrency, undefined);
     assert.equal(
       ((beta.jobs as Workflow).deploy as Workflow).strategy?.["max-parallel"],
       8,
@@ -224,7 +221,18 @@ describe("production Netlify site concurrency guard", () => {
     assert.deepEqual((beta.jobs as Workflow).deploy.needs, [
       "resolve-source",
       "discover-sites",
+      "schema-gate",
     ]);
+    const schemaGate = (beta.jobs as Workflow)["schema-gate"] as Workflow;
+    assert.equal(schemaGate.needs, "resolve-source");
+    const schemaGateStep = (schemaGate.steps as Array<Workflow>).find(
+      (step) =>
+        step.name ===
+        "Block schema-dependent beta code until production migration",
+    );
+    assert.match(String(schemaGateStep?.run), /inputs\.schema_migrated/);
+    assert.match(String(schemaGateStep?.run), /git diff --name-only/);
+    assert.match(String(schemaGateStep?.run), /schema_files/);
     const reusable = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
     );
