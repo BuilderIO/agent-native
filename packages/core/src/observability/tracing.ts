@@ -40,12 +40,6 @@ export interface AgentSpan {
 export const SPAN_STATUS_OK = 1;
 export const SPAN_STATUS_ERROR = 2;
 
-/**
- * Cached tracer. `undefined` = not yet resolved; `null` = resolved to
- * "no tracer available" (api package missing or load failed).
- */
-let cachedTracer: AgentTracer | null | undefined;
-
 interface AgentTracer {
   startSpan(
     name: string,
@@ -53,22 +47,47 @@ interface AgentTracer {
   ): AgentSpan;
 }
 
+interface AgentTraceRuntime {
+  tracer: AgentTracer;
+  context?: {
+    active(): unknown;
+    with<T>(context: unknown, callback: () => T): T;
+  };
+  trace?: {
+    setSpan(context: unknown, span: AgentSpan): unknown;
+  };
+}
+
+/**
+ * Cached OTel runtime. `undefined` = not yet resolved; `null` = resolved to
+ * "no runtime available" (api package missing or load failed).
+ */
+let cachedRuntime: AgentTraceRuntime | null | undefined;
+
 /**
  * Resolve the OpenTelemetry tracer if `@opentelemetry/api` is installed.
  * Returns `null` (cached) when the package is unavailable so callers can
  * branch to a no-op cheaply on every subsequent call.
  */
-async function resolveTracer(): Promise<AgentTracer | null> {
-  if (cachedTracer !== undefined) return cachedTracer;
+async function resolveRuntime(): Promise<AgentTraceRuntime | null> {
+  if (cachedRuntime !== undefined) return cachedRuntime;
   try {
     // Optional dependency — guarded import. Absent ⇒ no-op everywhere.
     const otel: any = await import("@opentelemetry/api");
     const tracer = otel?.trace?.getTracer?.(TRACER_NAME);
-    cachedTracer = (tracer as AgentTracer) ?? null;
+    cachedRuntime = tracer
+      ? {
+          tracer: tracer as AgentTracer,
+          ...(otel?.context?.active && otel?.context?.with
+            ? { context: otel.context }
+            : {}),
+          ...(otel?.trace?.setSpan ? { trace: otel.trace } : {}),
+        }
+      : null;
   } catch {
-    cachedTracer = null;
+    cachedRuntime = null;
   }
-  return cachedTracer;
+  return cachedRuntime;
 }
 
 /** Drop sentinel/zero token counts so spans aren't cluttered with noise. */
@@ -92,14 +111,41 @@ export async function startAgentSpan(
   name: string,
   attributes: Record<string, string | number | boolean | null | undefined> = {},
 ): Promise<AgentSpan | null> {
-  const tracer = await resolveTracer();
-  if (!tracer) return null;
+  const runtime = await resolveRuntime();
+  if (!runtime) return null;
   try {
-    return tracer.startSpan(name, {
+    return runtime.tracer.startSpan(name, {
       attributes: pruneAttributes(attributes),
     });
   } catch {
     return null;
+  }
+}
+
+/**
+ * Run a callback with the supplied span installed as the active OTel span so
+ * spans created by the callback become descendants of it. The bridge is
+ * deliberately best-effort: telemetry setup must never change agent behavior.
+ */
+export function withAgentSpanContext<T>(
+  span: AgentSpan | null,
+  callback: () => T,
+): T {
+  if (!span) return callback();
+  const runtime = cachedRuntime;
+  if (!runtime?.context || !runtime.trace) return callback();
+
+  let callbackEntered = false;
+  try {
+    const context = runtime.trace.setSpan(runtime.context.active(), span);
+    return runtime.context.with(context, () => {
+      callbackEntered = true;
+      return callback();
+    });
+  } catch (error) {
+    if (callbackEntered) throw error;
+    // coercion-ok: optional OTel context setup must never break the agent loop.
+    return callback();
   }
 }
 
@@ -144,7 +190,7 @@ export function endAgentSpan(
 
 /** For tests — reset the cached tracer so a fresh provider can be detected. */
 export function __resetAgentTracerCache(): void {
-  cachedTracer = undefined;
+  cachedRuntime = undefined;
 }
 
 /**
@@ -153,5 +199,12 @@ export function __resetAgentTracerCache(): void {
  * to simulate "no tracer available".
  */
 export function __setAgentTracerForTests(tracer: AgentTracer | null): void {
-  cachedTracer = tracer;
+  cachedRuntime = tracer ? { tracer } : null;
+}
+
+/** For tests — inject a runtime with an active-context implementation. */
+export function __setAgentTraceRuntimeForTests(
+  runtime: AgentTraceRuntime | null,
+): void {
+  cachedRuntime = runtime;
 }
