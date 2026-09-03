@@ -52,6 +52,7 @@ describe("restricted BigQuery schema policy", () => {
     ["SELECT * FROM `dbt_backup`.signups", "dbt_backup"],
     ["SELECT * FROM `example-project`.`dbt_dev`.`signups`", "dbt_dev"],
     ["SELECT * FROM dbt_backup /* hidden */ . signups", "dbt_backup"],
+    ["SELECT 1 /* /* */ FROM dbt_backup.signups -- */", "dbt_backup"],
     ["SELECT r'\\' AS example FROM dbt_dev.signups", "dbt_dev"],
     ["SELECT * FROM `dbt_backup`.`2024_signups`", "dbt_backup"],
     [

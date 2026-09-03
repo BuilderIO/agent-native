@@ -317,21 +317,10 @@ function scanBigQuerySql(sql: string): SqlScanResult {
       continue;
     }
     if (sql.startsWith("/*", index)) {
-      let cursor = index + 2;
-      let depth = 1;
-      while (cursor < sql.length && depth > 0) {
-        if (sql.startsWith("/*", cursor)) {
-          depth += 1;
-          cursor += 2;
-        } else if (sql.startsWith("*/", cursor)) {
-          depth -= 1;
-          cursor += 2;
-        } else {
-          cursor += 1;
-        }
-      }
-      appendWhitespace(index, cursor);
-      index = cursor;
+      const close = sql.indexOf("*/", index + 2);
+      const end = close === -1 ? sql.length : close + 2;
+      appendWhitespace(index, end);
+      index = end;
       continue;
     }
 
