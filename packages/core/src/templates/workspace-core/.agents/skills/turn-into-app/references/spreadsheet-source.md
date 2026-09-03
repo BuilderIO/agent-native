@@ -51,11 +51,11 @@ access checks apply on every call rather than at import time only.
 Classify source material into three separate buckets. Include representative
 cell addresses or ranges and the evidence behind each classification.
 
-| Bucket | Strongest signals, in order | App treatment |
-| --- | --- | --- |
-| Inputs | A hardcoded value where sibling cells hold formulas; lives on an assumptions/inputs tab; a label such as `assumption` / `driver` / `input`; the sheet's own instruction text points at it | Editable controls or bounded source parameters |
-| Outputs | Formula-derived; sits in a summary or results block; a label such as `forecast` / `total` / `recommendation` | Read-only results, charts, recommendations, exports, or review actions |
-| Static historicals | Prior-period rows, raw imports, dated actuals; a label such as `actual` / `historical` | Read-only context; never turn into editable inputs by default |
+| Bucket             | Strongest signals, in order                                                                                                                                                               | App treatment                                                          |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Inputs             | A hardcoded value where sibling cells hold formulas; lives on an assumptions/inputs tab; a label such as `assumption` / `driver` / `input`; the sheet's own instruction text points at it | Editable controls or bounded source parameters                         |
+| Outputs            | Formula-derived; sits in a summary or results block; a label such as `forecast` / `total` / `recommendation`                                                                              | Read-only results, charts, recommendations, exports, or review actions |
+| Static historicals | Prior-period rows, raw imports, dated actuals; a label such as `actual` / `historical`                                                                                                    | Read-only context; never turn into editable inputs by default          |
 
 **Structure decides; colour is a weak hint.** Whether a cell holds a formula or a
 typed value, which tab it lives on, and what its row and column headers say are
@@ -63,9 +63,9 @@ reliable. Colour is an author-specific habit, and the finance palette people
 quote — yellow background = input, blue text = dynamic, black text = static
 historical — is one convention among several. Real sheets seen so far:
 
-| Sheet | What its colours meant |
-| --- | --- |
-| Savings rollover model | Blue font = the editable inputs. Black = the derived cell. The inverse of the quoted palette. |
+| Sheet                     | What its colours meant                                                                             |
+| ------------------------- | -------------------------------------------------------------------------------------------------- |
+| Savings rollover model    | Blue font = the editable inputs. Black = the derived cell. The inverse of the quoted palette.      |
 | Quarterly metrics tracker | Yellow fill = the quarter's targets, not scenario inputs. Green font = calculated. No blue at all. |
 
 So never invert an input/output mapping on colour alone, and never label a range
@@ -97,11 +97,11 @@ Keep source cells and app behavior distinct:
 Do not promote every numeric cell or model assumption into an editable control.
 Sort candidates into three tiers:
 
-| Tier | What belongs here | In the app |
-| --- | --- | --- |
-| Primary drivers | The few high-leverage values a user actually changes to ask a question of the model | The main edit surface, shown first |
-| Secondary levers | Real but lower-frequency adjustments | Behind progressive disclosure |
-| Fixed context | Opening balances, current-period anchors, historicals, policy and tax rates, targets set for the period | Visible for orientation, not presented as a control |
+| Tier             | What belongs here                                                                                       | In the app                                          |
+| ---------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| Primary drivers  | The few high-leverage values a user actually changes to ask a question of the model                     | The main edit surface, shown first                  |
+| Secondary levers | Real but lower-frequency adjustments                                                                    | Behind progressive disclosure                       |
+| Fixed context    | Opening balances, current-period anchors, historicals, policy and tax rates, targets set for the period | Visible for orientation, not presented as a control |
 
 Fixed context stays fixed unless the source or the user explicitly identifies it
 as editable. Rank the primary surface by controllability and modeled leverage —
