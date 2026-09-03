@@ -27,6 +27,7 @@ const RICH_TEXT_BLOCK_TAGS = new Set([
   "H2",
   "H3",
   "H4",
+  "HR",
   "LI",
   "OL",
   "P",
@@ -129,7 +130,8 @@ export function isRichTextBlock(element: HTMLElement): boolean {
   const children = Array.from(element.children);
   return (
     children.length > 0 &&
-    Boolean(element.textContent?.trim()) &&
+    (Boolean(element.textContent?.trim()) ||
+      children.some((child) => child.tagName === "HR")) &&
     children.every((child) => {
       const childElement = child as HTMLElement;
       return (

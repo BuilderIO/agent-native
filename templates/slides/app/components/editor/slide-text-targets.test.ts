@@ -85,6 +85,30 @@ describe("slide text targets", () => {
     expect(findSmartBlock(item, root)).toBe(block);
   });
 
+  it("keeps dividers inside one canvas text block", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<div class="fmd-slide"><div data-fmd-autofit-content><div data-builder-id="text"><p>Before</p><hr><p>After</p></div></div></div>';
+
+    const block = root.querySelector("[data-builder-id='text']") as HTMLElement;
+    const paragraph = block.querySelector("p:last-of-type") as HTMLElement;
+
+    expect(isRichTextBlock(block)).toBe(true);
+    expect(findSmartBlock(paragraph, root)).toBe(block);
+  });
+
+  it("keeps a divider-only editor wrapper as one canvas text block", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<div class="fmd-slide"><div data-fmd-autofit-content><div data-builder-id="text"><hr></div></div></div>';
+
+    const block = root.querySelector("[data-builder-id='text']") as HTMLElement;
+    const divider = block.querySelector("hr") as HTMLElement;
+
+    expect(isRichTextBlock(block)).toBe(true);
+    expect(findSmartBlock(divider, root)).toBe(block);
+  });
+
   it("does not rewrite unsupported h5 and h6 headings", () => {
     const root = document.createElement("div");
     root.innerHTML = "<h5>Small heading</h5><h6>Smaller heading</h6>";

@@ -103,6 +103,21 @@ describe("slide rich text normalization", () => {
     expect(restored.querySelectorAll("p")).toHaveLength(2);
   });
 
+  it("restores divider-containing output into one wrapper", () => {
+    const root = document.createElement("div");
+    root.innerHTML = "<p>Old</p>";
+    const paragraph = root.firstElementChild as HTMLElement;
+
+    const restored = restoreSlideTextContainerContent(
+      paragraph,
+      "<p>Before</p><hr><p>After</p>",
+    );
+
+    expect(restored.tagName).toBe("DIV");
+    expect(restored.querySelector("hr")).toBeTruthy();
+    expect(restored.querySelectorAll("p")).toHaveLength(2);
+  });
+
   it("removes list-only styles when unlisting a semantic list", () => {
     const root = document.createElement("div");
     root.innerHTML =
