@@ -1362,7 +1362,6 @@ export default function SlideEditor({
     slideId: string;
     sourceRect?: Pick<DOMRect, "left" | "top" | "width" | "height">;
   } | null>(null);
-  const knownCopiedObjectClipboardIdsRef = useRef(new Set<string>());
   const [hasCopiedObject, setHasCopiedObject] = useState(false);
   const [selectedElementPath, setSelectedElementPath] = useState<
     number[] | null
@@ -3944,7 +3943,6 @@ export default function SlideEditor({
         sourceRect: selection[0]?.getBoundingClientRect(),
       };
       copiedObjectClipboardRef.current = clipboard;
-      knownCopiedObjectClipboardIdsRef.current.add(clipboard.clipboardId);
       setHasCopiedObject(true);
       const clipboardWrite = writeSlideObjectClipboard(
         clipboard.clipboardId,
@@ -4012,7 +4010,6 @@ export default function SlideEditor({
   // It intentionally does not survive a deck switch.
   useEffect(() => {
     copiedObjectClipboardRef.current = null;
-    knownCopiedObjectClipboardIdsRef.current.clear();
     setHasCopiedObject(false);
   }, [deckId]);
 
@@ -4114,18 +4111,14 @@ export default function SlideEditor({
         pasteLocalClipboard();
         return;
       }
-      // A prior in-app write can settle after a newer copy. Keep the current
-      // local payload aligned with any older marker left by that write.
-      if (
-        nativeClipboardId &&
-        knownCopiedObjectClipboardIdsRef.current.has(nativeClipboardId)
-      ) {
-        pasteLocalClipboard();
-        return;
-      }
+      const hasNativeText = Array.from(e.clipboardData?.types ?? []).some(
+        (type) =>
+          type.startsWith("text/") &&
+          Boolean(e.clipboardData?.getData(type)?.length),
+      );
+      if (hasNativeText) return;
       // Pending or failed native writes have no trustworthy provenance, so
-      // keep Cmd/Ctrl+V usable through the local copy. A text-only success has
-      // no identity marker, so native text stays authoritative instead.
+      // keep Cmd/Ctrl+V usable through the local copy when the event is empty.
       if (
         clipboard.nativeClipboardMode === "pending" ||
         clipboard.nativeClipboardMode === "failed"
@@ -4133,12 +4126,6 @@ export default function SlideEditor({
         pasteLocalClipboard();
         return;
       }
-      const hasNativeText = Array.from(e.clipboardData?.types ?? []).some(
-        (type) =>
-          type.startsWith("text/") &&
-          Boolean(e.clipboardData?.getData(type)?.length),
-      );
-      if (hasNativeText) return;
       pasteLocalClipboard();
     };
     window.addEventListener("paste", onPaste, true);
