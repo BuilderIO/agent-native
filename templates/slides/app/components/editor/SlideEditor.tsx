@@ -1352,16 +1352,14 @@ export default function SlideEditor({
   const copiedObjectClipboardRef = useRef<{
     copied: CopiedSlideObjects;
     clipboardId: string;
-    nativeClipboardMode:
-      | "pending"
-      | "rich"
-      | "text-only"
-      | "failed"
-      | "not-written";
+    nativeClipboardMode: "pending" | "rich" | "text-only" | "failed";
+    copySequence: number;
     deckId?: string;
     slideId: string;
     sourceRect?: Pick<DOMRect, "left" | "top" | "width" | "height">;
   } | null>(null);
+  const copiedObjectCopySequenceRef = useRef(0);
+  const overlappingNativeClipboardIdsRef = useRef(new Map<string, string>());
   const [hasCopiedObject, setHasCopiedObject] = useState(false);
   const [selectedElementPath, setSelectedElementPath] = useState<
     number[] | null
@@ -3938,11 +3936,13 @@ export default function SlideEditor({
         copied,
         clipboardId: createSlideObjectId(),
         nativeClipboardMode: "pending" as const,
+        copySequence: copiedObjectCopySequenceRef.current++,
         deckId,
         slideId: slide.id,
         sourceRect: selection[0]?.getBoundingClientRect(),
       };
       copiedObjectClipboardRef.current = clipboard;
+      overlappingNativeClipboardIdsRef.current.clear();
       setHasCopiedObject(true);
       const clipboardWrite = writeSlideObjectClipboard(
         clipboard.clipboardId,
@@ -3950,11 +3950,19 @@ export default function SlideEditor({
       );
       void clipboardWrite.then(
         (mode) => {
+          const currentClipboard = copiedObjectClipboardRef.current;
           if (
-            copiedObjectClipboardRef.current?.clipboardId ===
-            clipboard.clipboardId
+            mode === "rich" &&
+            currentClipboard &&
+            currentClipboard.copySequence > clipboard.copySequence
           ) {
-            copiedObjectClipboardRef.current.nativeClipboardMode = mode;
+            overlappingNativeClipboardIdsRef.current.set(
+              clipboard.clipboardId,
+              currentClipboard.clipboardId,
+            );
+          }
+          if (currentClipboard?.clipboardId === clipboard.clipboardId) {
+            currentClipboard.nativeClipboardMode = mode;
           }
         },
         () => {
@@ -4010,6 +4018,7 @@ export default function SlideEditor({
   // It intentionally does not survive a deck switch.
   useEffect(() => {
     copiedObjectClipboardRef.current = null;
+    overlappingNativeClipboardIdsRef.current.clear();
     setHasCopiedObject(false);
   }, [deckId]);
 
@@ -4108,6 +4117,16 @@ export default function SlideEditor({
         );
       };
       if (nativeClipboardId === clipboard.clipboardId) {
+        pasteLocalClipboard();
+        return;
+      }
+      // An older rich write can settle after a newer copy. Remember only that
+      // overlap, so clipboard-history markers are not remapped by default.
+      if (
+        nativeClipboardId &&
+        overlappingNativeClipboardIdsRef.current.get(nativeClipboardId) ===
+          clipboard.clipboardId
+      ) {
         pasteLocalClipboard();
         return;
       }

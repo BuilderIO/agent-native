@@ -196,6 +196,7 @@ describe("SlideEditor render-phase safety", () => {
   it("uses the native layer marker instead of a timer to arbitrate paste", () => {
     expect(source).toContain("writeSlideObjectClipboard");
     expect(source).toContain("readSlideObjectClipboardId");
+    expect(source).toContain("overlappingNativeClipboardIdsRef");
     expect(source).not.toContain("objectPasteFallbackRef");
     const pasteStart = source.indexOf("const onPaste = (e: ClipboardEvent)");
     const pasteEnd = source.indexOf(
@@ -205,6 +206,9 @@ describe("SlideEditor render-phase safety", () => {
     const pasteBody = source.slice(pasteStart, pasteEnd);
     expect(pasteBody.indexOf("nativeClipboardId")).toBeLessThan(
       pasteBody.indexOf("const hasNativeText"),
+    );
+    expect(pasteBody).toContain(
+      "overlappingNativeClipboardIdsRef.current.get(nativeClipboardId)",
     );
     expect(pasteBody.indexOf("const hasNativeText")).toBeLessThan(
       pasteBody.indexOf('clipboard.nativeClipboardMode === "pending"'),
