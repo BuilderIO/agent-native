@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 
 import React from "react";
-import { flushSync } from "react-dom";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -20,7 +19,7 @@ describe("ClientOnly", () => {
     container.remove();
   });
 
-  it("hands off the SSR fallback before the first browser paint", () => {
+  it("hands off the SSR fallback before the first browser paint", async () => {
     const app = (
       <ClientOnly fallback={<div data-testid="loading" />}>
         <div data-testid="content">App</div>
@@ -28,7 +27,10 @@ describe("ClientOnly", () => {
     );
     container.innerHTML = renderToString(app);
 
-    const root = flushSync(() => hydrateRoot(container, app));
+    const root = hydrateRoot(container, app);
+    // Let hydration's scheduled work commit without flushSync, which would
+    // also drain passive effects and make the old implementation pass.
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(container.querySelector('[data-testid="loading"]')).toBeNull();
     expect(container.querySelector('[data-testid="content"]')).not.toBeNull();
