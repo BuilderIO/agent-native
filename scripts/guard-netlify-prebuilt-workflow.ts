@@ -4,6 +4,7 @@ import { parse } from "yaml";
 
 const reusablePath = ".github/workflows/deploy-netlify-prebuilt.yml";
 const clipsNetlifyPath = "templates/clips/netlify.toml";
+const crmNetlifyPath = "templates/crm/netlify.toml";
 const chatNetlifyPath = "templates/chat/netlify.toml";
 const productionPath = ".github/workflows/deploy-production-sites-prebuilt.yml";
 const betaPath = ".github/workflows/deploy-beta-sites-prebuilt.yml";
@@ -20,6 +21,7 @@ export const PRODUCTION_PURGE_CONDITION =
 
 const reusable = readFileSync(reusablePath, "utf8");
 const clipsNetlify = readFileSync(clipsNetlifyPath, "utf8");
+const crmNetlify = readFileSync(crmNetlifyPath, "utf8");
 const chatNetlify = readFileSync(chatNetlifyPath, "utf8");
 const production = readFileSync(productionPath, "utf8");
 const beta = readFileSync(betaPath, "utf8");
@@ -308,8 +310,12 @@ if (!hasProductionChatBuildOverride) {
 const hasClipsAndPlanBuildOverride = clipsBuild.includes(
   '[[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" ]]',
 );
+const hasCrmBuildOverride = clipsBuild.includes(
+  '[[ "$SOURCE_TEMPLATE" == "crm" ]]',
+);
 if (
   !hasClipsAndPlanBuildOverride ||
+  !hasCrmBuildOverride ||
   !clipsBuild.includes("agentNativePrebuiltBuild=true") ||
   !clipsBuild.includes("agentNativePrebuiltDatabaseUrl=") ||
   !clipsBuild.includes("agentNativePrebuiltAuthSecret=") ||
@@ -318,10 +324,16 @@ if (
   !clipsNetlify.includes("agentNativePrebuiltAuthSecret") ||
   !/agentNativePrebuiltBuild:-\}.*!= \\"true\\".*migrate:production/.test(
     clipsNetlify,
+  ) ||
+  !crmNetlify.includes("agentNativePrebuiltBuild") ||
+  !crmNetlify.includes("agentNativePrebuiltDatabaseUrl") ||
+  !crmNetlify.includes("agentNativePrebuiltAuthSecret") ||
+  !/agentNativePrebuiltBuild:-\}.*!= \\"true\\".*migrate:production/.test(
+    crmNetlify,
   )
 ) {
   issues.push(
-    `${reusablePath} must provide Clips and Plan build-only env overrides without running production migrations`,
+    `${reusablePath} must provide Clips, Plan, and CRM build-only env overrides without running production migrations`,
   );
 }
 const manageConcurrency = asRecord(

@@ -399,6 +399,18 @@ describe("production Netlify site concurrency guard", () => {
       ),
       "postgresql://test.invalid/pooled",
     );
+    assert.equal(
+      resolveNetlifyMigrationUrl(
+        {
+          connection_string: "postgresql://test.invalid/netlify-db",
+          connection_strings: {
+            netlifydb_readonly: "postgresql://test.invalid/readonly",
+          },
+        },
+        "production",
+      ),
+      "postgresql://test.invalid/netlify-db",
+    );
   });
 
   it("rejects the dead workflow_call event check", () => {
@@ -492,7 +504,11 @@ describe("production Netlify site concurrency guard", () => {
       buildStart,
     );
     const build = workflow.slice(buildStart, buildEnd);
-    assert.match(build, /\[\[ \"\$SOURCE_TEMPLATE\" == \"clips\"/);
+    assert.match(
+      build,
+      /\[\[ \"\$SOURCE_TEMPLATE\" == \"clips\" \|\| \"\$SOURCE_TEMPLATE\" == \"plan\" \]\]/,
+    );
+    assert.match(build, /\[\[ \"\$SOURCE_TEMPLATE\" == \"crm\" \]\]/);
     assert.match(build, /agentNativePrebuiltBuild=true/);
     assert.match(build, /agentNativePrebuiltDatabaseUrl=/);
     assert.match(build, /agentNativePrebuiltAuthSecret=/);
@@ -526,7 +542,8 @@ describe("production Netlify site concurrency guard", () => {
       workflow,
       /if: >-\s+inputs\.deploy && inputs\.deploy_mode == 'production'/,
     );
-    assert.match(workflow, /SOURCE_TEMPLATE.*clips.*plan/);
+    assert.match(workflow, /SOURCE_TEMPLATE.*clips.*plan/s);
+    assert.match(workflow, /SOURCE_TEMPLATE.*crm/s);
     assert.match(workflow, /agentNativePrebuiltDatabaseUrl=/);
     assert.match(
       workflow,
@@ -555,6 +572,24 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(migration, /source_template == 'clips'/);
     assert.match(migration, /CLIPS_DATABASE_URL/);
     assert.match(migration, /pnpm --filter clips migrate:production/);
+  });
+
+  it("runs CRM migrations against the Netlify-managed database", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const migrationStart = workflow.indexOf("name: Run CRM release migrations");
+    const verifyStart = workflow.indexOf("name: Verify deploy directories");
+    assert.ok(migrationStart >= 0 && migrationStart < verifyStart);
+    const migration = workflow.slice(migrationStart, verifyStart);
+    assert.match(migration, /inputs\.target == 'production'/);
+    assert.match(migration, /inputs\.deploy_mode == 'production'/);
+    assert.match(migration, /source_template == 'crm'/);
+    assert.match(migration, /getSiteDatabase/);
+    assert.match(migration, /account_id.*builder-io/);
+    assert.match(migration, /netlify-migration-url\.ts/);
+    assert.match(migration, /pnpm --filter crm migrate:production/);
   });
 
   it("keeps production Chat assembly independent of masked runtime secrets", () => {
