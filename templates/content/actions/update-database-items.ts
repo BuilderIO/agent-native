@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { processWithConcurrency } from "./_batch-utils.js";
 import {
   databaseRowBatchSchema,
   resolveDatabaseRowsForBatch,
@@ -31,28 +32,32 @@ export default defineAction({
       error?: string;
     }> = [];
 
-    for (const row of rows) {
-      try {
-        await setDocumentProperty.run({
-          documentId: row.document.id,
-          databaseId: database.id,
-          propertyId: args.propertyId,
-          value: args.value,
-        });
-        results.push({
-          itemId: row.item.id,
-          documentId: row.document.id,
-          success: true,
-        });
-      } catch (error) {
-        results.push({
-          itemId: row.item.id,
-          documentId: row.document.id,
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
+    await processWithConcurrency(
+      rows.map((row, index) => ({ row, index })),
+      8,
+      async ({ row, index }) => {
+        try {
+          await setDocumentProperty.run({
+            documentId: row.document.id,
+            databaseId: database.id,
+            propertyId: args.propertyId,
+            value: args.value,
+          });
+          results[index] = {
+            itemId: row.item.id,
+            documentId: row.document.id,
+            success: true,
+          };
+        } catch (error) {
+          results[index] = {
+            itemId: row.item.id,
+            documentId: row.document.id,
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    );
 
     const failed = results.filter((result) => !result.success).length;
     return {

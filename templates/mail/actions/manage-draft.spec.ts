@@ -30,6 +30,10 @@ describe("manage-draft MCP App", () => {
     expect(source).toContain('errorCode: "draft_not_found"');
     expect(source).toContain("deleteGmailDraft");
     expect(source).toContain('listAppState("compose-")');
+    expect(source).toContain("replyToId: args.replyToId");
+    expect(source).toContain(
+      "draft.accountEmail = savedGmailDraft.accountEmail",
+    );
   });
 });
 

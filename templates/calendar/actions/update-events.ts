@@ -36,6 +36,10 @@ function shiftedIso(value: string, shiftMinutes: number): string {
   return new Date(date.getTime() + shiftMinutes * 60_000).toISOString();
 }
 
+function dateOnly(value: string): string {
+  return value.split("T")[0] ?? value;
+}
+
 export default defineAction({
   description:
     "Update many calendar events in one call. Use shiftMinutes or one shared start/end range with ids or filters; never loop update-event per event. Call once with dryRun true to preview every match, then once more without dryRun to apply the same change.",
@@ -258,6 +262,19 @@ export default defineAction({
         });
         return false;
       }
+      if (args.shiftMinutes !== undefined && event.allDay) {
+        skipped.push({
+          id: `google-${event.googleEventId}`,
+          title: event.title,
+          start: event.start,
+          end: event.end,
+          accountEmail,
+          outcome: "skipped",
+          reason:
+            "Cannot shift an all-day event by minutes; pass start and end date values instead.",
+        });
+        return false;
+      }
       return true;
     });
 
@@ -266,11 +283,15 @@ export default defineAction({
       title: event.title,
       start:
         args.shiftMinutes === undefined
-          ? args.start
+          ? event.allDay
+            ? dateOnly(args.start!)
+            : args.start
           : shiftedIso(event.start, args.shiftMinutes),
       end:
         args.shiftMinutes === undefined
-          ? args.end
+          ? event.allDay
+            ? dateOnly(args.end!)
+            : args.end
           : shiftedIso(event.end, args.shiftMinutes),
       accountEmail,
       outcome: "matched" as const,
@@ -292,16 +313,25 @@ export default defineAction({
       async ({ event, accountEmail }): Promise<BulkEventResult> => {
         const start =
           args.shiftMinutes === undefined
-            ? args.start!
+            ? event.allDay
+              ? dateOnly(args.start!)
+              : args.start!
             : shiftedIso(event.start, args.shiftMinutes);
         const end =
           args.shiftMinutes === undefined
-            ? args.end!
+            ? event.allDay
+              ? dateOnly(args.end!)
+              : args.end!
             : shiftedIso(event.end, args.shiftMinutes);
         try {
           await googleCalendar.updateEvent(
             event.googleEventId!,
-            { start, end, accountEmail },
+            {
+              start,
+              end,
+              accountEmail,
+              ...(event.allDay ? { allDay: true } : {}),
+            },
             {
               account: { ownerEmail, accountEmail },
               sendUpdates: args.sendUpdates,

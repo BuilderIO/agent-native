@@ -990,6 +990,18 @@ function escapeHtmlText(value: string): string {
 
 function decodeBasicHtmlEntities(value: string): string {
   return value
+    .replace(/&#x([0-9a-f]+);?/gi, (_, hex: string) => {
+      const codePoint = Number.parseInt(hex, 16);
+      return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff
+        ? String.fromCodePoint(codePoint)
+        : _;
+    })
+    .replace(/&#([0-9]+);?/g, (_, decimal: string) => {
+      const codePoint = Number.parseInt(decimal, 10);
+      return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff
+        ? String.fromCodePoint(codePoint)
+        : _;
+    })
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
@@ -2950,10 +2962,48 @@ function applyClassEdit(
 
 // Same shape as the bridge's own attributeOverrides guard (editor-chrome.bridge.ts)
 // — alphanumeric/dash/colon/dot/underscore, must start with a letter, never an
-// `on*` event handler. Deliberately conservative: this path is for host-side
-// bookkeeping writes (pending node-id persistence today), not general-purpose
-// attribute editing, so unknown/unsafe names are rejected rather than guessed at.
+// `on*` event handler. URL-bearing values get a second scheme check below so a
+// general attribute edit cannot persist executable markup.
 const SAFE_ATTRIBUTE_NAME = /^(?!on)[a-zA-Z][a-zA-Z0-9:_.-]*$/;
+const URL_ATTRIBUTE_NAMES = new Set([
+  "action",
+  "background",
+  "cite",
+  "data",
+  "formaction",
+  "href",
+  "poster",
+  "src",
+  "srcset",
+  "xlink:href",
+]);
+
+function isSafeAttributeValue(name: string, value: string): boolean {
+  const lowerName = name.toLowerCase();
+  if (lowerName === "style" || lowerName === "srcdoc") return false;
+  if (!URL_ATTRIBUTE_NAMES.has(lowerName)) return true;
+
+  const decoded = decodeBasicHtmlEntities(value);
+  if (/[\u0000-\u001f\u007f]/.test(decoded)) return false;
+  const candidates =
+    lowerName === "srcset"
+      ? decoded
+          .split(",")
+          .map((candidate) => candidate.trim().split(/\s+/, 1)[0] ?? "")
+      : [decoded.trim()];
+  return candidates.every((candidate) => {
+    if (!candidate) return true;
+    const compact = candidate.replace(/[\u0000-\u0020]+/g, "");
+    if (/^(?:javascript|vbscript):/i.test(compact)) return false;
+    if (/^data:/i.test(compact)) {
+      return /^data:image\/(?:png|jpe?g|gif|webp);/i.test(compact);
+    }
+    if (/^[a-z][a-z0-9+.-]*:/i.test(compact)) {
+      return /^(?:https?|mailto|tel):/i.test(compact);
+    }
+    return true;
+  });
+}
 
 function applyAttributeEdit(
   html: string,
@@ -2963,6 +3013,7 @@ function applyAttributeEdit(
   if (!intent.name || !SAFE_ATTRIBUTE_NAME.test(intent.name)) {
     return "unsupported";
   }
+  if (!isSafeAttributeValue(intent.name, intent.value)) return "unsupported";
   return {
     content: replaceOrInsertAttribute(html, element, intent.name, intent.value),
     capability: {

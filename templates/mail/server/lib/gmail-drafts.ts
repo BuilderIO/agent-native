@@ -4,7 +4,11 @@ import {
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
 
-import { createOAuth2Client, googleFetch } from "./google-api.js";
+import {
+  createOAuth2Client,
+  gmailGetMessage,
+  googleFetch,
+} from "./google-api.js";
 import { getOAuth2Credentials } from "./google-auth.js";
 import { buildRawEmail } from "./outgoing-email.js";
 
@@ -63,13 +67,44 @@ export async function saveGmailDraft(args: {
   bcc?: string;
   subject: string;
   body: string;
-}): Promise<{ draftId: string; created: boolean; updated?: boolean } | null> {
+  replyToId?: string;
+  replyToThreadId?: string;
+}): Promise<{
+  draftId: string;
+  accountEmail: string;
+  created: boolean;
+  updated?: boolean;
+} | null> {
   const accountEmail = await resolveAccountEmail(
     args.accountEmail,
     args.ownerEmail,
   );
   const accessToken = await getAccessToken(accountEmail);
   if (!accessToken) return null;
+
+  let threadId = args.replyToThreadId;
+  let inReplyTo: string | undefined;
+  let references: string | undefined;
+  if (args.replyToId) {
+    const original = await gmailGetMessage(
+      accessToken,
+      args.replyToId,
+      "metadata",
+    );
+    threadId = original.threadId ?? threadId;
+    const headers = Array.isArray(original.payload?.headers)
+      ? original.payload.headers
+      : [];
+    const headerValue = (name: string) =>
+      headers.find(
+        (header: { name?: string }) =>
+          header.name?.toLowerCase() === name.toLowerCase(),
+      )?.value;
+    inReplyTo = headerValue("message-id");
+    references = [headerValue("references"), inReplyTo]
+      .filter((value): value is string => Boolean(value))
+      .join(" ");
+  }
 
   const raw = buildRawEmail({
     from: accountEmail,
@@ -78,7 +113,13 @@ export async function saveGmailDraft(args: {
     bcc: args.bcc,
     subject: args.subject || "(no subject)",
     body: args.body,
+    inReplyTo,
+    references,
   });
+  const message = {
+    raw,
+    ...(threadId ? { threadId } : {}),
+  };
   if (args.draftId) {
     try {
       const updated = await googleFetch(
@@ -87,10 +128,15 @@ export async function saveGmailDraft(args: {
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: { raw } }),
+          body: JSON.stringify({ message }),
         },
       );
-      return { draftId: updated.id, created: false, updated: true };
+      return {
+        draftId: updated.id,
+        accountEmail,
+        created: false,
+        updated: true,
+      };
     } catch (error) {
       if (!(error instanceof Error) || !/\b404\b/.test(error.message)) {
         throw error;
@@ -104,10 +150,10 @@ export async function saveGmailDraft(args: {
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: { raw } }),
+      body: JSON.stringify({ message }),
     },
   );
-  return { draftId: created.id, created: true };
+  return { draftId: created.id, accountEmail, created: true };
 }
 
 export async function deleteGmailDraft(args: {

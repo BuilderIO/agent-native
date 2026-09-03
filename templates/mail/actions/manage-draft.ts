@@ -191,6 +191,8 @@ export default defineAction({
             bcc: args.bcc,
             subject: args.subject || "",
             body,
+            replyToId: args.replyToId,
+            replyToThreadId: args.replyToThreadId,
           })
         : null;
       const draft: Record<string, string> = {
@@ -205,7 +207,9 @@ export default defineAction({
       if (args.bcc) draft.bcc = args.bcc;
       if (args.replyToId) draft.replyToId = args.replyToId;
       if (args.replyToThreadId) draft.replyToThreadId = args.replyToThreadId;
-      if (args.accountEmail) draft.accountEmail = args.accountEmail;
+      const accountEmail =
+        savedGmailDraft?.accountEmail ?? args.accountEmail ?? ownerEmail;
+      if (accountEmail) draft.accountEmail = accountEmail;
       await writeAppState(`compose-${id}`, draft);
       return {
         id,
@@ -263,9 +267,14 @@ export default defineAction({
             bcc: draft.bcc,
             subject: draft.subject || "",
             body: draft.body || "",
+            replyToId: draft.replyToId,
+            replyToThreadId: draft.replyToThreadId,
           })
         : null;
-      if (savedGmailDraft) draft.savedDraftId = savedGmailDraft.draftId;
+      if (savedGmailDraft) {
+        draft.savedDraftId = savedGmailDraft.draftId;
+        draft.accountEmail = savedGmailDraft.accountEmail;
+      }
       await writeAppState(`compose-${safeId}`, draft);
       return {
         id: safeId,

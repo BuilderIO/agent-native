@@ -443,9 +443,39 @@ describe("WebMCP registration readiness", () => {
     await expect(registration.start()).rejects.toThrow("registerTool exploded");
     expect(getAgentNativeWebMcpStatus()).toEqual({
       state: "failed",
-      registered: 0,
+      registered: 1,
       total: 2,
       error: "registerTool exploded",
+    });
+
+    registration.stop();
+  });
+
+  it("shares one in-flight start with concurrent callers", async () => {
+    let resolveActions!: (actions: AgentNativeClientAction[]) => void;
+    const modelContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const registration = createAgentNativeWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      actions: () =>
+        new Promise<AgentNativeClientAction[]>((resolve) => {
+          resolveActions = resolve;
+        }),
+    });
+
+    const first = registration.start();
+    const second = registration.start();
+    expect(second).toBe(first);
+    resolveActions([action("one")]);
+    await Promise.all([first, second]);
+    expect(registration.registered).toBe(1);
+    expect(getAgentNativeWebMcpStatus()).toEqual({
+      state: "ready",
+      registered: 1,
+      total: 1,
     });
 
     registration.stop();

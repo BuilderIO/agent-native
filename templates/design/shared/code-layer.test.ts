@@ -618,6 +618,40 @@ describe("applyVisualEdit", () => {
     expect(patch.result.after?.classes).toEqual(["px-4", "bg-black"]);
   });
 
+  it("rejects executable attribute URLs and style payloads", () => {
+    const html = `<a id="link">Open</a>`;
+    for (const value of ["javascript:alert(1)", "java&#x73;cript:alert(1)"]) {
+      const patch = applyVisualEdit(html, {
+        kind: "attribute",
+        target: { selector: "#link" },
+        name: "href",
+        value,
+      });
+      expect(patch.result.status).toBe("unsupported");
+      expect(patch.content).toBe(html);
+    }
+
+    const stylePatch = applyVisualEdit(html, {
+      kind: "attribute",
+      target: { selector: "#link" },
+      name: "style",
+      value: "background: url(javascript:alert(1))",
+    });
+    expect(stylePatch.result.status).toBe("unsupported");
+    expect(stylePatch.content).toBe(html);
+  });
+
+  it("allows safe attribute values", () => {
+    const patch = applyVisualEdit(`<a id="link">Open</a>`, {
+      kind: "attribute",
+      target: { selector: "#link" },
+      name: "href",
+      value: "https://example.com",
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('href="https://example.com"');
+  });
+
   it("applies textContent edits only to leaf elements", () => {
     const html = `<div><button data-testid="cta">Buy now</button></div>`;
     const patch = applyVisualEdit(html, {

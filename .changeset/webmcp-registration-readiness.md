@@ -8,4 +8,6 @@ read `document.modelContext.getTools()` mid-flight saw a truncated list with no
 way to tell it was truncated, and reported live tools as missing. Read the new
 state with `getAgentNativeWebMcpStatus()`, or from the page world via
 `window.__agentNativeWebMcpStatus`, which reports `registering`, `ready`, or
-`failed` with registered/total counts.
+`failed` with registered/total counts. Concurrent starts share one in-flight
+registration, and failed passes preserve the number of tools accepted before
+the failure.

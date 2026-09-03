@@ -758,10 +758,12 @@ export function createAgentNativeWebMcpRegistration(
   let registered = 0;
   let started = false;
   let generation = 0;
+  let startPromise: Promise<void> | undefined;
 
-  async function start(): Promise<void> {
+  async function runStart(): Promise<void> {
     if (started || options.enabled === false || !modelContext) return;
     const startGeneration = ++generation;
+    registered = 0;
     started = true;
     let total = 0;
     const runController =
@@ -937,17 +939,26 @@ export function createAgentNativeWebMcpRegistration(
     } catch (error) {
       if (!isActive()) return;
       runController?.abort();
-      registered = 0;
       started = false;
       controller = undefined;
       publishRegistrationStatus(options.document, {
         state: "failed",
-        registered: 0,
+        registered,
         total,
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
     }
+  }
+
+  function start(): Promise<void> {
+    if (startPromise) return startPromise;
+    const promise = runStart();
+    const settled = promise.finally(() => {
+      if (startPromise === settled) startPromise = undefined;
+    });
+    startPromise = settled;
+    return settled;
   }
 
   return {
@@ -964,6 +975,7 @@ export function createAgentNativeWebMcpRegistration(
       controller = undefined;
       registered = 0;
       started = false;
+      startPromise = undefined;
       publishRegistrationStatus(options.document, undefined);
     },
   };
