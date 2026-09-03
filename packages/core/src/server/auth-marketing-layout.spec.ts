@@ -1,5 +1,5 @@
 // Contract: the marketing panel's "New to <app>? Learn more" link, its
-// top-right/bottom-right placement class, and the product-screenshot
+// bottom-right placement, and the product-screenshot
 // blur/opacity treatment were deleted as dead code twice in one day, and
 // AuthPage.spec.tsx was then edited to assert their ABSENCE so CI stayed
 // green. This spec renders the real onboarding HTML for every entry in
@@ -106,10 +106,8 @@ describe("built-in auth marketing layout contract", () => {
     expect(html).toMatch(
       /\.auth-marketing-top-right\s*{[^}]*justify-content:\s*flex-end;/,
     );
-    // bottom-right placement override
-    expect(html).toMatch(
-      /\.auth-marketing-home\.has-bottom-right-learn-more \.auth-marketing-top-right\s*{[^}]*bottom:/,
-    );
+    // bottom-right placement in the shared base rule
+    expect(html).toMatch(/\.auth-marketing-top-right\s*{[^}]*bottom:/);
     // the product-screenshot dim/blur treatment used by the marketing panel
     expect(html).toMatch(
       /\.auth-marketing-home\.has-product-screenshot \.auth-marketing-screenshot\s*{\s*filter:\s*blur\([^)]+\);\s*opacity:\s*0\.8;/,
