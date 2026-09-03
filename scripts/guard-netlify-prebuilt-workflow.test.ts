@@ -17,6 +17,7 @@ import {
   validateReusableWorkflowConcurrency,
   validateProductionSiteConcurrency,
 } from "./guard-netlify-prebuilt-workflow.ts";
+import { resolveNetlifyMigrationUrl } from "./netlify-migration-url.ts";
 
 type Workflow = Record<string, unknown>;
 
@@ -243,13 +244,50 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(reusableSource, /netlify api getEnvVars/);
     assert.match(reusableSource, /account_id.*builder-io/);
-    assert.match(reusableSource, /readFileSync\(0, "utf8"\)/);
-    assert.match(reusableSource, /NETLIFY_DATABASE_URL_UNPOOLED/);
-    assert.match(reusableSource, /DATABASE_URL/);
+    assert.match(
+      reusableSource,
+      /BUILD_CONTEXT="\$BUILD_CONTEXT" node --experimental-strip-types scripts\/netlify-migration-url\.ts/,
+    );
     const betaMigrate = (beta.jobs as Workflow).migrate as Workflow;
     assert.equal((betaMigrate.with as Workflow).caller, "release-migration");
     assert.equal((betaMigrate.with as Workflow).migration_only, true);
     assert.equal((betaMigrate.with as Workflow).deploy, false);
+  });
+
+  it("resolves migration URLs by context, then preserves key priority", () => {
+    const variables = [
+      {
+        key: "DATABASE_URL",
+        values: [
+          { context: "production", value: "postgresql://test.invalid/pooled" },
+        ],
+      },
+      {
+        key: "NETLIFY_DATABASE_URL_UNPOOLED",
+        values: [
+          { context: "unexpected", value: "postgresql://test.invalid/unknown" },
+          { context: "all", value: "postgresql://test.invalid/unpooled" },
+        ],
+      },
+    ];
+
+    assert.equal(
+      resolveNetlifyMigrationUrl(variables, "production"),
+      "postgresql://test.invalid/unpooled",
+    );
+    assert.equal(
+      resolveNetlifyMigrationUrl(
+        [
+          {
+            key: "NETLIFY_DATABASE_URL_UNPOOLED",
+            values: [{ context: "production", value: "not-a-database-url" }],
+          },
+          ...variables,
+        ],
+        "production",
+      ),
+      "postgresql://test.invalid/pooled",
+    );
   });
 
   it("rejects the dead workflow_call event check", () => {

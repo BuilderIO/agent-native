@@ -260,36 +260,7 @@ jobs:
           migration_database_url="$(
             netlify api getEnvVars \
               --data "{\"account_id\":\"builder-io\",\"site_id\":\"$NETLIFY_SITE_ID\"}" |
-              BUILD_CONTEXT="$BUILD_CONTEXT" node --input-type=module -e '
-                import { readFileSync } from "node:fs";
-
-                const context = process.env.BUILD_CONTEXT;
-                const preferredContexts =
-                  context === "production"
-                    ? ["production", "all"]
-                    : context === "deploy-preview"
-                      ? ["deploy-preview", "branch-deploy", "all"]
-                      : ["branch-deploy", "all"];
-                const variables = JSON.parse(readFileSync(0, "utf8"));
-                const keys = [
-                  "NETLIFY_DATABASE_URL_UNPOOLED",
-                  "NETLIFY_DATABASE_URL",
-                  "DATABASE_URL",
-                ];
-                const value = keys
-                  .flatMap((key) => {
-                    const variable = variables.find((item) => item.key === key);
-                    return variable?.values ?? [];
-                  })
-                  .sort(
-                    (left, right) =>
-                      preferredContexts.indexOf(left.context) -
-                      preferredContexts.indexOf(right.context),
-                  )
-                  .find((item) => item.value?.startsWith("postgres"))?.value;
-                if (!value) process.exit(1);
-                process.stdout.write(value);
-              '
+              BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts
           )"
           if [[ -z "$migration_database_url" ]]; then
             echo "::error::Netlify did not provide a PostgreSQL migration URL for $NETLIFY_SITE_ID."
