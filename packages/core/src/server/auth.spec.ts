@@ -5155,6 +5155,163 @@ describe("server/auth", () => {
       expect(JSON.stringify(body)).not.toContain('select "id"');
     });
 
+    it("logs the real Better Auth code/message and reports to Sentry before sanitizing an error body", async () => {
+      // Regression for the 2026-08-29 INVALID_ORIGIN outage: magic-link
+      // signup 403'd for a full day and the sanitized public body was the
+      // only thing any log or Sentry surface ever showed — nobody could see
+      // *why* it was failing.
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  code: "INVALID_ORIGIN",
+                  message: "Invalid origin",
+                }),
+                {
+                  status: 403,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
+          ),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      const captureAuthError = vi.fn();
+      vi.doMock("./sentry.js", () => ({ captureAuthError }));
+      const consoleErrorSpy = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      expect(baHandler).toBeTypeOf("function");
+
+      const response = await baHandler(
+        createJsonPostEvent("/_agent-native/auth/ba/sign-up/email", {
+          email: "user@example.com",
+          password: "secret-password",
+        }),
+      );
+
+      // Public response is exactly what the sanitizer would have produced
+      // before this change — unaffected by the added logging/reporting.
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).status).toBe(403);
+      const body = await (response as Response).json();
+      expect(body).toEqual({
+        error: "We couldn't create your account right now. Please try again.",
+        message: "We couldn't create your account right now. Please try again.",
+      });
+
+      const logCall = consoleErrorSpy.mock.calls.find(
+        ([label]) => label === "[agent-native][auth] better-auth error",
+      );
+      expect(logCall).toBeDefined();
+      expect(logCall?.[1]).toEqual(
+        expect.objectContaining({
+          status: 403,
+          code: "INVALID_ORIGIN",
+          message: "Invalid origin",
+          path: "/_agent-native/auth/ba/sign-up/email",
+          method: "POST",
+        }),
+      );
+
+      expect(captureAuthError).toHaveBeenCalledTimes(1);
+      const [reportedError, reportedContext] = captureAuthError.mock.calls[0]!;
+      expect(reportedError).toBeInstanceOf(Error);
+      expect((reportedError as Error).message).toContain("INVALID_ORIGIN");
+      expect(reportedContext).toEqual(
+        expect.objectContaining({ route: "better-auth" }),
+      );
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it("does not log or report a successful Better Auth response", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(
+            async () =>
+              new Response(JSON.stringify({ ok: true }), {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              }),
+          ),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      const captureAuthError = vi.fn();
+      vi.doMock("./sentry.js", () => ({ captureAuthError }));
+      const consoleErrorSpy = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      expect(baHandler).toBeTypeOf("function");
+
+      const response = await baHandler(
+        createJsonPostEvent("/_agent-native/auth/ba/sign-up/email", {
+          email: "user@example.com",
+          password: "secret-password",
+        }),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).status).toBe(200);
+      const body = await (response as Response).json();
+      expect(body).toEqual({ ok: true });
+
+      expect(captureAuthError).not.toHaveBeenCalled();
+      expect(
+        consoleErrorSpy.mock.calls.some(
+          ([label]) => label === "[agent-native][auth] better-auth error",
+        ),
+      ).toBe(false);
+
+      consoleErrorSpy.mockRestore();
+    });
+
     it("sanitizes resend verification callback URLs before forwarding to Better Auth", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("RESEND_API_KEY", "resend-example-key");

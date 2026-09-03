@@ -20,9 +20,12 @@ vi.mock("../app-config/index.js", () => ({
 }));
 
 import {
+  BETTER_AUTH_REQUIRED_SCHEMA,
   DEFAULT_REQUIRED_SCHEMA,
   formatRuntimeDebugFingerprint,
+  getDatabaseRuntimeFingerprint,
   getEffectiveDatabaseEnvStatus,
+  getRequiredSchema,
   runDatabaseSchemaHealthCheck,
   type RuntimeDebugFingerprint,
 } from "./runtime-diagnostics.js";
@@ -182,6 +185,47 @@ describe("runtime diagnostics", () => {
     expect(details).not.toContain("password");
   });
 
+  it("fingerprints a pooled and unpooled URL to the same Neon database identically", () => {
+    mockRuntimeDatabaseSource.mockReturnValue("DATABASE_URL");
+
+    mockRuntimeDatabaseUrl.mockReturnValue(
+      "postgres://user:pw@ep-round-heart-pooler.us-east-1.aws.neon.tech/neondb",
+    );
+    const pooled = getDatabaseRuntimeFingerprint();
+
+    mockRuntimeDatabaseUrl.mockReturnValue(
+      "postgres://user:pw@ep-round-heart.us-east-1.aws.neon.tech/neondb",
+    );
+    const unpooled = getDatabaseRuntimeFingerprint();
+
+    expect(pooled.fingerprint).toBeTruthy();
+    expect(pooled.fingerprint).toBe(unpooled.fingerprint);
+    expect(pooled.fingerprint).not.toContain("pw");
+  });
+
+  it("fingerprints different databases differently", () => {
+    mockRuntimeDatabaseSource.mockReturnValue("DATABASE_URL");
+
+    mockRuntimeDatabaseUrl.mockReturnValue(
+      "postgres://user:pw@ep-round-heart-pooler.us-east-1.aws.neon.tech/neondb",
+    );
+    const first = getDatabaseRuntimeFingerprint();
+
+    mockRuntimeDatabaseUrl.mockReturnValue(
+      "postgres://user:pw@ep-other-endpoint-pooler.us-east-1.aws.neon.tech/neondb",
+    );
+    const second = getDatabaseRuntimeFingerprint();
+
+    expect(first.fingerprint).not.toBe(second.fingerprint);
+  });
+
+  it("reports no fingerprint when no database is configured", () => {
+    mockRuntimeDatabaseUrl.mockReturnValue("");
+    mockRuntimeDatabaseSource.mockReturnValue("DATABASE_URL");
+
+    expect(getDatabaseRuntimeFingerprint().fingerprint).toBeUndefined();
+  });
+
   it("reports missing tables and columns from metadata probes", async () => {
     const result = await runDatabaseSchemaHealthCheck({
       dialect: "postgres",
@@ -213,6 +257,10 @@ describe("runtime diagnostics", () => {
   });
 
   it("memoizes a healthy default probe but never an unhealthy one", async () => {
+    // Pin the default required set to DEFAULT_REQUIRED_SCHEMA alone — this
+    // test is about memoization mechanics, not about Better Auth's tables.
+    vi.stubEnv("AUTH_DISABLED", "1");
+
     // Unhealthy first: a probe that reports a problem must be re-run, or the
     // migration that fixes it stays invisible for the memo window.
     mockExecute.mockReset();
@@ -243,5 +291,69 @@ describe("runtime diagnostics", () => {
     mockExecute.mockClear();
     expect((await runDatabaseSchemaHealthCheck()).ok).toBe(true);
     expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it("requires Better Auth's tables only when auth is enabled", () => {
+    expect(getRequiredSchema(true)).toEqual([
+      ...DEFAULT_REQUIRED_SCHEMA,
+      ...BETTER_AUTH_REQUIRED_SCHEMA,
+    ]);
+    expect(getRequiredSchema(false)).toEqual(DEFAULT_REQUIRED_SCHEMA);
+  });
+
+  it("reads AUTH_DISABLED for the default required set", () => {
+    vi.stubEnv("AUTH_DISABLED", "true");
+    expect(getRequiredSchema()).toEqual(DEFAULT_REQUIRED_SCHEMA);
+
+    vi.stubEnv("AUTH_DISABLED", "");
+    expect(getRequiredSchema()).toEqual([
+      ...DEFAULT_REQUIRED_SCHEMA,
+      ...BETTER_AUTH_REQUIRED_SCHEMA,
+    ]);
+  });
+
+  it("reports a missing jwks table when auth is enabled", async () => {
+    mockExecute.mockReset();
+    mockExecute.mockImplementation(async (query: unknown) => {
+      const table =
+        typeof query === "string" ? "" : String((query as any).args?.[0] ?? "");
+      if (table === "jwks") return { rows: [], rowsAffected: 0 };
+      const required =
+        [...DEFAULT_REQUIRED_SCHEMA, ...BETTER_AUTH_REQUIRED_SCHEMA].find(
+          (r) => r.table === table,
+        )?.columns ?? [];
+      return {
+        rows: required.map((column) => ({ column_name: column })),
+        rowsAffected: 0,
+      };
+    });
+
+    // Explicit `dialect` bypasses the healthy-probe memo left by an earlier
+    // test — this checks the DEFAULT required set, not the memo mechanics.
+    const result = await runDatabaseSchemaHealthCheck({ dialect: "postgres" });
+
+    expect(result.ok).toBe(false);
+    expect(result.missingTables).toContain("jwks");
+  });
+
+  it("does not require jwks (or the rest of Better Auth) when auth is disabled", async () => {
+    vi.stubEnv("AUTH_DISABLED", "1");
+    mockExecute.mockReset();
+    mockExecute.mockImplementation(async (query: unknown) => {
+      const table =
+        typeof query === "string" ? "" : String((query as any).args?.[0] ?? "");
+      // Only the framework's own tables answer — no Better Auth tables exist.
+      const required =
+        DEFAULT_REQUIRED_SCHEMA.find((r) => r.table === table)?.columns ?? [];
+      return {
+        rows: required.map((column) => ({ column_name: column })),
+        rowsAffected: 0,
+      };
+    });
+
+    const result = await runDatabaseSchemaHealthCheck({ dialect: "postgres" });
+
+    expect(result.ok).toBe(true);
+    expect(result.missingTables).not.toContain("jwks");
   });
 });

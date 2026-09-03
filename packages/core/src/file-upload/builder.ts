@@ -68,6 +68,7 @@ async function assertOk(res: Response, label: string): Promise<void> {
 async function uploadLargeFileViaSignedUrl(
   input: FileUploadInput,
   authorization: string,
+  apiKey: string | undefined,
   bareMimeType: string,
   bytes: Uint8Array,
 ): Promise<FileUploadResult> {
@@ -82,6 +83,7 @@ async function uploadLargeFileViaSignedUrl(
   console.log(`[builder-upload] step 1: requesting signed URL`);
   const { uploadUrl, assetId, requiredHeaders } = await requestBuilderSignedUrl(
     authorization,
+    apiKey,
     name,
     bareMimeType,
     bytes.byteLength,
@@ -107,6 +109,7 @@ async function uploadLargeFileViaSignedUrl(
   );
   const { url, id } = await completeBuilderUpload(
     authorization,
+    apiKey,
     assetId,
     input.filename,
     {
@@ -120,6 +123,7 @@ async function uploadLargeFileViaSignedUrl(
 
 async function requestBuilderSignedUrl(
   authorization: string,
+  apiKey: string | undefined,
   filename: string,
   mimeType: string,
   size: number,
@@ -131,6 +135,7 @@ async function requestBuilderSignedUrl(
 }> {
   const host = builderUploadHost();
   const url = new URL("/api/v1/upload/signed-url", host);
+  if (apiKey) url.searchParams.set("apiKey", apiKey);
   const res = await fetchWithTimeout(url.toString(), {
     method: "POST",
     headers: {
@@ -164,12 +169,14 @@ async function requestBuilderSignedUrl(
 
 async function completeBuilderUpload(
   authorization: string,
+  apiKey: string | undefined,
   assetId: string,
   filename: string | undefined,
   options?: { stableUrl?: boolean; recordAsset?: boolean },
 ): Promise<{ url: string; id?: string }> {
   const host = builderUploadHost();
   const url = new URL("/api/v1/upload/complete", host);
+  if (apiKey) url.searchParams.set("apiKey", apiKey);
   if (options?.stableUrl) {
     setStableUrlQueryParam(url);
   }
@@ -231,13 +238,44 @@ async function uploadSmallFile(url: URL, init: RequestInit): Promise<Response> {
  * Legacy `bpk-` keys skip that check, which is why uploads kept working for
  * older connections while OAuth-only ones could not upload at all.
  */
-async function assetAuthorization(): Promise<string> {
-  const [{ resolveBuilderApiAuthorization }, { BUILDER_ASSETS_WRITE_SCOPE }] =
-    await Promise.all([
-      import("../server/builder-api-auth.js"),
-      import("../server/builder-oauth.js"),
-    ]);
-  return resolveBuilderApiAuthorization(BUILDER_ASSETS_WRITE_SCOPE);
+async function assetAuthorization(): Promise<{
+  authorization: string;
+  apiKey?: string;
+}> {
+  const [auth, { BUILDER_ASSETS_WRITE_SCOPE }] = await Promise.all([
+    import("../server/builder-api-auth.js"),
+    import("../server/builder-oauth.js"),
+  ]);
+  const authorization = await auth.resolveBuilderApiAuthorization(
+    BUILDER_ASSETS_WRITE_SCOPE,
+  );
+  if (!/^Bearer\s+btk-/i.test(authorization)) return { authorization };
+
+  const { resolveBuilderCredentialsDetailed } =
+    await import("../server/credential-provider.js");
+  const credentials = await resolveBuilderCredentialsDetailed();
+  if (credentials.lookupFailed) {
+    throw (
+      credentials.cause ??
+      new Error(
+        "Could not read saved Builder credentials. Try again in a moment.",
+      )
+    );
+  }
+  const privateKey = credentials.privateKey?.trim();
+  const publicKey = credentials.publicKey?.trim();
+  if (!privateKey || !publicKey) {
+    throw new Error(
+      "Builder personal access token connection is missing its space id. Reconnect Builder.io to continue.",
+    );
+  }
+  const authorized = authorization.replace(/^Bearer\s+/i, "").trim();
+  if (privateKey !== authorized) {
+    throw new Error(
+      "Builder credential scope mismatch: the connection holding the upload space is not the one authorized for this request. Reconnect Builder.io to continue.",
+    );
+  }
+  return { authorization, apiKey: publicKey };
 }
 
 /**
@@ -254,7 +292,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
   isConfigured: () => !!process.env.BUILDER_PRIVATE_KEY,
   upload: async (input: FileUploadInput) => {
     const { data, filename, mimeType } = input;
-    const authorization = await assetAuthorization();
+    const { authorization, apiKey } = await assetAuthorization();
 
     // Strip any media-type parameters (e.g. `;codecs=avc1,opus` from
     // MediaRecorder blobs) — Builder's upload API parses the body as raw
@@ -274,6 +312,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
       return uploadLargeFileViaSignedUrl(
         input,
         authorization,
+        apiKey,
         bareMimeType,
         bytes,
       );
@@ -284,6 +323,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
     );
 
     const url = new URL("/api/v1/upload", builderUploadHost());
+    if (apiKey) url.searchParams.set("apiKey", apiKey);
     if (filename) url.searchParams.set("name", filename);
     if (input.stableUrl) {
       setStableUrlQueryParam(url);
@@ -338,7 +378,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
 
   resumable: {
     async startSession(filename, mimeType, maxBytes) {
-      const authorization = await assetAuthorization();
+      const { authorization, apiKey } = await assetAuthorization();
 
       console.log(
         `[builder-resumable] starting session: ${filename} ${mimeType} ${maxBytes} bytes`,
@@ -346,6 +386,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
       const { uploadUrl, assetId, requiredHeaders } =
         await requestBuilderSignedUrl(
           authorization,
+          apiKey,
           filename,
           mimeType,
           maxBytes,
@@ -439,12 +480,13 @@ export const builderFileUploadProvider: FileUploadProvider = {
     },
 
     async completeSession(session, filename, options) {
-      const authorization = await assetAuthorization();
+      const { authorization, apiKey } = await assetAuthorization();
 
       const assetId = session.meta.assetId as string;
       console.log(`[builder-resumable] completing upload: assetId=${assetId}`);
       const { url } = await completeBuilderUpload(
         authorization,
+        apiKey,
         assetId,
         filename,
         {
@@ -456,6 +498,29 @@ export const builderFileUploadProvider: FileUploadProvider = {
       );
       console.log(`[builder-resumable] upload complete: ${url}`);
       return url;
+    },
+
+    async abortSession(session) {
+      const response = await fetchWithTimeout(session.sessionId, {
+        method: "DELETE",
+        headers: { "Content-Length": "0" },
+        body: new Uint8Array(0),
+      });
+      // GCS returns 499 for a successful JSON API cancellation. A session
+      // that is already gone is also fully cleaned up from this retry's point
+      // of view, so treat its terminal 404/410 responses as success.
+      if (
+        response.ok ||
+        response.status === 404 ||
+        response.status === 410 ||
+        response.status === 499
+      ) {
+        return;
+      }
+      const body = await response.text();
+      throw new Error(
+        `GCS resumable session cancellation failed (${response.status}): ${body || response.statusText}`,
+      );
     },
   },
 };

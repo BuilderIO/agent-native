@@ -1,3 +1,5 @@
+import { parseRetryAfterMs } from "../../shared/retry-after.js";
+
 /**
  * Compose an error's message with its `cause` chain.
  *
@@ -164,6 +166,43 @@ export interface ProviderErrorClassification {
   errorCode?: string;
   statusCode?: number;
   providerRetryable?: boolean;
+  /**
+   * Provider-requested backoff from its `Retry-After` header, capped at
+   * {@link MAX_RETRY_AFTER_MS}. Absent when no error in the chain carried a
+   * (parseable) header — callers fall back to their own fixed backoff.
+   */
+  retryAfterMs?: number;
+}
+
+/**
+ * Upper bound on a provider-requested `Retry-After` wait. Without a cap, a
+ * provider asking for an hour-long backoff would silently consume the entire
+ * hosted foreground run budget on one retry attempt.
+ */
+const MAX_RETRY_AFTER_MS = 60_000;
+
+/**
+ * Read `Retry-After` off whichever error in the chain actually carries the
+ * HTTP response: the raw error, the AI SDK's unwrapped `RetryError.lastError`,
+ * or a plain `.cause`. Checked in that order so the most specific source wins.
+ */
+function extractRetryAfterMs(err: unknown): number | undefined {
+  const wrapped = err as { lastError?: unknown; cause?: unknown } | null;
+  for (const source of [err, wrapped?.lastError, wrapped?.cause]) {
+    const headers = (source as { responseHeaders?: unknown } | null)
+      ?.responseHeaders;
+    if (!headers || typeof headers !== "object") continue;
+    const ms = parseRetryAfterMs(headers as Record<string, string>);
+    if (ms !== null) {
+      if (ms > MAX_RETRY_AFTER_MS) {
+        console.warn(
+          `[classifyProviderError] Retry-After ${ms}ms exceeds cap; using ${MAX_RETRY_AFTER_MS}ms`,
+        );
+      }
+      return Math.min(ms, MAX_RETRY_AFTER_MS);
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -223,6 +262,8 @@ export function classifyProviderError(
         ? true
         : undefined;
 
+  const retryAfterMs = extractRetryAfterMs(err);
+
   return {
     // Tag every known status as `http_<status>` (not just 401) so a rate limit
     // surfaces as `http_429`: the structured statusCode drives turn-level
@@ -238,6 +279,7 @@ export function classifyProviderError(
             return code ? { errorCode: code } : {};
           })()),
     ...(providerRetryable !== undefined ? { providerRetryable } : {}),
+    ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
   };
 }
 

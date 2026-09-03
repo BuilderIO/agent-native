@@ -145,6 +145,13 @@ export const recordings = table("recordings", {
   description: text("description").notNull().default(""),
 
   thumbnailUrl: text("thumbnail_url"),
+  // Terminal outcome of the last thumbnail generation attempt. NULL means
+  // "never attempted" — every pre-migration row starts here too, which is
+  // why the thumbnail sweeper treats NULL the same as "pending".
+  thumbnailStatus: text("thumbnail_status", {
+    enum: ["pending", "generated", "failed", "none"],
+  }),
+  thumbnailFailureReason: text("thumbnail_failure_reason"),
   animatedThumbnailUrl: text("animated_thumbnail_url"),
 
   // Editor timeline filmstrip: one sprite image plus the grid geometry needed

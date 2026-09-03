@@ -645,9 +645,9 @@ function validateCatalog(
         `catalog: expected 32 Features, found ${catalog.features.length}`,
       );
     }
-    if (catalog.capabilities.length !== 124) {
+    if (catalog.capabilities.length !== 125) {
       errors.push(
-        `catalog: expected 124 Capabilities, found ${catalog.capabilities.length}`,
+        `catalog: expected 125 Capabilities, found ${catalog.capabilities.length}`,
       );
     }
     const incrementCount = catalog.features.reduce(
