@@ -388,20 +388,21 @@ export default defineAction({
 
       if (!changed) break;
 
+      const hasCreativeContextRequest =
+        contextPackId !== undefined ||
+        contextModeOverride !== undefined ||
+        reuseLabels.length > 0;
+      // Unscoped deterministic edits are independent of the optional context
+      // service; only an explicit context request needs a prior scope lookup.
       const previous =
-        contextModeOverride === "off"
-          ? null
-          : await getGenerationCreativeContext({
+        hasCreativeContextRequest && contextModeOverride !== "off"
+          ? await getGenerationCreativeContext({
               appId: "design",
               artifactType: "design",
               artifactId: designId,
-            });
-      if (
-        previous ||
-        contextPackId !== undefined ||
-        contextModeOverride !== undefined ||
-        reuseLabels.length > 0
-      ) {
+            })
+          : null;
+      if (hasCreativeContextRequest) {
         if (
           contextPackId !== undefined &&
           previous?.contextPackId &&

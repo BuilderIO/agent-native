@@ -182,6 +182,7 @@ describe("edit-design conflict retry", () => {
       "<main>Hi base, plus a concurrent change</main>",
     );
     expect(result).toMatchObject({ changed: true, editsApplied: 1 });
+    expect(mocks.getGenerationCreativeContext).not.toHaveBeenCalled();
     expect(mocks.validateGenerationCreativeContext).not.toHaveBeenCalled();
     expect(mocks.recordGenerationCreativeContext).not.toHaveBeenCalled();
   });
