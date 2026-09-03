@@ -1,0 +1,106 @@
+---
+title: "Agent-Native क्या है?"
+description: "Agent-Native क्या है, इसकी shared action architecture कैसे काम करती है, और इस तरह ऐप कब बनाना चाहिए।"
+---
+
+# Agent-Native क्या है?
+
+Agent-Native सहज UI वाले स्वायत्त एजेंट बनाने के लिए एक open-source TypeScript
+framework है। आप हर capability को एक बार [action](/docs/actions-overview)—एक typed
+function के रूप में define करते हैं, जिसे agent tool के रूप में use करता है और UI
+code से call करता है।
+
+## UI वाले agents क्यों बनाएं
+
+<WireframeBlock id="doc-block-agent-ui-why">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:minmax(0,1fr) 54px minmax(0,1.15fr);gap:18px;align-items:center;padding:28px;min-height:420px;box-sizing:border-box'><section style='display:flex;flex-direction:column;gap:14px;align-items:center'><strong style='font-size:20px'>सिर्फ़ text box वाला agent</strong><div class='wf-card' style='width:100%;min-height:250px;display:flex;flex-direction:column;gap:18px;padding:20px;box-sizing:border-box;border-radius:calc(var(--wf-radius) * 0.45)'><span class='wf-muted'>Agent</span><div style='flex:1;display:flex;align-items:center;justify-content:center'><div class='wf-box' style='width:72%;height:42px;border-radius:calc(var(--wf-radius) * 0.45)'></div></div></div><span class='wf-muted'>यह क्या कर सकता है?</span></section><div aria-hidden='true' style='font-size:32px;text-align:center'>&rarr;</div><section style='display:flex;flex-direction:column;gap:14px;align-items:center'><strong style='font-size:20px'>UI वाला agent</strong><div class='wf-card' style='width:100%;min-height:250px;display:flex;flex-direction:column;gap:10px;padding:16px;box-sizing:border-box;border-radius:calc(var(--wf-radius) * 0.45)'><strong>लॉन्च प्रस्तुति</strong><div style='display:flex;gap:7px'><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>रूपरेखा</span><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>स्लाइड्स</span><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>समीक्षा</span></div><div style='display:grid;grid-template-columns:minmax(0,1fr) 104px;gap:10px;flex:1;min-height:0'><div style='display:grid;grid-template-columns:42px minmax(0,1fr);gap:8px;min-width:0'><div style='display:flex;flex-direction:column;gap:7px'><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;padding:12px;text-align:center;border-radius:calc(var(--wf-radius) * 0.45)'><strong>तीसरी तिमाही का उत्पाद लॉन्च</strong></div></div><aside class='wf-box' style='display:flex;flex-direction:column;gap:8px;padding:10px;min-width:0;border-radius:calc(var(--wf-radius) * 0.45)'><strong>Agent</strong><div style='flex:1'></div><div style='display:flex;align-items:center;gap:6px'><div class='wf-box' style='height:26px;flex:1;border-radius:calc(var(--wf-radius) * 0.45)'></div><button aria-hidden='true' tabindex='-1' style='width:26px;height:26px;padding:0;border-radius:calc(var(--wf-radius) * 0.45)'>&uarr;</button></div></aside></div></div><span class='wf-muted'>एक workspace में agent और UI</span></section></div>"
+    }
+  />
+</WireframeBlock>
+
+Coding agents text box को काफ़ी बना हुआ दिखा सकते हैं। लेकिन text box उनके
+working environment का सिर्फ़ एक हिस्सा है। Codebase context देता है, tools
+उन्हें काम करने के साफ़ तरीके देते हैं, और files, tests और previews results को
+visible बनाते हैं।
+
+ज़्यादातर knowledge work के साथ यह structure नहीं आता। खाली text box में लोगों
+को अंदाज़ा लगाना पड़ता है कि agent क्या कर सकता है, उसके पास कौन-सा context है
+और उन्हें क्या पूछना चाहिए।
+
+UI वह देती है जो text box में नहीं है। यह agent की capabilities को visible
+बनाती है, context और workflows को experience में लाती है, और लोगों को काम आगे
+बढ़ने के साथ देखने और आकार देने देती है।
+
+Agent-Native आपको इस तरह agents बनाने देता है। UI agent को किसी fixed workflow
+तक सीमित किए बिना लोगों को साफ़ starting points देती है। Agent और UI एक ही
+capabilities use करते हैं, इसलिए लोग agent को काम delegate कर सकते हैं, UI में
+उसे inspect या change कर सकते हैं, और progress खोए बिना दोनों के बीच move कर
+सकते हैं।
+
+## Agent-Native कैसे काम करता है
+
+<Video
+  src="https://cdn.builder.io/o/assets%2Fc5b47d20f6a943e485717e5895739988%2Fc88d506c160142ae9b8618616ceedcea%2Fcompressed?apiKey=c5b47d20f6a943e485717e5895739988&token=c88d506c160142ae9b8618616ceedcea&alt=media&optimized=true"
+  alt="एक ही application में कोई व्यक्ति सीधे काम कर रहा है और AI agent के जरिए काम कर रहा है—इसकी तुलना।"
+  align="full"
+  caption="Agent-Native architecture का चार मिनट का परिचय देखें।"
+/>
+
+Agent-Native agent और UI को तीन shared foundations के जरिए जोड़ता है:
+
+- **[Shared actions](/docs/actions-overview).** आप हर capability को एक बार define
+  करते हैं। Agent उसे tool के रूप में call करता है और UI उसे code से call करता
+  है। दोनों paths एक ही validation, permissions और implementation का उपयोग करते
+  हैं।
+- **[Shared data](/docs/server-database).** Actions एक ही data को read और update
+  करते हैं, इसलिए agent का किया हुआ work UI में दिखाई देता है और UI में किया
+  हुआ work agent के लिए उपलब्ध रहता है।
+- **[Shared application state](/docs/context-awareness).** Application state
+  बताता है कि UI में क्या हो रहा है, जैसे current page, selected record या active
+  view। Agent-Native relevant state को context के रूप में agent को देता है, ताकि
+  वह समझ सके कि व्यक्ति किस पर काम कर रहा है।
+
+Agent UI में click करके काम नहीं करता। वह UI के समान action layer के जरिए काम
+करता है।
+
+उदाहरण के लिए, कोई व्यक्ति UI से support ticket assign कर सकता है या agent से ऐसा करने को कह सकता है।
+दोनों paths एक ही action चलाते हैं और उसी ticket को update करते हैं। व्यक्ति UI में result inspect या change
+कर सकता है, फिर agent को वहीं से काम जारी रखने दे सकता है।
+
+## Agent-Native का उपयोग कब करना चाहिए?
+
+Agent-Native तब अच्छा fit है जब:
+
+- Agent को असली काम करना हो, केवल सवालों के जवाब नहीं देने हों।
+- लोगों को यह देखने के लिए UI चाहिए कि agent क्या कर सकता है, और उसके work को
+  inspect, edit, approve या share करने के लिए।
+- लोगों को progress या context खोए बिना agent और UI के बीच move कर पाना चाहिए।
+
+अगर केवल एक generated response चाहिए, तो सीधे model को call करें। अगर workflow fixed और predictable
+sequence का पालन करता है, तो सामान्य application logic या automation सरल है। Agent-Native तब उपयोग करें
+जब agent और UI दोनों को एक ही work में लगातार भूमिका चाहिए।
+
+## अगले कदम
+
+<Cards>
+
+### [शुरुआत करें](/docs/getting-started)
+
+ऐप बनाएं और उसी action को agent और UI से call करें।
+
+### [मुख्य अवधारणाएं](/docs/key-concepts)
+
+जानें कि actions, SQL data, application context, access और live sync साथ में कैसे काम करते हैं।
+
+### [Agent Surfaces](/docs/agent-surfaces)
+
+देखें कि यही model UI, chat, automation या दूसरे agent द्वारा चलाए जाने वाले apps को कैसे support करता है।
+
+### [टेम्पलेट्स](/docs/cloneable-saas)
+
+Chat से शुरू करके बनाने के बजाय एक पूर्ण SaaS product से शुरुआत करें।
+
+</Cards>

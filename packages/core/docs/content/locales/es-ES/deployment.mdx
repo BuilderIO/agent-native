@@ -1,0 +1,49 @@
+---
+title: "Implementación"
+description: "Implementa una aplicación o un espacio de trabajo Agent-Native en una plataforma compatible con Nitro y una base de datos SQL persistente."
+---
+
+<!-- i18n-docs-ignore -->
+
+# Implementación
+
+<a id="self-host-quickstart"></a>
+<a id="skip-ensure-tables"></a>
+
+Las aplicaciones Agent-Native usan Nitro. Elige la ruta que corresponda a lo que vas a publicar:
+
+<Cards columns={2}>
+
+### [Implementar una aplicación](/docs/deploy-an-app)
+
+Construye una aplicación y ejecútala en su propio dominio.
+
+### [Implementar un espacio de trabajo](/docs/workspace-deployment)
+
+Ejecuta varias aplicaciones bajo un mismo origen con inicio de sesión compartido.
+
+</Cards>
+
+## Antes de implementar: elige una base de datos persistente {#persistent-database}
+
+Cada aplicación implementada necesita una base de datos SQL persistente. Configura `DATABASE_URL` en el entorno de implementación antes del primer despliegue de producción. Usa `DATABASE_AUTH_TOKEN` si tu proveedor requiere un token separado.
+
+Las aplicaciones independientes necesitan un `BETTER_AUTH_SECRET` estable. Los espacios de trabajo con solicitudes firmadas entre aplicaciones necesitan `A2A_SECRET`.
+
+## El envío de correo es opcional, pero recomendable {#email-provider}
+
+Un proveedor de correo no es necesario para la autenticación con correo y contraseña. Sin uno, las aplicaciones implementadas usan el registro y el inicio de sesión con correo y contraseña, omiten la verificación del correo al registrarse y no ofrecen autenticación mediante enlaces mágicos.
+
+Conecta Resend o SendGrid antes del despliegue si quieres enlaces mágicos, verificación del correo, restablecimiento de contraseñas, invitaciones o notificaciones de uso compartido. Configura `RESEND_API_KEY` o `SENDGRID_API_KEY`; SendGrid también necesita `EMAIL_FROM`. Consulta [Autenticación](/docs/authentication) para conocer los modos de autenticación disponibles.
+
+## Destinos compatibles
+
+Agent-Native admite [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify), [Cloudflare Pages](/docs/cloudflare#cloudflare-pages), [Cloudflare Workers](/docs/cloudflare#cloudflare-workers), [AWS Amplify](/docs/aws-amplify), [AWS Lambda](/docs/aws-lambda), [Deno Deploy](/docs/deno-deploy), [Azure Static Web Apps](/docs/azure-static-web-apps), [Koyeb](/docs/koyeb) o [Render](/docs/render).
+
+Consulta la [referencia de variables de entorno de implementación](/docs/deployment-environment-variables) para los ajustes avanzados, secretos y valores de producción.
+
+## Siguiente
+
+- [Implementar una aplicación](/docs/deploy-an-app)
+- [Implementar un espacio de trabajo](/docs/workspace-deployment)
+- [Base de datos](/docs/server-database#production)

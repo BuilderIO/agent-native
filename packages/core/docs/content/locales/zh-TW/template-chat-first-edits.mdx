@@ -1,0 +1,145 @@
+---
+title: "聊天：你的第一個功能"
+description: "渲染聊天入門畫面的唯一檔案、它的真實 props 實際做什麼，以及一份從頭到尾新增功能的完整演練。"
+---
+
+# 你的第一個功能
+
+本頁面適用於擴充 [聊天範本](/docs/template-chat) 的開發人員。它涵蓋渲染入門聊天畫面的單一檔案，然後演練當您要求一項真實功能時，代理通常會涉及的所有內容。
+
+## 要檢查的第一份程式碼 {#first-code}
+
+- `actions/hello.ts` 是代理可以呼叫的入門行為。您可以替換它，或在它旁邊新增其他
+  actions。
+- `app/routes/_index.tsx` 渲染整頁面聊天介面。在這裡調整
+  建議、空狀態、composer 或週圍的版面配置。
+- `AGENTS.md` 告訴內建代理如何在這個應用程式中運作。
+
+<FileTree
+  id="doc-block-chat3"
+  title="聊天範本版面配置"
+  entries={[
+    {
+      path: "actions/hello.ts",
+      note: "唯一的範例 action；可以替換它，或在旁邊新增其他 actions",
+    },
+    {
+      path: "actions/view-screen.ts",
+      note: "代理最先呼叫的標準脈絡 action",
+    },
+    {
+      path: "actions/navigate.ts",
+      note: "標準導覽 action",
+    },
+    {
+      path: "app/routes/_index.tsx",
+      note: "渲染整頁面聊天介面；可編輯建議、空狀態、composer",
+    },
+    {
+      path: "app/routes/chat.$threadId.tsx",
+      note: "重新匯出 _index.tsx，讓 /chat/:threadId 在 URL 中帶有對話串 id 的情況下渲染相同的介面",
+    },
+    {
+      path: "AGENTS.md",
+      note: "內建代理讀取的聊天優先指南",
+    },
+  ]}
+/>
+
+真正的入門檔案不只是一個單純的 `<AgentChatSurface />` — 它接好了對話串 URL 同步、供多分頁執行使用的分頁身分，以及 hero composer 版面配置，而且它的文字內容來自 i18n 鍵值，而不是字面字串：
+
+<AnnotatedCode
+  id="doc-block-chat4"
+  title="app/routes/_index.tsx（精簡版）"
+  filename="app/routes/_index.tsx"
+  language="tsx"
+  code={
+    'import {\n  AgentChatSurface,\n  markAgentChatHomeHandoff,\n} from "@agent-native/core/client/agent-chat";\nimport { useT } from "@agent-native/core/client/i18n";\nimport { useEffect } from "react";\nimport { useNavigate, useParams } from "react-router";\n\nimport { TAB_ID } from "@/lib/tab-id";\n\nfunction chatThreadPath(threadId: string | null) {\n  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";\n}\n\nexport default function ChatRoute() {\n  const { threadId } = useParams();\n  const navigate = useNavigate();\n  const t = useT();\n  const threadUrlSync = threadId\n    ? { routeThreadId: threadId, getPath: chatThreadPath, navigate }\n    : undefined;\n\n  useEffect(() => {\n    function handleChatRunning(event: Event) {\n      const detail = (event as CustomEvent).detail;\n      if (detail?.isRunning === true) markAgentChatHomeHandoff("chat");\n    }\n    window.addEventListener("agentNative.chatRunning", handleChatRunning);\n    return () =>\n      window.removeEventListener("agentNative.chatRunning", handleChatRunning);\n  }, []);\n\n  return (\n    <AgentChatSurface\n      mode="page"\n      chatViewTransition\n      threadUrlSync={threadUrlSync}\n      browserTabId={TAB_ID}\n      dynamicSuggestions={false}\n      suggestions={[\n        t("chat.suggestionCapabilities"),\n        t("chat.suggestionCustomize"),\n        t("chat.suggestionActions"),\n      ]}\n      emptyStateText={t("chat.emptyState")}\n      centerComposerWhenEmpty\n      composerLayoutVariant="hero"\n      composerPlaceholder={t("chat.composerPlaceholder")}\n      composerSlot={\n        <div className="mx-auto mb-5 max-w-xl px-4 text-center">\n          <h1>{t("chat.heroTitle")}</h1>\n          <p>{t("chat.heroDescription")}</p>\n        </div>\n      }\n    />\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "19-21",
+      label: "對話串 URL 同步",
+      note: "`/chat/:threadId`（`chat.$threadId.tsx`）重新匯出這個相同的元件。當路由帶有對話串 id 時，`threadUrlSync` 會讓 URL 和目前使用中的對話串保持同步：切換對話串會推送 `/chat/<id>`，而開啟該網址則會還原該對話串。",
+    },
+    {
+      lines: "38",
+      label: "分頁身分",
+      note: "`TAB_ID`（`app/lib/tab-id.ts`，每個瀏覽器分頁只產生一次的隨機 id）讓共用的聊天執行時能夠分辨同一個應用程式開啟的多個分頁，因此在一個分頁中啟動的執行不會被誤認為是另一個分頁中的執行。",
+    },
+    {
+      lines: "39-44",
+      label: "建議文字是 i18n 鍵值",
+      note: '建議文字來自 `t("chat.suggestionCapabilities")` 等呼叫（參閱 `app/i18n/en-US.ts`），而不是字面的英文字串，而 `dynamicSuggestions={false}` 會關閉執行時自身的建議產生功能，改用這三個建議。',
+    },
+    {
+      lines: "46-47",
+      label: "Hero composer 版面配置",
+      note: '`composerLayoutVariant="hero"` 加上 `centerComposerWhenEmpty` 會將 composer 置中，並在其上方顯示標題/描述，而不是其他 `mode="page"` 聊天路由所使用的、單純固定在底部的 composer。',
+    },
+    {
+      lines: "49-54",
+      label: "composerSlot",
+      note: "只有在 composer 置中時，才會在其上方渲染任意的 JSX — 這裡就是「我能幫什麼？」標題所在的位置。編輯這裡即可變更空狀態的宣傳文字，而不需要動到執行時本身。",
+    },
+    {
+      lines: "23-31",
+      label: "首頁交接",
+      note: '當一次執行在這個頁面上啟動時，`markAgentChatHomeHandoff("chat")` 會記錄下首頁介面擁有這個使用中的執行，因此離開後再返回時會重新連接到它，而不會遺失它。',
+    },
+  ]}
+/>
+
+## 首次編輯 {#first-edits}
+
+大多數第一項功能都遵循相同的形狀：一個資料表、一或兩個 actions、一個路由、一個導覽項目，以及一次 `AGENTS.md` 更新。請這樣詢問代理：
+
+> 新增一個 `notes` 的資料模型。一則筆記有 id、標題、內文和擁有者。在 `/notes` 渲染一個筆記頁面，新增建立/列出 actions，並讓聊天仍然能夠建立筆記。
+
+聊天出廠時完全沒有 `server/db/schema.ts`（請參閱 [隨附內容](/docs/template-chat#what-ships)），因此第一項變更就是新增一個檔案，遵循其他每個範本都使用的相同 `table`/`text`/`ownableColumns` 形狀：
+
+<Diff
+  id="doc-block-chat5"
+  title="一個新的 notes 資料表"
+  filename="server/db/schema.ts"
+  language="ts"
+  before={""}
+  after={
+    'import {\n  table,\n  text,\n  ownableColumns,\n} from "@agent-native/core/db/schema";\n\nexport const notes = table("notes", {\n  id: text("id").primaryKey(),\n  title: text("title").notNull(),\n  body: text("body").notNull(),\n  createdAt: text("created_at").notNull(),\n  updatedAt: text("updated_at").notNull(),\n  ...ownableColumns(),\n});'
+  }
+  annotations={[
+    {
+      lines: "1-5",
+      label: "共用的架構輔助函式",
+      note: "`table`/`text`/`ownableColumns` 來自 `@agent-native/core/db/schema` — 與其他每個範本使用的方言無關輔助函式相同，因此這個檔案能在 SQLite/Postgres 之間保持可攜性。",
+    },
+    {
+      lines: "13",
+      label: "ownableColumns",
+      note: "`...ownableColumns()` 會新增框架的 `accessFilter`/`resolveAccess` 輔助函式所預期的擁有者/組織欄位，因此 notes 無需額外的接線，就能納入標準的每使用者/每組織共用模型。",
+    },
+  ]}
+/>
+
+這項功能剩下的部分，就從這裡接續下去：
+
+- `actions/create-note.ts` — 一個帶有 Zod schema（`title`、`body`）的 `defineAction`，形狀與 `actions/hello.ts` 相同。
+- `actions/list-notes.ts` — 一個唯讀 action（`readOnly: true`，就像 `actions/view-screen.ts`），透過 `accessFilter` 查詢新的資料表。
+- `app/routes/notes.tsx` — 一個新路由；這個應用程式使用檔案系統路由（`app/routes.ts` 中的 `flatRoutes()`），因此只要新增這個檔案，就足以掛載 `/notes`。
+- 在 `app/components/layout/Sidebar.tsx` 的 `navItems` 陣列中新增一個指向 `/notes` 的項目。
+- 在 `AGENTS.md` 中新增一段內容，告訴代理 notes 的存在，以及哪些 actions 負責管理它們。
+
+一個新的 action 一旦存在，聊天就可以呼叫它 — 每個 `defineAction` 預設都是一個工具，除非它設定了 `agentTool: false`。不過，它不一定會出現在模型的第一次請求中：`server/plugins/agent-chat.ts` 設定了 `INITIAL_TOOL_NAMES = ["view-screen", "navigate", "hello"]`，這只控制第一輪對話會傳送哪些工具 schema。其他所有 action，包括全新的 `create-note`，仍然可以透過 `tool-search` 取得，並依需求載入 — 只有當您希望某個 action 從第一則訊息開始就出現在模型的預設工具集中時，才把它的名稱加進那個清單。
+
+## 使用您自己的代理後端 {#own-agent-backend}
+
+這個範本預設使用內建的 app-agent 迴圈。若要連接自訂後端，請交換代理聊天外掛程式背後的聊天執行時，而不是重寫 UI。聊天路由應該保持是共用聊天介面周圍的一個輕薄渲染器；後端的選擇屬於伺服器外掛程式/執行時轉接器。
+
+當您的模型編排已經存在於別處，但您仍想要一個具有驗證、對話串、actions、UI 狀態和可部署頁面的應用程式時，請使用這個選項。
+
+## 下一步是什麼
+
+- [**聊天**](/docs/template-chat) — 預設隨附哪些內容，以及何時選擇它
+- [**聊天：開發者指南**](/docs/template-chat-developers) — 快速入門、actions、核心資料表、驗證，以及管理頁面
+- [**Actions**](/docs/actions-overview) — 聊天和 UI 都會呼叫的 action 系統
+- [**Native 聊天介面**](/docs/native-chat-ui) — 聊天介面基元和執行時選項

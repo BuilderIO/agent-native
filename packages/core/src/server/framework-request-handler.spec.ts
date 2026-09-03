@@ -1,0 +1,902 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
+import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
+import {
+  markFrameworkRoutesReadyBeforeBootstrap,
+  getH3App,
+  markDefaultPluginProvided,
+  trackPluginInit,
+} from "./framework-request-handler.js";
+import {
+  getRequestUserEmail,
+  hasRequestContext,
+  runWithRequestContext,
+} from "./request-context.js";
+
+vi.mock("../deploy/route-discovery.js", () => ({
+  getMissingDefaultPlugins: vi.fn(async () => []),
+}));
+
+function createNitroApp() {
+  return { h3: { "~middleware": [] as any[] } };
+}
+
+async function dispatch(
+  nitroApp: any,
+  pathname: string,
+  onEvent?: (event: any) => void,
+) {
+  const url = new URL(`http://example.test${pathname}`);
+  const event = {
+    method: "GET",
+    url,
+    path: pathname,
+    context: {},
+    // h3 v2's own getMethod/getRequestHeader read from `event.req` (a real
+    // web-standard Request) — the CSRF middleware that `getH3App()` now
+    // registers globally on every nitroApp calls both, so the fake event
+    // needs a real Request even though these tests never assert on it.
+    req: new Request(url, { method: "GET" }),
+    // Minimal h3-v2 response shape so handlers that call setResponseStatus /
+    // setResponseHeader (e.g. the init-failure 503 fallback) work under test.
+    res: { status: 200, headers: new Headers() },
+  };
+  onEvent?.(event);
+  let index = 0;
+  const next = async (): Promise<unknown> => {
+    const middleware = nitroApp.h3["~middleware"][index++];
+    if (!middleware) return { fellThrough: true };
+    return middleware(event, next);
+  };
+  return next();
+}
+
+async function dispatchViaGeneratedMiddleware(nitroApp: any, pathname: string) {
+  const url = new URL(`http://example.test${pathname}`);
+  const event = {
+    method: "GET",
+    url,
+    path: pathname,
+    context: {},
+    // See `dispatch()` above — the globally-registered CSRF middleware needs
+    // a real h3-v2 `event.req`.
+    req: new Request(url, { method: "GET" }),
+  };
+  const route = {
+    data: {
+      handler: () => ({ fellThrough: true }),
+    },
+  };
+  const middleware = nitroApp.h3["~getMiddleware"](event, route);
+  let index = 0;
+  const next = async (): Promise<unknown> => {
+    const handler = middleware[index++];
+    if (!handler) return route.data.handler();
+    return handler(event, next);
+  };
+  return next();
+}
+
+describe("framework request handler", () => {
+  afterEach(() => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+    delete process.env.AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS;
+    delete process.env.AGENT_NATIVE_DISABLED_PLUGINS;
+    resetAppConfigForTests();
+    vi.restoreAllMocks();
+  });
+
+  it("runs a hand-written /api route inside an identity-free RequestContext", async () => {
+    // The privilege-escalation regression: a hand-written `/api/*` route has no
+    // ALS store of its own, so `getRequestUserEmail()` used to answer with the
+    // deploy's AGENT_USER_EMAIL and admin-check the caller as that identity.
+    vi.stubEnv("AGENT_USER_EMAIL", "deploy-admin@example.com");
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp);
+
+    let sawContext: boolean | undefined;
+    let sawEmail: string | undefined = "unset";
+    nitroApp.h3["~middleware"].push((_event: any, next: () => unknown) => {
+      sawContext = hasRequestContext();
+      sawEmail = getRequestUserEmail();
+      return next();
+    });
+
+    await dispatch(nitroApp, "/api/coach/users/someone@example.com");
+
+    expect(sawContext).toBe(true);
+    expect(sawEmail).toBeUndefined();
+    vi.unstubAllEnvs();
+  });
+
+  it("lets a handler's own request context shadow the boundary store", async () => {
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp);
+
+    let sawEmail: string | undefined;
+    nitroApp.h3["~middleware"].push((_event: any, next: () => unknown) =>
+      runWithRequestContext({ userEmail: "alice@example.com" }, () => {
+        sawEmail = getRequestUserEmail();
+        return next();
+      }),
+    );
+
+    await dispatch(nitroApp, "/api/coach/users");
+    expect(sawEmail).toBe("alice@example.com");
+  });
+
+  it("dispatches bare framework routes with a mount-relative pathname", async () => {
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp).use("/_agent-native/extensions", (event: any) => ({
+      mountPrefix: event.context._mountPrefix,
+      mountedPathname: event.context._mountedPathname,
+      pathname: event.url.pathname,
+    }));
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/extensions/extension-1/render"),
+    ).resolves.toEqual({
+      mountPrefix: "/_agent-native/extensions",
+      mountedPathname: "/_agent-native/extensions/extension-1/render",
+      pathname: "/extension-1/render",
+    });
+  });
+
+  it("does not log or write a 500 response for client-aborted framework routes", async () => {
+    const nitroApp = createNitroApp();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    getH3App(nitroApp).use("/_agent-native/poll", () => {
+      const error = new Error("aborted") as Error & { code?: string };
+      error.code = "ECONNRESET";
+      throw error;
+    });
+
+    await expect(dispatch(nitroApp, "/_agent-native/poll")).resolves.toBe(
+      undefined,
+    );
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(debugSpy).toHaveBeenCalledWith(
+      "[agent-native] GET /_agent-native/poll aborted by client: aborted",
+    );
+  });
+
+  it("keeps dynamic framework middleware visible to Nitro generated dispatchers", async () => {
+    const nitroApp = createNitroApp();
+    nitroApp.h3["~getMiddleware"] = () => [];
+
+    getH3App(nitroApp).use("/_agent-native/ping", (event: any) => ({
+      mountPrefix: event.context._mountPrefix,
+      pathname: event.url.pathname,
+    }));
+
+    await expect(
+      dispatchViaGeneratedMiddleware(nitroApp, "/_agent-native/ping"),
+    ).resolves.toEqual({
+      mountPrefix: "/_agent-native/ping",
+      pathname: "/",
+    });
+  });
+
+  it("rewraps the generated dispatcher if Nitro replaces it later", async () => {
+    const nitroApp = createNitroApp();
+    nitroApp.h3["~getMiddleware"] = () => [];
+
+    getH3App(nitroApp).use("/_agent-native/ping", () => ({ ok: "first" }));
+
+    await expect(
+      dispatchViaGeneratedMiddleware(nitroApp, "/_agent-native/ping"),
+    ).resolves.toEqual({ ok: "first" });
+
+    nitroApp.h3["~getMiddleware"] = () => [];
+    getH3App(nitroApp).use("/_agent-native/builder/status", () => ({
+      ok: "second",
+    }));
+
+    await expect(
+      dispatchViaGeneratedMiddleware(nitroApp, "/_agent-native/builder/status"),
+    ).resolves.toEqual({ ok: "second" });
+  });
+
+  it("dispatches with a mount-relative event.path for legacy handlers", async () => {
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp).use("/_agent-native/resources", (event: any) => ({
+      pathname: event.url.pathname,
+      path: event.path,
+    }));
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/resources/doc-1?raw=1"),
+    ).resolves.toEqual({
+      pathname: "/doc-1",
+      path: "/doc-1?raw=1",
+    });
+  });
+
+  it("restores event.path before falling through to downstream middleware", async () => {
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp).use("/_agent-native/resources", () => undefined);
+    getH3App(nitroApp).use((event: any) => ({
+      pathname: event.url.pathname,
+      path: event.path,
+    }));
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/resources/doc-1?raw=1"),
+    ).resolves.toEqual({
+      pathname: "/_agent-native/resources/doc-1",
+      path: "/_agent-native/resources/doc-1?raw=1",
+    });
+  });
+
+  it("dispatches framework routes under APP_BASE_PATH", async () => {
+    process.env.APP_BASE_PATH = "/docs";
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp).use("/_agent-native/resources", (event: any) => ({
+      mountPrefix: event.context._mountPrefix,
+      mountedPathname: event.context._mountedPathname,
+      pathname: event.url.pathname,
+      path: event.path,
+    }));
+
+    await expect(
+      dispatch(nitroApp, "/docs/_agent-native/resources/tree"),
+    ).resolves.toEqual({
+      mountPrefix: "/docs/_agent-native/resources",
+      mountedPathname: "/docs/_agent-native/resources/tree",
+      pathname: "/tree",
+      path: "/tree",
+    });
+  });
+
+  it("dispatches well-known routes under APP_BASE_PATH", async () => {
+    process.env.APP_BASE_PATH = "/starter";
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp).use("/.well-known/agent-card.json", (event: any) => ({
+      mountPrefix: event.context._mountPrefix,
+      mountedPathname: event.context._mountedPathname,
+      pathname: event.url.pathname,
+      path: event.path,
+    }));
+
+    await expect(
+      dispatch(nitroApp, "/starter/.well-known/agent-card.json"),
+    ).resolves.toEqual({
+      mountPrefix: "/starter/.well-known/agent-card.json",
+      mountedPathname: "/starter/.well-known/agent-card.json",
+      pathname: "/",
+      path: "/",
+    });
+  });
+
+  it("dispatches the public MCP alias under APP_BASE_PATH", async () => {
+    process.env.APP_BASE_PATH = "/starter";
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp).use("/mcp", (event: any) => ({
+      mountPrefix: event.context._mountPrefix,
+      mountedPathname: event.context._mountedPathname,
+      pathname: event.url.pathname,
+      path: event.path,
+    }));
+
+    await expect(dispatch(nitroApp, "/starter/mcp")).resolves.toEqual({
+      mountPrefix: "/starter/mcp",
+      mountedPathname: "/starter/mcp",
+      pathname: "/",
+      path: "/",
+    });
+  });
+
+  it("waits for default plugin bootstrap before app-scoped well-known routes fall through", async () => {
+    process.env.APP_BASE_PATH = "/starter";
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const nitroApp = createNitroApp();
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await ready;
+      getH3App(nitroApp).use("/.well-known/agent-card.json", () => ({
+        ok: true,
+      }));
+      return [];
+    });
+
+    getH3App(nitroApp);
+    const pending = dispatch(nitroApp, "/starter/.well-known/agent-card.json");
+    await Promise.resolve();
+
+    release();
+
+    await expect(pending).resolves.toEqual({ ok: true });
+  });
+
+  it("waits for default plugin bootstrap before the root route falls through", async () => {
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const nitroApp = createNitroApp();
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      getH3App(nitroApp).use("/", () => ({ ok: true }));
+      return [];
+    });
+
+    getH3App(nitroApp);
+    let settled = false;
+    const pending = dispatch(nitroApp, "/").then((result) => {
+      settled = true;
+      return result;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    release();
+
+    await expect(pending).resolves.toEqual({ ok: true });
+  });
+
+  it("waits for default plugin bootstrap before an app-scoped root route falls through", async () => {
+    process.env.APP_BASE_PATH = "/docs";
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const nitroApp = createNitroApp();
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      getH3App(nitroApp).use("/", () => ({ ok: true }));
+      return [];
+    });
+
+    getH3App(nitroApp);
+    let settled = false;
+    const pending = dispatch(nitroApp, "/docs").then((result) => {
+      settled = true;
+      return result;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    release();
+
+    await expect(pending).resolves.toEqual({ ok: true });
+  });
+
+  it("waits for default plugin bootstrap before a trailing-slash app root falls through", async () => {
+    process.env.APP_BASE_PATH = "/docs";
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const nitroApp = createNitroApp();
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      getH3App(nitroApp).use("/", () => ({ ok: true }));
+      return [];
+    });
+
+    getH3App(nitroApp);
+    let settled = false;
+    const pending = dispatch(nitroApp, "/docs/").then((result) => {
+      settled = true;
+      return result;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    release();
+
+    await expect(pending).resolves.toEqual({ ok: true });
+  });
+
+  it("does not treat an app-scoped child route as the root route", async () => {
+    process.env.APP_BASE_PATH = "/docs";
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp).use("/", () => ({ root: true }));
+
+    await expect(
+      dispatch(nitroApp, "/docs/_agent-native/resources"),
+    ).resolves.toEqual({ fellThrough: true });
+  });
+
+  it("holds framework requests before already-registered middleware runs", async () => {
+    let release!: () => void;
+    let pluginsReady = false;
+    const ready = new Promise<void>((resolve) => {
+      release = () => {
+        pluginsReady = true;
+        resolve();
+      };
+    });
+    const observedPluginReadiness: boolean[] = [];
+    const nitroApp = createNitroApp();
+    nitroApp.h3["~middleware"].push(async (_event: any, next: any) => {
+      observedPluginReadiness.push(pluginsReady);
+      return next();
+    });
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await ready;
+      getH3App(nitroApp).use("/_agent-native/mcp", () => ({
+        ok: true,
+      }));
+      return [];
+    });
+
+    getH3App(nitroApp);
+    const pending = dispatch(nitroApp, "/_agent-native/mcp");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(observedPluginReadiness).toEqual([]);
+    release();
+
+    await expect(pending).resolves.toEqual({ ok: true });
+    expect(observedPluginReadiness).toEqual([true]);
+  });
+
+  it("does not auto-mount a default plugin slot marked as provided at runtime", async () => {
+    const nitroApp = createNitroApp();
+    markDefaultPluginProvided(nitroApp, "agent-chat");
+    vi.mocked(getMissingDefaultPlugins).mockResolvedValueOnce(["agent-chat"]);
+
+    getH3App(nitroApp);
+
+    await expect(
+      dispatch(nitroApp, "/.well-known/agent-card.json"),
+    ).resolves.toEqual({ fellThrough: true });
+  });
+
+  it("does not auto-mount a default plugin slot refused by plugins.disabled", async () => {
+    process.env.AGENT_NATIVE_DISABLED_PLUGINS = "agent-chat";
+    resetAppConfigForTests();
+    const nitroApp = createNitroApp();
+    vi.mocked(getMissingDefaultPlugins).mockResolvedValueOnce(["agent-chat"]);
+
+    getH3App(nitroApp);
+
+    await expect(
+      dispatch(nitroApp, "/.well-known/agent-card.json"),
+    ).resolves.toEqual({ fellThrough: true });
+  });
+
+  it("honours a plugins.disabled set by a server plugin that runs after bootstrap starts", async () => {
+    const nitroApp = createNitroApp();
+    vi.mocked(getMissingDefaultPlugins).mockResolvedValueOnce(["agent-chat"]);
+
+    getH3App(nitroApp);
+    // Nitro does not await async plugins, so a later `defineAppConfig()` still
+    // lands before bootstrap reads the mount set.
+    defineAppConfig({ plugins: { disabled: ["agent-chat"] } });
+
+    await expect(
+      dispatch(nitroApp, "/.well-known/agent-card.json"),
+    ).resolves.toEqual({ fellThrough: true });
+  });
+
+  it("surfaces an unknown plugins.disabled slot instead of dropping every default plugin", () => {
+    process.env.AGENT_NATIVE_DISABLED_PLUGINS = "agent-chatt";
+    resetAppConfigForTests();
+
+    expect(() => getH3App(createNitroApp())).toThrow(/"disabled"/);
+  });
+
+  it("does not block unrelated framework routes on route-scoped plugin init", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    getH3App(nitroApp).use("/_agent-native/auth/session", () => ({
+      ok: true,
+    }));
+    trackPluginInit(nitroApp, ready, {
+      paths: ["/_agent-native/agent-chat"],
+    });
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/auth/session"),
+    ).resolves.toEqual({ ok: true });
+
+    release();
+  });
+
+  it("dispatches an explicitly early route while default bootstrap is pending", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      return [];
+    });
+
+    markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [
+      "/_agent-native/sign-in",
+    ]);
+    getH3App(nitroApp).use("/_agent-native/sign-in", () => ({ ok: true }));
+
+    await expect(dispatch(nitroApp, "/_agent-native/sign-in")).resolves.toEqual(
+      { ok: true },
+    );
+
+    release();
+  });
+
+  it("does not wait for unscoped plugin initialization on an early route", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [
+      "/_agent-native/sign-in",
+    ]);
+    getH3App(nitroApp).use("/_agent-native/sign-in", () => ({ ok: true }));
+    trackPluginInit(nitroApp, ready);
+
+    await expect(dispatch(nitroApp, "/_agent-native/sign-in")).resolves.toEqual(
+      { ok: true },
+    );
+
+    release();
+  });
+
+  it.each(["/sign-in", "/login", "/signup"])(
+    "does not wait for unscoped plugin initialization on canonical auth route %s",
+    async (path) => {
+      const nitroApp = createNitroApp();
+      let release!: () => void;
+      const ready = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+
+      markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [path]);
+      getH3App(nitroApp).use(path, () => ({ ok: true }));
+      trackPluginInit(nitroApp, ready);
+
+      await expect(dispatch(nitroApp, path)).resolves.toEqual({ ok: true });
+
+      release();
+    },
+  );
+
+  it("does not wait for an excluded route in a broad plugin readiness entry", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    getH3App(nitroApp).use("/_agent-native/sign-in", () => ({ ok: true }));
+    trackPluginInit(nitroApp, ready, {
+      paths: ["/_agent-native"],
+      excludedPaths: ["/_agent-native/sign-in"],
+    });
+
+    await expect(dispatch(nitroApp, "/_agent-native/sign-in")).resolves.toEqual(
+      { ok: true },
+    );
+
+    release();
+  });
+
+  it("does not hold the static speculation-rules route on plugin bootstrap", async () => {
+    const nitroApp = createNitroApp();
+    process.env.AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS = "10";
+    getH3App(nitroApp).use("/_agent-native/speculation-rules.json", () => ({
+      prefetch: [],
+      prerender: [],
+    }));
+    trackPluginInit(nitroApp, new Promise<void>(() => {}), {
+      paths: ["/_agent-native"],
+    });
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/speculation-rules.json"),
+    ).resolves.toEqual({ prefetch: [], prerender: [] });
+  });
+
+  it("waits for matching route-scoped plugin init", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let settled = false;
+
+    getH3App(nitroApp).use("/_agent-native/agent-chat", () => ({
+      ok: true,
+    }));
+    trackPluginInit(nitroApp, ready, {
+      paths: ["/_agent-native/agent-chat"],
+    });
+
+    const pending = dispatch(nitroApp, "/_agent-native/agent-chat").then(
+      (result) => {
+        settled = true;
+        return result;
+      },
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    release();
+
+    await expect(pending).resolves.toEqual({ ok: true });
+  });
+
+  it("answers with a retryable 503 when plugin init outlives the ready deadline", async () => {
+    const nitroApp = createNitroApp();
+    process.env.AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS = "10";
+
+    // Never resolves — a cold boot still running when the budget runs out.
+    trackPluginInit(nitroApp, new Promise<void>(() => {}), {
+      paths: ["/_agent-native/agent-chat"],
+    });
+
+    const event: any = {};
+    await expect(
+      dispatch(nitroApp, "/_agent-native/agent-chat", (e) => {
+        Object.assign(event, e);
+      }),
+    ).resolves.toEqual({
+      error: "agent-native routes are still initializing",
+    });
+    expect(event.res.status).toBe(503);
+    expect(event.res.headers.get("retry-after")).toBe("5");
+  });
+
+  it("installs the readiness gate when async plugin init is tracked first", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = () => {
+        getH3App(nitroApp).use("/_agent-native/agent-chat", () => ({
+          ok: true,
+        }));
+        resolve();
+      };
+    });
+    let settled = false;
+
+    trackPluginInit(nitroApp, ready, {
+      paths: ["/_agent-native/agent-chat"],
+    });
+
+    const pending = dispatch(nitroApp, "/_agent-native/agent-chat").then(
+      (result) => {
+        settled = true;
+        return result;
+      },
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    release();
+
+    await expect(pending).resolves.toEqual({ ok: true });
+  });
+
+  it("returns a retryable 503 instead of a bare 404 when tracked plugin init fails", async () => {
+    // Reproduces the recurring hosted MCP 404: on a cold/propagating instance
+    // the async plugin init can reject (e.g. DB unreachable) before it ever
+    // registers /_agent-native/mcp. Without the failure fallback the readiness
+    // gate would release into a bare "Cannot find any route matching" 404 that
+    // external MCP clients (pi/codex) can't recover from.
+    const nitroApp = createNitroApp();
+    let fail!: (err: Error) => void;
+    const ready = new Promise<void>((_resolve, reject) => {
+      fail = reject;
+    });
+    trackPluginInit(nitroApp, ready, {
+      paths: ["/_agent-native/mcp"],
+    });
+
+    fail(new Error("db unreachable"));
+    // Let the tracked-init catch record the failure.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const result = await dispatch(nitroApp, "/_agent-native/mcp");
+
+    // Must not fall through to a bare 404; returns a meaningful, retryable body.
+    expect(result).not.toEqual({ fellThrough: true });
+    expect(JSON.stringify(result)).toContain("initializing or unavailable");
+  });
+
+  // Models production-dispatcher ordering: h3 snapshots middleware once at the
+  // start of `handler()`, but awaits the `request` hook (onRequest) before that.
+  // The default `dispatch` helper re-reads `~middleware` per step, so only this
+  // harness can expose the snapshot race.
+  function createHookableNitroApp() {
+    const requestHooks: Array<(event: any) => unknown> = [];
+    return {
+      h3: { "~middleware": [] as any[] },
+      hooks: {
+        hook: (name: string, fn: (event: any) => unknown) => {
+          if (name === "request") requestHooks.push(fn);
+        },
+      },
+      __requestHooks: requestHooks,
+    };
+  }
+
+  async function dispatchProductionOrder(
+    nitroApp: any,
+    pathname: string,
+    opts: { runRequestHooks: boolean },
+  ) {
+    const url = new URL(`http://example.test${pathname}`);
+    const event = {
+      method: "GET",
+      url,
+      path: pathname,
+      context: {},
+      // See `dispatch()` above — the globally-registered CSRF middleware
+      // needs a real h3-v2 `event.req`.
+      req: new Request(url, { method: "GET" }),
+      res: { status: 200, headers: new Headers() },
+    };
+    // Nitro bridges the `request` hook to h3's `config.onRequest`, which h3
+    // awaits before `handler()`. When disabled we model the broken path: no
+    // pre-routing wait, so the snapshot is taken with whatever exists now.
+    if (opts.runRequestHooks) {
+      for (const fn of nitroApp.__requestHooks) await fn(event);
+    }
+    // handler(): snapshot the middleware list ONCE, then run that snapshot.
+    const snapshot = [...nitroApp.h3["~middleware"]];
+    let index = 0;
+    const next = async (): Promise<unknown> => {
+      const mw = snapshot[index++];
+      if (!mw) return { fellThrough: true };
+      return mw(event, next);
+    };
+    return next();
+  }
+
+  it("(bug) middleware-only gate falls through to 404 when the route registers after the snapshot", async () => {
+    const nitroApp = createHookableNitroApp();
+    let registerRoute!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      registerRoute = () => {
+        getH3App(nitroApp).use(
+          "/_agent-native/actions/update-visual-plan",
+          () => ({ ok: true }),
+        );
+        resolve();
+      };
+    });
+    trackPluginInit(nitroApp, ready, { paths: ["/_agent-native/actions"] });
+
+    // Snapshot is taken before the route exists; init completes mid-flight.
+    const pending = dispatchProductionOrder(
+      nitroApp,
+      "/_agent-native/actions/update-visual-plan",
+      { runRequestHooks: false },
+    );
+    await Promise.resolve();
+    registerRoute();
+
+    await expect(pending).resolves.toEqual({ fellThrough: true });
+  });
+
+  it("delivers a route registered during async init by waiting in the request hook (before the snapshot)", async () => {
+    const nitroApp = createHookableNitroApp();
+    let registerRoute!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      registerRoute = () => {
+        getH3App(nitroApp).use(
+          "/_agent-native/actions/update-visual-plan",
+          () => ({ ok: true }),
+        );
+        resolve();
+      };
+    });
+    trackPluginInit(nitroApp, ready, { paths: ["/_agent-native/actions"] });
+
+    const pending = dispatchProductionOrder(
+      nitroApp,
+      "/_agent-native/actions/update-visual-plan",
+      { runRequestHooks: true },
+    );
+    // Init completes while the request hook is awaiting readiness, before the
+    // middleware snapshot is taken.
+    await Promise.resolve();
+    registerRoute();
+
+    await expect(pending).resolves.toEqual({ ok: true });
+  });
+
+  it.each([
+    {
+      trackedPath: "/.well-known/agent-card.json",
+      requestPath: "/.well-known/agent-card.json",
+    },
+    {
+      trackedPath: "/_agent-native/a2a",
+      requestPath: "/_agent-native/a2a/processor",
+    },
+  ])(
+    "delivers $requestPath when its agent-chat route registers during async init",
+    async ({ trackedPath, requestPath }) => {
+      const nitroApp = createHookableNitroApp();
+      let registerRoute!: () => void;
+      const ready = new Promise<void>((resolve) => {
+        registerRoute = () => {
+          getH3App(nitroApp).use(trackedPath, () => ({ ok: true }));
+          resolve();
+        };
+      });
+      trackPluginInit(nitroApp, ready, { paths: [trackedPath] });
+
+      const pending = dispatchProductionOrder(nitroApp, requestPath, {
+        runRequestHooks: true,
+      });
+      await Promise.resolve();
+      registerRoute();
+
+      await expect(pending).resolves.toEqual({ ok: true });
+    },
+  );
+
+  it.each([
+    {
+      trackedPath: "/.well-known/agent-card.json",
+      requestPath: "/.well-known/agent-card.json",
+    },
+    {
+      trackedPath: "/_agent-native/a2a",
+      requestPath: "/_agent-native/a2a/processor",
+    },
+  ])(
+    "returns a retryable 503 when $requestPath initialization fails",
+    async ({ trackedPath, requestPath }) => {
+      const nitroApp = createNitroApp();
+      let fail!: (err: Error) => void;
+      const ready = new Promise<void>((_resolve, reject) => {
+        fail = reject;
+      });
+      trackPluginInit(nitroApp, ready, { paths: [trackedPath] });
+
+      fail(new Error("db unreachable"));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      let response: any;
+      const result = await dispatch(nitroApp, requestPath, (event) => {
+        response = event.res;
+      });
+
+      expect(response.status).toBe(503);
+      expect(JSON.stringify(result)).toContain("initializing or unavailable");
+    },
+  );
+
+  it("does not treat similar non-prefixed paths as framework routes", async () => {
+    process.env.APP_BASE_PATH = "/docs";
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp).use("/_agent-native/extensions", () => ({
+      matched: true,
+    }));
+
+    await expect(
+      dispatch(nitroApp, "/docs-extra/_agent-native/extensions"),
+    ).resolves.toEqual({ fellThrough: true });
+  });
+});

@@ -1,0 +1,796 @@
+import { callAction } from "@agent-native/core/client/hooks";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import {
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@agent-native/toolkit/app-shell";
+import { VisibilityBadge } from "@agent-native/toolkit/sharing";
+import {
+  IconPlus,
+  IconLoader2,
+  IconDots,
+  IconTrash,
+  IconCopy,
+  IconExternalLink,
+  IconChartBar,
+  IconRefresh,
+  IconArchive,
+  IconArchiveOff,
+  IconChecks,
+  IconX,
+} from "@tabler/icons-react";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router";
+import { toast } from "sonner";
+
+import { CloudUpgrade } from "@/components/CloudUpgrade";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useDbStatus } from "@/hooks/use-db-status";
+import {
+  useForms,
+  useCreateForm,
+  useDeleteForm,
+  useRestoreForm,
+  useUpdateForm,
+} from "@/hooks/use-forms";
+import { cn } from "@/lib/utils";
+
+const statusColors: Record<string, string> = {
+  draft:
+    "bg-amber-600/10 text-amber-600 dark:text-amber-400 border-amber-600/20",
+  published:
+    "bg-emerald-600/10 text-emerald-600 dark:text-emerald-400 border-emerald-600/20",
+  closed: "bg-destructive/10 text-destructive border-destructive/20",
+};
+
+export function FormsListPage() {
+  const t = useT();
+  const formatters = useFormatters();
+  const formatDate = formatters.formatDate.bind(formatters);
+  const formatNumber = formatters.formatNumber.bind(formatters);
+  const navigate = useNavigate();
+  const [view, setView] = useState<"active" | "archive">("active");
+  const {
+    data: forms = [],
+    isLoading,
+    error,
+    refetch,
+  } = useForms({ archived: view === "archive" });
+  const createForm = useCreateForm();
+  const deleteForm = useDeleteForm();
+  const restoreForm = useRestoreForm();
+  const updateForm = useUpdateForm();
+  const { isLocal } = useDbStatus();
+  const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
+  const [purgeId, setPurgeId] = useState<string | null>(null);
+  const [bulkPurgeOpen, setBulkPurgeOpen] = useState(false);
+  const [bulkDeletePending, setBulkDeletePending] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  }, [view]);
+
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const visibleIds = new Set(forms.map((form: any) => form.id));
+      const next = new Set([...prev].filter((id) => visibleIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [forms]);
+
+  function handleCreate() {
+    createForm.mutate(
+      { title: t("forms.untitled") },
+      { onSuccess: (form) => navigate(`/forms/${form.id}`) },
+    );
+  }
+
+  useSetPageTitle(t("header.forms"));
+
+  const headerActions = useMemo(
+    () => (
+      <Button
+        onClick={handleCreate}
+        disabled={createForm.isPending}
+        size="sm"
+        className="min-h-10 shrink-0 cursor-pointer active:scale-[0.96] transition-[background-color,box-shadow,transform]"
+      >
+        {createForm.isPending ? (
+          <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <IconPlus className="h-3.5 w-3.5" />
+        )}
+        <span className="hidden sm:inline">{t("forms.newForm")}</span>
+        <span className="sm:hidden">{t("forms.new")}</span>
+      </Button>
+    ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [createForm.isPending],
+  );
+  useSetHeaderActions(headerActions);
+
+  async function handleDuplicate(form: (typeof forms)[0]) {
+    // The list payload no longer ships the heavy `fields` / `settings` JSON,
+    // so fetch the full form on demand to clone its schema and settings.
+    try {
+      const full = await callAction("get-form", { id: form.id });
+      createForm.mutate(
+        {
+          title: t("forms.copyTitle", { title: full.title }),
+          description: full.description,
+          fields: full.fields,
+          settings: full.settings,
+        },
+        {
+          onSuccess: (newForm) => {
+            toast.success(t("forms.duplicated"));
+            void navigate(`/forms/${newForm.id}`);
+          },
+        },
+      );
+    } catch {
+      toast.error(t("forms.duplicateFailed"));
+    }
+  }
+
+  function handleArchive(id: string) {
+    const toastId = toast.loading(t("forms.movingToArchive"));
+    deleteForm.mutate(
+      { id },
+      {
+        onSuccess: () =>
+          toast.success(t("forms.movedToArchive"), { id: toastId }),
+        onError: () => toast.error(t("forms.archiveFailed"), { id: toastId }),
+      },
+    );
+  }
+
+  function handleRestore(id: string) {
+    restoreForm.mutate(
+      { id },
+      {
+        onSuccess: () => toast.success(t("forms.restored")),
+      },
+    );
+  }
+
+  function handlePurge() {
+    if (!purgeId) return;
+    const id = purgeId;
+    setPurgeId(null);
+    deleteForm.mutate(
+      { id, purge: true },
+      {
+        onSuccess: () => toast.success(t("forms.permanentlyDeleted")),
+      },
+    );
+  }
+
+  function toggleSelection(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+  }
+
+  function toggleSelectAll() {
+    setSelectedIds((prev) => {
+      if (forms.length > 0 && forms.every((form: any) => prev.has(form.id))) {
+        return new Set();
+      }
+      return new Set(forms.map((form: any) => form.id));
+    });
+  }
+
+  async function handleBulkDelete(purge = false) {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+
+    const toastId = purge
+      ? undefined
+      : toast.loading(t("forms.movingToArchive"));
+    setBulkDeletePending(true);
+    try {
+      await deleteForm.mutateAsync({
+        id: ids,
+        purge,
+      });
+      toast.success(
+        ids.length === 1
+          ? purge
+            ? t("forms.permanentlyDeleted")
+            : t("forms.movedToArchive")
+          : purge
+            ? t("forms.bulkPermanentlyDeleted", {
+                count: ids.length,
+                formattedCount: formatNumber(ids.length),
+              })
+            : t("forms.bulkMovedToArchive", {
+                count: ids.length,
+                formattedCount: formatNumber(ids.length),
+              }),
+        toastId ? { id: toastId } : undefined,
+      );
+      setSelectedIds(new Set());
+      setSelectionMode(false);
+      setBulkPurgeOpen(false);
+    } catch {
+      if (toastId) {
+        toast.error(t("forms.archiveFailed"), { id: toastId });
+      }
+    } finally {
+      setBulkDeletePending(false);
+    }
+  }
+
+  function handleTogglePublish(form: (typeof forms)[0]) {
+    const newStatus = form.status === "published" ? "draft" : "published";
+    if (newStatus === "published" && isLocal) {
+      setShowCloudUpgrade(true);
+      return;
+    }
+    updateForm.mutate(
+      { id: form.id, status: newStatus },
+      {
+        onSuccess: () =>
+          toast.success(
+            newStatus === "published"
+              ? t("forms.published")
+              : t("forms.unpublished"),
+          ),
+      },
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="p-3 sm:p-6 max-w-5xl mx-auto">
+        <div className="forms-list-shell overflow-hidden bg-card">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div
+              key={i}
+              className="forms-list-skeleton-row grid gap-3 border-b border-border px-3 py-3 last:border-b-0"
+            >
+              <div className="min-w-0 space-y-2">
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-3 w-1/2" />
+              </div>
+              <Skeleton className="h-5 w-20 rounded-full" />
+              <Skeleton className="h-5 w-20 rounded-full" />
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-10 w-10 rounded-lg md:ms-auto" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (error && !forms?.length) {
+    const status = (error as { status?: number })?.status;
+    if (status === 401) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full gap-3">
+          <p className="text-sm text-muted-foreground">
+            {t("forms.signInPrompt")}
+          </p>
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="min-h-10 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
+          >
+            <a href={buildSignInReturnHref()}>{t("common.signIn")}</a>
+          </Button>
+        </div>
+      );
+    }
+    const reason =
+      error instanceof Error
+        ? error.message.replace(/^Action list-forms failed:\s*/, "")
+        : t("forms.loadFailed");
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3 px-4 text-center">
+        <p className="text-sm text-muted-foreground max-w-sm">{reason}</p>
+        <Button
+          variant="outline"
+          size="sm"
+          className="min-h-10 gap-2 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
+          onClick={() => refetch()}
+        >
+          <IconRefresh className="h-3.5 w-3.5" />
+          {t("common.retry")}
+        </Button>
+      </div>
+    );
+  }
+
+  const isArchive = view === "archive";
+  const selectedCount = selectedIds.size;
+  const allFormsSelected =
+    forms.length > 0 && forms.every((form: any) => selectedIds.has(form.id));
+
+  return (
+    <div className="p-3 sm:p-6 max-w-5xl mx-auto">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <Tabs
+          value={view}
+          onValueChange={(v) => setView(v as "active" | "archive")}
+        >
+          <TabsList className="h-12">
+            <TabsTrigger
+              value="active"
+              className="min-h-10 gap-1.5 text-xs active:scale-[0.96] transition-[background-color,box-shadow,color,transform]"
+            >
+              {t("header.forms")}
+            </TabsTrigger>
+            <TabsTrigger
+              value="archive"
+              className="min-h-10 gap-1.5 text-xs active:scale-[0.96] transition-[background-color,box-shadow,color,transform]"
+            >
+              <IconArchive className="h-3.5 w-3.5" />
+              {t("forms.archive")}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        {forms.length > 0 && (
+          <Button
+            variant={selectionMode ? "secondary" : "ghost"}
+            size="sm"
+            className="min-h-10 gap-1.5 text-xs active:scale-[0.96] transition-[background-color,box-shadow,transform]"
+            onClick={() => {
+              setSelectionMode((current) => {
+                if (current) setSelectedIds(new Set());
+                return !current;
+              });
+            }}
+          >
+            <IconChecks className="h-3.5 w-3.5" />
+            {selectionMode ? t("common.done") : t("common.select")}
+          </Button>
+        )}
+      </div>
+
+      {selectionMode && forms.length > 0 && (
+        <div className="forms-selection-toolbar mb-4 flex flex-wrap items-center gap-2 rounded-xl bg-muted/30 px-3 py-2">
+          <span className="text-xs font-medium text-foreground">
+            {t("forms.selectedCount", {
+              count: selectedCount,
+              formattedCount: formatNumber(selectedCount),
+            })}
+          </span>
+          <div className="h-4 w-px bg-border" />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="min-h-10 text-xs active:scale-[0.96] transition-[background-color,box-shadow,transform]"
+            onClick={toggleSelectAll}
+          >
+            {allFormsSelected ? t("common.clearAll") : t("common.selectAll")}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="min-h-10 gap-1.5 text-xs text-destructive hover:text-destructive active:scale-[0.96] transition-[background-color,box-shadow,transform]"
+            onClick={() =>
+              isArchive ? setBulkPurgeOpen(true) : handleBulkDelete(false)
+            }
+            disabled={selectedCount === 0 || bulkDeletePending}
+          >
+            {bulkDeletePending ? (
+              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : isArchive ? (
+              <IconTrash className="h-3.5 w-3.5" />
+            ) : (
+              <IconArchive className="h-3.5 w-3.5" />
+            )}
+            {isArchive ? t("forms.deleteForever") : t("forms.moveToArchive")}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="relative ms-auto size-10 transition-[background-color,box-shadow,transform] active:scale-[0.96] sm:size-8 sm:before:absolute sm:before:-inset-1 sm:before:content-['']"
+            onClick={clearSelection}
+            aria-label={t("forms.exitSelectionMode")}
+          >
+            <IconX className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      )}
+
+      {forms.length === 0 ? (
+        <div className="forms-empty-state flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card py-20">
+          {isArchive ? (
+            <>
+              <h3 className="font-medium mb-1">
+                {t("forms.archiveEmptyTitle")}
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                {t("forms.archiveEmptyDescription")}
+              </p>
+            </>
+          ) : (
+            <>
+              <h3 className="font-medium mb-1">{t("forms.emptyTitle")}</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                {t("forms.emptyDescription")}
+              </p>
+              <Button
+                onClick={handleCreate}
+                size="sm"
+                className="min-h-10 gap-2 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
+              >
+                <IconPlus className="h-4 w-4" />
+                {t("forms.createForm")}
+              </Button>
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="forms-list-shell overflow-hidden bg-card">
+          {forms.map((form: any) => {
+            const selected = selectedIds.has(form.id);
+            const formHref = isArchive
+              ? `/forms/${form.id}/responses`
+              : `/forms/${form.id}`;
+            const dateLabel =
+              isArchive && (form as any).deletedAt
+                ? t("forms.deletedDate", {
+                    date: formatDate((form as any).deletedAt, {
+                      month: "short",
+                      day: "numeric",
+                    }),
+                  })
+                : formatDate(form.createdAt, {
+                    month: "short",
+                    day: "numeric",
+                  });
+            const formDetails = (
+              <>
+                <div className="flex min-w-0 items-center gap-2">
+                  <h3 className="min-w-0 flex-1 truncate text-sm font-medium">
+                    {form.title}
+                  </h3>
+                </div>
+                {form.description && (
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {form.description}
+                  </p>
+                )}
+              </>
+            );
+
+            return (
+              <div
+                key={form.id}
+                className={cn(
+                  "forms-list-row group grid cursor-pointer gap-3 border-b border-border px-3 py-3 last:border-b-0",
+                  isArchive
+                    ? "opacity-80 hover:opacity-100 hover:bg-accent/25"
+                    : "hover:bg-accent/25",
+                  selectionMode && "hover:bg-accent/30",
+                  selected && "bg-accent/35 ring-1 ring-inset ring-primary/20",
+                )}
+                role="button"
+                tabIndex={0}
+                aria-pressed={selectionMode ? selected : undefined}
+                onClick={(event) => {
+                  if (
+                    event.defaultPrevented ||
+                    event.metaKey ||
+                    event.ctrlKey ||
+                    event.shiftKey ||
+                    event.altKey ||
+                    event.button !== 0
+                  ) {
+                    return;
+                  }
+                  if (selectionMode) {
+                    toggleSelection(form.id);
+                    return;
+                  }
+                  void navigate(formHref);
+                }}
+                onKeyDown={(e) => {
+                  if (
+                    (e.key === "Enter" || e.key === " ") &&
+                    e.target === e.currentTarget
+                  ) {
+                    e.preventDefault();
+                    if (selectionMode) {
+                      toggleSelection(form.id);
+                      return;
+                    }
+                    void navigate(formHref);
+                  }
+                }}
+              >
+                <div className="flex min-w-0 items-start gap-2.5">
+                  {selectionMode && (
+                    <Checkbox
+                      checked={selected}
+                      onCheckedChange={() => toggleSelection(form.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label={t("forms.selectForm", {
+                        title: form.title,
+                      })}
+                      className="mt-0.5 shrink-0"
+                    />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    {selectionMode ? (
+                      formDetails
+                    ) : (
+                      <Link
+                        to={formHref}
+                        className="block min-w-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        {formDetails}
+                      </Link>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex min-w-0 items-center">
+                  <VisibilityBadge visibility={(form as any).visibility} />
+                </div>
+
+                <div className="flex items-center md:justify-start">
+                  <Badge
+                    variant="outline"
+                    className={cn("text-[10px]", statusColors[form.status])}
+                  >
+                    {form.status}
+                  </Badge>
+                </div>
+
+                <div className="min-w-0 text-xs text-muted-foreground">
+                  {t("responses.totalCount", {
+                    count: form.responseCount ?? 0,
+                    formattedCount: formatNumber(form.responseCount ?? 0),
+                  })}
+                </div>
+
+                <div className="min-w-0 text-xs text-muted-foreground">
+                  {dateLabel}
+                </div>
+
+                <div className="flex justify-end">
+                  {!selectionMode && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        asChild
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="relative size-10 rounded-lg p-0 transition-[background-color,opacity,transform] duration-150 ease-out active:scale-[0.96] focus:opacity-100 sm:size-8 sm:opacity-0 sm:before:absolute sm:before:-inset-1 sm:before:content-[''] sm:group-hover:opacity-100"
+                          aria-label={t("forms.formActions")}
+                        >
+                          <IconDots className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {isArchive ? (
+                          <>
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void navigate(`/forms/${form.id}/responses`);
+                              }}
+                            >
+                              <IconChartBar className="h-4 w-4 me-2" />
+                              {t("forms.viewResponses")}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRestore(form.id);
+                              }}
+                            >
+                              <IconArchiveOff className="h-4 w-4 me-2" />
+                              {t("forms.restore")}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPurgeId(form.id);
+                              }}
+                            >
+                              <IconTrash className="h-4 w-4 me-2" />
+                              {t("forms.deleteForever")}
+                            </DropdownMenuItem>
+                          </>
+                        ) : (
+                          (() => {
+                            // Viewers see a form they were granted access to but
+                            // can't manage it: hide Delete, Publish/Unpublish, and
+                            // Duplicate. Viewing responses is also editor-only —
+                            // submissions are sensitive and view access on the
+                            // form structure shouldn't grant access to them.
+                            const formRole = (form as any).role as
+                              | "owner"
+                              | "viewer"
+                              | "editor"
+                              | "admin"
+                              | undefined;
+                            const formCanEdit =
+                              formRole === "owner" ||
+                              formRole === "editor" ||
+                              formRole === "admin";
+                            if (!formCanEdit) {
+                              return (
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void navigate(`/forms/${form.id}`);
+                                  }}
+                                >
+                                  <IconExternalLink className="h-4 w-4 me-2" />
+                                  {t("common.open")}
+                                </DropdownMenuItem>
+                              );
+                            }
+                            return (
+                              <>
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void navigate(
+                                      `/forms/${form.id}/responses`,
+                                    );
+                                  }}
+                                >
+                                  <IconChartBar className="h-4 w-4 me-2" />
+                                  {t("forms.viewResponses")}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleTogglePublish(form);
+                                  }}
+                                >
+                                  <IconExternalLink className="h-4 w-4 me-2" />
+                                  {form.status === "published"
+                                    ? t("forms.unpublish")
+                                    : t("forms.publish")}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void handleDuplicate(form);
+                                  }}
+                                >
+                                  <IconCopy className="h-4 w-4 me-2" />
+                                  {t("forms.duplicate")}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="text-destructive"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleArchive(form.id);
+                                  }}
+                                >
+                                  <IconArchive className="h-4 w-4 me-2" />
+                                  {t("forms.moveToArchive")}
+                                </DropdownMenuItem>
+                              </>
+                            );
+                          })()
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <AlertDialog
+        open={purgeId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPurgeId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("forms.purgeTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("forms.purgeDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="min-h-10 active:scale-[0.96] transition-[background-color,box-shadow,transform]">
+              {t("common.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handlePurge}
+              className="min-h-10 bg-destructive text-destructive-foreground hover:bg-destructive/90 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
+            >
+              {t("forms.deleteForever")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={bulkPurgeOpen} onOpenChange={setBulkPurgeOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("forms.bulkPurgeTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("forms.bulkPurgeDescription", {
+                count: selectedCount,
+                formattedCount: formatNumber(selectedCount),
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              disabled={bulkDeletePending}
+              className="min-h-10 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
+            >
+              {t("common.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => handleBulkDelete(true)}
+              disabled={bulkDeletePending}
+              className="min-h-10 bg-destructive text-destructive-foreground hover:bg-destructive/90 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
+            >
+              {t("forms.deleteForever")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {showCloudUpgrade && (
+        <CloudUpgrade
+          title={t("forms.publishCloudTitle")}
+          description={t("forms.publishCloudDescription")}
+          onClose={() => setShowCloudUpgrade(false)}
+        />
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,114 @@
+---
+title: "Messaging, routing, and approvals"
+description: "How Slack, Microsoft Teams, Discord, Telegram, WhatsApp, email, and A2A requests all land in one Dispatch inbox, get routed to the right agent, and can be gated behind an approval."
+---
+
+# Messaging, routing, and approvals
+
+Dispatch is the one inbox for every channel your team talks to the agent from, and the router that decides whether it answers directly, hands the request to a domain agent, or waits for a human to approve it first. This page is for anyone connecting a channel, tuning routing, or reviewing what needs approval.
+
+## Central inbox {#inbox}
+
+Slack, Microsoft Teams, Discord interactions, Telegram, WhatsApp Cloud API, and provider-webhook email all land in one place, alongside inbound A2A requests from other agents. The Dispatch agent triages each one and either handles it directly or delegates it. See [Messaging](/docs/messaging) for how to wire a channel into your workspace.
+
+## Orchestrator vs specialist {#orchestrator}
+
+Dispatch does _not_ try to be the email app or the analytics app. When someone asks "summarize last week's signups," Dispatch calls the analytics agent over [A2A](/docs/a2a-protocol) and returns the answer. When someone asks "draft a reply to Alice," Dispatch calls the mail agent. The chat is set up as a router: it reads `AGENTS.md` and routes to specialist sub-agents or remote A2A agents rather than answering domain questions itself.
+
+<Diagram id="doc-block-dispatch3" title={"Routing and approval"} summary={"Every channel lands in the same inbox. The orchestrator either handles a request directly, delegates it to a domain agent over A2A, or — for a gated action — sends it to the approval queue first."}>
+
+```html
+<div class="dsp-route-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">Slack · Teams · Discord</div>
+    <div class="diagram-node">Telegram · WhatsApp</div>
+    <div class="diagram-node">Email webhook · A2A request</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">Dispatch inbox &amp; orchestrator</span
+    ><small class="diagram-muted">triage</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">Handled directly</div>
+    <div class="diagram-node">
+      Delegated to a domain agent<br /><small class="diagram-muted"
+        >over A2A</small
+      >
+    </div>
+    <div class="diagram-node">
+      <span class="diagram-pill warn">Gated action</span><br /><small
+        class="diagram-muted"
+        >&rarr; Approvals queue</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.dsp-route-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.dsp-route-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dsp-route-flow .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.dsp-route-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## Connecting Slack, Teams, Discord, Telegram, WhatsApp, and email {#connecting}
+
+Wire up each channel from Dispatch's **Messaging** page — see [Messaging](/docs/messaging) for the setup steps for each platform. Once an external sender messages the agent, Dispatch can link them to a workspace user with a one-time `/link TOKEN` code; see the Identities section on [Operating the workspace](/docs/template-dispatch-operations#identities).
+
+## Approval flow {#approvals}
+
+Dispatch can gate its own durable, workspace-wide changes behind a second admin's review — it does not gate arbitrary business actions inside domain apps (a Mail send or a Forms webhook has its own risk controls, not this queue). From Dispatch's **Approvals** page:
+
+- Toggle **Require approval for durable changes** on or off. When it's on, it applies to saved destinations, shared Dream proposals, All-app agent resources, and Dispatch settings.
+- Set the list of **approver emails** who can review requests. This requires a team workspace, not a solo one.
+- The pending/recent request list shows each request's summary, status, and who requested it, with **Approve** and **Reject** buttons for anything still pending.
+
+Agents use the same workflow through actions: `get-dispatch-settings` and `set-dispatch-approval-policy` manage the policy and approver list; `list-dispatch-approvals` lists requests; `approve-dispatch-change` and `reject-dispatch-change` resolve one.
+
+## Delivery investigation {#destinations}
+
+The **Destinations** page (`/destinations`) is where you save reusable delivery targets — a Slack channel, a Telegram chat, or an email address, each with a name, platform, destination id, and an optional thread/topic reference and notes — and trace whether a scheduled or agent-sent message actually went out.
+
+- Each saved destination can send a quick test message inline before you wire a real job to it.
+- A queue-health panel shows whether the delivery queue is processing normally, since Dispatch delivers messages through a queue-and-processor pattern rather than a fire-and-forget call after the request that triggered them.
+
+Agents manage destinations through `list-destinations`, `upsert-destination`, `delete-destination`, and send through them with `send-platform-message`.
+
+<WireframeBlock id="doc-block-dispatch4">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Destinations</h1><span class='wf-pill accent'>3 saved</span><div style='flex:1'></div><button class='primary'>Add destination</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><div style='display:flex;justify-content:space-between;align-items:flex-start'><div><strong>Daily digest channel</strong><br/><span class='wf-muted'>slack &middot; C0123456789</span></div><button>Delete</button></div><span class='wf-muted'>&rsaquo; Send a test message</span></div><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><div style='display:flex;justify-content:space-between;align-items:flex-start'><div><strong>On-call Telegram</strong><br/><span class='wf-muted'>telegram &middot; 123456789</span></div><button>Delete</button></div><span class='wf-muted'>&rsaquo; Send a test message</span></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Add destination</strong><input value='Name'/><input value='Platform: slack'/><input value='Destination id'/><button class='primary'>Save destination</button></div></div>"
+    }
+  />
+</WireframeBlock>
+
+## What's next
+
+- [**Dispatch**](/docs/template-dispatch) — the workspace control plane overview
+- [**Secrets, integrations, and workspace connections**](/docs/template-dispatch-vault-integrations) — the vault and provider integrations
+- [**Operating the workspace**](/docs/template-dispatch-operations) — jobs, Dreams, and the operator console
+- [**Messaging**](/docs/messaging) — full per-platform wiring steps
+- [**A2A Protocol**](/docs/a2a-protocol) — how Dispatch delegates to specialist agents

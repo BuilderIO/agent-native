@@ -1,0 +1,119 @@
+---
+title: "Mail"
+description: "An agent-powered Gmail client — a fast keyboard-first inbox you drive yourself, with the agent using the same actions to read, draft, send, and organize email for you."
+---
+
+# Mail
+
+Mail is an agent-powered email client for Gmail. Use the keyboard-first inbox yourself, or ask the agent to read, draft, send, and organize mail for you — the agent works through the exact same actions the UI does, so nothing it does is a black box. Think Superhuman, but the agent is a first-class citizen and the codebase is yours to own.
+
+<WireframeBlock id="doc-block-mail1">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:500px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Inbox 16</strong><div style='flex:1'></div><span data-icon='search' aria-label='Search'></span><span data-icon='edit' aria-label='Compose'></span><span data-icon='bell' aria-label='Notify'></span></div><div style='display:flex;flex-direction:column;padding:8px 14px;gap:6px'><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Priya Mehta</strong><span><strong>Q3 launch</strong> — final assets ready for review</span><span>★</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Acme Billing</strong><span>Your monthly invoice is ready</span><span>11:10 AM</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Marcus Tang</span><span>Onboarding flow research findings</span><span>Yesterday</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>GitHub</span><span>[framework] PR ready for review</span><span>Yesterday</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Linear</span><span>Issue ENG-1287 assigned to you</span><span>May 2</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Stripe</span><span>Weekly payments summary</span><span>Apr 29</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Calendly</span><span>New booking confirmed</span><span>Apr 28</span></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+When you open the app, the keyboard-first inbox and thread view stay focused on the mail itself. The agent always knows which view you're in and which thread you have open, so you can say "archive this" or "draft a friendly decline" without explaining what "this" is — see [Talking to the Agent](/docs/template-mail-agent) for how that works.
+
+<Diagram id="doc-block-mail2" title="How a mail request flows" summary={"Keyboard shortcuts and agent prompts run the same actions. Email lives in Gmail; drafts, automations, tracking, and CRM lookups run through SQL, application_state, and the connected provider APIs."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      You drive<br /><small class="diagram-muted">J/K/E/R shortcuts</small>
+    </div>
+    <div class="diagram-node">
+      You ask the agent<br /><small class="diagram-muted"
+        >"draft a friendly decline"</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Actions</span
+    ><small class="diagram-muted"
+      >list-emails · manage-draft · send-email · get-hubspot-contact ·
+      create-scheduled-job</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Gmail<br /><small class="diagram-muted">multi-account, via OAuth</small>
+    </div>
+    <div class="diagram-box">
+      SQL + application_state<br /><small class="diagram-muted"
+        >drafts · automations · tracking · queue</small
+      >
+    </div>
+    <div class="diagram-box">
+      HubSpot / raw provider APIs<br /><small class="diagram-muted"
+        >CRM lookup · escalation</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">Inbox refreshes live</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## What you can do with it
+
+- **Read, search, and triage** with keyboard shortcuts or one-line agent prompts, and automate the repetitive parts with rules or native Gmail filters — see [Inbox, Search & Automations](/docs/template-mail-inbox).
+- **Draft, schedule, and send** in your own voice, and let a teammate queue a draft for you to review before it goes out — see [Drafting, Scheduling & the Draft Queue](/docs/template-mail-drafts-and-queue).
+- **Pull CRM context onto a thread.** Look up a sender's HubSpot contact, deals, and tickets without leaving Mail.
+- **Talk to the agent directly** from a full-page Agent tab, with the same screen awareness as chat — see [Talking to the Agent](/docs/template-mail-agent).
+- **Extend Mail** with a custom sidebar widget, or create your own app from the template — see the [Developer Guide](/docs/template-mail-developers).
+
+## Getting started
+
+Live demo: [mail.agent-native.com](https://mail.agent-native.com).
+
+When you first open the app:
+
+1. Click **Settings** in the sidebar.
+2. Click **Connect Google account**, sign in to Gmail, and approve.
+3. (Optional) Connect a second Google account for work + personal.
+4. Head back to the inbox — your real Gmail will sync in.
+
+Without a Google account connected, the app runs against an empty local mailbox (useful for screenshots and demos, not much else).
+
+## What's next
+
+- [**Inbox, Search & Automations**](/docs/template-mail-inbox) — shortcuts, search, bulk cleanup, and triage rules
+- [**Drafting, Scheduling & the Draft Queue**](/docs/template-mail-drafts-and-queue) — composing, scheduled sends, and teammate-requested drafts
+- [**Talking to the Agent**](/docs/template-mail-agent) — useful prompts, screen awareness, and when to escalate to a raw provider call
+- [**Developer Guide**](/docs/template-mail-developers) — actions, data model, routes, and how to customize Mail
+- [**Templates**](/docs/cloneable-saas) — the Cloneable SaaS model, and every other domain template to start from
+- [**Calendar**](/docs/template-calendar) — a sibling domain template covering scheduling and booking
+- [**Getting Started**](/docs/getting-started) — the framework fundamentals: actions, application state, and live sync

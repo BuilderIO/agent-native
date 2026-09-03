@@ -1,0 +1,96 @@
+# Neon preview branches - disabled
+
+Preview deploys share the prod `DATABASE_URL` by default, so any server
+Preview deploys use the shared Netlify database configuration. The workflow
+below only cleans up branch resources left by the former isolation flow.
+
+## How it works
+
+1. **PR opened/updated** - no Neon branch or Netlify database override is
+   created. Netlify's normal deploy-preview flow runs unchanged.
+
+2. **Netlify auto-deploys** - the normal deploy-preview configuration is used.
+
+3. **PR closed** - the workflow deletes any matching
+   `preview-schema-only/pr-*` or legacy `preview/pr-*` Neon branches and
+   removes old branch-scoped `DATABASE_URL` env overrides.
+
+`@agent-native/core` stays provider-agnostic — it only reads `DATABASE_URL`.
+The Neon/Netlify specifics live in the workflow and each template's
+`netlify.toml`. Factory is intentionally excluded from this workflow because
+its production Netlify site is manually deployed and is not Git-connected,
+so it does not support branch deploy previews.
+
+## Preview access requirements
+
+Because previews use the shared database, they must not be treated as isolated
+or safe-to-write environments. Keep public preview access gated with Netlify
+team login, SSO, or an equivalent visitor gate, and do not use previews for
+workflows that can create real external side effects.
+
+## Required GitHub secrets
+
+| Secret               | Where to get it                               |
+| -------------------- | --------------------------------------------- |
+| `NEON_API_KEY`       | Neon dashboard → Account → API Keys           |
+| `NETLIFY_AUTH_TOKEN` | Netlify User Settings → Personal Access Token |
+| `NETLIFY_ACCOUNT_ID` | Netlify team settings → Team ID               |
+
+## Restoring production env vars
+
+Preview DB overrides are managed by GitHub Actions, but production template
+secrets are not. If a Netlify project loses its env vars during a migration,
+restore them from the local ignored template env files:
+
+```bash
+pnpm sync:netlify-env -- --template clips
+NETLIFY_AUTH_TOKEN=... NETLIFY_ACCOUNT_ID=... pnpm sync:netlify-env -- --template clips --write
+```
+
+The script is dry-run by default, logs key names only, writes the production
+context, and marks real secrets as Netlify secret values while leaving public
+deployment metadata plain so Netlify's secret scanner does not block deploys.
+It merges `templates/<name>/.env` and `templates/<name>/.env.local` because
+some deploy-relevant auth keys, such as `BETTER_AUTH_SECRET`, currently live in
+`.env.local`. Pass `--all` to restore every known template site.
+
+## Site ↔ Neon project mapping
+
+Defined in the workflow's matrix. Update it when adding a new hosted template.
+
+| Template  | Neon project ID         | Netlify site ID                      |
+| --------- | ----------------------- | ------------------------------------ |
+| analytics | dry-shadow-75673589     | ba983662-dac4-478d-a481-5079e67e4d33 |
+| calendar  | super-fire-75593365     | 954fe53b-052e-4401-aac2-2e973e498af8 |
+| clips     | aged-glitter-95425960   | 7e3f4fee-258d-4d16-9aaf-154a714e87e2 |
+| content   | quiet-heart-51077706    | 5c2198f5-bee4-41c3-8a6d-4869f400eec2 |
+| forms     | curly-glade-91979555    | aa0b2020-9983-4d6c-8fb0-65462f960fc4 |
+| issues    | crimson-wave-50288362   | 76b94d46-f566-43cd-bddd-01123137ab9a |
+| mail      | patient-cake-44789837   | dee98bb0-6143-4205-8c04-afe7bf83d5b5 |
+| plan      | late-pine-39936033      | 9d0d7a73-385d-4da1-ba10-1581ffc4d413 |
+| slides    | hidden-thunder-16834477 | fd5deb5b-5539-47e1-830c-e5fb5e105efd |
+| videos    | soft-pine-75308618      | 3f0c2cd2-06cd-4ab8-bfb4-c199430d1dac |
+
+## Schema changes
+
+`drizzle-kit push` is **not** run in any build (removed after it caused
+production data loss — see PR #252). Schema evolution uses `runMigrations`
+in each template's `server/plugins/db.ts` — additive SQL only
+(`CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ADD COLUMN IF NOT EXISTS`).
+
+## Follow-ups
+
+- **Agent-Native Plans DNS/TLS.** The Plans Neon project and Netlify site are
+  configured and included in the preview-branch workflows. To complete the
+  public cutover, `plan.agent-native.com` should resolve as a DNS-only CNAME to
+  `agent-native-plan.netlify.app`; then provision/verify TLS in Netlify.
+
+- **PR visual recap publishing.** PR automation can publish org-gated visual
+  recap plans to the hosted Plans app by default when `PLAN_RECAP_TOKEN`
+  contains the publish token. Set `PLAN_RECAP_APP_URL` only for a self-hosted
+  Plans app. Recap links are review aids; they do not replace the GitHub diff
+  review.
+
+- **Preview-only actions.** Actions that reach outside the DB (send email,
+  charge a card, post to Slack) need their own preview-vs-prod gating so
+  preview deploys don't trigger real-world side effects.

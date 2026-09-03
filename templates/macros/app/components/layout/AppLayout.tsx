@@ -1,0 +1,401 @@
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
+import { useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
+import { OrgSwitcher } from "@agent-native/core/client/org";
+import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
+import {
+  HeaderActionsProvider,
+  SidebarFooterActions,
+} from "@agent-native/toolkit/app-shell";
+import {
+  IconFlame,
+  IconLoader2,
+  IconChartBar,
+  IconSettings,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
+  IconSearch,
+} from "@tabler/icons-react";
+import {
+  useIsFetching,
+  useIsMutating,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
+
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { apiFetch } from "@/lib/api";
+import { cn } from "@/lib/utils";
+
+import { Header } from "./Header";
+
+const navItems = [
+  { icon: IconFlame, labelKey: "navigation.entry", href: "/home" },
+  { icon: IconChartBar, labelKey: "navigation.analytics", href: "/analytics" },
+];
+
+const bottomNavItems = [
+  { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
+];
+
+export function AppLayout({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const t = useT();
+
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("macros:left-sidebar-collapsed") === "1";
+  });
+
+  const isAnalytics = location.pathname === "/analytics";
+  const isSettings = location.pathname.startsWith("/settings");
+  const isAgent =
+    location.pathname.startsWith("/settings/agent") ||
+    location.pathname.startsWith("/agent");
+
+  // Auto-close sidebar on route change (mobile)
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      "macros:left-sidebar-collapsed",
+      desktopSidebarCollapsed ? "1" : "0",
+    );
+  }, [desktopSidebarCollapsed]);
+
+  // Navigation state sync - write current view to application state
+  useEffect(() => {
+    const view = isAgent
+      ? "agent"
+      : isSettings
+        ? "settings"
+        : isAnalytics
+          ? "analytics"
+          : "entry";
+    apiFetch(agentNativePath("/_agent-native/application-state/navigation"), {
+      method: "PUT",
+      body: JSON.stringify({ view, path: location.pathname }),
+    }).catch(() => {});
+  }, [location.pathname, isAgent, isAnalytics, isSettings]);
+
+  // useDbSync invalidates this key when the agent writes a navigate command.
+  const { data: navCommand } = useQuery({
+    queryKey: ["navigate-command"],
+    queryFn: async () => {
+      try {
+        const res = await fetch(
+          agentNativePath("/_agent-native/application-state/navigate"),
+        );
+        if (!res.ok) return null;
+        return await res.json();
+      } catch {
+        return null;
+      }
+    },
+  });
+
+  useEffect(() => {
+    if (navCommand) {
+      const commandValue =
+        "value" in navCommand ? navCommand.value : navCommand;
+      const cmd =
+        typeof commandValue === "string"
+          ? JSON.parse(commandValue)
+          : commandValue;
+      if (cmd.view === "analytics") {
+        void navigate("/analytics");
+      } else if (cmd.view === "settings") {
+        void navigate("/settings");
+      } else if (cmd.view === "agent") {
+        void navigate("/settings/agent");
+      } else if (cmd.view === "entry") {
+        void navigate("/home");
+      }
+      // Clear the command
+      fetch(agentNativePath("/_agent-native/application-state/navigate"), {
+        method: "DELETE",
+      }).catch(() => {});
+      queryClient.setQueryData(["navigate-command"], null);
+    }
+  }, [navCommand, navigate, queryClient]);
+
+  return (
+    <HeaderActionsProvider>
+      <AgentSidebar
+        position="right"
+        defaultOpen={false}
+        animateMobile
+        emptyStateText={t("agent.emptyState")}
+        suggestions={[
+          t("agent.suggestionLunch"),
+          t("agent.suggestionMacros"),
+          t("agent.suggestionRun"),
+        ]}
+        agentPageHref="/settings/agent"
+      >
+        <div className="agent-layout-shell flex flex-1 overflow-hidden">
+          {/* Desktop sidebar */}
+          <aside
+            className={cn(
+              "agent-layout-left-drawer hidden shrink-0 flex-col border-e border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex",
+              desktopSidebarCollapsed ? "w-14" : "w-56",
+            )}
+          >
+            <SidebarContent
+              pathname={location.pathname}
+              collapsed={desktopSidebarCollapsed}
+              onToggleCollapsed={() =>
+                setDesktopSidebarCollapsed((collapsed) => !collapsed)
+              }
+            />
+          </aside>
+
+          {/* Mobile sidebar sheet */}
+          <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
+            <SheetContent side="left" className="w-56 p-0">
+              <SheetTitle className="sr-only">
+                {t("sidebar.navigation")}
+              </SheetTitle>
+              <SidebarContent pathname={location.pathname} />
+            </SheetContent>
+          </Sheet>
+
+          {/* Page content */}
+          <div className="agent-layout-main-surface flex min-w-0 flex-1 flex-col overflow-hidden">
+            <Header onOpenSidebar={() => setSidebarOpen(true)} />
+            <main className="agent-native-app-main min-w-0 flex-1 overflow-y-auto">
+              {children}
+            </main>
+          </div>
+          <SyncIndicator sidebarCollapsed={desktopSidebarCollapsed} />
+        </div>
+      </AgentSidebar>
+    </HeaderActionsProvider>
+  );
+}
+
+function SidebarContent({
+  pathname,
+  collapsed = false,
+  onToggleCollapsed,
+}: {
+  pathname: string;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
+}) {
+  const t = useT();
+  const ToggleIcon = collapsed
+    ? IconLayoutSidebarLeftExpand
+    : IconLayoutSidebarLeftCollapse;
+  const collapseButton = onToggleCollapsed ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
+          onClick={onToggleCollapsed}
+        >
+          <ToggleIcon className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
+      </TooltipContent>
+    </Tooltip>
+  ) : null;
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={openCommandMenu}
+          aria-label={t("root.search")}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
+        >
+          <IconSearch className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("root.search")}</TooltipContent>
+    </Tooltip>
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={collapsed ? "icon" : "sidebar"}
+      side="right"
+      className={collapsed ? "size-8" : "min-w-0"}
+    />
+  );
+
+  return (
+    <div className="flex h-full flex-col">
+      <div
+        className={cn(
+          "flex h-12 shrink-0 items-center border-b border-border",
+          collapsed ? "justify-center px-2" : "gap-2 px-4",
+        )}
+      >
+        {!collapsed && (
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <AgentNativeIcon
+              aria-hidden="true"
+              className="h-3.5 w-6 shrink-0 text-foreground"
+            />
+            <span className="font-logo truncate text-sm font-bold tracking-tight text-foreground">
+              {t("navigation.brand")}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const label = t(item.labelKey);
+          const isActive =
+            item.href === "/home"
+              ? pathname === "/home" || pathname === "/entry"
+              : pathname.startsWith(item.href);
+          const link = (
+            <Link
+              key={item.href}
+              to={item.href}
+              aria-label={collapsed ? label : undefined}
+              className={cn(
+                "flex h-9 items-center rounded-lg text-sm transition-colors",
+                collapsed ? "justify-center px-0" : "gap-3 px-3",
+                isActive
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
+              )}
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              {!collapsed && label}
+            </Link>
+          );
+          return collapsed ? (
+            <Tooltip key={item.href}>
+              <TooltipTrigger asChild>{link}</TooltipTrigger>
+              <TooltipContent side="right">{label}</TooltipContent>
+            </Tooltip>
+          ) : (
+            link
+          );
+        })}
+      </nav>
+
+      <nav className="grid shrink-0 gap-1 px-2 py-1">
+        {bottomNavItems.map((item) => {
+          const Icon = item.icon;
+          const label = t(item.labelKey);
+          const isActive = pathname.startsWith(item.href);
+          const link = (
+            <Link
+              key={item.href}
+              to={item.href}
+              aria-label={collapsed ? label : undefined}
+              className={cn(
+                "flex h-9 items-center rounded-lg text-sm transition-colors",
+                collapsed ? "justify-center px-0" : "gap-3 px-3",
+                isActive
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
+              )}
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              {!collapsed && label}
+            </Link>
+          );
+          return collapsed ? (
+            <Tooltip key={item.href}>
+              <TooltipTrigger asChild>{link}</TooltipTrigger>
+              <TooltipContent side="right">{label}</TooltipContent>
+            </Tooltip>
+          ) : (
+            link
+          );
+        })}
+      </nav>
+
+      {!collapsed && (
+        <>
+          <div className="space-y-2 px-3 py-2 empty:hidden">
+            <DevDatabaseLink />
+            <OrgSwitcher />
+          </div>
+        </>
+      )}
+      <SidebarFooterActions
+        collapsed={collapsed}
+        feedback={feedbackButton}
+        search={searchButton}
+        collapse={collapseButton}
+      />
+    </div>
+  );
+}
+
+function SyncIndicator({ sidebarCollapsed }: { sidebarCollapsed: boolean }) {
+  const t = useT();
+  const refetchingActions = useIsFetching({
+    predicate: (query) =>
+      query.queryKey[0] === "action" && query.state.dataUpdatedAt > 0,
+  });
+  const mutatingActions = useIsMutating();
+  const [agentToolRuns, setAgentToolRuns] = useState(0);
+
+  useEffect(() => {
+    const trackedTools = new Set(["log-meal", "log-exercise", "log-weight"]);
+    const handleStart = (event: Event) => {
+      const tool = (event as CustomEvent).detail?.tool;
+      if (trackedTools.has(tool)) setAgentToolRuns((count) => count + 1);
+    };
+    const handleDone = (event: Event) => {
+      const tool = (event as CustomEvent).detail?.tool;
+      if (!trackedTools.has(tool)) return;
+      setTimeout(() => {
+        setAgentToolRuns((count) => Math.max(0, count - 1));
+      }, 400);
+    };
+
+    window.addEventListener("agent-native:tool-start", handleStart);
+    window.addEventListener("agent-native:tool-done", handleDone);
+    return () => {
+      window.removeEventListener("agent-native:tool-start", handleStart);
+      window.removeEventListener("agent-native:tool-done", handleDone);
+    };
+  }, []);
+
+  const isSyncing =
+    refetchingActions > 0 || mutatingActions > 0 || agentToolRuns > 0;
+
+  if (!isSyncing) return null;
+
+  return (
+    <div
+      className={cn(
+        "pointer-events-none fixed bottom-10 start-4 z-50 flex h-8 items-center gap-2 rounded-full border border-border bg-muted/80 px-3 text-xs text-muted-foreground shadow-sm backdrop-blur-sm md:bottom-8",
+        sidebarCollapsed
+          ? "md:start-[calc(3.5rem+1rem)]"
+          : "md:start-[calc(14rem+1rem)]",
+      )}
+    >
+      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+      {t("sidebar.syncing")}
+    </div>
+  );
+}

@@ -1,0 +1,190 @@
+---
+title: "다른 표면들"
+description: "UI 후크를 넘어서 action을 호출하는 모든 것: 네이티브 채팅 UI 위젯 결과, CLI, A2A, MCP, 그리고 모든 템플릿이 기본으로 갖추는 두 개의 표준 action."
+---
+
+# 다른 표면들
+
+UI 후크 표면은 [데이터 및 동기화](/docs/client-data)에서 다룹니다: `useActionQuery()`, `useActionMutation()`, `callAction()`. 이 페이지는 action을 호출하거나 action에 의해 구동될 수 있는 그 밖의 모든 것을 다룹니다.
+
+## 네이티브 채팅 UI 렌더링하기 {#native-chat-ui}
+
+Action은 앱 내 채팅이 네이티브하게 렌더링하는 구조화된 위젯 데이터를
+반환할 수 있습니다. 이는 재사용 가능한 표, 차트, 설정 요약, 인사이트
+카드를 위한 퍼스트파티 채팅 경로입니다. 에이전트가 앱 내 채팅 안에서
+임의의 인터랙티브 컨트롤을 생성해야 할 때는 [Generative UI](/docs/generative-ui)를,
+외부 MCP 호스트에서의 인라인 UI에는 [MCP Apps](/docs/mcp-apps)를 사용하세요.
+
+```ts
+import { defineAction } from "@agent-native/core/action";
+import { ACTION_CHAT_UI_DATA_CHART_RENDERER } from "@agent-native/core/action-ui";
+import {
+  createDataChartWidgetResult,
+  dataChartWidgetResultSchema,
+} from "@agent-native/core/data-widgets";
+
+export default defineAction({
+  description: "Summarize response trends.",
+  readOnly: true,
+  outputSchema: dataChartWidgetResultSchema,
+  chatUI: { renderer: ACTION_CHAT_UI_DATA_CHART_RENDERER },
+  run: async () =>
+    createDataChartWidgetResult({
+      title: "Response trends",
+      chartSeries: {
+        type: "line",
+        xKey: "day",
+        series: [{ key: "responses", label: "Responses" }],
+        data: [
+          { day: "Mon", responses: 12 },
+          { day: "Tue", responses: 18 },
+        ],
+      },
+    }),
+});
+```
+
+내장된 판별자는 `"data-table"`, `"data-chart"`, `"data-insights"`이며,
+서버에서 안전하게 쓸 수 있는 빌더와 schema는 `@agent-native/core/data-widgets`에
+있습니다. 차트만 있는 답변에는 `data-chart`를, SQL/목록 결과에는
+`data-table`을, 요약/차트/표가 결합된 카드가 적합할 때만 `data-insights`를
+사용하세요. 전체 결과 계약은 [Native Chat UI](/docs/native-chat-ui)를,
+내장 채팅 루프 대신 커스텀 에이전트 런타임을 연결하는 경우라면
+[BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)를 참고하세요.
+같은 action이 자동화 친화적인 상태를 유지하면서, 채팅에서 렌더링되거나
+전체 화면으로 성장하는 방법은 [에이전트 표면](/docs/agent-surfaces)을
+참고하세요.
+
+## CLI에서 호출하기 {#cli}
+
+모든 action은 `pnpm action`으로 실행할 수 있습니다.
+
+```bash
+pnpm action reply-to-email '{"emailId":"thread-123","body":"Thanks!"}'
+```
+
+JSON 입력이 에이전트와 복잡한 객체를 위한 선호되는 형태입니다. 단순한
+수동 실행이나 기존 스크립트에는 플래그도 동일하게 동작합니다.
+
+```bash
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
+```
+
+에이전트 개발 루프, 스크립트, cron 작업에 유용합니다.
+
+## 다른 에이전트에서 호출하기 (A2A) {#a2a}
+
+여러분의 앱이 [A2A](/docs/a2a-protocol) 피어라면, 다른 에이전트 네이티브
+앱은 여러분의 action을 자동으로 발견하고 이름으로 호출할 수 있습니다.
+동일 오리진 배포는 JWT 서명을 건너뜁니다. 교차 오리진 배포는 대신
+공유된 `A2A_SECRET`을 사용합니다.
+
+## MCP로 노출하기 {#mcp}
+
+MCP가 활성화되어 있으면, 여러분의 action은 `/mcp`에 있는 프레임워크의
+MCP 서버에 나타납니다. 모든 호출자는 기본적으로 (앱 전면의 내장 도구와
+템플릿이 선언한 앱 action으로 이루어진) 압축된 카탈로그를 받으며,
+`tool-search`는 항상 존재하여 다른 어떤 도구든 필요할 때 도달할 수
+있게 합니다. 전체 action 표면은 명시적 옵트인(`--full-catalog` 토큰 또는
+`AGENT_NATIVE_MCP_FULL_CATALOG=1`)일 때만 제공되며, [`publicAgent.expose`](/docs/actions-access-control#public-agent)는
+안전한 읽기/수집 도구를 공개 표면에 옵트인시킵니다. 카탈로그 등급,
+인증, `mcpApp` 리소스 세부 사항은 [MCP 프로토콜](/docs/mcp-protocol)을
+참고하세요.
+
+UI를 지원하는 MCP 호스트를 위해, action은 `mcpApp` 필드(그리고 짝을
+이루는 `link`)를 통해 선택적인 MCP Apps 리소스를 선언하여, 이를 지원하는
+호스트가 결과를 인라인으로 렌더링하게 할 수 있습니다. `link`와 `mcpApp`이
+같은 라우트를 가리켜야 할 때는, `embedRoute()`가 하나의 순수한 경로
+빌더로부터 둘 다를 만들어 줍니다.
+
+```ts
+import { embedRoute } from "@agent-native/core";
+
+export default defineAction({
+  description: "Create an email draft for review.",
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => ({ body }),
+  ...embedRoute({
+    title: "Review draft",
+    openLabel: "Open in Mail",
+    path: ({ result }) => ({
+      label: "Open draft in Mail",
+      url: "/_agent-native/open?app=mail&view=inbox",
+    }),
+  }),
+});
+```
+
+`link`는 CLI와 UI가 없는 MCP 호스트를 위한 폴백으로 유지하세요. 이는
+또한 임베드의 실행 대상이기도 합니다. 임베드 브리지(서명된 임베드 시작
+세션, transplant 대 controlled-frame 렌더링, `ui/*` 호스트 브리지, CSP,
+높이 클램핑)는 [외부 에이전트](/docs/external-agents#mcp-app-bridge)가
+소유합니다.
+
+## 표준 actions {#standard-actions}
+
+[컨텍스트 인식](/docs/context-awareness)을 위해 모든 템플릿은 이 두
+가지를 포함해야 합니다.
+
+### view-screen {#view-screen}
+
+현재 내비게이션 상태를 읽고, 문맥에 맞는 데이터를 가져와 사용자가
+보고 있는 화면의 스냅샷을 반환합니다. 에이전트는 화면을 새로 확인해야
+할 때 이를 호출합니다.
+
+```ts
+// actions/view-screen.ts
+import { defineAction } from "@agent-native/core/action";
+import { readAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Read the current screen state for context.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  run: async () => {
+    const navigation = await readAppState("navigation");
+    const screen: Record<string, unknown> = { navigation };
+
+    if (navigation?.view === "inbox") {
+      screen.emailList = await listEmailsForLabel(navigation.label);
+    }
+
+    return screen;
+  },
+});
+```
+
+### navigate {#navigate}
+
+애플리케이션 상태에 일회성 내비게이션 명령을 씁니다. UI는 이를 읽고,
+이동한 뒤 항목을 삭제합니다.
+
+```ts
+// actions/navigate.ts
+import { defineAction } from "@agent-native/core/action";
+import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Navigate the user to a view.",
+  schema: z.object({
+    view: z.string(),
+    threadId: z.string().optional(),
+  }),
+  run: async (args) => {
+    await writeAppState("navigate", args);
+    return { ok: true };
+  },
+});
+```
+
+## 다음 단계
+
+- [**데이터 및 동기화**](/docs/client-data) — UI에서의 `useActionQuery`, `useActionMutation`, `callAction`
+- [**개요**](/docs/actions-overview) — action이란 무엇인지와 hello-world 진행 과정
+- [**컨텍스트 인식**](/docs/context-awareness) — `view-screen` + `navigate` 패턴을 깊이 있게 다룸
+- [**A2A 프로토콜**](/docs/a2a-protocol) — 다른 에이전트가 여러분의 action을 발견하고 호출하는 방법
+- [**MCP 프로토콜**](/docs/mcp-protocol) — 카탈로그 등급, 인증, `mcpApp` 리소스
+- [**Generative UI**](/docs/generative-ui) — 채팅 안에서 일시적이거나 저장된 생성 UI를 인라인으로 렌더링하기
+- [**Native Chat UI**](/docs/native-chat-ui) — 전체 위젯 결과 계약

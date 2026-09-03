@@ -1,0 +1,260 @@
+name: Deploy Agent-Native production sites from GitHub
+
+# Manual production cutover lane. It builds the same repository projects from
+# an exact main commit, uploads their prebuilt output to Netlify, publishes it,
+# and smoke-tests the live host. The existing production manager remains
+# available for rollback and for the workspace site without a local source map.
+on:
+  workflow_dispatch:
+    inputs:
+      sites:
+        description: all repo-backed sites, or comma-separated ids such as clips,design
+        required: true
+        type: string
+        default: all
+      source_ref:
+        description: Optional exact commit SHA; blank uses the latest main commit
+        required: false
+        type: string
+        default: ""
+      beta_e2e:
+        description: "Run the beta browser E2E gate before publishing (opt-in; off by default so it can never block a deploy you did not ask it to gate)"
+        required: false
+        default: false
+        type: boolean
+      smoke:
+        description: Probe each production host after publishing
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  # Keep fleet runs in their own queue. Per-site child-job concurrency below
+  # coordinates each cutover without letting a manager or promotion run evict
+  # a pending fleet run from GitHub's single pending slot.
+  group: agent-native-production-fleet-${{ inputs.sites }}
+  cancel-in-progress: false
+
+jobs:
+  resolve-source:
+    name: Resolve production source commit
+    runs-on: ubuntu-latest
+    outputs:
+      source_ref: ${{ steps.source.outputs.source_ref }}
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        id: source
+        env:
+          REQUESTED_SOURCE_REF: ${{ inputs.source_ref }}
+        with:
+          script: |
+            const requested = process.env.REQUESTED_SOURCE_REF.trim();
+            if (requested && !/^[0-9a-f]{40}$/i.test(requested)) {
+              core.setFailed('source_ref must be a full 40-character commit SHA.');
+              return;
+            }
+            const sourceRef = requested || (await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/main',
+            })).data.object.sha;
+            core.info(`production source: ${sourceRef}`);
+            core.setOutput('source_ref', sourceRef);
+
+  discover-sites:
+    name: Discover production sites
+    needs: resolve-source
+    runs-on: ubuntu-latest
+    outputs:
+      complete_fleet: ${{ steps.matrix.outputs.complete_fleet }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.resolve-source.outputs.source_ref }}
+          fetch-depth: 1
+          sparse-checkout: |
+            packages/docs
+            scripts/netlify-production-sites.json
+            templates
+          sparse-checkout-cone-mode: true
+
+      - name: Build the production site matrix
+        id: matrix
+        env:
+          REQUESTED_SITES: ${{ inputs.sites }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const sites = JSON.parse(
+            fs.readFileSync('scripts/netlify-production-sites.json', 'utf8'),
+          );
+          const requested = process.env.REQUESTED_SITES.trim().toLowerCase();
+          if (!requested) throw new Error('sites must be all or a comma-separated list.');
+
+          const aliases = new Map([
+            ['chat', 'starter'],
+            ['www', 'fw'],
+          ]);
+          const names = requested === 'all'
+            ? Object.keys(sites)
+            : [...new Set(requested.split(',').map((name) => aliases.get(name.trim()) || name.trim()).filter(Boolean))];
+          const unknown = names.filter((name) => !sites[name]);
+          if (unknown.length) throw new Error(`Unknown production site(s): ${unknown.join(', ')}`);
+
+          const projectDirectory = (name) =>
+            name === 'fw' ? 'packages/docs' : `templates/${name === 'starter' ? 'chat' : name}`;
+          const buildable = [];
+          const unsupported = [];
+          for (const name of names) {
+            const directory = projectDirectory(name);
+            if (
+              fs.existsSync(path.join(directory, 'package.json')) &&
+              fs.existsSync(path.join(directory, 'netlify.toml'))
+            ) {
+              buildable.push({ site: name });
+            } else {
+              unsupported.push(`${name} (${directory})`);
+            }
+          }
+
+          if (unsupported.length && requested !== 'all') {
+            throw new Error(`No local Netlify source mapping for: ${unsupported.join(', ')}`);
+          }
+          if (unsupported.length) {
+            console.warn(`Skipping sites without a local source mapping: ${unsupported.join(', ')}`);
+            fs.appendFileSync(
+              process.env.GITHUB_STEP_SUMMARY,
+              `> Skipped sites without a local source mapping: ${unsupported.join(', ')}\n`,
+            );
+          }
+          if (!buildable.length) throw new Error('No buildable production sites selected.');
+
+          const productionNames = Object.entries(sites)
+            .filter(([, site]) =>
+              typeof site?.host === 'string' && site.host.endsWith('.agent-native.com'),
+            )
+            .map(([name]) => name);
+          const completeFleet =
+            productionNames.length > 0 &&
+            productionNames.every(
+              (name) =>
+                names.includes(name) &&
+                buildable.some((site) => site.site === name),
+            );
+
+          fs.appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `matrix=${JSON.stringify({ include: buildable })}\n`,
+          );
+          fs.appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `complete_fleet=${completeFleet}\n`,
+          );
+          console.log(`Discovered ${buildable.length} buildable production sites.`);
+          NODE
+
+  # Opt-in pre-flight. Skipped entirely unless the dispatch asks for it, and a
+  # skipped job does not hold up the deploy below.
+  beta-e2e:
+    name: Beta E2E pre-flight
+    if: ${{ inputs.beta_e2e }}
+    uses: ./.github/workflows/beta-e2e.yml
+    with:
+      apps: all
+      lane: public
+    secrets: inherit
+
+  deploy:
+    name: ${{ matrix.site }} production prebuilt deploy
+    needs: [resolve-source, discover-sites, beta-e2e]
+    # Spelled out per dependency rather than with `needs.*.result`: the two
+    # source jobs must still have succeeded exactly as before, while the
+    # pre-flight only has to have not failed — which is the state it is in when
+    # it was skipped for not being requested.
+    if: >-
+      ${{ !cancelled()
+      && needs.resolve-source.result == 'success'
+      && needs.discover-sites.result == 'success'
+      && needs.beta-e2e.result != 'failure' }}
+    concurrency:
+      group: agent-native-production-site-${{ matrix.site }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.discover-sites.outputs.matrix) }}
+    uses: ./.github/workflows/deploy-netlify-prebuilt.yml
+    with:
+      target: production
+      site: ${{ matrix.site }}
+      caller: fleet
+      source_ref: ${{ needs.resolve-source.outputs.source_ref }}
+      build_context: production
+      deploy: true
+      deploy_mode: production
+      smoke: ${{ inputs.smoke }}
+    secrets: inherit
+
+  record-beta-migration:
+    name: Record production migration marker
+    needs: [resolve-source, discover-sites, deploy]
+    if: >-
+      ${{ needs.discover-sites.outputs.complete_fleet == 'true'
+      && needs.deploy.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SOURCE_SHA: ${{ needs.resolve-source.outputs.source_ref }}
+        with:
+          script: |
+            const sourceSha = process.env.SOURCE_SHA.trim().toLowerCase();
+            if (!/^[0-9a-f]{40}$/.test(sourceSha)) {
+              core.setFailed('The production migration marker must target a full commit SHA.');
+              return;
+            }
+            const ref = `refs/tags/agent-native-beta-migrated/${sourceSha}`;
+            try {
+              const existing = await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: ref.slice('refs/'.length),
+              });
+              if (existing.data.object.sha.toLowerCase() !== sourceSha) {
+                core.setFailed(`Refusing to change existing production migration marker ${ref}.`);
+                return;
+              }
+              core.info(`Production migration marker already exists: ${ref}`);
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              try {
+                await github.rest.git.createRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref,
+                  sha: sourceSha,
+                });
+                core.info(`Created production migration marker: ${ref}`);
+              } catch (createError) {
+                if (createError.status !== 422) throw createError;
+                const existing = await github.rest.git.getRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: ref.slice('refs/'.length),
+                });
+                if (existing.data.object.sha.toLowerCase() !== sourceSha) {
+                  core.setFailed(`Concurrent production migration marker ${ref} points to a different commit.`);
+                  return;
+                }
+                core.info(`Production migration marker was created concurrently: ${ref}`);
+              }
+            }

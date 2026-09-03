@@ -1,0 +1,112 @@
+---
+title: "Bereitstellung: Umgebungsvariablen"
+description: "Die Referenz der Produktions-Umgebungsvariablen für Build, Laufzeit, Secrets und Hosting-Verhalten."
+---
+
+# Bereitstellung: Umgebungsvariablen
+
+Die repositoryweite Referenz, einschließlich Template-, Anbieter-, lokaler und
+CI-Variablen, finden Sie unter [Umgebungsvariablen](/docs/environment-variables). Die
+Tabellen unten bleiben der maßgebliche Bereitstellungsleitfaden für
+Produktionswerte und Hosting-Verhalten.
+
+## Build/Laufzeit {#env-runtime}
+
+| Variable                                    | Beschreibung                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                                      | Server-Port (nur Node.js)                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `NITRO_PRESET`                              | Build-Voreinstellung zur Build-Zeit überschreiben                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `APP_BASE_PATH`                             | Bindet die App unter einem Präfix ein (z. B. `/mail`). Wird automatisch von `npx @agent-native/core@latest deploy` festgelegt. Für eigenständige Apps nicht setzen.                                                                                                                                                                                                                                                                                                       |
+| `APP_URL`                                   | Optionaler kanonischer öffentlicher Ursprung. Wird vor `BETTER_AUTH_URL` geprüft, wenn die A2A-JWT-Zielgruppe, der öffentliche OAuth-Ursprung, Self-Dispatch-Webhook-Ziele und generierte Ressourcen-Links aufgelöst werden. Legen Sie ihn auf Vorschau-/Staging-Bereitstellungen explizit fest, bei denen der Anfrage-Host unzuverlässig ist.                                                                                                                            |
+| `AGENT_PROD_CODE_EXECUTION`                 | Optionaler Produktions-Code-Ausführungsmodus: `off` (Standard), `sandboxed` oder `trusted`. Siehe [Produktions-Code-Ausführung](/docs/actions-agent-tools#production-code-execution).                                                                                                                                                                                                                                                                                     |
+| `AGENT_NATIVE_SSR_CACHE`                    | Bereitstellungsweite Cache-Richtlinie für die SSR-Shell: nicht gesetzt/`on` behält den standardmäßigen Hard-Cache bei, `off` sendet `no-store`, oder eine Dauer wie `30s` / `5m` setzt ein kürzeres Frische-Fenster. Siehe [SSR-Caching](/docs/ssr-caching).                                                                                                                                                                                                              |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Aktiviert die geplante Netlify-Keep-Warm-Funktion. Standardmäßig nicht gesetzt. Siehe [Keep-Warm](/docs/netlify#netlify-keep-warm).                                                                                                                                                                                                                                                                                                                                       |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Kompatibles Abschalt-Flag für die geplante Netlify-Keep-Warm-Funktion. Siehe [Keep-Warm](/docs/netlify#netlify-keep-warm).                                                                                                                                                                                                                                                                                                                                                |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Überschreibt die Keep-Warm-Kadenz mit einem 5-Feld-Cron-Ausdruck (Standard `* * * * *` bei Aktivierung). Ein nicht parsebarer Wert lässt den Build fehlschlagen. Siehe [Keep-Warm](/docs/netlify#netlify-keep-warm).                                                                                                                                                                                                                                                      |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Verwirft nur das Aufwärmen der Hintergrundfunktion und hält den Server warm. Siehe [Keep-Warm](/docs/netlify#netlify-keep-warm).                                                                                                                                                                                                                                                                                                                                          |
+| `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS`     | Schaltet die In-Process-Backstop-Sweep-Timer ab (Automatisierungs-Redispatch, Agent-Teams-Abgleich, Wiederherstellung der Sandbox-Ausführung). Auf Serverless laufen diese pro warmem Container, ihre Abfragerate skaliert also mit der Instanzzahl. Legen Sie das **nur** fest, wenn ein dauerhafter Scheduler dieselbe Wiederherstellung bereits antreibt, sonst wird wartende Arbeit nicht erneut versucht.                                                            |
+| `AGENT_NATIVE_SKIP_ENSURE_TABLES`           | Überspringt On-Demand-Schema-DDL auf Bereitstellungen, die das automatische serverlose Überspringen nicht abdeckt. Setzt voraus, dass Ihr Schema bereits migriert ist. Siehe [On-Demand-Schema-DDL](/docs/deployment#skip-ensure-tables).                                                                                                                                                                                                                                 |
+| `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Dediziertes, gemeinsam genutztes HMAC-Geheimnis mit 32+ Zeichen für die previewsichere Builder-Autorisierungsweiterleitung. Legen Sie denselben Wert auf der genehmigten Unternehmens-Callback-Bereitstellung und auf Vorschau-Bereitstellungen nur fest, wenn die Autorisierung in einer isolierten Vorschau-Datenbank landen muss.                                                                                                                                      |
+| `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | Nur für den Unternehmens-Callback bestimmte, kommagetrennte Zulassungsliste exakter vertrauenswürdiger Vorschau-Ursprünge (zum Beispiel `https://0123456789abcdef01234567--content.netlify.app`). Legen Sie sie nur auf der Unternehmens-Callback-Bereitstellung fest. Netlify-Ursprünge müssen einen unveränderlichen, bereitstellungsspezifischen 24-Hex-Permalink verwenden. Veränderliche `deploy-preview-*`-Aliase, Platzhalter und Domain-Suffixe werden abgelehnt. |
+
+Die Datenbankverbindungsvariablen (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`,
+pro App `<APP_NAME>_DATABASE_URL`) finden Sie unter [Datenbank](/docs/server-database#production).
+
+## Produktionsrelevante Konfiguration {#env-required-prod}
+
+Diese Einstellungen decken produktionsrelevantes Verhalten ab. Eine
+eigenständige App mit Framework-Authentifizierung benötigt ein stabiles
+`BETTER_AUTH_SECRET` und eine persistente Datenbank. Die öffentliche Auth-URL
+wird aus der Anfrage, einem bekannten Template oder der Hosting-Plattform
+abgeleitet, wenn sie nicht gesetzt ist. Arbeitsbereichs- und A2A-Einstellungen
+sind abhängig von diesen Funktionen. Fehlende Werte führen entweder zu einem
+Fail-Closing oder zu schwächerem Verhalten mit einer lauten Warnung.
+
+| Variable                                    | Beschreibung                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                        | Zufällige Zeichenfolge mit 32+ Zeichen. Signiert Sitzungscookies und ist der Fallback für `OAUTH_STATE_SECRET` und app-lokale verschlüsselte Werte. Sie ist außerdem ein Legacy-Lesekandidat für vorhandenen gemeinsamen Vault-Chiffretext. Hart erforderlich: Das Framework wirft beim Start einen Fehler, wenn es in Produktion fehlt.                                                                                              |
+| `BETTER_AUTH_URL`                           | Optionale Überschreibung des öffentlichen Ursprungs für diese App (z. B. `https://mail.example.com`). Das Framework leitet ihn aus Anfrage-, bekanntem-Template- und Hosting-Plattform-Kontext ab, wenn er nicht gesetzt ist.                                                                                                                                                                                                         |
+| `ANTHROPIC_API_KEY`                         | API-Schlüssel für den eingebetteten Produktionsagenten. **Bei mandantenfähigen Bereitstellungen** weigert sich das Framework, darauf zurückzugreifen, wenn der Benutzer keinen benutzerspezifischen Schlüssel hat. Bring-Your-Own-Key ist erforderlich. Selbstgehostete Einzelmandanteninstallationen verwenden ihn als globalen Schlüssel.                                                                                           |
+| `OAUTH_STATE_SECRET`                        | Dedizierter HMAC-Schlüssel für OAuth-Statusumschläge (Google, Atlassian, Zoom). Fällt auf `BETTER_AUTH_SECRET` zurück, wenn er nicht gesetzt ist, aber ein dedizierter Wert wird empfohlen, damit das Rotieren des einen nicht den anderen ungültig macht. Erzeugen Sie ihn über `openssl rand -hex 32`.                                                                                                                              |
+| `A2A_SECRET`                                | Gemeinsames HMAC für App-übergreifendes A2A-JSON-RPC und signierte Hintergrund-Übergaben. Erforderlich für gehostete Workspace-Bereitstellungen und A2A-Funktionen. Ohne es schließen diese Endpunkte in Produktion. Wenn kein dedizierter Workspace-Vault-Schlüssel gesetzt ist, verwendet der gemeinsame Vault-Chiffretext einen aus diesem Wert zweckabgeleiteten Schlüssel, sodass das Rotieren auch den Vault-Schlüssel rotiert. |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`          | Bevorzugter stabiler AES-256-GCM-Schlüssel für den gemeinsamen, verschlüsselt gespeicherten Secrets-Vault. Legen Sie denselben Wert in jeder App fest, die den Vault liest. Er ist getrennt von der app-lokalen OAuth-/Anmeldedaten-Verschlüsselung, sodass A2A-Vertrauen rotieren kann, ohne Vault-Zeilen zu verwaisen. Vorhandener A2A-, Better-Auth- und App-Schlüssel-Chiffretext wird bei erfolgreichen Lesevorgängen migriert.  |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` | Optionaler vorheriger Workspace-Vault-Schlüssel, der nur während eines Rotationsfensters verwendet wird. Zusammen mit dem neuen `WORKSPACE_SECRETS_ENCRYPTION_KEY` bereitstellen, erfolgreiche Lesevorgänge die Zeilen neu verschlüsseln lassen und ihn dann nach der Migration entfernen.                                                                                                                                            |
+| `SECRETS_ENCRYPTION_KEY`                    | Alter kombinierter Schlüssel für app-lokale Verschlüsselung und den gemeinsamen Vault. Er bleibt unterstützt, aber neue Multi-App-Bereitstellungen sollten `WORKSPACE_SECRETS_ENCRYPTION_KEY` für den gemeinsamen Vault verwenden, damit das Ändern der Workspace-Verschlüsselung nicht die app-lokale OAuth-Chiffre ändert.                                                                                                          |
+
+## Auth & Identität {#env-auth}
+
+OAuth-Anbieter-Anmeldedaten (Google, GitHub), statische MCP-Bearer-Fallbacks
+(`ACCESS_TOKEN` / `ACCESS_TOKENS`) und E-Mail-Verifizierungsumschalter sind in
+[Authentifizierung](/docs/authentication) dokumentiert. Legen Sie sie dort
+entsprechend dem von Ihnen gewählten Auth-Modus fest.
+
+## Eingehende Webhooks {#env-webhooks}
+
+Jede Messaging-Integration erfordert ein eigenes Signaturgeheimnis in
+Produktion (Handler schließen bei gefälschten Anfragen, wenn das Geheimnis
+fehlt). Die Variablen pro Integration sind unter [Messaging](/docs/messaging)
+und [Sicherheit](/docs/security) aufgeführt. Nur für die lokale Entwicklung
+schaltet `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` wieder auf „Warnen und
+Akzeptieren“ um. Legen Sie es niemals in Produktion fest.
+
+## Sicherheitskonfiguration (Opt-in) {#security-config}
+
+Die Standardeinstellungen sind streng. Eine Handvoll Opt-in-Flags lockern das
+Verhalten (Debug-Stack-Traces, nicht verifizierte Webhooks, workspace-weiter
+Schlüssel-Fallback, der MCP-Hub-Multi-Org-Schalter, Laufzeit-Env-Var-Schreibvorgänge).
+Sie sind mit ihren Sicherheitskompromissen in [Sicherheit](/docs/security)
+dokumentiert. Legen Sie sie nicht fest, es sei denn, Sie möchten ausdrücklich
+den gelockerten Pfad.
+
+## Workspace-`.env`-Vererbung {#env-inheritance}
+
+Innerhalb eines Arbeitsbereichs wird die Root-`.env` automatisch in jede App
+geladen, sodass gemeinsame Schlüssel wie `ANTHROPIC_API_KEY`, `A2A_SECRET`,
+`BETTER_AUTH_SECRET` und `OAUTH_STATE_SECRET` nur einmal festgelegt werden
+müssen. Die App-spezifische `apps/<name>/.env` gewinnt bei Konflikten.
+
+## Starke Secrets erzeugen {#env-generate-secrets}
+
+Erzeugen Sie für jedes Secret, das mit „32+ Zeichen zufällig" markiert ist
+(`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`,
+`WORKSPACE_SECRETS_ENCRYPTION_KEY`, `SECRETS_ENCRYPTION_KEY`,
+`AGENT_NATIVE_BUILDER_RELAY_SECRET`), frische Werte mit:
+
+```bash
+openssl rand -hex 32
+```
+
+Rotieren Sie Signatur-/Sitzungsschlüssel, indem Sie die Umgebungsvariable auf
+jeder Instanz ersetzen und erneut bereitstellen. Sitzungen und
+OAuth-Statusumschläge, die unter dem alten Schlüssel signiert wurden, werden
+ungültig, sodass sich Benutzer möglicherweise erneut anmelden müssen. Rotieren
+Sie `WORKSPACE_SECRETS_ENCRYPTION_KEY` mit dem oben beschriebenen
+`..._PREVIOUS`-Fenster, damit verschlüsselte Vault-Zeilen während der
+Migration lesbar bleiben.
+
+## Was kommt als nächstes?
+
+- [**Bereitstellung**](/docs/deployment) — wählen Sie eine persistente Datenbank und eine Voreinstellung vor Ihrer ersten Produktionsbereitstellung
+- [**Umgebungsvariablen**](/docs/environment-variables) — die repositoryweite Referenz, einschließlich Template-, Anbieter-, lokaler und CI-Variablen
+- [**Sicherheit**](/docs/security) — die Produktionscheckliste und die auf dieser Seite erwähnten Opt-in-Flags
+- [**Authentifizierung**](/docs/authentication) — OAuth-Anmeldedaten und Umgebungsvariablen für den gewählten Auth-Modus

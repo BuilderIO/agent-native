@@ -1,0 +1,65 @@
+---
+title: "ページを追加"
+description: "アクションを呼び出し、その結果を表示するReactルートを作成します。"
+---
+
+# ページを追加
+
+これは「はじめに」シリーズのパート3です。[アクションを追加](/docs/getting-started-actions)で`analyze-text`を作成しました。ここでは同じアクションをルートから呼び出します。この例では新しいデータベーステーブルは必要ありません。Chatはチャット履歴をすでにSQLに保存します。ドメインデータを永続化する必要がある場合だけ、独自のテーブルを追加してください。
+
+## ルートを作成する {#add-a-page}
+
+開発サーバーは起動時にルートファイルを読み込みます。`app/routes/text-analyses.tsx`を作成し、すでに`pnpm dev`が実行中ならファイルを作成した後に再起動します。`http://localhost:8080/text-analyses`で利用できるようになります。
+
+```tsx filename="app/routes/text-analyses.tsx"
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+type TextAnalysis = {
+  summary: {
+    characters: number;
+    words: number;
+    sentences: number;
+    paragraphs: number;
+  };
+};
+
+export default function TextAnalysesRoute() {
+  const { data: analysis, isLoading } = useActionQuery<TextAnalysis>(
+    "analyze-text",
+    { text: "Hello world. How are you today?" },
+  );
+
+  return (
+    <main className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
+      <header>
+        <h1 className="text-2xl font-semibold">Text analyses</h1>
+        <p className="text-muted-foreground">The same action, on a page.</p>
+      </header>
+      <section className="grid gap-3 sm:grid-cols-2">
+        {isLoading && <p className="text-muted-foreground">Analyzing...</p>}
+        {analysis &&
+          Object.entries(analysis.summary).map(([label, value]) => (
+            <article key={label} className="rounded-lg border p-4">
+              <p className="text-sm capitalize text-muted-foreground">
+                {label}
+              </p>
+              <p className="text-2xl font-semibold">{value}</p>
+            </article>
+          ))}
+      </section>
+    </main>
+  );
+}
+```
+
+`useActionQuery`はエージェントが使用するものと同じ読み取り専用アクションを呼び出します。このページにカスタムAPIルート、別のデータレイヤー、SQLはまだ必要ありません。
+
+`http://localhost:8080/text-analyses`を開くか、エージェントに次のように依頼します。
+
+> Navigate to `/text-analyses`.
+
+このチュートリアルではルートだけで十分です。主要なワークフローになったら、後からサイドバー項目を追加してください。`view-screen`、`navigate`、アプリケーション状態の詳しいパターンについては、[コンテキストアウェアネス](/docs/context-awareness)を参照してください。
+
+## 次へ
+
+同じ情報源を呼び出すアクションとページを備えたチャットアプリが完成しました。[主要な概念](/docs/key-concepts)と[エージェントサーフェス](/docs/agent-surfaces)で詳しい構成を確認してください。

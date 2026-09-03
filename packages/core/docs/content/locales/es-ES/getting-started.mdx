@@ -1,0 +1,212 @@
+---
+title: "Primeros pasos"
+description: "Crea un agente con una interfaz de chat y llama a la misma acción desde el agente y la interfaz de usuario."
+---
+
+# Primeros pasos
+
+Agent-Native es un framework de TypeScript de código abierto para crear agentes
+autónomos con interfaces intuitivas. Defines cada capacidad una sola vez como
+una [acción](/docs/actions-overview): una función tipada que el agente usa como
+herramienta y que la UI llama desde el código.
+
+En esta guía, crearás un agente con una interfaz de chat y llamarás a su acción
+`hello` incluida desde el agente y la interfaz de usuario.
+
+<GettingStartedPaths />
+
+## Requisitos previos
+
+- [Node.js](https://nodejs.org) 22 o posterior
+- [pnpm](https://pnpm.io)
+- Una conexión de LLM para el agente: Builder.io, una clave de API de Anthropic
+  u OpenAI, o un modelo local de Ollama
+
+## Crear un agente
+
+En un directorio nuevo, empieza con la plantilla de Chat:
+
+```bash
+npx @agent-native/core@latest create my-app --standalone --template chat
+cd my-app
+pnpm install
+```
+
+La plantilla proporciona a tu agente una interfaz de navegador, autenticación,
+conversaciones persistentes, sincronización en tiempo real, contexto de la
+aplicación y un directorio `actions/`. También incluye una pequeña acción
+`hello` que usarás en toda esta guía.
+
+## Iniciar el servidor de desarrollo
+
+Inicia el servidor de desarrollo:
+
+```bash
+pnpm dev
+```
+
+La interfaz del navegador se abre en `http://localhost:8080`. Si no se abre
+automáticamente, visita esa URL en tu navegador.
+
+<Callout tone="info">
+
+En la pantalla de bienvenida, selecciona **Continue as local dev**. No necesitas
+introducir una dirección de correo electrónico ni una contraseña para el
+desarrollo local.
+
+</Callout>
+
+A continuación, conecta un LLM. Selecciona **Connect Builder.io** para usar
+créditos gratuitos, o selecciona **Custom keys**, elige un proveedor e introduce
+los datos de conexión solicitados.
+
+## Ejecutar la acción desde el agente
+
+Una acción es una función tipada a la que tu interfaz de usuario de React puede
+llamar desde el código y que los agentes pueden utilizar como herramienta. La
+plantilla de Chat incluye una sencilla acción `hello` para que puedas probar este
+patrón antes de escribir una propia.
+
+En el panel del agente, escribe:
+
+> Call the hello action for Alex.
+
+El agente encuentra `hello` a partir de su descripción y su esquema de entrada,
+pasa `Alex` como entrada de `name` y responde:
+
+```text
+Hello, Alex!
+```
+
+## Inspeccionar la acción
+
+Abre `actions/hello.ts`:
+
+```ts filename="actions/hello.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Return a friendly greeting.",
+  schema: z.object({
+    name: z.string().default("world").describe("Name to greet"),
+  }),
+  http: { method: "GET" },
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+Por ahora, céntrate en cuatro partes:
+
+- `description` indica al agente cuándo usar la acción.
+- `schema` valida la entrada y proporciona al agente una definición de
+  herramienta tipada.
+- `http` expone esta acción de solo lectura mediante `GET`, lo que permite que
+  `useActionQuery` la llame desde React.
+- `run` contiene la lógica de la aplicación que comparten el agente y la
+  interfaz de usuario.
+
+Consulta [Definir acciones](/docs/actions-defining) para ver la API completa.
+
+## Llamar a la acción desde React
+
+Añade una ruta en `app/routes/hello.tsx`:
+
+```tsx filename="app/routes/hello.tsx"
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useState } from "react";
+
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+export default function HelloRoute() {
+  const [name, setName] = useState("Alex");
+  const { data } = useActionQuery("hello", { name });
+
+  return (
+    <main className="mx-auto grid w-full max-w-xl gap-6 p-6">
+      <h1 className="text-2xl font-semibold">Hello action</h1>
+      <div className="grid gap-2">
+        <Label htmlFor="name">Name</Label>
+        <Input
+          id="name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+      </div>
+      <p className="text-xl font-medium">{data?.message}</p>
+    </main>
+  );
+}
+```
+
+<Callout tone="warning">
+
+Reinicia el servidor de desarrollo para que detecte la nueva ruta y abre
+`http://localhost:8080/hello`.
+
+</Callout>
+
+Mientras escribes un nombre, `useActionQuery` llama a `hello` y muestra el
+resultado. Infiere los tipos de entrada y resultado de la acción, por lo que la
+página no necesita una ruta de API personalizada ni una segunda implementación
+del saludo.
+
+## Cambiar la acción
+
+En `actions/hello.ts`, cambia el valor devuelto:
+
+```ts
+return { message: `Welcome, ${name}.` };
+```
+
+Actualiza `/hello` y pídele al agente que vuelva a llamar a `hello`. Ambos
+devuelven el saludo actualizado porque llaman a la misma acción.
+
+## Llamar a acciones de otras formas
+
+Has llamado a la misma acción desde el agente y la interfaz de usuario. La misma
+acción también se puede llamar desde:
+
+| Llamar desde                            | Úsalo para                                                                         |
+| --------------------------------------- | ---------------------------------------------------------------------------------- |
+| [HTTP API](/docs/http-api)              | llamar a una acción desde un script, backend o integración.                        |
+| [CLI](/docs/actions-other-surfaces#cli) | ejecutar o probar una acción desde un terminal.                                    |
+| [MCP](/docs/actions-other-surfaces#mcp) | permitir que un cliente de IA externo descubra y llame acciones como herramientas. |
+| [A2A](/docs/actions-other-surfaces#a2a) | permitir que otro agente delegue trabajo en el tuyo.                               |
+
+Cada llamador utiliza la misma definición de acción. No necesitas una
+implementación independiente para cada uno. Este modelo de acciones compartidas
+es fundamental en Agent-Native: el comportamiento, la validación y los permisos
+se mantienen alineados en la interfaz de usuario, los agentes y las
+integraciones a medida que añades capacidades.
+
+## Lo que has creado
+
+Has creado un agente con una interfaz de chat, llamado a la misma acción `hello`
+desde el agente y una interfaz de usuario de React, y después has cambiado el
+saludo una vez y visto cómo ambos se actualizaban. Cada acción que escribas a
+partir de ahora seguirá el mismo patrón.
+
+## Siguientes pasos
+
+<Cards>
+
+### [¿Qué es Agent-Native?](/docs/what-is-agent-native)
+
+Entiende por qué la interfaz de usuario y el agente comparten acciones, datos y
+contexto.
+
+### [Conceptos clave](/docs/key-concepts)
+
+Aprende cómo encajan las acciones, los datos SQL, el contexto de la aplicación,
+el acceso y la sincronización en tiempo real.
+
+### [Acciones](/docs/actions-overview)
+
+Define acciones de lectura, escritura y aprobación, y después llámalas desde la
+interfaz de usuario, los agentes y clientes externos.
+
+</Cards>

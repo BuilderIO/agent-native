@@ -1,0 +1,519 @@
+---
+title: "カレンダー: 開発者ガイド"
+description: "クイックスタート、完全な action 一覧、データモデル、ルート、そしてカレンダー テンプレートを拡張する方法。"
+---
+
+# 開発者ガイド
+
+このページは、カレンダー テンプレートをカスタマイズしたり拡張したりする人のための
+ものです。クイックスタート、すべての action、データモデル、ルートのサーフェス、
+そして追加の仕方を扱います。アプリが何をするかについては
+[カレンダー](/docs/template-calendar) を参照してください。
+
+## クイックスタート
+
+これは、何もインストールされていない状態から Google Calendar が接続された状態
+まで、カレンダーを動かす手順を説明します。macOS の Terminal でも Windows の
+PowerShell/コマンド プロンプトでも、コマンドは同一です。単純な Node.js の
+ツール群だからです。
+
+<Steps>
+
+### アプリを作成する
+
+```bash
+npx @agent-native/core@latest create my-calendar --standalone --template calendar
+cd my-calendar
+pnpm install
+```
+
+これには [Node.js](https://nodejs.org) 22 以降と [pnpm](https://pnpm.io) が
+事前にインストールされている必要があります。どちらもまだインストールしていない
+場合や、LLM 接続 (Builder.io、Anthropic/OpenAI のキー、またはローカルの Ollama)
+を設定していない場合は、[はじめに](/docs/getting-started) を参照してください。
+
+### 開発サーバーを起動する
+
+```bash
+pnpm dev
+```
+
+アプリは `http://localhost:8082` で開きます。自動的に開かない場合は、その
+URL をブラウザで開いてください。カレンダーは Google が未接続の状態でも完全に
+動作します。接続する前にそれを必要とする action を試したときだけエラーになります。
+
+### Google Calendar を接続する
+
+アプリ内で **設定** を開き、**一般** タブで **Google Calendar** カードを見つけて、
+**Google Calendar に接続** をクリックします。これでセットアップ ウィザードが
+開きます。
+
+1. **Google Cloud プロジェクトを作成する** (すでに使えるプロジェクトがない場合):
+   [Google Cloud Console](https://console.cloud.google.com/) で、ページ上部
+   近くのプロジェクト ドロップダウンをクリックし、**New Project** を選びます。
+   任意の名前を付けて **Create** をクリックし、準備完了の通知を待ちます。続ける
+   前に、同じドロップダウンでそのプロジェクトが選択されていることを確認してください。
+2. **API を有効にする**: プロジェクトを選択した状態で **APIs & Services →
+   Library** に移動し、「Google Calendar API」を検索して開き、**Enable** を
+   クリックします。
+3. **同意画面を設定する**: **APIs & Services → OAuth consent screen** で設定を
+   行います (開発用途であれば「External」で構いません)。
+4. **認証情報を作成する**: **APIs & Services → Credentials** で「Web
+   application」タイプの OAuth クライアント ID を作成し、
+   `http://localhost:8082/_agent-native/google/callback` を承認済みのリダイレクト
+   URI として追加します (8082 はカレンダーの既定の開発用ポートです)。
+5. **認証情報を追加する**: 認証情報の JSON をダウンロードしてウィザードに
+   アップロードするか、「Paste manually」を切り替えてクライアント ID とクライアント
+   シークレットを直接入力します。
+
+カレンダーはこれらを `.env` ファイルではなく専用のシークレット ストアに保存する
+ので、この手順は Windows と macOS で同一です。接続すると、トークンは自動的に
+更新されます。
+
+### Zoom を接続する (任意)
+
+Google とは異なり、Zoom には設定フォームがありません。プロジェクトのルートに
+`.env` ファイルを作成 (または既存のものに追加) し、以下を記述します。
+
+```text
+ZOOM_CLIENT_ID=your-client-id
+ZOOM_CLIENT_SECRET=your-client-secret
+```
+
+[Zoom OAuth アプリ](https://marketplace.zoom.us/) (Zoom Marketplace →
+Develop → Build App → OAuth) からクライアント ID とシークレットを取得し、
+リダイレクト URI に `/_agent-native/zoom/callback` を設定してください。その後、
+新しい値を反映させるために `pnpm dev` を再起動します。Zoom を接続していなくても、
+予約リンクは Google Meet を提供できます。Zoom だけが使えなくなります。
+
+</Steps>
+
+<Callout tone="warning">
+
+Windows では、一部のエディタが `.env` という名前のファイルを保存する際に隠れた
+`.txt` 拡張子を追加してしまい、カレンダーが読み取らない `.env.txt` が残ることが
+あります。エクスプローラーで「ファイル名拡張子」(表示タブ) を有効にして、保存
+されたファイルの名前が `.env` そのままで、それ以降に何も付いていないことを
+確認してください。
+
+</Callout>
+
+<Callout tone="info">
+
+**イベントは Google Calendar に存在し、SQL には存在しません。** すべてのイベント
+action は Google Calendar API を直接呼び出します。ローカルのイベントテーブルは
+ありません。ローカルに保存されるのは予約リンク、予約、空き状況、接続状態だけです。
+イベントデータを生の SQL で読み書きすることは絶対にしないでください。
+
+</Callout>
+
+## Action 一覧
+
+すべての操作は `templates/calendar/actions/` にある TypeScript ファイルであり、
+`POST /_agent-native/actions/:name` に自動的にマウントされます。
+
+### イベントと出席者
+
+イベント データは Google Calendar に存在し、SQL には決して存在しません。
+
+| Action                   | 何をするか                                                                                             |
+| ------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `list-events`            | 指定した日付範囲のイベントを一覧表示する                                                               |
+| `search-events`          | クエリでイベントを検索する                                                                             |
+| `get-event`              | id で 1 件のイベントを読み取る                                                                         |
+| `create-event`           | 繰り返し (RRULE)、勤務場所、ステータス種別 (`outOfOffice`、`focusTime`) を含め、イベントを作成する     |
+| `update-event`           | 繰り返し、勤務場所、ステータス種別を含め、イベントを更新する                                           |
+| `delete-event`           | イベントを削除する                                                                                     |
+| `manage-event-draft`     | 何かが書き込まれたりゲストに通知されたりする前に、未送信の招待をユーザーのレビュー用にステージングする |
+| `rsvp-event`             | 招待を承認、辞退、または未定としてマークする                                                           |
+| `get-attendee-timezones` | ゲストごとのタイムゾーン オーバーライドを読み取る                                                      |
+| `set-attendee-timezone`  | 現地時間が正しく表示され続けるように、ゲストごとのタイムゾーン オーバーライドを設定する                |
+
+### 空き状況と時間の検索
+
+| Action                | 何をするか                                                                                                     |
+| --------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `get-availability`    | 週次スケジュール、タイムゾーン、バッファ、通知、事前予約可能期間の設定を読み取る                               |
+| `update-availability` | 週次スケジュール、タイムゾーン、バッファ、通知、事前予約可能期間の設定を更新する                               |
+| `check-availability`  | 1 日分の空きスロットを見つける                                                                                 |
+| `find-a-time`         | 主催者と指定された出席者をまとめた共有の空きスロット検索。Google の空き/予定状況とローカルの競合を組み合わせる |
+
+### 予約リンクと予約
+
+| Action                   | 何をするか                                        |
+| ------------------------ | ------------------------------------------------- |
+| `create-booking-link`    | 予約リンクを作成する                              |
+| `update-booking-link`    | 予約リンクを更新する                              |
+| `duplicate-booking-link` | 共同ホスト (`hosts`) を含め、予約リンクを複製する |
+| `list-booking-links`     | アクセス可能な予約リンクを一覧表示する            |
+| `list-bookings`          | 確定した予約を一覧表示する                        |
+
+### 外部カレンダー
+
+読み取り専用の ICS フィード。
+
+| Action                      | 何をするか                                   |
+| --------------------------- | -------------------------------------------- |
+| `add-external-calendar`     | 読み取り専用の ICS/webcal フィードを購読する |
+| `list-external-calendars`   | 購読済みのフィードを一覧表示する             |
+| `remove-external-calendar`  | 購読済みのフィードを削除する                 |
+| `update-external-calendars` | 購読済みのフィードを更新する                 |
+
+### 人物とオーバーレイ
+
+| Action                  | 何をするか                                                     |
+| ----------------------- | -------------------------------------------------------------- |
+| `search-people`         | Google Contacts とワークスペースのディレクトリを検索する       |
+| `get-overlay-people`    | あなたのビューに固定表示されている他の人のカレンダーを読み取る |
+| `update-overlay-people` | あなたのビューに固定表示されている他の人のカレンダーを更新する |
+
+### Zoom
+
+| Action            | 何をするか                                                                                                                                                                       |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get-zoom-status` | 現在のユーザーの Zoom 接続状態を読み取る。OAuth にはサインイン済みのブラウザ セッションが必要なため、接続と切断は action ではなく `/_agent-native/zoom/*` ルートを通じて行われる |
+
+### Google Calendar の接続と同期
+
+| Action                    | 何をするか                                                    |
+| ------------------------- | ------------------------------------------------------------- |
+| `connect-google-calendar` | サインイン済みのブラウザ セッション用の OAuth 接続 URL を返す |
+| `sync-google-calendar`    | 再同期を強制する                                              |
+
+### 設定と環境設定
+
+| Action                               | 何をするか                                                                                       |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `get-settings`                       | ユーザーレベルの設定を読み取る                                                                   |
+| `update-settings`                    | ユーザーレベルの設定を更新する                                                                   |
+| `update-calendar-visual-preferences` | ローカル限定の表示設定 (イベントの色、週末の非表示) を更新する。Google Calendar には一切触れない |
+
+### ナビゲーションと UI 状態
+
+| Action        | 何をするか                                  |
+| ------------- | ------------------------------------------- |
+| `navigate`    | UI をビュー、日付、またはイベントに移動する |
+| `view-screen` | エージェントのために現在のビューを読み返す  |
+
+### プロバイダー API へのエスカレーション
+
+上記の actions では狭すぎる場合のための、生の Google Calendar (および接続された
+CRM) API。
+
+| Action                  | 何をするか                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------ |
+| `provider-api-catalog`  | 直接呼び出せる生のプロバイダー API を一覧表示する                              |
+| `provider-api-docs`     | 生のプロバイダー API エンドポイントのドキュメントを読み取る                    |
+| `provider-api-request`  | 生の Google Calendar (または接続された CRM) API を直接呼び出す                 |
+| `list-staged-datasets`  | 生の結果を返す代わりにクエリ用にステージングされた大規模スキャンを一覧表示する |
+| `query-staged-dataset`  | ステージングされたデータセットをクエリする                                     |
+| `delete-staged-dataset` | ステージングされたデータセットを削除する                                       |
+
+## データモデル
+
+`templates/calendar/server/db/schema.ts` で定義されています。ローカルに保存
+されるのはイベント以外のデータのみです。イベント自体は Google Calendar に
+存在します。
+
+<DataModel
+  id="doc-block-calendar6"
+  title="カレンダー データモデル"
+  summary={
+    "ローカルに保存されるのはイベント以外のデータのみです。イベントは Google Calendar に存在します。予約リンクは ownableColumns を使用しているため共有システムが適用されます。予約用ユーザー名は別の予約テーブルになっています。ユーザー名はそのユーザーが所有するすべてのリンクで共有されるためです。"
+  }
+  entities={[
+    {
+      id: "booking_links",
+      name: "booking_links",
+      note: "Calendly スタイルのリンク定義 (ownable)",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        {
+          name: "slug",
+          type: "string",
+          note: "一意。公開ページは /book/{username}/{slug}",
+        },
+        { name: "title", type: "string" },
+        { name: "description", type: "string", nullable: true },
+        { name: "duration", type: "int", note: "分単位の基本時間" },
+        {
+          name: "durations",
+          type: "json",
+          nullable: true,
+          note: "代替の時間",
+        },
+        {
+          name: "hosts",
+          type: "json",
+          nullable: true,
+          note: "所有者以外の必須の共同ホスト",
+        },
+        { name: "customFields", type: "json", nullable: true },
+        {
+          name: "conferencing",
+          type: "json",
+          nullable: true,
+          note: "none | google_meet | zoom | custom",
+        },
+        { name: "color", type: "string", nullable: true },
+        { name: "isActive", type: "bool", note: "削除せずに一時停止" },
+        { name: "ownerEmail", type: "string" },
+        { name: "orgId", type: "id", nullable: true },
+      ],
+    },
+    {
+      id: "bookings",
+      name: "bookings",
+      note: "公開予約ページからの確定済みの予約",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "slug", type: "string", fk: "booking_links.slug" },
+        { name: "name", type: "string" },
+        { name: "email", type: "string" },
+        { name: "start", type: "datetime" },
+        { name: "end", type: "datetime" },
+        { name: "eventTitle", type: "string", nullable: true },
+        { name: "notes", type: "string", nullable: true },
+        {
+          name: "fieldResponses",
+          type: "json",
+          nullable: true,
+          note: "カスタムフィールドの回答",
+        },
+        {
+          name: "meetingLink",
+          type: "string",
+          nullable: true,
+          note: "Zoom、Google Meet、またはカスタム",
+        },
+        { name: "googleEventId", type: "string", nullable: true },
+        {
+          name: "calendarAccountId",
+          type: "string",
+          nullable: true,
+          note: "そのイベントを所有する接続済みアカウント",
+        },
+        {
+          name: "cancelToken",
+          type: "string",
+          note: "/booking/manage/{token} を実現する",
+        },
+        { name: "status", type: "enum", note: "confirmed | cancelled" },
+        { name: "ownerEmail", type: "string" },
+        { name: "orgId", type: "id", nullable: true },
+      ],
+    },
+    {
+      id: "booking_slug_redirects",
+      name: "booking_slug_redirects",
+      note: "リンクのスラッグが変更された後も、古い公開 URL が機能し続けるようにする",
+      fields: [
+        { name: "oldSlug", type: "string", pk: true },
+        {
+          name: "newSlug",
+          type: "string",
+          note: "リンクの現在のスラッグ",
+        },
+        { name: "createdAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "booking_usernames",
+      name: "booking_usernames",
+      note: "/book/{username}/{slug} の {username} セグメントを予約する。所有者ごとに 1 つ",
+      fields: [
+        { name: "username", type: "string", pk: true },
+        {
+          name: "ownerEmail",
+          type: "string",
+          note: "一意。ユーザーごとに 1 つの予約用ユーザー名",
+        },
+        { name: "createdAt", type: "datetime" },
+        { name: "updatedAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "booking_username_changes",
+      name: "booking_username_changes",
+      note: "30 日ごとに 3 回までの変更というレート制限を強制する監査記録",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "ownerEmail", type: "string" },
+        { name: "oldUsername", type: "string", nullable: true },
+        { name: "newUsername", type: "string" },
+        { name: "createdAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "booking_link_shares",
+      name: "booking_link_shares",
+      note: "予約リンクの共有許可",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "linkId", type: "id", fk: "booking_links.id" },
+        { name: "principal", type: "string", note: "ユーザーまたは組織" },
+        { name: "role", type: "enum", note: "viewer | editor | admin" },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "booking_links",
+      to: "bookings",
+      kind: "1-n",
+      label: "予約を持つ",
+    },
+    {
+      from: "booking_links",
+      to: "booking_link_shares",
+      kind: "1-n",
+      label: "共有許可を持つ",
+    },
+  ]}
+/>
+
+空き状況のルールは `calendar-availability` キーの下のユーザーごとの設定に
+存在します。オーバーレイ表示する人物は `calendar-overlay-people`、出席者の
+タイムゾーン オーバーライドは `attendee-timezones`、購読中の ICS フィードは
+`external-calendars` に存在します。Google と Zoom の OAuth トークンはフレーム
+ワークの `oauth_tokens` テーブルに存在します。一時的な UI 状態 (現在のビュー、
+日付、選択されたイベント) は `application_state` の `navigation` キーの下に
+存在します。
+
+## 1 つの action を詳しく見る
+
+`create-booking-link` は、どの action でも再利用する価値のあるパターンを示して
+います。データベースに触れる前に入力を検証すること、2 つのテーブルにわたって
+ルールを強制すること、サインイン済みのユーザーを安全に解決すること、そして
+柔軟な入力の形を各読み取り側でではなく一度だけ正規化することです。
+
+<AnnotatedCode
+  id="doc-block-calendar8"
+  title="予約リンクの作成"
+  filename="templates/calendar/actions/create-booking-link.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core";\nimport {\n  getRequestUserEmail,\n  getRequestOrgId,\n} from "@agent-native/core/server/request-context";\nimport { eq } from "drizzle-orm";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { normalizeBookingDurationInput } from "../server/lib/booking-durations.js";\nimport {\n  rowToBookingLink,\n  serializeBookingHosts,\n} from "../server/lib/booking-link-utils.js";\n\nconst hostsSchema = z\n  .union([\n    z.array(\n      z.union([\n        z.string(),\n        z.object({\n          email: z.string(),\n          displayName: z.string().optional(),\n        }),\n      ]),\n    ),\n    z.string(),\n  ])\n  .optional();\n\nexport default defineAction({\n  description:\n    "Create a new booking link/event type. Use this instead of raw SQL for booking links.",\n  schema: z.object({\n    title: z.string().min(1).describe("Booking link title"),\n    slug: z\n      .string()\n      .min(1)\n      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)\n      .describe("URL slug, lowercase words separated by hyphens"),\n    duration: z.coerce\n      .number()\n      .int()\n      .min(5)\n      .max(24 * 60)\n      .describe("Default duration in minutes"),\n    description: z.string().optional().describe("Description"),\n    durations: z\n      .array(\n        z.coerce\n          .number()\n          .int()\n          .min(5)\n          .max(24 * 60),\n      )\n      .optional()\n      .describe("Optional duration choices, e.g. [30,45,60]"),\n    hosts: hostsSchema.describe(\n      "Required co-hosts besides the owner. Accepts emails, comma-separated emails, or {email, displayName} objects.",\n    ),\n    customFields: z.array(z.any()).optional().describe("Custom form fields"),\n    conferencing: z.any().optional().describe("Conferencing configuration"),\n    color: z.string().optional().describe("Display color"),\n    isActive: z.boolean().optional().describe("Whether the link is active"),\n  }),\n  run: async (args) => {\n    const body = args as Record<string, any>;\n    const durationInput = normalizeBookingDurationInput({\n      duration: body.duration,\n      durations: body.durations,\n    });\n    if ("error" in durationInput) {\n      throw new Error(durationInput.error);\n    }\n    const slug = String(body.slug).trim().toLowerCase();\n    const [existingLink, existingRedirect] = await Promise.all([\n      getDb()\n        .select({ id: schema.bookingLinks.id })\n        .from(schema.bookingLinks)\n        .where(eq(schema.bookingLinks.slug, slug)),\n      getDb()\n        .select({ oldSlug: schema.bookingSlugRedirects.oldSlug })\n        .from(schema.bookingSlugRedirects)\n        .where(eq(schema.bookingSlugRedirects.oldSlug, slug)),\n    ]);\n\n    if (existingLink.length > 0 || existingRedirect.length > 0) {\n      throw new Error("A booking link with this slug already exists");\n    }\n\n    const now = new Date().toISOString();\n    const id = nanoid();\n    const ownerEmail = (() => {\n      const e = getRequestUserEmail();\n      if (!e) throw new Error("no authenticated user");\n      return e;\n    })();\n    await getDb()\n      .insert(schema.bookingLinks)\n      .values({\n        id,\n        slug,\n        title: String(body.title).trim(),\n        description: body.description ? String(body.description).trim() : null,\n        duration: durationInput.duration,\n        durations: durationInput.durations\n          ? JSON.stringify(durationInput.durations)\n          : null,\n        hosts: serializeBookingHosts(body.hosts, ownerEmail),\n        customFields: body.customFields\n          ? JSON.stringify(body.customFields)\n          : null,\n        conferencing: body.conferencing\n          ? JSON.stringify(body.conferencing)\n          : null,\n        color: body.color ? String(body.color).trim() : null,\n        isActive: body.isActive ?? true,\n        ownerEmail,\n        orgId: getRequestOrgId(),\n        createdAt: now,\n        updatedAt: now,\n      });\n\n    const created = await getDb()\n      .select()\n      .from(schema.bookingLinks)\n      .where(eq(schema.bookingLinks.id, id));\n    return rowToBookingLink(created[0]);\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "37-41",
+      label: "スラッグの形式は先頭で検証される",
+      note: "この正規表現は、データベースに何も触れる前に、小文字でハイフン区切りの URL スラッグを強制します。そのため、不正な形式のスラッグは下にある一意性チェックに到達することがありません。",
+    },
+    {
+      lines: "59-61",
+      label: "Hosts は任意",
+      note: "`hosts` を省略すると単独のリンクが作成されます。空でないリストを指定すると、それが必須の共同ホストになり、`find-a-time` がスロットを提示する前に彼らも空いている必要があります。",
+    },
+    {
+      lines: "76-90",
+      label: "スラッグは 2 つのテーブルで空いている必要がある",
+      note: "新しいスラッグは `booking_links` と `booking_slug_redirects` の両方で未使用でなければなりません。そうしないと、新しいリンクが、名前を変更した古いリンクが今も訪問者を転送している URL を、黙って乗っ取ってしまう可能性があります。",
+    },
+    {
+      lines: "94-98",
+      label: "サインイン済みのユーザーは一度だけ解決され、型が絞り込まれる",
+      note: "`getRequestUserEmail()` は `string | undefined` を返します。認証されていない呼び出しには、技術的にはサインイン済みのユーザーが存在しないためです。これを即時実行関数でラップすることで、そうした事態が起きた場合にその場で action が例外を投げられるようになり、`ownerEmail` は関数の残りの部分では単純な `string` として扱えます。以降のすべての行で再チェックする必要はありません。",
+    },
+    {
+      lines: "110",
+      label: "共同ホストの入力は一度だけ正規化される",
+      note: "`serializeBookingHosts` はメールアドレス、カンマ区切りの文字列、または `{email, displayName}` オブジェクトを受け付け、常に同じ JSON の形で保存します。そのため、どの読み取り側も 1 つの形式だけを扱えば済みます。",
+    },
+  ]}
+/>
+
+## ルート リファレンス
+
+<FileTree
+  id="doc-block-calendar7"
+  title="カレンダー テンプレートのレイアウト"
+  entries={[
+    {
+      path: "actions/",
+      note: "エージェントが呼び出せるすべての action。イベント、空き状況、予約、人物、Zoom、共有",
+    },
+    {
+      path: "app/routes/_app._index.tsx",
+      note: "メインのカレンダー ビュー (日/週/月)",
+    },
+    {
+      path: "app/routes/_app.agent.tsx",
+      note: "フルページのエージェント チャット タブ",
+    },
+    {
+      path: "app/routes/_app.availability.tsx",
+      note: "空き状況エディター",
+    },
+    {
+      path: "app/routes/_app.booking-links._index.tsx",
+      note: "予約リンクの一覧。1 件を編集するのは _app.booking-links.$id.tsx",
+    },
+    { path: "app/routes/_app.bookings.tsx", note: "確定済みの予約一覧" },
+    {
+      path: "app/routes/_app.extensions.tsx",
+      note: "拡張機能ウィジェットのルート",
+    },
+    {
+      path: "app/routes/_app.settings.tsx",
+      note: "Google/Zoom の接続、空き状況の既定値、共有",
+    },
+    {
+      path: "app/routes/book.$username.$slug.tsx",
+      note: "公開の予約ページ (正規: /book/{username}/{slug})",
+    },
+    {
+      path: "app/routes/booking.manage.$token.tsx",
+      note: "訪問者が予約変更/キャンセルを行うページ",
+    },
+    {
+      path: "app/routes/event.tsx",
+      note: "エージェントがチャットに埋め込む、単独のインライン イベント プレビュー ページ",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "Drizzle のテーブル。booking_links、bookings、booking_usernames、shares",
+    },
+    { path: "server/lib/zoom.ts", note: "Zoom の OAuth とミーティング作成" },
+    {
+      path: "server/lib/google-calendar.ts",
+      note: "Google Calendar API クライアント",
+    },
+    {
+      path: "shared/api.ts",
+      note: "サーバーとクライアントで使用される共有 TypeScript 型",
+    },
+  ]}
+/>
+
+URL スキームが変更される前に共有されたリンクのために、2 つの旧ルートがマウント
+されたままになっています。`book.$slug.tsx` (ユーザー名セグメントなし) と
+`meet.$username.$slug.tsx` で、いずれも `/book/:username/:slug` に正規化
+されます。`_app.team.tsx` は `/settings/organization` にリダイレクトします。
+チーム管理は別のページではなく設定内にあります。
+
+## カスタマイズする
+
+アプリのすべての部分は編集可能なソースです。ここから始めてください。
+
+- `templates/calendar/actions/` — `defineAction` を使った新しいファイルを追加して、エージェントとフロントエンドの両方に新しい機能を公開します。
+- `templates/calendar/app/routes/` — UI です。上に一覧があります。
+- `templates/calendar/server/db/schema.ts` — Drizzle で列やテーブルを追加します。テンプレートが SQLite、Postgres、Turso、D1、Neon で動作するように、コードは方言に依存しないようにしてください。
+- `templates/calendar/server/lib/` — プロバイダー統合: `google-calendar.ts`、`zoom.ts`、`people-search.ts`、`ical-fetcher.ts`、`find-time.ts`、`provider-api.ts`。
+- `templates/calendar/AGENTS.md` — エージェントへの指示。エージェントに新しい機能や規則を教えるときはこれを更新してください。
+- `templates/calendar/.agents/skills/` — エージェントが従う詳細なパターン。関連する skills: `event-management`、`availability-booking`、`real-time-sync`、`storing-data`、`delegate-to-agent`、`frontend-design`。
+- `templates/calendar/shared/api.ts` — サーバーとクライアントの両方で使用される共有 TypeScript 型 (`CalendarEvent`、`BookingLink`、`ExternalCalendar`、`ConferencingConfig` など)。
+
+機能を追加する場合は、UI、action、skill または AGENTS.md エントリ、そして
+エージェントが確認する必要のあるアプリケーション状態という 4 つの領域すべてを
+更新することを忘れないでください。それが、エージェントと UI を同等に保つ理由です。
+
+## 次は何ですか
+
+- [**カレンダー**](/docs/template-calendar) — 概要と使い始めの手順
+- [**機能**](/docs/template-calendar-features) — これらの action とデータモデルが実現するユーザー向けの動作
+- [**Agent との対話**](/docs/template-calendar-agent) — エージェントがこれらの action と生の Google Calendar API をどう使い分けるか
+- [**マルチアプリ ワークスペースでのカレンダーのクロスアプリ利用**](/docs/template-calendar-integrations) — これらの action が他のアプリや Dispatch にどのように公開されるか
+- [**Actions**](/docs/actions-overview) — このテンプレートが構築されている action システム
+- [**共有**](/docs/sharing) — `booking_link_shares` が使用する共有権限モデル
