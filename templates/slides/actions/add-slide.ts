@@ -112,6 +112,7 @@ export default defineAction({
     "For an agent-generated deck with a persisted target slide count, stop once that count is reached. If the user explicitly asks for more slides after the target, re-read the deck and set targetSlideCountOverride to the new total on the first add-slide call. " +
     "If the deck has a designSystemId, first use `get-design-system` and apply its `agentContext` tokens/docs; do not use generic slide styling from the id alone. " +
     "Pass presenter-only speaker notes in `notes`; keep them out of the slide HTML. " +
+    "For a single-call bulk append, use `patch-deck` with add-slide operations. " +
     "Returns the new slide ID, 1-based slideNumber, updated slide count, and pending layoutFit identity that can be checked later with get-layout-overflows.",
   schema: z.object({
     deckId: z.string().describe("Target deck ID"),

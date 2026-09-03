@@ -149,6 +149,8 @@ const messages = {
     clearSelection: "Effacer la sélection",
     sendToAgent: "Envoyer à l’agent",
     saveReconnect: "Les changements seront enregistrés à la reconnexion",
+    saveFailedDescription:
+      "Vos dernières modifications sont uniquement sur cet appareil. Téléchargez une sauvegarde avant de partir.",
     offline: "Hors ligne",
     selected: "sélectionné",
     chooseDesignSystem: "Choisir un système de design",
@@ -272,6 +274,11 @@ const messages = {
     more: "Plus",
     importing: "Importation...",
     importFile: "Importer un fichier",
+    downloadBackup: "Télécharger la sauvegarde",
+    importBackup: "Importer la sauvegarde",
+    backupDownloaded: "Sauvegarde téléchargée",
+    backupDownloadFailed: "Impossible de télécharger la sauvegarde",
+    invalidBackup: "Choisissez un fichier JSON de sauvegarde Slides valide.",
     savedVersions: "Versions enregistrées",
     lightTheme: "Thème clair",
     darkTheme: "Thème sombre",
@@ -279,6 +286,7 @@ const messages = {
   editorExport: {
     pptxFailed: "Impossible de générer le fichier PPTX.",
     exportFailed: "Échec de l’export",
+    exporting: "Exportation...",
     exportPptxError: "Une erreur est survenue lors de l’export en PPTX.",
     googleSlidesDownloaded: "Téléchargé pour Google Slides",
     googleSlidesImportHint:

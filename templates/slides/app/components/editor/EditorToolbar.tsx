@@ -65,8 +65,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { SaveStatusIndicator } from "@/components/visual-editor";
-import type { Deck, Slide } from "@/context/DeckContext";
-import { useSaveState } from "@/context/DeckContext";
+import {
+  hasFailedDeckSave,
+  hasUnsavedDeckChanges,
+  useSaveState,
+  type Deck,
+  type Slide,
+} from "@/context/DeckContext";
+import { DeckBackupError } from "@/lib/deck-backup";
 import { getDeckShareLinkOrder } from "@/lib/deck-share-links";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 import { parseUploadResponse } from "@/lib/upload-response";
@@ -79,7 +85,12 @@ import {
   EditorActionCluster,
   type SlideShapeType,
 } from "./EditorActionCluster";
-import { ExportMenu, type ExportMenuHandle } from "./ExportMenu";
+import {
+  ExportMenu,
+  ExportStatusDialog,
+  type ExportMenuHandle,
+  type ExportStatus,
+} from "./ExportMenu";
 export type PresentRequest = {
   preserveNativeNavigation: true;
 };
@@ -154,13 +165,17 @@ interface EditorToolbarProps {
   /** Duplicate the current deck */
   onDuplicateDeck?: () => void;
   /** Export the deck as PDF */
-  onExportPdf?: () => void;
+  onExportPdf?: () => Promise<void> | void;
   /** Export the deck as PPTX */
   onExportPptx?: () => Promise<void> | void;
   /** Create the deck in the user's Google Drive as native Google Slides */
   onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
   /** Flush local edits before entering the full-screen presentation view. */
   onPresent?: (request?: PresentRequest) => boolean | void;
+  /** Download the current local deck state as a recovery backup. */
+  onDownloadBackup?: () => void;
+  /** Restore a recovery backup into the current deck. */
+  onImportDeckBackup?: (file: File) => Promise<{ slideCount: number }>;
   /** Inserts a blank slide directly below the active slide. Threaded through
    *  to the fallback action cluster below so an empty deck (no current
    *  slide, so the primary element-controls toolbar never mounts) still has
@@ -223,6 +238,8 @@ export default function EditorToolbar({
   onExportPptx,
   onExportGoogleSlides,
   onPresent,
+  onDownloadBackup,
+  onImportDeckBackup,
   onAddEmptySlide,
   addSlideGenerating,
   canEdit = true,
@@ -260,6 +277,8 @@ export default function EditorToolbar({
   // Live save state for the toolbar indicator, so users always see whether
   // their work has committed (a lost-deck report motivated surfacing this).
   const { saving } = useSaveState();
+  const deckHasUnsavedChanges = hasUnsavedDeckChanges(deckId);
+  const saveFailed = hasFailedDeckSave(deckId);
   const [offline, setOffline] = useState(
     typeof navigator !== "undefined" ? !navigator.onLine : false,
   );
@@ -280,6 +299,9 @@ export default function EditorToolbar({
   const contextToolbarVisible = canEdit && Boolean(currentSlide);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const exportMenuRef = useRef<ExportMenuHandle>(null);
+  const [exportStatus, setExportStatus] = useState<ExportStatus>({
+    state: "idle",
+  });
   const titleMeasureRef = useRef<HTMLSpanElement>(null);
   const [titleInputWidth, setTitleInputWidth] = useState(96);
   const [importing, setImporting] = useState(false);
@@ -309,9 +331,21 @@ export default function EditorToolbar({
     toast(t("editorToolbar.importingFile"), {
       description: t("editorToolbar.readingFile", { fileName: file.name }),
     });
-    const formData = new FormData();
-    formData.append("file", file);
     try {
+      if (file.name.toLowerCase().endsWith(".json")) {
+        if (!onImportDeckBackup) throw new DeckBackupError();
+        const { slideCount } = await onImportDeckBackup(file);
+        toast.success(t("editorToolbar.importComplete"), {
+          description: t("editorToolbar.importCompleteSlides", {
+            count: slideCount,
+            fileName: file.name,
+          }),
+        });
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("file", file);
       const uploadRes = await fetch(`${appBasePath()}/api/uploads`, {
         method: "POST",
         body: formData,
@@ -368,9 +402,11 @@ export default function EditorToolbar({
       console.error("Import failed:", err);
       toast.error(t("editorToolbar.importFailed"), {
         description:
-          err instanceof Error
-            ? err.message
-            : t("editorToolbar.importFailedDescription"),
+          err instanceof DeckBackupError
+            ? t("editorToolbar.invalidBackup")
+            : err instanceof Error
+              ? err.message
+              : t("editorToolbar.importFailedDescription"),
       });
     } finally {
       setImporting(false);
@@ -541,7 +577,7 @@ export default function EditorToolbar({
         label: t("editorExport.exportPdf"),
         keywords: ["export", "pdf", "download"],
         icon: IconFileTypePdf,
-        run: () => onExportPdf?.(),
+        run: () => void exportMenuRef.current?.exportPdf(),
       },
       {
         id: "export-pptx",
@@ -760,7 +796,13 @@ export default function EditorToolbar({
       {canEdit && (
         <SaveStatusIndicator
           saving={saving}
+          hasUnsavedChanges={deckHasUnsavedChanges}
+          saveFailed={saveFailed}
           offline={offline}
+          onDownloadBackup={onDownloadBackup}
+          onImportBackup={
+            onImportDeckBackup ? () => fileInputRef.current?.click() : undefined
+          }
           className="flex-shrink-0 mr-1"
         />
       )}
@@ -796,6 +838,7 @@ export default function EditorToolbar({
             <TooltipContent>{t("editorToolbar.more")}</TooltipContent>
           </Tooltip>
           <DropdownMenuContent
+            forceMount
             align="end"
             className="max-h-[90vh] w-64 overflow-y-auto"
           >
@@ -915,6 +958,8 @@ export default function EditorToolbar({
             <ExportMenu
               ref={exportMenuRef}
               inline
+              hideExportDialog
+              onExportStatusChange={setExportStatus}
               deckId={deckId}
               deckTitle={deckTitle}
               onDuplicate={onDuplicateDeck ?? (() => {})}
@@ -938,6 +983,10 @@ export default function EditorToolbar({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <ExportStatusDialog
+          status={exportStatus}
+          onStatusChange={setExportStatus}
+        />
       </div>
 
       {/* Framework share (ownership, per-user/org grants, visibility) */}
@@ -995,7 +1044,7 @@ export default function EditorToolbar({
       <input
         ref={fileInputRef}
         type="file"
-        accept=".pptx,.docx,.pdf"
+        accept=".pptx,.docx,.pdf,.json"
         onChange={handleImportFile}
         className="hidden"
       />

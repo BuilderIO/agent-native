@@ -46,6 +46,8 @@ vi.mock("@/components/visual-editor", () => ({
 }));
 
 vi.mock("@/context/DeckContext", () => ({
+  hasFailedDeckSave: () => false,
+  hasUnsavedDeckChanges: () => false,
   useSaveState: () => ({ saving: false }),
 }));
 
@@ -59,6 +61,7 @@ vi.mock("@/lib/utils", () => ({
 
 vi.mock("./ExportMenu", () => ({
   ExportMenu: () => null,
+  ExportStatusDialog: () => null,
 }));
 
 vi.mock("./editor-command-model", () => ({

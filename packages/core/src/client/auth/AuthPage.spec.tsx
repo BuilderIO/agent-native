@@ -52,7 +52,7 @@ describe("AuthPage", () => {
     expect(html).not.toContain('id="local-note"');
     expect(onboardingHtml).toContain("aspect-ratio: 914 / 818");
     expect(onboardingHtml).toContain("width: 100%");
-    expect(onboardingHtml).toContain("filter: blur(0.3px)");
+    expect(onboardingHtml).toContain("filter: blur(3px)");
     expect(onboardingHtml).toContain("opacity: 0.8");
     expect(onboardingHtml).toContain("object-fit: cover");
     expect(onboardingHtml).toContain(

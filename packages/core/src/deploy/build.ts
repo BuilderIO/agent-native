@@ -4364,6 +4364,30 @@ export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
   );
 }
 
+const NITRO_AGENT_NATIVE_SERVER_CHUNK_RE =
+  /@agent-native[\\/](?:core|creative-context)(?:[\\/]|$)/;
+
+/**
+ * Keep the two server packages that import each other in one Nitro chunk.
+ * Separate package chunks leave their live bindings in a cold-start TDZ.
+ */
+export function nitroServerCodeSplittingGroupsForPreset(targetPreset: string) {
+  return shouldBundleYjsRuntimeForPreset(targetPreset) ||
+    isAwsAmplifyPreset(targetPreset)
+    ? [
+        {
+          test: NITRO_AGENT_NATIVE_SERVER_CHUNK_RE,
+          name: () => "agent-native-core",
+        },
+      ]
+    : [];
+}
+
+export function nitroServerCodeSplittingConfigForPreset(targetPreset: string) {
+  const groups = nitroServerCodeSplittingGroupsForPreset(targetPreset);
+  return groups.length > 0 ? { output: { codeSplitting: { groups } } } : {};
+}
+
 // Netlify's hard limit is 250MB unzipped per function; keep 10MB of headroom
 // for packaging variance so a passing guard does not sit on the platform edge.
 const NETLIFY_FUNCTION_SIZE_BUDGET_BYTES = 120 * 1024 * 1024;
@@ -5842,6 +5866,8 @@ export default bundle;
     preset,
     nitroEnvironment,
   );
+  const nitroServerCodeSplittingConfig =
+    nitroServerCodeSplittingConfigForPreset(preset);
   const nitroVirtual: Record<string, string | (() => string)> = {
     "virtual:agents-bundle": agentsBundleModuleSource,
   };
@@ -5890,6 +5916,10 @@ export default bundle;
     // path, and its top-level `window` access crashes the function at cold-start
     // (ReferenceError: window is not defined → every request 502s). Mirrors the
     // Vite `ssrStubPlugin`, which only covers the `build/server` step.
+    // Nitro 3 builds with Rolldown, so keep this in rolldownConfig. Nitro's
+    // Rolldown path merges its preset defaults after this config and preserves
+    // the package group ahead of the generic node_modules group.
+    rolldownConfig: nitroServerCodeSplittingConfig,
     rollupConfig: {
       // Nitro treats the intermediate React Router SSR files as prebuilt
       // chunks, while core's server collaboration files participate in the
