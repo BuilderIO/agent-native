@@ -1,6 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -18,6 +18,7 @@ import {
   type FormSettings,
 } from "../shared/types.js";
 import { assertPublishableForm } from "./lib/assert-publishable-form.js";
+import { withFormLock } from "./patch-form-fields.js";
 
 function slugify(text: string): string {
   return text
@@ -58,124 +59,141 @@ export default defineAction({
   run: async (args) => {
     await assertAccess("form", args.id, "editor");
 
-    const db = getDb();
-    const [existing] = await db
-      .select()
-      .from(schema.forms)
-      .where(eq(schema.forms.id, args.id))
-      .limit(1);
+    return withFormLock(args.id, async () => {
+      const db = getDb();
+      const [existing] = await db
+        .select()
+        .from(schema.forms)
+        .where(eq(schema.forms.id, args.id))
+        .limit(1);
 
-    if (!existing) {
-      fail(`Form ${args.id} not found`, {
-        errorCode: "form_not_found",
-        statusCode: 404,
-      });
-    }
-
-    const now = new Date().toISOString();
-    const updates: Record<string, unknown> = { updatedAt: now };
-
-    if (args.title !== undefined) {
-      updates.title = args.title;
-      if (args.slug === undefined) {
-        const idSuffix = args.id.slice(0, 6);
-        updates.slug = slugify(args.title || "untitled") + "-" + idSuffix;
+      if (!existing) {
+        fail(`Form ${args.id} not found`, {
+          errorCode: "form_not_found",
+          statusCode: 404,
+        });
       }
-    }
-    if (args.description !== undefined) updates.description = args.description;
-    if (args.slug !== undefined) updates.slug = args.slug;
-    if (args.fields !== undefined) {
-      let parsedFields: unknown;
-      if (typeof args.fields === "string") {
-        try {
-          parsedFields = JSON.parse(args.fields);
-        } catch {
-          fail("--fields must be valid JSON", { errorCode: "invalid_fields" });
+
+      const now = new Date().toISOString();
+      const updates: Record<string, unknown> = { updatedAt: now };
+
+      if (args.title !== undefined) {
+        updates.title = args.title;
+        if (args.slug === undefined) {
+          const idSuffix = args.id.slice(0, 6);
+          updates.slug = slugify(args.title || "untitled") + "-" + idSuffix;
         }
-      } else {
-        parsedFields = args.fields;
       }
-      parsedFields = normalizeFieldIds(parsedFields);
-      assertValidFields(parsedFields);
-      updates.fields = JSON.stringify(parsedFields);
-    }
-    if (args.settings !== undefined) {
-      let incomingSettings: FormSettings;
-      if (typeof args.settings === "string") {
+      if (args.description !== undefined)
+        updates.description = args.description;
+      if (args.slug !== undefined) updates.slug = args.slug;
+      if (args.fields !== undefined) {
+        let parsedFields: unknown;
+        if (typeof args.fields === "string") {
+          try {
+            parsedFields = JSON.parse(args.fields);
+          } catch {
+            fail("--fields must be valid JSON", {
+              errorCode: "invalid_fields",
+            });
+          }
+        } else {
+          parsedFields = args.fields;
+        }
+        parsedFields = normalizeFieldIds(parsedFields);
+        assertValidFields(parsedFields);
+        updates.fields = JSON.stringify(parsedFields);
+      }
+      if (args.settings !== undefined) {
+        let incomingSettings: FormSettings;
+        if (typeof args.settings === "string") {
+          try {
+            incomingSettings = JSON.parse(args.settings) as FormSettings;
+          } catch {
+            fail("--settings must be valid JSON", {
+              errorCode: "invalid_settings",
+            });
+          }
+        } else {
+          incomingSettings = args.settings as unknown as FormSettings;
+        }
+        let existingSettings: FormSettings = {};
         try {
-          incomingSettings = JSON.parse(args.settings) as FormSettings;
+          existingSettings = JSON.parse(existing.settings) as FormSettings;
         } catch {
-          fail("--settings must be valid JSON", {
-            errorCode: "invalid_settings",
+          fail("Cannot update settings because saved settings are invalid", {
+            errorCode: "invalid_existing_settings",
           });
         }
-      } else {
-        incomingSettings = args.settings as unknown as FormSettings;
+        assertValidFormCompletionSettings(incomingSettings);
+        const parsedSettings = { ...existingSettings, ...incomingSettings };
+        // Reject blocked integration URLs at save time (private IPs,
+        // cloud-metadata, non-http(s) schemes). fireIntegrations also
+        // re-checks at runtime as defense-in-depth.
+        assertIntegrationUrlsAllowed(parsedSettings);
+        updates.settings = JSON.stringify(parsedSettings);
       }
-      let existingSettings: FormSettings = {};
-      try {
-        existingSettings = JSON.parse(existing.settings) as FormSettings;
-      } catch {
-        // Keep malformed legacy settings recoverable by replacing them with
-        // the valid settings supplied by this update.
-      }
-      assertValidFormCompletionSettings(incomingSettings);
-      const parsedSettings = { ...existingSettings, ...incomingSettings };
-      // Reject blocked integration URLs at save time (private IPs,
-      // cloud-metadata, non-http(s) schemes). fireIntegrations also
-      // re-checks at runtime as defense-in-depth.
-      assertIntegrationUrlsAllowed(parsedSettings);
-      updates.settings = JSON.stringify(parsedSettings);
-    }
-    if (args.status !== undefined) updates.status = args.status;
+      if (args.status !== undefined) updates.status = args.status;
 
-    // Pre-publish validation. Reject the publish if the form is missing
-    // required configuration that would make it unsubmittable. This also
-    // catches the agent flipping status to "published" on an empty/broken
-    // form. We only validate on transition INTO published — leaving an
-    // already-published form alone (or unpublishing it) shouldn't error.
-    if (args.status === "published") {
-      // Use the incoming fields if provided, otherwise the existing row.
-      const effectiveFieldsRaw =
-        updates.fields !== undefined ? updates.fields : existing.fields;
-      let effectiveFields: FormField[] = [];
-      try {
-        effectiveFields =
-          typeof effectiveFieldsRaw === "string"
-            ? (JSON.parse(effectiveFieldsRaw) as FormField[])
-            : ((effectiveFieldsRaw as unknown as FormField[]) ?? []);
-      } catch {
-        effectiveFields = [];
+      // Pre-publish validation. Reject any update that would leave a published
+      // form missing required configuration that makes it unsubmittable.
+      if ((args.status ?? existing.status) === "published") {
+        // Use the incoming fields if provided, otherwise the existing row.
+        const effectiveFieldsRaw =
+          updates.fields !== undefined ? updates.fields : existing.fields;
+        let effectiveFields: FormField[] = [];
+        try {
+          effectiveFields =
+            typeof effectiveFieldsRaw === "string"
+              ? (JSON.parse(effectiveFieldsRaw) as FormField[])
+              : ((effectiveFieldsRaw as unknown as FormField[]) ?? []);
+        } catch {
+          effectiveFields = [];
+        }
+
+        assertPublishableForm(effectiveFields);
       }
 
-      assertPublishableForm(effectiveFields);
-    }
+      const [written] = await db
+        .update(schema.forms)
+        .set(updates)
+        .where(
+          and(
+            eq(schema.forms.id, args.id),
+            eq(schema.forms.fields, existing.fields),
+            eq(schema.forms.updatedAt, existing.updatedAt),
+          ),
+        )
+        .returning({ id: schema.forms.id });
 
-    await db
-      .update(schema.forms)
-      .set(updates)
-      .where(eq(schema.forms.id, args.id));
+      if (!written) {
+        fail(
+          `Form ${args.id} changed while this update was in progress; read it again and retry`,
+          { errorCode: "form_changed", statusCode: 409 },
+        );
+      }
 
-    // Do not re-read after the write. On pooled Postgres a follow-up SELECT
-    // can land on a lagging replica and return the pre-update field array,
-    // which makes the agent report stale state and can overwrite a later edit
-    // with that stale snapshot. The values written above are already validated.
-    const row = { ...existing, ...updates } as typeof existing;
+      // Do not re-read after the write. On pooled Postgres a follow-up SELECT
+      // can land on a lagging replica and return the pre-update field array,
+      // which makes the agent report stale state and can overwrite a later edit
+      // with that stale snapshot. The values written above are already validated.
+      const row = { ...existing, ...updates } as typeof existing;
 
-    invalidatePublicFormCache(existing, row);
+      invalidatePublicFormCache(existing, row);
 
-    return {
-      id: row!.id,
-      title: row!.title,
-      description: row!.description ?? undefined,
-      slug: row!.slug,
-      fields: JSON.parse(row!.fields) as FormField[],
-      settings: JSON.parse(row!.settings) as FormSettings,
-      status: row!.status,
-      visibility: row!.visibility,
-      ownerEmail: row!.ownerEmail,
-      createdAt: row!.createdAt,
-      updatedAt: row!.updatedAt,
-    };
+      return {
+        id: row!.id,
+        title: row!.title,
+        description: row!.description ?? undefined,
+        slug: row!.slug,
+        fields: JSON.parse(row!.fields) as FormField[],
+        settings: JSON.parse(row!.settings) as FormSettings,
+        status: row!.status,
+        visibility: row!.visibility,
+        ownerEmail: row!.ownerEmail,
+        createdAt: row!.createdAt,
+        updatedAt: row!.updatedAt,
+      };
+    });
   },
 });
