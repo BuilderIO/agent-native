@@ -1665,7 +1665,7 @@ describe("DeckContext deck creation persistence", () => {
           },
         ],
         {
-          deckFields: { title: "Restored" },
+          deckFields: { title: "Restored", aspectRatio: "16:9" },
           clearDeckFields: [
             "aspectRatio",
             "designSystemId",
@@ -1697,7 +1697,7 @@ describe("DeckContext deck creation persistence", () => {
       string,
       unknown
     >;
-    expect(savedDeck).not.toHaveProperty("aspectRatio");
+    expect(savedDeck.aspectRatio).toBe("16:9");
     expect(savedDeck).not.toHaveProperty("designSystemId");
     expect(savedDeck).not.toHaveProperty("tweaks");
     expect(savedDeck).not.toHaveProperty("starred");

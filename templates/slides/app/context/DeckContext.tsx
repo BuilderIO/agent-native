@@ -3697,13 +3697,13 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       if (!before) return;
       const after: Deck = {
         ...before,
-        ...(options?.deckFields ?? {}),
         slides,
         updatedAt: new Date().toISOString(),
       };
       for (const field of options?.clearDeckFields ?? []) {
         delete (after as unknown as Record<string, unknown>)[field];
       }
+      Object.assign(after, options?.deckFields ?? {});
       if (
         deckContentSignature(before) === deckContentSignature(after) &&
         !options?.forcePersistence
