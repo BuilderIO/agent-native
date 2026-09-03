@@ -1914,9 +1914,10 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
         send({ type: "model_stream", status: "start" });
         send({ type: "model_stream", status: "end" });
         await new Promise((resolve) => setTimeout(resolve, 0));
-        send({ type: "model_stream", status: "start" });
+        send({ type: "clear" });
         firstSpanEndedBeforeRetry =
           spans.find((span) => span.name === "llm.call")?.ended ?? false;
+        send({ type: "model_stream", status: "start" });
         send({ type: "model_stream", status: "end", reason: "end_turn" });
         return {
           inputTokens: 12,

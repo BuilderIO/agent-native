@@ -907,6 +907,7 @@ export async function instrumentAgentLoop(opts: {
       // counted as a successful delegated generation. A later clear/done means
       // the wrapper recovered and finished cleanly, so reset in that case.
       if (event.type === "clear" || event.type === "done") {
+        finishAwaitingOtelModelSpans();
         runStatus = "success";
         errorMessage = null;
         cutOffReason = null;
