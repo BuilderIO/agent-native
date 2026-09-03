@@ -146,13 +146,13 @@ async function probe(host) {
  *   synthetic unknown-URL probe (storability only).
  */
 async function probeUrl(host, pathname) {
-  // A path no app can have a route for, unique per run so it is a genuine miss.
+  // The synthetic path is impossible to route; real pages use a unique
+  // `index` key, which Netlify includes in the durable cache key.
+  const cacheBust = `cache-contract-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
   const url =
     pathname === null
-      ? `https://${host}/__cache-contract-probe-${Date.now()}-${Math.floor(
-          Math.random() * 1e9,
-        )}`
-      : `https://${host}${pathname}`;
+      ? `https://${host}/__cache-contract-probe-${cacheBust}`
+      : `https://${host}${pathname}?index=${cacheBust}`;
   const label = pathname === null ? "(unknown URL)" : pathname;
   let response;
   try {
