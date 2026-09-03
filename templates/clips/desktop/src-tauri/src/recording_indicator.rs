@@ -107,6 +107,21 @@ fn scale_factor(app: &AppHandle) -> f64 {
         .unwrap_or(2.0)
 }
 
+fn monitor_scale_factor(app: &AppHandle, rect: (i32, i32, u32, u32)) -> f64 {
+    let (x, y, width, height) = rect;
+    app.get_webview_window("popover")
+        .and_then(|window| window.available_monitors().ok())
+        .and_then(|monitors| {
+            monitors.into_iter().find(|monitor| {
+                let position = monitor.position();
+                let size = monitor.size();
+                position.x == x && position.y == y && size.width == width && size.height == height
+            })
+        })
+        .map(|monitor| monitor.scale_factor())
+        .unwrap_or_else(|| scale_factor(app))
+}
+
 /// Screen-edge margin for the visible capsule, physical px. The window is
 /// sized to the capsule exactly (native shadow, no transparent gutter), so
 /// the margin applies straight to the window frame.
@@ -402,7 +417,8 @@ fn anchored_rect(
                 let legacy_right_edge = position.x + expanded_w as i32;
                 let monitor_right = mx + mw as i32;
                 // Legacy coordinates are physical pixels, so scale the logical tolerance too.
-                let migration_tolerance = edge_margin_physical(app, 4);
+                let migration_tolerance =
+                    (4.0 * monitor_scale_factor(app, (mx, my, mw, mh))) as i32;
                 if (legacy_right_edge - (monitor_right - right_margin)).abs() <= migration_tolerance
                 {
                     save_meeting_position_to_disk(app, position.x, position.y, expanded_w);
