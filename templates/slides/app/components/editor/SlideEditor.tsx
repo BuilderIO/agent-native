@@ -132,6 +132,7 @@ import { decideSlideEscape } from "./slide-escape-arbiter";
 import {
   alignSlideObjectMembers,
   applySlideObjectMoveDelta,
+  arrangeSlideLayerInParent,
   buildPastedSlideObjects,
   canDropSlideLayerAdjacent,
   canDropSlideLayerInside,
@@ -140,6 +141,7 @@ import {
   collectMovableSlideObjects,
   copySlideObjects,
   computeSlideObjectZOrder,
+  createSlideObjectId,
   createSlideObjectPlacementGeometry,
   createSlidesSelectionState,
   ensureSlideObjectId,
@@ -154,9 +156,13 @@ import {
   isAutoHeightTextResize,
   isDeletableFlowImage,
   isDeletableSlideElement,
+  isSlideTableStructureElement,
   isValidSlideClipboardRoot,
+  readSlideObjectClipboardId,
   removeSlideObjectAndLayoutSpacer,
   preserveSlideObjectLayoutSpacer,
+  persistSlideObjectZOrderFromDom,
+  readSlideObjectZIndex,
   resolveSlideObjectContainingBlock,
   resizeSlideObjectMembers,
   resolveSlideClipboardElement,
@@ -166,6 +172,7 @@ import {
   snapSlideObjectMove,
   stripTransientSlideLayoutSpacers,
   unionSlideObjectGeometries,
+  writeSlideObjectClipboard,
   type CopiedSlideObjects,
   type SlideAlignmentGuide,
   type SlideObjectAlignment,
@@ -201,6 +208,7 @@ import {
 } from "./SlideRichTextEditor";
 import {
   SlidesLayersPanel,
+  type SlidesLayerKind,
   type SlidesLayerNode,
   type SlidesLayerPlacement,
 } from "./SlidesLayersPanel";
@@ -332,6 +340,65 @@ function layerLabel(element: HTMLElement, index: number): string {
   return text.slice(0, 48) || `${element.tagName.toLowerCase()} ${index + 1}`;
 }
 
+function layerKindForElement(
+  element: HTMLElement,
+  hasChildren: boolean,
+): SlidesLayerKind {
+  if (isRichTextBlock(element)) return "text";
+  if (
+    element.tagName === "IMG" ||
+    element.classList.contains("fmd-img-placeholder") ||
+    element.querySelector("img")
+  ) {
+    return "image";
+  }
+  if (element.tagName === "SVG" || element.querySelector("svg")) {
+    return "vector";
+  }
+  if (element.tagName === "PRE" || element.tagName === "CODE") return "code";
+  return hasChildren ? "container" : "shape";
+}
+
+function isZIndexedSlideLayer(element: HTMLElement): boolean {
+  if (isPersistedFreeformObject(element)) return true;
+  const zIndex = element.style.zIndex;
+  if (!zIndex || zIndex === "auto") return false;
+  const position = window.getComputedStyle(element).position;
+  if (position !== "static") return true;
+  const parentDisplay = element.parentElement
+    ? window.getComputedStyle(element.parentElement).display
+    : "";
+  return parentDisplay === "flex" || parentDisplay === "grid";
+}
+
+function sortSlideLayerElements(elements: HTMLElement[]): HTMLElement[] {
+  return elements
+    .map((element, index) => ({ element, index }))
+    .sort((left, right) => {
+      const leftZIndexed = isZIndexedSlideLayer(left.element);
+      const rightZIndexed = isZIndexedSlideLayer(right.element);
+      const leftBucket = leftZIndexed
+        ? readSlideObjectZIndex(left.element) < 0
+          ? -1
+          : 1
+        : 0;
+      const rightBucket = rightZIndexed
+        ? readSlideObjectZIndex(right.element) < 0
+          ? -1
+          : 1
+        : 0;
+      if (leftBucket !== rightBucket) return leftBucket - rightBucket;
+      if (leftZIndexed && rightZIndexed) {
+        return (
+          readSlideObjectZIndex(left.element) -
+            readSlideObjectZIndex(right.element) || left.index - right.index
+        );
+      }
+      return left.index - right.index;
+    })
+    .map(({ element }) => element);
+}
+
 function buildSlidesLayerTree(root: HTMLElement | null): SlidesLayerNode[] {
   if (!root) return [];
   stampBuilderIds(root);
@@ -357,23 +424,23 @@ function buildSlidesLayerTree(root: HTMLElement | null): SlidesLayerNode[] {
     if (element.tagName === "IMG" && findPersistedImageObject(element, root)) {
       return null;
     }
-    if (isRichTextBlock(element)) {
-      return {
-        id: ensureBuilderId(element),
-        label: layerLabel(element, index),
-      };
-    }
-    const children = Array.from(element.children)
-      .map((child, childIndex) => visit(child as HTMLElement, childIndex))
-      .filter((child): child is SlidesLayerNode => child !== null);
+    // Rich text is one layer: its blocks are structure, not rows of their own.
+    const children = isRichTextBlock(element)
+      ? []
+      : sortSlideLayerElements(Array.from(element.children) as HTMLElement[])
+          .map((child, childIndex) => visit(child as HTMLElement, childIndex))
+          .filter((child): child is SlidesLayerNode => child !== null);
     return {
       id: ensureBuilderId(element),
       label: layerLabel(element, index),
+      kind: layerKindForElement(element, children.length > 0),
       ...(children.length > 0 ? { children } : {}),
     };
   };
 
-  return Array.from(positioningLayer.children)
+  return sortSlideLayerElements(
+    Array.from(positioningLayer.children) as HTMLElement[],
+  )
     .map((element, index) => visit(element as HTMLElement, index))
     .filter((node): node is SlidesLayerNode => node !== null);
 }
@@ -748,6 +815,8 @@ interface SlideEditorProps {
   contextToolbarSlot?: HTMLElement | null;
   /** Wide editor-shell host for the toolbar's top-row placement. */
   wideContextToolbarSlot?: HTMLElement | null;
+  /** Parent-shell host so Layers sits beside the canvas like Transitions. */
+  layersPanelSlot?: HTMLElement | null;
   /** Selection-independent actions for the head of the contextual toolbar. */
   contextToolbarLeading?: ReactNode;
   onGenerateImage: () => void;
@@ -1239,6 +1308,7 @@ export default function SlideEditor({
   readOnly = false,
   contextToolbarSlot,
   wideContextToolbarSlot,
+  layersPanelSlot,
   contextToolbarLeading,
   onGenerateImage,
   onOpenAssetLibrary,
@@ -1332,11 +1402,17 @@ export default function SlideEditor({
   const [layerNodes, setLayerNodes] = useState<SlidesLayerNode[]>([]);
   const copiedObjectClipboardRef = useRef<{
     copied: CopiedSlideObjects;
+    clipboardId: string;
+    nativeClipboardMode: "pending" | "rich" | "text-only" | "failed";
+    copySequence: number;
+    copySessionId: number;
     deckId?: string;
     slideId: string;
     sourceRect?: Pick<DOMRect, "left" | "top" | "width" | "height">;
   } | null>(null);
-  const objectPasteFallbackRef = useRef<number | null>(null);
+  const copiedObjectCopySequenceRef = useRef(0);
+  const copiedObjectClipboardSessionRef = useRef(0);
+  const overlappingNativeClipboardIdsRef = useRef(new Map<string, string>());
   const [hasCopiedObject, setHasCopiedObject] = useState(false);
   const [selectedElementPath, setSelectedElementPath] = useState<
     number[] | null
@@ -2637,6 +2713,23 @@ export default function SlideEditor({
     syncSelectionToAppState(null);
   }, [slide.id]);
 
+  // Content reconciliation can replace the DOM node behind an open overlay.
+  useEffect(() => {
+    if (!imageOverlay) return;
+    const target = selectedImg;
+    const targetIsLive = Boolean(
+      target &&
+      target.isConnected &&
+      containerRef.current?.contains(target) &&
+      (target.tagName !== "IMG" ||
+        target.getAttribute("src") === imageOverlay.src),
+    );
+    if (targetIsLive) return;
+    setSelectedImg(null);
+    setImageOverlay(null);
+    syncSelectionToAppState(null);
+  }, [imageOverlay, selectedImg, slide.content]);
+
   // Stamp all elements with data-builder-id after render
   useEffect(() => {
     const container = containerRef.current;
@@ -2693,9 +2786,9 @@ export default function SlideEditor({
       if (ids.size > 0) {
         clearSelectedElement();
         setSelectedStyleSnapshot(mergeSlideStyleSnapshots(styleSnapshots));
+        setSelectedImg(null);
+        setImageOverlay(null);
       }
-      setSelectedImg(null);
-      setImageOverlay(null);
       // Anchor the chip to the slide canvas (clickable wrapper)
       const canvas = containerRef.current?.querySelector(
         ".slide-image-clickable",
@@ -2804,7 +2897,9 @@ export default function SlideEditor({
         `[data-builder-id="${targetId}"]`,
       );
       if (!source || !target || source.contains(target)) return;
-      if (placement === "inside" && !canDropSlideLayerInside(target)) return;
+      if (placement === "inside" && !canDropSlideLayerInside(target, source)) {
+        return;
+      }
       if (
         placement !== "inside" &&
         !canDropSlideLayerAdjacent(source, target)
@@ -2896,6 +2991,17 @@ export default function SlideEditor({
             element.style.width = `${Math.round(originalChildRect.width * childScaleX)}px`;
             element.style.height = `${Math.round(originalChildRect.height * childScaleY)}px`;
           }
+        }
+      }
+
+      if (sourceWasFreeform) {
+        const positioningLayer = resolveSlidePositioningLayer(source);
+        if (positioningLayer) {
+          const containingBlock = resolveSlideObjectContainingBlock(
+            source,
+            positioningLayer,
+          );
+          persistSlideObjectZOrderFromDom(source, containingBlock);
         }
       }
 
@@ -3922,19 +4028,63 @@ export default function SlideEditor({
     slide.id,
   ]);
 
+  const storeCopiedObjects = useCallback(
+    (selection: HTMLElement[]) => {
+      const copied = copySlideObjects(selection);
+      const clipboard = {
+        copied,
+        clipboardId: createSlideObjectId(),
+        nativeClipboardMode: "pending" as const,
+        copySequence: copiedObjectCopySequenceRef.current++,
+        copySessionId: copiedObjectClipboardSessionRef.current,
+        deckId,
+        slideId: slide.id,
+        sourceRect: selection[0]?.getBoundingClientRect(),
+      };
+      copiedObjectClipboardRef.current = clipboard;
+      overlappingNativeClipboardIdsRef.current.clear();
+      setHasCopiedObject(true);
+      const clipboardWrite = writeSlideObjectClipboard(
+        clipboard.clipboardId,
+        copied,
+      );
+      void clipboardWrite.then(
+        (mode) => {
+          const currentClipboard = copiedObjectClipboardRef.current;
+          if (
+            mode === "rich" &&
+            currentClipboard &&
+            currentClipboard.copySequence > clipboard.copySequence &&
+            currentClipboard.copySessionId === clipboard.copySessionId
+          ) {
+            overlappingNativeClipboardIdsRef.current.set(
+              clipboard.clipboardId,
+              currentClipboard.clipboardId,
+            );
+          }
+          if (currentClipboard?.clipboardId === clipboard.clipboardId) {
+            currentClipboard.nativeClipboardMode = mode;
+          }
+        },
+        () => {
+          if (
+            copiedObjectClipboardRef.current?.clipboardId ===
+            clipboard.clipboardId
+          ) {
+            copiedObjectClipboardRef.current.nativeClipboardMode = "failed";
+          }
+        },
+      );
+      return clipboard;
+    },
+    [deckId, slide.id],
+  );
+
   const copySelectedObjects = useCallback(() => {
     const selection = getClipboardSelection();
     if (!selection) return false;
-    const copied = copySlideObjects(selection);
-    copiedObjectClipboardRef.current = {
-      copied,
-      deckId,
-      slideId: slide.id,
-      sourceRect: selection[0]?.getBoundingClientRect(),
-    };
-    setHasCopiedObject(true);
-    return true;
-  }, [deckId, getClipboardSelection, slide.id]);
+    return Boolean(storeCopiedObjects(selection));
+  }, [getClipboardSelection, storeCopiedObjects]);
 
   const pasteSelectedObjects = useCallback(() => {
     const clipboard = copiedObjectClipboardRef.current;
@@ -3951,39 +4101,39 @@ export default function SlideEditor({
   }, [deckId, getClipboardSelection, pasteSlideObjects, slide.id]);
 
   const duplicateSelectedObjects = useCallback(() => {
-    if (!copySelectedObjects()) return false;
-    return pasteSelectedObjects();
-  }, [copySelectedObjects, pasteSelectedObjects]);
+    const selection = getClipboardSelection();
+    if (!selection) return false;
+    pasteSlideObjects(copySlideObjects(selection), selection[0]);
+    return true;
+  }, [getClipboardSelection, pasteSlideObjects]);
 
   const cutSelectedObjects = useCallback(() => {
     const selection = getClipboardSelection();
     if (!selection) return false;
-    const copied = copySlideObjects(selection);
-    copiedObjectClipboardRef.current = {
-      copied,
-      deckId,
-      slideId: slide.id,
-      sourceRect: selection[0]?.getBoundingClientRect(),
-    };
-    setHasCopiedObject(true);
+    storeCopiedObjects(selection);
     return deleteSelectedElements(selection);
-  }, [deckId, deleteSelectedElements, getClipboardSelection, slide.id]);
+  }, [deleteSelectedElements, getClipboardSelection, storeCopiedObjects]);
 
-  // Object clipboard contents are editor-local. It intentionally does not
-  // survive a deck switch, unlike the browser's native text clipboard.
+  // The object payload stays editor-local, while its native marker makes the
+  // latest in-app layer copy observable alongside external clipboard copies.
+  // It intentionally does not survive a deck switch.
   useEffect(() => {
+    const clearOverlappingClipboardIds = () => {
+      overlappingNativeClipboardIdsRef.current.clear();
+    };
+    copiedObjectClipboardSessionRef.current += 1;
     copiedObjectClipboardRef.current = null;
+    overlappingNativeClipboardIdsRef.current.clear();
     setHasCopiedObject(false);
-    if (objectPasteFallbackRef.current !== null) {
-      window.clearTimeout(objectPasteFallbackRef.current);
-      objectPasteFallbackRef.current = null;
-    }
+    window.addEventListener("blur", clearOverlappingClipboardIds);
+    return () =>
+      window.removeEventListener("blur", clearOverlappingClipboardIds);
   }, [deckId]);
 
-  // One window listener for object copy/paste/duplicate. Native text
-  // copy/paste must always win: bail the instant a text edit is active or
-  // focus is on any form control, BEFORE touching the clipboard or selection,
-  // so ordinary Cmd/Ctrl+C/V/D typing is never hijacked.
+  // One window listener for object copy/paste/duplicate. Native text editing
+  // must always win: bail the instant a text edit is active or focus is on any
+  // form control, BEFORE touching the clipboard or selection, so ordinary
+  // Cmd/Ctrl+C/V/D typing is never hijacked.
   useEffect(() => {
     if (readOnly) return;
     const onKey = (e: KeyboardEvent) => {
@@ -4001,50 +4151,15 @@ export default function SlideEditor({
       if (editingEl || isTextSurface) return;
 
       if (key === "v") {
-        const clipboard = copiedObjectClipboardRef.current;
-        if (!clipboard || clipboard.deckId !== deckId) {
-          return;
-        }
-        if (objectPasteFallbackRef.current !== null) {
-          window.clearTimeout(objectPasteFallbackRef.current);
-        }
-        objectPasteFallbackRef.current = window.setTimeout(() => {
-          objectPasteFallbackRef.current = null;
-          const currentClipboard = copiedObjectClipboardRef.current;
-          if (!currentClipboard || currentClipboard.deckId !== deckId) {
-            return;
-          }
-          const currentSelection = getClipboardSelection();
-          pasteSlideObjects(
-            currentClipboard.copied,
-            currentSelection?.[0] ?? null,
-            currentClipboard.slideId === slide.id
-              ? currentClipboard.sourceRect
-              : undefined,
-          );
-        }, 50);
         return;
       }
 
       const selection = getClipboardSelection();
       if (!selection) return;
 
-      const copySelection = () => {
-        if (!selection) return null;
-        const copied = copySlideObjects(selection);
-        copiedObjectClipboardRef.current = {
-          copied,
-          deckId,
-          slideId: slide.id,
-          sourceRect: selection[0]?.getBoundingClientRect(),
-        };
-        setHasCopiedObject(true);
-        return copiedObjectClipboardRef.current;
-      };
-
       if (key === "c") {
         e.preventDefault();
-        copySelection();
+        storeCopiedObjects(selection);
         return;
       }
 
@@ -4056,10 +4171,8 @@ export default function SlideEditor({
 
       // Duplicate re-copies the live selection so it duplicates what's
       // currently selected regardless of what's on the clipboard.
-      if (!selection) return;
       e.preventDefault();
-      const clipboard = copySelection();
-      if (clipboard) pasteSlideObjects(clipboard.copied, selection[0]);
+      pasteSlideObjects(copySlideObjects(selection), selection[0]);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -4071,17 +4184,14 @@ export default function SlideEditor({
     pasteSlideObjects,
     readOnly,
     slide.id,
+    storeCopiedObjects,
   ]);
 
-  // Object paste waits for the native paste event so system clipboard content
-  // always wins over an older in-editor object copy.
+  // The native paste event is authoritative: a matching layer marker means
+  // the in-app copy is latest; otherwise current native content wins.
   useEffect(() => {
     if (readOnly) return;
     const onPaste = (e: ClipboardEvent) => {
-      if (objectPasteFallbackRef.current !== null) {
-        window.clearTimeout(objectPasteFallbackRef.current);
-        objectPasteFallbackRef.current = null;
-      }
       if (e.defaultPrevented) return;
       const active = document.activeElement;
       if (
@@ -4099,21 +4209,53 @@ export default function SlideEditor({
       ) {
         return;
       }
+      const clipboard = copiedObjectClipboardRef.current;
+      if (!clipboard || clipboard.deckId !== deckId) return;
+      const nativeClipboardId = readSlideObjectClipboardId(
+        e.clipboardData?.getData("text/html"),
+        document,
+      );
+      const pasteLocalClipboard = () => {
+        e.preventDefault();
+        const selection = getClipboardSelection();
+        pasteSlideObjects(
+          clipboard.copied,
+          selection?.[0] ?? null,
+          clipboard.slideId === slide.id ? clipboard.sourceRect : undefined,
+        );
+      };
+      if (nativeClipboardId === clipboard.clipboardId) {
+        pasteLocalClipboard();
+        return;
+      }
+      // An older rich write can settle after a newer copy. Remember only that
+      // overlap, so clipboard-history markers are not remapped by default.
+      if (
+        nativeClipboardId &&
+        overlappingNativeClipboardIdsRef.current.get(nativeClipboardId) ===
+          clipboard.clipboardId
+      ) {
+        pasteLocalClipboard();
+        return;
+      }
       const hasNativeText = Array.from(e.clipboardData?.types ?? []).some(
         (type) =>
           type.startsWith("text/") &&
           Boolean(e.clipboardData?.getData(type)?.length),
       );
       if (hasNativeText) return;
-      const clipboard = copiedObjectClipboardRef.current;
-      if (!clipboard || clipboard.deckId !== deckId) return;
-      e.preventDefault();
-      const selection = getClipboardSelection();
-      pasteSlideObjects(
-        clipboard.copied,
-        selection?.[0] ?? null,
-        clipboard.slideId === slide.id ? clipboard.sourceRect : undefined,
-      );
+      // Markerless text-only writes cannot prove ownership. Readable native
+      // text stays authoritative above; only empty events use the local copy.
+      // Pending or failed native writes have no trustworthy provenance, so
+      // keep Cmd/Ctrl+V usable through the local copy when the event is empty.
+      if (
+        clipboard.nativeClipboardMode === "pending" ||
+        clipboard.nativeClipboardMode === "failed"
+      ) {
+        pasteLocalClipboard();
+        return;
+      }
+      pasteLocalClipboard();
     };
     window.addEventListener("paste", onPaste, true);
     return () => window.removeEventListener("paste", onPaste, true);
@@ -6353,17 +6495,21 @@ export default function SlideEditor({
         return;
       }
 
+      // Plain clicks only select; keep the action menu for intentional
+      // double-clicks and discard any menu left by a previous image.
+      setSelectedImg(null);
+      setImageOverlay(null);
+
       // --- Plain click on an element → drop multi-selection back to single,
       // then run the existing single-select / style-editing flow.
       if (multiSelection.size > 0) clearMultiSelection();
-
-      showImageOverlay(target);
 
       // For editable text, a single click edits the whole smart block (a text
       // leaf, or an entire bullet list) — not the individual line — so typing,
       // highlighting, shortcuts, and Enter-to-add-bullet all work, and the
       // style dock targets the same block being edited.
       if (!readOnly && slideContent) {
+        stampBuilderIds(slideContent);
         const block = findSmartBlock(target, slideContent, {
           includeTextBoxes: false,
         });
@@ -6398,7 +6544,6 @@ export default function SlideEditor({
       }
     },
     [
-      showImageOverlay,
       editingEl,
       getSlideContent,
       findSelectableId,
@@ -6428,14 +6573,48 @@ export default function SlideEditor({
     [clearCanvasSelection],
   );
 
+  const clearContextMenuState = useCallback(() => {
+    contextMenuTargetRef.current = null;
+    contextMenuTableCellRef.current = null;
+    setContextMenuTableInfo(null);
+  }, []);
+
+  const selectContextMenuTarget = useCallback(
+    (selectable: HTMLElement) => {
+      const builderId = selectable.getAttribute("data-builder-id");
+      const isMultiSelectionTarget = Boolean(
+        builderId && multiSelection.has(builderId),
+      );
+      contextMenuTargetRef.current = isMultiSelectionTarget ? null : selectable;
+      if (!isMultiSelectionTarget) {
+        if (multiSelection.size > 0) clearMultiSelection();
+        const selector = getBuilderSelector(selectable);
+        if (selector) {
+          selectElementForStyling(selectable, selector);
+          enterSelectionMode("agentNative.enterStyleEditing", { selector });
+        }
+      }
+    },
+    [clearMultiSelection, multiSelection, selectElementForStyling],
+  );
+
+  const handleLayerContextMenu = useCallback(
+    (id: string) => {
+      const slideContent = getSlideContent();
+      const selectable = slideContent?.querySelector<HTMLElement>(
+        `[data-builder-id="${id}"]`,
+      );
+      if (selectable) selectContextMenuTarget(selectable);
+    },
+    [getSlideContent, selectContextMenuTarget],
+  );
+
   const handleSlideContextMenu = useCallback(
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement;
       const slideContent = getSlideContent();
       if (!slideContent) {
-        contextMenuTargetRef.current = null;
-        contextMenuTableCellRef.current = null;
-        setContextMenuTableInfo(null);
+        clearContextMenuState();
         return;
       }
 
@@ -6460,29 +6639,16 @@ export default function SlideEditor({
         return;
       }
 
-      const builderId = selectable.getAttribute("data-builder-id");
-      const isMultiSelectionTarget = Boolean(
-        builderId && multiSelection.has(builderId),
-      );
-      contextMenuTargetRef.current = isMultiSelectionTarget ? null : selectable;
-      if (!isMultiSelectionTarget) {
-        if (multiSelection.size > 0) clearMultiSelection();
-        const selector = getBuilderSelector(selectable);
-        if (selector) {
-          selectElementForStyling(selectable, selector);
-          enterSelectionMode("agentNative.enterStyleEditing", { selector });
-        }
-      }
+      selectContextMenuTarget(selectable);
     },
     [
+      clearContextMenuState,
       clearCanvasSelection,
-      clearMultiSelection,
       findSelectableElement,
       findTableCell,
       getSlideContent,
-      multiSelection,
       readOnly,
-      selectElementForStyling,
+      selectContextMenuTarget,
     ],
   );
 
@@ -6597,31 +6763,32 @@ export default function SlideEditor({
           ? contextMenuTarget
           : null) ?? resolveSelectedElement();
       if (!element) return;
-      const fmdSlide = element.closest(".fmd-slide") as HTMLElement | null;
-      const positioningLayer = fmdSlide
-        ? (Array.from(fmdSlide.children).find(
-            (child): child is HTMLElement =>
-              child instanceof HTMLElement &&
-              child.hasAttribute("data-fmd-autofit-content"),
-          ) ?? fmdSlide)
-        : null;
-      if (!positioningLayer) return;
-
-      const containingBlock = resolveSlideObjectContainingBlock(
-        element,
-        positioningLayer,
-      );
-      const change = computeSlideObjectZOrder(element, containingBlock, target);
+      if (isSlideTableStructureElement(element)) return;
       const selector = getBuilderSelector(element);
       if (!selector) return;
-      selectElementForStyling(element, selector);
-      if (!change) return;
 
-      element.style.zIndex = String(change.value);
-      for (const shift of change.shiftPeers) {
-        shift.element.style.zIndex = String(shift.value);
+      if (isPersistedFreeformObject(element)) {
+        const positioningLayer = resolveSlidePositioningLayer(element);
+        if (!positioningLayer) return;
+        const containingBlock = resolveSlideObjectContainingBlock(
+          element,
+          positioningLayer,
+        );
+        const change = computeSlideObjectZOrder(
+          element,
+          containingBlock,
+          target,
+        );
+        if (!change) return;
+        element.style.zIndex = String(change.value);
+        for (const shift of change.shiftPeers) {
+          shift.element.style.zIndex = String(shift.value);
+        }
+      } else if (!arrangeSlideLayerInParent(element, target)) {
+        return;
       }
 
+      selectElementForStyling(element, selector);
       const html = readCurrentSlideContentHtml();
       if (html !== null) onUpdateSlideRef.current({ content: html });
     },
@@ -6763,6 +6930,8 @@ export default function SlideEditor({
 
       // For images / placeholders, show overlay
       if (target.tagName === "IMG" || target.closest(".fmd-img-placeholder")) {
+        e.preventDefault();
+        e.stopPropagation();
         showImageOverlay(target);
         return;
       }
@@ -6777,6 +6946,7 @@ export default function SlideEditor({
         ".slide-content",
       ) as HTMLElement | null;
       if (!slideContent) return;
+      stampBuilderIds(slideContent);
       const block = findSmartBlock(target, slideContent);
       if (!block) return;
 
@@ -6830,6 +7000,74 @@ export default function SlideEditor({
         canZoomOut,
         canZoomIn,
       };
+
+  const slideElementContextMenuContent = (
+    <>
+      <ContextMenuItem
+        disabled={!hasClipboardSelection}
+        onSelect={cutSelectedObjects}
+      >
+        {t("editorSidebar.cut")}
+        <ContextMenuShortcut>{shortcutLabel("cmd+x")}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={!hasClipboardSelection}
+        onSelect={copySelectedObjects}
+      >
+        {t("styleInspector.copy")}
+        <ContextMenuShortcut>{shortcutLabel("cmd+c")}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={!hasCopiedObject}
+        onSelect={pasteSelectedObjects}
+      >
+        {t("styleInspector.paste")}
+        <ContextMenuShortcut>{shortcutLabel("cmd+v")}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={!hasClipboardSelection}
+        onSelect={duplicateSelectedObjects}
+      >
+        {t("editorSidebar.duplicate")}
+        <ContextMenuShortcut>{shortcutLabel("cmd+d")}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={!hasClipboardSelection}
+        onSelect={() => deleteSelectedElements()}
+      >
+        {t("editorSidebar.delete")}
+        <ContextMenuShortcut>⌫</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem
+        disabled={getStyleTargets().length === 0}
+        onSelect={copySelectedElementStyle}
+      >
+        {t("styleInspector.copyStyle")}
+        <ContextMenuShortcut>{shortcutLabel("cmd+alt+c")}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={!hasCopiedElementStyle || getStyleTargets().length === 0}
+        onSelect={pasteCopiedElementStyle}
+      >
+        {t("styleInspector.pasteStyle")}
+        <ContextMenuShortcut>{shortcutLabel("cmd+alt+v")}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem
+        disabled={!selectedElementSelector}
+        onSelect={() => handleArrangeSelected("front")}
+      >
+        {t("styleInspector.bringToFront")}
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={!selectedElementSelector}
+        onSelect={() => handleArrangeSelected("back")}
+      >
+        {t("styleInspector.sendToBack")}
+      </ContextMenuItem>
+    </>
+  );
 
   // Excalidraw slides have no selectable slide content, so the row collapses
   // to its slide-level state — but that state owns the background picker, and
@@ -6906,6 +7144,25 @@ export default function SlideEditor({
         className="slide-context-toolbar--top-row"
       />
     </div>
+  ) : null;
+
+  const layersPanel = layersOpen ? (
+    <SlidesLayersPanel
+      layers={layerNodes}
+      selectedIds={selectedLayerIds}
+      contextMenuContent={readOnly ? undefined : slideElementContextMenuContent}
+      onContextMenuLayer={readOnly ? undefined : handleLayerContextMenu}
+      onContextMenuClose={clearContextMenuState}
+      onSelectLayer={selectLayerFromPanel}
+      onMoveLayer={moveLayerFromPanel}
+      onClose={onCloseLayers ?? (() => {})}
+      labels={{
+        title: t("editorToolbar.layers"),
+        close: t("editorToolbar.closeLayers"),
+        expand: t("editorToolbar.expandLayer"),
+        collapse: t("editorToolbar.collapseLayer"),
+      }}
+    />
   ) : null;
 
   return (
@@ -7064,11 +7321,7 @@ export default function SlideEditor({
                         </div>
                       </ContextMenuTrigger>
                       <ContextMenuContent
-                        onCloseAutoFocus={() => {
-                          contextMenuTargetRef.current = null;
-                          contextMenuTableCellRef.current = null;
-                          setContextMenuTableInfo(null);
-                        }}
+                        onCloseAutoFocus={clearContextMenuState}
                       >
                         {contextMenuTableInfo && (
                           <>
@@ -7126,86 +7379,7 @@ export default function SlideEditor({
                             <ContextMenuSeparator />
                           </>
                         )}
-                        <ContextMenuItem
-                          disabled={!hasClipboardSelection}
-                          onSelect={cutSelectedObjects}
-                        >
-                          {t("editorSidebar.cut")}
-                          <ContextMenuShortcut className="tracking-normal">
-                            {shortcutLabel("cmd+x")}
-                          </ContextMenuShortcut>
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          disabled={!hasClipboardSelection}
-                          onSelect={copySelectedObjects}
-                        >
-                          {t("styleInspector.copy")}
-                          <ContextMenuShortcut className="tracking-normal">
-                            {shortcutLabel("cmd+c")}
-                          </ContextMenuShortcut>
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          disabled={!hasCopiedObject}
-                          onSelect={pasteSelectedObjects}
-                        >
-                          {t("styleInspector.paste")}
-                          <ContextMenuShortcut className="tracking-normal">
-                            {shortcutLabel("cmd+v")}
-                          </ContextMenuShortcut>
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          disabled={!hasClipboardSelection}
-                          onSelect={duplicateSelectedObjects}
-                        >
-                          {t("editorSidebar.duplicate")}
-                          <ContextMenuShortcut className="tracking-normal">
-                            {shortcutLabel("cmd+d")}
-                          </ContextMenuShortcut>
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          disabled={!hasClipboardSelection}
-                          onSelect={() => deleteSelectedElements()}
-                        >
-                          {t("editorSidebar.delete")}
-                          <ContextMenuShortcut className="tracking-normal">
-                            ⌫
-                          </ContextMenuShortcut>
-                        </ContextMenuItem>
-                        <ContextMenuSeparator />
-                        <ContextMenuItem
-                          disabled={getStyleTargets().length === 0}
-                          onSelect={copySelectedElementStyle}
-                        >
-                          {t("styleInspector.copyStyle")}
-                          <ContextMenuShortcut className="tracking-normal">
-                            {shortcutLabel("cmd+alt+c")}
-                          </ContextMenuShortcut>
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          disabled={
-                            !hasCopiedElementStyle ||
-                            getStyleTargets().length === 0
-                          }
-                          onSelect={pasteCopiedElementStyle}
-                        >
-                          {t("styleInspector.pasteStyle")}
-                          <ContextMenuShortcut className="tracking-normal">
-                            {shortcutLabel("cmd+alt+v")}
-                          </ContextMenuShortcut>
-                        </ContextMenuItem>
-                        <ContextMenuSeparator />
-                        <ContextMenuItem
-                          disabled={!selectedElementSelector}
-                          onSelect={() => handleArrangeSelected("front")}
-                        >
-                          {t("styleInspector.bringToFront")}
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          disabled={!selectedElementSelector}
-                          onSelect={() => handleArrangeSelected("back")}
-                        >
-                          {t("styleInspector.sendToBack")}
-                        </ContextMenuItem>
+                        {slideElementContextMenuContent}
                       </ContextMenuContent>
                     </ContextMenu>
                   </div>
@@ -7214,21 +7388,11 @@ export default function SlideEditor({
             </div>
           )}
         </div>
-        {layersOpen && (
-          <SlidesLayersPanel
-            layers={layerNodes}
-            selectedIds={selectedLayerIds}
-            onSelectLayer={selectLayerFromPanel}
-            onMoveLayer={moveLayerFromPanel}
-            onClose={onCloseLayers ?? (() => {})}
-            labels={{
-              title: t("editorToolbar.layers"),
-              close: t("editorToolbar.closeLayers"),
-              expand: t("editorToolbar.expandLayer"),
-              collapse: t("editorToolbar.collapseLayer"),
-            }}
-          />
-        )}
+        {layersPanel
+          ? layersPanelSlot
+            ? createPortal(layersPanel, layersPanelSlot)
+            : layersPanel
+          : null}
       </div>
 
       <SpeakerNotesPanel

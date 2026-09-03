@@ -391,6 +391,9 @@ export default function DeckEditor() {
     useState<HTMLDivElement | null>(null);
   const [wideContextToolbarSlot, setWideContextToolbarSlot] =
     useState<HTMLDivElement | null>(null);
+  const [layersPanelSlot, setLayersPanelSlot] = useState<HTMLDivElement | null>(
+    null,
+  );
   const [retryingMissingDeck, setRetryingMissingDeck] = useState(false);
   const [accessRequestSentDeckId, setAccessRequestSentDeckId] = useState<
     string | null
@@ -1284,6 +1287,11 @@ export default function DeckEditor() {
       toast(t("editorSidebar.slideDeleted"), {
         className: "!bg-background !text-foreground !border-border",
         duration: 6000,
+        closeButton: true,
+        classNames: {
+          closeButton:
+            "!static !order-1 !size-6 !transform-none !rounded-md !border-0 !bg-transparent !p-0 !text-muted-foreground hover:!bg-muted",
+        },
         action: {
           label: "Undo",
           onClick: () => undo(),
@@ -2490,6 +2498,7 @@ export default function DeckEditor() {
             comments={currentSlideThreads}
             contextToolbarSlot={contextToolbarSlot}
             wideContextToolbarSlot={wideContextToolbarSlot}
+            layersPanelSlot={layersPanelSlot}
             contextToolbarLeading={
               canEdit ? (
                 <EditorActionCluster
@@ -2628,6 +2637,12 @@ export default function DeckEditor() {
             presentUsers={slidePresence.get(currentSlide.id) ?? []}
           />
         )}
+
+        <div
+          ref={setLayersPanelSlot}
+          data-layers-panel-host="true"
+          className="flex h-full shrink-0"
+        />
 
         {commentsOpen && (
           <SlideCommentsPanel

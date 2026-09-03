@@ -7,7 +7,6 @@ export interface AuthMarketingContent {
   screenshotWidth?: number;
   screenshotHeight?: number;
   learnMoreUrl?: string;
-  learnMorePlacement?: "top-right" | "bottom-right";
   /** @deprecated Local execution is no longer offered from auth pages. */
   runLocalCommand?: string;
   signupLocalModeNote?: {
@@ -60,7 +59,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
       "Manages availability and booking links automatically",
       "Answers schedule questions and resolves conflicts instantly",
     ],
-    learnMorePlacement: "bottom-right",
   },
   clips: {
     appName: "Agent-Native Clips",
@@ -175,7 +173,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
     screenshotPath: "/auth-marketing/slides.webp",
     screenshotWidth: 914,
     screenshotHeight: 818,
-    learnMorePlacement: "bottom-right",
     tagline:
       "Your AI agent builds, edits, and refines presentations alongside you.",
     features: [

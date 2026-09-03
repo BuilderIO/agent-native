@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { builderFileUploadProvider } from "./builder.js";
 
 const resolveBuilderCredentialsMock = vi.hoisted(() => vi.fn());
+const resolveBuilderCredentialsDetailedMock = vi.hoisted(() => vi.fn());
 const resolveBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
 const resolveBuilderApiAuthorizationMock = vi.hoisted(() => vi.fn());
 
@@ -12,6 +13,7 @@ vi.mock("../server/builder-api-auth.js", () => ({
 
 vi.mock("../server/credential-provider.js", () => ({
   resolveBuilderCredentials: resolveBuilderCredentialsMock,
+  resolveBuilderCredentialsDetailed: resolveBuilderCredentialsDetailedMock,
   resolveBuilderPrivateKey: resolveBuilderPrivateKeyMock,
 }));
 
@@ -47,6 +49,10 @@ describe("builderFileUploadProvider", () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     resolveBuilderCredentialsMock.mockResolvedValue({
+      privateKey: "bpk-secret",
+      publicKey: "public-key",
+    });
+    resolveBuilderCredentialsDetailedMock.mockResolvedValue({
       privateKey: "bpk-secret",
       publicKey: "public-key",
     });
@@ -224,6 +230,112 @@ describe("builderFileUploadProvider", () => {
         "skipCompression",
       ),
     ).toBe(false);
+  });
+
+  it("includes the target space when uploading with a personal access token", async () => {
+    resolveBuilderApiAuthorizationMock.mockResolvedValue(
+      "Bearer btk-agent-native",
+    );
+    resolveBuilderCredentialsMock.mockResolvedValue({
+      privateKey: "btk-agent-native",
+      publicKey: "space-agent-native",
+    });
+    resolveBuilderCredentialsDetailedMock.mockResolvedValue({
+      privateKey: "btk-agent-native",
+      publicKey: "space-agent-native",
+    });
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          uploadUrl: "https://storage.example.com/upload",
+          assetId: "asset-1",
+          requiredHeaders: {},
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(
+        jsonResponse({ url: "https://cdn.builder.io/video", id: "asset-1" }),
+      );
+
+    await builderFileUploadProvider.upload({
+      data: new Uint8Array([1, 2, 3]),
+      filename: "clip.webm",
+      mimeType: "video/webm",
+    });
+
+    expect(
+      new URL(fetchMock.mock.calls[0][0].toString()).searchParams.get("apiKey"),
+    ).toBe("space-agent-native");
+    expect(
+      new URL(fetchMock.mock.calls[2][0].toString()).searchParams.get("apiKey"),
+    ).toBe("space-agent-native");
+  });
+
+  it("rejects a credential scope mismatch instead of substituting another PAT", async () => {
+    resolveBuilderApiAuthorizationMock.mockResolvedValue("Bearer btk-user");
+    resolveBuilderCredentialsDetailedMock.mockResolvedValue({
+      privateKey: "btk-org",
+      publicKey: "space-org",
+    });
+
+    await expect(
+      builderFileUploadProvider.upload({
+        data: new Uint8Array([1]),
+        filename: "clip.webm",
+        mimeType: "video/webm",
+      }),
+    ).rejects.toThrow(
+      "Builder credential scope mismatch: the connection holding the upload space is not the one authorized for this request.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("propagates credential lookup failures instead of reporting a missing space", async () => {
+    const lookupError = new Error("secrets store unavailable");
+    resolveBuilderApiAuthorizationMock.mockResolvedValue(
+      "Bearer btk-agent-native",
+    );
+    resolveBuilderCredentialsDetailedMock.mockResolvedValue({
+      privateKey: "btk-agent-native",
+      publicKey: "space-agent-native",
+      lookupFailed: true,
+      cause: lookupError,
+    });
+
+    await expect(
+      builderFileUploadProvider.upload({
+        data: new Uint8Array([1]),
+        filename: "clip.webm",
+        mimeType: "video/webm",
+      }),
+    ).rejects.toBe(lookupError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("cancels a resumable session so a hosted retry can restart it", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 499,
+      statusText: "Client Closed Request",
+      headers: new Headers(),
+      text: async () => "",
+    } as unknown as Response);
+
+    await expect(
+      builderFileUploadProvider.resumable!.abortSession!({
+        sessionId: "https://storage.googleapis.com/session",
+        meta: { assetId: "asset-1" },
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://storage.googleapis.com/session",
+      expect.objectContaining({
+        method: "DELETE",
+        headers: { "Content-Length": "0" },
+        body: expect.any(Uint8Array),
+      }),
+    );
   });
 
   it("passes only stableUrl through signed URL completion when requested", async () => {

@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 import {
   findSmartBlock,
   isRichTextBlock,
-  isTextLeaf,
   isSlideTextEditingTarget,
+  isTextLeaf,
   resolveRichTextEditingBlock,
   shouldStampBuilderId,
 } from "./slide-text-targets";
@@ -16,7 +16,7 @@ describe("slide text targets", () => {
     const root = document.createElement("div");
     root.className = "slide-content";
     root.innerHTML =
-      '<h2>Keep <span data-slide-inline-style="true">this word</span></h2>';
+      '<div class="fmd-slide"><h2>Keep <span data-slide-inline-style="true">this word</span></h2></div>';
 
     const heading = root.querySelector("h2") as HTMLElement;
     const styledRun = root.querySelector("span") as HTMLElement;
@@ -69,6 +69,44 @@ describe("slide text targets", () => {
         includeTextBoxes: false,
       }),
     ).toBeNull();
+  });
+
+  it("keeps rich text descendants inside one layer", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="fmd-slide">
+        <div>
+          <p>Heading</p>
+          <ul><li><p>First point</p></li><li><p>Second point</p></li></ul>
+        </div>
+      </div>
+    `;
+
+    const layer = root.querySelector(".fmd-slide > div") as HTMLElement;
+    const paragraph = layer.querySelector("p") as HTMLElement;
+
+    expect(isRichTextBlock(layer)).toBe(true);
+    expect(shouldStampBuilderId(layer)).toBe(true);
+    expect(shouldStampBuilderId(paragraph)).toBe(false);
+    expect(findSmartBlock(paragraph, root)).toBe(layer);
+  });
+
+  it("keeps table cells selectable instead of owning them as one text layer", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="fmd-slide">
+        <table>
+          <tbody><tr><td><p>Cell text</p></td></tr></tbody>
+        </table>
+      </div>
+    `;
+
+    const table = root.querySelector("table") as HTMLElement;
+    const cell = root.querySelector("td") as HTMLElement;
+    const paragraph = root.querySelector("p") as HTMLElement;
+
+    expect(shouldStampBuilderId(cell)).toBe(true);
+    expect(findSmartBlock(paragraph, root)).not.toBe(table);
   });
 
   it("treats semantic rich text as one canvas block", () => {

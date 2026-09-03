@@ -1092,6 +1092,55 @@ export function isProductionServerlessFunctionRuntime(
   );
 }
 
+/**
+ * Narrower than isProductionServerlessFunctionRuntime(): true only inside an
+ * actual hosted function INVOCATION, never during `netlify build` /
+ * scripts/migrate-production.ts. Netlify's build container also sets
+ * `NETLIFY=true` (see migrate-production.ts's own comment on this), so that
+ * signal alone cannot tell a request-serving cold start apart from the build
+ * step — a check gating a hard runtime failure needs something the build
+ * container never has. `AWS_LAMBDA_FUNCTION_NAME` / `LAMBDA_TASK_ROOT` are set
+ * by the AWS Lambda execution environment itself only once a function actually
+ * invokes; `NETLIFY_FUNCTION_NAME` and the Vercel function markers are the
+ * same kind of invocation-only signal on their platforms.
+ */
+export function isHostedFunctionInvocationRuntime(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (env.NODE_ENV !== "production" || env.NETLIFY_LOCAL === "true") {
+    return false;
+  }
+
+  return Boolean(
+    env.NETLIFY_FUNCTION_NAME ||
+    env.AWS_LAMBDA_FUNCTION_NAME ||
+    env.LAMBDA_TASK_ROOT ||
+    env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
+    env.VERCEL_FUNCTION_ID ||
+    env.VERCEL_REGION,
+  );
+}
+
+/**
+ * Thrown instead of silently serving requests off a local SQLite file on a
+ * hosted function invocation. A serverless instance's local filesystem is
+ * ephemeral and per-instance — every warm instance would read and write its
+ * own separate database, invisible to every other instance and gone on the
+ * next cold start. This has shipped as a deploy that looked green while the
+ * app quietly ran on throwaway data.
+ */
+export class HostedRuntimeLocalDatabaseError extends Error {
+  constructor(source: string) {
+    super(
+      `Hosted function invocation resolved to a local SQLite database (source: ${source}). ` +
+        "DATABASE_URL, DATABASE_URL_UNPOOLED, NETLIFY_DATABASE_URL, NETLIFY_DATABASE_URL_UNPOOLED " +
+        "(and their <APP_NAME>_ prefixed variants) were all empty or masked — refusing to serve " +
+        "requests off an ephemeral per-instance file instead of the shared database.",
+    );
+    this.name = "HostedRuntimeLocalDatabaseError";
+  }
+}
+
 const SCHEMA_MUTATION_STATEMENT =
   /^\s*(?:CREATE|ALTER|DROP|TRUNCATE|COMMENT|REINDEX|GRANT|REVOKE)\b/i;
 
@@ -2206,6 +2255,10 @@ function guardSchemaMutations(exec: DbExec): DbExec {
 
 async function initClient(): Promise<void> {
   if (_exec) return;
+
+  if (isHostedFunctionInvocationRuntime() && isLocalDatabase()) {
+    throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
+  }
 
   const dialect = getDialect();
   const url = getRuntimeDatabaseUrl("file:./data/app.db");
