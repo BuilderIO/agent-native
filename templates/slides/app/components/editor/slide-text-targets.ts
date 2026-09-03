@@ -21,6 +21,19 @@ const INLINE_TEXT_TAGS = new Set([
   "FONT",
 ]);
 
+const RICH_TEXT_BLOCK_TAGS = new Set([
+  "BLOCKQUOTE",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "HR",
+  "LI",
+  "OL",
+  "P",
+  "UL",
+]);
+
 export function isInlineTextElement(element: Element): boolean {
   return INLINE_TEXT_TAGS.has(element.tagName);
 }
@@ -55,11 +68,38 @@ export function shouldStampBuilderId(element: HTMLElement): boolean {
   );
 }
 
+/**
+ * A single-cell table satisfies `isRichTextBlock` all the way up to `<table>`,
+ * but a table is a grid of independently selectable cells, not one text layer.
+ * Rich-text ownership stops here so cells keep their own rows and edits.
+ */
+const RICH_TEXT_TABLE_TAGS = new Set([
+  "CAPTION",
+  "COL",
+  "COLGROUP",
+  "TABLE",
+  "TBODY",
+  "TD",
+  "TFOOT",
+  "TH",
+  "THEAD",
+  "TR",
+]);
+
+function ownsRichTextLayer(element: HTMLElement): boolean {
+  return !RICH_TEXT_TABLE_TAGS.has(element.tagName) && isRichTextBlock(element);
+}
+
+/**
+ * Rich text is a single canvas layer, so the blocks inside it are structure
+ * rather than layers and must not each earn their own Layers panel row.
+ */
 function isRichTextLayerAncestor(element: HTMLElement): boolean {
   let ancestor = element.parentElement;
   while (ancestor) {
     if (isSlideCanvasShell(ancestor)) return false;
-    if (isSlideRichTextLayer(ancestor)) return true;
+    if (RICH_TEXT_TABLE_TAGS.has(ancestor.tagName)) return false;
+    if (ownsRichTextLayer(ancestor)) return true;
     ancestor = ancestor.parentElement;
   }
   return false;
@@ -82,6 +122,7 @@ export function isTextLeaf(element: HTMLElement): boolean {
   if (!element || isInlineTextElement(element) || element.tagName === "IMG") {
     return false;
   }
+  if (element.tagName === "H5" || element.tagName === "H6") return false;
   if (element.classList.contains("fmd-img-placeholder")) return false;
   // A user-placed text box stays editable after its content is deleted.
   if (element.classList.contains("fmd-text-box")) return true;
@@ -110,90 +151,61 @@ export function isSmartGroup(element: HTMLElement): boolean {
   return true;
 }
 
-const RICH_TEXT_BLOCK_TAGS = new Set([
-  "BLOCKQUOTE",
-  "H1",
-  "H2",
-  "H3",
-  "H4",
-  "H5",
-  "H6",
-  "LI",
-  "OL",
-  "P",
-  "UL",
-]);
-
-const RICH_TEXT_TABLE_TAGS = new Set([
-  "CAPTION",
-  "COL",
-  "COLGROUP",
-  "TABLE",
-  "TBODY",
-  "TD",
-  "TFOOT",
-  "TH",
-  "THEAD",
-  "TR",
-]);
-
-function isRichTextBlock(element: HTMLElement): boolean {
-  if (
-    !element ||
-    isInlineTextElement(element) ||
-    element.tagName === "IMG" ||
-    element.classList.contains("fmd-img-placeholder") ||
-    RICH_TEXT_TABLE_TAGS.has(element.tagName)
-  ) {
+/** A single canvas target whose descendants are rich-text structure, not layers. */
+export function isRichTextBlock(element: HTMLElement): boolean {
+  if (!element || isInlineTextElement(element) || element.tagName === "IMG") {
     return false;
   }
-  if (RICH_TEXT_BLOCK_TAGS.has(element.tagName)) {
-    return Boolean(element.textContent?.trim());
-  }
-  if (isTextLeaf(element)) return true;
-  const children = Array.from(element.children);
-  return (
-    Boolean(element.textContent?.trim()) &&
-    children.length > 0 &&
-    children.every((child) => isRichTextBlock(child as HTMLElement))
-  );
-}
-
-/** Rich text owns its block descendants as one editable canvas layer. */
-export function isSlideRichTextLayer(element: HTMLElement): boolean {
+  if (element.tagName === "H5" || element.tagName === "H6") return false;
   if (
-    !element ||
-    isSlideCanvasShell(element) ||
-    isInlineTextElement(element) ||
-    element.tagName === "IMG" ||
-    RICH_TEXT_TABLE_TAGS.has(element.tagName)
+    element.classList.contains("fmd-slide") ||
+    element.classList.contains("slide-content") ||
+    element.classList.contains("fmd-autofit-scale") ||
+    element.hasAttribute("data-fmd-autofit-content") ||
+    element.hasAttribute("data-slide-canvas")
   ) {
     return false;
   }
   if (
     element.classList.contains("fmd-text-box") ||
-    element.isContentEditable ||
-    element.hasAttribute("data-editing-block") ||
-    element.matches(
-      ".slide-shared-rich-editor, .slide-tiptap-editor, [data-slide-rich-text-root='true']",
-    )
+    element.getAttribute("data-editing-block") === "true" ||
+    isTextLeaf(element) ||
+    isSmartGroup(element)
   ) {
     return true;
   }
-  if (["BLOCKQUOTE", "OL", "UL"].includes(element.tagName)) {
-    return Boolean(element.textContent?.trim());
-  }
-  if (isTextLeaf(element) || isSmartGroup(element)) return true;
   const children = Array.from(element.children);
-  if (
+  return (
     children.length > 0 &&
-    children.every((child) => isRichTextBlock(child as HTMLElement))
-  ) {
-    return true;
-  }
-  return false;
+    (Boolean(element.textContent?.trim()) ||
+      children.some((child) => child.tagName === "HR")) &&
+    children.every((child) => {
+      const childElement = child as HTMLElement;
+      return (
+        RICH_TEXT_BLOCK_TAGS.has(childElement.tagName) ||
+        (children.length === 1 && isRichTextBlock(childElement))
+      );
+    })
+  );
 }
 
+/** Keep a semantic list inside its containing canvas text block while editing. */
+export function resolveRichTextEditingBlock(element: HTMLElement): HTMLElement {
+  let block = element;
+  while (
+    RICH_TEXT_BLOCK_TAGS.has(block.tagName) &&
+    block.parentElement &&
+    isRichTextBlock(block.parentElement)
+  ) {
+    block = block.parentElement;
+  }
+  return block;
+}
+
+/**
+ * Outermost rich text block containing `target`, so a click on a paragraph
+ * inside one resolves to the whole layer instead of that one paragraph.
+ */
 function findSlideRichTextOwner(
   target: HTMLElement,
   root: HTMLElement,
@@ -203,7 +215,8 @@ function findSlideRichTextOwner(
   let element: HTMLElement | null = target;
   while (element && element !== root && root.contains(element)) {
     if (isSlideCanvasShell(element)) break;
-    if (isSlideRichTextLayer(element)) owner = element;
+    if (RICH_TEXT_TABLE_TAGS.has(element.tagName)) break;
+    if (ownsRichTextLayer(element)) owner = element;
     element = element.parentElement;
   }
   return owner;
@@ -228,10 +241,11 @@ export function findSmartBlock(
     }
     if (isTextLeaf(element)) {
       const list = findEnclosingList(element, root);
-      if (list) return list;
-      return element;
+      if (list) return resolveRichTextEditingBlock(list);
+      return resolveRichTextEditingBlock(element);
     }
     if (isSmartGroup(element)) return element;
+    if (isRichTextBlock(element)) return resolveRichTextEditingBlock(element);
     element = element.parentElement;
   }
   return null;

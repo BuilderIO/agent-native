@@ -15,6 +15,7 @@ import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { hashSlideContent } from "@shared/slide-fit";
 import { IconX } from "@tabler/icons-react";
+import type { Editor } from "@tiptap/react";
 import {
   useState,
   useCallback,
@@ -25,6 +26,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
 
 import { SlideCommentPins } from "@/components/comments/SlideCommentPins";
 import {
@@ -33,15 +35,7 @@ import {
 } from "@/components/deck/ExcalidrawSlide";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
-import {
-  convertMarkdownPrefixToBullet,
-  exitEmptyBulletAtCaret,
-  findEnclosingList,
-  insertBulletAfterCaret,
-  isBulletList,
-  removeEmptyBulletAtCaret,
-  ZERO_WIDTH_SPACE,
-} from "@/components/editor/bullet-editing";
+import { ZERO_WIDTH_SPACE } from "@/components/editor/bullet-editing";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -122,7 +116,6 @@ import {
   getInlineTextStyleSnapshot,
   getInlineTextStyleSnapshotForRange,
   restoreEditableTextRange,
-  selectAllEditableText,
   snapshotEditableTextRange,
   type InlineTextStylePatch,
   type InlineTextStyleSnapshot,
@@ -196,13 +189,19 @@ import {
 import {
   findSmartBlock,
   isInlineTextElement,
-  isSlideRichTextLayer,
+  isRichTextBlock,
   isSlideTextEditingTarget,
-  isTextLeaf,
   shouldStampBuilderId,
 } from "./slide-text-targets";
 import { SlideContextToolbar } from "./SlideContextToolbar";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
+import {
+  isSlideTextContainerTag,
+  restoreSlideTextContainerContent,
+  selectionOffsetsWithin,
+  SlideRichTextEditor,
+  type SlideRichTextEditorHandle,
+} from "./SlideRichTextEditor";
 import {
   SlidesLayersPanel,
   type SlidesLayerKind,
@@ -237,6 +236,21 @@ function ExcalidrawExitButton(props: { onExit: () => void; label: string }) {
 }
 
 let builderIdCounter = 0;
+
+type RichTextEditorSession = {
+  slideId: string;
+  element: HTMLElement;
+  slideContentSnapshot: HTMLElement;
+  sourceContent: string;
+  path: number[];
+  host: HTMLDivElement;
+  root: Root;
+  apiRef: { current: SlideRichTextEditorHandle | null };
+  originalContentEditable: string | null;
+  originalEditingBlock: string | null;
+  latestHtml: string;
+};
+
 const CANVAS_ZOOM_PRESETS = [10, 25, 50, 75, 100, 125, 150, 200] as const;
 const SLIDE_SHAPE_DEFAULT_SIZES = {
   rectangle: { width: 192, height: 144 },
@@ -296,15 +310,21 @@ function ensureBuilderId(element: HTMLElement): string {
 
 /** Stamp selectable elements inside a container with transient builder ids. */
 function stampBuilderIds(container: HTMLElement) {
-  const elements = container.querySelectorAll("*");
-  elements.forEach((el) => {
-    const element = el as HTMLElement;
+  const visit = (element: HTMLElement) => {
     if (!shouldStampBuilderId(element)) {
       element.removeAttribute("data-builder-id");
       return;
     }
     ensureBuilderId(element);
-  });
+    if (isRichTextBlock(element)) return;
+    for (const child of Array.from(element.children)) {
+      visit(child as HTMLElement);
+    }
+  };
+
+  for (const child of Array.from(container.children)) {
+    visit(child as HTMLElement);
+  }
 }
 
 function layerLabel(element: HTMLElement, index: number): string {
@@ -320,7 +340,7 @@ function layerKindForElement(
   element: HTMLElement,
   hasChildren: boolean,
 ): SlidesLayerKind {
-  if (isSlideRichTextLayer(element)) return "text";
+  if (isRichTextBlock(element)) return "text";
   if (
     element.tagName === "IMG" ||
     element.classList.contains("fmd-img-placeholder") ||
@@ -400,8 +420,8 @@ function buildSlidesLayerTree(root: HTMLElement | null): SlidesLayerNode[] {
     if (element.tagName === "IMG" && findPersistedImageObject(element, root)) {
       return null;
     }
-    const richTextLayer = isSlideRichTextLayer(element);
-    const children = richTextLayer
+    // Rich text is one layer: its blocks are structure, not rows of their own.
+    const children = isRichTextBlock(element)
       ? []
       : sortSlideLayerElements(Array.from(element.children) as HTMLElement[])
           .map((child, childIndex) => visit(child as HTMLElement, childIndex))
@@ -435,42 +455,6 @@ function getBuilderSelector(el: HTMLElement): string | null {
   const id = el.getAttribute("data-builder-id");
   if (id) return `[data-builder-id="${id}"]`;
   return null;
-}
-
-/** Block tags that can hold rich multi-paragraph content */
-const RICH_BLOCK_TAGS = new Set(["P", "DIV", "BLOCKQUOTE", "LI", "UL", "OL"]);
-
-/** Insert a soft line break inside one text leaf through native edit history. */
-function insertLineBreak(editable: HTMLElement) {
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount !== 1) return false;
-  const range = selection.getRangeAt(0);
-
-  const textLeafFor = (node: Node) => {
-    if (!editable.contains(node)) return null;
-    let element = node instanceof HTMLElement ? node : node.parentElement;
-    while (element && element !== editable) {
-      if (isTextLeaf(element)) return element;
-      element = element.parentElement;
-    }
-    const canUseEditableFallback =
-      isTextLeaf(editable) ||
-      (editable.tagName !== "IMG" &&
-        !editable.classList.contains("fmd-img-placeholder") &&
-        (editable.classList.contains("fmd-text-box") ||
-          Array.from(editable.children).every((child) =>
-            isInlineTextElement(child),
-          )));
-    return canUseEditableFallback ? editable : null;
-  };
-
-  const startLeaf = textLeafFor(range.startContainer);
-  const endLeaf = textLeafFor(range.endContainer);
-  if (!startLeaf || startLeaf !== endLeaf) {
-    return false;
-  }
-
-  return document.execCommand("insertLineBreak");
 }
 
 /** Strip renderer/editor-only attributes from an HTML string before saving */
@@ -1805,58 +1789,90 @@ export default function SlideEditor({
     null,
   );
   const previousSlideIdRef = useRef(slide.id);
+  const richTextEditorRef = useRef<SlideRichTextEditorHandle | null>(null);
+  const richTextEditorSessionRef = useRef<RichTextEditorSession | null>(null);
+  const activeRichTextHtmlRef = useRef<string | null>(null);
+  const activeRichTextPathRef = useRef<number[] | null>(null);
+  const [richTextEditorRevision, setRichTextEditorRevision] = useState(0);
+
+  const serializeSlideContentHtml = useCallback(
+    (
+      slideContent: HTMLElement,
+      sourceContent: string,
+      activePath: number[] | null = null,
+      activeHtml: string | null = null,
+    ) => {
+      // SlideRenderer swaps each `<div class="mermaid">` for a
+      // `data-mermaid-index` placeholder and renders the diagram as SVG via
+      // MermaidRenderer — the live DOM never contains the original mermaid
+      // syntax. Serializing it as-is here would permanently bake the rendered
+      // SVG into slide.content and turn a diagram edited or moved alongside
+      // (e.g. another text block on the same slide) into inert markup that can
+      // never be resized, edited, or re-rendered again. Restore the original
+      // `<div class="mermaid">` markup from the untouched source before saving.
+      const clone = slideContent.cloneNode(true) as HTMLElement;
+      if (activeHtml !== null && activePath) {
+        const activeClone = resolveElementPath(clone, activePath);
+        if (activeClone) {
+          restoreSlideTextContainerContent(activeClone, activeHtml);
+        }
+      }
+      const placeholders = clone.querySelectorAll("[data-mermaid-index]");
+      // Look up source blocks by index before touching the DOM. If slide.content
+      // changed since this placeholder last rendered (e.g. a concurrent update),
+      // its index may no longer have a matching block — leave that placeholder's
+      // node untouched rather than swapping in a marker with nothing to restore
+      // it, which would otherwise persist as inert marker text.
+      const { blocks } = extractMermaidBlocks(sourceContent);
+      // Swap each rendered node for a plain-text marker now, and splice the
+      // real `<div class="mermaid">` markup back in as a raw string AFTER
+      // stripBuilderIds() below. stripBuilderIds round-trips through
+      // DOMParser + innerHTML, which HTML-escapes `>` in text nodes (mangling
+      // `A --> B` into `A --&gt; B`) — the same reason SlideRenderer extracts
+      // mermaid blocks before its own sanitization pass. Doing the real
+      // substitution as a plain string replace, after all DOM round-trips,
+      // avoids that entirely.
+      const nonce = Math.random().toString(36).slice(2);
+      const markerFor = (idx: number) => `__mermaid_${nonce}_${idx}__`;
+      const restorable = new Map<number, string>();
+      placeholders.forEach((placeholder) => {
+        const idx = Number(placeholder.getAttribute("data-mermaid-index"));
+        const definition = blocks[idx];
+        if (definition === undefined) return;
+        restorable.set(idx, definition);
+        placeholder.replaceWith(
+          clone.ownerDocument.createTextNode(markerFor(idx)),
+        );
+      });
+      let html = stripBuilderIds(clone.innerHTML);
+      restorable.forEach((definition, idx) => {
+        html = html.replace(
+          markerFor(idx),
+          `<div class="mermaid">${definition}</div>`,
+        );
+      });
+      return html;
+    },
+    [],
+  );
 
   const readCurrentSlideContentHtml = useCallback(() => {
     const slideContent = containerRef.current?.querySelector(
       ".slide-content",
     ) as HTMLElement | null;
     if (!slideContent) return null;
-    // SlideRenderer swaps each `<div class="mermaid">` for a
-    // `data-mermaid-index` placeholder and renders the diagram as SVG via
-    // MermaidRenderer — the live DOM never contains the original mermaid
-    // syntax. Serializing it as-is here would permanently bake the rendered
-    // SVG into slide.content and turn a diagram edited or moved alongside
-    // (e.g. another text block on the same slide) into inert markup that can
-    // never be resized, edited, or re-rendered again. Restore the original
-    // `<div class="mermaid">` markup from slide.content — the untouched
-    // source of truth — before saving.
-    const clone = slideContent.cloneNode(true) as HTMLElement;
-    const placeholders = clone.querySelectorAll("[data-mermaid-index]");
-    // Look up source blocks by index before touching the DOM. If slide.content
-    // changed since this placeholder last rendered (e.g. a concurrent update),
-    // its index may no longer have a matching block — leave that placeholder's
-    // node untouched rather than swapping in a marker with nothing to restore
-    // it, which would otherwise persist as inert marker text.
-    const { blocks } = extractMermaidBlocks(slide.content);
-    // Swap each rendered node for a plain-text marker now, and splice the
-    // real `<div class="mermaid">` markup back in as a raw string AFTER
-    // stripBuilderIds() below. stripBuilderIds round-trips through
-    // DOMParser + innerHTML, which HTML-escapes `>` in text nodes (mangling
-    // `A --> B` into `A --&gt; B`) — the same reason SlideRenderer extracts
-    // mermaid blocks before its own sanitization pass. Doing the real
-    // substitution as a plain string replace, after all DOM round-trips,
-    // avoids that entirely.
-    const nonce = Math.random().toString(36).slice(2);
-    const markerFor = (idx: number) => `__mermaid_${nonce}_${idx}__`;
-    const restorable = new Map<number, string>();
-    placeholders.forEach((placeholder) => {
-      const idx = Number(placeholder.getAttribute("data-mermaid-index"));
-      const definition = blocks[idx];
-      if (definition === undefined) return;
-      restorable.set(idx, definition);
-      placeholder.replaceWith(
-        clone.ownerDocument.createTextNode(markerFor(idx)),
-      );
-    });
-    let html = stripBuilderIds(clone.innerHTML);
-    restorable.forEach((definition, idx) => {
-      html = html.replace(
-        markerFor(idx),
-        `<div class="mermaid">${definition}</div>`,
-      );
-    });
-    return html;
-  }, [slide.content]);
+    return serializeSlideContentHtml(
+      slideContent,
+      slide.content,
+      activeRichTextPathRef.current,
+      activeRichTextHtmlRef.current,
+    );
+  }, [serializeSlideContentHtml, slide.content]);
+
+  const readCurrentSlideContentHtmlRef = useRef(readCurrentSlideContentHtml);
+  useEffect(() => {
+    readCurrentSlideContentHtmlRef.current = readCurrentSlideContentHtml;
+  }, [readCurrentSlideContentHtml]);
 
   const captureInlineEditDraft = useCallback(
     (slideId = slide.id) => {
@@ -1880,6 +1896,67 @@ export default function SlideEditor({
       }
     },
     [readCurrentSlideContentHtml, slide.id],
+  );
+
+  const disposeRichTextEditor = useCallback(
+    (restoreLiveDom = true) => {
+      const session = richTextEditorSessionRef.current;
+      if (!session) return null;
+
+      const latest =
+        session.apiRef.current?.getHTML() ?? session.latestHtml ?? "";
+      session.latestHtml = latest;
+      activeRichTextHtmlRef.current = latest;
+      const draftContent =
+        session.slideId === previousSlideIdRef.current
+          ? readCurrentSlideContentHtmlRef.current()
+          : serializeSlideContentHtml(
+              session.slideContentSnapshot,
+              session.sourceContent,
+              session.path,
+              latest,
+            );
+      if (draftContent !== null) {
+        inlineEditDraftRef.current = {
+          slideId: session.slideId,
+          content: draftContent,
+        };
+      }
+      session.root.unmount();
+
+      let restoredElement = session.element;
+      if (restoreLiveDom && session.element.isConnected) {
+        restoredElement = restoreSlideTextContainerContent(
+          session.element,
+          latest,
+        );
+        session.element = restoredElement;
+        if (session.originalContentEditable === null) {
+          restoredElement.removeAttribute("contenteditable");
+        } else {
+          restoredElement.setAttribute(
+            "contenteditable",
+            session.originalContentEditable,
+          );
+        }
+        if (session.originalEditingBlock === null) {
+          restoredElement.removeAttribute("data-editing-block");
+        } else {
+          restoredElement.setAttribute(
+            "data-editing-block",
+            session.originalEditingBlock,
+          );
+        }
+      }
+
+      richTextEditorSessionRef.current = null;
+      richTextEditorRef.current = null;
+      activeRichTextHtmlRef.current = null;
+      activeRichTextPathRef.current = null;
+      setRichTextEditorRevision((revision) => revision + 1);
+      return { html: latest, element: restoredElement };
+    },
+    [serializeSlideContentHtml],
   );
 
   const flushInlineEditDraft = useCallback(() => {
@@ -2197,19 +2274,24 @@ export default function SlideEditor({
   const exitInlineEdit = useCallback(() => {
     const el = editingElRef.current;
     if (!el) return;
-    editingElRef.current = null;
-    richTextSelectionRef.current = null;
-    el.contentEditable = "false";
-    el.removeAttribute("data-editing-block");
-    window.getSelection()?.removeAllRanges();
 
     // Selection and freeform promotion are separate operations. Merely ending
     // text editing must not turn a flow-layout block into an absolutely
     // positioned object, because that changes its available wrapping width.
-    const selected = el;
-    const selector = getBuilderSelector(selected);
+    const selector = getBuilderSelector(el);
 
-    const html = selected ? readCurrentSlideContentHtml() : null;
+    const session = richTextEditorSessionRef.current;
+    if (session) {
+      const latest = session.apiRef.current?.getHTML() ?? session.latestHtml;
+      session.latestHtml = latest;
+      activeRichTextHtmlRef.current = latest;
+    }
+    const html = readCurrentSlideContentHtml();
+    const disposed = disposeRichTextEditor();
+    const selected = disposed?.element ?? el;
+    editingElRef.current = null;
+    richTextSelectionRef.current = null;
+    window.getSelection()?.removeAllRanges();
     const initial = inlineEditInitialContentRef.current;
     if (html !== null) {
       const current = { slideId: slide.id, content: html };
@@ -2242,6 +2324,7 @@ export default function SlideEditor({
     }
   }, [
     readCurrentSlideContentHtml,
+    disposeRichTextEditor,
     resolveSelectedElement,
     selectElementForStyling,
     slide.id,
@@ -2249,16 +2332,69 @@ export default function SlideEditor({
     onInlineEditEnd,
   ]);
 
+  const handleRichTextEditorReady = useCallback((editor: Editor) => {
+    const session = richTextEditorSessionRef.current;
+    if (!session || session.apiRef.current?.getEditor() !== editor) return;
+    richTextEditorRef.current = session.apiRef.current;
+    setRichTextEditorRevision((revision) => revision + 1);
+  }, []);
+
   /** Enter edit mode on a smart block (text leaf or smart group) */
   const enterInlineEdit = useCallback(
     (el: HTMLElement) => {
+      const activeSession = richTextEditorSessionRef.current;
+      if (activeSession?.element === el) return;
+      if (activeSession) disposeRichTextEditor();
       const selector = getBuilderSelector(el);
-      el.contentEditable = "true";
+      const slideContent = getSlideContent();
+      if (!slideContent) return;
+      const nativeSelection = window.getSelection();
+      const nativeRange =
+        nativeSelection?.rangeCount === 1
+          ? nativeSelection.getRangeAt(0)
+          : null;
+      const initialSelection =
+        nativeRange &&
+        el.contains(nativeRange.startContainer) &&
+        el.contains(nativeRange.endContainer)
+          ? selectionOffsetsWithin(el, nativeRange)
+          : null;
+      const initialHtml = isSlideTextContainerTag(el.tagName)
+        ? el.outerHTML
+        : el.innerHTML;
+      const path = elementPathFromRoot(slideContent, el);
+      if (path.length === 0) return;
+      const slideContentSnapshot = slideContent.cloneNode(true) as HTMLElement;
+
+      const host = document.createElement("div");
+      host.className = "slide-rich-editor-host";
+      const apiRef: { current: SlideRichTextEditorHandle | null } = {
+        current: null,
+      };
+      const session: RichTextEditorSession = {
+        slideId: slide.id,
+        element: el,
+        slideContentSnapshot,
+        sourceContent: slide.content,
+        path,
+        host,
+        root: createRoot(host),
+        apiRef,
+        originalContentEditable: el.getAttribute("contenteditable"),
+        originalEditingBlock: el.getAttribute("data-editing-block"),
+        latestHtml: initialHtml,
+      };
+      richTextEditorSessionRef.current = session;
+      activeRichTextHtmlRef.current = initialHtml;
+      activeRichTextPathRef.current = path;
+      el.contentEditable = "false";
       el.setAttribute("data-editing-block", "true");
       // Keep the inspector selection mounted while text is being edited. The
       // inspector is a stable dock, so clearing it here would make the canvas
       // resize and auto-fit again on the second click.
       setSelectedElementMeasurement(null);
+      editingElRef.current = el;
+      setEditingEl(el);
       captureInlineEditDraft(slide.id);
       // Mark the slide active immediately so SSE/poll refreshes do not replace
       // the live DOM under an active contentEditable edit, even before the
@@ -2269,9 +2405,21 @@ export default function SlideEditor({
       // user's gesture; re-selecting from JS clobbers it. focus() on an
       // element that already contains the selection preserves it in modern
       // browsers, so it's safe to keep for keyboard delivery.
-      el.focus({ preventScroll: true });
-      editingElRef.current = el;
-      setEditingEl(el);
+      el.replaceChildren(host);
+      session.root.render(
+        <SlideRichTextEditor
+          ref={apiRef}
+          value={initialHtml}
+          initialSelection={initialSelection}
+          onChange={(html) => {
+            if (richTextEditorSessionRef.current !== session) return;
+            session.latestHtml = html;
+            activeRichTextHtmlRef.current = html;
+            captureInlineEditDraft(slide.id);
+          }}
+          onEditorReady={handleRichTextEditorReady}
+        />,
+      );
       if (selector) {
         const item = selectionItemForElement(el, selector);
         syncSelectionToAppState(
@@ -2279,7 +2427,17 @@ export default function SlideEditor({
         );
       }
     },
-    [buildSelectionState, captureInlineEditDraft, onInlineEditStart, slide.id],
+    [
+      buildSelectionState,
+      captureInlineEditDraft,
+      disposeRichTextEditor,
+      exitInlineEdit,
+      getSlideContent,
+      handleRichTextEditorReady,
+      onInlineEditStart,
+      slide.content,
+      slide.id,
+    ],
   );
 
   // Exit edit mode when switching slides — save pending content first so
@@ -2288,6 +2446,7 @@ export default function SlideEditor({
     const previousSlideId = previousSlideIdRef.current;
     if (previousSlideId === slide.id) return;
 
+    if (richTextEditorSessionRef.current) disposeRichTextEditor();
     const draft = inlineEditDraftRef.current;
     const editing = editingElRef.current;
     if (editing) {
@@ -2312,13 +2471,14 @@ export default function SlideEditor({
     inlineEditInitialContentRef.current = null;
 
     previousSlideIdRef.current = slide.id;
-  }, [onInlineEditEnd, slide.id]);
+  }, [disposeRichTextEditor, onInlineEditEnd, slide.id]);
 
   // Editor unmount (navigating away, closing the deck) skips the slide-switch
   // effect above entirely, so an active edit's "mid-edit" marker would
   // otherwise never clear and permanently block live sync for that slide.
   useEffect(() => {
     return () => {
+      if (richTextEditorSessionRef.current) disposeRichTextEditor();
       const draft = inlineEditDraftRef.current;
       const initial = inlineEditInitialContentRef.current;
       if (shouldPersistInlineEditContent(initial, draft) && draft) {
@@ -2334,22 +2494,7 @@ export default function SlideEditor({
       inlineEditDraftRef.current = null;
       inlineEditInitialContentRef.current = null;
     };
-  }, []);
-
-  useEffect(() => {
-    if (!editingEl) return;
-    const editingSlideId = slide.id;
-    const handleInput = () => {
-      // Markdown-style "- "/"* " at the start of a plain text block converts
-      // it into a styled bullet row, so it's recognized as a list and Enter
-      // can extend it — contentEditable has no native concept of these
-      // styled (non-<ul>) bullet lists.
-      convertMarkdownPrefixToBullet(editingEl);
-      captureInlineEditDraft(editingSlideId);
-    };
-    editingEl.addEventListener("input", handleInput);
-    return () => editingEl.removeEventListener("input", handleInput);
-  }, [captureInlineEditDraft, editingEl, slide.id]);
+  }, [disposeRichTextEditor]);
 
   // Keep canvas gesture handlers from stealing the browser's native text
   // selection stream once an inline edit has started.
@@ -2399,131 +2544,6 @@ export default function SlideEditor({
     return () =>
       document.removeEventListener("selectionchange", updateInspectorTextStyle);
   }, [editingEl, selectedElementSelector]);
-
-  // Global keyboard handling while inline-editing
-  useEffect(() => {
-    if (!editingEl) return;
-    // Determine "multi-line capable" once at entry time. contentEditable's
-    // default Enter behavior inserts block-level children (e.g. <div><br></div>)
-    // after a couple of presses, which would otherwise flip isTextLeaf to false
-    // mid-edit and incorrectly commit the user out of the block. The user's
-    // intent (rich-block edit vs single-line commit) doesn't change while
-    // they're editing the same node, so latch it.
-    const isMultiLineLeaf =
-      (isTextLeaf(editingEl) && RICH_BLOCK_TAGS.has(editingEl.tagName)) ||
-      isBulletList(editingEl);
-    const onKey = (e: KeyboardEvent) => {
-      const isSelectAll =
-        (e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "a";
-      if (isSelectAll) {
-        const editing = editingElRef.current;
-        if (!editing || !editing.isConnected) return;
-        e.preventDefault();
-        e.stopPropagation();
-        selectAllEditableText(editing);
-        return;
-      }
-
-      // Ignore keys from outside the slide (e.g. the style dock's font-size
-      // input). Guard against the LIVE slide content, not `editingEl`, which a
-      // re-render may have detached — a stale ref would wrongly bail here and
-      // let native Enter run.
-      const slideContent = getSlideContent();
-      if (
-        e.target instanceof Node &&
-        slideContent &&
-        !slideContent.contains(e.target)
-      ) {
-        return;
-      }
-
-      const sel = window.getSelection();
-      const anchor = sel?.anchorNode ?? null;
-      const anchorEl = anchor
-        ? anchor.nodeType === Node.TEXT_NODE
-          ? anchor.parentElement
-          : (anchor as HTMLElement)
-        : null;
-      const liveList =
-        anchorEl && slideContent && slideContent.contains(anchorEl)
-          ? findEnclosingList(anchorEl, slideContent)
-          : null;
-
-      if (
-        e.key === "Backspace" &&
-        !e.metaKey &&
-        !e.ctrlKey &&
-        !e.altKey &&
-        liveList
-      ) {
-        const result = removeEmptyBulletAtCaret(liveList);
-        if (result) {
-          e.preventDefault();
-          if (result.editingElement) {
-            liveList.contentEditable = "false";
-            liveList.removeAttribute("data-editing-block");
-            enterInlineEdit(result.editingElement);
-          } else {
-            captureInlineEditDraft(slide.id);
-          }
-          return;
-        }
-      }
-
-      if (e.key === "Enter") {
-        // Smart Enter:
-        //  - Shift+Enter always inserts a <br>.
-        //  - Enter on an empty bullet exits the list into a root-level line.
-        //  - Inside a styled bullet list, Enter clones the current row so a
-        //    new bullet (marker + empty text) appears — contentEditable's
-        //    native split can't recreate the marker glyph.
-        //  - Rich block leaves keep contentEditable's native multi-line edit.
-        //  - Other text blocks get a <br> so repeated presses stay within the
-        //    existing layout instead of creating new block children.
-        if (e.shiftKey) return;
-
-        // Re-derive the list from the LIVE caret so a re-render that swapped
-        // the edited node can't drop us into native Enter.
-        if (liveList) {
-          const rootLine = exitEmptyBulletAtCaret(liveList);
-          if (rootLine) {
-            e.preventDefault();
-            liveList.contentEditable = "false";
-            liveList.removeAttribute("data-editing-block");
-            enterInlineEdit(rootLine);
-            return;
-          }
-        }
-        if (liveList && insertBulletAfterCaret(liveList)) {
-          e.preventDefault();
-          captureInlineEditDraft(slide.id);
-          return;
-        }
-
-        if (!isMultiLineLeaf) {
-          const editing = editingElRef.current;
-          const inserted = editing ? insertLineBreak(editing) : false;
-          if (!inserted) {
-            // Keep an unsupported cross-leaf selection in edit mode rather
-            // than letting native Enter split the smart group into blocks.
-            e.preventDefault();
-            return;
-          }
-          e.preventDefault();
-          captureInlineEditDraft(slide.id);
-        }
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [
-    exitInlineEdit,
-    enterInlineEdit,
-    editingEl,
-    captureInlineEditDraft,
-    slide.id,
-    getSlideContent,
-  ]);
 
   // Click-outside: exit inline edit mode
   useEffect(() => {
@@ -3031,6 +3051,12 @@ export default function SlideEditor({
       if (e.key !== "Escape") return;
       const target = e.target instanceof Element ? e.target : null;
       const editing = editingElRef.current;
+      if (
+        richTextEditorSessionRef.current &&
+        document.querySelector(".an-rich-md-slash-menu")
+      ) {
+        return;
+      }
       const overlayOwnsEscape = Boolean(
         document.querySelector(
           '[role="dialog"]:not([data-state="closed"]), [role="menu"]:not([data-state="closed"]), [role="listbox"]:not([data-state="closed"]), [data-radix-popper-content-wrapper]:not([data-state="closed"])',
@@ -3850,11 +3876,20 @@ export default function SlideEditor({
       range: Range | null = null,
     ): Range | null => {
       const inlinePatch = inlineInspectorStylePatch(patch);
+      const hasInlinePatch = Object.keys(inlinePatch).length > 0;
       let styledRange: Range | null = null;
-      if (
+      const richEditor =
+        editingElRef.current === element ? richTextEditorRef.current : null;
+      let handledByRichEditor = false;
+      if (richEditor && hasInlinePatch) {
+        if (range) styledRange = richEditor.applyTextStyle(inlinePatch, range);
+        else richEditor.applyTextStyleToContent(inlinePatch);
+        handledByRichEditor = true;
+        activeRichTextHtmlRef.current = richEditor.getHTML();
+      } else if (
         range &&
         restoreEditableTextRange(element, range) &&
-        Object.keys(inlinePatch).length > 0
+        hasInlinePatch
       ) {
         const result = applyInlineTextStyle(element, inlinePatch);
         if (result.scope === "selection" && result.range) {
@@ -3862,7 +3897,7 @@ export default function SlideEditor({
         }
       }
 
-      if (!styledRange && Object.keys(inlinePatch).length > 0) {
+      if (!styledRange && hasInlinePatch && !handledByRichEditor) {
         applyDescendantTextStyle(element, inlinePatch);
       }
 
@@ -4238,24 +4273,11 @@ export default function SlideEditor({
         box.style.whiteSpace = "pre-wrap";
         box.style.overflowWrap = "anywhere";
       }
-      box.textContent = text;
+      box.textContent = text === ZERO_WIDTH_SPACE ? "" : text;
       positioningLayer.appendChild(box);
 
       if (!startEditing) return box;
       enterInlineEdit(box);
-
-      // el.focus() alone doesn't reliably place the caret inside a freshly
-      // created contentEditable node across browsers — set it explicitly on
-      // the placeholder text so typing lands immediately.
-      const textNode = box.firstChild;
-      if (textNode) {
-        const range = document.createRange();
-        range.setStart(textNode, textNode.textContent?.length ?? 0);
-        range.collapse(true);
-        const selection = window.getSelection();
-        selection?.removeAllRanges();
-        selection?.addRange(range);
-      }
       return box;
     },
     [enterInlineEdit],
@@ -6595,54 +6617,12 @@ export default function SlideEditor({
         (editing ? getBuilderSelector(editing) : null);
       if (!element || !selector) return;
 
-      const inlinePatch = inlineInspectorStylePatch(patch);
-      const inlineKeys = INLINE_INSPECTOR_STYLE_KEYS.filter(
-        (key) => patch[key] !== undefined,
-      );
-      let styledRange = false;
       const savedRange =
         richTextSelectionRef.current ??
         (editing ? snapshotEditableTextRange(editing) : null);
-      if (
-        editing &&
-        inlineKeys.length > 0 &&
-        restoreEditableTextRange(editing, savedRange)
-      ) {
-        const result = applyInlineTextStyle(editing, inlinePatch);
-        if (result.scope === "selection" && result.range) {
-          richTextSelectionRef.current = result.range.cloneRange();
-          styledRange = true;
-        }
-      }
-
-      if (!styledRange && inlineKeys.length > 0) {
-        applyDescendantTextStyle(element, inlinePatch);
-      }
-
-      for (const [property, value] of Object.entries(patch)) {
-        if (value === undefined) continue;
-        if (
-          styledRange &&
-          INLINE_INSPECTOR_STYLE_KEYS.includes(
-            property as (typeof INLINE_INSPECTOR_STYLE_KEYS)[number],
-          )
-        ) {
-          continue;
-        }
-        if (property === "width" || property === "height") {
-          setSlideObjectDimension(element, property, value);
-        } else {
-          element.style.setProperty(stylePropertyName(property), value);
-        }
-      }
-
-      if (
-        patch.borderWidth &&
-        patch.borderWidth !== "0" &&
-        patch.borderWidth !== "0px" &&
-        window.getComputedStyle(element).borderStyle === "none"
-      ) {
-        element.style.borderStyle = "solid";
+      const nextRange = applyStylePatchToElement(element, patch, savedRange);
+      if (editing && nextRange) {
+        richTextSelectionRef.current = nextRange.cloneRange();
       }
 
       if (editing) {
@@ -6771,7 +6751,42 @@ export default function SlideEditor({
         return;
       }
 
-      const target = editingElRef.current ?? resolveSelectedElement();
+      const activeEditing = editingElRef.current;
+      const richEditor = activeEditing ? richTextEditorRef.current : null;
+      if (activeEditing) {
+        if (!richEditor) return;
+        const editor = richEditor.getEditor();
+        if (!editor || editor.isDestroyed) return;
+        const chain = editor.chain().focus();
+        if (kind === "bullet" && editor.isActive("orderedList")) {
+          chain.toggleOrderedList().toggleBulletList().run();
+        } else if (kind === "ordered" && editor.isActive("bulletList")) {
+          chain.toggleBulletList().toggleOrderedList().run();
+        } else if (kind === "bullet") {
+          chain.toggleBulletList().run();
+        } else {
+          chain.toggleOrderedList().run();
+        }
+        activeRichTextHtmlRef.current = richEditor.getHTML();
+        captureInlineEditDraft(slide.id);
+        const selector =
+          selectedElementSelector ?? getBuilderSelector(activeEditing);
+        if (selector) {
+          setSelectedStyleSnapshot(
+            buildStyleSnapshot(
+              activeEditing,
+              selector,
+              getInlineTextStyleSnapshotForRange(
+                activeEditing,
+                richTextSelectionRef.current,
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      const target = resolveSelectedElement();
       if (!target) return;
       // Editing one item still means "this list". Converting the LI itself
       // would build a second list inside it instead of toggling the one it
@@ -6780,28 +6795,8 @@ export default function SlideEditor({
         target.tagName === "LI" ? target.closest("ul, ol") : null;
       const element = (parentList as HTMLElement | null) ?? target;
 
-      const editing = editingElRef.current;
       const converted = toggleSlideList(element, kind);
       if (!converted) return;
-
-      // Conversions retag and replace nodes, so an active edit can be left
-      // pointing at a node that is no longer in the page. Move it onto the
-      // element that replaced it rather than silently writing into nothing.
-      if (editing && !editing.isConnected) {
-        converted.contentEditable = "true";
-        converted.setAttribute("data-editing-block", "true");
-        editingElRef.current = converted;
-        setEditingEl(converted);
-        converted.focus({ preventScroll: true });
-      }
-
-      // Committing while an edit is open re-renders the slide from `content`
-      // and replaces the contentEditable node; stash a draft instead and let
-      // exitInlineEdit flush it.
-      if (editing) {
-        captureInlineEditDraft(slide.id);
-        return;
-      }
 
       const html = readCurrentSlideContentHtml();
       if (html !== null) onUpdateSlideRef.current({ content: html });
@@ -6816,6 +6811,7 @@ export default function SlideEditor({
       preserveMultiSelectionForUpdate,
       readCurrentSlideContentHtml,
       resolveSelectedElement,
+      selectedElementSelector,
       selectElementForStyling,
       slide.id,
       styleSnapshotForElement,
@@ -7376,7 +7372,9 @@ export default function SlideEditor({
       />
 
       <BlockBubbleMenu
+        key={richTextEditorRevision}
         editingEl={editingEl}
+        richTextEditor={richTextEditorRef.current}
         slideId={slide.id}
         deckId={deckId}
         onCommitInlineEdit={exitInlineEdit}

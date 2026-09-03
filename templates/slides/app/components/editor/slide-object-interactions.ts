@@ -6,7 +6,7 @@ import {
 
 import {
   isSlideCanvasShell,
-  isSlideRichTextLayer,
+  isRichTextBlock,
   shouldStampBuilderId,
 } from "./slide-text-targets";
 
@@ -108,7 +108,7 @@ const SLIDE_LAYER_REQUIRED_CHILDREN = new Map<string, Set<string>>([
 
 export function canDropSlideLayerInside(target: Element): boolean {
   return (
-    !isSlideRichTextLayer(target as HTMLElement) &&
+    !isRichTextBlock(target as HTMLElement) &&
     !SLIDE_LAYER_VOID_ELEMENTS.has(target.tagName) &&
     !SLIDE_LAYER_NON_CONTAINER_ELEMENTS.has(target.tagName)
   );

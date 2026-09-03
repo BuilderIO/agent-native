@@ -148,6 +148,8 @@ const messages = {
     clearSelection: "Borrar selección",
     sendToAgent: "Enviar al agente",
     saveReconnect: "Los cambios se guardarán al reconectar",
+    saveFailedDescription:
+      "Tus cambios más recientes solo están en este dispositivo. Descarga una copia de seguridad antes de salir.",
     offline: "Sin conexión",
     selected: "seleccionado",
     chooseDesignSystem: "Elige un sistema de diseño",
@@ -270,6 +272,12 @@ const messages = {
     more: "Más",
     importing: "Importando...",
     importFile: "Importar archivo",
+    downloadBackup: "Descargar copia de seguridad",
+    importBackup: "Importar copia de seguridad",
+    backupDownloaded: "Copia de seguridad descargada",
+    backupDownloadFailed: "No se pudo descargar la copia de seguridad",
+    invalidBackup:
+      "Elige un archivo JSON de copia de seguridad de Slides válido.",
     savedVersions: "Versiones guardadas",
     lightTheme: "Tema claro",
     darkTheme: "Tema oscuro",

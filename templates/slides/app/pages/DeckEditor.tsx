@@ -92,6 +92,7 @@ import {
   type CommentThread,
 } from "@/hooks/use-slide-comments";
 import { getAspectRatioDims } from "@/lib/aspect-ratios";
+import { downloadDeckBackup, parseDeckBackup } from "@/lib/deck-backup";
 import {
   deckAccessCheckKey,
   shouldShowDeckEditorSkeleton,
@@ -263,6 +264,7 @@ export default function DeckEditor() {
     addSlide,
     flushDeckSave,
     reorderSlides,
+    setDeckSlides,
     undo,
     loading,
     loadError,
@@ -2048,6 +2050,54 @@ export default function DeckEditor() {
     );
   }
 
+  const handleDownloadDeckBackup = () => {
+    inlineEditFlushRef.current?.();
+    const backupDeck: Deck = {
+      ...deck,
+      slides: deck.slides.map((slide) => {
+        const content = latestSlideContentRef.current.get(slide.id);
+        return content === undefined ? slide : { ...slide, content };
+      }),
+    };
+    try {
+      downloadDeckBackup(backupDeck);
+      toast.success(t("editorToolbar.backupDownloaded"));
+    } catch (error) {
+      console.error("[slides] deck backup download failed:", error);
+      toast.error(t("editorToolbar.backupDownloadFailed"));
+    }
+  };
+
+  const handleImportDeckBackup = async (file: File) => {
+    const backup = parseDeckBackup(await file.text());
+    setDeckSlides(id, backup.deck.slides, {
+      deckFields: {
+        title: backup.deck.title,
+        ...(backup.deck.aspectRatio !== undefined
+          ? { aspectRatio: backup.deck.aspectRatio }
+          : {}),
+        designSystemId: backup.deck.designSystemId ?? null,
+        ...(backup.deck.tweaks !== undefined
+          ? { tweaks: backup.deck.tweaks }
+          : {}),
+        ...(backup.deck.starred !== undefined
+          ? { starred: backup.deck.starred }
+          : {}),
+      },
+      clearDeckFields: [
+        "aspectRatio",
+        "designSystemId",
+        "tweaks",
+        "starred",
+        "sourceImport",
+      ],
+      persistence: "immediate",
+      forcePersistence: true,
+    });
+    await flushDeckSave(id);
+    return { slideCount: backup.deck.slides.length };
+  };
+
   const currentSlide =
     deck.slides.find((s) => s.id === activeSlideId) || deck.slides[0];
   const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
@@ -2213,6 +2263,8 @@ export default function DeckEditor() {
         }
         addSlideGenerating={addSlideGenerating}
         onWideContextToolbarSlotChange={setWideContextToolbarSlot}
+        onDownloadBackup={handleDownloadDeckBackup}
+        onImportDeckBackup={handleImportDeckBackup}
         activeUsers={slideActiveUsers.filter((u) => u.email !== session?.email)}
         agentPresent={agentPresent}
         agentActive={agentActive}
