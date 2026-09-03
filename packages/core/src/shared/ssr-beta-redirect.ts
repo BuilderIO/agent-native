@@ -133,25 +133,28 @@ export function getSsrBetaRedirectScriptBody(
   var appConfig = window.__AGENT_NATIVE_CONFIG__;
   if (appConfig && appConfig.workspaceRuntime === true) {
     var frameworkSessionPath = '/_agent-native/auth/session';
-    var mountSegment = currentUrl.pathname.split('/').find(function (segment) {
-      return segment;
-    });
-    var workspaceMount = mountSegment &&
-      mountSegment !== '_agent-native' &&
-      mountSegment !== 'api' &&
-      mountSegment !== 'sign-in' &&
-      mountSegment !== 'login' &&
-      mountSegment !== 'signup'
-      ? '/' + mountSegment
-      : '';
     var knownWorkspaceMounts = Array.isArray(appConfig.workspaceAppMountPaths)
       ? appConfig.workspaceAppMountPaths
       : null;
-    var knownWorkspaceMount = !knownWorkspaceMounts ||
-      knownWorkspaceMounts.indexOf(workspaceMount) !== -1;
+    var workspaceMount = '';
+    if (knownWorkspaceMounts) {
+      var mountSegment = currentUrl.pathname.split('/').find(function (segment) {
+        return segment;
+      });
+      var candidateWorkspaceMount = mountSegment &&
+        mountSegment !== '_agent-native' &&
+        mountSegment !== 'api' &&
+        mountSegment !== 'sign-in' &&
+        mountSegment !== 'login' &&
+        mountSegment !== 'signup'
+        ? '/' + mountSegment
+        : '';
+      if (knownWorkspaceMounts.indexOf(candidateWorkspaceMount) !== -1) {
+        workspaceMount = candidateWorkspaceMount;
+      }
+    }
     if (
       workspaceMount &&
-      knownWorkspaceMount &&
       typeof sessionProbePath === 'string' &&
       sessionProbePath.endsWith(frameworkSessionPath)
     ) {
@@ -205,6 +208,15 @@ export function getSsrBetaRedirectScriptBody(
     if (latestUrl.searchParams.get(${JSON.stringify(BETA_FORCE_QUERY_PARAM)}) === 'true') return;
     var latestOptOut = latestUrl.searchParams.get(${JSON.stringify(BETA_OPT_OUT_QUERY_PARAM)});
     if (latestOptOut !== null && Number(latestOptOut) > Date.now()) return;
+
+    var latestRedirect;
+    try {
+      latestRedirect = window.localStorage.getItem(${JSON.stringify(BETA_REDIRECT_STORAGE_KEY)});
+    } catch (error) {
+      void error;
+      return;
+    }
+    if (!Number.isFinite(Number(latestRedirect)) || Number(latestRedirect) <= Date.now()) return;
 
     latestUrl.protocol = 'https:';
     latestUrl.hostname = betaHost;
