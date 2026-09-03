@@ -412,10 +412,12 @@ fn anchored_rect(
                 position.y.clamp(my, max_y_exp),
             ),
             Some(position) => {
-                // Legacy coordinates are physical pixels, so reconstruct the
-                // old expanded edge in the target monitor's coordinate space.
+                // Legacy width was sized from the popover scale, even when the
+                // pill was placed on a different monitor. Keep that old
+                // encoding when reconstructing its right edge.
                 let target_scale = monitor_scale_factor(app, (mx, my, mw, mh));
-                let expanded_w = (PILL_W_EXPANDED_MEETING_LOGICAL as f64 * target_scale) as u32;
+                let expanded_w =
+                    (PILL_W_EXPANDED_MEETING_LOGICAL as f64 * scale_factor(app)) as u32;
                 let right_margin = (PILL_RIGHT_MARGIN_LOGICAL as f64 * target_scale) as i32;
                 let legacy_right_edge = position.x + expanded_w as i32;
                 let monitor_right = mx + mw as i32;
