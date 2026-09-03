@@ -544,4 +544,57 @@ describe("s3FileUploadProvider", () => {
       resumable.relayChunk(session, "bytes 0-3/*", new Uint8Array(4)),
     ).rejects.toThrow("exceeds its 3 byte limit");
   });
+
+  it("signs the endpoint path prefix so path-prefixed endpoints are accepted", async () => {
+    // Regression. The canonical URI omitted the endpoint's own path prefix, so
+    // against an endpoint served under a path (Supabase Storage exposes its S3
+    // API at /storage/v1/s3) the signature covered /bucket/key while the
+    // request asked for /storage/v1/s3/bucket/key. The URL was right and the
+    // signature was not, so every upload came back 403.
+    //
+    // The request URL alone cannot catch that, so this pins the property that
+    // actually broke: two endpoints differing only by path prefix must produce
+    // different signatures.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-03T12:00:00Z"));
+
+    const signedRequestFor = async (endpoint: string) => {
+      const values: Record<string, string> = {
+        S3_BUCKET: "clips-bucket",
+        S3_ACCESS_KEY_ID: "access",
+        S3_SECRET_ACCESS_KEY: "secret",
+        S3_ENDPOINT: endpoint,
+        S3_REGION: "us-east-1",
+      };
+      mockResolveSecret.mockImplementation(async (key: string) => values[key] ?? null);
+      const fetchMock = vi.fn(async () => new Response("media", { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await fetchS3ObjectByUrl(
+        `${endpoint}/clips-bucket/clips/recording.webm`,
+        { recordingId: "recording" },
+      );
+
+      const [url, init] = fetchMock.mock.calls[0] as unknown as [string, any];
+      return { url, auth: String(init.headers.Authorization) };
+    };
+
+    const prefixed = await signedRequestFor("https://proj.storage.example.com/storage/v1/s3");
+    const plain = await signedRequestFor("https://proj.storage.example.com");
+
+    // The prefix appears exactly once in the request path.
+    expect(prefixed.url).toBe(
+      "https://proj.storage.example.com/storage/v1/s3/clips-bucket/clips/recording.webm",
+    );
+    expect(plain.url).toBe(
+      "https://proj.storage.example.com/clips-bucket/clips/recording.webm",
+    );
+
+    // Same bucket, same key, same clock: only the endpoint path differs, so the
+    // signatures must differ. Before the fix they were identical.
+    expect(prefixed.auth).toContain("AWS4-HMAC-SHA256");
+    expect(prefixed.auth).not.toBe(plain.auth);
+
+    vi.useRealTimers();
+  });
 });
