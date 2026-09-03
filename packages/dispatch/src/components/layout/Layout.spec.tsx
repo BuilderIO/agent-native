@@ -32,6 +32,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   AgentSidebar: ({ children }: { children: React.ReactNode }) => (
     <div data-agent-sidebar>{children}</div>
   ),
+  ExternalAgentNudge: () => null,
   focusAgentChat: vi.fn(),
   navigateWithAgentChatViewTransition: (
     navigate: (path: string) => void,

@@ -1,8 +1,7 @@
 name: Deploy Agent-Native docs site from GitHub
 
-# Temporary production-only exception: there is no beta docs Netlify site or
-# beta docs hostname yet. Keep the public docs site on the same prebuilt
-# publisher as the other sites until a docs beta site is provisioned.
+# The docs beta site is published by deploy-beta-sites-prebuilt.yml alongside
+# the app fleet. This workflow remains the production docs publisher.
 on:
   push:
     branches: [main]
@@ -14,6 +13,7 @@ on:
       - "packages/core/**"
       - "packages/docs/**"
       - "scripts/netlify-prebuilt-target.ts"
+      - "scripts/netlify-migration-url.ts"
       - "scripts/netlify-production-sites.json"
       - ".github/workflows/deploy-docs-production.yml"
       - ".github/workflows/deploy-netlify-prebuilt.yml"
@@ -38,9 +38,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  migrate:
+    name: Migrate docs production schema
+    needs: pause-netlify-builds
+    uses: ./.github/workflows/deploy-netlify-prebuilt.yml
+    with:
+      target: production
+      site: fw
+      caller: release-migration
+      source_ref: ${{ inputs.source_ref || github.sha }}
+      build_context: production
+      deploy: false
+      deploy_mode: draft
+      smoke: false
+      migration_only: true
+    secrets: inherit
+
   deploy:
     name: docs production prebuilt deploy
-    needs: pause-netlify-builds
+    needs: [pause-netlify-builds, migrate]
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:
       target: production
@@ -51,10 +67,20 @@ jobs:
       deploy: true
       deploy_mode: production
       smoke: ${{ github.event_name == 'push' || inputs.smoke }}
+      migration_only: false
+      skip_build_migrations: true
     secrets: inherit
 
   pause-netlify-builds:
     name: Pause docs site's Git-connected Netlify builds
+    concurrency:
+      group: agent-native-production-site-fw
+      cancel-in-progress: false
+    outputs:
+      cutover_acquired: ${{ steps.pause.outputs.cutover_acquired }}
+      has_git_connected_build: ${{ steps.pause.outputs.has_git_connected_build }}
+      site_id: ${{ steps.pause.outputs.site_id }}
+      was_stopped: ${{ steps.pause.outputs.was_stopped }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -65,6 +91,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Disable the docs site's Git-connected Netlify builds
+        id: pause
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
         run: |
@@ -129,6 +156,12 @@ jobs:
               await fetch(siteUrl, { headers, signal: AbortSignal.timeout(30_000) }),
               'Netlify docs site lookup',
             );
+            const wasStopped =
+              (current.build_settings?.stop_builds ?? current.repo?.stop_builds) === true;
+            fs.appendFileSync(
+              process.env.GITHUB_OUTPUT,
+              `site_id=${siteId}\nwas_stopped=${wasStopped}\n`,
+            );
             const hasGitConnectedBuild = Boolean(
               current.build_settings?.repo_url ||
                 current.build_settings?.repo_path ||
@@ -139,13 +172,16 @@ jobs:
                 current.repo?.provider ||
                 current.repo?.repo,
             );
+            fs.appendFileSync(
+              process.env.GITHUB_OUTPUT,
+              `has_git_connected_build=${hasGitConnectedBuild}\n`,
+            );
+            let changedStopBuilds = false;
             if (!hasGitConnectedBuild) {
+              fs.appendFileSync(process.env.GITHUB_OUTPUT, 'cutover_acquired=false\n');
               console.log('Netlify docs site has no Git-connected build; no auto-build race exists.');
               return;
             }
-            const wasStopped =
-              (current.build_settings?.stop_builds ?? current.repo?.stop_builds) === true;
-            let changedStopBuilds = false;
             if (!wasStopped) {
               await readJson(
                 await fetch(siteUrl, {
@@ -158,6 +194,7 @@ jobs:
               );
               changedStopBuilds = true;
             }
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'cutover_acquired=true\n');
 
             let verificationError;
             try {
@@ -190,6 +227,82 @@ jobs:
                 { cause: verificationError },
               );
             }
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
+
+  restore-netlify-builds:
+    name: Restore docs site's Git-connected Netlify builds
+    needs: [pause-netlify-builds, migrate, deploy]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: agent-native-production-site-fw
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 1
+          sparse-checkout: scripts/netlify-api-request.ts
+          sparse-checkout-cone-mode: false
+
+      - name: Restore the prior docs build setting
+        if: >-
+          needs.pause-netlify-builds.outputs.cutover_acquired == 'true' &&
+          needs.pause-netlify-builds.outputs.has_git_connected_build == 'true' &&
+          needs.pause-netlify-builds.outputs.was_stopped != 'true'
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ needs.pause-netlify-builds.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          node --experimental-strip-types <<'NODE'
+          (async () => {
+            const { requestNetlifyApi } = await import('./scripts/netlify-api-request.ts');
+            const siteId = process.env.NETLIFY_SITE_ID;
+            if (!siteId) throw new Error('Netlify docs site id was not recorded by the pause step.');
+            const api = 'https://api.netlify.com/api/v1';
+            const headers = {
+              Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+              'Content-Type': 'application/json',
+              'User-Agent': 'agent-native-docs-build-resume',
+            };
+            const request = (url, options = {}) => requestNetlifyApi(url, {
+              ...options,
+              headers: { ...headers, ...(options.headers || {}) },
+            });
+            async function readJson(response, label) {
+              const text = await response.text();
+              const body = text ? JSON.parse(text) : null;
+              if (!response.ok) {
+                throw new Error(`${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+              }
+              return body;
+            }
+            await readJson(
+              await request(`${api}/sites/${siteId}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ build_settings: { stop_builds: false } }),
+              }),
+              'Netlify docs build resume',
+            );
+            for (let attempt = 1; attempt <= 15; attempt += 1) {
+              const site = await readJson(
+                await request(`${api}/sites/${siteId}`),
+                `Netlify docs build resume verification attempt ${attempt}`,
+              );
+              const stopped = site.build_settings?.stop_builds ?? site.repo?.stop_builds;
+              if (stopped === false) {
+                console.log('Restored the docs site Git-connected build setting.');
+                return;
+              }
+              if (attempt < 15) await new Promise((resolve) => setTimeout(resolve, 2_000));
+            }
+            throw new Error('Netlify docs build resume was not verified.');
           })().catch((error) => {
             console.error(error instanceof Error ? error.message : error);
             process.exitCode = 1;

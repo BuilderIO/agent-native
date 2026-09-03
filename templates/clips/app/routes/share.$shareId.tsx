@@ -132,6 +132,7 @@ type SharePageMetaRecording = {
   hasPassword: boolean;
   archivedAt: string | null;
   trashedAt: string | null;
+  isLoomEmbedBacked: boolean;
 };
 
 type SharePageLoaderData = {
@@ -222,6 +223,8 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       expiresAt: schema.recordings.expiresAt,
       archivedAt: schema.recordings.archivedAt,
       trashedAt: schema.recordings.trashedAt,
+      sourceAppName: schema.recordings.sourceAppName,
+      videoUrl: schema.recordings.videoUrl,
     })
     .from(schema.recordings)
     .where(eq(schema.recordings.id, id))
@@ -277,6 +280,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     hasPassword: Boolean(rec.password),
     archivedAt: rec.archivedAt,
     trashedAt: rec.trashedAt,
+    isLoomEmbedBacked: isLoomEmbedBackedRecording(rec),
   };
   const canExposeAnonymousAgentContext =
     rec.visibility === "public" &&
@@ -358,7 +362,10 @@ function AgentDiscovery({
         className="sr-only"
         data-agent-context-url={agentContextUrl}
       >
-        {t("sharePage.agentReadableContext")}
+        {/* The href alone is invisible to agents: the common way to read a page
+            is rendered-text or accessibility-tree extraction, which keeps this
+            text and drops every attribute. Keep the URL in the text itself. */}
+        {`${t("sharePage.agentReadableContext")}: ${agentContextUrl} ${t("sharePage.agentInstructions")}`}
       </a>
       <script
         type="application/agent-native+json"

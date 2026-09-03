@@ -446,15 +446,15 @@ const jaJP = {
     },
     actions: {
       title: "1 つの Action があらゆる面を動かす",
-      bodyLine1: "Action は Agent-Native アプリを構成する基本単位です。",
+      bodyLine1: "Action はエージェントができることを定義します。",
       bodyLine2:
-        "機能を一度定義すれば、UI、agent チャット、HTTP API、MCP、A2A、CLI から利用できます。",
+        "各機能を一度定義すれば、エージェント、UI、HTTP API、MCP、A2A、CLI から利用できます。",
       diagramAlt:
         "1 つの Action が UI、MCP、Agent チャット、A2A、HTTP API、CLI を動かす",
     },
     builtIn: {
-      title: "すべての Agent-Native アプリに組み込み済み",
-      body: "ユーザーと AI エージェントが共に働くために必要なものが、すでに 1 つのアプリケーションに組み込まれています。",
+      title: "エージェントに必要なものすべて",
+      body: "UI、コンテキスト、データ、権限、インフラが、あらかじめ連携されています。",
       pillars: {
         reactUi: {
           title: "React UI",
@@ -462,7 +462,7 @@ const jaJP = {
         },
         agentChat: {
           title: "組み込みの agent チャット",
-          body: "アプリを離れずに、作業を任せたり質問したり結果を確認したりできます。",
+          body: "同じ UI で、作業を任せたり質問したり結果を確認したりできます。",
         },
         sharedState: {
           title: "共有アプリケーション状態",
@@ -478,11 +478,11 @@ const jaJP = {
         },
         automations: {
           title: "自動化",
-          body: "スケジュールやアプリケーションイベントに応じて agent の作業を自動実行します。",
+          body: "スケジュールやイベントに応じて agent の作業を自動実行します。",
         },
         agentTeams: {
           title: "Agent チーム",
-          body: "アプリ内、またはアプリをまたいで専門の agent に作業を任せられます。",
+          body: "同じワークスペース内、または接続された agent 間で専門の agent に作業を任せられます。",
         },
         auth: {
           title: "認証と組織",
@@ -496,19 +496,19 @@ const jaJP = {
     },
     stack: {
       title: "お使いのスタックで動作",
-      body: "LLM、データベース、ツール、インフラを持ち込めます。Agent-Native はオープンソースの TypeScript なので、アプリケーションはあなたのものであり続けます。",
+      body: "LLM、データベース、ツール、インフラを持ち込めます。Agent-Native はオープンソースの TypeScript なので、構築したものはすべてあなたのものです。",
       exploreApps: "Agent-Native で作られたアプリを見る",
     },
     showcase: {
       title: "Agent-Native で何を作れるか",
-      body: "あなたの仕事を理解し、行動し、共に取り組むエージェント型アプリ。独自に構築することも、これらのオープンソースアプリを試すこともできます。",
+      body: "会議、デザイン、プレゼンテーション、データなどの仕事に対応する UI 付きエージェントを構築できます。これらのオープンソースアプリから始めることも、独自に構築することもできます。",
       browseApps: "アプリを見る",
       scrollLeft: "アプリを左へスクロール",
       scrollRight: "アプリを右へスクロール",
     },
     bottomCta: {
-      title: "最初の Agent-Native アプリを作る",
-      body: "ユーザーと AI エージェントのために 1 つのアプリケーションを作成します。好きな LLM を持ち込んで、どこにでもデプロイできます。",
+      title: "最初の UI 付きエージェントを作る",
+      body: "エージェントと UI は同じ機能を共有します。好きな LLM を持ち込み、どこにでもデプロイできます。",
     },
     footer: {
       tagline: "agentic アプリケーションのための framework。",
@@ -520,7 +520,8 @@ const jaJP = {
       download: "ダウンロード",
       apps: "アプリ",
       privacyPolicy: "プライバシーポリシー",
-      saasTerms: "SaaS 利用規約",
+      saasTerms: "ホスト型サービス利用規約",
+      legalResources: "法務リソース",
     },
   },
   gettingStarted: {
@@ -885,8 +886,11 @@ const jaJP = {
       s004: "口述する",
       s005: "見える + 聞こえる",
       s006: "すべてのテンプレート",
-      s007: "Loom のオープンソース代替品",
-      s008: "Clips リンクをエージェントに貼り付けると、そのモデルが生のビデオや音声を取り込むことができない場合でも、トランスクリプトを聞いたり、概要を読んだり、タイムスタンプ付きのフレームを表示したりできます。",
+      s007Primary: "AI が見て聞ける",
+      s007Secondary: "画面録画。",
+      s008: "ブラウザーのデバッグ ログを取得し、文字起こしを作成し、組み込みのディクテーションを使用できます。100% 無料、オープンソース、カスタマイズ可能。",
+      s063: "パーソナライズされた提案を受け取る",
+      s064: "このプロンプトを Claude、ChatGPT、または Cursor に貼り付けて、Clips がワークフローにどのような効果をもたらすかを確認してください。",
       s009: "試してみる",
       s010: "できること",
       s011: "サブスクリプション スタックを必要とせずに、1 つのアプリ、1 つのライブラリで記録、文字起こし、デバッグを行います。",
@@ -1747,6 +1751,35 @@ const jaJP = {
   },
   legal: {
     lastUpdated: "最終更新日: {{date}}",
+    resources: {
+      eyebrow: "法務リソース",
+      title: "Agent-Native の法務リソース",
+      intro:
+        "Agent-Native のホスト型アプリケーションとサービスに適用される独立した法務ポリシーです。",
+      agentNative: {
+        title: "Agent-Native のポリシー",
+        body: "これらのページは、共通のポリシーを Agent-Native のオープンソースプロジェクトとホスト型サンプル向けに調整したものです。",
+        terms: "Agent-Native 利用規約",
+        privacy: "Agent-Native プライバシーポリシー",
+      },
+      builder: {
+        title: "ホスト型サービスの追加ポリシー",
+        body: "利用規約、AI 機能、プラットフォームルール、停止と削除、著作権、法執行機関からの要請に関するローカルコピーです。英語版が優先されます。",
+      },
+      links: {
+        terms: "SaaS サービス契約",
+        privacy: "プライバシーポリシー",
+        acceptableUse: "許容利用ポリシー",
+        aiTerms: "AI 利用規約",
+        platformRules: "プラットフォームルール",
+        takedown: "停止・削除・データ処理ポリシー",
+        lawEnforcement: "法執行機関からの要請ポリシー",
+      },
+      notIncluded: {
+        title: "含まれない商用条件",
+        body: "Agent-Native には有料プランもエンタープライズ契約もありません。エンタープライズ SLA、サポート条件、DPA、セキュリティ補遺、プロフェッショナルサービス条件、料金などの商用資料は含まれません。",
+      },
+    },
     privacy: {
       eyebrow: "プライバシーポリシー",
       title: "Agent-Native ホスト型アプリケーション",
@@ -1769,6 +1802,7 @@ const jaJP = {
       sections: {
         scope: "範囲",
         information: "当社が収集する情報",
+        cookies: "Cookie と分析",
         clipsExtension: "Agent-Native Clips Chrome 拡張機能",
         use: "情報の使用方法",
         sharing: "共有とサードパーティ",
@@ -1784,6 +1818,8 @@ const jaJP = {
           "このポリシーは、Builder.io の広範なポリシーを補足することを目的としています。",
         scope2Suffix:
           "Agent-Native ホストされたアプリケーションの動作について。",
+        cookies:
+          "Agent-Native のドキュメントサイトとホスト型アプリケーションでは、認証とセキュリティ、言語やテーマなどの設定の保存、構成された分析技術のために必要な Cookie を使用する場合があります。ドキュメントサイトでは、デプロイで設定されている場合に Google Analytics または Google Tag Manager を読み込むことがあり、ホスト型サービスでは信頼性や機能の利用状況を測定するためにファーストパーティ分析を使用する場合があります。ホスト型アプリケーションのコンテンツを第三者広告には使用しません。Cookie はブラウザ設定で管理できますが、必要な Cookie を無効にするとサインインなどの機能が使えなくなる場合があります。",
         clips1:
           "Agent-Native Clips Chrome extension は、ブラウザベースの録画を開始し、有効になっている場合はブラウザ診断をクリップに添付するのに役立ちます。 It may collect the selected capture source, camera and microphone media you choose to include, the active tab title and URL, and authentication state needed to connect the extension to hosted Clips.",
         clips2:
@@ -1929,6 +1965,8 @@ const jaJP = {
         scope2Middle: "そしてAgent-Native",
         scope2Suffix:
           "企業または組織を代表してホストされた Agent-Native アプリを使用する場合、その組織に対してこれらの規約に同意する権限があることを表明することになります。",
+        scope3:
+          "Agent-Native には有料プランや有料のホスティングサブスクリプションはありません。注文書、料金、エンタープライズサポート、サービスレベル、データ処理に関する追加条項などの Builder.io の商用条件は、別途書面で合意されない限り、この提供内容には含まれません。",
         hostedService:
           "Builder.io は、ホストされた Agent-Native アプリケーション、テンプレート、デモ、共有ワークスペース、ブラウザ拡張機能、および関連するエージェント ワークフローを提供する場合があります。 The hosted service may be updated, limited, suspended, or discontinued as the product evolves.",
         accounts1:
@@ -2049,6 +2087,12 @@ const jaJP = {
     actionsAgentTools: "本番環境でのエージェントアクセス",
     publicAgentWeb: "公開 Agent Web",
     database: "データベース",
+    databaseProviders: "データベースプロバイダー",
+    databaseNeon: "Neon Postgres",
+    databaseSupabase: "Supabase Postgres",
+    databaseTurso: "libSQL / Turso",
+    databaseD1: "Cloudflare D1",
+    databasePostgres: "Plain Postgres",
     internationalization: "国際化",
     localFileMode: "ローカルファイルモード",
     fileUploads: "ファイルアップロード",

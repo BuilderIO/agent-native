@@ -73,20 +73,6 @@ function hasGoogleOAuth(): boolean {
   return hasGoogleSignInCredentials();
 }
 
-function getConnectionLabel(): string {
-  const url = process.env.DATABASE_URL || "";
-  if (!url) return "SQLite (local file)";
-  if (url.startsWith("pglite:")) return "PGlite (local Postgres)";
-  if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
-    if (url.includes("neon.tech")) return "Neon Postgres";
-    if (url.includes("supabase")) return "Supabase Postgres";
-    return "Postgres";
-  }
-  if (url.startsWith("file:")) return "SQLite (local file)";
-  if (url.startsWith("libsql://") || url.includes("turso.io")) return "Turso";
-  return "SQL database";
-}
-
 function isWorkspaceRuntime(): boolean {
   const workspace = getAppConfig().workspace;
   return (
@@ -197,8 +183,6 @@ const EN_AUTH_COPY = {
   resendEmail: "Resend email",
   sendResetLink: "Send reset link",
   backToSignIn: "Back to sign in",
-  localNotePrefix: "Your account is stored in this app's own DB",
-  localNoteSuffix: ", not a third-party service.",
   localDevButton: "Continue as local dev",
   localDevDescription: "Only works in local development on this computer.",
   localDevHelp: "Learn about local development sign-in",
@@ -285,8 +269,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "重新发送邮件",
     sendResetLink: "发送重置链接",
     backToSignIn: "返回登录",
-    localNotePrefix: "你的账户存储在此应用自己的数据库中",
-    localNoteSuffix: "，而不是第三方服务。",
     localDevButton: "以本地开发身份继续",
     localDevDescription: "仅在此计算机的本地开发环境中有效。",
     localDevHelp: "了解本地开发登录",
@@ -361,8 +343,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "重新寄送郵件",
     sendResetLink: "寄送重設連結",
     backToSignIn: "返回登入",
-    localNotePrefix: "你的帳號儲存在此應用程式自己的資料庫中",
-    localNoteSuffix: "，而不是第三方服務。",
     localDevButton: "以本機開發身分繼續",
     localDevDescription: "僅在這台電腦的本機開發環境中有效。",
     localDevHelp: "了解本機開發登入",
@@ -439,9 +419,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "Reenviar email",
     sendResetLink: "Enviar enlace de restablecimiento",
     backToSignIn: "Volver a iniciar sesión",
-    localNotePrefix:
-      "Tu cuenta se almacena en la propia base de datos de esta app",
-    localNoteSuffix: ", no en un servicio de terceros.",
     localDevButton: "Continuar como desarrollador local",
     localDevDescription: "Solo funciona en el desarrollo local de este equipo.",
     localDevHelp: "Más información sobre el inicio de sesión local",
@@ -525,9 +502,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "Renvoyer l'e-mail",
     sendResetLink: "Envoyer le lien de réinitialisation",
     backToSignIn: "Retour à la connexion",
-    localNotePrefix:
-      "Votre compte est stocké dans la base de données propre à cette app",
-    localNoteSuffix: ", pas dans un service tiers.",
     localDevButton: "Continuer comme développeur local",
     localDevDescription:
       "Fonctionne uniquement en développement local sur cet ordinateur.",
@@ -612,9 +586,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "E-Mail erneut senden",
     sendResetLink: "Reset-Link senden",
     backToSignIn: "Zurück zur Anmeldung",
-    localNotePrefix:
-      "Dein Konto wird in der eigenen Datenbank dieser App gespeichert",
-    localNoteSuffix: ", nicht bei einem Drittanbieter.",
     localDevButton: "Als lokale Entwicklung fortfahren",
     localDevDescription:
       "Funktioniert nur in der lokalen Entwicklung auf diesem Computer.",
@@ -699,8 +670,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "メールを再送信",
     sendResetLink: "リセットリンクを送信",
     backToSignIn: "サインインに戻る",
-    localNotePrefix: "アカウントはこのアプリ自身の DB に保存されます",
-    localNoteSuffix: "。サードパーティサービスには保存されません。",
     localDevButton: "ローカル開発として続行",
     localDevDescription: "このコンピューターのローカル開発でのみ利用できます。",
     localDevHelp: "ローカル開発サインインについて詳しく見る",
@@ -783,8 +752,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "이메일 다시 보내기",
     sendResetLink: "재설정 링크 보내기",
     backToSignIn: "로그인으로 돌아가기",
-    localNotePrefix: "계정은 이 앱의 자체 DB에 저장됩니다",
-    localNoteSuffix: ", 타사 서비스가 아닙니다.",
     localDevButton: "로컬 개발자로 계속",
     localDevDescription: "이 컴퓨터의 로컬 개발 환경에서만 작동합니다.",
     localDevHelp: "로컬 개발 로그인 자세히 보기",
@@ -863,9 +830,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "Reenviar email",
     sendResetLink: "Enviar link de redefinição",
     backToSignIn: "Voltar para entrar",
-    localNotePrefix:
-      "Sua conta fica armazenada no banco de dados próprio deste app",
-    localNoteSuffix: ", não em um serviço de terceiros.",
     localDevButton: "Continuar como desenvolvedor local",
     localDevDescription:
       "Funciona apenas no desenvolvimento local deste computador.",
@@ -948,8 +912,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "ईमेल फिर भेजें",
     sendResetLink: "रीसेट लिंक भेजें",
     backToSignIn: "साइन इन पर वापस जाएं",
-    localNotePrefix: "आपका खाता इस ऐप के अपने DB में संग्रहीत है",
-    localNoteSuffix: ", किसी third-party सेवा में नहीं।",
     localDevButton: "स्थानीय डेवलपर के रूप में जारी रखें",
     localDevDescription: "यह केवल इस कंप्यूटर के स्थानीय विकास में काम करता है।",
     localDevHelp: "स्थानीय विकास साइन-इन के बारे में जानें",
@@ -1028,8 +990,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     resendEmail: "إعادة إرسال البريد",
     sendResetLink: "إرسال رابط إعادة التعيين",
     backToSignIn: "العودة إلى تسجيل الدخول",
-    localNotePrefix: "يتم تخزين حسابك في قاعدة بيانات هذا التطبيق",
-    localNoteSuffix: "، وليس في خدمة خارجية.",
     localDevButton: "المتابعة كمطور محلي",
     localDevDescription: "يعمل فقط أثناء التطوير المحلي على هذا الكمبيوتر.",
     localDevHelp: "تعرف على تسجيل دخول التطوير المحلي",
@@ -1312,7 +1272,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
 
   const marketingStyles = hasMarketing
     ? `
-  body.has-marketing { padding: 0; position: relative; overflow-x: hidden; }
+  body.has-marketing { padding: 0; position: relative; overflow-x: hidden; color-scheme: dark; }
   #starfield {
     position: fixed;
     inset: 0;
@@ -1353,12 +1313,14 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     width: 100%;
     max-width: 100%;
     max-height: calc(100vh - 3rem);
+    aspect-ratio: 914 / 818;
+    border-radius: 0.75rem;
+    overflow: hidden;
   }
   .auth-marketing-screenshot {
     display: block;
-    width: auto;
-    max-width: 100%;
-    height: auto;
+    width: 100%;
+    height: 100%;
     max-height: calc(100vh - 3rem);
     object-fit: contain;
   }
@@ -1461,7 +1423,8 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     padding: 2rem;
   }
   .form-panel .card { max-width: 400px; }
-  .form-panel .local-note { max-width: 400px; }
+  /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
+  .auth-marketing-home .card { box-shadow: 0 18px 50px rgba(0,0,0,0.62); }
   @media (max-width: 900px) {
     .auth-marketing-shell-with-top-right {
       display: flex;
@@ -1486,6 +1449,103 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     .app-desc { margin-bottom: 1rem; }
     .feature-list { gap: 0.5rem; }
     .form-panel { flex: none; padding: 1.5rem 1rem; }
+  }
+  @media (prefers-color-scheme: light) {
+    body.has-marketing {
+      background: color-mix(in srgb, CanvasText 4%, Canvas);
+      color: CanvasText;
+      color-scheme: light;
+    }
+    .auth-marketing-home {
+      background: color-mix(in srgb, CanvasText 4%, Canvas);
+      color: CanvasText;
+    }
+    .auth-marketing-home .auth-marketing-learn-more,
+    .auth-marketing-home .auth-marketing-learn-more:hover,
+    body.has-marketing .locale-trigger {
+      color: CanvasText;
+    }
+    .auth-marketing-home .auth-marketing-learn-more-link {
+      color: LinkText;
+    }
+    .auth-marketing-home .card {
+      background: Canvas;
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+      color: CanvasText;
+      box-shadow: 0 18px 50px color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    .auth-marketing-home .card h1 { color: CanvasText; }
+    .auth-marketing-home .card .subtitle,
+    .auth-marketing-home .card label { color: GrayText; }
+    .auth-marketing-home .card input {
+      color: CanvasText;
+      border-color: color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    .auth-marketing-home .card input::placeholder { color: GrayText; }
+    .auth-marketing-home .card .tabs {
+      background: color-mix(in srgb, CanvasText 7%, transparent);
+    }
+    .auth-marketing-home .card .tab { color: GrayText; }
+    .auth-marketing-home .card .tab.active {
+      background: color-mix(in srgb, CanvasText 12%, transparent);
+      color: CanvasText;
+      box-shadow: 0 1px 2px color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    .auth-marketing-home .card button[type="submit"],
+    .auth-marketing-home .card .btn-primary {
+      background: CanvasText;
+      color: Canvas;
+    }
+    .auth-marketing-home .card button[type="submit"]:hover,
+    .auth-marketing-home .card .btn-primary:hover {
+      background: color-mix(in srgb, CanvasText 82%, Canvas);
+    }
+    .auth-marketing-home .card .btn-google {
+      background: Canvas;
+      color: CanvasText;
+      border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+    }
+    .auth-marketing-home .card .btn-google:hover {
+      background: color-mix(in srgb, CanvasText 6%, Canvas);
+    }
+    .auth-marketing-home .card .btn-secondary {
+      color: GrayText;
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+    }
+    .auth-marketing-home .card .btn-secondary:hover,
+    .auth-marketing-home .card .link-button:hover {
+      color: CanvasText;
+      border-color: color-mix(in srgb, CanvasText 24%, transparent);
+    }
+    .auth-marketing-home .card .divider { color: GrayText; }
+    .auth-marketing-home .card .divider::before,
+    .auth-marketing-home .card .divider::after {
+      background: color-mix(in srgb, CanvasText 12%, transparent);
+    }
+    .auth-marketing-home .card .legal-note,
+    .auth-marketing-home .card .legal-note a,
+    .auth-marketing-home .card .local-dev-full-options {
+      color: GrayText;
+    }
+    .auth-marketing-home .card .signup-local-mode-note {
+      color: GrayText;
+      background: color-mix(in srgb, CanvasText 4%, transparent);
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+    }
+    .auth-marketing-home .card .signup-local-mode-note code { color: CanvasText; }
+    body.has-marketing .locale-menu {
+      background: Canvas;
+      color: CanvasText;
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+      box-shadow: 0 18px 50px color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    body.has-marketing .locale-menu-item { color: GrayText; }
+    body.has-marketing .locale-menu-item:hover,
+    body.has-marketing .locale-menu-item:focus,
+    body.has-marketing .locale-menu-item[aria-checked="true"] {
+      background: color-mix(in srgb, CanvasText 7%, transparent);
+      color: CanvasText;
+    }
   }
 `
     : "";
@@ -1545,7 +1605,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     showGoogle,
     signupLegalNotice,
     signupLocalModeNote,
-    connectionLabel: getConnectionLabel(),
     docsAuthUrl: docsUrl("authentication", {
       hash: "local-development-sign-in",
     }),
@@ -2152,28 +2211,10 @@ ${identitySsoMagicLinkSelector}
     word-break: break-word;
   }
   .google-debug.show { display: block; }
-  .local-note {
-    display: none;
-    max-width: 400px;
-    width: 100%;
-    margin-top: 1rem;
-    padding: 0.625rem 0.875rem;
-    font-size: 0.6875rem;
-    line-height: 1.5;
-    color: #666;
-    border: 1px dashed rgba(255,255,255,0.08);
-    border-radius: 8px;
-    text-align: center;
-  }
-  .local-note.show { display: block; }
-  .local-note strong { color: #999; font-weight: 500; }
-  .local-note a { color: #888; text-decoration: none; }
-  .local-note a:hover { color: #bbb; }
 ${marketingStyles}
   /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
   body.simplified-auth { background: #141414; }
   body.simplified-auth .card { border-color: transparent; box-shadow: none; }
-  body.simplified-auth .local-note { display: none !important; }
 ${embeddedAuthCss}
 `;
   const authPageLayoutStyles = `
@@ -2209,8 +2250,8 @@ ${embeddedAuthCss}
   .auth-marketing-home .split { width: 100%; max-width: none; margin: 0; }
   .auth-marketing-home .marketing-panel { min-width: 0; }
   .auth-marketing-home.has-product-screenshot .marketing-panel {
-    flex: 0 1 auto;
-    max-width: calc(100% - 28rem);
+    flex: 1 1 0;
+    max-width: none;
     padding: 0;
     justify-content: center;
   }
@@ -2219,12 +2260,42 @@ ${embeddedAuthCss}
     max-height: calc(100vh - 5rem);
   }
   .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot-wrap {
-    width: fit-content;
+    width: 100%;
+    max-width: 927px;
+    margin-inline: 0;
+  }
+  .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot {
+    filter: blur(0.3px);
+    opacity: 0.8;
+  }
+  .auth-marketing-home.has-product-screenshot .form-panel .card {
+    position: relative;
+    z-index: 1;
   }
   .auth-marketing-home.has-product-screenshot .form-panel {
-    flex: 1 1 0;
+    flex: 0 0 28rem;
     min-width: 28rem;
     max-width: none;
+  }
+  @media (min-width: 901px) and (max-width: 1500px) {
+    .auth-marketing-home.has-product-screenshot .form-panel .card {
+      left: -140px;
+    }
+  }
+  @media (min-width: 1501px) {
+    .auth-marketing-home.has-product-screenshot .split {
+      display: grid;
+      grid-template-columns: minmax(0, 927px) minmax(0, 1fr);
+      gap: 0;
+    }
+    .auth-marketing-home.has-product-screenshot .marketing-panel {
+      flex: none;
+      width: 927px;
+    }
+    .auth-marketing-home.has-product-screenshot .form-panel {
+      flex: none;
+      width: 100%;
+    }
   }
   .auth-marketing-home .form-panel { min-width: 0; }
   .auth-marketing-home [data-agent-native-starfield] { position: fixed; inset: 0; width: 100%; height: 100%; }
@@ -2253,6 +2324,9 @@ ${embeddedAuthCss}
     .auth-marketing-home.has-product-screenshot .form-panel {
       min-width: 0;
       padding: 3.75rem 0.8125rem 1.5rem;
+    }
+    .auth-marketing-home.has-product-screenshot .form-panel .card {
+      left: auto;
     }
   }
 `;

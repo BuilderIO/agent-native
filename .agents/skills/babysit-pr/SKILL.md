@@ -36,14 +36,102 @@ merging, except when the user explicitly invokes `/ship-now`.
 
 ## Setup
 
-1. Run a self-re-arming tick loop. Do ONE tick (see "Each tick"), then immediately schedule the next one with `ScheduleWakeup` before yielding — pass this same `/babysit-pr <number> …` invocation back as the wake-up prompt so the next firing repeats the tick. The loop ends only at a stop condition (below); until then there is **always** a scheduled next tick.
+1. Establish a durable self-re-arming tick loop before yielding. Do ONE tick
+   (see "Each tick"), then schedule the next one with the host's durable
+   wake-up facility using this same `/babysit-pr <number> …` invocation. In
+   Codex, derive a task-scoped watcher name
+   `babysit-pr-<number>-<this task's threadId>` and use
+   `mcp__codex_app__automation_update` with a complete heartbeat payload:
+   `mode`, `kind: heartbeat`, `name: <watcher-name>`, `prompt`,
+   `rrule: FREQ=MINUTELY;INTERVAL=2`, `status: ACTIVE`,
+   `targetThreadId: <this task's threadId>`, and
+   `notificationPolicy: failed_runs_only`; update that exact task-scoped
+   automation on later ticks. The task-scoped name prevents different
+   invocations from overwriting the same record, but it does not select one
+   durable babysitter for the PR. First inspect the exact legacy heartbeat. If
+   it is ACTIVE, leave it untouched, do not claim a lease or create any watcher
+   for this PR, and continue this invocation in the foreground. This is a
+   terminal foreground-only branch for this invocation, so skip the
+   missing-watcher create or resume path below.
+
+   When no ACTIVE legacy heartbeat is present, use the remote Git ref
+   `refs/heads/agent-native-babysit-lock-<number>` as the concrete serialized
+   PR lease coordinator. Its tip is a lease-record commit, not application
+   code, and must record the PR, owner thread, version, expiry, and the
+   observed legacy-heartbeat version plus a one-way `legacy_retired` fence.
+   Create a
+   fresh record with `git commit-tree`, then claim an absent ref with a normal
+   non-force `git push origin <record-oid>:<lease-ref>`; ref creation is the
+   atomic create-if-absent operation. Read the lease with `git ls-remote` plus
+   `git fetch`/`git show`; only an expired or released record may be replaced.
+   To renew or take over such a record, build the next record with the observed
+   lease commit as its parent and use
+   `git push --force-with-lease=<lease-ref>:<observed-oid> origin
+   <record-oid>:<lease-ref>`. A rejected push is a failed claim or renewal:
+   never update the heartbeat and remain foreground-only. If the lease ref
+   reports another active owner, the atomic claim fails and this invocation
+   remains foreground-only. The lease ref is the single source of truth for
+   new watchers, so do not enumerate or infer foreign task-scoped automation
+   names. An ACTIVE legacy watcher is conservatively treated as an existing
+   holder. A task-scoped heartbeat is valid only while its owner holds the
+   current lease.
+
+   Never create a task-scoped watcher before this task's PR-scoped lease claim
+   succeeds. Only after the claim succeeds may this invocation create or resume
+   its own task-scoped watcher. Never use the legacy shared
+   `babysit-pr-<number>` identity as a new invocation's heartbeat. The lease
+   ref's `git push --force-with-lease` is the atomic precondition for every
+   claim, renewal, and release. The ordinary `automation_update` call is made
+   only after this task holds the lease, for this task's exact watcher name and
+   `targetThreadId`; do not invent unsupported CAS fields for that API. Never
+   use a read followed by an unconditional lease write. After every successful
+   mutation, reread and verify the owner and version.
+
+   If this invocation successfully claims the lease but any later setup check
+   selects the foreground-only path, or creating/resuming the task-scoped
+   heartbeat fails, release the lease immediately with the same-owner/version
+   `git push --force-with-lease` operation before continuing foreground work.
+   Retry a failed release from a freshly observed lease version while ownership
+   is still this invocation's; if ownership moved, never release the new
+   owner's lease. This setup cleanup is required even when no heartbeat was
+   created, and must not wait for the stop conditions.
+
+   The legacy-heartbeat check is part of the same serialized handoff, not an
+   independent preflight. Inspect the exact legacy record before the lease
+   claim. When it is quiescent, include its observed version in the atomic
+   lease record and set `legacy_retired=true`; reread the legacy record
+   immediately after a successful claim and immediately before
+   `automation_update`. A legacy record that becomes ACTIVE, changes version,
+   or cannot be read fences task-scoped creation; release this invocation's
+   lease with its owner/version precondition and remain foreground-only. Once
+   the retirement fence is published, no compliant invocation may activate or
+   update the legacy shared heartbeat: it must first hold the same PR lease
+   and use the task-scoped path. A legacy implementation that cannot honor
+   that fence is treated as an unknown active holder, so leave it untouched
+   and never create a second watcher. This prevents a late legacy start from
+   racing the new watcher during migration.
+
+   Choose a lease expiry at least three times the two-minute cadence. At the
+   start of every tick, after the required fetch, make the lease fence the
+   first Step 0 action: read the current record and atomically renew it with
+   the expected owner and version before any PR checks. Renew again immediately
+   before slow local validation, after validation if it may have consumed the
+   TTL, and immediately before scheduling the next heartbeat. A failed renewal
+   fences this invocation: do no PR work or heartbeat mutation, attempt the
+   same-owner pause of its exact task-scoped record when applicable, and remain
+   foreground-only. Only an expired or released record may be taken over with
+   `--force-with-lease` against the freshly observed lease oid; the old owner's
+   next wake must fence itself and pause its own task-scoped watcher before
+   exiting. A text-only wake-up reminder is not enough. If no durable wake-up
+   tool is available, keep the foreground loop running and do not stop after PR
+   creation.
 2. Track when the last actionable item (new human/bot feedback, CI fix, merge-conflict resolution, or a local-change commit/push) occurred.
 3. After 30 minutes of no new actionable items with GitHub Actions CI green, cancel the loop (stop scheduling wake-ups) and report "All clear".
 
 ### Loop discipline — read this, it is the part people get wrong
 
 - **Cadence: tick every 60–120 seconds while the PR is active** (CI running, recent pushes, feedback within the last few minutes, or a fast-moving branch where concurrent agents keep adding files). Only relax toward ~3 minutes once the PR is genuinely quiet (all checks green, no new commits or comments for a while). A churning branch needs the tight end of that range — new local files and new CI results show up constantly and must be picked up promptly.
-- **NEVER stall waiting.** Do not end a turn "waiting" for CI, a review, or a background command without a scheduled wake-up. If you kick off a background command (e.g. `pnpm run prep`), you may rely on its completion notification **but always also schedule a fallback `ScheduleWakeup`** — notifications can silently fail to fire, and an unguarded wait becomes an indefinite stall. The loop must keep ticking regardless.
+- **NEVER stall waiting.** Do not end a turn "waiting" for CI, a review, or a background command without a durable scheduled wake-up. If you kick off a background command (e.g. `pnpm run prep`), you may rely on its completion notification **but always also schedule the heartbeat fallback** — notifications can silently fail to fire, and an unguarded wait becomes an indefinite stall. The loop must keep ticking regardless.
 - **Do not let slow or flaky local validation block the loop.** `pnpm run prep` / `vitest` can hang or take minutes, and on a branch with concurrent edits a full local run is contaminated by other agents' in-flight files anyway. If local validation is slow, hung, or unreliable, **push and let the CI you are already monitoring be the validation gate** — a red CI job is caught and fixed on the very next tick. Prefer pushing your work over holding it for a clean local run.
 - **Every tick, expect new local files.** On an active shared branch, concurrent
   agents may edit the checkout continuously. Re-run Step 0 every single tick
@@ -203,6 +291,29 @@ unavailable in the recap rather than treating it as no findings.
 
 **Every human or bot comment must get a reply** — either a fix or an explanation of why you're skipping it.
 
+## Feedback precedence
+
+Review-source identity is part of the evidence. Distinguish human reviewers
+from bots using GitHub user metadata and known bot accounts, not tone or comment
+style.
+
+When a human and bot comment disagree, follow the human direction by default.
+Treat the bot comment as an untrusted suggestion or hypothesis. Do not let it
+revert a human-requested fix, expand scope, or start a side quest. Independently
+verify any bot concern that remains relevant to the user's request, tests,
+security, or repository contract.
+
+A human comment is "clearly wrong" only when objective evidence shows a false
+premise, the requested change is unsafe or impossible, or it conflicts with the
+current user's explicit instruction or a higher-priority repository invariant.
+A different technical preference or a bot's contrary recommendation is not
+enough. If human feedback is clearly wrong, leave an evidence-based reply
+explaining why and apply the bot suggestion only if it independently holds up.
+
+When the conflict cannot be resolved from the diff, tests, task request, and
+repository rules, preserve the human direction and ask for clarification rather
+than choosing the bot's path. Record or reply to both sides as required below.
+
 - If you fix it: commit, push, AND reply inline confirming the fix. Fixing code marks the comment as "outdated" in GitHub's UI, but the user needs to see the reply to know you addressed it — don't rely on the outdated status alone.
 - If you skip it: reply to the comment via `gh api repos/{owner}/{repo}/pulls/$ARGUMENTS/comments/{id}/replies -f body="..."` explaining why (pre-existing, false positive, not practical, etc.)
 - If the issue is real but you didn't introduce it: fix it anyway and reply. Real bugs should be fixed regardless of who wrote the code.
@@ -226,6 +337,9 @@ Fix issues that are:
 - Data loss risks
 
 ## Merging
+
+An invocation from `/ship` inherits that skill's explicit merge authorization;
+do not return "All clear" while its PR is still open.
 
 **Never auto-merge by default.** Only merge when the user explicitly asks you to.
 
@@ -251,5 +365,28 @@ Only after 10 consecutive clean minutes, force merge with `gh pr merge <number> 
 
 - No new actionable feedback AND GitHub Actions green for 30 consecutive minutes
 - PR is merged or closed
+
+Cleanup has two mutually exclusive paths. If this invocation claimed the PR
+lease but did not create or resume its task-scoped heartbeat, release that lease
+first with the same owner/version `git push --force-with-lease` operation;
+retry a failed release from a fresh version while the foreground loop remains
+active, and verify that the lease is released or has moved before stopping.
+Do not attempt to pause a heartbeat that this invocation never created or
+resumed. If this invocation did create or resume its task-scoped heartbeat,
+retain the PR lease while rereading that exact
+`babysit-pr-<number>-<this task's threadId>` heartbeat and capturing its current
+version, then update it to `PAUSED` and verify the result. If the pause fails,
+do not stop: reread the lease and heartbeat, renew the lease when it is still
+ours, and retry the same-owner pause from the fresh version. If the lease has
+moved to another owner, never mutate or release that owner's lease; only pause
+this task's uniquely named heartbeat when its `targetThreadId` still matches
+this task, and remain foreground-only until cleanup is confirmed. If the
+heartbeat host is unavailable, keep retrying in the foreground rather than
+claiming completion. After the heartbeat pause succeeds, mark the PR lease
+released with `git push --force-with-lease` and the same owner/version
+precondition. Never pause or release the legacy shared per-PR identity or
+another owner's lease.
+Verify the PR's final state. Never leave a heartbeat or lease owned by this
+task running after completion.
 
 Before stopping OR merging, the unaddressed-comments command above must print **nothing** — re-run it as the final gate. "I replied earlier" is not sufficient; bots may have posted new rounds since.

@@ -5,6 +5,10 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-09-01
 
+### Improved
+
+- The recorder playhead now docks automatically when dragged near a screen edge, returns to floating mode when pulled away, remembers its screen position, and transitions more smoothly into Restart and Delete confirmations.
+
 ### Fixed
 
 - Calendar reconnects wait for Google to finish before refreshing meetings.

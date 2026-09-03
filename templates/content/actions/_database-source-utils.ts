@@ -1421,7 +1421,10 @@ type BuilderLiveBodyReadResult =
   | {
       state: "not_found";
       entry: null;
-      providerStatus: "http_404" | "http_200_unexpected_entry";
+      providerStatus:
+        | "http_404"
+        | "http_200_unexpected_entry"
+        | "mcp_not_found";
     };
 
 async function readBuilderEntryWithLiveBodyFromSourceRow(args: {

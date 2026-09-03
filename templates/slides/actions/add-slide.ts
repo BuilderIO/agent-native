@@ -98,6 +98,7 @@ function deckCreativeContext(value: unknown): DeckCreativeContext | null {
 }
 
 export default defineAction({
+  title: "Add slide to deck",
   description:
     "Add a single slide to the real editable Agent-Native Slides deck. This is the primary Slides MCP edit action: use it after create-deck instead of creating or publishing a standalone HTML artifact. " +
     "Build decks slide-by-slide — " +

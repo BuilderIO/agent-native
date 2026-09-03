@@ -51,4 +51,16 @@ describe("delete-event", () => {
       removedOnly: false,
     });
   });
+
+  it("rejects namespaced shared-calendar events before any mutation", async () => {
+    await expect(
+      action.run({
+        id: "google-google-calendar:opaque-source-shared-event",
+        scope: "single",
+      }),
+    ).rejects.toThrow("Shared Google calendar events are read-only");
+
+    expect(deleteEventMock).not.toHaveBeenCalled();
+    expect(removeEventFromCalendarMock).not.toHaveBeenCalled();
+  });
 });

@@ -263,23 +263,6 @@ function EnvironmentBadgeContent({
   );
 }
 
-function LocalEnvironmentBadge() {
-  return (
-    <div
-      aria-label="Local development environment"
-      className={cn(
-        environmentBadgePlacementClasses,
-        // No handler, but fixed and on top of whatever app chrome occupies the
-        // bottom-left — without this it hit-tests and eats those clicks.
-        "pointer-events-none inline-flex items-center justify-center border border-border/80 bg-background/95 text-foreground",
-      )}
-      role="status"
-    >
-      dev
-    </div>
-  );
-}
-
 function ProductionEnvironmentBadge({
   targets,
 }: {
@@ -358,9 +341,7 @@ export function EnvironmentBadge({
     return null;
   }
 
-  if (environment === "local") {
-    return <LocalEnvironmentBadge />;
-  }
+  if (environment === "local") return null;
 
   if (!targets) return null;
 

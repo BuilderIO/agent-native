@@ -6547,8 +6547,14 @@ it(
       ]);
       // Assert the list, not `every(...)`: a boolean says "false" without
       // naming which drop reported the wrong placement.
+      //
+      // The freeform-root drop is deliberately "after", not "inside" — body
+      // has no node-id, so persist cannot resolve `html > body` as an
+      // inside-anchor, and anchoring after the current parent lands the same
+      // freeform root while giving persist a real id. See the comment above
+      // the `container === document.body` branch in editor-chrome.bridge.ts.
       expect(structureMessages.map((message) => message.placement)).toEqual([
-        "inside",
+        "after",
         "inside",
         "inside",
         "inside",

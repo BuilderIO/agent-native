@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-01
+
+### Added
+
+- Analytics admins can join read-only data from connected app databases
+
 ## 2026-08-31
 
 ### Improved

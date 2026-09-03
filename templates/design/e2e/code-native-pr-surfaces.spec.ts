@@ -287,17 +287,25 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
             })
             .catch(() => null),
         ]);
-        return (
-          dockCount === 1 &&
-          launcherVisible &&
-          dockState?.height !== "0px" &&
-          dockState?.opacity === "1" &&
-          dockState?.position === "absolute"
-        );
+        // Return the shape, not an &&-chain: a bare `false` does not say which
+        // of these five the dock got wrong.
+        return {
+          dockCount,
+          launcherVisible,
+          heightIsZero: dockState?.height === "0px",
+          opacity: dockState?.opacity ?? null,
+          position: dockState?.position ?? null,
+        };
       },
       { timeout: 150, intervals: [20, 20, 20, 20, 20] },
     )
-    .toBe(true);
+    .toEqual({
+      dockCount: 1,
+      launcherVisible: true,
+      heightIsZero: false,
+      opacity: "1",
+      position: "absolute",
+    });
   await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
   await motionRailButton.click();
   await expect(page.locator('[aria-label="Motion dock"]')).toBeVisible();

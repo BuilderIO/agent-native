@@ -34,6 +34,7 @@ let root: Root;
 let originalLocation: Location;
 let originalParent: Window;
 let originalFetch: typeof window.fetch;
+let originalModelContext: PropertyDescriptor | undefined;
 let originalDocumentTitle: string;
 let replaceMock: ReturnType<typeof vi.fn>;
 
@@ -45,6 +46,10 @@ beforeEach(() => {
   document.title = "";
   replaceMock = vi.fn();
   originalFetch = window.fetch;
+  originalModelContext = Object.getOwnPropertyDescriptor(
+    document,
+    "modelContext",
+  );
   Object.defineProperty(window, "fetch", {
     configurable: true,
     value: vi
@@ -81,6 +86,11 @@ afterEach(() => {
     configurable: true,
     value: originalFetch,
   });
+  if (originalModelContext) {
+    Object.defineProperty(document, "modelContext", originalModelContext);
+  } else {
+    delete (document as Document & { modelContext?: unknown }).modelContext;
+  }
   document.title = originalDocumentTitle;
   vi.clearAllMocks();
 });
@@ -203,6 +213,48 @@ describe("AppProviders session gate", () => {
     ).toBeNull();
     expect(useSessionMock).not.toHaveBeenCalled();
     expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("registers WebMCP actions on token-authenticated private surfaces", async () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+    const modelContext = {
+      registerTool: vi.fn(async () => {}),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    Object.defineProperty(document, "modelContext", {
+      configurable: true,
+      value: modelContext,
+    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          {
+            name: "view-screen",
+            description: "Read the current screen",
+            inputSchema: { type: "object" },
+          },
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    Object.defineProperty(window, "fetch", {
+      configurable: true,
+      value: fetchMock,
+    });
+
+    renderProviders({ sessionBypass: true });
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/_agent-native/webmcp/manifest",
+        expect.objectContaining({ credentials: "same-origin" }),
+      );
+      expect(modelContext.registerTool).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "view-screen" }),
+        expect.anything(),
+      );
+    });
   });
 
   it("applies theme updates only when they come from the embedding parent", async () => {

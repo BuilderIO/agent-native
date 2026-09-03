@@ -113,6 +113,46 @@ async function addMember(
 }
 
 describe("Content space provisioning", () => {
+  it("reports a newly granted organization until its space is reconciled", async () => {
+    const email = "late-membership@example.com";
+    const orgId = "org-late-membership";
+    await runWithRequestContext({ userEmail: email }, () =>
+      ensureContentSpacesAction.run({}),
+    );
+    const personalOnly = await runWithRequestContext({ userEmail: email }, () =>
+      listContentSpacesAction.run({}),
+    );
+    expect(personalOnly).toMatchObject({ needsReconciliation: false });
+
+    await addOrganization(orgId, "Late Membership", email);
+    await addMember("member-late-membership", orgId, email, "owner");
+    const membershipPending = await runWithRequestContext(
+      { userEmail: email },
+      () => listContentSpacesAction.run({}),
+    );
+    expect(membershipPending).toMatchObject({ needsReconciliation: true });
+    expect(membershipPending.reconciliationKey).not.toBe(
+      personalOnly.reconciliationKey,
+    );
+
+    await runWithRequestContext({ userEmail: email }, () =>
+      ensureContentSpacesAction.run({}),
+    );
+    await expect(
+      runWithRequestContext({ userEmail: email }, () =>
+        listContentSpacesAction.run({}),
+      ),
+    ).resolves.toMatchObject({
+      needsReconciliation: false,
+      spaces: expect.arrayContaining([
+        expect.objectContaining({
+          id: organizationContentSpaceId(orgId),
+          orgId,
+        }),
+      ]),
+    });
+  });
+
   it("batches Files reconciliation for databases with 5,000 row documents", async () => {
     const provisioned = await runWithRequestContext(
       { userEmail: LARGE_DATABASE_OWNER },

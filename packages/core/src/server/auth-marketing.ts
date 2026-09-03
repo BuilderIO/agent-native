@@ -175,6 +175,7 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
     screenshotPath: "/auth-marketing/slides.webp",
     screenshotWidth: 914,
     screenshotHeight: 818,
+    learnMorePlacement: "bottom-right",
     tagline:
       "Your AI agent builds, edits, and refines presentations alongside you.",
     features: [

@@ -5,6 +5,7 @@ const getSettingMock = vi.hoisted(() => vi.fn());
 const getUserSettingMock = vi.hoisted(() => vi.fn());
 const putSettingMock = vi.hoisted(() => vi.fn());
 const putUserSettingMock = vi.hoisted(() => vi.fn());
+const mutateUserSettingMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   getRequestTimezone: getRequestTimezoneMock,
@@ -14,6 +15,7 @@ vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: getUserSettingMock,
   putSetting: putSettingMock,
   putUserSetting: putUserSettingMock,
+  mutateUserSetting: mutateUserSettingMock,
 }));
 
 import {
@@ -30,6 +32,18 @@ beforeEach(() => {
   getRequestTimezoneMock.mockReturnValue("Pacific/Auckland");
   putSettingMock.mockResolvedValue(undefined);
   putUserSettingMock.mockResolvedValue(undefined);
+  // By default simulate no concurrent write racing ahead - the updater
+  // sees the same "nothing saved yet" state readCalendarSettings already
+  // observed.
+  mutateUserSettingMock.mockImplementation(
+    async (
+      _email: string,
+      _key: string,
+      updater: (
+        current: Record<string, unknown> | null,
+      ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+    ) => updater(null),
+  );
 });
 
 describe("readCalendarSettings", () => {
@@ -52,6 +66,58 @@ describe("readCalendarSettings", () => {
     await expect(readCalendarSettings(EMAIL)).resolves.toMatchObject({
       timezone: "Pacific/Auckland",
     });
+  });
+
+  it("does not persist by default even when nothing is saved", async () => {
+    getUserSettingMock.mockResolvedValue(null);
+    await readCalendarSettings(EMAIL);
+    expect(putUserSettingMock).not.toHaveBeenCalled();
+    expect(putSettingMock).not.toHaveBeenCalled();
+  });
+
+  it("persists the detected zone once when asked and nothing is saved", async () => {
+    getUserSettingMock.mockResolvedValue(null);
+    await readCalendarSettings(EMAIL, { persistDetected: true });
+    expect(mutateUserSettingMock).toHaveBeenCalledWith(
+      EMAIL,
+      "calendar-settings",
+      expect.any(Function),
+    );
+    const updater = mutateUserSettingMock.mock.calls[0][2];
+    expect(updater(null)).toEqual(
+      expect.objectContaining({ timezone: "Pacific/Auckland" }),
+    );
+  });
+
+  it("does not overwrite a concurrent explicit save that lands before the atomic write runs", async () => {
+    getUserSettingMock.mockResolvedValue(null);
+    await readCalendarSettings(EMAIL, { persistDetected: true });
+    const updater = mutateUserSettingMock.mock.calls[0][2];
+    const concurrentlySaved = { timezone: "Europe/Warsaw" };
+    expect(updater(concurrentlySaved)).toBe(concurrentlySaved);
+  });
+
+  // A different user's first-time read must never touch the shared/global
+  // key that backs another owner's already-customized public booking page.
+  it("never writes the shared global key from a read, even when persisting", async () => {
+    getUserSettingMock.mockResolvedValue(null);
+    await readCalendarSettings(EMAIL, { persistDetected: true });
+    expect(putSettingMock).not.toHaveBeenCalled();
+  });
+
+  it("never overwrites an existing saved record even when asked to persist", async () => {
+    getUserSettingMock.mockResolvedValue({ timezone: "Europe/Warsaw" });
+    await readCalendarSettings(EMAIL, { persistDetected: true });
+    expect(mutateUserSettingMock).not.toHaveBeenCalled();
+    expect(putSettingMock).not.toHaveBeenCalled();
+  });
+
+  it("does not persist a fallback default zone when nothing was actually detected", async () => {
+    getRequestTimezoneMock.mockReturnValue(undefined);
+    getUserSettingMock.mockResolvedValue(null);
+    await readCalendarSettings(EMAIL, { persistDetected: true });
+    expect(mutateUserSettingMock).not.toHaveBeenCalled();
+    expect(putSettingMock).not.toHaveBeenCalled();
   });
 });
 
