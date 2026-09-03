@@ -8300,7 +8300,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       return null;
     }
-    return el.querySelector("path, polygon, ellipse, rect, line, polyline");
+    // Direct children only: an arrow's marker <path> sits inside <defs>
+    // ahead of the shaft, so a descendant search paints the arrowhead. Keeps
+    // this in step with code-layer's childIndexes walk.
+    return el.querySelector(
+      ":scope > path, :scope > polygon, :scope > ellipse, :scope > rect, :scope > line, :scope > polyline",
+    );
   }
 
   function isVectorPaintProperty(cssProperty: string): boolean {

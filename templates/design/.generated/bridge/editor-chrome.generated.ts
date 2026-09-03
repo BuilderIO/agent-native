@@ -5994,7 +5994,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (kind !== "path" && kind !== "line" && kind !== "arrow" && kind !== "polygon" && kind !== "star") {
         return null;
       }
-      return el.querySelector("path, polygon, ellipse, rect, line, polyline");
+      return el.querySelector(
+        ":scope > path, :scope > polygon, :scope > ellipse, :scope > rect, :scope > line, :scope > polyline"
+      );
     }
     function isVectorPaintProperty(cssProperty) {
       return cssProperty.indexOf("fill") === 0 || cssProperty.indexOf("stroke") === 0;

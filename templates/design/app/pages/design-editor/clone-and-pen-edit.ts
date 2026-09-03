@@ -9,6 +9,9 @@ import {
   DEFAULT_LINE_STROKE,
   DEFAULT_SHAPE_FILL,
 } from "@/components/design/canvas-primitive-style";
+
+/** Marks a stroke this module added so a reopened path stays visible. */
+const AUTO_OPEN_STROKE_MARKER = "data-an-auto-open-stroke";
 import type { PortableStyleSnapshot } from "@/components/design/types";
 import {
   applyDesignClipboardManagedStyles,
@@ -100,12 +103,19 @@ export function writeBackVectorEditedPenPath(
       if (path.getAttribute("fill") === "none") {
         path.setAttribute("fill", DEFAULT_SHAPE_FILL);
       }
+      // Reopening added that stroke to keep the path visible; closing again
+      // must not leave it behind as if the user had chosen it.
+      if (path.hasAttribute(AUTO_OPEN_STROKE_MARKER)) {
+        path.setAttribute("stroke", "none");
+        path.removeAttribute(AUTO_OPEN_STROKE_MARKER);
+      }
     } else {
       path.setAttribute("fill", "none");
       // An open path is only its stroke, and a path drawn closed commits
       // with stroke:none — reopening it without this paints nothing at all.
       if (path.getAttribute("stroke") === "none") {
         path.setAttribute("stroke", DEFAULT_LINE_STROKE);
+        path.setAttribute(AUTO_OPEN_STROKE_MARKER, "");
       }
     }
 
