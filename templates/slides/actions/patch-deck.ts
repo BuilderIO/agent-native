@@ -782,6 +782,7 @@ export default defineAction({
       ),
   }),
   agentInputSchema: AgentPatchDeckInputSchema,
+  http: { method: "POST" },
   run: async (
     {
       deckId,

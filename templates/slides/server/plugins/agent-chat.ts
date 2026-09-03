@@ -37,6 +37,21 @@ const INITIAL_TOOL_NAMES = [
   "provider-api-request",
 ];
 
+const EXTERNAL_CONNECTOR_TOOL_NAMES = [
+  "list-decks",
+  "get-deck",
+  "get-design-system",
+  "get-workspace-defaults",
+  "get-deck-reference-context",
+  "create-deck",
+  "delete-deck",
+  "add-slide",
+  "update-slide",
+  "patch-deck",
+  "duplicate-deck",
+  "restore-deck-version",
+];
+
 const DECK_EDIT_TOOLS = new Set([
   "add-slide",
   "patch-deck",
@@ -132,10 +147,11 @@ export default createAgentChatPlugin({
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: {
-    connectorCatalog: INITIAL_TOOL_NAMES,
+    connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES,
     instructions:
       "For deck edits, call view-screen first when the active deck or slide ID is unknown. Use get-deck to read the target, update-slide for one-slide edits, patch-deck for slide deletion, reordering, deck-wide, or multi-slide changes, and delete-deck to remove an entire deck. Read back with get-deck after writing when the deck still exists; a delegated ask_app or call-agent response is unverified until that readback confirms the persisted state.",
   },
+  externalAgents: { writes: "allowlisted" },
   durableBackgroundRuns: true,
   runSoftTimeoutMs: SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
   a2aAgentDelegation: true,

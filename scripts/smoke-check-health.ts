@@ -15,7 +15,7 @@ import { pathToFileURL } from "node:url";
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 const TIMEOUT_MS = 30_000;
-const MAX_ATTEMPTS = 3;
+const MAX_ATTEMPTS = 4;
 
 type CheckResult = { ok: true } | { ok: false; reason: string };
 
@@ -41,7 +41,13 @@ async function fetchWithTimeout(url: string): Promise<Response> {
   }
 }
 
-/** Retries only network errors and 5xx — cold starts, not app-level failures. */
+/**
+ * Retries network errors and every non-2xx until the last attempt: a deploy
+ * URL probed seconds after upload can answer 404 while Netlify is still
+ * propagating it (the analytics beta run 33784386290 failed exactly that
+ * way), and a cold function answers 5xx. The final attempt's response is
+ * returned as-is so the caller classifies the real status.
+ */
 async function fetchWithRetry(
   url: string,
 ): Promise<{ response?: Response; error?: unknown }> {
@@ -49,8 +55,7 @@ async function fetchWithRetry(
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const response = await fetchWithTimeout(url);
-      if (response.status < 500 || attempt === MAX_ATTEMPTS)
-        return { response };
+      if (response.ok || attempt === MAX_ATTEMPTS) return { response };
       lastError = new Error(`HTTP ${response.status}`);
     } catch (err) {
       lastError = err;
@@ -119,14 +124,23 @@ async function checkHealth(
   // ownership either way, not that it confirmed there was none, so they warn
   // instead of failing the deploy.
   const identity = body.database?.identity;
+  const runningApp = body.database?.runningApp;
   if (body.database?.identityMismatch === true) {
     const recordedApp =
       identity?.state === "recorded" ? identity.app : "unknown";
-    const runningApp = body.database?.appName ?? "this deploy";
+    // Health only sets this when BOTH identities are known and differ, so it
+    // is a confirmed wrong-database deployment — the 08-19..08-31 incident —
+    // and must fail the cutover. A runtime that cannot derive its own
+    // identity is reported below as a warning instead.
     return {
       ok: false,
-      reason: `database identity mismatch: recorded for app "${recordedApp}", but "${runningApp}" is running against it`,
+      reason: `database identity mismatch: recorded for app "${recordedApp}", but "${runningApp ?? "unknown"}" is running against it`,
     };
+  }
+  if (identity?.state === "recorded" && runningApp == null) {
+    console.warn(
+      `WARN (health): database identity recorded for "${identity.app}" but this runtime could not derive its own app identity (runningApp=null).`,
+    );
   }
   if (identity && identity.state !== "recorded") {
     const detail =

@@ -584,6 +584,12 @@ export interface DbHealthProbeResult {
      * matching".
      */
     identityMismatch?: boolean;
+    /**
+     * What this runtime believes its own app is (`app.slug ?? app.id`), or
+     * `null` when the bundle cannot derive one. A null here is why a
+     * mismatch cannot be claimed, and is itself a finding worth reading.
+     */
+    runningApp?: string | null;
   };
   /**
    * Hosted-realtime wiring, so a deploy can be verified without signing in.
@@ -755,6 +761,7 @@ export async function runDbHealthProbe(
   // read must never be reported as "nothing recorded".
   let identity: DatabaseIdentityReadResult | { state: "timeout" } | undefined;
   let identityMismatch: boolean | undefined;
+  let runningApp: string | null | undefined;
   if (db) {
     identity = await withHealthDeadline<
       DatabaseIdentityReadResult | { state: "timeout" }
@@ -769,9 +776,15 @@ export async function runDbHealthProbe(
     );
     // Only "recorded" can ever prove a mismatch — the other three states mean
     // the check couldn't confirm one, not that it confirmed there wasn't.
+    // And only a KNOWN running identity can disagree with the recorded one:
+    // a hosted bundle that cannot derive its own slug/id must report the gap
+    // (`runningApp: null`), not a mismatch that blocks every production
+    // cutover — which is exactly what the first crm promotion did.
+    runningApp = resolveRunningAppIdentity();
     identityMismatch =
       identity.state === "recorded" &&
-      identity.app !== resolveRunningAppIdentity();
+      runningApp !== null &&
+      identity.app !== runningApp;
   }
   const database = getDatabaseRuntimeFingerprint();
   // Measured on the connection `SELECT 1` just warmed, so the number reflects
@@ -809,7 +822,7 @@ export async function runDbHealthProbe(
       appName: database.appName,
       authTokenConfigured: database.authTokenConfigured,
       netlifyDatabaseUrlConfigured: database.netlifyDatabaseUrlConfigured,
-      ...(identity ? { identity, identityMismatch } : {}),
+      ...(identity ? { identity, identityMismatch, runningApp } : {}),
     },
     ...(schema ? { schema } : {}),
     ...(pressure ? { pressure } : {}),

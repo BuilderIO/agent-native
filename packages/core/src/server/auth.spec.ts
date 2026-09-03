@@ -3174,6 +3174,78 @@ describe("server/auth", () => {
       expect(firstHtml).not.toContain("second.example");
     });
 
+    it("keeps the cached login document independent of workspace mount", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv(
+        "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+        JSON.stringify([{ id: "plan" }, { id: "diagrams" }]),
+      );
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      defineAppConfig({ app: { homePath: "/home" } });
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => null,
+        loginHtml:
+          "<!doctype html><html><head><title>QA login</title></head><body>QA login</body></html>",
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const firstEvent = createMockEvent({ path: "/login" });
+      firstEvent.context._mountedPathname = "/plan/login";
+      const secondEvent = createMockEvent({ path: "/login" });
+      secondEvent.context._mountedPathname = "/diagrams/login";
+      const first = await guard(firstEvent);
+      const second = await guard(secondEvent);
+
+      const firstHtml = await (first as Response).text();
+      const secondHtml = await (second as Response).text();
+      expect(firstHtml).toBe(secondHtml);
+      expect(firstHtml).toContain(
+        '"workspaceAppMountPaths":["/plan","/diagrams"]',
+      );
+      expect(
+        firstHtml.indexOf("data-agent-native-app-origin-config"),
+      ).toBeLessThan(firstHtml.indexOf('data-agent-native-beta-redirect="1"'));
+      expect(firstHtml).not.toContain("/plan/_agent-native/auth/session");
+      expect(firstHtml).not.toContain("/diagrams/_agent-native/auth/session");
+    });
+
+    it("includes workspace metadata before configured login redirects", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv(
+        "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+        JSON.stringify([{ id: "plan" }, { id: "diagrams" }]),
+      );
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      const { autoMountAuth, getConfiguredLoginHtml } =
+        await import("./auth.js");
+
+      await autoMountAuth(createMockApp(), {
+        getSession: async () => null,
+        loginHtml:
+          "<!doctype html><html><head><title>QA login</title></head><body>QA login</body></html>",
+      });
+
+      const event = createMockEvent({ path: "/plan/open" });
+      const html = getConfiguredLoginHtml(event);
+
+      expect(html).toContain('"workspaceAppMountPaths":["/plan","/diagrams"]');
+      expect(html).toContain("/plan/_agent-native/auth/session");
+      expect(html!.indexOf("data-agent-native-app-origin-config")).toBeLessThan(
+        html!.indexOf('data-agent-native-beta-redirect="1"'),
+      );
+    });
+
     it("normalizes fragment login HTML before adding the root handoff", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
@@ -4338,6 +4410,19 @@ describe("server/auth", () => {
     it("accepts HEAD on the auth session endpoint", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      delete process.env.ACCESS_TOKENS;
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
       const { autoMountAuth } = await import("./auth.js");
 
       const app = createMockApp();
@@ -4356,6 +4441,56 @@ describe("server/auth", () => {
 
       expect(event.res.status).toBe(200);
       expect(result).toEqual({ error: "Not authenticated" });
+    });
+
+    it("returns a retryable status when session resolution is unavailable", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_DISABLED;
+
+      const getBetterAuth = vi.fn(async () => {
+        throw new Error("session database unavailable");
+      });
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth,
+        getBetterAuthSync: () => undefined,
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({
+          execute: vi.fn(async (query: any) => {
+            const sql = typeof query === "string" ? query : query.sql;
+            if (sql?.includes("SELECT email, created_at FROM sessions")) {
+              throw new Error("legacy sessions unavailable");
+            }
+            return { rows: [] };
+          }),
+        }),
+        isLocalDatabase: () => true,
+        isPostgres: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await expect(autoMountAuth(app)).resolves.toBe(true);
+
+      const sessionHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/session",
+      )?.[1];
+      expect(sessionHandler).toBeTypeOf("function");
+
+      const event = createMockEvent({
+        path: "/_agent-native/auth/session",
+        headers: { cookie: "an_session=legacy-session-token" },
+      });
+      const result = await sessionHandler(event);
+
+      expect(event.res.status).toBe(503);
+      expect(result).toEqual({ error: "Session unavailable" });
     });
 
     it("desktop exchange establishes the session cookie when redeeming a token", async () => {
