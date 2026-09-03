@@ -132,6 +132,15 @@ export async function flushOpenDocumentEditorToSql(args: {
         ) {
           return;
         }
+        const occupied = await appStateGet(session, flushKey);
+        if (
+          occupied &&
+          (occupied.status === "success" || occupied.status === "error")
+        ) {
+          await appStateCompareAndSet(session, flushKey, occupied, null, {
+            requestSource: "agent",
+          });
+        }
         await new Promise((resolve) =>
           setTimeout(resolve, FLUSH_POLL_INTERVAL_MS),
         );

@@ -139,6 +139,40 @@ describe("flushOpenDocumentEditorToSql", () => {
     expect(mocks.appStateCompareAndSet).toHaveBeenCalledTimes(3);
   });
 
+  it("reclaims a stale terminal acknowledgement before writing", async () => {
+    const stale = {
+      id: "doc-1",
+      requestId: "timed-out-request",
+      status: "success",
+    };
+    mocks.appStateCompareAndSet
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true);
+    mocks.appStateGet
+      .mockResolvedValueOnce(stale)
+      .mockImplementation(async () => ({
+        id: "doc-1",
+        requestId: mocks.appStatePut.mock.calls.at(-1)?.[2]?.requestId,
+        status: "success",
+      }));
+
+    const flush = flushOpenDocumentEditorToSql({
+      documentId: "doc-1",
+      propertyId: "notes",
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(flush).resolves.toBeUndefined();
+    expect(mocks.appStateCompareAndSet).toHaveBeenCalledWith(
+      "owner@example.com",
+      "flush-request-doc-1",
+      stale,
+      null,
+      { requestSource: "agent" },
+    );
+  });
+
   it("fails an exact-field read when multiple editors are open", async () => {
     mocks.loadAwarenessRowsStrict.mockResolvedValue([
       {

@@ -713,6 +713,7 @@ export function useBlockFieldEditor({
   initialRevision,
   save,
   onRevisionConflict,
+  onReleaseSettled,
 }: {
   documentId: string;
   propertyId: string;
@@ -725,6 +726,7 @@ export function useBlockFieldEditor({
     expectedBlocksFieldRevision: number;
   }) => Promise<unknown>;
   onRevisionConflict?: () => void;
+  onReleaseSettled?: (evicted: boolean) => void;
 }): {
   content: string;
   editorResetVersion: number;
@@ -741,6 +743,8 @@ export function useBlockFieldEditor({
   const rejectedRevisionRef = useRef<number | null>(null);
   const onRevisionConflictRef = useRef(onRevisionConflict);
   onRevisionConflictRef.current = onRevisionConflict;
+  const onReleaseSettledRef = useRef(onReleaseSettled);
+  onReleaseSettledRef.current = onReleaseSettled;
   if (initialRevision > revisionRef.current) {
     revisionRef.current = initialRevision;
   }
@@ -807,7 +811,9 @@ export function useBlockFieldEditor({
     controllerRef.current = acquireBlockFieldSaveController(key, factory);
     return () => {
       controllerRef.current = null;
-      releaseBlockFieldSaveController(key);
+      void releaseBlockFieldSaveController(key).then((evicted) => {
+        onReleaseSettledRef.current?.(evicted);
+      });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
@@ -958,16 +964,14 @@ function AdditionalBlockEditor({
       save: setProperty.mutateAsync,
       onRevisionConflict: () =>
         toast.error(t("editor.blocksFieldRevisionConflict")),
+      onReleaseSettled: (evicted) => {
+        if (evicted) onContentChange?.(propertyId, null);
+      },
     });
 
   useEffect(() => {
     onContentChange?.(propertyId, content);
   }, [content, onContentChange, propertyId]);
-
-  useEffect(
-    () => () => onContentChange?.(propertyId, null),
-    [onContentChange, propertyId],
-  );
 
   return (
     <VisualEditor

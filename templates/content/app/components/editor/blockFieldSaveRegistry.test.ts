@@ -59,7 +59,7 @@ describe("blockFieldSaveRegistry", () => {
 
     // Release the only reference → flush-then-evict begins. The flush issues the
     // save immediately, but the controller is NOT evicted until that save settles.
-    releaseBlockFieldSaveController(key);
+    const released = releaseBlockFieldSaveController(key);
     expect(saved).toEqual(["draft"]);
     expect(activeControllerCount()).toBe(1); // still present: flush in flight.
 
@@ -70,6 +70,7 @@ describe("blockFieldSaveRegistry", () => {
     await act(() => {
       resolvers[0]!();
     });
+    await expect(released).resolves.toBe(true);
     expect(activeControllerCount()).toBe(0);
     expect(peekBlockFieldSaveController(key)).toBeUndefined();
   });

@@ -58,6 +58,9 @@ export default defineAction({
       propertyId === undefined ? undefined : { requireValueVisibility: false },
     );
     if (!freshSelected) {
+      if (freshContext.hasDatabase) {
+        throw new Error("This Page has no visible primary Content field.");
+      }
       return wordCountResult({
         documentId,
         propertyId: null,

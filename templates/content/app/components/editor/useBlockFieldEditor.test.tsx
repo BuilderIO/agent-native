@@ -45,6 +45,7 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     onReady,
     onContent,
     onRevisionConflict,
+    onReleaseSettled,
   }: {
     documentId: string;
     propertyId: string;
@@ -54,6 +55,7 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     onReady: (onChange: (markdown: string) => void) => void;
     onContent?: (content: string, editorResetVersion: number) => void;
     onRevisionConflict?: () => void;
+    onReleaseSettled?: (evicted: boolean) => void;
   }) {
     const { content, editorResetVersion, onChange } = useBlockFieldEditor({
       documentId,
@@ -62,6 +64,7 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       initialRevision,
       save,
       onRevisionConflict,
+      onReleaseSettled,
     });
     onReady(onChange);
     onContent?.(content, editorResetVersion);

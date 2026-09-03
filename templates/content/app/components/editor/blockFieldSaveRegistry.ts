@@ -122,11 +122,11 @@ function controllerIsDirty(controller: BlockFieldSaveController): boolean {
  * unreferenced after the flush settles (a reopen during the flush re-acquires
  * the same instance and cancels the eviction).
  */
-export function releaseBlockFieldSaveController(key: string): void {
+export function releaseBlockFieldSaveController(key: string): Promise<boolean> {
   const entry = registry.get(key);
-  if (!entry) return;
+  if (!entry) return Promise.resolve(false);
   entry.refCount -= 1;
-  if (entry.refCount > 0) return;
+  if (entry.refCount > 0) return Promise.resolve(false);
 
   // Last reference gone: flush the final pending content, then evict once it
   // has fully settled — but only if nobody re-acquired in the meantime.
@@ -138,7 +138,7 @@ export function releaseBlockFieldSaveController(key: string): void {
     if (current === entry && current.refCount === 0 && current.evicting) {
       if (controllerIsDirty(current.controller)) {
         current.evicting = false;
-        return;
+        return false;
       }
       registry.delete(key);
       // Drop the per-key save-impl ref alongside the controller. It is only
@@ -149,11 +149,13 @@ export function releaseBlockFieldSaveController(key: string): void {
       // there is no stale closure. Only delete here — never while refCount > 0
       // or a reopen is pending — because the live factory closes over this ref.
       saveImpls.delete(key);
+      return true;
     }
+    return false;
   };
   // flush() resolves after any in-flight save AND the trailing save have
   // settled, so the final DB value is the latest content before we drop state.
-  Promise.resolve(entry.controller.flush()).then(settle, settle);
+  return Promise.resolve(entry.controller.flush()).then(settle, settle);
 }
 
 // The shared controller for a key is created ONCE, but each editor mount carries
