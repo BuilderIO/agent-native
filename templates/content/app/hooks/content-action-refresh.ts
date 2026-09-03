@@ -2,6 +2,50 @@ interface ActionQuery {
   queryKey: readonly unknown[];
 }
 
+interface ActionEvent {
+  source?: string;
+  key?: string;
+}
+
+const COMMENT_MUTATIONS = new Set([
+  "add-comment",
+  "delete-comment",
+  "sync-notion-comments",
+  "update-comment",
+]);
+
+const DOCUMENT_MUTATIONS = new Set([
+  "create-and-link-notion-page",
+  "delete-document",
+  "delete-document-property",
+  "duplicate-document-property",
+  "edit-document",
+  "execute-builder-source-batch",
+  "execute-builder-source-execution",
+  "import-content-source",
+  "migrate-content-database-rows",
+  "move-document",
+  "mutate-content-database-block",
+  "process-builder-body-hydration",
+  "pull-builder-doc",
+  "pull-document",
+  "pull-notion-page",
+  "push-builder-doc",
+  "push-notion-page",
+  "reorder-document-property",
+  "resolve-local-folder-conflict",
+  "resolve-notion-sync-conflict",
+  "restore-document",
+  "restore-document-version",
+  "set-document-discoverability",
+  "set-document-property",
+  "set-image-alt-text",
+  "sync-local-folder-source",
+  "sync-manifest-local-folder-source",
+  "transcribe-media",
+  "update-document",
+]);
+
 function queryTargetsDocument(query: ActionQuery, documentId: string): boolean {
   if (query.queryKey[0] !== "action") return false;
   if (
@@ -28,8 +72,21 @@ export function contentDocumentIdFromPathname(
 
 export function contentActionInvalidatePredicate(
   pathname: string,
-): (query: ActionQuery) => boolean {
+): (query: ActionQuery, events: readonly ActionEvent[]) => boolean {
   const documentId = contentDocumentIdFromPathname(pathname);
-  return (query) =>
-    documentId !== undefined && queryTargetsDocument(query, documentId);
+  return (query, events) => {
+    if (documentId === undefined || !queryTargetsDocument(query, documentId)) {
+      return false;
+    }
+    const mutations =
+      query.queryKey[1] === "list-comments"
+        ? COMMENT_MUTATIONS
+        : DOCUMENT_MUTATIONS;
+    return events.some(
+      (event) =>
+        event.source === "action" &&
+        typeof event.key === "string" &&
+        mutations.has(event.key),
+    );
+  };
 }

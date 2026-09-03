@@ -52,9 +52,10 @@ function SyncProbe({
   onEvent,
 }: {
   queryClient: QueryClientProbe;
-  actionInvalidatePredicate?: (query: {
-    queryKey: readonly unknown[];
-  }) => boolean;
+  actionInvalidatePredicate?: (
+    query: { queryKey: readonly unknown[] },
+    events: readonly { source?: string; key?: string }[],
+  ) => boolean;
   suppressActionInvalidationFor?: string[];
   onEvent?: (data: any) => void;
 }) {
@@ -239,12 +240,21 @@ describe("useDbSync", () => {
 
   it("can scope the broad action invalidate away from expensive query keys", async () => {
     const queryClient = new QueryClientProbe();
+    const observedEvents: Array<readonly { source?: string; key?: string }[]> =
+      [];
     const fetchMock = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
             version: 1,
-            events: [{ version: 1, source: "action", type: "change" }],
+            events: [
+              {
+                version: 1,
+                source: "action",
+                type: "change",
+                key: "update-document",
+              },
+            ],
           }),
         ),
     );
@@ -260,9 +270,10 @@ describe("useDbSync", () => {
       root.render(
         <SyncProbe
           queryClient={queryClient}
-          actionInvalidatePredicate={(query) =>
-            query.queryKey[0] !== "sql-chart"
-          }
+          actionInvalidatePredicate={(query, events) => {
+            observedEvents.push(events);
+            return query.queryKey[0] !== "sql-chart";
+          }}
         />,
       );
       await Promise.resolve();
@@ -280,6 +291,12 @@ describe("useDbSync", () => {
     expect(broadCall?.predicate?.(queryClient.queries[1])).toBe(true);
     expect(queryClient.calls).toEqual([broadCall]);
     expect(queryClient.refetchOptions).toEqual([{ cancelRefetch: false }]);
+    expect(observedEvents[0]).toEqual([
+      expect.objectContaining({
+        source: "action",
+        key: "update-document",
+      }),
+    ]);
   });
 
   it("can suppress action-query invalidation for high-volume background actions", async () => {

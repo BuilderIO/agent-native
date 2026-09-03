@@ -6,18 +6,24 @@ import {
 } from "./content-action-refresh";
 
 describe("contentActionInvalidatePredicate", () => {
-  it("refreshes the current document and comments after any external mutation", () => {
+  it("refreshes the current document and comments after matching mutations", () => {
     const predicate = contentActionInvalidatePredicate("/page/document-1");
 
     expect(
-      predicate({
-        queryKey: ["action", "get-document", { id: "document-1" }],
-      }),
+      predicate(
+        {
+          queryKey: ["action", "get-document", { id: "document-1" }],
+        },
+        [{ source: "action", key: "edit-document" }],
+      ),
     ).toBe(true);
     expect(
-      predicate({
-        queryKey: ["action", "list-comments", { documentId: "document-1" }],
-      }),
+      predicate(
+        {
+          queryKey: ["action", "list-comments", { documentId: "document-1" }],
+        },
+        [{ source: "action", key: "update-comment" }],
+      ),
     ).toBe(true);
   });
 
@@ -25,26 +31,50 @@ describe("contentActionInvalidatePredicate", () => {
     const predicate = contentActionInvalidatePredicate("/page/document-1");
 
     expect(
-      predicate({
-        queryKey: ["action", "get-document", { id: "document-2" }],
-      }),
+      predicate(
+        {
+          queryKey: ["action", "get-document", { id: "document-2" }],
+        },
+        [{ source: "action", key: "edit-document" }],
+      ),
     ).toBe(false);
     expect(
-      predicate({
-        queryKey: ["action", "list-comments", { documentId: "document-2" }],
-      }),
+      predicate(
+        {
+          queryKey: ["action", "list-comments", { documentId: "document-2" }],
+        },
+        [{ source: "action", key: "update-comment" }],
+      ),
     ).toBe(false);
     expect(
-      predicate({ queryKey: ["action", "refresh-notion-sync-status"] }),
+      predicate({ queryKey: ["action", "refresh-notion-sync-status"] }, [
+        { source: "action", key: "edit-document" },
+      ]),
     ).toBe(false);
-    expect(predicate({ queryKey: ["settings", "content"] })).toBe(false);
+    expect(
+      predicate({ queryKey: ["settings", "content"] }, [
+        { source: "action", key: "edit-document" },
+      ]),
+    ).toBe(false);
+  });
+
+  it("does not refresh the open document for an unrelated mutation", () => {
+    const predicate = contentActionInvalidatePredicate("/page/document-1");
+
+    expect(
+      predicate(
+        { queryKey: ["action", "get-document", { id: "document-1" }] },
+        [{ source: "action", key: "refresh-notion-sync-status" }],
+      ),
+    ).toBe(false);
   });
 
   it("does not refresh document queries away from a document route", () => {
     expect(
-      contentActionInvalidatePredicate("/settings")({
-        queryKey: ["action", "get-document", { id: "document-1" }],
-      }),
+      contentActionInvalidatePredicate("/settings")(
+        { queryKey: ["action", "get-document", { id: "document-1" }] },
+        [{ source: "action", key: "edit-document" }],
+      ),
     ).toBe(false);
   });
 });
