@@ -759,8 +759,7 @@ export const WeekView = memo(function WeekView({
     0,
     timeGridScrollbarWidth - allDayScrollbarWidth,
   );
-  const allDayCreateRowSpacerWidth =
-    allDayScrollbarWidth + allDayHeaderSpacerWidth;
+  const allDayCreateRowSpacerWidth = timeGridScrollbarWidth;
 
   useEffect(() => {
     const measureScrollbars = () => {
