@@ -52,7 +52,7 @@ vi.mock("../editor/GoogleDriveConnectionCta", () => ({
   GoogleDriveConnectionCta: () => null,
 }));
 vi.mock("./AgentWorkIndicator", () => ({
-  AgentWorkIndicator: () => null,
+  AgentWorkIndicator: () => <div data-testid="agent-work-indicator" />,
 }));
 vi.mock("./Header", () => ({ Header: () => <div data-testid="header" /> }));
 vi.mock("./Sidebar", () => ({
@@ -84,6 +84,7 @@ describe("Slides Layout", () => {
     expect(screen.getByTestId("app-sidebar")).toBeTruthy();
     expect(screen.getByTestId("header")).toBeTruthy();
     expect(screen.getByTestId("invitation-banner")).toBeTruthy();
+    expect(screen.getByTestId("agent-work-indicator")).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "sidebar.openNavigation" }),
     ).toBeTruthy();
@@ -105,6 +106,7 @@ describe("Slides Layout", () => {
     renderLayout("/chat");
 
     expect(screen.queryByTestId("agent-sidebar")).toBeNull();
+    expect(screen.queryByTestId("agent-work-indicator")).toBeNull();
     expect(screen.getByTestId("app-sidebar")).toBeTruthy();
     expect(screen.getByTestId("page-content")).toBeTruthy();
   });

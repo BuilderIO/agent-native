@@ -47,16 +47,14 @@ export default function ChatRoute() {
       }
     : null;
   const scopeQuery = deckId ? `?deckId=${encodeURIComponent(deckId)}` : "";
-  const threadUrlSync = threadId
-    ? {
-        routeThreadId: threadId,
-        getPath: (id: string | null) =>
-          id
-            ? `/chat/${encodeURIComponent(id)}${scopeQuery}`
-            : `/chat${scopeQuery}`,
-        navigate,
-      }
-    : undefined;
+  const threadUrlSync = {
+    routeThreadId: threadId ?? null,
+    getPath: (id: string | null) =>
+      id
+        ? `/chat/${encodeURIComponent(id)}${scopeQuery}`
+        : `/chat${scopeQuery}`,
+    navigate,
+  };
 
   useEffect(() => {
     function handleChatRunning(event: Event) {

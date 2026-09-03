@@ -35,16 +35,14 @@ export default function ChatRoute() {
   const scopeQuery = designId
     ? `?designId=${encodeURIComponent(designId)}`
     : "";
-  const threadUrlSync = threadId
-    ? {
-        routeThreadId: threadId,
-        getPath: (id: string | null) =>
-          id
-            ? `/chat/${encodeURIComponent(id)}${scopeQuery}`
-            : `/chat${scopeQuery}`,
-        navigate,
-      }
-    : undefined;
+  const threadUrlSync = {
+    routeThreadId: threadId ?? null,
+    getPath: (id: string | null) =>
+      id
+        ? `/chat/${encodeURIComponent(id)}${scopeQuery}`
+        : `/chat${scopeQuery}`,
+    navigate,
+  };
 
   useEffect(() => {
     function handleChatRunning(event: Event) {

@@ -243,7 +243,7 @@ export function Layout({ children }: LayoutProps) {
           {children}
         </main>
       </div>
-      <AgentWorkIndicator />
+      {!isChatRoute && <AgentWorkIndicator />}
     </div>
   );
 

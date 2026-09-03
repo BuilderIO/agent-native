@@ -160,12 +160,16 @@ export async function saveUploadedReferenceFile(args: {
       `Unsupported file type. Allowed: ${SLIDES_REFERENCE_FILE_ERROR_LABEL}.`,
     );
   }
-  const detectedImage =
-    [".png", ".jpg", ".jpeg", ".gif", ".webp"].includes(declaredExt) &&
-    !hasExpectedSignature(declaredExt, args.data)
-      ? detectReferenceImage(args.data)
-      : null;
-  const ext = detectedImage?.extension ?? declaredExt;
+  const isDeclaredImage = [".png", ".jpg", ".jpeg", ".gif", ".webp"].includes(
+    declaredExt,
+  );
+  const detectedImage = isDeclaredImage
+    ? detectReferenceImage(args.data)
+    : null;
+  const ext =
+    detectedImage && !hasExpectedSignature(declaredExt, args.data)
+      ? detectedImage.extension
+      : declaredExt;
   const filename = safeFilename(args.originalName, ext);
   if (!filename) {
     throw new Error(

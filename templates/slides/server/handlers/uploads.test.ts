@@ -145,6 +145,22 @@ describe("Slides reference upload limits", () => {
     );
   });
 
+  it("uses the detected raster MIME when the matching extension is mislabeled", async () => {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0x00]);
+
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        originalName: "reference.jpg",
+        data: jpeg,
+        type: "image/png",
+      }),
+    ).resolves.toMatchObject({
+      filename: expect.stringMatching(/\.jpg$/),
+      type: "image/jpeg",
+    });
+  });
+
   it("stores hosted reference uploads in durable private blob storage", async () => {
     mockIsHostedSlidesRuntime.mockReturnValue(true);
     mockStoreUploadedReferenceBlob.mockResolvedValue(
