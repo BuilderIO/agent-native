@@ -257,13 +257,11 @@ jobs:
           : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
           pnpm install --frozen-lockfile
 
-          migration_database_url=""
-          for variable in NETLIFY_DATABASE_URL_UNPOOLED NETLIFY_DATABASE_URL DATABASE_URL; do
-            if value="$(netlify env:get "$variable" --context "$BUILD_CONTEXT" --site "$NETLIFY_SITE_ID" 2>/dev/null)" && [[ "$value" == postgres* ]]; then
-              migration_database_url="$value"
-              break
-            fi
-          done
+          migration_database_url="$(
+            netlify api getEnvVars \
+              --data "{\"account_id\":\"builder-io\",\"site_id\":\"$NETLIFY_SITE_ID\"}" |
+              BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts
+          )"
           if [[ -z "$migration_database_url" ]]; then
             echo "::error::Netlify did not provide a PostgreSQL migration URL for $NETLIFY_SITE_ID."
             exit 1
