@@ -36,7 +36,7 @@ describe("document editor layout", () => {
         },
         cardHeight: 180,
       }),
-    ).toEqual({ left: 140, top: 168, width: 320, placement: "below" });
+    ).toEqual({ left: 140, top: 164, width: 320, placement: "below" });
   });
 
   it("flips a compact comment card above and clamps it within the viewport", () => {
@@ -52,7 +52,7 @@ describe("document editor layout", () => {
         },
         cardHeight: 220,
       }),
-    ).toEqual({ left: 16, top: 392, width: 320, placement: "above" });
+    ).toEqual({ left: 16, top: 396, width: 320, placement: "above" });
   });
   it("keeps a local-file editor mounted when its saved timestamp advances", () => {
     const key = (documentUpdatedAt: string) =>

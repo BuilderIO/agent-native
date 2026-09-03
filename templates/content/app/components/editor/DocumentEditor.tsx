@@ -420,7 +420,7 @@ export function positionAnchoredCommentCard({
   containerRect,
   cardHeight,
   preferredWidth = 320,
-  gap = 8,
+  gap = 4,
   edge = 16,
 }: {
   anchorRect: Pick<DOMRect, "top" | "bottom" | "left" | "right">;
@@ -2097,18 +2097,10 @@ function DocumentEditorBody({
       });
     };
     update();
-    scrollContainer.addEventListener("scroll", update, { passive: true });
     window.addEventListener("resize", update);
-    const resizeObserver =
-      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
-    if (anchoredCommentRef.current) {
-      resizeObserver?.observe(anchoredCommentRef.current);
-    }
     return () => {
       cancelAnimationFrame(frame);
-      scrollContainer.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);
-      resizeObserver?.disconnect();
     };
   }, [selectedThreadId, showAnchoredCommentPopover, scrollContainerRef]);
 
@@ -2821,7 +2813,7 @@ function DocumentEditorBody({
                     data-comments-flow-lane
                     style={{ transform: `translateX(${commentLaneOffset}px)` }}
                   >
-                    <div className="relative min-h-full translate-x-8">
+                    <div className="relative min-h-full translate-x-4">
                       {renderCommentsSidebar()}
                     </div>
                   </aside>
@@ -2835,7 +2827,7 @@ function DocumentEditorBody({
               {showAnchoredCommentPopover ? (
                 <aside
                   ref={anchoredCommentRef}
-                  className="pointer-events-none absolute z-30 transition-[top,left] duration-150 ease-[var(--ease-collapse)]"
+                  className="pointer-events-none absolute z-30"
                   aria-label={t("comments.title")}
                   data-comments-anchored-popover
                   data-placement={anchoredCommentPosition?.placement}

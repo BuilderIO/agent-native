@@ -924,6 +924,7 @@ export function CommentsSidebar({
               thread={thread}
               marginTop={marginTop}
               isActive={isActive}
+              allowEmphasisMotion={alignToAnchors}
               isExpanded={replyingThreadId === thread.threadId}
               isSubmitting={createComment.isPending}
               replyText={replyingThreadId === thread.threadId ? replyText : ""}
@@ -1007,6 +1008,7 @@ function ThreadView({
   thread,
   marginTop,
   isActive,
+  allowEmphasisMotion,
   isExpanded,
   isSubmitting,
   replyText,
@@ -1027,6 +1029,7 @@ function ThreadView({
   thread: CommentThread;
   marginTop: number;
   isActive: boolean;
+  allowEmphasisMotion: boolean;
   isExpanded: boolean;
   isSubmitting: boolean;
   replyText: string;
@@ -1070,10 +1073,14 @@ function ThreadView({
     <div
       ref={cardRef}
       data-thread-card={thread.threadId}
-      className={`group/thread mx-2 mr-4 cursor-pointer rounded-lg bg-popover shadow-md ring-1 ring-border/50 transition-transform duration-[260ms] ease-[var(--ease-drawer)] ${
-        isActive
-          ? "-translate-x-2 shadow-lg"
-          : "hover:-translate-x-2 hover:shadow-lg"
+      className={`group/thread mx-2 mr-4 cursor-pointer rounded-lg bg-popover shadow-md ring-1 ring-border/50 ${
+        allowEmphasisMotion
+          ? `transition-transform duration-[260ms] ease-[var(--ease-drawer)] ${
+              isActive
+                ? "-translate-x-2 shadow-lg"
+                : "hover:-translate-x-2 hover:shadow-lg"
+            }`
+          : ""
       }`}
       style={{ marginTop }}
       onClick={() => {

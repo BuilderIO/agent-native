@@ -209,6 +209,7 @@ describe("comments sidebar layout", () => {
     expect(source).toContain(
       "transition-transform duration-[260ms] ease-[var(--ease-drawer)]",
     );
+    expect(source).toContain("allowEmphasisMotion={alignToAnchors}");
     expect(source).toContain('? "-translate-x-2 shadow-lg"');
     expect(source).toContain(': "hover:-translate-x-2 hover:shadow-lg"');
   });
@@ -274,7 +275,11 @@ describe("comments sidebar layout", () => {
     expect(source).toContain("data-comments-flow-lane");
     expect(source).toContain("commentLaneRef");
     expect(source).toContain('querySelector(".notion-editor")');
-    expect(source).toContain("translate-x-8");
+    expect(source).toContain("translate-x-4");
+    expect(source).not.toContain(
+      'scrollContainer.addEventListener("scroll", update',
+    );
+    expect(source).toContain('className="pointer-events-none absolute z-30"');
     expect(source).toContain("data-comments-anchored-popover");
     expect(source).toContain("useElementMinWidth(documentLayoutRef, 960)");
     expect(source).toContain('window.addEventListener("resize", update)');
