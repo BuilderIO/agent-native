@@ -2298,7 +2298,7 @@ ${embeddedAuthCss}
     margin-inline: 0;
   }
   .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot {
-    filter: blur(0.3px);
+    filter: blur(3px);
     opacity: 0.8;
   }
   .auth-marketing-home.has-product-screenshot .form-panel .card {
