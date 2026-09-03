@@ -3218,6 +3218,34 @@ describe("server/auth", () => {
       expect(firstHtml).not.toContain("/diagrams/_agent-native/auth/session");
     });
 
+    it("includes workspace metadata before configured login redirects", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv(
+        "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+        JSON.stringify([{ id: "plan" }, { id: "diagrams" }]),
+      );
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      const { autoMountAuth, getConfiguredLoginHtml } =
+        await import("./auth.js");
+
+      await autoMountAuth(createMockApp(), {
+        getSession: async () => null,
+        loginHtml:
+          "<!doctype html><html><head><title>QA login</title></head><body>QA login</body></html>",
+      });
+
+      const event = createMockEvent({ path: "/plan/open" });
+      const html = getConfiguredLoginHtml(event);
+
+      expect(html).toContain('"workspaceAppMountPaths":["/plan","/diagrams"]');
+      expect(html).toContain("/plan/_agent-native/auth/session");
+      expect(html!.indexOf("data-agent-native-app-origin-config")).toBeLessThan(
+        html!.indexOf('data-agent-native-beta-redirect="1"'),
+      );
+    });
+
     it("normalizes fragment login HTML before adding the root handoff", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
