@@ -347,7 +347,11 @@ describe("production Netlify site concurrency guard", () => {
       reusableSource,
       /steps\.beta_freshness\.outputs\.current == 'true'/,
     );
-    assert.match(reusableSource, /allowPinnedRecovery/);
+    assert.doesNotMatch(reusableSource, /allowPinnedRecovery/);
+    assert.match(
+      reusableSource,
+      /core\.setOutput\('current', String\(current\)\)/,
+    );
     assert.match(reusableSource, /inputs\.caller/);
     assert.match(
       reusableSource,

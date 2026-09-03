@@ -780,6 +780,16 @@ if (
   );
 }
 
+const reusableBetaFreshness = reusable;
+if (
+  reusableBetaFreshness.includes("allowPinnedRecovery") ||
+  !reusableBetaFreshness.includes("core.setOutput('current', String(current))")
+) {
+  issues.push(
+    `${reusablePath} must reject stale beta recovery sources before upload`,
+  );
+}
+
 if (
   productionDiscoverOutputs?.complete_fleet !==
     "${{ steps.matrix.outputs.complete_fleet }}" ||

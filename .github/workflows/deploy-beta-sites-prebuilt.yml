@@ -289,7 +289,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "::error::Production migration is required before publishing beta source $source_sha."
-          echo "Re-run this workflow manually with source_ref=$source_sha and migrated_source_sha=$required_source_sha after production migration succeeds."
+          echo "After production migration succeeds, re-run this workflow manually with source_ref set to the latest main SHA and migrated_source_sha=$required_source_sha."
           exit 1
 
   deploy:
