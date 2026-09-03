@@ -1282,6 +1282,11 @@ export default function DeckEditor() {
       toast(t("editorSidebar.slideDeleted"), {
         className: "!bg-background !text-foreground !border-border",
         duration: 6000,
+        closeButton: true,
+        classNames: {
+          closeButton:
+            "!static !order-1 !size-6 !transform-none !rounded-md !border-0 !bg-transparent !p-0 !text-muted-foreground hover:!bg-muted",
+        },
         action: {
           label: "Undo",
           onClick: () => undo(),
