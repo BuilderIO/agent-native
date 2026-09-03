@@ -207,7 +207,7 @@ const AddSlideOp = z.object({
       transition: z
         .enum(["instant", "none", "fade", "slide", "zoom"])
         .optional(),
-      animations: z.array(z.unknown()).optional(),
+      animations: z.array(SlideAnimationSchema).optional(),
       splitByParagraph: z.boolean().optional(),
       skipped: z.boolean().optional(),
     })
@@ -586,8 +586,10 @@ export function assertPatchedSlideAnimationsResolve(
 ): void {
   const slideIdsToValidate = new Set(
     operations.flatMap((operation) =>
-      operation.op === "patch-slide" &&
-      (operation.fields.content !== undefined ||
+      (operation.op === "patch-slide" &&
+        (operation.fields.content !== undefined ||
+          operation.fields.animations !== undefined)) ||
+      (operation.op === "add-slide" &&
         operation.fields.animations !== undefined)
         ? [operation.slideId]
         : [],

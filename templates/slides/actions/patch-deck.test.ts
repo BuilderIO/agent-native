@@ -887,7 +887,12 @@ describe("patch-deck agent schema", () => {
       (operation: any) => operation.properties?.op?.const === "reorder-slides",
     );
 
-    expect(operations).toHaveLength(4);
+    expect(operations).toHaveLength(5);
+    expect(
+      operations.find(
+        (operation: any) => operation.properties?.op?.const === "add-slide",
+      ),
+    ).toBeDefined();
     expect(deckFields.properties.fields.properties.title).toMatchObject({
       type: "string",
     });

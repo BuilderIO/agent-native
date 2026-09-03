@@ -1478,7 +1478,14 @@ export function useLabels(accountEmails?: readonly string[]) {
     queryKey: ["labels", accountFilter],
     queryFn: async () => {
       const labels = await callAction<
-        Array<{ id: string; name: string; accountEmail?: string }>
+        Array<{
+          id: string;
+          name: string;
+          type?: Label["type"];
+          unreadCount?: number;
+          totalCount?: number;
+          accountEmail?: string;
+        }>
       >("list-labels", {});
       return labels
         .filter(
@@ -1489,9 +1496,11 @@ export function useLabels(accountEmails?: readonly string[]) {
         )
         .map((label) => ({
           ...label,
-          type: label.id.startsWith("Label_")
-            ? ("user" as const)
-            : ("system" as const),
+          type:
+            label.type ??
+            (label.id.startsWith("Label_")
+              ? ("user" as const)
+              : ("system" as const)),
         }));
     },
     // A failed background refresh must not erase the last complete label map.

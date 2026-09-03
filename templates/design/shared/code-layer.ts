@@ -2948,19 +2948,15 @@ function applyClassEdit(
   };
 }
 
-// Same shape as the bridge's own attributeOverrides guard (editor-chrome.bridge.ts)
-// — alphanumeric/dash/colon/dot/underscore, must start with a letter, never an
-// `on*` event handler. Deliberately conservative: this path is for host-side
-// bookkeeping writes (pending node-id persistence today), not general-purpose
-// attribute editing, so unknown/unsafe names are rejected rather than guessed at.
-const SAFE_ATTRIBUTE_NAME = /^(?!on)[a-zA-Z][a-zA-Z0-9:_.-]*$/;
+// This path is for host-side node-id persistence, not arbitrary HTML props.
+const SAFE_ATTRIBUTE_NAMES = new Set(["data-agent-native-node-id"]);
 
 function applyAttributeEdit(
   html: string,
   element: ParsedElement,
   intent: AttributeEditIntent,
 ): { content: string; capability: EditCapability } | PatchResultStatus {
-  if (!intent.name || !SAFE_ATTRIBUTE_NAME.test(intent.name)) {
+  if (!SAFE_ATTRIBUTE_NAMES.has(intent.name)) {
     return "unsupported";
   }
   return {

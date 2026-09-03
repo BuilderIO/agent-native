@@ -13,6 +13,18 @@ import {
 const ProviderSchema = z.enum(MAIL_PROVIDER_API_IDS);
 const MethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
 
+function isGmailSendRequest(args: {
+  provider: string;
+  method?: string;
+  path: string;
+}): boolean {
+  return (
+    args.provider === "gmail" &&
+    String(args.method ?? "GET").toUpperCase() === "POST" &&
+    /\/messages\/send(?:[/?]|$)/i.test(args.path)
+  );
+}
+
 const PaginationSchema = z
   .object({
     nextCursorPath: z
@@ -211,9 +223,7 @@ export default createProviderApiRequestAction(
     appId: MAIL_APP_ID,
     getOwnerEmail: () => getCredentialContext()?.userEmail ?? null,
     needsApproval: async (args, ctx?: ActionRunContext) =>
-      args.provider === "gmail" &&
-      !["GET", "HEAD"].includes(String(args.method ?? "GET").toUpperCase()) &&
-      (await requiresEmailSendApproval(ctx)),
+      isGmailSendRequest(args) && (await requiresEmailSendApproval(ctx)),
     http: false,
     toolCallable: false,
   },

@@ -444,7 +444,7 @@ const intentSchema = z.preprocess(
     z.object({
       kind: z.literal("attribute"),
       target: targetSchema,
-      name: z.string(),
+      name: z.literal("data-agent-native-node-id"),
       value: z.string(),
     }),
     z.object({
