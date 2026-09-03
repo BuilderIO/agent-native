@@ -17,15 +17,21 @@ import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-c
 
 import type {
   CalendarEvent,
+  GoogleCalendarSource,
   GoogleAuthStatus,
   UpdateEventScope,
 } from "../../shared/api.js";
+import {
+  createGoogleCalendarSourceKey,
+  parseGoogleCalendarSourceKey,
+} from "../../shared/google-calendar-sources.js";
 import { getGoogleEventColorHex } from "../../shared/google-event-colors.js";
 import { isCalendarTimezone } from "../../shared/timezone.js";
 import {
   createOAuth2Client,
   oauth2GetUserInfo,
   calendarListEvents,
+  calendarListCalendars,
   calendarFreeBusy,
   calendarGetCalendar,
   calendarGetEvent,
@@ -1050,6 +1056,77 @@ export async function getClientsForAccountsWithErrors(
   };
 }
 
+function asCalendarAccessRole(
+  value: unknown,
+): GoogleCalendarSource["accessRole"] {
+  return value === "freeBusyReader" ||
+    value === "reader" ||
+    value === "writer" ||
+    value === "owner"
+    ? value
+    : "reader";
+}
+
+/** Discover every CalendarList entry visible to each connected Google account. */
+export async function listGoogleCalendars(forEmail?: string): Promise<{
+  calendars: GoogleCalendarSource[];
+  errors: Array<{ email: string; error: string }>;
+}> {
+  const { clients, errors: refreshErrors } =
+    await getClientsForAccountsWithErrors(forEmail);
+  const errors = [...refreshErrors];
+  const results = await mapWithConcurrency(clients, async (client) => {
+    try {
+      const items: any[] = [];
+      let pageToken: string | undefined;
+      do {
+        const response = await calendarListCalendars(client.accessToken, {
+          maxResults: 250,
+          pageToken,
+        });
+        items.push(...(response.items ?? []));
+        pageToken =
+          typeof response.nextPageToken === "string"
+            ? response.nextPageToken
+            : undefined;
+      } while (pageToken);
+      return items
+        .filter((item) => typeof item.id === "string" && item.id.length > 0)
+        .map((item): GoogleCalendarSource => {
+          const accessRole = asCalendarAccessRole(item.accessRole);
+          return {
+            sourceKey: createGoogleCalendarSourceKey({
+              accountEmail: client.email,
+              calendarId: item.id,
+            }),
+            accountEmail: client.email,
+            calendarId: item.id,
+            name: item.summaryOverride || item.summary || item.id,
+            color: item.backgroundColor || undefined,
+            selected: item.selected === true,
+            primary: item.primary === true,
+            accessRole,
+            readOnly:
+              item.primary !== true ||
+              (accessRole !== "owner" && accessRole !== "writer"),
+          };
+        });
+    } catch (error: any) {
+      errors.push({
+        email: client.email,
+        error: error?.message || "Unable to list Google calendars",
+      });
+      return [];
+    }
+  });
+  return {
+    calendars: results
+      .flat()
+      .sort((a, b) => a.sourceKey.localeCompare(b.sourceKey)),
+    errors: errors.sort((a, b) => a.email.localeCompare(b.email)),
+  };
+}
+
 export async function isConnected(forEmail?: string): Promise<boolean> {
   if (!forEmail) return false;
   const accounts = await listOAuthAccountsByOwner("google", forEmail);
@@ -1172,7 +1249,11 @@ export async function listEvents(
   timeMin: string,
   timeMax: string,
   forEmail?: string,
-  options: { accountEmails?: string[]; maxResults?: number } = {},
+  options: {
+    accountEmails?: string[];
+    calendarSourceKeys?: string[];
+    maxResults?: number;
+  } = {},
 ): Promise<{
   events: CalendarEvent[];
   errors: Array<{ email: string; error: string }>;
@@ -1186,36 +1267,115 @@ export async function listEvents(
   const errors: Array<{ email: string; error: string }> = [...refreshErrors];
   if (clients.length === 0) return { events: [], errors };
 
+  const requestedSourceKeys = Array.from(
+    new Set((options.calendarSourceKeys ?? []).filter(Boolean)),
+  );
+  let selectedSourcesByAccount = new Map<string, GoogleCalendarSource[]>();
+  if (requestedSourceKeys.length > 0) {
+    const discovered = await listGoogleCalendars(forEmail);
+    errors.push(...discovered.errors);
+    const discoveredByKey = new Map(
+      discovered.calendars.map((source) => [source.sourceKey, source]),
+    );
+    const invalid = requestedSourceKeys.filter((sourceKey) => {
+      const identity = parseGoogleCalendarSourceKey(sourceKey);
+      return !identity || !discoveredByKey.has(sourceKey);
+    });
+    if (invalid.length > 0) {
+      throw new Error(
+        `Google Calendar source is not connected or no longer available: ${invalid.join(", ")}`,
+      );
+    }
+    for (const sourceKey of requestedSourceKeys) {
+      const source = discoveredByKey.get(sourceKey)!;
+      const accountKey = source.accountEmail.trim().toLowerCase();
+      selectedSourcesByAccount.set(accountKey, [
+        ...(selectedSourcesByAccount.get(accountKey) ?? []),
+        source,
+      ]);
+    }
+    const availableAccounts = new Set(
+      clients.map((client) => client.email.trim().toLowerCase()),
+    );
+    const excluded = Array.from(selectedSourcesByAccount.keys()).filter(
+      (accountEmail) => !availableAccounts.has(accountEmail),
+    );
+    if (excluded.length > 0) {
+      throw new Error(
+        `Google Calendar source account was not selected: ${excluded.join(", ")}`,
+      );
+    }
+  }
+
   const allResults = await mapWithConcurrency(
     clients,
     async ({ email, accessToken }) => {
       try {
+        const sources = selectedSourcesByAccount.size
+          ? (selectedSourcesByAccount.get(email.trim().toLowerCase()) ?? [])
+          : [undefined];
         const events: any[] = [];
-        let pageToken: string | undefined;
-        do {
-          const response = await calendarListEvents(accessToken, "primary", {
-            timeMin,
-            timeMax,
-            singleEvents: true,
-            orderBy: "startTime",
-            maxResults: options.maxResults ?? 2500,
-            pageToken,
-            eventTypes: LIST_EVENT_TYPES,
-          });
-          events.push(...(response.items || []));
-          pageToken =
-            typeof response.nextPageToken === "string"
-              ? response.nextPageToken
-              : undefined;
-        } while (pageToken);
+        for (const source of sources) {
+          if (source?.accessRole === "freeBusyReader") {
+            errors.push({
+              email,
+              error: `Google Calendar source ${source.name} (${source.calendarId}) only grants free/busy access; detailed events were not read`,
+            });
+            continue;
+          }
+          try {
+            let pageToken: string | undefined;
+            do {
+              const response = await calendarListEvents(
+                accessToken,
+                source?.calendarId ?? "primary",
+                {
+                  timeMin,
+                  timeMax,
+                  singleEvents: true,
+                  orderBy: "startTime",
+                  maxResults: options.maxResults ?? 2500,
+                  pageToken,
+                  eventTypes: LIST_EVENT_TYPES,
+                },
+              );
+              events.push(
+                ...(response.items || []).map((event: any) => ({
+                  ...event,
+                  __calendarSource: source,
+                })),
+              );
+              pageToken =
+                typeof response.nextPageToken === "string"
+                  ? response.nextPageToken
+                  : undefined;
+            } while (pageToken);
+          } catch (error: any) {
+            errors.push({
+              email,
+              error: source
+                ? `Unable to read Google Calendar source ${source.name} (${source.calendarId}): ${error?.message || "Unknown provider error"}`
+                : error?.message || "Unable to load Google Calendar events",
+            });
+          }
+        }
 
         return events.map((event: any) => {
+          const calendarSource = event.__calendarSource as
+            | GoogleCalendarSource
+            | undefined;
           // Find the current user's RSVP status from attendees
           const selfAttendee = event.attendees?.find(
             (a: any) => a.self === true,
           );
           return {
-            id: `google-${event.id}`,
+            // Google event ids are only unique within a calendar. Retain the
+            // primary legacy id while namespacing every selected non-primary
+            // source so client keys and mutations cannot collide.
+            id:
+              calendarSource && !calendarSource.primary
+                ? `google-${calendarSource.sourceKey}-${event.id}`
+                : `google-${event.id}`,
             title: event.summary || "Untitled",
             titleIsGenerated: !event.summary,
             description: event.description || "",
@@ -1229,6 +1389,12 @@ export async function listEvents(
             googleEventId: event.id || undefined,
             htmlLink: event.htmlLink || undefined,
             accountEmail: email,
+            calendarSourceKey: calendarSource?.sourceKey,
+            calendarId: calendarSource?.calendarId,
+            calendarName: calendarSource?.name,
+            calendarAccessRole: calendarSource?.accessRole,
+            calendarPrimary: calendarSource?.primary,
+            calendarReadOnly: calendarSource?.readOnly,
             responseStatus: selfAttendee?.responseStatus,
             transparency: event.transparency || undefined,
             ...mapColor(event),
@@ -1500,18 +1666,40 @@ export async function listOverlayEvents(
 export async function getEvent(
   googleEventId: string,
   account: GoogleAccountSelection,
+  options: { calendarSourceKey?: string } = {},
 ): Promise<CalendarEvent> {
+  let calendarSource: GoogleCalendarSource | undefined;
+  if (options.calendarSourceKey) {
+    const discovered = await listGoogleCalendars(account.ownerEmail);
+    calendarSource = discovered.calendars.find(
+      (source) => source.sourceKey === options.calendarSourceKey,
+    );
+    if (
+      !calendarSource ||
+      calendarSource.accountEmail.trim().toLowerCase() !==
+        account.accountEmail.trim().toLowerCase()
+    ) {
+      throw new Error(
+        "Google Calendar source is not connected or no longer available",
+      );
+    }
+    if (calendarSource.accessRole === "freeBusyReader") {
+      throw new Error("Google Calendar source only grants free/busy access");
+    }
+  }
   const client = await getClientForAccount(account);
 
   const event = await calendarGetEvent(
     client.accessToken,
-    "primary",
+    calendarSource?.calendarId ?? "primary",
     googleEventId,
   );
   const selfAttendee = event.attendees?.find((a: any) => a.self === true);
 
   return {
-    id: `google-${event.id}`,
+    id: calendarSource
+      ? `google-${calendarSource.sourceKey}-${event.id}`
+      : `google-${event.id}`,
     title: event.summary || "Untitled",
     titleIsGenerated: !event.summary,
     description: event.description || "",
@@ -1525,6 +1713,12 @@ export async function getEvent(
     googleEventId: event.id || undefined,
     htmlLink: event.htmlLink || undefined,
     accountEmail: account.accountEmail,
+    calendarSourceKey: calendarSource?.sourceKey,
+    calendarId: calendarSource?.calendarId,
+    calendarName: calendarSource?.name,
+    calendarAccessRole: calendarSource?.accessRole,
+    calendarPrimary: calendarSource?.primary,
+    calendarReadOnly: calendarSource?.readOnly,
     responseStatus: selfAttendee?.responseStatus || undefined,
     transparency: event.transparency || undefined,
     ...mapColor(event),

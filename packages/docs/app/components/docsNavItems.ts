@@ -124,6 +124,37 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         ],
       },
       {
+        id: "database-providers",
+        labelKey: "databaseProviders",
+        children: [
+          {
+            id: "database-neon",
+            labelKey: "databaseNeon",
+            slug: "neon",
+          },
+          {
+            id: "database-supabase",
+            labelKey: "databaseSupabase",
+            slug: "supabase",
+          },
+          {
+            id: "database-turso",
+            labelKey: "databaseTurso",
+            slug: "turso",
+          },
+          {
+            id: "database-d1",
+            labelKey: "databaseD1",
+            slug: "cloudflare-d1",
+          },
+          {
+            id: "database-postgres",
+            labelKey: "databasePostgres",
+            slug: "postgres",
+          },
+        ],
+      },
+      {
         id: "deployment-production",
         labelKey: "deploymentProduction",
         children: [
@@ -1055,8 +1086,9 @@ function navLabel(t: Translate, key: keyof typeof enUS.nav): string {
 
 const SHOW_DRAFTS = import.meta.env.VITE_SHOW_DRAFTS === "true";
 
-// Keep the public template catalog after the framework and toolkit guidance so
-// readers encounter architecture and reusable primitives before app examples.
+// Keep Toolkit directly after deployment, and the public template catalog
+// after the framework guidance so readers encounter architecture and reusable
+// primitives before app examples.
 const NAV_SECTION_CONFIG_IN_DISPLAY_ORDER = (() => {
   const appsSection = NAV_SECTION_CONFIG.find(
     (section) => section.id === "apps",
@@ -1069,9 +1101,11 @@ const NAV_SECTION_CONFIG_IN_DISPLAY_ORDER = (() => {
   return NAV_SECTION_CONFIG.flatMap((section) =>
     section.id === "apps" || section.id === "toolkits"
       ? []
-      : section.id === "core-architecture"
-        ? [section, toolkitsSection, appsSection]
-        : [section],
+      : section.id === "deployment"
+        ? [section, toolkitsSection]
+        : section.id === "core-architecture"
+          ? [section, appsSection]
+          : [section],
   );
 })();
 

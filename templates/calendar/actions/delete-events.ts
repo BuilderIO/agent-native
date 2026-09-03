@@ -7,18 +7,24 @@ import {
   matchesWeekdays,
   normalizeWeekdays,
   requireValidTimezone,
-  type WeekdayName,
 } from "../server/lib/event-weekday.js";
-import { zonedDateTimeToUtcIso } from "../server/lib/find-time.js";
 import { isGoogleNotFoundError } from "../server/lib/google-api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
-import type { CalendarEvent } from "../shared/api.js";
 import {
+  BOOKED_EVENT_REASON,
+  BULK_EVENT_CONCURRENCY,
+  MAX_MATCHED_EVENTS,
   cliBoolean,
-  isValidDateOnly,
+  isBookedOnAccount,
+  mapWithConcurrency,
   normalizeGoogleEventId,
+  rawCliBoolean,
   requireActionUserEmail,
+  requireExplicitBound,
   resolveOwnedAccountEmail,
+  startsWithinRange,
+  undeletableEventReason,
+  type BulkEventResult,
 } from "./event-action-helpers.js";
 import {
   findBookedGoogleEvents,
@@ -32,142 +38,8 @@ import {
  * and asks the caller to narrow, instead of deleting the first N of an unknown
  * number and reporting success.
  */
-const MAX_MATCHED_EVENTS = 200;
 /** Google Calendar rate-limits per user, so fan out modestly rather than
  *  firing every delete at once and turning a clean batch into retries. */
-const DELETE_CONCURRENCY = 4;
-
-type Outcome = "deleted" | "already_absent" | "matched" | "skipped" | "failed";
-
-interface EventResult {
-  id: string;
-  title?: string;
-  start?: string;
-  weekday?: WeekdayName;
-  accountEmail?: string;
-  outcome: Outcome;
-  reason?: string;
-}
-
-type BookedEvent = { googleEventId: string; calendarAccountId: string | null };
-
-/**
- * Google event ids are scoped to a calendar, so a booking only protects the
- * event on its own account. A booking whose account was never recorded still
- * protects every match: reading that null as "some other account" would delete a
- * booked event, which is the failure this guard exists to prevent.
- */
-function isBookedOnAccount(
-  booked: readonly BookedEvent[],
-  googleEventId: string,
-  accountEmail: string | undefined,
-): boolean {
-  return booked.some(
-    (row) =>
-      row.googleEventId === googleEventId &&
-      (!row.calendarAccountId ||
-        !accountEmail ||
-        row.calendarAccountId.trim().toLowerCase() ===
-          accountEmail.trim().toLowerCase()),
-  );
-}
-
-const BOOKED_EVENT_REASON =
-  "Is the Google event for an active booking; cancel the booking instead";
-
-/** Why this app cannot delete an event, or undefined when it can. */
-function undeletableReason(
-  event: CalendarEvent,
-  booked: readonly BookedEvent[],
-): string | undefined {
-  // The shared read hides a booking whose linked Google event is present, so
-  // deleting that Google event here would leave the booking row confirmed and
-  // the event would reappear on the calendar as a local booking.
-  if (
-    event.googleEventId &&
-    isBookedOnAccount(booked, event.googleEventId, event.accountEmail)
-  ) {
-    return BOOKED_EVENT_REASON;
-  }
-  if (event.source === "ical") {
-    return "Comes from a subscribed ICS feed, which is read-only";
-  }
-  if (event.source === "local") {
-    return "Is a booking; cancel it from the booking instead";
-  }
-  if (!event.googleEventId) {
-    return "Has no Google event id to delete";
-  }
-  return undefined;
-}
-
-const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-/**
- * Whether an event *starts* inside the requested range: `from` inclusive, `to`
- * exclusive.
- *
- * The shared calendar read deliberately returns anything that overlaps the range
- * so the UI can draw a multi-day event and an event beginning on the boundary.
- * Neither is what a caller naming a range for a delete means, and the reported
- * `weekday` comes from the start, so an event starting outside the range would be
- * previewed under a day the caller never queried. Re-checking both bounds here
- * keeps the delete inside the dates the caller actually named.
- *
- * An all-day start carries no instant, so it is anchored to local midnight in the
- * range's own timezone: parsing it as a UTC date would sort it before the zone's
- * midnight, and comparing it as a date string would drop a same-day all-day event
- * from a range ending at midday.
- */
-function startsWithinRange(
-  start: string,
-  range: { from: string; to: string; timezone: string },
-): boolean {
-  const startMs = DATE_ONLY_RE.test(start)
-    ? new Date(zonedDateTimeToUtcIso(start, "00:00", range.timezone)).getTime()
-    : new Date(start).getTime();
-  return (
-    startMs >= new Date(range.from).getTime() &&
-    startMs < new Date(range.to).getTime()
-  );
-}
-
-/**
- * Reject a bound the shared resolver would silently reinterpret. An impossible
- * day rolls forward instead of failing on both paths a bound can take —
- * `Date.UTC` for a date-only value and `new Date` for a datetime, where V8
- * turns `2026-02-30T00:00:00-08:00` into March 2 — so a destructive range would
- * silently cover dates the caller never stated. Validated on the leading date
- * for that reason; an out-of-range month or an unparseable value already fails
- * in `normalizeDateBound`.
- */
-function requireExplicitBound(value: string, label: "from" | "to"): string {
-  const trimmed = value.trim();
-  if (!trimmed) throw new Error(`${label} cannot be blank.`);
-  const datePart = trimmed.slice(0, 10);
-  if (DATE_ONLY_RE.test(datePart) && !isValidDateOnly(datePart)) {
-    throw new Error(`${label} is not a real calendar date: ${datePart}`);
-  }
-  return trimmed;
-}
-
-async function mapWithConcurrency<T, R>(
-  items: readonly T[],
-  limit: number,
-  run: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let next = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(limit, items.length) }, async () => {
-      while (next < items.length) {
-        const index = next++;
-        results[index] = await run(items[index], index);
-      }
-    }),
-  );
-  return results;
-}
 
 /**
  * Which timezone decides an event's weekday, in the order the rest of the app
@@ -263,6 +135,11 @@ export default defineAction({
       .describe("Return the matched events without deleting anything"),
   }),
   toolCallable: false,
+  // A dry run only reports, so it stays unblocked and remains the cheap way for
+  // the agent to show its match set. Committing the delete is the one calendar
+  // write no preview can undo, so a human approves the exact call. Absent
+  // dryRun means a real delete, which is why the predicate fails closed.
+  needsApproval: ({ dryRun }) => !rawCliBoolean(dryRun),
   run: async (args) => {
     const ownerEmail = requireActionUserEmail();
     if (!(await googleCalendar.isConnected(ownerEmail))) {
@@ -332,9 +209,9 @@ export default defineAction({
     let targets: Array<{
       googleEventId: string;
       accountEmail: string;
-      display: EventResult;
+      display: BulkEventResult;
     }> = [];
-    const results: EventResult[] = [];
+    const results: BulkEventResult[] = [];
     // A feed that would only have contributed a skipped row still means the
     // report does not cover everything on screen; say so rather than imply it.
     const unreadableSources: Array<{ name: string; error: string }> = [];
@@ -355,7 +232,7 @@ export default defineAction({
       // any less of a silent inconsistency.
       const booked = await findBookedGoogleEvents(requested);
       for (const googleEventId of requested) {
-        const display: EventResult = {
+        const display: BulkEventResult = {
           id: `google-${googleEventId}`,
           accountEmail,
           outcome: "matched",
@@ -412,7 +289,7 @@ export default defineAction({
       );
 
       for (const event of matched) {
-        const display: EventResult = {
+        const display: BulkEventResult = {
           id: event.googleEventId ? `google-${event.googleEventId}` : event.id,
           title: event.title,
           start: event.start,
@@ -420,7 +297,7 @@ export default defineAction({
           accountEmail: event.accountEmail,
           outcome: "matched",
         };
-        const reason = undeletableReason(event, booked);
+        const reason = undeletableEventReason(event, booked);
         if (reason) {
           results.push({ ...display, outcome: "skipped", reason });
           continue;
@@ -463,8 +340,8 @@ export default defineAction({
     };
     const deleteResults = await mapWithConcurrency(
       targets,
-      DELETE_CONCURRENCY,
-      async (target): Promise<EventResult> => {
+      BULK_EVENT_CONCURRENCY,
+      async (target): Promise<BulkEventResult> => {
         const account = {
           ownerEmail,
           accountEmail: target.accountEmail,

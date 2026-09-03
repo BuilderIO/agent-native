@@ -1,5 +1,15 @@
 # @agent-native/dispatch
 
+## 0.33.1
+
+### Patch Changes
+
+- 485642e: Keep hosted Dispatch app launches inline outside Builder editor sessions.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [0566ce9]
+  - @agent-native/toolkit@0.19.2
+
 ## 0.33.0
 
 ### Minor Changes
@@ -862,14 +872,5 @@
 ### Patch Changes
 
 - 2765110: Restore the transactional email catalog and Brand Kit named-token public surfaces.
-
-## 0.17.3
-
-### Patch Changes
-
-- 277be3f: Clarify that a free Builder tier is available when connecting Dispatch app creation.
-- Updated dependencies [277be3f]
-- Updated dependencies [277be3f]
-  - @agent-native/toolkit@0.13.2
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

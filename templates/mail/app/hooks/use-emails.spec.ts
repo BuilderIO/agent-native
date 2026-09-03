@@ -106,9 +106,7 @@ describe("useLabels", () => {
     expect(source).toContain(
       "export function useLabels(accountEmails?: readonly string[])",
     );
-    expect(source).toContain(
-      'accountEmails=${encodeURIComponent(accountFilter.join(","))}',
-    );
+    expect(source).toContain('useActionQuery<Label[]>(\n    "list-labels",');
   });
 });
 

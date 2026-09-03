@@ -376,7 +376,7 @@ export interface CanvasContextMenuProps {
 
 const DEFAULT_LABELS: CanvasContextMenuLabels = {
   selectLayer: "Select layer",
-  reprompt: "Regenerate…",
+  reprompt: "Edit with AI…",
   pasteHere: "Paste here",
   selectAll: "Select all",
   zoomToFit: "Zoom to fit",
@@ -639,6 +639,7 @@ export const CanvasContextMenu = forwardRef<
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLDivElement>(null);
   const imperativePointRef = useRef<CanvasContextMenuPoint | null>(null);
+  const preventContextMenuFocusRestoreRef = useRef(false);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -800,7 +801,14 @@ export const CanvasContextMenu = forwardRef<
           {children}
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent className={cn(MENU_CONTENT_CLASS, contentClassName)}>
+      <ContextMenuContent
+        className={cn(MENU_CONTENT_CLASS, contentClassName)}
+        onCloseAutoFocus={(event) => {
+          if (!preventContextMenuFocusRestoreRef.current) return;
+          event.preventDefault();
+          preventContextMenuFocusRestoreRef.current = false;
+        }}
+      >
         {layerCandidates.length > 0 && onSelectLayer ? (
           <>
             <ContextMenuGroup>
@@ -843,6 +851,7 @@ export const CanvasContextMenu = forwardRef<
                         key={`reprompt:${candidate.key}`}
                         candidate={candidate}
                         onSelect={(event) => {
+                          preventContextMenuFocusRestoreRef.current = true;
                           onRepromptLayer(candidate, {
                             action: "reprompt",
                             point,
@@ -865,6 +874,7 @@ export const CanvasContextMenu = forwardRef<
                   }
                   label={labels.reprompt}
                   onSelect={(event) => {
+                    preventContextMenuFocusRestoreRef.current = true;
                     const candidate = layerCandidates[0];
                     if (!onReprompt && onRepromptLayer && candidate) {
                       onRepromptLayer(candidate, {

@@ -14,4 +14,5 @@ export default createAuthPlugin({
       "Plug in your own agent runtime or build on the included app-agent loop",
     ],
   },
+  rootAuth: false,
 });

@@ -53,6 +53,7 @@ import {
   getMcpConnectGuides,
   getMcpStaticTokenFallback,
   interpolateMcpConnectTemplate,
+  resolveMcpConnectGuideId,
   type McpConnectGuide,
   type McpConnectGuideId,
 } from "../shared/mcp-connect-content.js";
@@ -479,6 +480,7 @@ function renderConnectPage(params: {
   serverId: string;
   userCode: string | null;
   locale: LocaleCode;
+  requestedGuide: string | null;
 }): string {
   const {
     connectBasePath,
@@ -488,6 +490,7 @@ function renderConnectPage(params: {
     serverId,
     userCode,
     locale,
+    requestedGuide,
   } = params;
   const direction = localeDirection(locale);
   const messages = MCP_SETTINGS_MESSAGES[locale];
@@ -511,7 +514,10 @@ function renderConnectPage(params: {
   );
   const safeUserCode =
     userCode && USER_CODE_RE.test(userCode) ? escapeHtml(userCode) : "";
-  const activeGuideId = guides[0]?.id ?? "claude";
+  const resolvedGuideId = resolveMcpConnectGuideId(requestedGuide);
+  const activeGuideId = guides.some((guide) => guide.id === resolvedGuideId)
+    ? resolvedGuideId
+    : (guides[0]?.id ?? "claude");
   const guideTabsHtml = guides
     .map(
       (guide) =>
@@ -1277,6 +1283,7 @@ export async function handleMcpConnect(
           serverId: serverName(appUrl, options),
           userCode: null,
           locale,
+          requestedGuide: requestUrl?.searchParams.get("guide") ?? null,
         }),
       );
     }
@@ -1292,6 +1299,7 @@ export async function handleMcpConnect(
         serverId: serverName(appUrl, options),
         userCode,
         locale,
+        requestedGuide: requestUrl?.searchParams.get("guide") ?? null,
       }),
     );
   }

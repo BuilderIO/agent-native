@@ -1409,6 +1409,74 @@ button[title="Open agent sidebar"] {
   background: rgba(96, 159, 248, 0.35);
 }
 
+/* The shared editor supplies the Content editing behavior. Its surface stays
+   transparent so the slide's own background, geometry, and inherited styles
+   remain the source of truth. */
+.slide-content .slide-rich-editor-host,
+.slide-content .slide-shared-rich-editor,
+.slide-content .slide-shared-rich-editor .an-rich-md-wrapper {
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  background: transparent;
+}
+
+.slide-content .slide-shared-rich-editor .an-rich-md-prose {
+  min-height: 100%;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  white-space: pre-wrap;
+}
+
+.slide-content
+  .slide-shared-rich-editor
+  .an-rich-md-prose
+  :is(p, h1, h2, h3, h4, blockquote, ul, ol) {
+  margin: 0;
+  color: inherit;
+  font-family: inherit;
+  letter-spacing: inherit;
+}
+
+.slide-content .slide-shared-rich-editor .an-rich-md-prose :is(h1, h2, h3, h4) {
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+}
+
+.slide-content .slide-shared-rich-editor .an-rich-md-prose ul,
+.slide-content .slide-shared-rich-editor .an-rich-md-prose ol {
+  padding-left: 1.5em;
+  list-style-position: outside;
+}
+
+.slide-content .slide-shared-rich-editor .an-rich-md-prose li {
+  display: list-item;
+  margin: 0;
+  padding: 0;
+}
+
+.slide-content .slide-shared-rich-editor .an-rich-md-prose li p {
+  margin: 0;
+  font-size: inherit;
+}
+
+.slide-content .slide-shared-rich-editor .an-rich-md-prose code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.slide-content .slide-shared-rich-editor .an-rich-md-bubble-toolbar {
+  display: none;
+}
+
 /* Google Slides-style object selection chrome. The edge hit targets are wider
    than their visible bars, but both centers sit on the 1px outline rather than
    drifting into the selected object through the outline's border box. */

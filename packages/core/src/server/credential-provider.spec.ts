@@ -670,6 +670,14 @@ describe("deleteBuilderCredentials", () => {
     expect(scopes.every((s) => s === "user")).toBe(true);
   });
 
+  it("surfaces secret-store deletion failures", async () => {
+    mockDeleteAppSecret.mockRejectedValueOnce(new Error("store unavailable"));
+
+    await expect(deleteBuilderCredentials("a@b.com")).rejects.toThrow(
+      "store unavailable",
+    );
+  });
+
   it("deletes at org scope for an owner — undoes a connect that landed at org scope", async () => {
     const target = await deleteBuilderCredentials("owner@b.com", {
       orgId: "builder_io",

@@ -1,4 +1,6 @@
-const FORMS_ORIGIN = "https://forms.agent-native.com";
+import { firstPartyAppUrl } from "../components/deployment-links";
+
+const FORMS_ORIGIN = firstPartyAppUrl("https://forms.agent-native.com");
 const COMMUNITY_FORM_SLUG = "community-app-submission";
 const SCREENSHOT_FIELD_ID = "screenshots";
 

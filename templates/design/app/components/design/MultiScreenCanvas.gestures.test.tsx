@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
-import { act, useState } from "react";
+import { act, type ReactNode, useState } from "react";
+import { createPortal } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -150,6 +151,106 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(label).not.toBeNull();
     return { frame: frame!, label: label! };
   }
+
+  async function expectPortaledReviewTargetDoesNotStartGesture(
+    target: ReactNode,
+    selector: string,
+  ) {
+    const onLayerMarqueeSelectionChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          activeId="screen-a"
+          selectedScreenIds={["screen-a"]}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+          }}
+          renderScreenContent={() => (
+            <div className="design-canvas-iframe-wrapper">
+              {createPortal(target, document.body)}
+            </div>
+          )}
+          onPick={() => {}}
+          onLayerMarqueeSelectionChange={onLayerMarqueeSelectionChange}
+        />,
+      );
+    });
+    const reviewTarget = document.querySelector<HTMLElement>(selector);
+    expect(reviewTarget).not.toBeNull();
+
+    await act(async () => {
+      dispatchMouse(reviewTarget!, "mousedown", 160, 160);
+      dispatchMouse(window, "mouseup", 160, 160);
+    });
+
+    expect(onLayerMarqueeSelectionChange).not.toHaveBeenCalled();
+  }
+
+  it("does not steal focus from review controls rendered over a screen", async () => {
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content:
+                "<!doctype html><html><body><button>Layer</button></body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="comment"
+          activeId="screen-a"
+          selectedScreenIds={["screen-a"]}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+          }}
+          renderScreenContent={() => (
+            <div className="design-canvas-iframe-wrapper">
+              <div data-review-popover>
+                <textarea aria-label="Edit prompt" />
+              </div>
+            </div>
+          )}
+          onPick={() => {}}
+        />,
+      );
+    });
+    const editPrompt = container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Edit prompt"]',
+    );
+    expect(editPrompt).not.toBeNull();
+    editPrompt!.focus();
+
+    await act(async () => {
+      dispatchMouse(editPrompt!, "mousedown", 160, 160);
+    });
+
+    expect(document.activeElement).toBe(editPrompt);
+  });
+
+  it("does not start a canvas gesture from the portaled review click plane", async () => {
+    await expectPortaledReviewTargetDoesNotStartGesture(
+      <div data-review-click-plane />,
+      "[data-review-click-plane]",
+    );
+  });
+
+  it("does not start a canvas gesture from a portaled review menu", async () => {
+    await expectPortaledReviewTargetDoesNotStartGesture(
+      <button type="button" data-review-popover />,
+      "[data-review-popover]",
+    );
+  });
 
   it("reports an unchanged empty layer marquee selection once per drag", async () => {
     const onLayerMarqueeSelectionChange = vi.fn();

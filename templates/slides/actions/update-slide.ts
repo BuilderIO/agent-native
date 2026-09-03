@@ -38,7 +38,7 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
-import { withDeckLock } from "./patch-deck.js";
+import { isAgentPatchCaller, withDeckLock } from "./patch-deck.js";
 
 function deckDeepLink(deckId: string): string {
   return buildDeepLink({
@@ -278,6 +278,7 @@ function assertStyleOnlyEdit(
 }
 
 export default defineAction({
+  title: "Edit one Slides slide",
   description:
     "Atomically patch a slide's HTML like a code editor: send several exact edits against the current source, optionally format it with Prettier, and sync the result live to open editors. Use exactly one input mode: edits, legacy find/replace, or fullContent. Mixed modes are rejected and write nothing. Prefer edits over fullContent so unrelated markup is not regenerated, especially for style-only requests, reorders, or changes that must stay consistent across lists, tables, or other representations. For style-only requests, set styleOnly=true and use edits that change only the requested CSS declarations and preserve text and layout properties; the action rejects text or markup changes and fullContent in that mode. Never use unresolved placeholder markers as stand-ins for preserved content. Use baseContentHash from get-deck to reject stale patches, then re-read the targeted slide to verify every affected representation and the requested scope. Content edits clear existing click-reveal metadata; style-only CSS edits preserve it because the HTML structure remains stable. Use patch-deck with the complete animations list when a content edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default. The action returns immediately after persistence; layoutFit.status=pending means the open editor will measure the new content asynchronously, and get-layout-overflows can check the returned contentHash plus layoutFitRevision later.",
   schema: z.object({
@@ -387,6 +388,7 @@ export default defineAction({
   }),
   http: false,
   run: async (args, ctx) => {
+    const isAgentCaller = isAgentPatchCaller(ctx?.caller);
     const {
       deckId,
       slideId,
@@ -557,7 +559,10 @@ export default defineAction({
         }
       }
 
-      if (applied) slide.layoutFitRevision = createLayoutFitRevision();
+      if (applied) {
+        slide.layoutFitRevision = createLayoutFitRevision();
+        if (isAgentCaller) delete slide.layoutWarningDismissed;
+      }
 
       // Animation targets are paths into the persisted HTML. A content edit
       // can keep every path valid while changing which visual element lives at
@@ -650,10 +655,7 @@ export default defineAction({
               ownerEmail: row.ownerEmail ?? "",
             },
             {
-              force:
-                ctx?.caller === "tool" ||
-                ctx?.caller === "mcp" ||
-                ctx?.caller === "a2a",
+              force: isAgentPatchCaller(ctx?.caller),
               chatContext: deckVersionChatContextFromAction(ctx),
               label: "Before slide edit",
               db: tx,

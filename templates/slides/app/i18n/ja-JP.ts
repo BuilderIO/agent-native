@@ -146,6 +146,8 @@ const messages = {
     clearSelection: "選択を解除",
     sendToAgent: "エージェントに送信",
     saveReconnect: "再接続時に変更が保存されます",
+    saveFailedDescription:
+      "最新の変更はこのデバイスにしかありません。離れる前にバックアップをダウンロードしてください。",
     offline: "オフライン",
     selected: "選択済み",
     chooseDesignSystem: "デザインシステムを選択",
@@ -205,6 +207,9 @@ const messages = {
     usingDesignSystem: "{{title}} を使用中",
     usingLinkedDesignSystem: "リンクされたデザインシステムを使用中",
     viewOnly: "表示のみ",
+    sourcePreserving: "編集に制限あり",
+    sourcePreservingDescription:
+      "テキストとオブジェクトは編集できます。このインポート済みデッキでは、スライドの追加、削除、並べ替えは無効です。",
     commenterRoleLabel: "コメント可",
     commenterRoleDescription: "表示とコメントの追加ができます",
     slideSettings: "スライド設定",
@@ -261,6 +266,11 @@ const messages = {
     more: "その他",
     importing: "インポート中...",
     importFile: "ファイルをインポート",
+    downloadBackup: "バックアップをダウンロード",
+    importBackup: "バックアップをインポート",
+    backupDownloaded: "バックアップをダウンロードしました",
+    backupDownloadFailed: "バックアップをダウンロードできませんでした",
+    invalidBackup: "有効なSlidesバックアップJSONファイルを選択してください。",
     savedVersions: "保存済みバージョン",
     lightTheme: "ライトテーマ",
     darkTheme: "ダークテーマ",
@@ -268,6 +278,7 @@ const messages = {
   editorExport: {
     pptxFailed: "PPTX ファイルを生成できませんでした。",
     exportFailed: "エクスポートに失敗しました",
+    exporting: "エクスポート中...",
     exportPptxError: "PPTX としてエクスポート中に問題が発生しました。",
     googleSlidesDownloaded: "Google Slides 用にダウンロードしました",
     googleSlidesImportHint:

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { resetGithubStarCountCacheForTests } from "../../lib/github-star-count";
 import { loader as rootLoader, resolveLayoutLocale } from "../root";
 import { loader as localizedDocLoader } from "../routes/docs.$locale.$slug";
 import { loader as defaultDocLoader } from "../routes/docs.$slug";
@@ -25,6 +26,7 @@ function loaderArgs(
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  resetGithubStarCountCacheForTests();
 });
 
 describe("localized docs fallback", () => {
@@ -234,6 +236,16 @@ describe("localized docs fallback", () => {
   });
 
   it("hydrates route locale messages from the server for prefixed docs paths", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ stargazers_count: 4647 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+
     const data = await rootLoader(
       loaderArgs({}, "https://docs.test/zh-CN/docs/internationalization"),
     );
@@ -243,5 +255,21 @@ describe("localized docs fallback", () => {
     expect(data.messages).toMatchObject({
       header: expect.objectContaining({ docs: expect.any(String) }),
     });
+  });
+
+  it("includes the GitHub star count in the SSR root data", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ stargazers_count: 4647 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+
+    const data = await rootLoader(loaderArgs({}, "https://docs.test/apps"));
+
+    expect(data.starCount).toBe(4647);
   });
 });

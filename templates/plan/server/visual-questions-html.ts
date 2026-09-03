@@ -79,7 +79,7 @@ export function defaultVisualQuestions(): VisualQuestion[] {
           recommended: true,
         },
         {
-          label: "Decide for me",
+          label: "Let the agent decide",
           description:
             "Let the agent choose from the brief and product context.",
         },
@@ -134,7 +134,7 @@ export function defaultVisualQuestions(): VisualQuestion[] {
         { label: "Drag to reorder" },
         { label: "Empty states" },
         { label: "Keyboard-first" },
-        { label: "Decide for me" },
+        { label: "Let the agent decide" },
       ],
     },
     {
@@ -200,7 +200,7 @@ export function defaultVisualQuestions(): VisualQuestion[] {
         { label: "Swipe gestures" },
         { label: "Inline comments" },
         { label: "Empty-state moments" },
-        { label: "Decide for me" },
+        { label: "Let the agent decide" },
       ],
     },
     {

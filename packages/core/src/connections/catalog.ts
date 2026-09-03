@@ -204,6 +204,8 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       "https://www.googleapis.com/auth/gmail.send",
       "https://www.googleapis.com/auth/gmail.modify",
       "https://www.googleapis.com/auth/gmail.settings.basic",
+      "https://www.googleapis.com/auth/contacts.readonly",
+      "https://www.googleapis.com/auth/contacts.other.readonly",
     ]),
   }),
   defineWorkspaceConnectionProvider({

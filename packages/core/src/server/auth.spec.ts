@@ -2809,6 +2809,31 @@ describe("server/auth", () => {
       await expect(guard(event)).resolves.toBeUndefined();
     });
 
+    it("lets signed Creative Context processors bypass the global auth guard", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("APP_BASE_PATH", "/slides");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      for (const path of [
+        "/slides/_agent-native/creative-context/process-import",
+        "/slides/_agent-native/creative-context/process-background",
+      ]) {
+        const event = createMockEvent({ path });
+        event.req.method = "POST";
+        event.node.req.method = "POST";
+        await expect(guard(event)).resolves.toBeUndefined();
+      }
+    });
+
     it("lets the durable _process-run processor routes bypass the global auth guard", async () => {
       // Both the agent-teams sub-agent processor AND the durable-background
       // agent-chat processor are self-fired with ONLY an HMAC Bearer token (no
@@ -3077,6 +3102,34 @@ describe("server/auth", () => {
       expect(handoff).toBeLessThan(html.indexOf("</head>"));
       expect(handoff).toBeLessThan(html.indexOf("<body>"));
       expect(getSession).not.toHaveBeenCalled();
+    });
+
+    it("does not serve the login document at / when homePath is the root", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      // With the app home at "/", the root is the authenticated app shell, not
+      // a public marketing surface. Serving the login document there would
+      // bounce a signed-in visitor back to "/" forever.
+      defineAppConfig({ app: { homePath: "/" } });
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => null,
+        loginHtml:
+          "<!doctype html><html><head><title>QA login</title></head><body>QA login</body></html>",
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const result = await guard(createMockEvent({ path: "/" }));
+
+      // The app-shell path returns undefined so the SSR handler renders "/".
+      expect(result).not.toBeInstanceOf(Response);
     });
 
     it("keeps the cached root auth document independent of request host", async () => {
