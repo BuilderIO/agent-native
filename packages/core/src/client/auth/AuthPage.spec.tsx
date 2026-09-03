@@ -36,14 +36,15 @@ describe("AuthPage", () => {
     const props = propsFromHtml(onboardingHtml);
     const html = renderToString(<AuthPage {...props} />);
 
-    expect(props.marketing?.learnMorePlacement).toBe("bottom-right");
     expect(html).toContain('data-agent-native-marketing-home="true"');
     expect(html).toContain('class="auth-marketing-screenshot"');
     expect(html).toContain("/auth-marketing/slides.webp");
     expect(html).toContain("New to Slides?");
     expect(html).toContain('href="https://agent-native.com/apps/slides"');
     expect(html).toContain('class="auth-marketing-learn-more"');
-    expect(html).toContain("has-bottom-right-learn-more");
+    expect(onboardingHtml).toContain(
+      "bottom: max(1rem, env(safe-area-inset-bottom));\n    inset-inline-end: max(1rem, env(safe-area-inset-right));",
+    );
     expect(html).not.toContain('data-agent-native-starfield="true"');
     expect(html).toContain('class="split');
     expect(html).toContain('class="marketing-panel"');
@@ -83,14 +84,16 @@ describe("AuthPage", () => {
     );
   });
 
-  it("places Calendar's learn-more link in the bottom-right corner", () => {
+  it("places the learn-more link bottom-right for every app, with no per-app opt-in", () => {
+    // Mail never configured a placement — bottom-right is the only layout, not a toggle.
     const props = propsFromHtml(
-      getOnboardingHtml({ requestHost: "calendar.agent-native.com" }),
+      getOnboardingHtml({ requestHost: "mail.agent-native.com" }),
     );
     const html = renderToString(<AuthPage {...props} />);
 
-    expect(props.marketing?.learnMorePlacement).toBe("bottom-right");
-    expect(html).toContain("has-bottom-right-learn-more");
+    expect(props.marketing).not.toHaveProperty("learnMorePlacement");
+    expect(html).toContain('class="auth-marketing-learn-more"');
+    expect(html).not.toContain("has-bottom-right-learn-more");
   });
 
   it.each([

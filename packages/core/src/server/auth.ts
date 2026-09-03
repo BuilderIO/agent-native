@@ -404,7 +404,6 @@ export interface AuthOptions {
     screenshotWidth?: number;
     screenshotHeight?: number;
     learnMoreUrl?: string;
-    learnMorePlacement?: "top-right" | "bottom-right";
     /** @deprecated Local execution is no longer offered from auth pages. */
     runLocalCommand?: string;
   };
