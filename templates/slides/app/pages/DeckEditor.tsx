@@ -2611,7 +2611,7 @@ export default function DeckEditor() {
         <div
           ref={setLayersPanelSlot}
           data-layers-panel-host="true"
-          className="contents"
+          className="flex h-full shrink-0"
         />
 
         {commentsOpen && (

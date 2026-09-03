@@ -106,4 +106,42 @@ describe("SlidesLayersPanel", () => {
     expect(onContextMenuLayer).toHaveBeenCalledTimes(1);
     expect(onContextMenuLayer).toHaveBeenCalledWith("child");
   });
+
+  it("keeps a nested drag source from being replaced by its parent", () => {
+    const dataTransfer = {
+      effectAllowed: "",
+      setData: vi.fn(),
+    };
+    const { container } = render(
+      <SlidesLayersPanel
+        layers={[
+          {
+            id: "parent",
+            label: "Parent",
+            kind: "container",
+            children: [{ id: "child", label: "Child", kind: "text" }],
+          },
+        ]}
+        selectedIds={[]}
+        onSelectLayer={vi.fn()}
+        onMoveLayer={vi.fn()}
+        onClose={vi.fn()}
+        labels={{
+          title: "Layers",
+          close: "Close layers panel",
+          expand: "Expand layer",
+          collapse: "Collapse layer",
+        }}
+      />,
+    );
+
+    const childTreeItem = container.querySelector<HTMLElement>(
+      '[data-layer-node-id="child"]',
+    );
+    expect(childTreeItem).not.toBeNull();
+    fireEvent.dragStart(childTreeItem!, { dataTransfer });
+
+    expect(dataTransfer.setData).toHaveBeenCalledTimes(1);
+    expect(dataTransfer.setData).toHaveBeenCalledWith("text/plain", "child");
+  });
 });

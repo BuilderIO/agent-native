@@ -213,7 +213,10 @@ function LayerRow({
       <ContextMenu>
         <ContextMenuTrigger
           asChild
-          onContextMenu={() => onContextMenuLayer(node.id)}
+          onContextMenu={(event) => {
+            event.stopPropagation();
+            onContextMenuLayer(node.id);
+          }}
         >
           {rowContent}
         </ContextMenuTrigger>
@@ -236,6 +239,7 @@ function LayerRow({
       onDragStart={(event) => {
         event.dataTransfer.setData("text/plain", node.id);
         event.dataTransfer.effectAllowed = "move";
+        event.stopPropagation();
         setDragging(true);
       }}
       onDragEnd={() => setDragging(false)}

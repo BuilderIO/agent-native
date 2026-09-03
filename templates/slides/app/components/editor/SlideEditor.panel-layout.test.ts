@@ -64,6 +64,19 @@ describe("editor side panels", () => {
     );
     expect(pageSource).toContain('data-layers-panel-host="true"');
     expect(pageSource).toContain("layersPanelSlot={layersPanelSlot}");
+    const workspaceStart = pageSource.indexOf(
+      'className="deck-editor-workspace relative flex',
+    );
+    const layersHost = pageSource.indexOf(
+      'data-layers-panel-host="true"',
+      workspaceStart,
+    );
+    const workspaceEnd = pageSource.indexOf(
+      "\n      </div>\n\n      {/* Hidden upload input */}",
+      workspaceStart,
+    );
+    expect(layersHost).toBeGreaterThan(workspaceStart);
+    expect(layersHost).toBeLessThan(workspaceEnd);
   });
 
   it("uses the same element context menu from every layer row", () => {
