@@ -34,9 +34,12 @@ or Builder connector does not make a coding host an online host:
   `start-workspace-app-creation`. Pass the brief and repeatable workflow in
   `prompt`, plus the inferred `appId`, `description`, `template`, and selected
   `resourceIds` when available — reference resources by ID rather than pasting
-  whole knowledge files into the prompt. Then continue from the returned
-  workspace path or Builder branch and report the real verification result. This
-  is the Builder handoff for browser hosts only.
+  whole knowledge files into the prompt. Then report what Dispatch actually
+  returned — the branch, the path, and the status it gave. This host cannot run
+  or inspect the app, and the returned path can 404 until the branch merges and
+  deploys, so the handoff ends at a pending or unverified status unless a status
+  or verification action is available to call. This is the Builder handoff for
+  browser hosts only.
 - If the host is ambiguous, inspect the environment. A real cwd, terminal, and
   target workspace mean local coding host. Do not infer browser mode from the
   availability of a Builder connector.
