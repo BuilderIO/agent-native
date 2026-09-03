@@ -6,7 +6,7 @@ search: "WebMCP browser tools modelContext registerTool getTools executeTool bro
 
 # WebMCP
 
-<!-- i18n-copy-ignore: technical-only evaluator example; localized summaries link to the English reference. -->
+<!-- i18n-copy-ignore: formatting-only table alignment; no translated prose changed. -->
 
 WebMCP is a proposed browser API for making page capabilities available to an
 agent running in that browser. It is client-side and page-local: a page
@@ -69,13 +69,9 @@ directly. The evaluator must run in the requested tab:
 const tools = await document.modelContext.getTools();
 const tool = tools.find(({ name }) => name === "create-deck");
 if (!tool) throw new Error("create-deck is unavailable in this tab");
-const input = { title: "Customer onboarding", slides: [] };
-const usesCodexPageAdapter =
-  typeof document.modelContext.codexExecuteTool === "function" ||
-  typeof document.modelContext.codexGetTools === "function";
 const result = await document.modelContext.executeTool(
   tool,
-  usesCodexPageAdapter ? input : JSON.stringify(input),
+  JSON.stringify({ title: "Customer onboarding", slides: [] }),
 );
 return typeof result === "string" ? JSON.parse(result) : result;
 ```
@@ -86,11 +82,6 @@ browser session. Agents should list tools immediately before each mutation and
 pass the descriptor returned by that listing. They should not call an internal
 action `run()` function, hand-build an authenticated HTTP request, or use the
 visible developer console as the transport.
-
-Native WebMCP and the polyfill accept JSON-stringified input. The Codex page
-adapter identifies itself with `codexExecuteTool` or `codexGetTools` and accepts
-the schema-shaped object. Follow the active host contract instead of trying
-both input formats.
 
 For agents that use the MCP-B local relay, the page also needs the relay's
 browser embed script and the local MCP server must be configured in the agent

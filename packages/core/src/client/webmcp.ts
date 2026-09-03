@@ -74,11 +74,9 @@ interface NativeModelContext {
   }): Promise<NativeRegisteredTool[]>;
   executeTool(
     tool: NativeRegisteredTool,
-    inputObject?: string | Record<string, unknown>,
+    inputObject?: string,
     options?: AgentNativeWebMcpToolExecutionOptions,
   ): Promise<unknown>;
-  codexExecuteTool?: (...args: unknown[]) => unknown;
-  codexGetTools?: (...args: unknown[]) => unknown;
   addEventListener?(type: "toolchange", listener: EventListener): void;
   removeEventListener?(type: "toolchange", listener: EventListener): void;
 }
@@ -480,13 +478,9 @@ export function createAgentNativeWebMcpClient(
       throw new Error(`WebMCP tool "${tool.name}" input must be an object`);
     }
     jsonLength(input, `WebMCP tool "${tool.name}" input`, limits.maxInputChars);
-    const context = requireModelContext();
-    const usesCodexPageAdapter =
-      typeof context.codexExecuteTool === "function" ||
-      typeof context.codexGetTools === "function";
-    const result = await context.executeTool(
+    const result = await requireModelContext().executeTool(
       nativeTool,
-      usesCodexPageAdapter ? input : JSON.stringify(input),
+      JSON.stringify(input),
       executionOptions,
     );
     return normalizeToolResult(
