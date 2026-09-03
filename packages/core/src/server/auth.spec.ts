@@ -1443,6 +1443,88 @@ describe("server/auth", () => {
       );
     });
 
+    it("revokes the Better Auth session row directly so logout can't be resurrected by the legacy-cookie fallback", async () => {
+      // Reproduces the reported bug: a token whose legacy `sessions` row was
+      // never written (the magic-link `addSession` mirror is best-effort —
+      // see `persistMagicLinkLegacySession`) resolves ONLY through Better
+      // Auth's own `"session"` table via `emailFromBetterAuthSessionToken`.
+      // `auth.api.signOut()` can't revoke it because it looks for Better
+      // Auth's own session cookie, which the browser never held — only the
+      // framework's `an_session` cookie carrying the same token value. If
+      // logout relies solely on `signOut()`, this session survives logout
+      // and `getSession()` resurrects the "logged out" user on the very next
+      // request.
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const liveBetterAuthTokens = new Set(["ba_session_token"]);
+      const mockExecute = vi.fn().mockImplementation((query: any) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        const args = typeof query === "string" ? undefined : query.args;
+        if (typeof sql !== "string") return { rows: [] };
+        if (sql.includes('DELETE FROM "session"')) {
+          liveBetterAuthTokens.delete(args?.[0]);
+          return { rows: [] };
+        }
+        if (sql.includes('FROM "session"') && args?.[0]) {
+          return liveBetterAuthTokens.has(args[0])
+            ? { rows: [{ email: "designer@example.com" }] }
+            : { rows: [] };
+        }
+        // The legacy `sessions` table never has this token — modeling the
+        // best-effort `addSession()` mirror having failed to persist.
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth: async () => ({
+          api: {
+            signOut: vi.fn(async () => ({ headers: new Headers() })),
+          },
+        }),
+        getBetterAuthSync: () => null,
+      }));
+
+      const { autoMountAuth, getSession } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const logoutHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/logout",
+      )?.[1];
+      const logoutEvent = createJsonPostEvent(
+        "/_agent-native/auth/logout",
+        {},
+        { cookie: "an_session=ba_session_token" },
+      );
+
+      const sessionBeforeLogout = createMockEvent({
+        headers: { cookie: "an_session=ba_session_token" },
+      });
+      expect(await getSession(sessionBeforeLogout)).toEqual({
+        email: "designer@example.com",
+        token: "ba_session_token",
+      });
+
+      await logoutHandler(logoutEvent);
+
+      expect(liveBetterAuthTokens.has("ba_session_token")).toBe(false);
+
+      const sessionAfterLogout = createMockEvent({
+        headers: { cookie: "an_session=ba_session_token" },
+      });
+      expect(await getSession(sessionAfterLogout)).toBeNull();
+    });
+
     it("mounts generic Google OAuth routes by default when credentials are configured", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
