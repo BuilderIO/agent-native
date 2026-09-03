@@ -595,6 +595,7 @@ export default function EditorSidebar({
     useState<HTMLButtonElement | null>(null);
   const [thumbnailListScrolled, setThumbnailListScrolled] = useState(false);
   const slideButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const focusAfterDeleteRef = useRef<string | null>(null);
   const measurementsRef = useRef(
     new Map<
       string,
@@ -717,6 +718,46 @@ export default function EditorSidebar({
     [describeSlideId],
   );
 
+  useEffect(() => {
+    const slideId = focusAfterDeleteRef.current;
+    if (!slideId) return;
+
+    const frame = requestAnimationFrame(() => {
+      const button = slideButtonRefs.current.get(slideId);
+      if (!button) return;
+      button.focus({ preventScroll: true });
+      button.scrollIntoView({ block: "nearest" });
+      if (focusAfterDeleteRef.current === slideId) {
+        focusAfterDeleteRef.current = null;
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [slides]);
+
+  const handleDeleteSlide = useCallback(
+    (slideIds: string[]) => {
+      if (readOnly || !onDeleteSlide) return;
+      const deletedIds = new Set(slideIds);
+      const firstDeletedIndex = slides.findIndex((slide) =>
+        deletedIds.has(slide.id),
+      );
+      if (firstDeletedIndex === -1) return;
+      const nextSlide =
+        slides.find(
+          (slide, index) =>
+            index > firstDeletedIndex && !deletedIds.has(slide.id),
+        ) ??
+        slides.find(
+          (slide, index) =>
+            index < firstDeletedIndex && !deletedIds.has(slide.id),
+        );
+      if (!nextSlide) return;
+      focusAfterDeleteRef.current = nextSlide.id;
+      onDeleteSlide(slideIds);
+    },
+    [onDeleteSlide, readOnly, slides],
+  );
+
   const navigateToSlide = useCallback(
     (fromSlideId: string, key: "ArrowUp" | "ArrowDown") => {
       const nextSlideId = getNextSlideId(slides, fromSlideId, key);
@@ -810,7 +851,7 @@ export default function EditorSidebar({
                 onCutSlide={onCutSlide}
                 onCopySlide={onCopySlide}
                 onPasteSlide={onPasteSlide}
-                onDeleteSlide={onDeleteSlide}
+                onDeleteSlide={handleDeleteSlide}
                 onNewSlideAfter={onNewSlideAfter}
                 onDuplicateSlide={onDuplicateSlide}
                 onToggleSkipSlide={onToggleSkipSlide}

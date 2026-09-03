@@ -15,6 +15,7 @@ import {
 import {
   isSlideClipboardStillArmed,
   isSourceImportedDeck,
+  getAltDragPlacement,
   SLIDE_CLIPBOARD_ARM_WINDOW_MS,
   syncSlideContentSnapshots,
 } from "./DeckEditor";
@@ -111,6 +112,23 @@ describe("source-imported deck structure", () => {
         sourceImport: { mode: "source-preserving", format: "pptx" },
       } as unknown as Deck),
     ).toBe(false);
+  });
+});
+
+describe("alt-drag slide placement", () => {
+  const slides = [{ id: "slide-1" }, { id: "slide-2" }, { id: "slide-3" }];
+
+  it("inserts a copy before the drop target when dragged upward", () => {
+    expect(getAltDragPlacement(slides, "slide-3", "slide-1")).toEqual({
+      afterSlideId: "slide-1",
+      beforeSlideId: "slide-1",
+    });
+  });
+
+  it("inserts a copy after the drop target when dragged downward", () => {
+    expect(getAltDragPlacement(slides, "slide-1", "slide-3")).toEqual({
+      afterSlideId: "slide-3",
+    });
   });
 });
 

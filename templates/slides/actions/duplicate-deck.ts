@@ -58,6 +58,9 @@ export default defineAction({
     }
 
     const newTitle = title || `Copy of ${source.title}`;
+    // A duplicate is an editable snapshot, so source-preserving import
+    // metadata must not make the new deck inherit structural edit limits.
+    delete deckData.sourceImport;
     deckData.title = newTitle;
     deckData.createdAt = now;
     deckData.updatedAt = now;

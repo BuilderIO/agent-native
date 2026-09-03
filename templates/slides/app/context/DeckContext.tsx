@@ -295,6 +295,7 @@ interface DeckContextType {
     deckId: string,
     afterSlideId: string,
     slideFields: Omit<Slide, "id">[],
+    options?: { beforeSlideId?: string },
   ) => string[];
   reorderSlides: (
     deckId: string,
@@ -2974,6 +2975,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         createdByMe: true,
         shareToken: undefined,
       };
+      delete (optimistic as Deck & { sourceImport?: unknown }).sourceImport;
       delete optimistic.previewSlide;
       optimistic.slides = getDuplicateSourceSlides(source).map((s) => ({
         ...s,
@@ -3509,12 +3511,25 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       deckId: string,
       afterSlideId: string,
       slideFields: Omit<Slide, "id">[],
+      options?: { beforeSlideId?: string },
     ) => {
       const before = decksRef.current.find((d) => d.id === deckId);
       if (!before || slideFields.length === 0) return [];
 
       markDeckDirty(deckId);
-      let insertAfter = afterSlideId;
+      const beforeIndex = options?.beforeSlideId
+        ? before.slides.findIndex((slide) => slide.id === options.beforeSlideId)
+        : -1;
+      const afterIndex = before.slides.findIndex(
+        (slide) => slide.id === afterSlideId,
+      );
+      const insertAt =
+        beforeIndex !== -1
+          ? beforeIndex
+          : afterIndex === -1
+            ? before.slides.length
+            : afterIndex + 1;
+      let insertAfter = before.slides[insertAt - 1]?.id;
       const newSlides: Slide[] = [];
       const ops: PatchDeckOp[] = [];
       for (const fields of slideFields) {
@@ -3528,15 +3543,19 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         });
         insertAfter = newSlide.id;
       }
+      if (insertAt === 0) {
+        ops.push({
+          op: "reorder-slides",
+          orderedIds: [
+            ...newSlides.map((slide) => slide.id),
+            ...before.slides.map((slide) => slide.id),
+          ],
+        });
+      }
       const addSlides = (d: Deck) => {
         if (d.id !== deckId) return d;
-        const index = d.slides.findIndex((slide) => slide.id === afterSlideId);
         const slides = [...d.slides];
-        slides.splice(
-          index === -1 ? slides.length : index + 1,
-          0,
-          ...newSlides,
-        );
+        slides.splice(insertAt, 0, ...newSlides);
         return { ...d, slides, updatedAt: new Date().toISOString() };
       };
       decksRef.current = decksRef.current.map(addSlides);
