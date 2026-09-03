@@ -75,12 +75,12 @@ describe("built-in auth marketing layout contract", () => {
     },
   );
 
-  it("declares the bottom-right CSS rule and the screenshot blur/opacity treatment", () => {
+  it("declares the placement-class CSS rules and the screenshot blur/opacity treatment", () => {
     const html = getOnboardingHtml({
       requestHost: "slides.agent-native.com",
     });
 
-    // The shared learn-more link layout is bottom-right for every app.
+    // bottom-right placement of the learn-more link
     expect(html).toMatch(
       /\.auth-marketing-top-right\s*{[^}]*justify-content:\s*flex-end;[^}]*bottom:/,
     );
