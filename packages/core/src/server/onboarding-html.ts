@@ -1272,7 +1272,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
 
   const marketingStyles = hasMarketing
     ? `
-  body.has-marketing { padding: 0; position: relative; overflow-x: hidden; }
+  body.has-marketing { padding: 0; position: relative; overflow-x: hidden; color-scheme: dark; }
   #starfield {
     position: fixed;
     inset: 0;
@@ -1314,6 +1314,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     max-width: 100%;
     max-height: calc(100vh - 3rem);
     aspect-ratio: 914 / 818;
+    border-radius: 0.75rem;
     overflow: hidden;
   }
   .auth-marketing-screenshot {
@@ -1422,6 +1423,8 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     padding: 2rem;
   }
   .form-panel .card { max-width: 400px; }
+  /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
+  .auth-marketing-home .card { box-shadow: 0 18px 50px rgba(0,0,0,0.62); }
   @media (max-width: 900px) {
     .auth-marketing-shell-with-top-right {
       display: flex;
@@ -1446,6 +1449,103 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     .app-desc { margin-bottom: 1rem; }
     .feature-list { gap: 0.5rem; }
     .form-panel { flex: none; padding: 1.5rem 1rem; }
+  }
+  @media (prefers-color-scheme: light) {
+    body.has-marketing {
+      background: color-mix(in srgb, CanvasText 4%, Canvas);
+      color: CanvasText;
+      color-scheme: light;
+    }
+    .auth-marketing-home {
+      background: color-mix(in srgb, CanvasText 4%, Canvas);
+      color: CanvasText;
+    }
+    .auth-marketing-home .auth-marketing-learn-more,
+    .auth-marketing-home .auth-marketing-learn-more:hover,
+    body.has-marketing .locale-trigger {
+      color: CanvasText;
+    }
+    .auth-marketing-home .auth-marketing-learn-more-link {
+      color: LinkText;
+    }
+    .auth-marketing-home .card {
+      background: Canvas;
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+      color: CanvasText;
+      box-shadow: 0 18px 50px color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    .auth-marketing-home .card h1 { color: CanvasText; }
+    .auth-marketing-home .card .subtitle,
+    .auth-marketing-home .card label { color: GrayText; }
+    .auth-marketing-home .card input {
+      color: CanvasText;
+      border-color: color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    .auth-marketing-home .card input::placeholder { color: GrayText; }
+    .auth-marketing-home .card .tabs {
+      background: color-mix(in srgb, CanvasText 7%, transparent);
+    }
+    .auth-marketing-home .card .tab { color: GrayText; }
+    .auth-marketing-home .card .tab.active {
+      background: color-mix(in srgb, CanvasText 12%, transparent);
+      color: CanvasText;
+      box-shadow: 0 1px 2px color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    .auth-marketing-home .card button[type="submit"],
+    .auth-marketing-home .card .btn-primary {
+      background: CanvasText;
+      color: Canvas;
+    }
+    .auth-marketing-home .card button[type="submit"]:hover,
+    .auth-marketing-home .card .btn-primary:hover {
+      background: color-mix(in srgb, CanvasText 82%, Canvas);
+    }
+    .auth-marketing-home .card .btn-google {
+      background: Canvas;
+      color: CanvasText;
+      border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+    }
+    .auth-marketing-home .card .btn-google:hover {
+      background: color-mix(in srgb, CanvasText 6%, Canvas);
+    }
+    .auth-marketing-home .card .btn-secondary {
+      color: GrayText;
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+    }
+    .auth-marketing-home .card .btn-secondary:hover,
+    .auth-marketing-home .card .link-button:hover {
+      color: CanvasText;
+      border-color: color-mix(in srgb, CanvasText 24%, transparent);
+    }
+    .auth-marketing-home .card .divider { color: GrayText; }
+    .auth-marketing-home .card .divider::before,
+    .auth-marketing-home .card .divider::after {
+      background: color-mix(in srgb, CanvasText 12%, transparent);
+    }
+    .auth-marketing-home .card .legal-note,
+    .auth-marketing-home .card .legal-note a,
+    .auth-marketing-home .card .local-dev-full-options {
+      color: GrayText;
+    }
+    .auth-marketing-home .card .signup-local-mode-note {
+      color: GrayText;
+      background: color-mix(in srgb, CanvasText 4%, transparent);
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+    }
+    .auth-marketing-home .card .signup-local-mode-note code { color: CanvasText; }
+    body.has-marketing .locale-menu {
+      background: Canvas;
+      color: CanvasText;
+      border-color: color-mix(in srgb, CanvasText 14%, transparent);
+      box-shadow: 0 18px 50px color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    body.has-marketing .locale-menu-item { color: GrayText; }
+    body.has-marketing .locale-menu-item:hover,
+    body.has-marketing .locale-menu-item:focus,
+    body.has-marketing .locale-menu-item[aria-checked="true"] {
+      background: color-mix(in srgb, CanvasText 7%, transparent);
+      color: CanvasText;
+    }
   }
 `
     : "";
@@ -2162,10 +2262,10 @@ ${embeddedAuthCss}
   .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot-wrap {
     width: 100%;
     max-width: 927px;
-    margin-inline: auto;
+    margin-inline: 0;
   }
   .auth-marketing-home.has-product-screenshot .auth-marketing-screenshot {
-    filter: blur(5px);
+    filter: blur(0.3px);
     opacity: 0.8;
   }
   .auth-marketing-home.has-product-screenshot .form-panel .card {
@@ -2180,6 +2280,21 @@ ${embeddedAuthCss}
   @media (min-width: 901px) and (max-width: 1500px) {
     .auth-marketing-home.has-product-screenshot .form-panel .card {
       left: -140px;
+    }
+  }
+  @media (min-width: 1501px) {
+    .auth-marketing-home.has-product-screenshot .split {
+      display: grid;
+      grid-template-columns: minmax(0, 927px) minmax(0, 1fr);
+      gap: 0;
+    }
+    .auth-marketing-home.has-product-screenshot .marketing-panel {
+      flex: none;
+      width: 927px;
+    }
+    .auth-marketing-home.has-product-screenshot .form-panel {
+      flex: none;
+      width: 100%;
     }
   }
   .auth-marketing-home .form-panel { min-width: 0; }

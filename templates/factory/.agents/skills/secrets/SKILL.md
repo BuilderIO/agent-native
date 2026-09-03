@@ -19,6 +19,10 @@ data, and generated extension/app content may mention credential **names** such
 as `OPENAI_API_KEY`, but must not contain real API keys, tokens, webhook URLs,
 signing secrets, OAuth refresh tokens, or private Builder/customer data.
 
+Never write real secrets to non-gitignored files. Put temporary secret material
+under the root `.tmp/` or another explicitly gitignored path, then delete it
+when it is no longer needed.
+
 Provider secret values are supplied at runtime through the encrypted
 `app_secrets` vault, `saveCredential` / `resolveCredential`, OAuth, or
 `${keys.NAME}` substitution. Deployment configuration is reserved for

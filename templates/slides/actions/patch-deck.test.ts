@@ -30,7 +30,7 @@ const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
 
 let mockDeckRow: Record<string, unknown> | undefined;
-let lastUpdateSet: { data?: string } | undefined;
+let lastUpdatedDeckData: string | undefined;
 const mockGetGenerationCreativeContext = vi.fn(async () => null);
 const mockRecordGenerationCreativeContext = vi.fn(async () => undefined);
 const mockValidateGenerationCreativeContext = vi.fn(
@@ -59,10 +59,12 @@ const mockDb = {
     }),
   }),
   update: () => ({
-    set: (values: { data?: string }) => {
-      lastUpdateSet = values;
-      return { where: async () => ({ rowsAffected: 1 }) };
-    },
+    set: (fields: { data?: string }) => ({
+      where: async () => {
+        lastUpdatedDeckData = fields.data;
+        return { rowsAffected: 1 };
+      },
+    }),
   }),
   transaction: async (callback: (tx: any) => Promise<unknown>) =>
     callback(mockDb),
@@ -359,6 +361,26 @@ describe("applyOperation — reorder-slides", () => {
     expect(ids).toContain("s3");
     expect(ids).toEqual(["s2", "s1", "s3"]);
   });
+
+  it("rejects duplicate slide IDs instead of persisting duplicate slides", () => {
+    const deck = {
+      slides: [
+        { id: "s1", content: "1" },
+        { id: "s2", content: "2" },
+      ],
+    };
+
+    expect(() =>
+      applyOperation(deck, {
+        op: "reorder-slides",
+        orderedIds: ["s2", "s1", "s2"],
+      }),
+    ).toThrow(/duplicate ID s2/);
+    expect(deck.slides.map((slide: { id: string }) => slide.id)).toEqual([
+      "s1",
+      "s2",
+    ]);
+  });
 });
 
 describe("applyOperation — add-slide", () => {
@@ -522,7 +544,17 @@ describe("source-imported deck structure", () => {
       assertSourceImportOperationsPreserved(metadata, [
         { op: "add-slide", slideId: "s2", fields: { content: "New" } },
       ]),
-    ).toThrow("source-imported deck");
+    ).toThrow("patch-deck with rewriteSource=true");
+  });
+
+  it("allows an explicit source rewrite", () => {
+    expect(() =>
+      assertSourceImportOperationsPreserved(
+        metadata,
+        [{ op: "delete-slide", slideId: "s1" }],
+        true,
+      ),
+    ).not.toThrow();
   });
 
   it("allows structural operations for a regular deck", () => {
@@ -577,6 +609,43 @@ describe("source-imported deck structure", () => {
         true,
       ),
     ).not.toThrow();
+  });
+
+  it("rejects rewriteSource for a regular deck before changing it", async () => {
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<div>One</div>",
+            animations: [{ id: "a1", elementIndex: 0, type: "fade" }],
+          },
+        ],
+      }),
+    };
+
+    await expect(
+      patchDeckAction.run(
+        {
+          deckId: "deck-1",
+          rewriteSource: true,
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: { content: "<div>Updated</div>" },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toThrow("only applies to a source-preserving deck");
+    expect(lastUpdatedDeckData).toBeUndefined();
   });
 });
 
@@ -843,7 +912,7 @@ describe("isAgentPatchCaller", () => {
 });
 
 describe("patch-deck agent schema", () => {
-  it("advertises only bounded deck and slide patch operations", () => {
+  it("advertises bounded deck, slide, and structural operations", () => {
     const parameters = patchDeckAction.tool.parameters as any;
     const operations = parameters.properties.operations.items.anyOf;
     const deckFields = operations.find(
@@ -853,8 +922,14 @@ describe("patch-deck agent schema", () => {
     const slidePatch = operations.find(
       (operation: any) => operation.properties?.op?.const === "patch-slide",
     );
+    const slideDelete = operations.find(
+      (operation: any) => operation.properties?.op?.const === "delete-slide",
+    );
+    const slideReorder = operations.find(
+      (operation: any) => operation.properties?.op?.const === "reorder-slides",
+    );
 
-    expect(operations).toHaveLength(2);
+    expect(operations).toHaveLength(4);
     expect(deckFields.properties.fields.properties.title).toMatchObject({
       type: "string",
     });
@@ -867,6 +942,17 @@ describe("patch-deck agent schema", () => {
     expect(slidePatch.properties.slideId).toMatchObject({ type: "string" });
     expect(slidePatch.properties.fields.properties.content).toMatchObject({
       type: "string",
+    });
+    expect(slideDelete.properties.slideId).toMatchObject({ type: "string" });
+    expect(slideDelete.properties.allowEmpty).toMatchObject({
+      type: "boolean",
+    });
+    expect(slideReorder.properties.orderedIds).toMatchObject({
+      type: "array",
+      items: { type: "string" },
+    });
+    expect(parameters.properties.rewriteSource).toMatchObject({
+      type: "boolean",
     });
     expect(parameters.properties.requireAllSourceSlides).toMatchObject({
       type: "boolean",
@@ -1044,7 +1130,7 @@ describe("resolveDeckColumnUpdates", () => {
 describe("run() — asynchronous layout fit metadata", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    lastUpdateSet = undefined;
+    lastUpdatedDeckData = undefined;
     mockDeckRow = {
       id: "deck-1",
       title: "Deck",
@@ -1286,8 +1372,7 @@ describe("run() — asynchronous layout fit metadata", () => {
       { caller: "tool" },
     );
     expect(
-      JSON.parse(lastUpdateSet!.data as string).slides[0]
-        .layoutWarningDismissed,
+      JSON.parse(lastUpdatedDeckData!).slides[0].layoutWarningDismissed,
     ).toBeUndefined();
 
     mockDeckRow!.data = JSON.stringify(persistedDeck);
@@ -1306,8 +1391,63 @@ describe("run() — asynchronous layout fit metadata", () => {
       {},
     );
     expect(
-      JSON.parse(lastUpdateSet!.data as string).slides[0]
-        .layoutWarningDismissed,
+      JSON.parse(lastUpdatedDeckData!).slides[0].layoutWarningDismissed,
     ).toBe(true);
+  });
+
+  it("applies an explicit source rewrite before a structural agent edit", async () => {
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify({
+        title: "Imported deck",
+        slides: [
+          { id: "slide-1", content: "<div>One</div>" },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+        sourceImport: {
+          mode: "source-preserving",
+          format: "pdf",
+          fidelity: "source-faithful",
+          slideCount: 2,
+          slideIds: ["slide-1", "slide-2"],
+          slides: [
+            {
+              id: "slide-1",
+              text: "One",
+              notes: "",
+              imageUrls: [],
+              editableText: true,
+            },
+            {
+              id: "slide-2",
+              text: "Two",
+              notes: "",
+              imageUrls: [],
+              editableText: true,
+            },
+          ],
+        },
+      }),
+    };
+
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        rewriteSource: true,
+        operations: [{ op: "delete-slide", slideId: "slide-1" }],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result).toMatchObject({
+      ok: true,
+      sourceRewritten: true,
+      updatedSlideIds: [],
+    });
+    const persisted = JSON.parse(lastUpdatedDeckData!);
+    expect(persisted.sourceImport).toBeUndefined();
+    expect(persisted.slides.map((slide: { id: string }) => slide.id)).toEqual([
+      "slide-2",
+    ]);
   });
 });

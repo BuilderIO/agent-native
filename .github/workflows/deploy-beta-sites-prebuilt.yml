@@ -8,93 +8,59 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Exact main SHA to publish; blank uses the latest main
+        required: false
+        type: string
+        default: ""
+      migrated_source_sha:
+        description: Main ancestor whose production migration is complete
+        required: false
+        type: string
+        default: ""
 
 permissions:
-  contents: read
+  contents: write
   actions: read
-
-# Do not add a shared workflow concurrency group here. GitHub retains only one
-# pending run per group. Each push run waits for the prior push's beta run
-# instead, so every main push remains in the publish order.
 
 jobs:
   resolve-source:
     name: Resolve beta source revision
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 10
     outputs:
       source_sha: ${{ steps.source.outputs.source_sha }}
     steps:
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         id: source
+        env:
+          source_ref: ${{ inputs.source_ref }}
         with:
           script: |
-            const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-            async function waitForPredecessor() {
-              if (!['push', 'workflow_dispatch'].includes(context.eventName)) {
+            const requested = process.env.source_ref.trim();
+            if (requested && !/^[0-9a-f]{40}$/i.test(requested)) {
+              core.setFailed('source_ref must be a full 40-character commit SHA.');
+              return;
+            }
+            const mainSha = (await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/main',
+            })).data.object.sha;
+            const sourceSha = requested || (context.eventName === 'push' ? context.sha : mainSha);
+            if (requested) {
+              const comparison = await github.rest.repos.compareCommits({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                base: sourceSha,
+                head: mainSha,
+              });
+              if (!['ahead', 'identical'].includes(comparison.data.status)) {
+                core.setFailed(`source_ref ${sourceSha} is not an ancestor of main ${mainSha}.`);
                 return;
               }
-
-              const discoveryDeadline = Date.now() + 60_000;
-              const completionDeadline = Date.now() + 110 * 60_000;
-              let predecessorRunId;
-              while (Date.now() < completionDeadline) {
-                if (!predecessorRunId) {
-                  const runs = await github.rest.actions.listWorkflowRuns({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    workflow_id: 'deploy-beta-sites-prebuilt.yml',
-                    per_page: 100,
-                  });
-                  const predecessor = runs.data.workflow_runs
-                    .filter(
-                      (run) =>
-                        run.id < context.runId &&
-                        ['push', 'workflow_dispatch'].includes(run.event),
-                    )
-                    .sort((left, right) => right.id - left.id)[0];
-                  if (predecessor) predecessorRunId = predecessor.id;
-                }
-
-                if (predecessorRunId) {
-                  const predecessor = await github.rest.actions.getWorkflowRun({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    run_id: predecessorRunId,
-                  });
-                  if (predecessor.data.status === 'completed') {
-                    core.info(
-                      `Predecessor beta run ${predecessorRunId} completed with ${predecessor.data.conclusion ?? 'no conclusion'}.`,
-                    );
-                    return;
-                  }
-                  core.info(
-                    `Waiting for predecessor beta run ${predecessorRunId} (${predecessor.data.status}).`,
-                  );
-                } else if (Date.now() >= discoveryDeadline) {
-                  core.info('No earlier beta workflow run was found; continuing.');
-                  return;
-                } else {
-                  core.info('Waiting for the earlier beta workflow run to appear.');
-                }
-                await sleep(30_000);
-              }
-
-              core.setFailed(
-                `Predecessor beta run ${predecessorRunId ?? 'discovery'} did not finish within 110 minutes.`,
-              );
             }
-
-            const sourceSha =
-              context.eventName === 'workflow_dispatch'
-                ? (await github.rest.git.getRef({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    ref: 'heads/main',
-                  })).data.object.sha
-                : context.sha;
-            await waitForPredecessor();
             core.setOutput('source_sha', sourceSha);
             core.info(`beta source is pinned to ${sourceSha}`);
 
@@ -125,30 +91,223 @@ jobs:
           const matrix = { include: sites.map(({ id }) => ({ site: id })) };
           fs.appendFileSync(
             process.env.GITHUB_OUTPUT,
-            `matrix=${JSON.stringify(matrix)}\n`,
+            [
+              `matrix=${JSON.stringify(matrix)}`,
+              '',
+            ].join('\n'),
           );
           console.log(`Discovered ${sites.length} beta sites.`);
           NODE
 
+  schema-gate:
+    name: Require production migration for schema changes
+    needs: resolve-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.resolve-source.outputs.source_sha }}
+          fetch-depth: 0
+
+      - name: Detect schema-dependent beta code without production migration
+        id: detect-schema
+        env:
+          base_sha_input: ${{ github.event.before }}
+          migrated_source_sha: ${{ inputs.migrated_source_sha }}
+          source_sha: ${{ needs.resolve-source.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$migrated_source_sha" && ! "$migrated_source_sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::migrated_source_sha must be a full 40-character commit SHA."
+            exit 1
+          fi
+          migrated_source_sha="${migrated_source_sha,,}"
+          is_ancestor() {
+            git merge-base --is-ancestor "$1" "$2"
+          }
+          commit_for_tag() {
+            git rev-parse "$1^{commit}" 2>/dev/null
+          }
+
+          if [[ -n "$migrated_source_sha" ]]; then
+            marker_sha="$(commit_for_tag "agent-native-beta-migrated/$migrated_source_sha")" || {
+              echo "::error::No production-owned migration marker exists for $migrated_source_sha."
+              echo "Run the all-sites production cutover successfully before beta recovery."
+              exit 1
+            }
+            if [[ "${marker_sha,,}" != "$migrated_source_sha" ]]; then
+              echo "::error::Production migration marker does not point to $migrated_source_sha."
+              exit 1
+            fi
+          fi
+
+          migrated_tags="$(git tag --list 'agent-native-beta-migrated/*' || true)"
+          pending_tags="$(git tag --list 'agent-native-beta-pending/*' || true)"
+          latest_migrated_sha=""
+          latest_migrated_distance=""
+          while IFS= read -r tag; do
+            [[ -z "$tag" ]] && continue
+            candidate="$(commit_for_tag "$tag")" || continue
+            is_ancestor "$candidate" "$source_sha" || continue
+            distance="$(git rev-list --count "$candidate..$source_sha")"
+            if [[ -z "$latest_migrated_distance" || "$distance" -lt "$latest_migrated_distance" ]]; then
+              latest_migrated_sha="$candidate"
+              latest_migrated_distance="$distance"
+            fi
+          done <<< "$migrated_tags"
+
+          unresolved_pending_sha=""
+          unresolved_pending_distance=""
+          if [[ -z "$migrated_source_sha" ]]; then
+            while IFS= read -r pending_tag; do
+              [[ -z "$pending_tag" ]] && continue
+              pending_sha="$(commit_for_tag "$pending_tag")" || continue
+              is_ancestor "$pending_sha" "$source_sha" || continue
+              resolved=false
+              while IFS= read -r migrated_tag; do
+                [[ -z "$migrated_tag" ]] && continue
+                migrated_sha="$(commit_for_tag "$migrated_tag")" || continue
+                is_ancestor "$pending_sha" "$migrated_sha" || continue
+                is_ancestor "$migrated_sha" "$source_sha" || continue
+                resolved=true
+                break
+              done <<< "$migrated_tags"
+              [[ "$resolved" == true ]] && continue
+              distance="$(git rev-list --count "$pending_sha..$source_sha")"
+              if [[ -z "$unresolved_pending_distance" || "$distance" -lt "$unresolved_pending_distance" ]]; then
+                unresolved_pending_sha="$pending_sha"
+                unresolved_pending_distance="$distance"
+              fi
+            done <<< "$pending_tags"
+          fi
+
+          if [[ -n "$migrated_source_sha" ]]; then
+            if ! is_ancestor "$migrated_source_sha" "$source_sha"; then
+              echo "::error::migrated_source_sha must be an ancestor of the source SHA being published."
+              exit 1
+            fi
+            base_sha="$migrated_source_sha"
+          elif [[ -n "$unresolved_pending_sha" ]]; then
+            base_sha="$unresolved_pending_sha"
+          elif [[ -n "$latest_migrated_sha" ]]; then
+            base_sha="$latest_migrated_sha"
+          elif [[ "$base_sha_input" =~ ^0+$ ]]; then
+            # An initial push can contain the whole repository history; compare
+            # with the empty tree so an older schema change cannot hide.
+            base_sha="$(git hash-object -t tree /dev/null)"
+          elif [[ -n "$base_sha_input" ]]; then
+            base_sha="$base_sha_input"
+          else
+            base_sha="$(git rev-parse "$source_sha^" 2>/dev/null || git hash-object -t tree /dev/null)"
+          fi
+          changed_files="$(git diff --name-only "$base_sha" "$source_sha")"
+          # ponytail: path-based schema gate; replace with production migration
+          # status when GitHub Actions can access Netlify's masked secrets.
+          schema_files="$(printf '%s\n' "$changed_files" | rg -N '(^|/)(server/db/|packages/core/src/db/|packages/core/src/(resources|extensions|data-programs)/).+\.ts$|(^|/)store\.ts$|(^|/)(server/db/schema\.ts|server/db/migrations\.ts|server/plugins/(db|factory-migrations)\.ts|(?:scripts/)?migrate-production\.ts|drizzle(?:\.local)?\.config\.ts|netlify\.toml)$|(^|/)(migrations|supabase/migrations)/|(^|/).*schema\.ts$|(^|/).*migrations\.ts$|\.sql$' || true)"
+          if [[ -n "$unresolved_pending_sha" ]]; then
+            echo "::error::Beta remains withheld for unconfirmed production migration at $unresolved_pending_sha."
+            if [[ -n "$schema_files" ]]; then
+              echo "New schema-dependent paths are also present after the pending migration:"
+              printf '%s\n' "$schema_files"
+              echo "record_pending=true" >> "$GITHUB_OUTPUT"
+              echo "required_source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+            else
+              echo "record_pending=false" >> "$GITHUB_OUTPUT"
+              echo "required_source_sha=$unresolved_pending_sha" >> "$GITHUB_OUTPUT"
+            fi
+            echo "schema_changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ -n "$schema_files" ]]; then
+            echo "::error::Beta is withheld until the production twin is migrated. Changed schema paths:"
+            printf '%s\n' "$schema_files"
+            echo "record_pending=true" >> "$GITHUB_OUTPUT"
+            echo "required_source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+            echo "schema_changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "record_pending=false" >> "$GITHUB_OUTPUT"
+          echo "required_source_sha=$migrated_source_sha" >> "$GITHUB_OUTPUT"
+          echo "schema_changed=false" >> "$GITHUB_OUTPUT"
+          echo "No schema-dependent paths changed; beta may publish automatically."
+
+      - name: Record pending beta migration marker
+        if: steps.detect-schema.outputs.record_pending == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          marker_sha: ${{ needs.resolve-source.outputs.source_sha }}
+        with:
+          script: |
+            const markerSha = process.env.marker_sha.trim().toLowerCase();
+            if (!/^[0-9a-f]{40}$/.test(markerSha)) {
+              core.setFailed('The pending beta migration marker must target a full commit SHA.');
+              return;
+            }
+            const ref = `refs/tags/agent-native-beta-pending/${markerSha}`;
+            try {
+              const existing = await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: ref.slice('refs/'.length),
+              });
+              if (existing.data.object.sha.toLowerCase() !== markerSha) {
+                core.setFailed(`Refusing to change existing beta pending marker ${ref}.`);
+                return;
+              }
+              core.info(`Beta pending marker already exists: ${ref}`);
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              try {
+                await github.rest.git.createRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref,
+                  sha: markerSha,
+                });
+                core.info(`Created beta pending marker: ${ref}`);
+              } catch (createError) {
+                if (createError.status !== 422) throw createError;
+                const existing = await github.rest.git.getRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: ref.slice('refs/'.length),
+                });
+                if (existing.data.object.sha.toLowerCase() !== markerSha) {
+                  core.setFailed(`Concurrent beta pending marker ${ref} points to a different commit.`);
+                  return;
+                }
+                core.info(`Beta pending marker was created concurrently: ${ref}`);
+              }
+            }
+
+      - name: Block schema-dependent beta code until production migration
+        if: steps.detect-schema.outputs.schema_changed == 'true'
+        env:
+          required_source_sha: ${{ steps.detect-schema.outputs.required_source_sha }}
+          source_sha: ${{ needs.resolve-source.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          echo "::error::Production migration is required before publishing beta source $source_sha."
+          echo "After production migration succeeds, re-run this workflow manually with source_ref set to the latest main SHA and migrated_source_sha=$required_source_sha."
+          exit 1
+
   deploy:
     name: ${{ matrix.site }} beta prebuilt deploy
-    needs: [resolve-source, discover-sites]
+    needs: [resolve-source, discover-sites, schema-gate]
     strategy:
       fail-fast: false
-      # Each beta build can run release migrations against the shared production
-      # database. Keep those migrations from opening a connection burst.
-      # ponytail: one global beta build at a time; split migration into a single
-      # preflight job if fleet duration becomes a problem.
-      max-parallel: 1
+      max-parallel: 8
       matrix: ${{ fromJSON(needs.discover-sites.outputs.matrix) }}
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:
       target: beta
       site: ${{ matrix.site }}
-      caller: fleet
+      caller: ${{ github.event_name == 'workflow_dispatch' && inputs.migrated_source_sha != '' && 'recovery' || 'fleet' }}
       source_ref: ${{ needs.resolve-source.outputs.source_sha }}
       build_context: branch-deploy
       deploy: true
       deploy_mode: production
       smoke: true
+      migration_only: false
     secrets: inherit
