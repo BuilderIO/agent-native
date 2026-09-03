@@ -30,6 +30,29 @@ const REPO_ROOT = path.resolve(
 /** Directives that stop a shared cache from storing the response at all. */
 const UNCACHEABLE = ["no-store", "no-cache", "private"];
 
+/**
+ * Real pages probed alongside the synthetic miss. The synthetic probe proves an
+ * unknown URL is storable; it requests a path no route can match, so it can
+ * never see a per-route override on a page that DOES exist. That blind spot is
+ * how #4158 shipped www.agent-native.com/apps pinned to max-age=30 +
+ * stale-while-revalidate=30 — a 60s cache life, then a ~2.7s cold render for
+ * whoever arrived next — while this check stayed green.
+ */
+const REAL_PATHS_BY_HOST = {
+  "www.agent-native.com": ["/", "/apps"],
+  "beta.agent-native.com": ["/", "/apps"],
+};
+const DEFAULT_REAL_PATHS = ["/"];
+
+/**
+ * Floor on how long a real page stays answerable from storage. max-age is
+ * freshness; stale-while-revalidate is what lets the CDN reply instantly while
+ * it refreshes behind the request. A short max-age is fine on its own — it is a
+ * short max-age paired with a short stale window that ends with a visitor
+ * waiting on a cold origin, because both windows lapse together.
+ */
+const MIN_EFFECTIVE_LIFETIME_SECONDS = 3600;
+
 const REQUEST_TIMEOUT_MS = 30_000;
 const HOST_CONCURRENCY = 8;
 
@@ -66,11 +89,45 @@ function hostsFor(environment) {
   return manifest[environment] ?? [];
 }
 
+function directiveSeconds(policy, name) {
+  const match = new RegExp(`(?:^|[,;\\s])${name}=(\\d+)`).exec(policy);
+  return match ? Number(match[1]) : 0;
+}
+
+/**
+ * How long a shared cache can keep answering before a request must wait on the
+ * origin: the fresh window plus the stale-while-revalidate window.
+ */
+function effectiveLifetimeSeconds(policy) {
+  const normalized = policy.toLowerCase();
+  const fresh = Math.max(
+    directiveSeconds(normalized, "s-maxage"),
+    directiveSeconds(normalized, "max-age"),
+  );
+  return fresh + directiveSeconds(normalized, "stale-while-revalidate");
+}
+
 async function probe(host) {
+  const paths = REAL_PATHS_BY_HOST[host] ?? DEFAULT_REAL_PATHS;
+  return [
+    await probeUrl(host, null),
+    ...(await Promise.all(paths.map((p) => probeUrl(host, p)))),
+  ];
+}
+
+/**
+ * @param pathname a real path to assert the lifetime floor on, or null for the
+ *   synthetic unknown-URL probe (storability only).
+ */
+async function probeUrl(host, pathname) {
   // A path no app can have a route for, unique per run so it is a genuine miss.
-  const url = `https://${host}/__cache-contract-probe-${Date.now()}-${Math.floor(
-    Math.random() * 1e9,
-  )}`;
+  const url =
+    pathname === null
+      ? `https://${host}/__cache-contract-probe-${Date.now()}-${Math.floor(
+          Math.random() * 1e9,
+        )}`
+      : `https://${host}${pathname}`;
+  const label = pathname === null ? "(unknown URL)" : pathname;
   let response;
   try {
     response = await fetch(url, {
@@ -82,6 +139,7 @@ async function probe(host) {
     // the sibling monitor's job, so this reports and does not fail the run.
     return {
       host,
+      label,
       outcome: "unreachable",
       detail: error instanceof Error ? error.message : String(error),
     };
@@ -94,6 +152,7 @@ async function probe(host) {
   if (response.status === 429 || response.status >= 500) {
     return {
       host,
+      label,
       outcome: "inconclusive",
       status: response.status,
       detail: `origin returned ${response.status}; cache policy not asserted`,
@@ -103,6 +162,7 @@ async function probe(host) {
   if (!cacheControl) {
     return {
       host,
+      label,
       outcome: "violation",
       status: response.status,
       detail:
@@ -116,12 +176,36 @@ async function probe(host) {
   if (offending.length > 0) {
     return {
       host,
+      label,
       outcome: "violation",
       status: response.status,
       detail: `cache-control: ${cacheControl}`,
     };
   }
-  return { host, outcome: "ok", status: response.status, detail: cacheControl };
+  // Only real pages, and only 2xx: a redirect or error shell has its own
+  // policy, and failing on those would make this the noisy guard nobody trusts.
+  if (pathname !== null && response.status < 300) {
+    // Netlify consumes netlify-cdn-cache-control before responding, so the
+    // shared-cache policy visible from outside is cdn-cache-control.
+    const shared = response.headers.get("cdn-cache-control") ?? cacheControl;
+    const lifetime = effectiveLifetimeSeconds(shared);
+    if (lifetime < MIN_EFFECTIVE_LIFETIME_SECONDS) {
+      return {
+        host,
+        label,
+        outcome: "violation",
+        status: response.status,
+        detail: `effective cache lifetime ${lifetime}s is below the ${MIN_EFFECTIVE_LIFETIME_SECONDS}s floor (${shared})`,
+      };
+    }
+  }
+  return {
+    host,
+    label,
+    outcome: "ok",
+    status: response.status,
+    detail: cacheControl,
+  };
 }
 
 async function mapWithLimit(items, limit, worker) {
@@ -146,7 +230,7 @@ if (hosts.length === 0) {
   process.exit(2);
 }
 
-const results = await mapWithLimit(hosts, HOST_CONCURRENCY, probe);
+const results = (await mapWithLimit(hosts, HOST_CONCURRENCY, probe)).flat();
 const violations = results.filter((r) => r.outcome === "violation");
 const skipped = results.filter((r) =>
   ["unreachable", "inconclusive"].includes(r.outcome),
@@ -155,7 +239,9 @@ const skipped = results.filter((r) =>
 for (const r of results) {
   const label =
     r.outcome === "ok" ? "ok  " : r.outcome === "violation" ? "FAIL" : "skip";
-  console.log(`${label} ${r.host.padEnd(40)} ${r.status ?? "-"} ${r.detail}`);
+  console.log(
+    `${label} ${r.host.padEnd(34)} ${(r.label ?? "").padEnd(14)} ${r.status ?? "-"} ${r.detail}`,
+  );
 }
 
 if (skipped.length > 0) {
@@ -172,16 +258,22 @@ if (violations.length > 0) {
   console.error(
     `\ncheck-production-cache-contract FAILED for ${violations.length} host(s):`,
   );
-  for (const v of violations) console.error(`  - ${v.host}: ${v.detail}`);
+  for (const v of violations)
+    console.error(`  - ${v.host}${v.label ? ` ${v.label}` : ""}: ${v.detail}`);
   console.error(
-    "\nAn unknown URL that cannot be stored re-invokes the render function on\n" +
+    "\nA response a shared cache cannot store re-invokes the render function on\n" +
       "every request, and Netlify runs one request per container — so this\n" +
       "drains the concurrency pool shared by every other site on the account.\n" +
-      "See isSsrHtmlOrDataResponse in packages/core/src/server/ssr-handler.ts.",
+      "See isSsrHtmlOrDataResponse in packages/core/src/server/ssr-handler.ts.\n" +
+      "\nA real page below the lifetime floor is the same cost paid on a timer:\n" +
+      "once max-age and stale-while-revalidate both lapse, the next visitor\n" +
+      "waits on a cold origin render. Keep a long stale window and shorten\n" +
+      "max-age instead — or express the change deployment-wide through\n" +
+      "AGENT_NATIVE_SSR_CACHE rather than a per-route override.",
   );
   process.exit(1);
 }
 
 console.log(
-  `\ncheck-production-cache-contract: clean (${results.length - skipped.length} host(s) return a storable response for an unknown URL).`,
+  `\ncheck-production-cache-contract: clean (${results.length - skipped.length} probe(s): unknown URLs storable, real pages above the ${MIN_EFFECTIVE_LIFETIME_SECONDS}s lifetime floor).`,
 );
