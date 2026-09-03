@@ -1,6 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -154,10 +154,24 @@ export default defineAction({
         assertPublishableForm(effectiveFields);
       }
 
-      await db
+      const [written] = await db
         .update(schema.forms)
         .set(updates)
-        .where(eq(schema.forms.id, args.id));
+        .where(
+          and(
+            eq(schema.forms.id, args.id),
+            eq(schema.forms.fields, existing.fields),
+            eq(schema.forms.updatedAt, existing.updatedAt),
+          ),
+        )
+        .returning({ id: schema.forms.id });
+
+      if (!written) {
+        fail(
+          `Form ${args.id} changed while this update was in progress; read it again and retry`,
+          { errorCode: "form_changed", statusCode: 409 },
+        );
+      }
 
       // Do not re-read after the write. On pooled Postgres a follow-up SELECT
       // can land on a lagging replica and return the pre-update field array,

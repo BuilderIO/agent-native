@@ -36,6 +36,7 @@ const state = vi.hoisted(() => ({
   },
   updated: null as Record<string, unknown> | null,
   returnStaleAfterWrite: false,
+  writeConflict: false,
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -49,6 +50,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("drizzle-orm", async () => ({
   ...(await vi.importActual<typeof import("drizzle-orm")>("drizzle-orm")),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
+  and: vi.fn((...conditions: unknown[]) => ({ conditions })),
 }));
 
 vi.mock("../server/lib/public-form-ssr.js", () => ({
@@ -71,11 +73,27 @@ vi.mock("../server/db/index.js", () => ({
     update: () => ({
       set: (updates: Record<string, unknown>) => {
         state.updated = { ...state.existing, ...updates };
-        return { where: async () => {} };
+        return {
+          where: () => ({
+            returning: async () => {
+              if (state.writeConflict) {
+                state.updated = null;
+                return [];
+              }
+              return [{ id: "form-1" }];
+            },
+          }),
+        };
       },
     }),
   }),
-  schema: { forms: { id: "forms.id" } },
+  schema: {
+    forms: {
+      id: "forms.id",
+      fields: "forms.fields",
+      updatedAt: "forms.updatedAt",
+    },
+  },
 }));
 
 vi.mock("./patch-form-fields.js", () => ({
@@ -88,6 +106,7 @@ describe("update-form settings", () => {
   beforeEach(() => {
     state.updated = null;
     state.returnStaleAfterWrite = false;
+    state.writeConflict = false;
     state.existing.status = "draft";
     mockAssertAccess.mockClear();
     mockInvalidatePublicFormCache.mockClear();
@@ -150,6 +169,25 @@ describe("update-form settings", () => {
     await expect(updateForm.run({ id: "form-1", fields: [] })).rejects.toThrow(
       "Cannot publish",
     );
+    expect(state.updated).toBeNull();
+  });
+
+  it("rejects a stale write when another instance changes the form first", async () => {
+    state.writeConflict = true;
+
+    await expect(
+      updateForm.run({
+        id: "form-1",
+        fields: [
+          {
+            id: "message",
+            type: "textarea",
+            label: "Updated message",
+            required: false,
+          },
+        ],
+      }),
+    ).rejects.toThrow("changed while this update was in progress");
     expect(state.updated).toBeNull();
   });
 });
