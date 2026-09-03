@@ -2609,6 +2609,23 @@ export default function SlideEditor({
     syncSelectionToAppState(null);
   }, [slide.id]);
 
+  // Content reconciliation can replace the DOM node behind an open overlay.
+  useEffect(() => {
+    if (!imageOverlay) return;
+    const target = selectedImg;
+    const targetIsLive = Boolean(
+      target &&
+      target.isConnected &&
+      containerRef.current?.contains(target) &&
+      (target.tagName !== "IMG" ||
+        target.getAttribute("src") === imageOverlay.src),
+    );
+    if (targetIsLive) return;
+    setSelectedImg(null);
+    setImageOverlay(null);
+    syncSelectionToAppState(null);
+  }, [imageOverlay, selectedImg, slide.content]);
+
   // Stamp all elements with data-builder-id after render
   useEffect(() => {
     const container = containerRef.current;
@@ -6304,6 +6321,11 @@ export default function SlideEditor({
         clearCanvasSelection();
         return;
       }
+
+      // Plain clicks only select; keep the action menu for intentional
+      // double-clicks and discard any menu left by a previous image.
+      setSelectedImg(null);
+      setImageOverlay(null);
 
       // --- Plain click on an element → drop multi-selection back to single,
       // then run the existing single-select / style-editing flow.
