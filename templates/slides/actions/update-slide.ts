@@ -558,7 +558,10 @@ export default defineAction({
         }
       }
 
-      if (applied) slide.layoutFitRevision = createLayoutFitRevision();
+      if (applied) {
+        slide.layoutFitRevision = createLayoutFitRevision();
+        delete slide.layoutWarningDismissed;
+      }
 
       // Animation targets are paths into the persisted HTML. A content edit
       // can keep every path valid while changing which visual element lives at

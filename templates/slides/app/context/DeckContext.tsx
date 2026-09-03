@@ -130,6 +130,8 @@ export interface Slide {
   layout: SlideLayout;
   /** Changes on every persisted content write so fit measurements cannot cross writes. */
   layoutFitRevision?: string;
+  /** Suppresses the overflow warning until an agent changes rendered layout. */
+  layoutWarningDismissed?: boolean;
   background?: string;
   /** URL of the generated/loaded image for this slide */
   imageUrl?: string;
@@ -1264,12 +1266,17 @@ export function deriveInverseOp(
         // undefined).
         if (!equalDeckValue(prior[key], op.fields[key])) {
           let priorValue: unknown = prior[key];
-          // `skipped` is undefined on a slide that was never skipped, but
+          // Boolean fields are undefined on slides that never set them, but
           // `undefined` doesn't survive JSON transport to the server — its
           // `patch-slide` handler treats an absent field as "don't touch",
-          // so the persisted deck would stay skipped after undo. `false` is
-          // equivalent for this boolean field and does survive.
-          if (key === "skipped" && priorValue === undefined) priorValue = false;
+          // so the persisted deck would stay changed after undo. `false` is
+          // equivalent for these boolean fields and does survive.
+          if (
+            (key === "skipped" || key === "layoutWarningDismissed") &&
+            priorValue === undefined
+          ) {
+            priorValue = false;
+          }
           (priorFields as Record<string, unknown>)[key] = priorValue;
         }
       }

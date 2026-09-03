@@ -30,6 +30,7 @@ const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
 
 let mockDeckRow: Record<string, unknown> | undefined;
+let lastUpdateSet: { data?: string } | undefined;
 const mockGetGenerationCreativeContext = vi.fn(async () => null);
 const mockRecordGenerationCreativeContext = vi.fn(async () => undefined);
 const mockValidateGenerationCreativeContext = vi.fn(
@@ -58,7 +59,10 @@ const mockDb = {
     }),
   }),
   update: () => ({
-    set: () => ({ where: async () => ({ rowsAffected: 1 }) }),
+    set: (values: { data?: string }) => {
+      lastUpdateSet = values;
+      return { where: async () => ({ rowsAffected: 1 }) };
+    },
   }),
   transaction: async (callback: (tx: any) => Promise<unknown>) =>
     callback(mockDb),
@@ -213,6 +217,48 @@ describe("applyOperation — patch-slide", () => {
     });
     expect(deck.slides[0].layoutFitRevision).toEqual(expect.any(String));
     expect(deck.slides[0].layoutFitRevision).not.toBe(layoutRevision);
+  });
+
+  it("persists dismissal for human patches and clears it for changed agent layout", () => {
+    const deck = {
+      slides: [
+        {
+          id: "s1",
+          content: "old",
+          layout: "content",
+          layoutWarningDismissed: true,
+        },
+      ],
+    };
+
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { layoutWarningDismissed: true },
+    });
+    expect(deck.slides[0].layoutWarningDismissed).toBe(true);
+
+    applyOperation(
+      deck,
+      {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { notes: "human note" },
+      },
+      { clearLayoutWarningDismissal: true },
+    );
+    expect(deck.slides[0].layoutWarningDismissed).toBe(true);
+
+    applyOperation(
+      deck,
+      {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { content: "new layout" },
+      },
+      { clearLayoutWarningDismissal: true },
+    );
+    expect(deck.slides[0].layoutWarningDismissed).toBeUndefined();
   });
 });
 
@@ -998,6 +1044,7 @@ describe("resolveDeckColumnUpdates", () => {
 describe("run() — asynchronous layout fit metadata", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    lastUpdateSet = undefined;
     mockDeckRow = {
       id: "deck-1",
       title: "Deck",
@@ -1208,5 +1255,59 @@ describe("run() — asynchronous layout fit metadata", () => {
 
     expect(result.ok).toBe(true);
     expect(result.layoutFit).toBeUndefined();
+  });
+
+  it("clears dismissed overflow warnings only for changed agent layout", async () => {
+    const persistedDeck = {
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>One</div>",
+          layoutWarningDismissed: true,
+        },
+      ],
+    };
+    mockDeckRow!.data = JSON.stringify(persistedDeck);
+
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Agent update</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+    expect(
+      JSON.parse(lastUpdateSet!.data as string).slides[0]
+        .layoutWarningDismissed,
+    ).toBeUndefined();
+
+    mockDeckRow!.data = JSON.stringify(persistedDeck);
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Human update</div>" },
+          },
+        ],
+      },
+      {},
+    );
+    expect(
+      JSON.parse(lastUpdateSet!.data as string).slides[0]
+        .layoutWarningDismissed,
+    ).toBe(true);
   });
 });

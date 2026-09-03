@@ -120,6 +120,7 @@ const SlideFieldsSchema = z.object({
   notes: z.string().optional(),
   background: z.string().optional(),
   layout: z.string().optional(),
+  layoutWarningDismissed: z.boolean().optional(),
   imageUrl: z.string().optional(),
   imageLoading: z.boolean().optional(),
   imagePrompt: z.string().optional(),
@@ -350,7 +351,11 @@ function storedCreativeContext(value: unknown): {
 // ---------------------------------------------------------------------------
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function applyOperation(deck: any, op: Operation): void {
+export function applyOperation(
+  deck: any,
+  op: Operation,
+  options?: { clearLayoutWarningDismissal?: boolean },
+): void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const slides: any[] = Array.isArray(deck.slides) ? deck.slides : [];
 
@@ -382,8 +387,18 @@ export function applyOperation(deck: any, op: Operation): void {
       if (fields.transition !== undefined) slide.transition = fields.transition;
       if (fields.animations !== undefined) slide.animations = fields.animations;
       if (fields.skipped !== undefined) slide.skipped = fields.skipped;
-      if (slideFitRenderFieldsChanged(previousFitFields, slide)) {
+      const layoutChanged = slideFitRenderFieldsChanged(
+        previousFitFields,
+        slide,
+      );
+      if (fields.layoutWarningDismissed !== undefined) {
+        slide.layoutWarningDismissed = fields.layoutWarningDismissed;
+      }
+      if (layoutChanged) {
         slide.layoutFitRevision = createLayoutFitRevision();
+        if (options?.clearLayoutWarningDismissal) {
+          delete slide.layoutWarningDismissed;
+        }
       }
       break;
     }
@@ -741,7 +756,9 @@ export default defineAction({
               excalidrawData: previousSlide.excalidrawData,
             }
           : null;
-        applyOperation(deck, op);
+        applyOperation(deck, op, {
+          clearLayoutWarningDismissal: isAgentCaller,
+        });
         if (op.op === "add-slide" && !previousSlide) {
           layoutFitSlideIds.add(op.slideId);
         } else if (op.op === "patch-slide" && previousFitFields) {

@@ -157,6 +157,7 @@ describe("update-slide", () => {
         {
           id: "slide-1",
           content: "<div>Old</div>",
+          layoutWarningDismissed: true,
           animations: [
             {
               id: "old-reveal",
@@ -188,6 +189,7 @@ describe("update-slide", () => {
     expect(lastUpdateSet).toBeDefined();
     const deck = JSON.parse(lastUpdateSet!.data as string);
     expect(deck.slides[0].content).toBe("<div>New</div>");
+    expect(deck.slides[0].layoutWarningDismissed).toBeUndefined();
     expect(deck.slides[0].animations).toBeUndefined();
     expect(deck.updatedAt).not.toBe("2026-01-01T00:00:00.000Z");
     expect(lastUpdateSet!.updatedAt).toBe(deck.updatedAt);
