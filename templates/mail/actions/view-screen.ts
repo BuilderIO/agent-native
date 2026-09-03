@@ -23,7 +23,6 @@ import { gmailGetThread } from "../server/lib/google-api.js";
 import {
   isConnected,
   getClients,
-  DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT,
   listGmailMessages,
   gmailToEmailMessage,
   fetchGmailLabelMap,
@@ -36,6 +35,10 @@ import {
 } from "../server/lib/queued-drafts.js";
 import type { EmailMessage } from "../shared/types.js";
 import { getAccessTokens, fetchLabelMap } from "./helpers.js";
+
+// Keep automatic screen context within the page-tool budget; list-emails is
+// the full inventory path when the agent needs more than this preview.
+const SCREEN_EMAIL_LIMIT = 10;
 
 function latestPerThread(emails: any[]): any[] {
   const byThread = new Map<string, any>();
@@ -121,6 +124,10 @@ async function fetchEmailList(
       effectiveView === "inbox" &&
       !effectiveSearch &&
       savedFilterQueries.some(searchQueryNeedsAttachmentMetadata);
+    const needsLabelMap =
+      Boolean(label) ||
+      Boolean(activeInboxTab) ||
+      savedFilterQueries.length > 0;
     const hasNoteToSelf = pinnedLabels.includes("note-to-self");
     const clients = googleConnected ? await getClients(ownerEmail) : [];
     const connectedEmails = new Set(
@@ -163,18 +170,20 @@ async function fetchEmailList(
           emailMessageMatchesSearch(e, effectiveSearch),
         );
       }
-      return filterSelectedAccounts(emails).slice(0, 50);
+      return filterSelectedAccounts(emails).slice(0, SCREEN_EMAIL_LIMIT + 1);
     }
     if (googleConnected) {
       const labelMap = new Map<string, string>();
-      await Promise.all(
-        clients.map(async ({ accessToken }) => {
-          try {
-            const map = await fetchGmailLabelMap(accessToken);
-            for (const [id, name] of map) labelMap.set(id, name);
-          } catch {}
-        }),
-      );
+      if (needsLabelMap) {
+        await Promise.all(
+          clients.map(async ({ accessToken }) => {
+            try {
+              const map = await fetchGmailLabelMap(accessToken);
+              for (const [id, name] of map) labelMap.set(id, name);
+            } catch {}
+          }),
+        );
+      }
 
       const gmailQuery = buildGmailEmailSearchQuery({
         view: effectiveView,
@@ -186,7 +195,7 @@ async function fetchEmailList(
           : gmailQuery || "in:inbox";
       const { messages } = await listGmailMessages(
         effectiveQuery,
-        50,
+        SCREEN_EMAIL_LIMIT + 1,
         ownerEmail,
         undefined,
         {
@@ -199,11 +208,7 @@ async function fetchEmailList(
               ? selectedAccountEmails
               : undefined,
           threadCandidateLimit: effectiveSearch ? 500 : undefined,
-          threadRecentMessageCandidateLimit:
-            !effectiveSearch &&
-            (effectiveView === "inbox" || effectiveView === "unread")
-              ? DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT
-              : undefined,
+          threadRecentMessageCandidateLimit: undefined,
         },
       );
 
@@ -212,7 +217,7 @@ async function fetchEmailList(
       );
       return latestPerThread(applyActiveInboxTab(preparedMessages)).slice(
         0,
-        50,
+        SCREEN_EMAIL_LIMIT + 1,
       );
     }
 
@@ -258,7 +263,7 @@ async function fetchEmailList(
           emailMessageMatchesSearch(e, effectiveSearch),
         );
       }
-      return applyActiveInboxTab(emails).slice(0, 50);
+      return applyActiveInboxTab(emails).slice(0, SCREEN_EMAIL_LIMIT + 1);
     }
     return [];
   } catch {
@@ -325,7 +330,7 @@ async function fetchThreadMessages(threadId: string): Promise<any> {
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current view, email list, and open thread (if any). Prefer the auto-included <current-screen> block; call this only when you need a refreshed snapshot.",
+    "See what the user is currently looking at on screen. Returns the current view, a bounded email preview, and the open thread (if any). Use list-emails for a full inventory. Prefer the auto-included <current-screen> block; call this only when you need a refreshed snapshot.",
   schema: z.object({
     full: z.coerce
       .boolean()
@@ -392,7 +397,7 @@ export default defineAction({
             ),
           )
         : new Set<string>();
-      const compact = emails.slice(0, 50).map((e: any) => ({
+      const compact = emails.slice(0, SCREEN_EMAIL_LIMIT).map((e: any) => ({
         id: e.id,
         threadId: e.threadId,
         isSelected: selectedThreadIds.has(e.threadId || e.id),
@@ -414,6 +419,7 @@ export default defineAction({
         search: nav.search ?? null,
         selectedThreadIds: Array.from(selectedThreadIds),
         count: compact.length,
+        truncated: emails.length > compact.length,
         emails: compact,
       };
     }
