@@ -65,6 +65,17 @@
   --sidebar-ring: 0 0% 84%;
 }
 
+/* The neutral greys above are the shadcn defaults; light mode's page root is
+   warm (--b-bg-page / --bg, #faf9f5), so a neutral sidebar reads as a cool
+   patch beside it. These are the warm equivalents of the same values: the
+   sidebar surface is the page colour (core derives its own 2% recess from it),
+   and the borders are the brand light border tokens. Dark mode already agrees
+   with the page, so it is left alone. */
+.light {
+  --sidebar-background: 48 33% 97%;
+  --sidebar-border: 60 13% 86%;
+}
+
 @theme {
   --font-sans:
     "Geist Variable", -apple-system, "system-ui", "Segoe UI", Roboto, Oxygen,
@@ -114,8 +125,12 @@
   /* The one content measure for every full-width page: docs landings, the
      template detail shell, and the redesign page grid all read this, so the
      gridlines, the header, and the page body can't drift apart. */
-  --site-max-width: 1400px;
+  --site-max-width: 1300px;
   --docs-border: #ebebeb;
+  /* The agent sidebar renders outside `.builder-brand-tokens`, so it cannot
+     read --b-border-default. This mirrors it; drifting from that value puts a
+     different grey on the two halves of one continuous header rule. */
+  --sidebar-seam: #cac9c6;
   --docs-accent: #0072f5;
   --docs-accent-light: rgba(0, 114, 245, 0.1);
   --header-bg: rgba(255, 255, 255, 0.8);
@@ -139,6 +154,7 @@
   --bg: #0a0a0a;
   --bg-secondary: #1a1a1a;
   --docs-border: #1f1f1f;
+  --sidebar-seam: #1a1a1a;
   --docs-accent: #52a8ff;
   --docs-accent-light: rgba(82, 168, 255, 0.1);
   --header-bg: rgba(10, 10, 10, 0.8);
@@ -160,6 +176,7 @@
     --bg: #0a0a0a;
     --bg-secondary: #1a1a1a;
     --docs-border: #1f1f1f;
+    --sidebar-seam: #1a1a1a;
     --docs-accent: #52a8ff;
     --docs-accent-light: rgba(82, 168, 255, 0.1);
     --header-bg: rgba(10, 10, 10, 0.8);
@@ -203,6 +220,21 @@ body {
 
 .agent-sidebar-main-surface[data-agent-sidebar-main-state="closed"] {
   overflow: visible !important;
+}
+
+/* The site header is 64px with a bottom rule; the sidebar's chat topbar is 48px
+   and core drops its `border-b` whenever a collapse button exists — which this
+   site supplies — so that rule stopped dead at the sidebar edge. Matching the
+   height and restoring the border continues one line straight across. The panel
+   edge colour is inline on the element, so it needs `!important` to warm up. */
+.agent-sidebar-panel .agent-native-shell-topbar {
+  height: 64px;
+  border-bottom: 1px solid var(--sidebar-seam);
+}
+
+.agent-sidebar-panel {
+  border-left-color: var(--sidebar-seam) !important;
+  border-right-color: var(--sidebar-seam) !important;
 }
 
 /* Radix dialogs lock scroll through react-remove-scroll, which sets
@@ -315,6 +347,12 @@ body {
   .template-detail-page > section:not(:first-child) {
     padding-block: 3rem;
   }
+
+  /* Sections whose own border box must meet the section rule, so the vertical
+     borders are not left floating inside this padding. */
+  .template-detail-page > section.template-section-flush {
+    padding-block: 0;
+  }
 }
 
 ::selection {
@@ -356,7 +394,7 @@ pre code {
   font-size: inherit;
 }
 
-pre {
+pre:where(:not(.builder-brand-tokens *)) {
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.7;
@@ -366,6 +404,11 @@ pre {
   padding: 16px;
   overflow-x: auto;
   margin: 16px 0;
+}
+
+.docs-content :where(.code-block, pre) {
+  direction: ltr;
+  text-align: start;
 }
 
 hr {
@@ -1871,11 +1914,11 @@ html.dark .shiki span {
   overflow-x: auto;
 }
 
-/* Feature cards */
 .templates-index-page :where(.grid) > * {
   min-width: 0;
 }
 
+/* Feature cards */
 .feature-card {
   border: 1px solid var(--docs-border);
   border-radius: 6px;
@@ -2076,6 +2119,14 @@ html.dark .shiki span {
   font-weight: 500;
 }
 
+/* Matches the header's GitHub/Ask AI buttons, whose border token lives inside
+   .builder-brand-tokens and so is unreadable from page content. */
+.template-hero-actions .secondary-button {
+  min-height: 40px;
+  padding: 0 16px;
+  border-color: color-mix(in srgb, var(--fg) 33%, transparent);
+}
+
 .secondary-button:hover {
   border-color: var(--fg-secondary);
   color: var(--fg);
@@ -2085,17 +2136,9 @@ html.dark .shiki span {
 .template-detail-page button,
 .template-detail-page .primary-button,
 .template-detail-page .secondary-button,
-.template-detail-page .template-detail-cta-actions a {
+.template-detail-page .template-detail-cta-actions a,
+.templates-index-page .secondary-button {
   text-transform: uppercase;
-}
-
-.template-card-primary-button {
-  min-height: 32px;
-  padding: 0 12px;
-  font-family: var(--font-sans);
-  font-size: 14px;
-  font-weight: 400;
-  letter-spacing: normal;
 }
 
 /* Mobile docs nav dropdown */

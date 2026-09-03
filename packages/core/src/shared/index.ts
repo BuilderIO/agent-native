@@ -4,6 +4,11 @@ export {
   type AgentChatCallOptions,
   type AgentChatResponse,
 } from "./agent-chat.js";
+export {
+  appendAgentChatContextToMessage,
+  splitAgentChatContextFromMessage,
+  type AgentChatMessageParts,
+} from "./agent-chat-context.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
 export {
   extractOAuthStateAppId,
@@ -34,6 +39,9 @@ export { withBuilderUtmTrackingParams } from "./builder-link-tracking.js";
 export {
   BETA_FORCE_QUERY_PARAM,
   BETA_FORCE_SESSION_STORAGE_KEY,
+  BETA_REDIRECT_DURATION_MS,
+  BETA_REDIRECT_STORAGE_KEY,
+  BETA_REDIRECT_SIGN_OUT_STORAGE_KEY,
   BETA_OPT_OUT_DURATION_MS,
   BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
@@ -115,6 +123,12 @@ export {
   type ChatFirstAppCreationResource,
   type ChatFirstAppCreationVaultAccessMode,
 } from "./chat-first-app-creation.js";
+export { isQaTestEmail } from "./qa-test-email.js";
+export {
+  SYNTHETIC_TRAFFIC_BETA_E2E,
+  SYNTHETIC_TRAFFIC_HEADER,
+  isSyntheticTrafficValue,
+} from "./test-traffic.js";
 export {
   NATIVE_AUTH_COPY,
   resolveNativeAuthCopy,

@@ -4,6 +4,7 @@ import {
   type GuidedQuestionAnswers,
 } from "@agent-native/core/client/agent-chat";
 import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
 import { useCallback } from "react";
 
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
@@ -89,6 +90,18 @@ export function buildGenerationBriefContext(
 const RESPONSIVE_GENERATION_REQUIREMENTS =
   'Responsive behavior is mandatory for every web design. Read the form-factor answer above: for Desktop or Both/responsive, call generate-design with `primaryViewport: "desktop"` and a 1440x1024 canvas frame; use `primaryViewport: "mobile"` only for an explicitly mobile-primary choice. Use mobile-first responsive CSS, then take desktop and mobile screenshots and fix any overflow before reporting the design complete.';
 
+function existingDesignContinuationContext(
+  designId: string | undefined,
+): string {
+  return designId
+    ? [
+        `This is a continuation of the new-design flow for existing design "${designId}".`,
+        "The design shell already exists and is the only design to modify.",
+        `Use designId "${designId}" for generation. Never call create-design or create-design-from-template in this continuation.`,
+      ].join(" ")
+    : "";
+}
+
 const SETTLED_ANSWERS_INSTRUCTION =
   "Treat every question below as settled: do not ask it again, and do not ask for a confirmation of it. Continue the work these answers were blocking.";
 
@@ -109,6 +122,7 @@ export function useQuestionFlow(
   }: UseQuestionFlowOptions = {},
 ) {
   const stateKey = designQuestionsStateKey(designId);
+  const existingDesignContext = existingDesignContinuationContext(designId);
   const flow = useGuidedQuestionFlow({
     enabled,
     stateKey,
@@ -118,6 +132,7 @@ export function useQuestionFlow(
     buildSubmitContext: ({ formattedAnswers }) =>
       [
         "The user answered the pre-generation questions.",
+        existingDesignContext,
         designId ? `Design ID: ${designId}` : "",
         "",
         "Answers:",
@@ -132,9 +147,14 @@ export function useQuestionFlow(
         .filter(Boolean)
         .join("\n"),
     buildSkipContext: () =>
-      designId
-        ? `The user skipped the pre-generation questions for design ${designId}. Proceed with reasonable defaults. Generate one polished first direction unless the original prompt explicitly requested options.`
-        : "The user skipped the pre-generation questions. Proceed with reasonable defaults. Generate one polished first direction unless the original prompt explicitly requested options.",
+      [
+        existingDesignContext,
+        designId
+          ? `The user skipped the pre-generation questions for design ${designId}. Proceed with reasonable defaults. Generate one polished first direction unless the original prompt explicitly requested options.`
+          : "The user skipped the pre-generation questions. Proceed with reasonable defaults. Generate one polished first direction unless the original prompt explicitly requested options.",
+      ]
+        .filter(Boolean)
+        .join(" "),
   });
 
   const sendContinuation = useCallback(
@@ -167,7 +187,9 @@ export function useQuestionFlow(
       // real destination thread.
       const tabId = sendToDesignAgentChat({
         message,
-        context: [briefContext, context].filter(Boolean).join("\n\n"),
+        context: [briefContext, context, DESIGN_MUTATION_REQUIRED_DIRECTIVE]
+          .filter(Boolean)
+          .join("\n\n"),
         submit: true,
         newTab: true,
         ...(brief?.images?.length ? { images: brief.images } : {}),
@@ -181,7 +203,6 @@ export function useQuestionFlow(
     },
     [
       continuationTabId,
-      designId,
       flow,
       getGenerationBrief,
       getModelSelection,
@@ -197,6 +218,7 @@ export function useQuestionFlow(
       );
       const context = [
         "The user answered the pre-generation questions.",
+        existingDesignContext,
         SETTLED_ANSWERS_INSTRUCTION,
         designId ? `Design ID: ${designId}` : "",
         "",
@@ -221,7 +243,7 @@ export function useQuestionFlow(
     void sendContinuation(
       "Skip the questions — decide for me.",
       designId
-        ? `The user skipped the pre-generation questions for design ${designId}. Proceed with reasonable defaults. ${RESPONSIVE_GENERATION_REQUIREMENTS} Generate one polished first direction unless the original prompt explicitly requested options.`
+        ? `${existingDesignContext} The user skipped the pre-generation questions for design ${designId}. Proceed with reasonable defaults. ${RESPONSIVE_GENERATION_REQUIREMENTS} Generate one polished first direction unless the original prompt explicitly requested options.`
         : `The user skipped the pre-generation questions. Proceed with reasonable defaults. ${RESPONSIVE_GENERATION_REQUIREMENTS} Generate one polished first direction unless the original prompt explicitly requested options.`,
     );
   }, [designId, sendContinuation]);

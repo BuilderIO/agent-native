@@ -605,6 +605,159 @@ plug-in :
 | Seuil de compactage                         | Blob stocké > 4 fois un nouvel encodage déclenche un compactage de pierre tombale                 |
 | Lectures de base de données par écriture    | 1 (version CAS lue dans `persistMergedState` uniquement)                                          |
 
+## Passerelle de synchronisation temps réel hébergée {#hosted-gateway}
+
+Par défaut, les applications utilisent le transport poll/SSE décrit ci-dessus.
+Toute application peut choisir à la place la passerelle de synchronisation temps
+réel hébergée, qui suit de façon centralisée la table `sync_events` de
+l'application et diffuse les changements à tous les clients connectés — la
+distribution des changements ne dépend donc plus du maintien, par chaque
+instance sans serveur, de ses propres connexions longue durée.
+
+La configuration dépend de qui déploie l'application.
+
+### Applications hébergées par Builder : rien à faire {#hosted-gateway-builder}
+
+Une application déployée par le pipeline d'hébergement de Builder est
+provisionnée automatiquement. Le déploiement injecte le transport, l'URL de la
+passerelle, l'identifiant de canal et le secret de signature
+(`AGENT_NATIVE_REALTIME_HMAC_SECRET`) comme variables d'environnement réservées,
+car le pipeline a déjà provisionné la base de données que lit la passerelle.
+
+Pour EXCLURE un projet, ajoutez un bloc `realtime` à son `builder.config.json` :
+
+```json
+{
+  "realtime": { "transport": "local" }
+}
+```
+
+### Déployée ailleurs : auto-enregistrement {#hosted-gateway-self}
+
+Une application sur son propre Netlify, Vercel, conteneur ou VM ne dispose pas
+de ce provisionnement ; elle se présente donc elle-même à la passerelle.
+Définissez une seule variable d'environnement sur le déploiement :
+
+```bash
+AGENT_NATIVE_REALTIME_TRANSPORT=hosted
+```
+
+La définir constitue le consentement explicite, et c'est la seule variable que
+cette fonctionnalité ajoute. Rien de tout cela ne se produit sur un déploiement
+qui ne l'a pas définie.
+
+Le déploiement doit également satisfaire quatre conditions, toutes déjà remplies
+par une application de production normale :
+
+| Prérequis                                                                       | Pourquoi                                                                                                                                                                                                          | Comment vérifier                                                                                                                                                                                                |
+| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Postgres sur un hôte accessible publiquement**                                | La passerelle contacte la base de données depuis son propre réseau. PGlite, SQLite, `localhost`, `*.internal` et les adresses IP nues sont refusés avant même que la chaîne de connexion ne quitte votre machine. | `DATABASE_URL` pointe vers un Postgres géré tel que Neon                                                                                                                                                        |
+| **`BUILDER_PRIVATE_KEY` définie comme variable d'environnement du DÉPLOIEMENT** | Elle authentifie l'enregistrement et détermine quelle organisation Builder possède le canal.                                                                                                                      | Voir la note ci-dessous — c'est l'étape que l'on oublie le plus souvent                                                                                                                                         |
+| **Un déploiement de production**                                                | Les préversions de déploiement conservent la synchronisation locale, si bien qu'un identifiant de branche jetable ne quitte jamais la machine et qu'un dépôt actif ne crée pas un canal par pull request.         | `CONTEXT=production` / `BRANCH=production`, ou `VERCEL_ENV=production`                                                                                                                                          |
+| **La plateforme identifie le déploiement**                                      | L'enregistrement est indexé sur l'origine publique de l'application ; un processus qui n'est pas réellement le déploiement ne doit donc pas la revendiquer.                                                       | Netlify, Vercel, AWS Lambda, Cloud Run, Render et Cloudflare Pages se signalent d'eux-mêmes. Sur un simple conteneur ou une VM, définissez `AGENT_NATIVE_REALTIME_APP_URL` avec l'origine propre du déploiement |
+
+<Callout tone="warning">
+
+**Connecter Builder depuis l'application ne suffit pas.** La connexion Builder
+réalisée dans l'application enregistre son identifiant par utilisateur ou par
+organisation dans le coffre à secrets de l'application. L'auto-enregistrement
+ignore délibérément cet identifiant — la connexion d'un seul utilisateur ne doit
+pas inscrire la base de données de tout le déploiement sous l'organisation qui a
+fait la première requête par hasard — et ne lit qu'une variable d'environnement
+`BUILDER_PRIVATE_KEY` au niveau du déploiement. Une application qui affiche
+« Builder connecté » sans cette variable restera en synchronisation locale.
+
+</Callout>
+
+L'enregistrement a ensuite lieu à la demande, à la première requête qui a besoin
+d'un canal. L'application envoie sa chaîne de connexion et son origine publique,
+reçoit en retour un identifiant de canal et un secret de signature, et émet des
+jetons d'abonnement exactement comme une application hébergée par Builder. Il se
+relance de lui-même dès que l'URL de la base de données, l'origine de
+l'application ou l'identifiant Builder change, de sorte qu'une rotation
+d'identifiants est prise en compte sans redéployer quoi que ce soit d'autre.
+
+Les déploiements de workspace (plusieurs applications servies depuis une même
+origine) ne s'auto-enregistrent pas : les applications sœurs partagent une
+origine, et l'enregistrement est indexé dessus, elles entreraient donc en
+collision sur un même canal. Elles journalisent une ligne l'indiquant et restent
+en synchronisation locale.
+
+### Vérifier que cela a fonctionné {#hosted-gateway-verify}
+
+`GET /_agent-native/health` rapporte le résultat, et sa résolution effectue
+l'enregistrement : un seul curl active donc et confirme à la fois.
+
+```bash
+curl -s https://your-app.example.com/_agent-native/health | jq .realtime
+```
+
+```json
+{
+  "transport": "hosted",
+  "registered": true,
+  "channelHash": "3f9a2c17"
+}
+```
+
+| Champ         | Signification                                                                                                                                                                                                                                         |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transport`   | `"hosted"` dès que la variable d'environnement est définie, `"local"` sinon. Si vous lisez `local`, la variable n'a pas atteint le déploiement en cours d'exécution.                                                                                  |
+| `registered`  | Un canal a été résolu. `false` signifie que l'application utilise toujours son propre `/_agent-native/poll`.                                                                                                                                          |
+| `channelHash` | Les 8 premiers caractères d'un SHA-256 de l'identifiant de canal — assez pour distinguer deux déploiements ou confirmer une rotation, inutile pour se connecter. Le point de terminaison est public, l'identifiant lui-même n'est donc jamais publié. |
+| `unavailable` | Présent uniquement lorsque la résolution a ÉCHOUÉ, par opposition à une résolution en « aucun canal ». Une passerelle injoignable et une application non enregistrée sont deux problèmes différents.                                                  |
+
+Lorsque `registered` vaut `false`, les journaux du déploiement contiennent une
+ligne `[realtime]` indiquant la raison : un identifiant refusé, une URL de base
+de données non analysable, un processus qui ne ressemble pas au déploiement.
+Parcourez le tableau des prérequis ci-dessus dans l'ordre.
+
+### Ce que Builder conserve, et la frontière de confiance {#hosted-gateway-trust}
+
+**L'auto-enregistrement signifie envoyer à Builder la chaîne de connexion de
+votre base de données.** Builder la conserve et se connecte à votre base de
+données pour suivre `sync_events`. La connexion n'est pas en lecture seule :
+l'allocation des versions et la détection des changements hors bande écrivent
+toutes deux. Si vous ne le souhaitez pas, laissez la variable de transport non
+définie. C'est toute la décision, et aucune autre voie ne partage cet
+identifiant.
+
+**L'organisation est la frontière de confiance.** Tout identifiant capable de
+s'enregistrer peut aussi réenregistrer une origine existante, ce qui renvoie le
+secret de signature de ce canal et réoriente sa base de données. Détenir ce
+secret permet d'émettre un jeton d'abonnement pour n'importe quel utilisateur de
+l'application, exposant son _flux de changements_ — quels enregistrements ont
+changé, et quand — mais pas les enregistrements eux-mêmes, puisque les clients
+relisent le contenu depuis l'application avec leur propre session. Traitez un
+identifiant d'enregistrement comme valant pour toute l'organisation.
+
+### Fonctionnement {#hosted-gateway-mechanics}
+
+- `GET /_agent-native/realtime-token` émet un jeton d'abonnement de courte durée
+  (10 minutes), limité à la session, que le navigateur utilise pour ouvrir la
+  connexion à la passerelle. Il n'accepte que la même origine et renvoie 401 en
+  l'absence de session active.
+- `GET /_agent-native/can-see` est le contrôle de visibilité par événement de la
+  passerelle : il vérifie un jeton d'accès signé, puis réexécute le
+  `resolveAccess` propre à l'application, afin que la passerelle ne puisse jamais
+  transmettre un événement à une personne ayant perdu l'accès depuis. Les types
+  de ressources inconnus ou les échecs de recherche échouent en mode fermé
+  (`{ allowed: false }`).
+- Sur Postgres, les applications hébergées allouent les versions de
+  synchronisation depuis la base de données (`dbAssignedVersions`) plutôt que
+  depuis un compteur en mémoire, car les instances de la passerelle et les
+  instances sans serveur de l'application partagent une base de données et
+  doivent s'accorder sur l'ordre d'écriture.
+- `AGENT_NATIVE_REALTIME_GATEWAY_URL` remplace le point de terminaison de la
+  passerelle pour la préproduction. Si elle n'est pas définie, il est dérivé de
+  `BUILDER_GATEWAY_BASE_URL`.
+
+Ici, chaque échec est silencieux par conception : pas de variable de transport,
+pas de clé Builder au niveau du déploiement, une base de données non-Postgres ou
+une passerelle injoignable laissent l'application en interrogation locale plutôt
+que de produire une erreur. Un 404 sur `GET /_agent-native/realtime-token`
+signifie qu'aucun canal n'a été résolu.
+
 ## Sécurité {#security}
 
 ### Choisir explicitement le modèle d'accès

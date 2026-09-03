@@ -39,8 +39,10 @@ export interface NavigationState {
   runId?: string;
   threadId?: string;
   agentPath?: string;
-  usageScope?: "me" | "workspace";
+  usageScope?: "me" | "workspace" | "app";
   usageUserEmail?: string;
+  usageAppId?: string;
+  automationId?: string;
 }
 
 export function useNavigationState(extensions?: DispatchExtensionConfig) {
@@ -108,7 +110,7 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
         markAgentChatHomeHandoff("dispatch");
       }
     }
-    navigate(nextPath);
+    void navigate(nextPath);
     qc.setQueryData(["navigate-command"], null);
   }, [extensions, location.pathname, navCommand, navigate, qc]);
 }
@@ -203,10 +205,19 @@ export function buildDispatchNavigationState(
     const params = new URLSearchParams(search);
     const usageScope = params.get("scope");
     const usageUserEmail = params.get("user");
-    if (usageScope === "me" || usageScope === "workspace") {
+    const usageAppId = params.get("app");
+    if (usageAppId) {
+      state.usageScope = "app";
+      state.usageAppId = usageAppId;
+    } else if (usageScope === "me" || usageScope === "workspace") {
       state.usageScope = usageScope;
     }
     if (usageUserEmail) state.usageUserEmail = usageUserEmail;
+  }
+
+  if (state.view === "automations") {
+    const automationId = new URLSearchParams(search).get("automationId");
+    if (automationId) state.automationId = automationId;
   }
 
   return state;

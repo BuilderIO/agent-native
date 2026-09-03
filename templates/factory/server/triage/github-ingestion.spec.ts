@@ -35,4 +35,20 @@ describe("pullRequestSnapshotToEnvelope", () => {
       checks: 0,
     });
   });
+
+  it("omits non-http source URLs instead of storing them", () => {
+    const envelope = pullRequestSnapshotToEnvelope({
+      repo: "BuilderIO/agent-native",
+      pullRequestNumber: 123,
+      headSha: "abc123",
+      title: "Fix triage",
+      sourceUrl: "javascript:alert(1)",
+      coverage: "complete",
+      reviews: [],
+      checks: [],
+      observedAt: "2026-07-31T10:00:00.000Z",
+    });
+
+    expect(envelope.sourceUrl).toBeUndefined();
+  });
 });

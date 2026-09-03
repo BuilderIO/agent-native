@@ -275,7 +275,13 @@ export async function readBoundedResponseBytes(
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
     throw new Error(`Remote artifact exceeds ${maxBytes} bytes.`);
   }
-  if (!response.body) return new Uint8Array(await response.arrayBuffer());
+  if (!response.body) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > maxBytes) {
+      throw new Error(`Remote artifact exceeds ${maxBytes} bytes.`);
+    }
+    return bytes;
+  }
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;

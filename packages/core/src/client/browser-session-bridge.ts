@@ -302,7 +302,8 @@ function toActionManifest(
   action: AgentNativeClientAction,
 ): AgentNativeActionManifestEntry | null {
   if (!action?.name || !action.description) return null;
-  const { run: _run, ...manifest } = action;
+  const manifest = { ...action };
+  delete (manifest as Partial<AgentNativeClientAction>).run;
   return serializeForBrowserSession(
     {
       source: "client",
@@ -457,7 +458,9 @@ async function executeDirectBrowserSessionRequest(
       options,
     );
   }
-  throw new Error(`Unknown browser-session request type: ${request.type}`);
+  throw new Error(
+    `Unknown browser-session request type: ${String(request.type)}`,
+  );
 }
 
 function normalizeSession(
@@ -534,7 +537,9 @@ async function executeBrowserSessionRequest(
       hostOptions,
     );
   }
-  throw new Error(`Unknown browser-session request type: ${request.type}`);
+  throw new Error(
+    `Unknown browser-session request type: ${String(request.type)}`,
+  );
 }
 
 export function createAgentNativeBrowserSessionBridge(
@@ -560,7 +565,7 @@ export function createAgentNativeBrowserSessionBridge(
           requestAgentNativeHostActions(hostOptions).catch(() => []),
           resolveWebMcpTools(options),
         ]);
-    if (webmcpTools !== undefined) lastWebMcpTools = webmcpTools;
+    lastWebMcpTools = webmcpTools;
     const hostSession = context.session;
     if (!currentSessionId) {
       currentSessionId =

@@ -304,7 +304,10 @@ export function runDeleteFiles(
 
   void Promise.allSettled(
     filesToDelete.map((file) =>
-      deleteFileMutation.mutateAsync({ id: file.id } as any),
+      deleteFileMutation.mutateAsync({
+        id: file.id,
+        allowLockedLayers: true,
+      } as any),
     ),
   ).then((results) => {
     const deletedFiles = filesToDelete.filter((_, index) => {
@@ -334,7 +337,7 @@ export function runDeleteFiles(
       (result): result is PromiseRejectedResult => result.status === "rejected",
     );
     if (failedFiles.length > 0) {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-design"],
       });
       if (rejected) {

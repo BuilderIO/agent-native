@@ -3,6 +3,7 @@ import path from "path";
 
 import {
   defineEventHandler,
+  readBody,
   setResponseStatus,
   readMultipartFormData,
 } from "h3";
@@ -18,6 +19,7 @@ import {
 import { tenantUploadDir } from "../lib/tenant-files.js";
 import {
   isHostedSlidesRuntime,
+  deleteUploadedReferenceBlob,
   storeUploadedReferenceBlob,
 } from "../lib/uploaded-reference-storage.js";
 import { canSaveAsUploadedAsset, uploadImageAsset } from "./assets.js";
@@ -43,8 +45,11 @@ export interface UploadedReferenceFile {
   size: number;
 }
 
-function safeFilename(originalName: string): string | null {
-  const ext = path.extname(originalName).toLowerCase();
+function safeFilename(
+  originalName: string,
+  extension = path.extname(originalName).toLowerCase(),
+): string | null {
+  const ext = extension.toLowerCase();
   if (!isSlidesReferenceFileExtension(ext)) return null;
   // Filename uniqueness comes from nanoid (~21 chars, ~126 bits of entropy),
   // not `Date.now()` — second-resolution timestamps are guessable and let
@@ -115,6 +120,25 @@ function hasExpectedSignature(ext: string, data: Uint8Array): boolean {
   return !data.subarray(0, 4096).includes(0);
 }
 
+interface DetectedReferenceImage {
+  extension: ".png" | ".jpg" | ".gif" | ".webp";
+  mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+}
+
+function detectReferenceImage(data: Uint8Array): DetectedReferenceImage | null {
+  const candidates: DetectedReferenceImage[] = [
+    { extension: ".png", mimeType: "image/png" },
+    { extension: ".jpg", mimeType: "image/jpeg" },
+    { extension: ".gif", mimeType: "image/gif" },
+    { extension: ".webp", mimeType: "image/webp" },
+  ];
+  return (
+    candidates.find((candidate) =>
+      hasExpectedSignature(candidate.extension, data),
+    ) ?? null
+  );
+}
+
 function pathForAgent(absPath: string): string {
   const relative = path.relative(process.cwd(), absPath);
   if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) {
@@ -130,16 +154,37 @@ export async function saveUploadedReferenceFile(args: {
   data: Uint8Array;
   type?: string;
 }): Promise<UploadedReferenceFile> {
-  const filename = safeFilename(args.originalName);
+  const declaredExt = path.extname(args.originalName).toLowerCase();
+  if (!isSlidesReferenceFileExtension(declaredExt)) {
+    throw new Error(
+      `Unsupported file type. Allowed: ${SLIDES_REFERENCE_FILE_ERROR_LABEL}.`,
+    );
+  }
+  const isDeclaredImage = [".png", ".jpg", ".jpeg", ".gif", ".webp"].includes(
+    declaredExt,
+  );
+  const detectedImage = isDeclaredImage
+    ? detectReferenceImage(args.data)
+    : null;
+  const ext =
+    detectedImage && !hasExpectedSignature(declaredExt, args.data)
+      ? detectedImage.extension
+      : declaredExt;
+  const filename = safeFilename(args.originalName, ext);
   if (!filename) {
     throw new Error(
       `Unsupported file type. Allowed: ${SLIDES_REFERENCE_FILE_ERROR_LABEL}.`,
     );
   }
-  const ext = path.extname(filename).toLowerCase();
   if (!hasExpectedSignature(ext, args.data)) {
     throw new Error(`File contents do not match ${ext} upload type`);
   }
+  const assetOriginalName =
+    ext === declaredExt
+      ? args.originalName
+      : `${path.basename(args.originalName, path.extname(args.originalName))}${ext}`;
+  const resolvedType =
+    detectedImage?.mimeType ?? (args.type || "application/octet-stream");
   let uploadedPath: string;
   if (isHostedSlidesRuntime()) {
     let reference: string | null;
@@ -149,7 +194,7 @@ export async function saveUploadedReferenceFile(args: {
         orgId: args.orgId,
         data: args.data,
         filename,
-        mimeType: args.type || "application/octet-stream",
+        mimeType: resolvedType,
       });
     } catch {
       throw Object.assign(
@@ -180,7 +225,7 @@ export async function saveUploadedReferenceFile(args: {
   let url: string | undefined;
   if (
     canSaveAsUploadedAsset({
-      originalName: args.originalName,
+      originalName: assetOriginalName,
       data: args.data,
     })
   ) {
@@ -188,9 +233,9 @@ export async function saveUploadedReferenceFile(args: {
       url = (
         await uploadImageAsset({
           email: args.email,
-          originalName: args.originalName,
+          originalName: assetOriginalName,
           data: args.data,
-          type: args.type,
+          type: resolvedType,
         })
       ).url;
     } catch {
@@ -205,7 +250,7 @@ export async function saveUploadedReferenceFile(args: {
     url,
     originalName: args.originalName,
     filename,
-    type: args.type || "application/octet-stream",
+    type: resolvedType,
     size: args.data.length,
   };
 }
@@ -252,30 +297,88 @@ export const uploadFiles = defineEventHandler(async (event) => {
         return { error: `File too large (max ${formatMaxFileSize(limit)})` };
       }
 
-      let results;
-      try {
-        results = await Promise.all(
-          fileParts.map(async (part) => {
-            return saveUploadedReferenceFile({
-              email,
-              orgId,
-              originalName: part.filename || "upload",
-              data: part.data,
-              type: part.type,
-            });
-          }),
+      const results = await Promise.allSettled(
+        fileParts.map(async (part) => {
+          return saveUploadedReferenceFile({
+            email,
+            orgId,
+            originalName: part.filename || "upload",
+            data: part.data,
+            type: part.type,
+          });
+        }),
+      );
+      const successfulResults = results.filter(
+        (result): result is PromiseFulfilledResult<UploadedReferenceFile> =>
+          result.status === "fulfilled",
+      );
+      const failedResult = results.find(
+        (result) => result.status === "rejected",
+      );
+      if (failedResult) {
+        await Promise.allSettled(
+          successfulResults.map((result) =>
+            deleteUploadedReferenceBlob(result.value.path, email),
+          ),
         );
-      } catch (err) {
         const statusCode =
-          typeof (err as { statusCode?: unknown })?.statusCode === "number"
-            ? (err as { statusCode: number }).statusCode
+          typeof (failedResult.reason as { statusCode?: unknown })
+            ?.statusCode === "number"
+            ? (failedResult.reason as { statusCode: number }).statusCode
             : 400;
         setResponseStatus(event, statusCode);
-        return { error: err instanceof Error ? err.message : "Invalid upload" };
+        return {
+          error:
+            failedResult.reason instanceof Error
+              ? failedResult.reason.message
+              : "Invalid upload",
+        };
       }
 
-      return results;
+      return successfulResults.map((result) => result.value);
     },
     authContext,
+  );
+});
+
+export const deleteUploadedFile = defineEventHandler(async (event) => {
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  const email = auth.context.email;
+  if (!email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
+  }
+
+  // coercion-ok: malformed JSON is reported as the existing missing-path 400.
+  const body = (await readBody(event).catch(() => null)) as {
+    path?: unknown;
+  } | null;
+  if (typeof body?.path !== "string" || !body.path) {
+    setResponseStatus(event, 400);
+    return { error: "Uploaded file path is required" };
+  }
+
+  return withSlidesRequestContext(
+    event,
+    async () => {
+      try {
+        return {
+          deleted: await deleteUploadedReferenceBlob(
+            body.path as string,
+            email,
+          ),
+        };
+      } catch (error) {
+        setResponseStatus(event, 400);
+        return {
+          error: error instanceof Error ? error.message : "Invalid upload",
+        };
+      }
+    },
+    auth.context,
   );
 });

@@ -17,8 +17,36 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
-import { ensureFactoryAutomations } from "../server/plugins/factory-scheduler-job.js";
 import { stableId } from "../server/triage/ids.js";
+
+function chatContextFromAction(
+  context:
+    | {
+        caller?: string;
+        threadId?: unknown;
+        runId?: unknown;
+        turnId?: unknown;
+      }
+    | undefined,
+): Record<string, string> | undefined {
+  if (!context) return undefined;
+  if (
+    context.caller !== "tool" &&
+    context.caller !== "mcp" &&
+    context.caller !== "a2a"
+  ) {
+    return undefined;
+  }
+  const chatContext = Object.fromEntries(
+    ["threadId", "runId", "turnId"].flatMap((key) =>
+      typeof context[key as keyof typeof context] === "string" &&
+      (context[key as keyof typeof context] as string).trim()
+        ? [[key, context[key as keyof typeof context] as string]]
+        : [],
+    ),
+  );
+  return chatContext.runId || chatContext.turnId ? chatContext : undefined;
+}
 
 export default defineAction({
   description:
@@ -63,8 +91,8 @@ export default defineAction({
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
+    const chatContext = chatContextFromAction(context);
     const db = getDb();
-    let createdNewFactory = false;
 
     const result = await db.transaction(async (tx) => {
       const existing = (
@@ -125,7 +153,6 @@ export default defineAction({
           );
         }
       } else {
-        createdNewFactory = true;
         await tx.insert(factoryDefinitions).values({
           id: factoryId,
           name,
@@ -149,6 +176,7 @@ export default defineAction({
         changeSummary,
         createdAt: now,
         createdBy: userEmail,
+        ...(chatContext ? { chatContext: JSON.stringify(chatContext) } : {}),
         ownerEmail: userEmail,
         orgId,
       });
@@ -161,11 +189,6 @@ export default defineAction({
         source,
       };
     });
-    if (createdNewFactory) {
-      await ensureFactoryAutomations(userEmail, orgId, factoryId, {
-        enabled: false,
-      });
-    }
     return result;
   },
 });

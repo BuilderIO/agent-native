@@ -69,7 +69,6 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch as UiSwitch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -201,6 +200,12 @@ interface PendingNativeUpload {
 }
 
 type PendingDesktopUpload = PendingNativeUpload | PendingBrowserRecordingUpload;
+
+type AuthCheckResult =
+  | { state: "authenticated"; token?: string }
+  | { state: "anonymous" }
+  | { state: "unavailable" }
+  | { state: "stale" };
 
 type NativeUploadProgress = {
   message?: string;
@@ -730,21 +735,6 @@ function openPrivacySettings(pane: MacosPrivacyPane): void {
   }
 }
 
-// Same explicit-drag pattern the toolbar/bubble overlays use —
-// `data-tauri-drag-region` has been unreliable, so we call `startDragging()`
-// directly on mousedown. Clicks on buttons/inputs still reach their handlers
-// since we only start a drag when the mousedown target isn't inside one.
-function handlePopoverHeaderMouseDown(event: React.MouseEvent) {
-  if (event.button !== 0) return;
-  const target = event.target as HTMLElement;
-  if (target.closest("button, a, input, select, textarea")) return;
-  getCurrentWindow()
-    .startDragging()
-    .catch((err) => {
-      console.warn("[clips-popover] startDragging failed:", err);
-    });
-}
-
 function nativeVoiceProvider(): VoiceProvider {
   return isMacPlatform() ? "macos-native" : "browser";
 }
@@ -1171,10 +1161,13 @@ export function App({
     if (!retryingUploadId) return;
     let disposed = false;
     let unlisten: (() => void) | null = null;
-    listen<NativeUploadProgress>("clips:native-upload-progress", (event) => {
-      const message = event.payload?.message?.trim();
-      if (message) setRetryingUploadStatus(message);
-    }).then((cleanup) => {
+    void listen<NativeUploadProgress>(
+      "clips:native-upload-progress",
+      (event) => {
+        const message = event.payload?.message?.trim();
+        if (message) setRetryingUploadStatus(message);
+      },
+    ).then((cleanup) => {
       if (disposed) cleanup();
       else unlisten = cleanup;
     });
@@ -1247,9 +1240,9 @@ export function App({
   const [recordingFlowActive, setRecordingFlowActive] = useState(false);
   const [recordingStopFinalizing, setRecordingStopFinalizing] = useState(false);
   const [, setLastRecordingId] = useState<string | null>(null);
-  const [authStatus, setAuthStatus] = useState<"unknown" | "authed" | "anon">(
-    "unknown",
-  );
+  const [authStatus, setAuthStatus] = useState<
+    "unknown" | "authed" | "anon" | "unavailable"
+  >("unknown");
   // "Could not reach the server" is not the same state as "signed out", and the
   // fix is different: one needs a correct server URL, the other needs sign-in.
   const [serverReachable, setServerReachable] = useState(true);
@@ -1271,6 +1264,9 @@ export function App({
   // Ref-based lock so two fast clicks cannot start competing desktop auth
   // (state updates are async; refs are synchronous).
   const signInInflightRef = useRef(false);
+  const authCheckGenerationRef = useRef(0);
+  const authServerUrlRef = useRef(serverUrl);
+  authServerUrlRef.current = serverUrl;
   // Stored so Cancel can stop the polling loop.
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const signInVisibilityRef = useRef<(() => void) | null>(null);
@@ -1488,21 +1484,27 @@ export function App({
   // The Tauri WebView has its own cookie jar (separate from the user's
   // browser). Before anything else, check whether we have a session cookie
   // for the Clips server; if not, surface a Sign in button.
-  const checkAuth = useCallback(async () => {
+  const checkAuth = useCallback(async (): Promise<AuthCheckResult> => {
+    const requestServerUrl = serverUrl;
+    const requestId = ++authCheckGenerationRef.current;
+    const isCurrentRequest = () =>
+      requestId === authCheckGenerationRef.current &&
+      authServerUrlRef.current === requestServerUrl;
     try {
       const res = await fetch(
-        `${serverUrl.replace(/\/+$/, "")}/_agent-native/auth/session`,
+        `${requestServerUrl.replace(/\/+$/, "")}/_agent-native/auth/session`,
         { credentials: "include", cache: "no-store" },
       );
+      if (!isCurrentRequest()) return { state: "stale" };
       // Any HTTP answer, including 401, means the server is there.
       setServerReachable(true);
       if (!res.ok) {
         if (res.status === 401 || res.status === 403) {
-          clearDesktopAuthToken(serverUrl);
+          clearDesktopAuthToken(requestServerUrl);
         }
         setAuthStatus("anon");
         setSignedInAs(null);
-        return false;
+        return { state: "anonymous" };
       }
       const json = (await res.json().catch(() => null)) as {
         email?: string;
@@ -1510,27 +1512,32 @@ export function App({
         error?: string;
       } | null;
       if (json?.email) {
-        if (json.token) saveDesktopAuthToken(serverUrl, json.token);
+        if (!isCurrentRequest()) return { state: "stale" };
+        const token = json.token?.trim() || undefined;
+        if (token) saveDesktopAuthToken(requestServerUrl, token);
         setAuthStatus("authed");
         setSignedInAs(json.email);
-        return true;
+        return { state: "authenticated", ...(token ? { token } : {}) };
       }
+      if (!isCurrentRequest()) return { state: "stale" };
       setAuthStatus("anon");
       setSignedInAs(null);
-      clearDesktopAuthToken(serverUrl);
-      return false;
+      clearDesktopAuthToken(requestServerUrl);
+      return { state: "anonymous" };
     } catch {
       // Network-level failure: nothing answered, so we know nothing about the
       // session. Record that separately so the UI can offer the right fix.
+      if (!isCurrentRequest()) return { state: "stale" };
       setServerReachable(false);
-      setAuthStatus("anon");
-      setSignedInAs(null);
-      return false;
+      setAuthStatus((current) =>
+        current === "authed" ? current : "unavailable",
+      );
+      return { state: "unavailable" };
     }
   }, [serverUrl]);
 
   useEffect(() => {
-    checkAuth();
+    void checkAuth();
   }, [checkAuth]);
 
   // Push the current server URL to the Rust meetings watcher so it can
@@ -1660,7 +1667,11 @@ export function App({
       if (method === "GET") {
         const params = new URLSearchParams();
         for (const [key, value] of Object.entries(body)) {
-          if (value != null) params.set(key, String(value));
+          if (value != null)
+            params.set(
+              key,
+              typeof value === "string" ? value : (JSON.stringify(value) ?? ""),
+            );
         }
         const qs = params.toString();
         if (qs) url += `?${qs}`;
@@ -2123,7 +2134,7 @@ export function App({
         cancelled = true;
       };
     }
-    Promise.all(
+    void Promise.all(
       meetings.map(async (meeting) => {
         if (!meeting.scheduledStart)
           return [meeting.id, { available: false }] as const;
@@ -2385,12 +2396,16 @@ export function App({
           signInInflightRef.current = false;
           setSignInPending(null);
           setMagicLinkEmail(null);
-          const ok = await checkAuth();
-          if (!ok) {
+          const authResult = await checkAuth();
+          if (authResult.state === "anonymous") {
             setSignInError(
               kind === "magic-link"
                 ? "Signed in, but Clips couldn't keep the session. Try again."
                 : "Signed in with Google, but Clips couldn't keep the session. Try again.",
+            );
+          } else if (authResult.state === "unavailable") {
+            setSignInError(
+              "Signed in, but Clips couldn't reach the server to verify it. Try again.",
             );
           }
         } else if (Date.now() - start > TIMEOUT_MS) {
@@ -2425,11 +2440,11 @@ export function App({
 
     try {
       setSignInError(null);
-      const flowId = crypto.randomUUID?.() ?? null;
+      const flowId = crypto.randomUUID?.call(crypto) ?? null;
       const verifier = (() => {
-        const randomUuid = crypto.randomUUID;
-        if (typeof randomUuid === "function") {
-          return `${randomUuid.call(crypto)}${randomUuid.call(crypto)}`;
+        const randomUuid = crypto.randomUUID?.bind(crypto);
+        if (randomUuid) {
+          return `${randomUuid()}${randomUuid()}`;
         }
         if (typeof crypto.getRandomValues === "function") {
           const bytes = new Uint8Array(32);
@@ -2672,13 +2687,6 @@ export function App({
     };
   }, []);
 
-  // Warm the multi-second SCShareableContent lookup while the popover is
-  // open so a recording start within the cache TTL skips it. Fire-and-forget.
-  useEffect(() => {
-    if (!popoverVisible) return;
-    invoke("native_fullscreen_prefetch_capture_content").catch(() => {});
-  }, [popoverVisible]);
-
   const speechPermissionChecked = useRef(false);
   useEffect(() => {
     if (!popoverVisible || !micOn || speechPermissionChecked.current) return;
@@ -2768,15 +2776,14 @@ export function App({
   });
 
   bubbleActiveRef.current = bubbleActive;
-  // The toolbar is recording chrome, not pre-record chrome. Showing it while
-  // the popover is merely open leaves a disabled 0:00 Stop/Pause pill on the
-  // desktop, which reads as a stuck recorder and can trap accessibility clicks.
+  // The toolbar is recording chrome. It is created once the recording flow
+  // starts, then stays visible but disabled until capture is live.
   const toolbarActive = isRecording || recordingFlowActive;
 
   useEffect(() => {
     if (!toolbarActive) return;
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         await invoke("show_toolbar");
         if (cancelled) return;
@@ -2788,6 +2795,9 @@ export function App({
     // otherwise arrive after the recorder's enabled event and strand the
     // toolbar at 0:00.
     emit("clips:toolbar-enabled", false).catch(() => {});
+    // Tell a reused pill to reappear in its disabled state for the next
+    // preparation/countdown after a restart.
+    emit("clips:toolbar-preparing").catch(() => {});
     return () => {
       cancelled = true;
       // In screen-only mode the bubble effect never runs, so its
@@ -2843,6 +2853,12 @@ export function App({
           return;
         }
         await loadDevices();
+        if (cancelled) {
+          // The popover closed while device enumeration was in flight. Do not
+          // create a native bubble for an effect that has already ended.
+          s.getTracks().forEach((t) => t.stop());
+          return;
+        }
         stream = s;
         bubbleStreamRef.current = s;
         // Open the bubble window. It's a pure renderer — the bubble
@@ -2856,6 +2872,13 @@ export function App({
           console.error("[clips-popover] show_bubble failed:", err);
         }
         if (cancelled) {
+          // show_bubble can finish after cleanup. Close only when this effect
+          // no longer belongs to a recording or a replacement bubble session.
+          if (!recordingFlowGateRef.current && !bubbleActiveRef.current) {
+            await invoke("close_bubble").catch((err) =>
+              console.error("[clips-popover] late bubble cleanup failed:", err),
+            );
+          }
           s.getTracks().forEach((t) => t.stop());
           return;
         }
@@ -3000,7 +3023,12 @@ export function App({
       bubbleStreamTransferredToRecorder.current = false;
       bubbleStreamRef.current?.getTracks().forEach((t) => t.stop());
       bubbleStreamRef.current = null;
-      setBubbleSessionEpoch((epoch) => epoch + 1);
+      // A native recording-start release is still waiting for the bubble's
+      // Destroyed event. Defer the re-acquire until that command has released
+      // the JS gate, or a replacement bubble can overlap WebKit teardown.
+      if (!recordingFlowGateRef.current) {
+        setBubbleSessionEpoch((epoch) => epoch + 1);
+      }
     })
       .then((u) => {
         if (cancelled) u();
@@ -3105,7 +3133,7 @@ export function App({
   }, [fetchUpcomingMeetings, popoverView, popoverVisible]);
 
   useEffect(() => {
-    loadPendingUploads();
+    void loadPendingUploads();
   }, [loadPendingUploads, popoverVisible]);
 
   useEffect(() => {
@@ -3216,7 +3244,19 @@ export function App({
     retryUploadAbortRef.current = abortController;
     retryingUploadKindRef.current = upload.kind;
     try {
-      const authToken = loadDesktopAuthToken(targetServerUrl);
+      let authToken = loadDesktopAuthToken(targetServerUrl);
+      if (
+        upload.kind === "native" &&
+        originForServer(targetServerUrl) === originForServer(serverUrl)
+      ) {
+        const authResult = await checkAuth();
+        if (authResult.state === "anonymous") {
+          throw new Error("Sign in to retry this upload.");
+        }
+        if (authResult.state === "authenticated" && authResult.token) {
+          authToken = authResult.token;
+        }
+      }
       if (upload.kind === "native") {
         const result = await invoke<{ verificationPending?: boolean }>(
           "native_fullscreen_recording_retry_upload",
@@ -3392,6 +3432,15 @@ export function App({
     /** Live capture inherited from the take a restart is replacing. */
     resumeCapture?: RestartHandoff;
   }): Promise<RecorderHandle | null> {
+    if (recordingStopFinalizingRef.current) {
+      console.warn(
+        "[clips-popover] handleStartRecording ignored — previous recording still finalizing",
+      );
+      setRecError(
+        "Still finishing the last recording. Wait a moment, then try again.",
+      );
+      return null;
+    }
     if (
       (recorder || recordingFlowGateRef.current) &&
       !options?.ignoreActiveRecorder
@@ -3402,6 +3451,9 @@ export function App({
       setRecError(
         "Still finishing the last recording. Wait a moment, then try again.",
       );
+      return null;
+    }
+    if (localRecordingMode === "off" && authStatus !== "authed") {
       return null;
     }
     const bubbleTracks = bubbleStreamRef.current?.getTracks() ?? [];
@@ -3445,19 +3497,47 @@ export function App({
       // further below hasn't run yet at this point, so reset this on every
       // early return in this block.
       recordingFlowGateRef.current = true;
+      const releaseRecordingFlowGate = async () => {
+        let released = false;
+        try {
+          // Clear the native guard and close an idle bubble in one native
+          // command so a new start cannot interleave between those steps.
+          await invoke("release_recording_state");
+          released = true;
+        } catch (err) {
+          console.error(
+            "[clips-popover] could not release recording state:",
+            err,
+          );
+        } finally {
+          recordingFlowGateRef.current = false;
+          if (released) {
+            setBubbleSessionEpoch((epoch) => epoch + 1);
+          }
+        }
+      };
+      // Native blur cleanup also runs while the permission prompt or display
+      // picker is open, before the later recording-state update below.
+      try {
+        await invoke("set_recording_state", { active: true });
+      } catch (err) {
+        await releaseRecordingFlowGate();
+        console.error("[clips-popover] could not hold recording state:", err);
+        return null;
+      }
       try {
         const granted = await invoke<boolean>(
           "request_macos_screen_recording_access",
         );
         if (!granted) {
-          recordingFlowGateRef.current = false;
+          await releaseRecordingFlowGate();
           setReadinessOpen(true);
           setRecError(MACOS_SCREEN_PERMISSION_MESSAGE);
           openPrivacySettings("screen");
           return null;
         }
       } catch (err) {
-        recordingFlowGateRef.current = false;
+        await releaseRecordingFlowGate();
         setReadinessOpen(true);
         setRecError(err instanceof Error ? err.message : String(err));
         return null;
@@ -3475,7 +3555,7 @@ export function App({
           // themselves on the chosen screen the first time they are shown.
           await pickFullscreenRecordingDisplay();
         } catch (err) {
-          recordingFlowGateRef.current = false;
+          await releaseRecordingFlowGate();
           if (err instanceof Error && err.name === "AbortError") {
             // User cancelled the screen picker (Escape) — abort silently,
             // same as dismissing the native macOS screen picker.
@@ -3501,8 +3581,7 @@ export function App({
     // Tell Rust we're entering the recording flow NOW, not after the
     // handle arrives. The macOS screen-picker dialog steals focus from
     // the popover, which would otherwise trigger the blur-auto-hide
-    // mid-setup — so the countdown and toolbar render behind a hidden
-    // popover and the user sees nothing happen.
+    // mid-setup — so the countdown and toolbar can render during setup.
     invoke("set_recording_state", { active: true }).catch(() => {});
 
     // Hand the live camera stream to the recorder so it doesn't
@@ -3726,10 +3805,8 @@ export function App({
     };
   }, []);
 
-  // Gates every start-recording gesture (button, global shortcut, permission
-  // retry) on the mic toggle. When the mic is off we show the informational
-  // mic-off screen and wait for the user to go back and change that setting
-  // before the actual getDisplayMedia/getUserMedia call runs.
+  // Show the mic-off explanation once, then let the user continue without
+  // audio instead of trapping the start flow behind the toggle.
   function beginRecording(
     options?: Parameters<typeof handleStartRecording>[0],
     beginOptions?: { revealPopoverIfMicOff?: boolean },
@@ -3757,10 +3834,23 @@ export function App({
       emit("clips:countdown-cancel").catch(() => {});
       return;
     }
+    if (recordingStopFinalizingRef.current) {
+      // The shortcut's start call below passes `ignoreActiveRecorder: true`
+      // (it intentionally bypasses the recorder/gate check so a restart can
+      // reuse it), which would otherwise let it start a new native capture
+      // while the previous one is still finalizing.
+      setRecError(
+        "Still finishing the last recording. Wait a moment, then try again.",
+      );
+      invoke("show_popover").catch(() => {});
+      return;
+    }
 
     setPopoverView("recorder");
-    if (authStatus === "anon" && localRecordingMode === "off") {
-      setRecError("Sign in to Clips before using the recording shortcut.");
+    if (authStatus !== "authed" && localRecordingMode === "off") {
+      if (authStatus === "anon") {
+        setRecError("Sign in to Clips before using the recording shortcut.");
+      }
       invoke("show_popover").catch(() => {});
       return;
     }
@@ -4038,6 +4128,11 @@ export function App({
 
   const showCameraRow = mode !== "screen"; // screen-only has no camera
   const showSourceRow = mode !== "camera"; // camera-only has no screen source
+  const recordingReadinessPending =
+    localRecordingMode === "off" &&
+    (authStatus !== "authed" || videoStorageStatus === "checking");
+  const startButtonLoading =
+    recordingReadinessPending && !recordingStopFinalizing;
 
   const pendingUploadBanner =
     authStatus === "authed" ? (
@@ -4354,52 +4449,20 @@ export function App({
     );
   }
 
-  // The session check has not answered yet. "unknown" must not fall through
-  // to the recorder: that shows a signed-out user the full recording UI for
-  // as long as /auth/session takes — indefinitely, if it hangs. Render the
-  // popover's shape instead until the check resolves either way.
-  if (authStatus === "unknown") {
-    return (
-      <div className="app" ref={appRef}>
-        <div
-          className="header header-centered"
-          onMouseDown={handlePopoverHeaderMouseDown}
-        >
-          <button
-            className="icon-button header-close"
-            onClick={hidePopover}
-            aria-label="Close"
-            title="Close"
-          >
-            <CloseIcon />
-          </button>
-        </div>
-        <div data-tw-surface className="grid gap-2.5 px-4 pb-4 pt-1">
-          <Skeleton className="h-14 w-full rounded-xl" />
-          <Skeleton className="h-14 w-full rounded-xl" />
-          <Skeleton className="mt-2 h-12 w-full rounded-full" />
-        </div>
-      </div>
-    );
-  }
-
   // When unauthenticated, render the sign-in form INLINE in the popover
   // (not a separate Tauri window). This avoids Tauri 2's separate-WebKit-
   // data-store-per-WebviewWindow cookie-jar issue — the cookie is set in
   // the same webview that reads it on the next /auth/session poll.
   // Google verification uses a popup in the bound WebView, while magic-link
   // verification uses the system browser and password stays inline here.
-  if (authStatus === "anon") {
+  if (authStatus === "anon" || authStatus === "unavailable") {
     return (
       <div className="app" ref={appRef}>
         {/* Signed out, the only job on this screen is signing in. Capture
             modes, Feedback, and Settings all act on an account that does not
             exist yet, so they appear after auth rather than competing with it.
             Only the window's own close control stays. */}
-        <div
-          className="header header-centered"
-          onMouseDown={handlePopoverHeaderMouseDown}
-        >
+        <div className="header header-centered">
           <button
             className="icon-button header-close"
             onClick={hidePopover}
@@ -4447,7 +4510,12 @@ export function App({
               serverUrl={serverUrl}
               onSignedIn={async () => {
                 setSignInError(null);
-                await checkAuth();
+                const authResult = await checkAuth();
+                if (authResult.state === "unavailable") {
+                  setSignInError(
+                    "Signed in, but Clips couldn't reach the server to verify it. Try again.",
+                  );
+                }
               }}
               onUseBrowser={signInExternal}
               onMagicLink={requestMagicLink}
@@ -4483,7 +4551,13 @@ export function App({
   return (
     <div className="app app-recorder" ref={appRef}>
       {micOffConfirmOpen ? (
-        <MicOffConfirmation onBack={closeMicOffConfirmation} />
+        <MicOffConfirmation
+          onBack={closeMicOffConfirmation}
+          onContinue={() => {
+            setMicOffConfirmOpen(false);
+            void handleStartRecording();
+          }}
+        />
       ) : null}
 
       <div
@@ -4593,17 +4667,34 @@ export function App({
 
         {!isRecording ? (
           <button
-            className="primary start"
-            disabled={
-              localRecordingMode === "off" && videoStorageStatus === "checking"
+            className={cn(
+              "primary start",
+              startButtonLoading && "start-loading",
+            )}
+            disabled={recordingReadinessPending || recordingStopFinalizing}
+            aria-busy={recordingReadinessPending || recordingStopFinalizing}
+            aria-label={
+              recordingStopFinalizing
+                ? "Finishing last recording..."
+                : recordingReadinessPending
+                  ? "Start recording"
+                  : undefined
             }
             onClick={() => beginRecording()}
           >
-            {localRecordingMode === "off" && videoStorageStatus === "checking"
-              ? "Checking storage..."
-              : localRecordingMode === "off"
-                ? "Start recording"
-                : "Start local recording"}
+            <span className="start-label">
+              {recordingStopFinalizing
+                ? "Finishing last recording..."
+                : localRecordingMode === "off"
+                  ? "Start recording"
+                  : "Start local recording"}
+            </span>
+            {startButtonLoading ? (
+              <span
+                aria-hidden="true"
+                className="start-loading-shimmer skeleton-shimmer"
+              />
+            ) : null}
           </button>
         ) : null}
 
@@ -5162,10 +5253,7 @@ function Header({
   // close button lives top-right as an absolute-positioned sibling, so the
   // tabs aren't offset by the close button's width.
   return (
-    <div
-      className="header header-centered"
-      onMouseDown={handlePopoverHeaderMouseDown}
-    >
+    <div className="header header-centered">
       <FeedbackButton submitterEmail={submitterEmail} />
       <div
         className="mode-toggle"
@@ -5564,10 +5652,7 @@ function PopoverSubViewHeader({
   action?: ReactNode;
 }) {
   return (
-    <div
-      className="setup-header popover-view-header"
-      onMouseDown={handlePopoverHeaderMouseDown}
-    >
+    <div className="setup-header popover-view-header">
       <button
         type="button"
         className="setup-back"
@@ -6027,8 +6112,6 @@ function Setup({
     featureConfig?.screenMemory ?? DEFAULT_SCREEN_MEMORY_CONFIG;
   const [screenMemory, setScreenMemory] = useState(observedScreenMemory);
   const [rewindConsentOpen, setRewindConsentOpen] = useState(false);
-  const [rewindManageOpen, setRewindManageOpen] = useState(false);
-  const [rewindShowAdvanced, setRewindShowAdvanced] = useState(false);
   const screenMemoryRef = useRef(observedScreenMemory);
   const screenMemoryMutationRef = useRef(0);
   const screenMemoryMutationVersionRef = useRef(0);
@@ -6613,7 +6696,7 @@ function Setup({
     const base = (serverUrl ?? initial ?? DEFAULT_URL).replace(/\/+$/, "");
     let cancelled = false;
     setProviderStatusLoading(true);
-    (async () => {
+    void (async () => {
       try {
         const res = await fetch(
           `${base}/_agent-native/voice-providers/status`,
@@ -7153,6 +7236,19 @@ function Setup({
     return (
       <div className="mx-auto grid w-full max-w-[620px] gap-7 pb-4">
         <SettingsGroup>
+          {/* A confirmation, so a dialog rather than a takeover: the user is
+              answering one question about the screen behind it, not moving to
+              a new place. What it remembers is chosen afterwards, in the row
+              below — asking before they have agreed puts the options in front
+              of the decision.
+
+              The copy names what is captured and what can leave, and nothing
+              else. Two claims are tempting and both are false: this buffer
+              holds screen *video* (hence the GB disk limit below), not app
+              and window notes; and it cannot promise "never leaves this Mac"
+              because the agent-handoff path uploads an approved range. A
+              consent screen is the one place a comforting simplification is
+              indistinguishable from a lie. */}
           <UiAlertDialog
             open={rewindConsentOpen}
             onOpenChange={setRewindConsentOpen}
@@ -7197,397 +7293,24 @@ function Setup({
             label="Rewind"
             description="Keeps a rolling record of your recent screen on this device"
             control={
-              <div className="flex items-center gap-2">
-                <SettingsPopover
-                  title="Rewind settings"
-                  open={rewindManageOpen}
-                  onOpenChange={setRewindManageOpen}
-                  className="w-[480px] max-w-[calc(100vw-24px)]"
-                  trigger={
-                    <SettingsActionButton
-                      aria-expanded={rewindManageOpen}
-                      aria-haspopup="dialog"
-                    >
-                      Manage
-                    </SettingsActionButton>
+              <SettingsSwitch
+                checked={rewindOn}
+                onCheckedChange={(next) => {
+                  // Turning it on starts continuously capturing the screen, so
+                  // it routes through consent rather than flipping silently.
+                  // Turning it off needs no confirmation — stopping is safe.
+                  if (next) {
+                    setRewindConsentOpen(true);
+                    return;
                   }
-                >
-                  <div className="grid max-h-[min(620px,calc(100vh-80px))] gap-3 overflow-y-auto pr-1">
-                    {rewindOn ? (
-                      <>
-                        <SettingsGroup label="Capture">
-                          <SettingsRow
-                            label="Remember"
-                            description="Choose what Rewind captures"
-                            control={
-                              <SettingsSelect
-                                ariaLabel="What Rewind remembers"
-                                value={screenMemory.captureMode ?? "visuals"}
-                                onValueChange={(value) => {
-                                  void setScreenMemoryConfig({
-                                    captureMode: value as RewindCaptureMode,
-                                  });
-                                }}
-                                disabled={
-                                  screenMemoryConfigBusy ||
-                                  captureControlsLocked
-                                }
-                                options={[
-                                  { value: "visuals", label: "Screen only" },
-                                  {
-                                    value: "visuals-audio",
-                                    label: "Screen + audio",
-                                  },
-                                ]}
-                              />
-                            }
-                          />
-                          <SettingsRow
-                            label="Time limit"
-                            description="Choose how long Rewind keeps your screen history"
-                            control={
-                              <SettingsSelect
-                                ariaLabel="Rewind time limit"
-                                placeholder={`${screenMemory.retentionHours} hours`}
-                                value={String(screenMemory.retentionHours)}
-                                onValueChange={(value) => {
-                                  void setScreenMemoryConfig({
-                                    retentionHours: Number(value),
-                                  });
-                                }}
-                                disabled={screenMemoryConfigBusy}
-                                options={[
-                                  { value: "8", label: "8 hours" },
-                                  { value: "24", label: "24 hours" },
-                                ]}
-                              />
-                            }
-                          />
-                          <SettingsRow
-                            label="Storage limit"
-                            description="Choose how much space Rewind can use on this device"
-                            control={
-                              <SettingsSelect
-                                ariaLabel="Rewind storage limit"
-                                placeholder={formatStorageBytes(
-                                  screenMemory.maxBytes,
-                                )}
-                                value={String(screenMemory.maxBytes)}
-                                onValueChange={(value) => {
-                                  void setScreenMemoryConfig({
-                                    maxBytes: Number(value),
-                                  });
-                                }}
-                                disabled={screenMemoryConfigBusy}
-                                options={[
-                                  {
-                                    value: String(5 * 1024 * 1024 * 1024),
-                                    label: "5 GB",
-                                  },
-                                  {
-                                    value: String(20 * 1024 * 1024 * 1024),
-                                    label: "20 GB",
-                                  },
-                                  {
-                                    value: String(50 * 1024 * 1024 * 1024),
-                                    label: "50 GB",
-                                  },
-                                ]}
-                              />
-                            }
-                          />
-                        </SettingsGroup>
-                        <SettingsActionButton
-                          emphasis="quiet"
-                          className="justify-self-start"
-                          aria-expanded={rewindShowAdvanced}
-                          onClick={() =>
-                            setRewindShowAdvanced((current) => !current)
-                          }
-                        >
-                          {rewindShowAdvanced
-                            ? "Hide advanced"
-                            : "Show advanced"}
-                        </SettingsActionButton>
-                        {rewindShowAdvanced ? (
-                          <>
-                            <SettingsGroup label="Privacy">
-                              <SettingsRow
-                                label="Excluded apps"
-                                description="Apps Rewind never captures"
-                                control={
-                                  <SettingsActionButton
-                                    onClick={() =>
-                                      void chooseExcludedApplications()
-                                    }
-                                    disabled={excludedAppsBusy}
-                                  >
-                                    Choose apps
-                                  </SettingsActionButton>
-                                }
-                              >
-                                {excludedAppGroups.length > 0 ? (
-                                  <div className="grid gap-1">
-                                    {excludedAppGroups.map((app) => (
-                                      <div
-                                        key={app.bundleIds.join(",")}
-                                        className="flex items-center justify-between gap-2"
-                                      >
-                                        <span className="truncate">
-                                          {app.name}
-                                        </span>
-                                        <SettingsActionButton
-                                          emphasis="quiet"
-                                          onClick={() =>
-                                            removeExcludedApplications(
-                                              app.bundleIds,
-                                            )
-                                          }
-                                        >
-                                          Remove
-                                        </SettingsActionButton>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : null}
-                              </SettingsRow>
-                              <SettingsRow
-                                label="Review before sending"
-                                description="Approve each visual or audio range before an agent receives it"
-                                control={
-                                  <SettingsSwitch
-                                    checked={
-                                      screenMemory.reviewBeforeSending !== false
-                                    }
-                                    onCheckedChange={(next) => {
-                                      void setScreenMemoryConfig({
-                                        reviewBeforeSending: next,
-                                      });
-                                    }}
-                                    disabled={screenMemoryConfigBusy}
-                                    label="Review before sending"
-                                  />
-                                }
-                              />
-                              <SettingsRow
-                                label="Preview before sending"
-                                description="Open the range locally so you see exactly what is sent"
-                                control={
-                                  <SettingsSwitch
-                                    checked={
-                                      screenMemory.autoPreviewBeforeSending ===
-                                      true
-                                    }
-                                    onCheckedChange={(next) => {
-                                      void setScreenMemoryConfig({
-                                        autoPreviewBeforeSending: next,
-                                      });
-                                    }}
-                                    disabled={screenMemoryConfigBusy}
-                                    label="Preview before sending"
-                                  />
-                                }
-                              />
-                              <SettingsRow
-                                label="Keep agent Clips"
-                                description="Choose how long Clips made for agents stay in your library"
-                                control={
-                                  <SettingsSelect
-                                    ariaLabel="How long agent-created Clips are kept"
-                                    value={screenMemory.agentClipRetention}
-                                    onValueChange={(value) => {
-                                      void setScreenMemoryConfig({
-                                        agentClipRetention:
-                                          value as ScreenMemoryStatus["config"]["agentClipRetention"],
-                                      });
-                                    }}
-                                    disabled={screenMemoryConfigBusy}
-                                    options={[
-                                      {
-                                        value: "forever",
-                                        label: "Forever",
-                                      },
-                                      {
-                                        value: "24-hours",
-                                        label: "24 hours",
-                                      },
-                                      {
-                                        value: "7-days",
-                                        label: "7 days",
-                                      },
-                                      {
-                                        value: "30-days",
-                                        label: "30 days",
-                                      },
-                                    ]}
-                                  />
-                                }
-                              />
-                              <SettingsRow
-                                label="Agent activity"
-                                description="Each time an agent searched this device's memory, newest first"
-                              >
-                                {rewindEgressEvents.length === 0 ? (
-                                  <p>No agent has searched it yet.</p>
-                                ) : (
-                                  <div className="grid gap-1">
-                                    {rewindEgressEvents
-                                      .slice(0, 10)
-                                      .map((event) => (
-                                        <div
-                                          key={`${event.requestId}-${event.state}`}
-                                          className="flex items-center justify-between gap-2"
-                                        >
-                                          <span className="truncate">
-                                            {new Date(
-                                              event.occurredAt,
-                                            ).toLocaleString()}
-                                          </span>
-                                          <span className="shrink-0">
-                                            {event.state} ·{" "}
-                                            {`${event.evidenceCount} item${event.evidenceCount === 1 ? "" : "s"}`}
-                                          </span>
-                                        </div>
-                                      ))}
-                                  </div>
-                                )}
-                              </SettingsRow>
-                            </SettingsGroup>
-
-                            <SettingsGroup label="Agents">
-                              <SettingsRow
-                                label="Setup prompt"
-                                description="Paste it into an agent once to install Rewind's instructions"
-                                control={
-                                  <>
-                                    <SettingsActionButton
-                                      emphasis="quiet"
-                                      onClick={onOpenRewindDocs}
-                                    >
-                                      Learn more
-                                    </SettingsActionButton>
-                                    <SettingsActionButton
-                                      onClick={onCopyRewindAgentPrompt}
-                                    >
-                                      {rewindAgentPromptCopied
-                                        ? "Copied"
-                                        : "Copy"}
-                                    </SettingsActionButton>
-                                  </>
-                                }
-                              />
-                              <SettingsRow
-                                label="Connect an agent"
-                                description="Gives a local agent access to this device's Rewind memory"
-                                control={
-                                  <>
-                                    <SettingsActionButton
-                                      onClick={() =>
-                                        void installRewindAgentConnection(
-                                          "codex",
-                                        )
-                                      }
-                                      disabled={agentConnectionBusy !== null}
-                                    >
-                                      Codex
-                                    </SettingsActionButton>
-                                    <SettingsActionButton
-                                      onClick={() =>
-                                        void installRewindAgentConnection(
-                                          "claude-code",
-                                        )
-                                      }
-                                      disabled={agentConnectionBusy !== null}
-                                    >
-                                      Claude Code
-                                    </SettingsActionButton>
-                                  </>
-                                }
-                              >
-                                {agentConnectionMessage ? (
-                                  <p
-                                    className={
-                                      agentConnectionMessage.kind === "ok"
-                                        ? "text-xs text-success"
-                                        : "text-xs text-destructive"
-                                    }
-                                  >
-                                    {agentConnectionMessage.text}
-                                  </p>
-                                ) : null}
-                              </SettingsRow>
-                            </SettingsGroup>
-
-                            <SettingsGroup label="Storage">
-                              <SettingsRow
-                                label="Search memory"
-                                description="Find and replay a recent moment yourself"
-                                control={
-                                  <SettingsActionButton onClick={onOpenMemory}>
-                                    Search
-                                  </SettingsActionButton>
-                                }
-                              />
-                              <SettingsRow
-                                label="Save last 5 minutes"
-                                description="Exports recent memory as video files on this device. Nothing is uploaded."
-                                control={
-                                  <SettingsActionButton
-                                    onClick={() =>
-                                      void exportScreenMemoryRecent()
-                                    }
-                                    disabled={screenMemoryBusy}
-                                  >
-                                    Save
-                                  </SettingsActionButton>
-                                }
-                              />
-                              <SettingsRow
-                                label="On this device"
-                                description={`${screenMemorySegments.length} ${screenMemorySegments.length === 1 ? "segment" : "segments"} · ${formatStorageBytes(screenMemoryTotalBytes)}`}
-                                control={
-                                  <>
-                                    <SettingsActionButton
-                                      onClick={openScreenMemoryFolder}
-                                    >
-                                      Open folder
-                                    </SettingsActionButton>
-                                    <SettingsActionButton
-                                      emphasis="destructive"
-                                      onClick={() => void clearScreenMemory()}
-                                      disabled={screenMemoryBusy}
-                                    >
-                                      Delete all
-                                    </SettingsActionButton>
-                                  </>
-                                }
-                              />
-                            </SettingsGroup>
-                          </>
-                        ) : null}
-                      </>
-                    ) : (
-                      <SettingsGroup>
-                        <div className="p-3 text-sm text-muted-foreground">
-                          Turn on Rewind to manage what it remembers.
-                        </div>
-                      </SettingsGroup>
-                    )}
-                  </div>
-                </SettingsPopover>
-                <SettingsSwitch
-                  checked={rewindOn}
-                  onCheckedChange={(next) => {
-                    if (next) {
-                      setRewindConsentOpen(true);
-                      return;
-                    }
-                    void setScreenMemoryConfig({ enabled: false });
-                  }}
-                  disabled={screenMemoryConfigBusy || captureControlsLocked}
-                  label="Rewind"
-                />
-              </div>
+                  void setScreenMemoryConfig({ enabled: false });
+                }}
+                /* Rust rejects Rewind capture changes mid-Clip
+                   (config.rs `set_feature_config` guard); disabling here
+                   turns that hard error into a visible lock. */
+                disabled={screenMemoryConfigBusy || captureControlsLocked}
+                label="Rewind"
+              />
             }
           >
             {screenMemoryMessage ? (
@@ -7606,7 +7329,294 @@ function Setup({
               </p>
             ) : null}
           </SettingsRow>
+          {rewindOn ? (
+            <>
+              <SettingsRow
+                label="Remember"
+                description="Choose what Rewind captures"
+                control={
+                  <SettingsSelect
+                    ariaLabel="What Rewind remembers"
+                    value={screenMemory.captureMode ?? "visuals"}
+                    onValueChange={(value) => {
+                      void setScreenMemoryConfig({
+                        captureMode: value as RewindCaptureMode,
+                      });
+                    }}
+                    disabled={screenMemoryConfigBusy || captureControlsLocked}
+                    options={[
+                      { value: "visuals", label: "Screen only" },
+                      { value: "visuals-audio", label: "Screen + audio" },
+                    ]}
+                  />
+                }
+              />
+              <SettingsRow
+                label="Time limit"
+                description="Choose how long Rewind keeps your screen history"
+                control={
+                  <SettingsSelect
+                    ariaLabel="Rewind time limit"
+                    placeholder={`${screenMemory.retentionHours} hours`}
+                    value={String(screenMemory.retentionHours)}
+                    onValueChange={(value) => {
+                      void setScreenMemoryConfig({
+                        retentionHours: Number(value),
+                      });
+                    }}
+                    disabled={screenMemoryConfigBusy}
+                    options={[
+                      { value: "8", label: "8 hours" },
+                      { value: "24", label: "24 hours" },
+                    ]}
+                  />
+                }
+              />
+              <SettingsRow
+                label="Storage limit"
+                description="Choose how much space Rewind can use on this device"
+                control={
+                  <SettingsSelect
+                    ariaLabel="Rewind storage limit"
+                    placeholder={formatStorageBytes(screenMemory.maxBytes)}
+                    value={String(screenMemory.maxBytes)}
+                    onValueChange={(value) => {
+                      void setScreenMemoryConfig({ maxBytes: Number(value) });
+                    }}
+                    disabled={screenMemoryConfigBusy}
+                    options={[
+                      { value: String(5 * 1024 * 1024 * 1024), label: "5 GB" },
+                      {
+                        value: String(20 * 1024 * 1024 * 1024),
+                        label: "20 GB",
+                      },
+                      {
+                        value: String(50 * 1024 * 1024 * 1024),
+                        label: "50 GB",
+                      },
+                    ]}
+                  />
+                }
+              />
+            </>
+          ) : null}
         </SettingsGroup>
+
+        {rewindOn ? (
+          <>
+            <SettingsGroup label="Privacy">
+              <SettingsRow
+                label="Excluded apps"
+                description={"Apps Rewind never captures"}
+                control={
+                  <SettingsActionButton
+                    onClick={() => void chooseExcludedApplications()}
+                    disabled={excludedAppsBusy}
+                  >
+                    Choose apps
+                  </SettingsActionButton>
+                }
+              >
+                {excludedAppGroups.length > 0 ? (
+                  <div className="grid gap-1">
+                    {excludedAppGroups.map((app) => (
+                      <div
+                        key={app.bundleIds.join(",")}
+                        className="flex items-center justify-between gap-2"
+                      >
+                        <span className="truncate">{app.name}</span>
+                        <SettingsActionButton
+                          emphasis="quiet"
+                          onClick={() =>
+                            removeExcludedApplications(app.bundleIds)
+                          }
+                        >
+                          Remove
+                        </SettingsActionButton>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </SettingsRow>
+              <SettingsRow
+                label="Review before sending"
+                description="Approve each visual or audio range before an agent receives it"
+                control={
+                  <SettingsSwitch
+                    checked={screenMemory.reviewBeforeSending !== false}
+                    onCheckedChange={(next) => {
+                      void setScreenMemoryConfig({
+                        reviewBeforeSending: next,
+                      });
+                    }}
+                    disabled={screenMemoryConfigBusy}
+                    label="Review before sending"
+                  />
+                }
+              />
+              <SettingsRow
+                label="Preview before sending"
+                description="Open the range locally so you see exactly what is sent"
+                control={
+                  <SettingsSwitch
+                    checked={screenMemory.autoPreviewBeforeSending === true}
+                    onCheckedChange={(next) => {
+                      void setScreenMemoryConfig({
+                        autoPreviewBeforeSending: next,
+                      });
+                    }}
+                    disabled={screenMemoryConfigBusy}
+                    label="Preview before sending"
+                  />
+                }
+              />
+              <SettingsRow
+                label="Keep agent Clips"
+                description="Choose how long Clips made for agents stay in your library"
+                control={
+                  <SettingsSelect
+                    ariaLabel="How long agent-created Clips are kept"
+                    value={screenMemory.agentClipRetention}
+                    onValueChange={(value) => {
+                      void setScreenMemoryConfig({
+                        agentClipRetention:
+                          value as ScreenMemoryStatus["config"]["agentClipRetention"],
+                      });
+                    }}
+                    disabled={screenMemoryConfigBusy}
+                    options={[
+                      { value: "forever", label: "Forever" },
+                      { value: "24-hours", label: "24 hours" },
+                      { value: "7-days", label: "7 days" },
+                      { value: "30-days", label: "30 days" },
+                    ]}
+                  />
+                }
+              />
+              <SettingsRow
+                label="Agent activity"
+                description="Each time an agent searched this device's memory, newest first"
+              >
+                {rewindEgressEvents.length === 0 ? (
+                  <p>No agent has searched it yet.</p>
+                ) : (
+                  <div className="grid gap-1">
+                    {rewindEgressEvents.slice(0, 10).map((event) => (
+                      <div
+                        key={`${event.requestId}-${event.state}`}
+                        className="flex items-center justify-between gap-2"
+                      >
+                        <span className="truncate">
+                          {new Date(event.occurredAt).toLocaleString()}
+                        </span>
+                        <span className="shrink-0">
+                          {event.state} ·{" "}
+                          {`${event.evidenceCount} item${event.evidenceCount === 1 ? "" : "s"}`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </SettingsRow>
+            </SettingsGroup>
+
+            <SettingsGroup label="Agents">
+              <SettingsRow
+                label="Setup prompt"
+                description="Paste it into an agent once to install Rewind's instructions"
+                control={
+                  <>
+                    <SettingsActionButton
+                      emphasis="quiet"
+                      onClick={onOpenRewindDocs}
+                    >
+                      Learn more
+                    </SettingsActionButton>
+                    <SettingsActionButton onClick={onCopyRewindAgentPrompt}>
+                      {rewindAgentPromptCopied ? "Copied" : "Copy"}
+                    </SettingsActionButton>
+                  </>
+                }
+              />
+              <SettingsRow
+                label="Connect an agent"
+                description="Gives a local agent access to this device's Rewind memory"
+                control={
+                  <>
+                    <SettingsActionButton
+                      onClick={() => void installRewindAgentConnection("codex")}
+                      disabled={agentConnectionBusy !== null}
+                    >
+                      Codex
+                    </SettingsActionButton>
+                    <SettingsActionButton
+                      onClick={() =>
+                        void installRewindAgentConnection("claude-code")
+                      }
+                      disabled={agentConnectionBusy !== null}
+                    >
+                      Claude Code
+                    </SettingsActionButton>
+                  </>
+                }
+              >
+                {agentConnectionMessage ? (
+                  <p
+                    className={
+                      agentConnectionMessage.kind === "ok"
+                        ? "text-xs text-success"
+                        : "text-xs text-destructive"
+                    }
+                  >
+                    {agentConnectionMessage.text}
+                  </p>
+                ) : null}
+              </SettingsRow>
+            </SettingsGroup>
+
+            <SettingsGroup label="Storage">
+              <SettingsRow
+                label="Search memory"
+                description="Find and replay a recent moment yourself"
+                control={
+                  <SettingsActionButton onClick={onOpenMemory}>
+                    Search
+                  </SettingsActionButton>
+                }
+              />
+              <SettingsRow
+                label="Save last 5 minutes"
+                description="Exports recent memory as video files on this device. Nothing is uploaded."
+                control={
+                  <SettingsActionButton
+                    onClick={() => void exportScreenMemoryRecent()}
+                    disabled={screenMemoryBusy}
+                  >
+                    Save
+                  </SettingsActionButton>
+                }
+              />
+              <SettingsRow
+                label="On this device"
+                description={`${screenMemorySegments.length} ${screenMemorySegments.length === 1 ? "segment" : "segments"} · ${formatStorageBytes(screenMemoryTotalBytes)}`}
+                control={
+                  <>
+                    <SettingsActionButton onClick={openScreenMemoryFolder}>
+                      Open folder
+                    </SettingsActionButton>
+                    <SettingsActionButton
+                      emphasis="destructive"
+                      onClick={() => void clearScreenMemory()}
+                      disabled={screenMemoryBusy}
+                    >
+                      Delete all
+                    </SettingsActionButton>
+                  </>
+                }
+              />
+            </SettingsGroup>
+          </>
+        ) : null}
       </div>
     );
   }
@@ -7742,7 +7752,7 @@ function Setup({
                       onKeyDown={(event) => {
                         if (event.key === "Enter") {
                           event.preventDefault();
-                          saveApiKey();
+                          void saveApiKey();
                         }
                       }}
                       placeholder={
@@ -8232,12 +8242,7 @@ function Setup({
           className="flex min-w-0 flex-col gap-0.5 overflow-y-auto border-r border-border bg-muted/50 p-2.5 pt-3"
           aria-label="Settings sections"
         >
-          {/* The tray window is chromeless, so this header is its only drag
-              handle — without it the window cannot be moved. */}
-          <div
-            className="flex items-center pb-2"
-            onMouseDown={handlePopoverHeaderMouseDown}
-          >
+          <div className="flex items-center pb-2">
             {onCancel ? (
               <button
                 type="button"

@@ -5,6 +5,10 @@ import {
   loadActionsFromStaticRegistry,
   type AgentLoopFinalResponseGuardContext,
 } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
@@ -45,6 +49,139 @@ const ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 // silence means the model transport or worker has wedged; recover the chunk
 // promptly instead of holding the dashboard composer for the 12-minute default.
 export const ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS = 3 * 60_000;
+
+const DASHBOARD_EDIT_TOOLS = new Set([
+  "compose-dashboard",
+  "mutate-dashboard",
+  "rename-dashboard",
+  "reorder-dashboard-panels",
+  "restore-dashboard-revision",
+  "save-explorer-config",
+  "save-explorer-dashboard",
+  "save-sql-dashboard",
+  "update-dashboard",
+  "update-dashboard-demo",
+  "update-dashboard-summary",
+]);
+const ANALYSIS_EDIT_TOOLS = new Set([
+  "rename-analysis",
+  "restore-analysis-revision",
+  "save-analysis",
+]);
+
+function eventRecord(entry: unknown): Record<string, unknown> | undefined {
+  if (!entry || typeof entry !== "object") return undefined;
+  const event = (entry as { event?: unknown }).event;
+  return event && typeof event === "object"
+    ? (event as Record<string, unknown>)
+    : undefined;
+}
+
+function inputForCompletedTool(
+  events: readonly unknown[],
+  index: number,
+  completed: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (completed.input && typeof completed.input === "object") {
+    return completed.input as Record<string, unknown>;
+  }
+  const id = typeof completed.id === "string" ? completed.id : undefined;
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const candidate = eventRecord(events[cursor]);
+    if (
+      candidate?.type !== "tool_start" ||
+      candidate.tool !== completed.tool ||
+      (id && candidate.id !== id)
+    ) {
+      continue;
+    }
+    return candidate.input && typeof candidate.input === "object"
+      ? (candidate.input as Record<string, unknown>)
+      : undefined;
+  }
+  return undefined;
+}
+
+function analyticsToolTarget(
+  tool: string,
+  input: Record<string, unknown> | undefined,
+  scopeType: "dashboard" | "analysis",
+): unknown {
+  if (scopeType === "dashboard") {
+    if (
+      tool === "compose-dashboard" ||
+      tool === "mutate-dashboard" ||
+      tool === "reorder-dashboard-panels" ||
+      tool === "update-dashboard" ||
+      tool === "update-dashboard-demo" ||
+      tool === "update-dashboard-summary"
+    ) {
+      return input?.dashboardId ?? input?.id;
+    }
+    return input?.id ?? input?.dashboardId;
+  }
+  return input?.analysisId ?? input?.id;
+}
+
+function hasAnalyticsEdit(
+  run: { events: readonly unknown[] },
+  tools: ReadonlySet<string>,
+  scopeType: "dashboard" | "analysis",
+  scopeId: string,
+): boolean {
+  return run.events.some((entry, index) => {
+    const record = eventRecord(entry);
+    if (!record) return false;
+    const input = inputForCompletedTool(run.events, index, record);
+    return (
+      record.type === "tool_done" &&
+      record.completedSideEffect === true &&
+      record.isError !== true &&
+      typeof record.tool === "string" &&
+      tools.has(record.tool) &&
+      analyticsToolTarget(record.tool, input, scopeType) === scopeId
+    );
+  });
+}
+
+async function autosaveAnalyticsAfterAgentTurn(
+  scope: { type: string; id: string },
+  run: {
+    events: readonly unknown[];
+    threadId?: string;
+    runId?: string;
+    turnId?: string;
+  },
+): Promise<void> {
+  const email = getRequestUserEmail();
+  if (!email) return;
+  const ctx = { email, orgId: getRequestOrgId() || null };
+  if (
+    scope.type === "dashboard" &&
+    hasAnalyticsEdit(run, DASHBOARD_EDIT_TOOLS, "dashboard", scope.id)
+  ) {
+    const { createDashboardRevisionSnapshot } =
+      await import("../lib/dashboards-store.js");
+    await createDashboardRevisionSnapshot(scope.id, ctx, {
+      ...(run.threadId ? { threadId: run.threadId } : {}),
+      ...(run.runId ? { runId: run.runId } : {}),
+      ...(run.turnId ? { turnId: run.turnId } : {}),
+    });
+    return;
+  }
+  if (
+    scope.type === "analysis" &&
+    hasAnalyticsEdit(run, ANALYSIS_EDIT_TOOLS, "analysis", scope.id)
+  ) {
+    const { createAnalysisRevisionSnapshot } =
+      await import("../lib/dashboards-store.js");
+    await createAnalysisRevisionSnapshot(scope.id, ctx, {
+      ...(run.threadId ? { threadId: run.threadId } : {}),
+      ...(run.runId ? { runId: run.runId } : {}),
+      ...(run.turnId ? { turnId: run.turnId } : {}),
+    });
+  }
+}
 
 const ANALYTICS_DATA_SOURCES_LINK = buildDeepLink({
   app: "analytics",
@@ -108,6 +245,7 @@ function hasPartialDashboardBuild(
 }
 
 export const BOUNDED_STRUCTURED_LOOKUP_GUIDANCE =
+  "TRUST SIGNALS: Prefer a current `dashboardCertified: true` saved panel; a `favorite: true` panel is a weaker relevance signal. " +
   "BOUNDED STRUCTURED LOOKUP FAST PATH — Treat existing analytics work like an engineer treats existing code: grep before writing. For an ordinary count, aggregate, grouped metric, trend, or record lookup, first call `search-analytics-query-catalog` once with focused metric/entity terms. It searches accessible dashboard names, chart titles/descriptions/saved queries, shipped dashboard patterns, and data-dictionary definitions together. Prefer the strongest approved dictionary or saved-chart match, preserve its source and business logic, adapt only the requested filters and explicit time window, then run one bounded query against that source. A user-named source wins, but still use a matching saved definition when it supplies the source's proven query shape. If there is no useful match, inspect the most likely source schema before asking a clarification about business meaning; do not ask the user to provide internal dataset, table, column, or SQL identifiers. Do not fan out across providers. Do not separately list every dashboard, call data-source status, browse the whole dictionary, load provider catalogs/corpus tools, or query a second source after a strong match. Once the query succeeds, answer immediately with its source, time window, filters, row count, and only necessary caveats. Do not enrich, cross-check, retry, or add breakdowns unless the user requested them, the first query failed, or its result conflicts with the known definition. The words `all`, `total`, or `exact` in a structured aggregate do not by themselves make it a corpus investigation. Never repeat an identical invalid or failed tool call; correct its arguments once or surface the error. This does not waive the real-data requirement: never answer from a guess, stale value, or unverified result. ";
 
 export const INTERNAL_PRODUCT_USAGE_GUIDANCE =
@@ -278,7 +416,10 @@ const GENERIC_EXTERNAL_SOURCE_REQUEST_TERMS = /\b(warehouse|crm|payments?)\b/i;
 
 const EXTERNAL_SOURCE_PROVIDER_ALIASES = [
   ...credentialProviderConfigs.map(({ provider, label }) => ({
-    terms: [provider, label],
+    // "Builder" also names the product whose first-party metrics live in
+    // Analytics; require a content qualifier before routing to Builder.io.
+    terms:
+      provider === "builder" ? [label, "Builder content"] : [provider, label],
     aliases: [provider, label],
   })),
   { terms: ["ga4"], aliases: ["ga4", "google analytics"] },
@@ -493,10 +634,18 @@ function dataSourceStatusSummary(
         continue;
       }
       const record = source as Record<string, unknown>;
-      const provider = String(record.provider ?? "")
+      const provider = (
+        typeof record.provider === "string"
+          ? record.provider
+          : (JSON.stringify(record.provider) ?? "")
+      )
         .trim()
         .toLowerCase();
-      const via = String(record.via ?? "")
+      const via = (
+        typeof record.via === "string"
+          ? record.via
+          : (JSON.stringify(record.via) ?? "")
+      )
         .trim()
         .toLowerCase();
       if (provider === "first-party" || via === "built-in") continue;
@@ -524,7 +673,11 @@ function dataSourceStatusSummary(
         continue;
       }
       const record = provider as Record<string, unknown>;
-      const providerId = String(record.provider ?? "")
+      const providerId = (
+        typeof record.provider === "string"
+          ? record.provider
+          : (JSON.stringify(record.provider) ?? "")
+      )
         .trim()
         .toLowerCase();
       if (providerId === "first-party") continue;
@@ -937,6 +1090,7 @@ export async function searchDashboardMentions(query: string, event?: any) {
 
 export default createAgentChatPlugin({
   appId: "analytics",
+  onAgentTurnComplete: autosaveAnalyticsAfterAgentTurn,
   // Resource prompt hydration performs additive schema checks. Keep that
   // work out of production serverless cold starts; it is not needed for the
   // dashboard's domain prompt and can contend with the request's DB queries.
@@ -966,9 +1120,9 @@ export default createAgentChatPlugin({
     connectorCatalog: [...ANALYTICS_CONNECTOR_CATALOG],
     externalAgents: {
       // Keep the direct MCP surface deliberately curated. External agents
-      // should use ask_app by default; cataloged actions are optional stable
-      // semantic reads for callers with an exact, fully known contract. They
-      // are never a fallback for slow or failed delegation.
+      // should use cataloged actions for exact, fully known semantic reads;
+      // ask_app is the fallback for interpretation or unavailable capability.
+      // Writes remain ask_app-only for the app's safety boundary.
       authenticatedReads: "off",
       writes: "ask_app_only",
     },
@@ -999,6 +1153,7 @@ export default createAgentChatPlugin({
       "For named deal, account, renewal, churn-risk, or customer deep dives that need HubSpot and Gong context, `account-deep-dive` can provide a bounded evidence bundle. Do not answer a requested transcript deep dive from call metadata alone. " +
       "When the user refers to the current dashboard artifact, this analysis, this project, or asks to spin off, adapt, modify, or reuse a saved analysis, call `view-screen` first and use the returned dashboard details; for an explicitly named legacy analysis id, call `get-analysis` before responding and preserve its legacy deep link only for compatibility. " +
       "If a query action fails because its arguments are invalid, correct the arguments once. Never repeat the identical failed call. For credential, permission, quota, network, or repeated schema failures, stop using that source for the turn and surface the actual error instead of trying unrelated providers. " +
+      "EXPORT DELIVERY: For a user-requested CSV, Markdown, or other file, deliver it in the same chat turn. For compact first-party tabular results, use `query-agent-native-analytics` so the chat table's Download CSV control is visible. For a durable export, write only verified successful data to a non-scratch workspace path, then call `show-workspace-file` with that exact path so chat renders a direct download card. Never save an error or failed response as the requested export, and never finish with only a path or filename. " +
       "For ordinary ad-hoc structured data questions, answer the explicit question after the first relevant successful query or bounded evidence batch. The words all, total, or exact do not require cross-source validation when a single structured query fully covers the requested source and filters. " +
       "If the user challenges coverage, asks why more records were not included, or asks for the updated answer, rerun the relevant source query or revise from the corrected cohort and provide the updated deliverable directly. Do not claim a dashboard artifact was revised unless the revised answer is included in the response or saved with `update-dashboard`. " +
       "Unstructured source records are valid analytics evidence: Pylon tickets, Jira issues, Gong calls/transcripts, Slack messages, and similar text records may be coded for themes, mention counts, sentiment, objections, and qualitative patterns as long as the answer states the inspected sample size and does not imply unsupported statistical certainty. " +

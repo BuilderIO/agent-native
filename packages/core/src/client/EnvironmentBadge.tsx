@@ -15,6 +15,8 @@ import {
   BETA_FORCE_SESSION_STORAGE_KEY,
   BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
+  BETA_REDIRECT_DURATION_MS,
+  BETA_REDIRECT_STORAGE_KEY,
   buildEnvironmentOptOutUrl,
   buildEnvironmentUrl,
   resolveEnvironmentTargets,
@@ -31,6 +33,8 @@ export {
   BETA_OPT_OUT_DURATION_MS,
   BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
+  BETA_REDIRECT_DURATION_MS,
+  BETA_REDIRECT_STORAGE_KEY,
   buildEnvironmentOptOutUrl,
   buildEnvironmentUrl,
   resolveEnvironmentTargets,
@@ -95,6 +99,19 @@ function readBetaOptOutUntil(now = Date.now()): number | null {
   return null;
 }
 
+function rememberBetaRedirectPreference(): void {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(
+      BETA_REDIRECT_STORAGE_KEY,
+      String(Date.now() + BETA_REDIRECT_DURATION_MS),
+    );
+  } catch {
+    // coercion-ok: the marker is only a performance hint; session auth remains authoritative.
+  }
+}
+
 function rememberForcedProductionSession(sourceHref: string): boolean {
   let forcedByQuery = false;
   try {
@@ -143,6 +160,7 @@ function consumeBetaOptOutQueryParam(
         BETA_OPT_OUT_STORAGE_KEY,
         String(Number(rawExpiry)),
       );
+      window.localStorage.removeItem(BETA_REDIRECT_STORAGE_KEY);
     }
     window.history.replaceState(null, "", target.toString());
   } catch {
@@ -245,21 +263,6 @@ function EnvironmentBadgeContent({
   );
 }
 
-function LocalEnvironmentBadge() {
-  return (
-    <div
-      aria-label="Local development environment"
-      className={cn(
-        environmentBadgePlacementClasses,
-        "inline-flex items-center justify-center border border-border/80 bg-background/95 text-foreground",
-      )}
-      role="status"
-    >
-      dev
-    </div>
-  );
-}
-
 function ProductionEnvironmentBadge({
   targets,
 }: {
@@ -293,6 +296,7 @@ function ProductionEnvironmentBadge({
     );
     if (!betaHref || typeof window.location.replace !== "function") return;
 
+    rememberBetaRedirectPreference();
     didAutoRedirect.current = true;
     trackEvent("environment switched", {
       from_environment: "production",
@@ -337,9 +341,7 @@ export function EnvironmentBadge({
     return null;
   }
 
-  if (environment === "local") {
-    return <LocalEnvironmentBadge />;
-  }
+  if (environment === "local") return null;
 
   if (!targets) return null;
 

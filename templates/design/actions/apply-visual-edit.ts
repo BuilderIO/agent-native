@@ -9,6 +9,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   readLiveSourceFile,
   writeInlineSourceFile,
@@ -16,6 +17,7 @@ import {
 } from "../server/source-workspace.js";
 import {
   applyVisualEdit,
+  buildCodeLayerProjection,
   type AutoLayoutEditIntent,
   type ClassEditIntent,
   type CodeLayerSource,
@@ -441,6 +443,16 @@ const intentSchema = z.preprocess(
         ),
     }),
     z.object({
+      kind: z.literal("attribute"),
+      target: targetSchema,
+      name: z.string().describe("Plain HTML attribute name to set."),
+      value: z.string().describe("Attribute value to write."),
+    }),
+    z.object({
+      kind: z.literal("deleteNode"),
+      target: targetSchema,
+    }),
+    z.object({
       kind: z.literal("moveNode"),
       target: targetSchema,
       anchor: targetSchema,
@@ -489,8 +501,42 @@ const intentSchema = z.preprocess(
         .string()
         .optional()
         .describe("Gap value when enabling. Defaults to 8px."),
+      containerStyles: z
+        .record(z.string(), z.string())
+        .optional()
+        .describe(
+          "Complete container CSS overrides, including display:grid and grid-template-columns when a grid flow is requested.",
+        ),
+      childRects: z
+        .record(
+          z.string(),
+          z.object({
+            x: z.number(),
+            y: z.number(),
+            width: z.number().nonnegative(),
+            height: z.number().nonnegative(),
+          }),
+        )
+        .optional()
+        .describe(
+          "Measured child rectangles relative to the container, required when disabling auto-layout.",
+        ),
+      containerRect: z
+        .object({
+          width: z.number().nonnegative(),
+          height: z.number().nonnegative(),
+        })
+        .optional()
+        .describe(
+          "Measured container size used to keep a disabled auto-layout container open.",
+        ),
     }) satisfies z.ZodType<AutoLayoutEditIntent>,
   ]),
+);
+
+const intentsSchema = z.preprocess(
+  parseJsonString,
+  z.union([intentSchema, z.array(intentSchema).min(1)]),
 );
 
 async function resolveEditableDesignFile(
@@ -625,9 +671,138 @@ async function persistDesignFileEdit(file: {
   }
 }
 
+function scopeIntentForSource(
+  intent: EditIntent,
+  source: VisualEditActionSource,
+  options: {
+    activeBreakpoint?: TailwindBreakpointPrefix | null;
+    activeFrameWidthPx?: number | null;
+    maxWidthPx?: number | null;
+    designData?: string | null;
+    fileId?: string;
+  },
+): EditIntent {
+  let scoped = intent;
+  const {
+    activeBreakpoint,
+    activeFrameWidthPx,
+    maxWidthPx,
+    designData,
+    fileId,
+  } = options;
+
+  if (
+    maxWidthPx != null &&
+    (scoped.kind === "class" || scoped.kind === "style")
+  ) {
+    return scopeIntentToFramerBound(scoped, maxWidthPx);
+  }
+
+  if (source.kind !== "design-file" || activeBreakpoint != null) {
+    const activePrefix = resolveActivePrefix(
+      activeBreakpoint,
+      activeFrameWidthPx,
+    );
+    if (activePrefix !== null && scoped.kind === "class") {
+      return scopeClassIntentToBreakpoint(scoped, activePrefix);
+    }
+    return scoped;
+  }
+
+  if (
+    activeFrameWidthPx == null ||
+    (scoped.kind !== "class" && scoped.kind !== "style")
+  ) {
+    return scoped;
+  }
+
+  const bound = resolveFramerBoundFromDesignData(
+    designData ?? null,
+    fileId ?? "",
+    activeFrameWidthPx,
+  );
+  if (bound.kind === "bound") {
+    scoped = scopeIntentToFramerBound(scoped, bound.boundPx);
+  } else if (bound.kind === "unknown" && scoped.kind === "class") {
+    const activePrefix = resolveActivePrefix(null, activeFrameWidthPx);
+    if (activePrefix !== null) {
+      scoped = scopeClassIntentToBreakpoint(scoped, activePrefix);
+    }
+  }
+  return scoped;
+}
+
+type VisualEditPatchResult = ReturnType<typeof applyVisualEdit>;
+
+function applyIntentBatch(
+  html: string,
+  intents: EditIntent[],
+  source: CodeLayerSource,
+  scope: (intent: EditIntent) => EditIntent,
+): {
+  content: string;
+  projection: VisualEditPatchResult["projection"];
+  results: VisualEditPatchResult["result"][];
+  scopedIntents: EditIntent[];
+} {
+  let content = html;
+  let projection: VisualEditPatchResult["projection"] | undefined;
+  const results: VisualEditPatchResult["result"][] = [];
+  const scopedIntents: EditIntent[] = [];
+
+  for (const intent of intents) {
+    const scoped = scope(intent);
+    const patch = applyVisualEdit(content, scoped, { source });
+    scopedIntents.push(scoped);
+    results.push(patch.result);
+    projection = patch.projection;
+    if (patch.result.status !== "applied") {
+      return {
+        content: html,
+        projection: buildCodeLayerProjection(html, { source }),
+        results,
+        scopedIntents,
+      };
+    }
+    content = patch.content;
+  }
+
+  return {
+    content,
+    projection: projection!,
+    results,
+    scopedIntents,
+  };
+}
+
+function batchResult(
+  results: VisualEditPatchResult["result"][],
+  changed: boolean,
+): VisualEditPatchResult["result"] {
+  const firstFailureIndex = results.findIndex(
+    (result) => result.status !== "applied",
+  );
+  if (results.length === 1) return results[0]!;
+  if (firstFailureIndex >= 0) {
+    const failure = results[firstFailureIndex]!;
+    return {
+      ...failure,
+      changed: false,
+      message: `Intent ${firstFailureIndex + 1} of ${results.length} failed: ${failure.message ?? failure.status}. No batched edits were persisted.`,
+    };
+  }
+  const last = results[results.length - 1]!;
+  return {
+    ...last,
+    changed,
+    message: `${results.length} visual edits applied in one persisted write.`,
+  };
+}
+
 export default defineAction({
   description:
     "Apply one deterministic visual edit to a code-backed HTML design layer. " +
+    "Pass one intent or an ordered array of intents; batched intents are folded into one persisted write. " +
     "Supports safe inline style, class, and leaf textContent edits on inline/SQL HTML files, plus diff-first literal leaf JSX edits on consented localhost files; escalates ambiguous, dynamic, repeated, shared, or structural JSX edits without writing. " +
     "Responsive editing (§6.4): pass activeFrameWidthPx (the active breakpoint frame width, matching the UI's breakpoint bar) to scope class AND style edits Framer-style — overrides apply below the next-wider frame and cascade down; the widest frame is the base. " +
     "Raw CSS values persist as managed @media rules (<style data-agent-native-breakpoints>); Tailwind-utility values become max-[<bound>px]: classes. " +
@@ -636,8 +811,8 @@ export default defineAction({
     source: sourceSchema.describe(
       "Edit source. Use kind=design-file with designId/filename or fileId to persist into SQL; kind=inline-html with html for a preview-only patch.",
     ),
-    intent: intentSchema.describe(
-      "Visual edit intent targeting a CodeLayerProjection nodeId or selector.",
+    intent: intentsSchema.describe(
+      "One visual edit intent, or a non-empty ordered array of intents, targeting CodeLayerProjection nodeIds or selectors. Batched intents are folded into one persisted write.",
     ),
     includeContent: z
       .boolean()
@@ -677,19 +852,36 @@ export default defineAction({
         "Explicit Framer desktop-down bound (px): scope this edit to apply at viewport widths <= this value. Overrides activeBreakpoint/activeFrameWidthPx derivation. Applies to 'class' and 'style' intents.",
       ),
   }),
-  run: async ({
-    source,
-    intent,
-    includeContent,
-    persist,
-    activeBreakpoint,
-    activeFrameWidthPx,
-    maxWidthPx,
-  }) => {
+  run: async (
+    {
+      source,
+      intent,
+      includeContent,
+      persist,
+      activeBreakpoint,
+      activeFrameWidthPx,
+      maxWidthPx,
+    },
+    context,
+  ) => {
     const actionSource = source as VisualEditActionSource;
-    let editIntent = intent as EditIntent;
+    const editIntents = (
+      Array.isArray(intent) ? intent : [intent]
+    ) as EditIntent[];
 
     if (actionSource.kind === "local-file") {
+      if (editIntents.length !== 1) {
+        return {
+          result: {
+            status: "needsAgent" as const,
+            changed: false,
+            message:
+              "Batched local-file JSX edits require semantic source inspection and are not written by this deterministic path.",
+          },
+          persisted: false,
+        };
+      }
+      const editIntent = editIntents[0]!;
       const target =
         "target" in editIntent
           ? (editIntent.target as {
@@ -834,48 +1026,42 @@ export default defineAction({
       };
     }
 
-    // Breakpoint scoping precedence (§6.4):
-    //
-    // 1. Explicit `maxWidthPx` param → Framer desktop-down scope for `class`
-    //    AND `style` intents (max-[<bound>px]: classes / managed @media).
-    // 2. Explicit `activeBreakpoint` prefix → legacy min-width Tailwind
-    //    prefix scoping for `class` intents (backward-compatible).
-    // 3. `activeFrameWidthPx` only → design-file sources resolve the Framer
-    //    bound from the design's breakpoint set (below, after the file is
-    //    loaded); other sources fall back to the legacy prefix path.
-    if (
-      maxWidthPx != null &&
-      (editIntent.kind === "class" || editIntent.kind === "style")
-    ) {
-      editIntent = scopeIntentToFramerBound(editIntent, maxWidthPx);
-    } else if (
-      actionSource.kind !== "design-file" ||
-      activeBreakpoint != null
-    ) {
-      const activePrefix = resolveActivePrefix(
-        activeBreakpoint,
-        activeFrameWidthPx,
-      );
-      if (activePrefix !== null && editIntent.kind === "class") {
-        editIntent = scopeClassIntentToBreakpoint(editIntent, activePrefix);
-      }
-    }
-
     if (actionSource.kind === "inline-html") {
       const codeLayerSource: CodeLayerSource = {
         kind: "inline-html",
         filename: actionSource.filename,
         revision: actionSource.revision,
       };
-      const patch = applyVisualEdit(actionSource.html ?? "", editIntent, {
-        source: codeLayerSource,
-      });
+      const originalContent = actionSource.html ?? "";
+      const batch = applyIntentBatch(
+        originalContent,
+        editIntents,
+        codeLayerSource,
+        (editIntent) =>
+          scopeIntentForSource(editIntent, actionSource, {
+            activeBreakpoint,
+            activeFrameWidthPx,
+            maxWidthPx,
+          }),
+      );
+      const allApplied = batch.results.every(
+        (result) => result.status === "applied",
+      );
+      const changed =
+        allApplied &&
+        batch.results.some((result) => result.changed) &&
+        batch.content !== originalContent;
       return {
-        result: patch.result,
-        projection: patch.projection,
-        patchedContent: includeContent ? patch.content : undefined,
-        bytesBefore: (actionSource.html ?? "").length,
-        bytesAfter: patch.content.length,
+        result: batchResult(batch.results, changed),
+        results: batch.results,
+        projection: batch.projection,
+        patchedContent: includeContent
+          ? allApplied
+            ? batch.content
+            : originalContent
+          : undefined,
+        bytesBefore: originalContent.length,
+        bytesAfter: allApplied ? batch.content.length : originalContent.length,
       };
     }
 
@@ -887,86 +1073,89 @@ export default defineAction({
         filename: actionSource.filename,
         revision: actionSource.revision,
       };
-      const patch = applyVisualEdit("", editIntent, {
-        source: codeLayerSource,
-      });
-      // remote-url sources stay preview-only/unsupported. A 0/0 byte count
-      // would misleadingly suggest that an empty remote file was measured.
+      const batch = applyIntentBatch(
+        "",
+        editIntents,
+        codeLayerSource,
+        (editIntent) =>
+          scopeIntentForSource(editIntent, actionSource, {
+            activeBreakpoint,
+            activeFrameWidthPx,
+            maxWidthPx,
+          }),
+      );
       return {
-        result: patch.result,
-        projection: patch.projection,
+        result: batchResult(batch.results, false),
+        results: batch.results,
+        projection: batch.projection,
       };
     }
 
     const file = await resolveEditableDesignFile(actionSource);
+    const batch = applyIntentBatch(
+      file.content,
+      editIntents,
+      file.codeLayerSource,
+      (editIntent) =>
+        scopeIntentForSource(editIntent, actionSource, {
+          activeBreakpoint,
+          activeFrameWidthPx,
+          maxWidthPx,
+          designData: file.designData,
+          fileId: file.id,
+        }),
+    );
+    const allApplied = batch.results.every(
+      (result) => result.status === "applied",
+    );
+    const changed =
+      allApplied &&
+      batch.results.some((result) => result.changed) &&
+      batch.content !== file.content;
 
-    // §6.4 — design-file Framer scoping resolved from the stored breakpoint
-    // set (see precedence note above): the bound is just below the
-    // next-wider frame; the widest frame is the base and writes unscoped.
-    if (
-      maxWidthPx == null &&
-      activeBreakpoint == null &&
-      activeFrameWidthPx != null &&
-      (editIntent.kind === "class" || editIntent.kind === "style")
-    ) {
-      const bound = resolveFramerBoundFromDesignData(
-        file.designData,
-        file.id,
-        activeFrameWidthPx,
-      );
-      if (bound.kind === "bound") {
-        editIntent = scopeIntentToFramerBound(editIntent, bound.boundPx);
-      } else if (bound.kind === "unknown" && editIntent.kind === "class") {
-        // No breakpoint set on this design — legacy min-width prefix path.
-        const activePrefix = resolveActivePrefix(null, activeFrameWidthPx);
-        if (activePrefix !== null) {
-          editIntent = scopeClassIntentToBreakpoint(editIntent, activePrefix);
-        }
-      }
-      // bound.kind === "base": the active frame IS the widest context —
-      // the edit stays a plain base write that cascades down.
-    }
-
-    const patch = applyVisualEdit(file.content, editIntent, {
-      source: file.codeLayerSource,
-    });
-
-    if (patch.result.target) {
+    const lastResult = batch.results[batch.results.length - 1];
+    if (lastResult?.target) {
       // Publish a RESOLVABLE selection descriptor so live viewers can render a
       // ring over the element being edited. Prefer the stable
       // `data-agent-native-node-id` anchor over the projection CSS selector.
       agentUpdateSelection(file.id, {
         selection: agentSelectionDescriptor(
-          patch.result.target,
-          editIntentLabel(editIntent),
+          lastResult.target,
+          editIntentLabel(batch.scopedIntents[batch.scopedIntents.length - 1]!),
         ),
-        nodeId: patch.result.target.nodeId,
+        nodeId: lastResult.target.nodeId,
         editingFile: file.filename,
         designId: file.designId,
       });
     }
 
-    if (patch.result.status === "applied" && patch.result.changed) {
+    if (changed) {
+      await snapshotDesignBeforeAgentEdit(file.designId, context);
       await persistDesignFileEdit({
         id: file.id,
         designId: file.designId,
         filename: file.filename,
         fileType: file.fileType,
-        content: patch.content,
+        content: batch.content,
         expectedVersionHash: file.versionHash,
       });
     }
 
     return {
-      result: patch.result,
-      projection: patch.projection,
+      result: batchResult(batch.results, changed),
+      results: batch.results,
+      projection: batch.projection,
       designId: file.designId,
       fileId: file.id,
       filename: file.filename,
-      persisted: patch.result.status === "applied" && patch.result.changed,
-      patchedContent: includeContent ? patch.content : undefined,
+      persisted: changed,
+      patchedContent: includeContent
+        ? allApplied
+          ? batch.content
+          : file.content
+        : undefined,
       bytesBefore: file.content.length,
-      bytesAfter: patch.content.length,
+      bytesAfter: allApplied ? batch.content.length : file.content.length,
     };
   },
 });

@@ -1,4 +1,8 @@
-import { AgentNativeRouteWarmup } from "@agent-native/core/client/host";
+import { AgentNativeWebMcpActionRegistration } from "@agent-native/core/client/hooks";
+import {
+  AgentNativeRouteWarmup,
+  defineClientAction,
+} from "@agent-native/core/client/host";
 import {
   AgentNativeI18nProvider,
   getLocaleInitScript,
@@ -6,6 +10,7 @@ import {
 } from "@agent-native/core/client/i18n";
 import { recoverFromStaleChunkError } from "@agent-native/core/client/route-chunk-recovery";
 import { ErrorReportActions } from "@agent-native/core/client/ui";
+import { createAgentNativeWebMcpRegistration } from "@agent-native/core/client/webmcp";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   lazy,
@@ -24,12 +29,13 @@ import {
   Link,
   isRouteErrorResponse,
   useMatches,
+  useNavigate,
   useRouteError,
   useLocation,
   type LoaderFunctionArgs,
 } from "react-router";
 
-import { getGithubStarCountFromCache } from "../lib/github-star-count";
+import { getGithubStarCount } from "../lib/github-star-count";
 import { hasDocBlockSyntax } from "./components/doc-block-detection";
 import {
   DEFAULT_DOCS_LOCALE,
@@ -48,6 +54,7 @@ import { SiteHeader } from "./components/website-redesign/site-header";
 import { isStaleDocsChunkError } from "./docs-error-classification.js";
 import { docsI18nCatalog, loadDocsMessages } from "./i18n";
 import { defaultSocialImageMeta } from "./seo";
+import { ShellSettledProvider } from "./shell-ready";
 
 import tokensCss from "./components/website-redesign/tokens.css?url";
 import appCss from "./global.css?url";
@@ -124,12 +131,68 @@ async function initialMessagesForLocale(locale: DocsLocale) {
 export async function loader({ request, url }: LoaderFunctionArgs) {
   const requestUrl = url ?? new URL(request.url);
   const locale = resolveLayoutLocale(requestUrl.pathname);
+  const [messages, starCount] = await Promise.all([
+    initialMessagesForLocale(locale),
+    getGithubStarCount(),
+  ]);
   return {
     locale,
     preference: { locale },
-    messages: await initialMessagesForLocale(locale),
-    starCount: getGithubStarCountFromCache(),
+    messages,
+    starCount,
   };
+}
+
+function DocsWebMcpNavigationRegistration() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const registration = createAgentNativeWebMcpRegistration({
+      actions: [
+        defineClientAction<{ path: string }, { path: string }>({
+          name: "navigate",
+          title: "Navigate docs",
+          description: "Navigate the documentation site to a same-origin path.",
+          schema: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                description:
+                  "Absolute same-origin path, including query or hash",
+              },
+            },
+            required: ["path"],
+            additionalProperties: false,
+          },
+          run: (input) => {
+            if (typeof input?.path !== "string") {
+              throw new Error("Docs navigation requires a string path");
+            }
+            const { path } = input;
+            if (!path.startsWith("/")) {
+              throw new Error("Docs navigation requires an absolute path");
+            }
+            const target = new URL(path, window.location.origin);
+            if (target.origin !== window.location.origin) {
+              throw new Error("Docs navigation must stay on the current site");
+            }
+            const destination = `${target.pathname}${target.search}${target.hash}`;
+            navigate(destination);
+            return { path: destination };
+          },
+        }),
+      ],
+    });
+
+    void registration.start().catch(() => {
+      // WebMCP is progressive enhancement. Unsupported browsers keep normal
+      // docs navigation without exposing a broken page-level integration.
+    });
+    return () => registration.stop();
+  }, [navigate]);
+
+  return null;
 }
 
 type RootLocaleData = Awaited<ReturnType<typeof loader>>;
@@ -173,21 +236,21 @@ export const links = () => [
 ];
 
 export const meta = () => [
-  { title: "Agent-Native — Framework for Agent-Native Apps" },
+  { title: "Agent-Native — The Agentic Application Framework" },
   {
     name: "description",
     content:
-      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with cloneable SaaS apps.",
+      "Build autonomous agents with intuitive UIs. Define each capability once for the agent, UI, APIs, and integrations. Open-source TypeScript.",
   },
   ...defaultSocialImageMeta(),
   {
     property: "og:title",
-    content: "Agent-Native — Framework for Agent-Native Apps",
+    content: "Agent-Native — The Agentic Application Framework",
   },
   {
     property: "og:description",
     content:
-      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with cloneable SaaS apps.",
+      "Build autonomous agents with intuitive UIs. Define each capability once for the agent, UI, APIs, and integrations. Open-source TypeScript.",
   },
   { property: "og:type", content: "website" },
   { property: "og:url", content: SITE_URL },
@@ -496,7 +559,7 @@ export default function Root() {
   );
 }
 
-function RootShell({ mounted }: { mounted: boolean }) {
+export function RootShell({ mounted }: { mounted: boolean }) {
   const t = useT();
   const content = (
     <DocsChrome>
@@ -515,27 +578,45 @@ function RootShell({ mounted }: { mounted: boolean }) {
     </div>
   );
 
-  if (!mounted) return fallback;
-
+  // One tree shape for every phase. Returning `fallback` bare before mount and
+  // a fragment+Suspense after put the placeholder at two different positions,
+  // so React tore the whole page down and rebuilt it on the `mounted` flip --
+  // on top of the rebuild the lazy swap itself causes. Keeping the fragment and
+  // the Suspense boundary mounted in every phase removes that first teardown.
   return (
     <>
-      <AgentNativeRouteWarmup />
+      {mounted && (
+        <>
+          <AgentNativeRouteWarmup />
+          <AgentNativeWebMcpActionRegistration />
+          <DocsWebMcpNavigationRegistration />
+        </>
+      )}
       <Suspense fallback={fallback}>
-        <LazyAgentSidebar
-          storageKey="docs"
-          position="right"
-          defaultOpen={false}
-          defaultSidebarWidth={400}
-          emptyStateText={t("agent.emptyState")}
-          suggestions={[
-            t("agent.suggestionGettingStarted"),
-            t("agent.suggestionActions"),
-            t("agent.suggestionPolling"),
-            t("agent.suggestionDeploy"),
-          ]}
-        >
-          {content}
-        </LazyAgentSidebar>
+        {mounted ? (
+          <LazyAgentSidebar
+            storageKey="docs"
+            position="right"
+            defaultOpen={false}
+            defaultSidebarWidth={400}
+            emptyStateText={t("agent.emptyState")}
+            suggestions={[
+              t("agent.suggestionGettingStarted"),
+              t("agent.suggestionActions"),
+              t("agent.suggestionPolling"),
+              t("agent.suggestionDeploy"),
+            ]}
+          >
+            {/* Provided from inside the final tree, not from a state flag: the
+                lazy component still resolves a tick after its chunk arrives, so
+                anything keyed off "chunk loaded" opens while Suspense is still
+                showing the placeholder -- and mounts into the subtree that is
+                about to be thrown away. */}
+            <ShellSettledProvider value>{content}</ShellSettledProvider>
+          </LazyAgentSidebar>
+        ) : (
+          fallback
+        )}
       </Suspense>
     </>
   );

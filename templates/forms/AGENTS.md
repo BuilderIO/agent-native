@@ -65,7 +65,7 @@ Read the relevant skill before deeper work:
 
 ## Application State
 
-- `navigation` exposes home chat, builder, published form, responses,
+- `navigation` exposes the `/home` chat, builder, published form, responses,
   response-insights, selected field, and builder tab context
   (`activeTab`: `edit`, `responses`, `settings`, or `integrations`).
 - `navigate` moves the UI between home, forms, builder, responses,
@@ -75,8 +75,9 @@ Read the relevant skill before deeper work:
 
 ## Chat-First Workflow
 
-- The `/` route is the primary chat surface. Use it to ask clarifying questions,
-  create or edit forms, explain setup, and surface response insights.
+- The `/home` route is the primary chat surface. Use it to ask clarifying
+  questions, create or edit forms, explain setup, and surface response insights.
+  The public `/` route is reserved for the SSR marketing page.
 - When the user needs a focused workspace, call `navigate` to open `/forms`,
   `/forms/:id?tab=edit`, `/forms/:id?tab=responses`,
   `/forms/:id?tab=settings`, `/forms/:id?tab=integrations`,

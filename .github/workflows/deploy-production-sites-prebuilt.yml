@@ -45,7 +45,7 @@ jobs:
     outputs:
       source_ref: ${{ steps.source.outputs.source_ref }}
     steps:
-      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         id: source
         env:
           REQUESTED_SOURCE_REF: ${{ inputs.source_ref }}
@@ -69,6 +69,7 @@ jobs:
     needs: resolve-source
     runs-on: ubuntu-latest
     outputs:
+      complete_fleet: ${{ steps.matrix.outputs.complete_fleet }}
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -135,9 +136,26 @@ jobs:
           }
           if (!buildable.length) throw new Error('No buildable production sites selected.');
 
+          const productionNames = Object.entries(sites)
+            .filter(([, site]) =>
+              typeof site?.host === 'string' && site.host.endsWith('.agent-native.com'),
+            )
+            .map(([name]) => name);
+          const completeFleet =
+            productionNames.length > 0 &&
+            productionNames.every(
+              (name) =>
+                names.includes(name) &&
+                buildable.some((site) => site.site === name),
+            );
+
           fs.appendFileSync(
             process.env.GITHUB_OUTPUT,
             `matrix=${JSON.stringify({ include: buildable })}\n`,
+          );
+          fs.appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `complete_fleet=${completeFleet}\n`,
           );
           console.log(`Discovered ${buildable.length} buildable production sites.`);
           NODE
@@ -183,3 +201,60 @@ jobs:
       deploy_mode: production
       smoke: ${{ inputs.smoke }}
     secrets: inherit
+
+  record-beta-migration:
+    name: Record production migration marker
+    needs: [resolve-source, discover-sites, deploy]
+    if: >-
+      ${{ needs.discover-sites.outputs.complete_fleet == 'true'
+      && needs.deploy.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SOURCE_SHA: ${{ needs.resolve-source.outputs.source_ref }}
+        with:
+          script: |
+            const sourceSha = process.env.SOURCE_SHA.trim().toLowerCase();
+            if (!/^[0-9a-f]{40}$/.test(sourceSha)) {
+              core.setFailed('The production migration marker must target a full commit SHA.');
+              return;
+            }
+            const ref = `refs/tags/agent-native-beta-migrated/${sourceSha}`;
+            try {
+              const existing = await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: ref.slice('refs/'.length),
+              });
+              if (existing.data.object.sha.toLowerCase() !== sourceSha) {
+                core.setFailed(`Refusing to change existing production migration marker ${ref}.`);
+                return;
+              }
+              core.info(`Production migration marker already exists: ${ref}`);
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              try {
+                await github.rest.git.createRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref,
+                  sha: sourceSha,
+                });
+                core.info(`Created production migration marker: ${ref}`);
+              } catch (createError) {
+                if (createError.status !== 422) throw createError;
+                const existing = await github.rest.git.getRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: ref.slice('refs/'.length),
+                });
+                if (existing.data.object.sha.toLowerCase() !== sourceSha) {
+                  core.setFailed(`Concurrent production migration marker ${ref} points to a different commit.`);
+                  return;
+                }
+                core.info(`Production migration marker was created concurrently: ${ref}`);
+              }
+            }

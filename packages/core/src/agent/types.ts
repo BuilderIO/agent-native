@@ -1,5 +1,6 @@
 import type { A2AAgentActivitySnapshot } from "../a2a/activity.js";
 import type { ActionChatUIConfig } from "../action-ui.js";
+import type { ArtifactReceipt } from "../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 
@@ -26,6 +27,7 @@ export interface AgentNativeJsonSchema {
 }
 
 export interface ActionTool {
+  title?: string;
   description: string;
   parameters?: AgentNativeJsonSchema & {
     type: "object";
@@ -145,6 +147,8 @@ export interface MentionProvider {
 export interface AgentChatAttachment {
   type: string;
   name: string;
+  /** Keep a user-visible chip without sending the attachment as model input. */
+  displayOnly?: boolean;
   data?: string;
   /** Stable object-storage URL for this attachment, when uploaded. */
   url?: string;
@@ -190,6 +194,8 @@ export interface AgentChatRequest {
   structuredHistory?: AgentChatStructuredMessage[];
   references?: AgentChatReference[];
   threadId?: string;
+  /** Parent message for assistant-ui sends and regenerations. */
+  parentId?: string | null;
   attachments?: AgentChatAttachment[];
   /** Internal retry/continuation requests should not create visible user turns. */
   internalContinuation?: boolean;
@@ -363,6 +369,7 @@ export type AgentChatEvent =
       result: string;
       isError?: boolean;
       completedSideEffect?: boolean;
+      artifacts?: ArtifactReceipt[];
       mcpApp?: AgentMcpAppPayload;
       chatUI?: ActionChatUIConfig;
     }

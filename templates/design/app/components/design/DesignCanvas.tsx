@@ -77,6 +77,7 @@ import { shaderRuntimeBridgeScript } from "../../../.generated/bridge/shader-run
 import { tweakBridgeScript } from "../../../.generated/bridge/tweak.generated";
 import { zoomBridgeScript } from "../../../.generated/bridge/zoom.generated";
 import { isTrustedCanvasBridgeMessage } from "./bridge-security";
+import { isCanvasOverlayInteractionTarget } from "./canvas-interactions/review-overlay-interaction";
 import { captureAnnotatedScreenshot } from "./design-canvas/annotation-snapshot";
 import { submitDesignAnnotations } from "./design-canvas/annotation-submit";
 import { appendContentSizeReporter } from "./design-canvas/content-size-report";
@@ -491,6 +492,9 @@ interface DesignCanvasProps {
   editMode: boolean;
   interactMode: boolean;
   readOnly?: boolean;
+  /** This screen's layout grid step in content px. 1 (or absent) means no grid,
+   *  which leaves the whole-pixel floor every gesture already lands on. */
+  layoutGridStep?: number;
   scaleMode?: boolean;
   onElementSelect: (info: ElementInfo, intent?: ElementSelectionIntent) => void;
   onElementMarqueeSelect?: (
@@ -504,6 +508,7 @@ interface DesignCanvasProps {
     styles: Record<string, string>,
     info?: ElementInfo,
     metadata?: {
+      phase?: "preview" | "commit";
       originalStyles?: Record<string, string>;
       preserveSelection?: boolean;
     },
@@ -1131,6 +1136,7 @@ export function DesignCanvas({
   editorChromeScaleY = editorChromeScaleX,
   editMode,
   interactMode,
+  layoutGridStep,
   readOnly = false,
   scaleMode = false,
   clearSelectionRequest,
@@ -2450,6 +2456,7 @@ export function DesignCanvas({
       transparentBackground,
       contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
       contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
+      fitBodyToFrame: !boardSurface,
     });
     let frameDocument: string;
     if (/<\/(?:body|html)\s*>/i.test(frameContent)) {
@@ -2785,6 +2792,7 @@ export function DesignCanvas({
             styles,
             isElementInfoPayload(e.data.payload) ? e.data.payload : undefined,
             {
+              phase: e.data.phase === "preview" ? "preview" : "commit",
               originalStyles,
               preserveSelection: e.data.preserveSelection === true,
             },
@@ -3687,6 +3695,27 @@ export function DesignCanvas({
     return () => iframe.removeEventListener("load", applyOffset);
   }, [embeddedContentOffsetX, embeddedContentOffsetY]);
 
+  // The screen's own layout grid step, in this document's content px. Pushed
+  // in-place (never baked into srcdoc) so adding or resizing a grid does not
+  // reload the iframe and drop its Alpine state.
+  const layoutGridStepRef = useRef(layoutGridStep);
+  layoutGridStepRef.current = layoutGridStep;
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    function sendLayoutGridStep() {
+      iframe!.contentWindow?.postMessage(
+        { type: "set-layout-grid-step", step: layoutGridStepRef.current ?? 1 },
+        "*",
+      );
+    }
+    sendLayoutGridStep();
+    iframe.addEventListener("load", sendLayoutGridStep);
+    return () => iframe.removeEventListener("load", sendLayoutGridStep);
+    // Only re-run when the step changes; iframe identity is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layoutGridStep]);
+
   // Sync readOnly to the bridge IN-PLACE via postMessage so switching the active
   // surface (board ↔ screen) does not rebuild srcdoc / reload the iframe.
   // The initial baked __READ_ONLY__ placeholder covers first paint; subsequent
@@ -4158,6 +4187,7 @@ export function DesignCanvas({
           transparentBackground,
           contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
           contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
+          fitBodyToFrame: !boardSurface,
         }),
         selector,
         candidates,
@@ -4196,9 +4226,13 @@ export function DesignCanvas({
           transparentBackground,
           contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
           contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
+          fitBodyToFrame: !boardSurface,
         }),
-        null,
-        [],
+        // Carry the host's committed selection so the bridge can re-anchor it
+        // after the morph: without it the canvas silently deselects while the
+        // inspector still shows the element.
+        selectedSelectorRef.current,
+        selectedSelectorCandidatesRef.current ?? [],
         {
           forceFullDocument: true,
           // Prop/save echoes are synchronization, not a user command. If a
@@ -4453,6 +4487,7 @@ export function DesignCanvas({
 
   const handleScrollSurfaceMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      if (isCanvasOverlayInteractionTarget(e.target)) return;
       const isMiddleButton = e.button === 1;
       const isLeftPanGesture =
         e.button === 0 && (handToolActive || spacePanActive);
@@ -4494,6 +4529,7 @@ export function DesignCanvas({
   // scroll surface means the user clicked outside the framed preview.
   const handleScrollSurfaceBackgroundClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      if (isCanvasOverlayInteractionTarget(e.target)) return;
       if (e.button !== 0) return;
       if (handToolActive || spacePanActive) return;
       const target = e.target as HTMLElement | null;
@@ -4933,7 +4969,7 @@ export function DesignCanvas({
           annotationCaptureBusyRef.current = true;
           setAnnotationCaptureBusy(true);
           onAnnotationSendingChange?.(true);
-          captureAnnotatedScreenshot({
+          void captureAnnotatedScreenshot({
             designId,
             fileId: screenId,
             sourceType:
@@ -4987,6 +5023,29 @@ export function DesignCanvas({
     </div>
   );
 
+  const reviewCanvasPins =
+    designId && (screenId || commentContextId) ? (
+      <ReviewCanvasPins
+        active={!!pinMode}
+        hidden={commentPinsHidden}
+        onClose={() => onExitPinMode?.()}
+        canvasSelector={`[data-review-canvas-id="${reviewCanvasId}"]`}
+        resourceType="design"
+        resourceId={designId}
+        targetId={screenId ?? commentContextId ?? ""}
+        canPost={reviewCanPost}
+        canResolve={reviewCanResolve}
+        focusRequest={reviewFocusRequest}
+        onDispatchCommentToAgent={onDispatchCommentToAgent}
+        onSendThreadToAgent={onSendThreadToAgent}
+        sendingThreadId={reviewSendingThreadId}
+        sourceType={sourceType ?? (externalPreviewUrl ? "localhost" : "inline")}
+        sourceVersionHash={sourceContentHash(content)}
+        repromptDraftRequest={repromptDraftRequest}
+        onRepromptDraftConsumed={onRepromptDraftConsumed}
+      />
+    ) : null;
+
   if (embeddedFrame) {
     if (embeddedFrameFluid) {
       return (
@@ -4998,6 +5057,7 @@ export function DesignCanvas({
           className="relative h-full w-full overflow-hidden"
         >
           {iframeElement}
+          {reviewCanvasPins}
         </div>
       );
     }
@@ -5028,6 +5088,7 @@ export function DesignCanvas({
         >
           {iframeElement}
         </div>
+        {reviewCanvasPins}
       </div>
     );
   }
@@ -5111,29 +5172,7 @@ export function DesignCanvas({
         </div>
       )}
 
-      {designId && (screenId || commentContextId) ? (
-        <ReviewCanvasPins
-          active={!!pinMode}
-          hidden={commentPinsHidden}
-          onClose={() => onExitPinMode?.()}
-          canvasSelector={`[data-review-canvas-id="${reviewCanvasId}"]`}
-          resourceType="design"
-          resourceId={designId}
-          targetId={screenId ?? commentContextId ?? ""}
-          canPost={reviewCanPost}
-          canResolve={reviewCanResolve}
-          focusRequest={reviewFocusRequest}
-          onDispatchCommentToAgent={onDispatchCommentToAgent}
-          onSendThreadToAgent={onSendThreadToAgent}
-          sendingThreadId={reviewSendingThreadId}
-          sourceType={
-            sourceType ?? (externalPreviewUrl ? "localhost" : "inline")
-          }
-          sourceVersionHash={sourceContentHash(content)}
-          repromptDraftRequest={repromptDraftRequest}
-          onRepromptDraftConsumed={onRepromptDraftConsumed}
-        />
-      ) : null}
+      {reviewCanvasPins}
     </div>
   );
 }

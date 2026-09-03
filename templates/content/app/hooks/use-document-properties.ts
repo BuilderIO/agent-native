@@ -11,6 +11,8 @@ import type {
   DuplicateDocumentPropertyRequest,
   ReorderDocumentPropertyRequest,
   SetDocumentPropertyRequest,
+  UpdateDatabaseItemsRequest,
+  UpdateDatabaseItemsResponse,
 } from "@shared/api";
 import { useQueryClient, type UseMutationResult } from "@tanstack/react-query";
 
@@ -31,7 +33,7 @@ type DatabaseScopedRequest = { databaseId: string };
 
 export function documentPropertiesResponseMatchesScope(
   documentId: string,
-  databaseId: string,
+  databaseId: string | null,
   data: DocumentPropertiesResponse | undefined,
 ): data is DocumentPropertiesResponse {
   return data?.documentId === documentId && data.databaseId === databaseId;
@@ -67,9 +69,11 @@ export function useDocumentProperties(
 ) {
   return useActionQuery<DocumentPropertiesResponse>(
     "list-document-properties",
-    documentId && databaseId ? { documentId, databaseId } : undefined,
+    documentId
+      ? { documentId, ...(databaseId ? { databaseId } : {}) }
+      : undefined,
     {
-      enabled: !!documentId && !!databaseId,
+      enabled: !!documentId,
       placeholderData: (prev) => prev,
     },
   );
@@ -91,11 +95,11 @@ export function useConfigureDocumentProperty(
         contentDatabaseQueryFilter(databaseDocumentId),
         (current) => applyDocumentPropertiesToDatabaseResponse(current, data),
       );
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: documentPropertiesQueryKey(documentId, databaseId),
       });
-      queryClient.invalidateQueries(documentQueryFilter(documentId));
-      queryClient.invalidateQueries(
+      void queryClient.invalidateQueries(documentQueryFilter(documentId));
+      void queryClient.invalidateQueries(
         contentDatabaseConstrainedQueryFilter(databaseDocumentId),
       );
     },
@@ -141,7 +145,7 @@ export function useSetDocumentProperty(
       for (const [queryKey, data] of rollback?.previous ?? []) {
         queryClient.setQueryData(queryKey, data);
       }
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: documentPropertiesQueryKey(variables.documentId, databaseId),
       });
     },
@@ -159,14 +163,16 @@ export function useSetDocumentProperty(
             value: savedValue as DocumentPropertyValue,
           }),
       );
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: documentPropertiesQueryKey(variables.documentId, databaseId),
       });
-      queryClient.invalidateQueries(documentQueryFilter(variables.documentId));
-      queryClient.invalidateQueries(
+      void queryClient.invalidateQueries(
+        documentQueryFilter(variables.documentId),
+      );
+      void queryClient.invalidateQueries(
         contentDatabaseConstrainedQueryFilter(databaseDocumentId),
       );
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: [
           "action",
           "get-content-database-source",
@@ -176,6 +182,24 @@ export function useSetDocumentProperty(
     },
   });
   return withDatabaseScope(mutation, databaseId);
+}
+
+export function useUpdateDatabaseItems(databaseDocumentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    UpdateDatabaseItemsResponse,
+    UpdateDatabaseItemsRequest
+  >("update-database-items", {
+    skipActionQueryInvalidation: true,
+    onSuccess: () => {
+      void queryClient.invalidateQueries(
+        contentDatabaseQueryFilter(databaseDocumentId),
+      );
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+    },
+  });
 }
 
 export function useDuplicateDocumentProperty(
@@ -194,11 +218,11 @@ export function useDuplicateDocumentProperty(
         contentDatabaseQueryFilter(databaseDocumentId),
         (current) => applyDocumentPropertiesToDatabaseResponse(current, data),
       );
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: documentPropertiesQueryKey(documentId, databaseId),
       });
-      queryClient.invalidateQueries(documentQueryFilter(documentId));
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries(documentQueryFilter(documentId));
+      void queryClient.invalidateQueries({
         ...contentDatabaseQueryFilter(databaseDocumentId),
       });
     },
@@ -217,11 +241,11 @@ export function useReorderDocumentProperty(
     ReorderDocumentPropertyRequest
   >("reorder-document-property", {
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: documentPropertiesQueryKey(documentId, databaseId),
       });
-      queryClient.invalidateQueries(documentQueryFilter(documentId));
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries(documentQueryFilter(documentId));
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(databaseDocumentId),
       });
     },
@@ -272,11 +296,11 @@ export function useDeleteDocumentProperty(
         contentDatabaseQueryFilter(databaseDocumentId),
         (current) => applyDocumentPropertiesToDatabaseResponse(current, data),
       );
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: documentPropertiesQueryKey(documentId, databaseId),
       });
-      queryClient.invalidateQueries(documentQueryFilter(documentId));
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries(documentQueryFilter(documentId));
+      void queryClient.invalidateQueries({
         ...contentDatabaseQueryFilter(databaseDocumentId),
       });
     },

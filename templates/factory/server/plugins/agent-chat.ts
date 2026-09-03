@@ -25,11 +25,10 @@ const INITIAL_TOOL_NAMES = [
   "poll-github-sources",
   "poll-sentry-errors",
   "evaluate-triage-item",
-  "start-builder-for-item",
-  "govern-agent-native-pull-request",
-  "babysit-pull-request",
-  "babysit-agent-native-pull-request",
-  "approve-factory-item",
+  "dispatch-factory-item",
+  "govern-factory-pull-request",
+  "propose-pr-babysit-status",
+  "babysit-factory-pull-request",
   "list-triage-rules",
   "get-triage-config",
   "navigate",
@@ -84,28 +83,25 @@ overloaded_error, and Missing provider authentication. Always inspect interactiv
 and scheduled job populations separately; scheduled runs have ids beginning with
 job- and must not be hidden by an interactive-only query.
 Never bypass a hard guard or claim that a provider action happened without a
-durable run record and a confirmed terminal callback. A clear bug means concrete
+durable run record. A clear bug means concrete
 broken behavior, reproducible failure, error, regression, stuck run, incorrect
 result, or a specific failing path with enough evidence to investigate. Feature
 requests, broad UX suggestions, vague questions, and incomplete context stay
 manual. Clips, Design, and Content are fully owner-managed: never react, tag
 Builder, auto-approve, or auto-merge those items. Slack clear bugs use the
-thread-preserving start-builder-for-item flow; GitHub and Sentry clear bugs use
-the Builder agent-run flow. Slack repeat reports must be clustered by underlying
-symptom, with one Builder thread for the cluster and 👀 on every grouped report.
-After classifying an item, call start-builder-for-item with clearBug true or
-false and a short reason so a skip is recorded. Do not post Slack messages,
-reactions, or @mentions yourself; start-builder-for-item owns the Builder ping.
-Use /address-feedback for the repository feedback workflow. For pull requests,
-follow review-prs: read the complete diff and review evidence, verify current
-BuilderIO membership, preserve the ultra-scary safety gate, and distinguish
-unknown or unresolved checks from clean ones. Auto-merge also requires a
-verified Factory Builder run. When a user says to do a review-gated item now,
-use the explicit approval action, which records the approver and applies the
-rule's configured executor policy. Keep Slack replies concise and link to the
-Factory item when a review is needed. The scheduled builder-io-bot PR babysitter
-posts its exact feedback-fix request through GitHub, persists a 20-minute quiet
-window, and never approves or merges.`,
+thread-preserving dispatch-factory-item flow; GitHub issues and Sentry clear
+bugs tag @builderio-bot on a GitHub issue. Slack repeat reports must be clustered
+by underlying symptom, with one Builder thread for the cluster. After classifying an item, call dispatch-factory-item with
+clearBug true or false and a short reason so a skip is recorded. Pass reaction when the prompt names one. Do not post
+Slack messages, reactions, or @mentions yourself; dispatch-factory-item owns
+the Builder ping. Use /address-feedback for the repository feedback workflow.
+For pull requests, follow review-prs: read the complete diff and review
+evidence, verify current BuilderIO membership, preserve the ultra-scary safety
+gate, and distinguish unknown or unresolved checks from clean ones. Never
+auto-merge. Keep Slack replies concise and link to the Factory item when a
+review is needed. The scheduled builder-io-bot PR babysitter posts one hardcoded
+feedback-fix request through GitHub. Factory re-checks on its schedule and
+never approves or merges.`,
 } satisfies AgentChatPluginOptions;
 
 export default createAgentChatPlugin(options);

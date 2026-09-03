@@ -1,4 +1,3 @@
-import type { FormField } from "@shared/types";
 import { IconStar, IconStarFilled } from "@tabler/icons-react";
 
 import { Checkbox } from "@/components/ui/checkbox";
@@ -14,10 +13,15 @@ import {
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  getFileFieldOptions,
+  isFileField,
+  type AppFormField,
+} from "@/lib/form-field-types";
 import { cn } from "@/lib/utils";
 
 interface FieldRendererProps {
-  field: FormField;
+  field: AppFormField;
   value?: unknown;
   onChange?: (value: unknown) => void;
   disabled?: boolean;
@@ -52,6 +56,9 @@ export function FieldRenderer({
   preview,
 }: FieldRendererProps) {
   const handleChange = (v: unknown) => onChange?.(v);
+  const fileOptions = isFileField(field)
+    ? getFileFieldOptions(field)
+    : undefined;
 
   return (
     <div
@@ -66,6 +73,19 @@ export function FieldRenderer({
       </Label>
       {field.description && (
         <p className="text-xs text-muted-foreground">{field.description}</p>
+      )}
+
+      {fileOptions && (
+        <Input
+          type="file"
+          multiple={fileOptions.multiple}
+          accept={fileOptions.accept}
+          disabled={disabled || preview}
+          onChange={(event) => {
+            const files = Array.from(event.target.files || []);
+            onChange?.(fileOptions.multiple ? files : (files[0] ?? null));
+          }}
+        />
       )}
 
       <div
@@ -234,7 +254,13 @@ export function FieldRenderer({
             />
             <div className="flex justify-between text-xs text-muted-foreground mt-1">
               <span>{field.validation?.min || 1}</span>
-              <span>{String(value ?? "-")}</span>
+              <span>
+                {typeof value === "object"
+                  ? JSON.stringify(value)
+                  : String(
+                      (value as string | number | boolean | bigint) ?? "-",
+                    )}
+              </span>
               <span>{field.validation?.max || 10}</span>
             </div>
           </div>

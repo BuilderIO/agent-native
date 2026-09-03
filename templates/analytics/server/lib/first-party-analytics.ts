@@ -47,6 +47,7 @@ export interface IncomingAnalyticsEvent {
 export interface AnalyticsQueryResult {
   rows: Record<string, unknown>[];
   schema: { name: string; type: string }[];
+  truncated?: boolean;
 }
 
 export interface AnalyticsQueryOptions {
@@ -223,7 +224,7 @@ export async function touchPublicKeyLastUsedAt(
   }
   const staleBefore = new Date(parsed - LAST_USED_AT_REFRESH_MS).toISOString();
   try {
-    const db = await getDb();
+    const db = getDb();
     await db
       .update(schema.analyticsPublicKeys)
       .set({ lastUsedAt: receivedAt })
@@ -1020,18 +1021,19 @@ function scopedTableSource(
   }
 
   const freshness = freshnessClause(tableName);
+  const ownerEmail = scope.userEmail.trim().toLowerCase();
   if (scope.orgId) {
     return {
       // Keep the org and personal fallback as separate branches so Postgres can
       // use each branch's composite tenant/date indexes instead of scanning one
       // broad org index for an OR predicate.
       sql: `(SELECT * FROM ${tableName} WHERE org_id = ? AND ${freshness} UNION ALL SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = ? AND ${freshness})`,
-      args: [scope.orgId, today, scope.userEmail, today],
+      args: [scope.orgId, today, ownerEmail, today],
     };
   }
   return {
     sql: `(SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = ? AND ${freshness})`,
-    args: [scope.userEmail, today],
+    args: [ownerEmail, today],
   };
 }
 

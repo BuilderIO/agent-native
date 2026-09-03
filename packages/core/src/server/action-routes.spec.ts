@@ -2444,3 +2444,331 @@ describe("mountActionRoutes", () => {
     });
   });
 });
+
+describe("mountWebMcpActionRoutes", () => {
+  it("projects eligible actions, including http:false, through the shared dispatcher", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async (_args, context) => ({ caller: context.caller }));
+    const getOwnerFromEvent = vi.fn(async () => "owner@example.com");
+    const resolveCaller = vi.fn(async () => ({
+      owner: "delegated@example.com",
+      anonymous: false,
+    }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        eligible: {
+          tool: { description: "Eligible", parameters: { type: "object" } },
+          run,
+          http: false,
+          readOnly: true,
+        } as any,
+        hidden: {
+          tool: { description: "Hidden", parameters: { type: "object" } },
+          run: vi.fn(),
+          agentTool: false,
+        } as any,
+        approval: {
+          tool: { description: "Approval", parameters: { type: "object" } },
+          run: vi.fn(),
+          needsApproval: true,
+        } as any,
+        "invalid name": {
+          tool: { description: "Invalid", parameters: { type: "object" } },
+          run: vi.fn(),
+        } as any,
+      },
+      {
+        getOwnerFromEvent,
+        actionRouteAuth: { resolveCaller },
+        manifest: {
+          name: "Clips",
+          description: "Read clips",
+          instructions: "Call view-screen before editing.",
+          websiteUrl: "https://clips.example.com",
+        },
+      },
+    );
+
+    const compatibilityRoute = mounted.find(
+      ({ path }) => path === "/.well-known/mcp.json",
+    );
+    const manifestRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/manifest",
+    );
+    const invocationRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/eligible",
+    );
+    const compatibilityInvocationRoute = mounted.find(
+      ({ path }) => path === "/mcp/tool/eligible",
+    );
+
+    expect(mockRegisterAuthPublicPaths).toHaveBeenCalledWith(
+      [
+        "/_agent-native/webmcp/manifest",
+        "/_agent-native/webmcp/actions/eligible",
+        "/mcp/tool/eligible",
+      ],
+      nitroApp,
+    );
+
+    const compatibilityManifest = await compatibilityRoute?.handler({
+      _method: "GET",
+      _headers: {
+        host: "clips.example.com",
+        "x-forwarded-proto": "https",
+      },
+    });
+    expect(compatibilityManifest).toMatchObject({
+      schema_version: "v1",
+      protocol: "WebMCP",
+      name: "Clips",
+      description: "Read clips",
+      instructions: expect.stringContaining("Call view-screen before editing."),
+      website_url: "https://clips.example.com",
+      endpoints: {
+        mcp: "https://clips.example.com/mcp",
+        httpTools: "https://clips.example.com/mcp/tool",
+        authenticatedWebMcp:
+          "https://clips.example.com/_agent-native/webmcp/manifest",
+        a2a: "https://clips.example.com/.well-known/agent-card.json",
+      },
+      webmcp: { scope: "page-local", browserRequired: true },
+      tools: [
+        {
+          name: "eligible",
+          title: "Eligible",
+          description: "Eligible",
+          parameters: { type: "object" },
+          inputSchema: { type: "object" },
+          endpoint: "https://clips.example.com/mcp/tool/eligible",
+          method: "POST",
+          readOnly: true,
+          requiresAuth: true,
+        },
+      ],
+    });
+
+    await expect(
+      manifestRoute?.handler({ _method: "GET", _headers: {} }),
+    ).resolves.toEqual([
+      {
+        name: "eligible",
+        title: "Eligible",
+        description: "Eligible",
+        inputSchema: { type: "object" },
+        readOnly: true,
+      },
+    ]);
+    expect(getOwnerFromEvent).toHaveBeenCalled();
+
+    await expect(
+      invocationRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ caller: "webmcp" });
+    expect(run).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ caller: "webmcp", actionName: "eligible" }),
+    );
+    expect(resolveCaller).not.toHaveBeenCalled();
+
+    await expect(
+      compatibilityInvocationRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ caller: "webmcp" });
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it("serves only explicitly public read-only actions to anonymous pages", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const publicRun = vi.fn(async (_args, context) => ({
+      userEmail: context.userEmail,
+    }));
+    const privateRun = vi.fn();
+    const getOwnerFromEvent = vi.fn(async () => {
+      throw Object.assign(new Error("Unauthorized"), { statusCode: 401 });
+    });
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        "search-docs": {
+          tool: {
+            description: "Search public docs",
+            parameters: { type: "object" },
+          },
+          run: publicRun,
+          http: false,
+          requiresAuth: false,
+          readOnly: true,
+          publicAgent: {
+            expose: true,
+            readOnly: true,
+            requiresAuth: false,
+          },
+        } as any,
+        "private-docs": {
+          tool: {
+            description: "Read private docs",
+            parameters: { type: "object" },
+          },
+          run: privateRun,
+          http: false,
+          requiresAuth: false,
+          readOnly: true,
+        } as any,
+        "vetoed-docs": {
+          tool: {
+            description: "Never expose these docs",
+            parameters: { type: "object" },
+          },
+          run: vi.fn(),
+          http: false,
+          requiresAuth: false,
+          readOnly: true,
+          agentTool: true,
+          mcpTool: false,
+          publicAgent: {
+            expose: true,
+            readOnly: true,
+            requiresAuth: false,
+          },
+        } as any,
+      },
+      { getOwnerFromEvent },
+    );
+
+    const manifestRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/manifest",
+    );
+    const invocationRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/search-docs",
+    );
+    const guessedPrivateRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/private-docs",
+    );
+    const vetoedRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/vetoed-docs",
+    );
+
+    await expect(
+      manifestRoute?.handler({ _method: "GET", _headers: {} }),
+    ).resolves.toEqual([
+      {
+        name: "search-docs",
+        description: "Search public docs",
+        inputSchema: { type: "object" },
+        readOnly: true,
+        title: "Search docs",
+      },
+    ]);
+    expect(getOwnerFromEvent).toHaveBeenCalledTimes(1);
+    expect(vetoedRoute).toBeUndefined();
+
+    await expect(
+      invocationRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ userEmail: undefined });
+    expect(publicRun).toHaveBeenCalledTimes(1);
+    await expect(
+      guessedPrivateRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(privateRun).not.toHaveBeenCalled();
+  });
+
+  it("does not treat a synthetic anonymous owner as authenticated", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const publicRun = vi.fn(async (_args, context) => ({
+      userEmail: context.userEmail,
+    }));
+    const mutationRun = vi.fn();
+    const getOwnerContextFromEvent = vi.fn(async () => ({
+      owner: "public-owner",
+      anonymous: true,
+    }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        "search-docs": {
+          tool: { description: "Search public docs", parameters: {} },
+          run: publicRun,
+          http: false,
+          requiresAuth: false,
+          readOnly: true,
+          publicAgent: {
+            expose: true,
+            readOnly: true,
+            requiresAuth: false,
+          },
+        } as any,
+        "mutate-docs": {
+          tool: { description: "Mutate docs", parameters: {} },
+          run: mutationRun,
+          http: false,
+          readOnly: false,
+        } as any,
+      },
+      { getOwnerContextFromEvent },
+    );
+
+    const manifestRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/manifest",
+    );
+    const mutationRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/mutate-docs",
+    );
+
+    await expect(
+      manifestRoute?.handler({ _method: "GET", _headers: {} }),
+    ).resolves.toEqual([
+      {
+        name: "search-docs",
+        description: "Search public docs",
+        inputSchema: {},
+        readOnly: true,
+        title: "Search docs",
+      },
+    ]);
+    await expect(
+      mutationRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(mutationRun).not.toHaveBeenCalled();
+  });
+});

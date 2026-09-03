@@ -15,6 +15,9 @@ import {
 } from "./google-api.js";
 import {
   gmailBatchModifyByAccount,
+  exchangeCode,
+  gmailToEmailMessage,
+  getAuthUrl,
   getClientsWithErrors,
   listGmailMessages,
   markAllUnreadReadForAccount,
@@ -57,6 +60,26 @@ vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: vi.fn(async (_context, fn) => fn()),
 }));
 
+// listGmailMessages persists its thread candidate window through user
+// settings. Without a mocked store these tests reach the real settings table,
+// where an unreachable or busy database aborts the thread path mid-hydrate and
+// fails the ranking and refill assertions for reasons unrelated to them.
+const threadCandidatePages = vi.hoisted(
+  () => new Map<string, Record<string, unknown>>(),
+);
+
+vi.mock("@agent-native/core/settings", () => ({
+  getUserSetting: vi.fn(
+    async (email: string, key: string) =>
+      threadCandidatePages.get(`${email}:${key}`) ?? null,
+  ),
+  putUserSetting: vi.fn(
+    async (email: string, key: string, value: Record<string, unknown>) => {
+      threadCandidatePages.set(`${email}:${key}`, value);
+    },
+  ),
+}));
+
 vi.mock("./google-api.js", () => ({
   createOAuth2Client: vi.fn(),
   gmailBatchGetMessages: vi.fn(),
@@ -91,6 +114,7 @@ function mockAccount() {
 describe("listGmailMessages", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    threadCandidatePages.clear();
     mockAccount();
     vi.mocked(gmailListMessagesApi).mockResolvedValue({ messages: [] } as any);
   });
@@ -563,6 +587,32 @@ describe("listGmailMessages", () => {
   });
 });
 
+describe("gmailToEmailMessage", () => {
+  it("preserves commas inside quoted sender names", () => {
+    const message = gmailToEmailMessage({
+      id: "message-1",
+      threadId: "thread-1",
+      internalDate: "1750000000000",
+      labelIds: ["INBOX"],
+      payload: {
+        headers: [
+          {
+            name: "From",
+            value: '"Cuevas, Gustavo" <cuevas@example.com>',
+          },
+          { name: "Date", value: "2025-06-15T12:00:00.000Z" },
+        ],
+      },
+      snippet: "",
+    });
+
+    expect(message.from).toEqual({
+      name: "Cuevas, Gustavo",
+      email: "cuevas@example.com",
+    });
+  });
+});
+
 describe("getClientsWithErrors with unusable token records", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -954,6 +1004,11 @@ describe("gmailBatchModifyByAccount", () => {
       );
 
       expect(result).toEqual({ succeeded: ["message-refresh"], failed: [] });
+      expect(createOAuth2Client).toHaveBeenCalledWith(
+        "client-id",
+        "client-secret",
+        "",
+      );
       expect(googleFetch).toHaveBeenCalledWith(
         expect.stringContaining("messages/batchModify"),
         "refreshed-access-token",
@@ -961,4 +1016,15 @@ describe("gmailBatchModifyByAccount", () => {
       );
     },
   );
+});
+
+describe("Google OAuth URL construction", () => {
+  it("fails closed when no Google OAuth redirect URI is available", async () => {
+    await expect(getAuthUrl()).rejects.toThrow(
+      "Google OAuth redirect URI is required.",
+    );
+    await expect(exchangeCode("oauth-code")).rejects.toThrow(
+      "Google OAuth redirect URI is required.",
+    );
+  });
 });

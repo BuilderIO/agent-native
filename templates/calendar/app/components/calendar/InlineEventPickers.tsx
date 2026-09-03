@@ -45,7 +45,7 @@ function formatTimeValue(value: string) {
   const period = hourValue >= 12 ? "PM" : "AM";
   const hour = hourValue % 12 || 12;
   return minuteValue === 0
-    ? `${hour}:00 ${period}`
+    ? `${hour} ${period}`
     : `${hour}:${String(minuteValue).padStart(2, "0")} ${period}`;
 }
 
@@ -91,7 +91,7 @@ export function TimePickerPopover({
           variant="ghost"
           size="sm"
           className={cn(
-            "h-auto rounded px-1.5 py-0.5 text-base font-normal text-foreground hover:bg-muted",
+            "h-auto rounded px-1.5 py-0.5 text-[13px] leading-[18px] font-normal text-foreground hover:bg-muted",
             className,
           )}
           aria-label={label}
@@ -168,7 +168,7 @@ export function DatePickerPopover({
           variant="ghost"
           size="sm"
           className={cn(
-            "h-auto rounded px-1.5 py-0.5 text-base font-normal text-foreground hover:bg-muted",
+            "h-auto rounded px-1.5 py-0.5 text-[13px] leading-[18px] font-normal text-foreground hover:bg-muted",
             className,
           )}
           aria-label={label}
@@ -222,7 +222,7 @@ export function TimezonePickerPopover({
           className={cn(
             compact
               ? "size-7 rounded-full p-0 text-muted-foreground hover:bg-muted hover:text-foreground"
-              : "h-auto justify-start rounded px-1.5 py-0.5 text-sm font-normal text-muted-foreground hover:bg-muted hover:text-foreground",
+              : "h-auto justify-start rounded px-1.5 py-0.5 text-[13px] leading-[18px] font-normal text-muted-foreground hover:bg-muted hover:text-foreground",
           )}
           aria-label={label}
           title={compact ? label : undefined}
@@ -259,12 +259,15 @@ export function RepeatPicker({
   recurrence,
   onChange,
   onCustomChange,
+  compact = false,
 }: {
   preset: RecurrencePreset;
   referenceDate: string;
   recurrence?: string[];
   onChange: (preset: RecurrencePreset) => void;
   onCustomChange?: (draft: CustomRecurrenceDraft) => void;
+  /** Inline on the date line, the way Notion stacks repeat next to the timezone. */
+  compact?: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -338,10 +341,15 @@ export function RepeatPicker({
           type="button"
           variant="ghost"
           size="sm"
-          className="h-auto w-full justify-start rounded-md px-1.5 py-1 text-sm font-normal text-muted-foreground hover:bg-muted hover:text-foreground"
+          className={cn(
+            "h-auto font-normal text-muted-foreground hover:bg-muted hover:text-foreground",
+            compact
+              ? "rounded px-1.5 py-0.5 text-[13px] leading-[18px]"
+              : "w-full justify-start rounded-md px-1.5 py-1 text-[13px] leading-[18px]",
+          )}
           aria-label={t("eventForm.repeat")}
         >
-          <IconRefresh className="mr-2 size-4 shrink-0" />
+          {!compact && <IconRefresh className="mr-2 size-4 shrink-0" />}
           {triggerLabel}
         </Button>
       </PopoverTrigger>

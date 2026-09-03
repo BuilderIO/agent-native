@@ -2,6 +2,7 @@
 
 import {
   cleanup,
+  createEvent,
   fireEvent,
   render,
   screen,
@@ -17,7 +18,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
-    key === "editorToolbar.savedVersions" ? "History" : key,
+    key === "editorToolbar.savedVersions"
+      ? "History"
+      : key === "creativeContext.share.tabLabel"
+        ? "Context"
+        : key,
 }));
 
 vi.mock("@agent-native/core/client/progress", () => ({
@@ -41,6 +46,8 @@ vi.mock("@/components/visual-editor", () => ({
 }));
 
 vi.mock("@/context/DeckContext", () => ({
+  hasFailedDeckSave: () => false,
+  hasUnsavedDeckChanges: () => false,
   useSaveState: () => ({ saving: false }),
 }));
 
@@ -54,6 +61,7 @@ vi.mock("@/lib/utils", () => ({
 
 vi.mock("./ExportMenu", () => ({
   ExportMenu: () => null,
+  ExportStatusDialog: () => null,
 }));
 
 vi.mock("./editor-command-model", () => ({
@@ -125,6 +133,7 @@ describe("<EditorToolbar>", () => {
     const onToggleTextBoxMode = vi.fn();
     const onSelectShape = vi.fn();
     const onToggleAnimations = vi.fn();
+    const onToggleLayers = vi.fn();
     const onChangeSlideTransition = vi.fn();
     const slide = {
       id: "slide-1",
@@ -153,6 +162,7 @@ describe("<EditorToolbar>", () => {
           onToggleTextBoxMode={onToggleTextBoxMode}
           onSelectShape={onSelectShape}
           onToggleAnimations={onToggleAnimations}
+          onToggleLayers={onToggleLayers}
           onChangeSlideTransition={onChangeSlideTransition}
         />
       </TooltipProvider>,
@@ -171,6 +181,7 @@ describe("<EditorToolbar>", () => {
         "shape-rectangle",
         "shape-circle",
         "element-animations",
+        "layers",
         "slide-transition-instant",
         "slide-transition-fade",
         "slide-transition-slide",
@@ -189,12 +200,14 @@ describe("<EditorToolbar>", () => {
     run("add-text-box");
     run("shape-rectangle");
     run("element-animations");
+    run("layers");
     run("slide-transition-fade");
 
     expect(onAddEmptySlide).toHaveBeenCalledOnce();
     expect(onToggleTextBoxMode).toHaveBeenCalledOnce();
     expect(onSelectShape).toHaveBeenCalledWith("rectangle");
     expect(onToggleAnimations).toHaveBeenCalledOnce();
+    expect(onToggleLayers).toHaveBeenCalledOnce();
     expect(onChangeSlideTransition).toHaveBeenCalledWith("fade");
   });
 
@@ -231,6 +244,29 @@ describe("<EditorToolbar>", () => {
     expect(onSelectShape).not.toHaveBeenCalled();
   });
 
+  it("labels source-preserving decks as limited editing", () => {
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deck}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+          sourceImported
+        />
+      </TooltipProvider>,
+    );
+
+    expect(screen.getByText("editorToolbar.sourcePreserving")).toBeTruthy();
+  });
+
   it("surfaces history from the top-right overflow menu", async () => {
     const onShowHistory = vi.fn();
     const historyButtonRef = createRef<HTMLButtonElement>();
@@ -264,6 +300,59 @@ describe("<EditorToolbar>", () => {
     fireEvent.click(historyItem);
 
     await waitFor(() => expect(onShowHistory).toHaveBeenCalledTimes(1));
+  });
+
+  it("keeps transition choices, media tools, and theme toggles out of the overflow menu", async () => {
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deck}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+          currentSlide={{
+            id: "slide-1",
+            content: "",
+            notes: "",
+            layout: "blank",
+            transition: "instant",
+          }}
+          onChangeSlideTransition={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "editorToolbar.more" }),
+      { button: 0, ctrlKey: false },
+    );
+
+    await screen.findByRole("menu");
+    expect(
+      screen.queryByRole("menuitem", {
+        name: "editorToolbar.transition_instant",
+      }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("menuitem", {
+        name: "editorToolbar.generateImage",
+      }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("menuitem", {
+        name: "editorToolbar.assetLibrary",
+      }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("menuitem", { name: "editorToolbar.lightTheme" }),
+    ).toBeNull();
   });
 
   it("passes the shared Slides share contract through the core ShareButton", () => {
@@ -317,5 +406,113 @@ describe("<EditorToolbar>", () => {
     expect(shareButtonProps.shareTabs?.tabs?.[0]?.value).toBe("context");
     expect(shareButtonProps.shareTabs?.tabs?.[0]?.label).toBe("Context");
     expect(shareButtonProps.shareTabs?.tabs?.[0]?.content).toBeTruthy();
+  });
+
+  it("delegates Present so the editor can flush pending changes first", () => {
+    const onPresent = vi.fn();
+
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deck}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+          onPresent={onPresent}
+        />
+      </TooltipProvider>,
+    );
+
+    const presentLink = screen.getByText("editorToolbar.present").closest("a");
+    expect(presentLink).not.toBeNull();
+    fireEvent.click(presentLink!);
+
+    expect(onPresent).toHaveBeenCalledTimes(1);
+  });
+
+  it("flushes before modified and auxiliary Present clicks without hijacking them", () => {
+    const onPresent = vi.fn();
+
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deck}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+          onPresent={onPresent}
+        />
+      </TooltipProvider>,
+    );
+
+    const presentLink = screen.getByText("editorToolbar.present").closest("a");
+    expect(presentLink).not.toBeNull();
+
+    for (const eventInit of [{ metaKey: true }, { button: 1 }]) {
+      const event = createEvent.click(presentLink!, eventInit);
+      fireEvent(presentLink!, event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+
+    fireEvent(
+      presentLink!,
+      new MouseEvent("auxclick", { bubbles: true, button: 2 }),
+    );
+
+    expect(onPresent).toHaveBeenCalledTimes(2);
+    expect(onPresent).toHaveBeenNthCalledWith(1, {
+      preserveNativeNavigation: true,
+    });
+    expect(onPresent).toHaveBeenNthCalledWith(2, {
+      preserveNativeNavigation: true,
+    });
+  });
+
+  it("lets the Present owner prevent native navigation when it opens a waiting tab", () => {
+    const onPresent = vi.fn(() => true);
+
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deck}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+          onPresent={onPresent}
+        />
+      </TooltipProvider>,
+    );
+
+    const presentLink = screen.getByText("editorToolbar.present").closest("a");
+    expect(presentLink).not.toBeNull();
+
+    const event = createEvent.click(presentLink!, { metaKey: true });
+    fireEvent(presentLink!, event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(onPresent).toHaveBeenCalledWith({
+      preserveNativeNavigation: true,
+    });
   });
 });

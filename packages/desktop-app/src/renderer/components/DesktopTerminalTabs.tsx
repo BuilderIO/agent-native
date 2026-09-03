@@ -2,10 +2,10 @@ import {
   AgentTerminal,
   type AgentTerminalSubmitRequest,
 } from "@agent-native/core/terminal";
-import type { AppConfig } from "@shared/app-registry";
 import { IconLoader2, IconTerminal2 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 
+import type { DesktopTerminalContext } from "../../../shared/ipc-channels.js";
 import {
   DESKTOP_TERMINAL_AGENT_OPTIONS,
   type DesktopTerminalAgentId,
@@ -13,10 +13,16 @@ import {
 import type { RendererTheme } from "../lib/theme.js";
 
 interface DesktopTerminalTabsProps {
-  apps: readonly AppConfig[];
   agent: DesktopTerminalAgentId;
   theme: RendererTheme;
   className?: string;
+  active?: boolean;
+  activeApp?: {
+    id: string;
+    name: string;
+    path?: string;
+    view?: string;
+  };
   submitRequest?: AgentTerminalSubmitRequest;
   onPromptSubmitted?: (request: AgentTerminalSubmitRequest) => void;
 }
@@ -29,19 +35,8 @@ type TerminalConnection =
 interface TerminalInfo {
   available?: boolean;
   wsPort?: number;
+  wsUrl?: string;
   error?: string;
-}
-
-function isLocalDevApp(app: AppConfig): boolean {
-  return (
-    app.enabled !== false &&
-    app.mode === "dev" &&
-    Boolean(app.devUrl?.trim() || app.devPort || app.localPath)
-  );
-}
-
-function findTerminalApp(apps: readonly AppConfig[]): AppConfig | undefined {
-  return apps.find(isLocalDevApp);
 }
 
 function readChatSurface(): HTMLElement | null {
@@ -109,15 +104,17 @@ function terminalInfoFrom(value: unknown): TerminalInfo {
   return {
     available: info.available === true,
     wsPort: typeof info.wsPort === "number" ? info.wsPort : undefined,
+    wsUrl: typeof info.wsUrl === "string" ? info.wsUrl : undefined,
     error: typeof info.error === "string" ? info.error : undefined,
   };
 }
 
 export default function DesktopTerminalTabs({
-  apps,
   agent,
   theme,
   className,
+  active = true,
+  activeApp,
   submitRequest,
   onPromptSubmitted,
 }: DesktopTerminalTabsProps) {
@@ -130,10 +127,16 @@ export default function DesktopTerminalTabs({
   const [terminalForeground, setTerminalForeground] = useState(
     readSidebarForeground,
   );
-  const terminalApp = useMemo(() => findTerminalApp(apps), [apps]);
+  const [sessionApp, setSessionApp] = useState(() =>
+    active ? activeApp : undefined,
+  );
   const selectedAgent =
     DESKTOP_TERMINAL_AGENT_OPTIONS.find((option) => option.id === agent) ??
     DESKTOP_TERMINAL_AGENT_OPTIONS[0];
+
+  useEffect(() => {
+    if (active) setSessionApp(activeApp);
+  }, [active, activeApp?.id, activeApp?.path, activeApp?.view]);
 
   useEffect(() => {
     const syncBackground = () =>
@@ -151,14 +154,22 @@ export default function DesktopTerminalTabs({
 
   useEffect(() => {
     let cancelled = false;
-    const getTerminalInfoUrl =
-      window.electronAPI?.desktopChat?.getTerminalInfoUrl;
-    if (!terminalApp || !getTerminalInfoUrl) {
+    const controller = new AbortController();
+    const context: DesktopTerminalContext | null = sessionApp
+      ? {
+          appId: sessionApp.id,
+          ...(sessionApp.path ? { path: sessionApp.path } : {}),
+          ...(sessionApp.view ? { view: sessionApp.view } : {}),
+        }
+      : null;
+    const getTerminalInfoUrl = window.electronAPI?.desktopChat
+      ? (value: DesktopTerminalContext | null) =>
+          window.electronAPI!.desktopChat!.getTerminalInfoUrl(value)
+      : undefined;
+    if (!getTerminalInfoUrl) {
       setConnection({
         state: "error",
-        message: terminalApp
-          ? "Terminal tabs are unavailable in this desktop build."
-          : "Set an app to Local in Settings to start terminal tabs.",
+        message: "Terminal tabs are unavailable in this desktop build.",
       });
       return () => {
         cancelled = true;
@@ -166,22 +177,35 @@ export default function DesktopTerminalTabs({
     }
 
     setConnection({ state: "loading" });
-    void getTerminalInfoUrl(terminalApp.id)
+    void getTerminalInfoUrl(context)
       .then(async (infoUrl) => {
         if (cancelled) return;
         if (!infoUrl) {
-          throw new Error("The local app has no terminal connection.");
+          throw new Error("The desktop terminal has no connection.");
         }
-        const response = await fetch(infoUrl);
-        const info = terminalInfoFrom(await response.json());
-        if (!response.ok || !info.available || !info.wsPort) {
+        const response = await fetch(infoUrl, { signal: controller.signal });
+        const body = await response.text();
+        let payload: unknown;
+        try {
+          payload = JSON.parse(body);
+        } catch {
           throw new Error(
-            info.error ?? "The local app terminal is not running.",
+            response.ok
+              ? "The desktop terminal returned an invalid response."
+              : `The desktop terminal failed to start (${response.status}).`,
           );
+        }
+        const info = terminalInfoFrom(payload);
+        if (cancelled) return;
+        const wsUrl =
+          info.wsUrl ??
+          (info.wsPort ? `ws://127.0.0.1:${info.wsPort}/ws` : undefined);
+        if (!response.ok || !info.available || !wsUrl) {
+          throw new Error(info.error ?? "The desktop terminal is not running.");
         }
         setConnection({
           state: "ready",
-          wsUrl: `ws://127.0.0.1:${info.wsPort}/ws`,
+          wsUrl,
         });
       })
       .catch((error: unknown) => {
@@ -191,14 +215,15 @@ export default function DesktopTerminalTabs({
           message:
             error instanceof Error
               ? error.message
-              : "The local app terminal could not be reached.",
+              : "The desktop terminal could not be reached.",
         });
       });
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [terminalApp]);
+  }, [sessionApp?.id, sessionApp?.path, sessionApp?.view]);
 
   const workbenchStyle = {
     "--desktop-terminal-background": terminalBackground,
@@ -231,6 +256,7 @@ export default function DesktopTerminalTabs({
             command={selectedAgent.command}
             wsUrl={connection.wsUrl}
             hideInFrame={false}
+            autoFocus={active}
             className="desktop-terminal-tabs__terminal"
             submitRequest={submitRequest}
             onPromptSubmitted={onPromptSubmitted}

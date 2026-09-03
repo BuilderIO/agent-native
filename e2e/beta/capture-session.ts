@@ -24,6 +24,10 @@
 import { chromium } from "@playwright/test";
 
 import { authenticatableSites, originFor, siteById } from "./lib/fleet";
+import {
+  BETA_E2E_TEST_TRAFFIC_HEADERS,
+  installBetaE2ETrafficMarker,
+} from "./lib/test-traffic";
 
 const SESSION_COOKIE = /^an_session/;
 
@@ -56,11 +60,17 @@ function parseSessionEmail(
 function requestedSites() {
   const arg = process.argv[2]?.trim();
   if (!arg || arg === "all") return authenticatableSites();
-  return arg
+  const requested = arg
     .split(",")
     .map((id) => id.trim())
-    .filter(Boolean)
-    .map(siteById);
+    .filter(Boolean);
+  const disabled = requested.filter((id) => siteById(id).e2e === false);
+  if (disabled.length > 0) {
+    throw new Error(
+      `Cannot capture sessions for beta site(s) excluded from E2E: ${disabled.join(", ")}.`,
+    );
+  }
+  return requested.map(siteById);
 }
 
 async function capture(): Promise<void> {
@@ -81,7 +91,10 @@ async function capture(): Promise<void> {
       // A fresh context per app: these are host-scoped sessions, and reusing
       // one jar would make it impossible to tell which host actually issued
       // a cookie.
-      const context = await browser.newContext();
+      const context = await browser.newContext({
+        extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS,
+      });
+      await installBetaE2ETrafficMarker(context);
       const page = await context.newPage();
       await page.goto(`${origin}/sign-in`, { waitUntil: "domcontentloaded" });
 

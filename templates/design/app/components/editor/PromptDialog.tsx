@@ -2,6 +2,7 @@ import { appBasePath } from "@agent-native/core/client/api-path";
 import {
   PromptComposer,
   type PromptComposerSubmitOptions,
+  useEagerFileUploads,
 } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -10,31 +11,30 @@ import {
 } from "@agent-native/core/embedding/react";
 import {
   IconApps,
+  IconArtboard,
   IconBrain,
-  IconCheck,
-  IconComponents,
-  IconChevronDown,
   IconPalette,
   IconPhoto,
   IconPlus,
-  IconTemplate,
+  IconSparkles,
   IconUpload,
   IconX,
 } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
 
-import { TemplatePreview } from "@/components/templates/TemplatePreview";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
+  DesignSystemPickerControl,
+  TemplatePickerControl,
+  type PromptDesignSystemOption,
+  type PromptTemplateOption,
+} from "@/components/editor/design-start-pickers";
+
+export type {
+  PromptDesignSystemOption,
+  PromptTemplateOption,
+} from "@/components/editor/design-start-pickers";
+import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   Popover,
@@ -321,6 +321,9 @@ interface PromptPopoverProps {
    * competing close-state navigation after the handoff completes. */
   onSkip?: () => void | boolean | Promise<void | boolean>;
   skipLabel?: string;
+  /** Open on a two-way choice — blank canvas or AI — instead of dropping the
+   *  user straight into a prompt with the blank path hidden in a corner link. */
+  offerStartChoice?: boolean;
   onSubmit: (
     prompt: string,
     files: UploadedFile[],
@@ -362,27 +365,9 @@ interface PromptPopoverProps {
   draftScope?: string;
 }
 
-export interface PromptDesignSystemOption {
-  id: string;
-  title: string;
-  description?: string | null;
-  isDefault?: boolean;
-}
 export interface PromptCreativeContextOption {
   id: string;
   name: string;
-}
-
-export interface PromptTemplateOption {
-  id: string;
-  title: string;
-  description?: string | null;
-  category?: string;
-  width?: number | null;
-  height?: number | null;
-  previewHtml?: string | null;
-  designSystemId?: string | null;
-  isBuiltIn: boolean;
 }
 
 function isNestedPromptPopoverTarget(target: EventTarget | null) {
@@ -431,6 +416,7 @@ export default function PromptPopover({
   placeholder,
   onSkip,
   skipLabel,
+  offerStartChoice = false,
   onSubmit,
   loading = false,
   anchorRef,
@@ -453,11 +439,14 @@ export default function PromptPopover({
   draftScope,
 }: PromptPopoverProps) {
   const t = useT();
-  const [uploading, setUploading] = useState(false);
+  const [showStartChoice, setShowStartChoice] = useState(offerStartChoice);
   const [skipInFlight, setSkipInFlight] = useState(false);
   const skipInFlightRef = useRef(false);
   const [pickedAssets, setPickedAssets] = useState<UploadedFile[]>([]);
   const [selectedUploadFiles, setSelectedUploadFiles] = useState<File[]>([]);
+  const composerFilesRef = useRef<File[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   // Restores a typed prompt into the composer after a failed submit. The
@@ -477,6 +466,11 @@ export default function PromptPopover({
   }, []);
   useEffect(() => {
     if (open) return;
+    // A submit closes the popover immediately and may still fail, which
+    // reopens it to restore the typed prompt. Resetting to the start choice
+    // here would hide that restored composer behind the two cards.
+    if (submittingRef.current) return;
+    setShowStartChoice(offerStartChoice);
     skipInFlightRef.current = false;
     setSkipInFlight(false);
   }, [open]);
@@ -517,6 +511,9 @@ export default function PromptPopover({
     if (open) return;
     setAssetsPickerOpen(false);
     setTemplatePickerOpen(false);
+    // Same reason as above: a still-running submit owns these until it either
+    // commits them or fails and hands the composer back with its attachments.
+    if (submittingRef.current) return;
     setPickedAssets([]);
     setSelectedUploadFiles([]);
     // Only sticks for the session immediately following a failed submit; a
@@ -525,7 +522,7 @@ export default function PromptPopover({
     setRestoredPromptText(undefined);
   }, [open]);
 
-  const uploadFiles = useCallback(
+  const uploadFilesToServer = useCallback(
     async (files: File[]): Promise<UploadedFile[]> => {
       if (files.length === 0) return [];
       const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
@@ -534,46 +531,114 @@ export default function PromptPopover({
           t("promptDialog.attachmentsTooLarge", { max: MAX_UPLOAD_MB }),
         );
       }
-      setUploading(true);
-      try {
-        const formData = new FormData();
-        files.forEach((f) => formData.append("files", f));
-        const res = await fetch(`${appBasePath()}/api/uploads`, {
-          method: "POST",
-          body: formData,
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => null);
-          throw new Error(
-            typeof body?.error === "string"
-              ? body.error
-              : `Upload failed (${res.status})`,
-          );
-        }
-        const uploaded = (await res.json()) as UploadedFile[];
-        const imageFileCount =
-          files.filter((file) =>
-            CHAT_IMAGE_ATTACHMENT_TYPES.has(file.type.toLowerCase()),
-          ).length || 1;
-        const maxImageDataUrlBytes = Math.min(
-          DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES,
-          Math.floor(MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES / imageFileCount),
+      const formData = new FormData();
+      files.forEach((f) => formData.append("files", f));
+      const res = await fetch(`${appBasePath()}/api/uploads`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) {
+        // coercion-ok: error responses may be non-JSON; the HTTP status is still thrown below.
+        const body = await res.json().catch(() => null);
+        throw new Error(
+          typeof body?.error === "string"
+            ? body.error
+            : `Upload failed (${res.status})`,
         );
-        const visualAttachments = await Promise.all(
-          files.map((file) =>
-            readChatImageAttachment(file, maxImageDataUrlBytes),
-          ),
-        );
-        return uploaded.map((file, index) =>
-          visualAttachments[index]
-            ? { ...file, dataUrl: visualAttachments[index] }
-            : file,
-        );
-      } finally {
-        setUploading(false);
       }
+      const uploaded = (await res.json()) as UploadedFile[];
+      const imageFileCount =
+        files.filter((file) =>
+          CHAT_IMAGE_ATTACHMENT_TYPES.has(file.type.toLowerCase()),
+        ).length || 1;
+      const maxImageDataUrlBytes = Math.min(
+        DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES,
+        Math.floor(MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES / imageFileCount),
+      );
+      const visualAttachments = await Promise.all(
+        files.map((file) =>
+          readChatImageAttachment(file, maxImageDataUrlBytes),
+        ),
+      );
+      return uploaded.map((file, index) =>
+        visualAttachments[index]
+          ? { ...file, dataUrl: visualAttachments[index] }
+          : file,
+      );
     },
     [t],
+  );
+  const deleteUploadedFile = useCallback(async (file: UploadedFile) => {
+    const response = await fetch(`${appBasePath()}/api/uploads`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ path: file.path }),
+    });
+    if (!response.ok) {
+      throw new Error(`Upload cleanup failed (${response.status})`);
+    }
+  }, []);
+  const handleRetainedFilesAbandoned = useCallback(
+    (_files: readonly File[], discard: () => void) => {
+      if (!submittingRef.current) discard();
+    },
+    [],
+  );
+  const {
+    commitFiles,
+    discardFiles,
+    retainFiles,
+    syncFiles,
+    uploadFiles,
+    uploading,
+    reset: resetEagerUploads,
+  } = useEagerFileUploads(uploadFilesToServer, {
+    onDiscard: deleteUploadedFile,
+    onRetainedFilesAbandoned: handleRetainedFilesAbandoned,
+  });
+
+  useEffect(() => {
+    if (!open) {
+      if (!submitting) {
+        setSubmitting(false);
+        resetEagerUploads();
+      }
+    }
+  }, [open, resetEagerUploads, submitting]);
+
+  const handleAttachmentsChange = useCallback(
+    (files: File[]) => {
+      composerFilesRef.current = files;
+      syncFiles([...files, ...selectedUploadFiles]);
+      void uploadFiles(files).catch((error) => {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("promptDialog.failedToUploadFile"),
+        );
+      });
+    },
+    [selectedUploadFiles, syncFiles, t, uploadFiles],
+  );
+
+  const handleUploadFiles = useCallback(
+    (files: File[]) => {
+      setSelectedUploadFiles((current) => [...current, ...files]);
+      syncFiles([
+        ...composerFilesRef.current,
+        ...selectedUploadFiles,
+        ...files,
+      ]);
+      void uploadFiles(files).catch((error) => {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("promptDialog.failedToUploadFile"),
+        );
+      });
+    },
+    [selectedUploadFiles, syncFiles, t, uploadFiles],
   );
 
   const handleSubmit = useCallback(
@@ -583,10 +648,20 @@ export default function PromptPopover({
       _references: unknown,
       options: PromptComposerSubmitOptions,
     ) => {
+      const allFiles = [...files, ...selectedUploadFiles];
+      submittingRef.current = true;
+      setSubmitting(true);
+      // The work continues in the caller and the editor shows its own loading
+      // state, so holding the popover open until the round trip finishes just
+      // leaves a dead panel over the result. Reopened below if it fails.
+      onOpenChange(false);
       let uploaded: UploadedFile[];
       try {
-        uploaded = await uploadFiles([...files, ...selectedUploadFiles]);
+        uploaded = await uploadFiles(allFiles);
       } catch (error) {
+        setSubmitting(false);
+        submittingRef.current = false;
+        onOpenChange(true);
         restorePromptText(text);
         toast.error(
           error instanceof Error
@@ -596,10 +671,18 @@ export default function PromptPopover({
         return;
       }
       try {
-        await onSubmit(text.trim(), [...uploaded, ...pickedAssets], options);
+        retainFiles(allFiles);
+        await onSubmit(text, [...uploaded, ...pickedAssets], options);
+        commitFiles(allFiles);
         setPickedAssets([]);
         setSelectedUploadFiles([]);
+        setSubmitting(false);
+        submittingRef.current = false;
       } catch (error) {
+        discardFiles(allFiles);
+        setSubmitting(false);
+        submittingRef.current = false;
+        onOpenChange(true);
         restorePromptText(text);
         toast.error(
           error instanceof Error
@@ -609,8 +692,12 @@ export default function PromptPopover({
       }
     },
     [
+      commitFiles,
+      discardFiles,
+      onOpenChange,
       onSubmit,
       pickedAssets,
+      retainFiles,
       restorePromptText,
       selectedUploadFiles,
       t,
@@ -667,11 +754,17 @@ export default function PromptPopover({
     );
   }, []);
 
-  const removeSelectedUploadFile = useCallback((index: number) => {
-    setSelectedUploadFiles((current) =>
-      current.filter((_, currentIndex) => currentIndex !== index),
-    );
-  }, []);
+  const removeSelectedUploadFile = useCallback(
+    (index: number) => {
+      const file = selectedUploadFiles[index];
+      if (!file) return;
+      setSelectedUploadFiles((current) =>
+        current.filter((_, currentIndex) => currentIndex !== index),
+      );
+      discardFiles([file]);
+    },
+    [discardFiles, selectedUploadFiles],
+  );
 
   const handlePopoverOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -723,9 +816,6 @@ export default function PromptPopover({
       },
     },
   }));
-  const selectedDesignSystem =
-    designSystems.find((system) => system.id === selectedDesignSystemId) ??
-    null;
   const selectedCreativeContext =
     creativeContexts.find(
       (context) => context.id === selectedCreativeContextId,
@@ -775,7 +865,7 @@ export default function PromptPopover({
           }
         }}
         data-agent-native-prompt-popover
-        className="z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border-border p-0 shadow-2xl shadow-black/60"
+        className="relative z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border-border p-0 shadow-2xl shadow-black/60"
       >
         <div className="flex items-center justify-between gap-2 px-3.5 pt-3 pb-2">
           <span className="text-sm font-medium text-foreground/90">
@@ -785,213 +875,239 @@ export default function PromptPopover({
             <CreationModeToggle
               mode={creationMode}
               onChange={onCreationModeChange}
-              disabled={loading || uploading}
+              disabled={loading || uploading || submitting}
             />
           ) : null}
         </div>
 
-        <div className="px-2 pb-2">
+        {showStartChoice ? (
+          <div className="grid grid-cols-2 gap-2 px-3.5 pt-1 pb-3.5">
+            <button
+              type="button"
+              data-start-with-ai
+              disabled={loading}
+              onClick={() => {
+                setShowStartChoice(false);
+                // autoFocus already ran while the composer was display:none,
+                // so revealing it leaves no caret. Focus it once it is shown.
+                requestAnimationFrame(() => {
+                  const composer = document.querySelector<HTMLElement>(
+                    "[data-agent-native-prompt-popover] .ProseMirror",
+                  );
+                  composer?.focus();
+                });
+              }}
+              className="flex cursor-pointer flex-col gap-1.5 rounded-lg border border-transparent bg-[var(--design-editor-accent-color)] px-3 py-3 text-left text-[color:var(--design-editor-accent-contrast-color)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <IconSparkles className="size-5 shrink-0" />
+              <span className="text-sm font-medium">
+                {t("promptDialog.startWithAi")}
+              </span>
+              <span className="text-xs leading-snug opacity-80">
+                {t("promptDialog.startWithAiHint")}
+              </span>
+            </button>
+            <button
+              type="button"
+              data-start-blank-canvas
+              disabled={loading || skipInFlight}
+              onClick={() => {
+                if (loading || skipInFlightRef.current) return;
+                skipInFlightRef.current = true;
+                setSkipInFlight(true);
+                // Close on commit rather than after the design is created and
+                // navigated to — the editor owns the loading state from here.
+                onOpenChange(false);
+                void (async () => {
+                  try {
+                    await onSkip?.();
+                  } catch {
+                    skipInFlightRef.current = false;
+                    setSkipInFlight(false);
+                    onOpenChange(true);
+                  }
+                })();
+              }}
+              className="flex cursor-pointer flex-col gap-1.5 rounded-lg border border-border px-3 py-3 text-left transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <IconArtboard className="size-5 shrink-0 text-muted-foreground" />
+              <span className="text-sm font-medium text-foreground">
+                {t("promptDialog.startBlankCanvas")}
+              </span>
+              <span className="text-xs leading-snug text-muted-foreground">
+                {t("promptDialog.startBlankCanvasHint")}
+              </span>
+            </button>
+          </div>
+        ) : null}
+
+        <div className={cn("px-2 pb-2", showStartChoice && "hidden")}>
           <PromptComposer
             key={placeholder ?? t("home.describeBuild")}
             autoFocus
             attachmentsEnabled
-            disabled={loading || uploading}
+            disabled={loading || uploading || submitting}
             placeholder={placeholder ?? t("home.describeBuild")}
             onSubmit={handleSubmit}
+            onAttachmentsChange={handleAttachmentsChange}
             draftScope={draftScope ?? title}
             initialText={restoredPromptText}
             initialTextKey={restoredPromptKey}
             attachButton={
               <PromptAttachmentMenu
-                disabled={loading || uploading}
-                onUploadFiles={(files) =>
-                  setSelectedUploadFiles((current) => [...current, ...files])
-                }
+                disabled={loading || uploading || submitting}
+                onUploadFiles={handleUploadFiles}
                 onPickAsset={() => setAssetsPickerOpen(true)}
               />
             }
           />
         </div>
-
-        {(onTemplateChange || onDesignSystemChange || onCreateDesignSystem) && (
-          <div className="grid grid-cols-[minmax(0,1fr)_2.25rem] gap-2 border-t border-border px-3.5 py-2.5">
-            {onTemplateChange ? (
-              <>
-                <TemplatePickerControl
-                  open={templatePickerOpen}
-                  onOpenChange={setTemplatePickerOpen}
-                  options={templateOptions}
-                  loading={templatesLoading}
-                  selectedId={selectedTemplateId ?? null}
-                  onChange={onTemplateChange}
-                />
-                <span aria-hidden="true" className="size-9" />
-              </>
-            ) : null}
-            {onDesignSystemChange || onCreateDesignSystem ? (
-              <>
-                {designSystemsLoading ? (
-                  <Skeleton className="h-9 w-full rounded-md" />
-                ) : designSystems.length > 0 ? (
-                  <Select
-                    value={selectedDesignSystemId ?? "none"}
-                    onValueChange={(value) =>
-                      onDesignSystemChange?.(value === "none" ? null : value)
-                    }
-                    onOpenChange={(nextOpen) => {
-                      if (!nextOpen) markNestedSelectJustClosed();
-                    }}
-                  >
-                    <SelectTrigger className="h-9 min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto">
-                      <IconComponents className="size-4 shrink-0 text-muted-foreground" />
-                      <span
-                        className="min-w-0 flex-1 truncate text-start"
-                        title={
-                          selectedDesignSystem?.title ??
-                          t("promptDialog.noDesignSystem")
-                        }
-                      >
-                        {selectedDesignSystem?.title ??
-                          t("promptDialog.noDesignSystem")}
-                      </span>
-                    </SelectTrigger>
-                    <SelectContent data-agent-native-prompt-select>
-                      <SelectItem value="none" className="text-xs">
-                        {t("promptDialog.noDesignSystem")}
-                      </SelectItem>
-                      {designSystems.map((system) => (
-                        <SelectItem
-                          key={system.id}
-                          value={system.id}
-                          className="text-xs"
-                        >
-                          {system.title}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <div className="flex h-9 min-w-0 items-center gap-2 rounded-md border border-input px-2.5 text-xs text-muted-foreground">
-                    <IconComponents className="size-4 shrink-0" />
-                    <span className="truncate">
-                      {t("promptDialog.noDesignSystem")}
-                    </span>
-                  </div>
-                )}
-                {onCreateDesignSystem ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        className="size-9 shrink-0"
-                        onClick={onCreateDesignSystem}
-                        aria-label={t("promptDialog.createDesignSystem")}
-                      >
-                        <IconPlus className="size-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t("promptDialog.createDesignSystem")}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : (
+        {!showStartChoice &&
+          (onTemplateChange ||
+            onDesignSystemChange ||
+            onCreateDesignSystem) && (
+            <div className="grid grid-cols-[minmax(0,1fr)_2.25rem] gap-2 border-t border-border px-3.5 py-2.5">
+              {onTemplateChange ? (
+                <>
+                  <TemplatePickerControl
+                    open={templatePickerOpen}
+                    onOpenChange={setTemplatePickerOpen}
+                    options={templateOptions}
+                    loading={templatesLoading}
+                    selectedId={selectedTemplateId ?? null}
+                    onChange={onTemplateChange}
+                  />
                   <span aria-hidden="true" className="size-9" />
-                )}
-              </>
-            ) : null}
-            {showCreativeContextPicker ? (
-              <>
-                {creativeContextsLoading ? (
-                  <Skeleton className="h-9 w-full rounded-md" />
-                ) : (
-                  <Select
-                    value={selectedCreativeContextId ?? "none"}
-                    onValueChange={(value) =>
-                      onCreativeContextChange?.(value === "none" ? null : value)
-                    }
-                    onOpenChange={(nextOpen) => {
-                      if (!nextOpen) markNestedSelectJustClosed();
-                    }}
-                  >
-                    <SelectTrigger className="h-9 min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto">
-                      <IconBrain className="size-4 shrink-0 text-muted-foreground" />
-                      <span
-                        className="min-w-0 flex-1 truncate text-start"
-                        title={
-                          selectedCreativeContext?.name ??
-                          t("creativeContext.automatic")
-                        }
-                      >
-                        {selectedCreativeContext?.name ??
-                          t("creativeContext.automatic")}
-                      </span>
-                    </SelectTrigger>
-                    <SelectContent data-agent-native-prompt-select>
-                      <SelectItem value="none" className="text-xs">
-                        {t("creativeContext.automatic")}
-                      </SelectItem>
-                      {creativeContexts.map((context) => (
-                        <SelectItem
-                          key={context.id}
-                          value={context.id}
-                          className="text-xs"
+                </>
+              ) : null}
+              {onDesignSystemChange || onCreateDesignSystem ? (
+                <>
+                  <DesignSystemPickerControl
+                    designSystems={designSystems}
+                    loading={designSystemsLoading}
+                    selectedId={selectedDesignSystemId ?? null}
+                    onChange={(id) => onDesignSystemChange?.(id)}
+                    onSelectClosed={markNestedSelectJustClosed}
+                  />
+                  {onCreateDesignSystem ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="size-9 shrink-0"
+                          onClick={onCreateDesignSystem}
+                          aria-label={t("promptDialog.createDesignSystem")}
                         >
-                          {context.name}
+                          <IconPlus className="size-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t("promptDialog.createDesignSystem")}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <span aria-hidden="true" className="size-9" />
+                  )}
+                </>
+              ) : null}
+              {showCreativeContextPicker ? (
+                <>
+                  {creativeContextsLoading ? (
+                    <Skeleton className="h-9 w-full rounded-md" />
+                  ) : (
+                    <Select
+                      value={selectedCreativeContextId ?? "none"}
+                      onValueChange={(value) =>
+                        onCreativeContextChange?.(
+                          value === "none" ? null : value,
+                        )
+                      }
+                      onOpenChange={(nextOpen) => {
+                        if (!nextOpen) markNestedSelectJustClosed();
+                      }}
+                    >
+                      <SelectTrigger className="h-9 min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto">
+                        <IconBrain className="size-4 shrink-0 text-muted-foreground" />
+                        <span
+                          className="min-w-0 flex-1 truncate text-start"
+                          title={
+                            selectedCreativeContext?.name ??
+                            t("creativeContext.automatic")
+                          }
+                        >
+                          {selectedCreativeContext?.name ??
+                            t("creativeContext.automatic")}
+                        </span>
+                      </SelectTrigger>
+                      <SelectContent data-agent-native-prompt-select>
+                        <SelectItem value="none" className="text-xs">
+                          {t("creativeContext.automatic")}
                         </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                <span aria-hidden="true" className="size-9" />
-              </>
-            ) : null}
-          </div>
-        )}
+                        {creativeContexts.map((context) => (
+                          <SelectItem
+                            key={context.id}
+                            value={context.id}
+                            className="text-xs"
+                          >
+                            {context.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <span aria-hidden="true" className="size-9" />
+                </>
+              ) : null}
+            </div>
+          )}
 
-        {(selectedUploadFiles.length > 0 || pickedAssets.length > 0) && (
-          <div className="flex flex-wrap items-center gap-2 border-t border-border px-3.5 py-2">
-            {selectedUploadFiles.map((file, index) => (
-              <span
-                key={`${file.name}:${file.lastModified}:${file.size}:${index}`}
-                className="inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-md border border-border bg-muted/60 pl-2 pr-1 text-xs text-muted-foreground"
-              >
-                <span className="truncate">{file.name}</span>
-                <button
-                  type="button"
-                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
-                  aria-label={t("promptDialog.removeAttachment", {
-                    name: file.name,
-                  })}
-                  onClick={() => removeSelectedUploadFile(index)}
+        {!showStartChoice &&
+          (selectedUploadFiles.length > 0 || pickedAssets.length > 0) && (
+            <div className="flex flex-wrap items-center gap-2 border-t border-border px-3.5 py-2">
+              {selectedUploadFiles.map((file, index) => (
+                <span
+                  key={`${file.name}:${file.lastModified}:${file.size}:${index}`}
+                  className="inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-md border border-border bg-muted/60 pl-2 pr-1 text-xs text-muted-foreground"
                 >
-                  <IconX className="h-3.5 w-3.5" />
-                </button>
-              </span>
-            ))}
-            {pickedAssets.map((asset) => (
-              <span
-                key={asset.path}
-                className="inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-md border border-border bg-muted/60 pl-2 pr-1 text-xs text-muted-foreground"
-              >
-                <span className="truncate">{asset.originalName}</span>
-                <button
-                  type="button"
-                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
-                  aria-label={t("promptDialog.removeAttachment", {
-                    name: asset.originalName,
-                  })}
-                  onClick={() => removePickedAsset(asset.path)}
+                  <span className="truncate">{file.name}</span>
+                  <button
+                    type="button"
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
+                    aria-label={t("promptDialog.removeAttachment", {
+                      name: file.name,
+                    })}
+                    onClick={() => removeSelectedUploadFile(index)}
+                  >
+                    <IconX className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              ))}
+              {pickedAssets.map((asset) => (
+                <span
+                  key={asset.path}
+                  className="inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-md border border-border bg-muted/60 pl-2 pr-1 text-xs text-muted-foreground"
                 >
-                  <IconX className="h-3.5 w-3.5" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
+                  <span className="truncate">{asset.originalName}</span>
+                  <button
+                    type="button"
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
+                    aria-label={t("promptDialog.removeAttachment", {
+                      name: asset.originalName,
+                    })}
+                    onClick={() => removePickedAsset(asset.path)}
+                  >
+                    <IconX className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
 
-        {onSkip && (
+        {/* The chooser already offers the blank path as a peer, so the corner
+            link would be a second, quieter way to do the same thing. */}
+        {onSkip && !offerStartChoice && (
           <div className="flex justify-end border-t border-border px-3.5 py-2">
             <button
               type="button"
@@ -1026,148 +1142,6 @@ export default function PromptPopover({
           onReady={handleAssetsPickerReady}
           onMessage={handleAssetsPickerMessage}
         />
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function TemplatePickerControl({
-  open,
-  onOpenChange,
-  options,
-  loading,
-  selectedId,
-  onChange,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  options: PromptTemplateOption[];
-  loading: boolean;
-  selectedId: string | null;
-  onChange: (id: string | null) => void;
-}) {
-  const t = useT();
-  const selected = options.find((option) => option.id === selectedId) ?? null;
-  const userTemplates = options.filter((option) => !option.isBuiltIn);
-  const builtInTemplates = options.filter((option) => option.isBuiltIn);
-
-  const choose = (id: string | null) => {
-    onChange(id);
-    onOpenChange(false);
-  };
-
-  const item = (template: PromptTemplateOption) => (
-    <CommandItem
-      key={template.id}
-      value={`${template.title} ${template.description ?? ""} ${template.category ?? ""}`}
-      onSelect={() => choose(template.id)}
-      data-template-option={template.id}
-      className="min-h-12 py-2"
-    >
-      <TemplatePreview
-        html={template.previewHtml}
-        title={template.title}
-        width={template.width}
-        height={template.height}
-        className="h-8 w-12 shrink-0 rounded-md border bg-muted/40"
-      />
-      <span className="min-w-0 flex-1 truncate">{template.title}</span>
-      {template.isBuiltIn ? (
-        <Badge
-          variant="secondary"
-          className="h-5 shrink-0 px-1.5 text-[10px] font-medium"
-        >
-          {t("promptDialog.builtIn")}
-        </Badge>
-      ) : null}
-      {selectedId === template.id ? (
-        <IconCheck className="size-4 shrink-0" />
-      ) : null}
-    </CommandItem>
-  );
-
-  return (
-    <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-9 w-full min-w-0 justify-start gap-2 px-2.5 text-xs"
-          aria-label={t("promptDialog.chooseTemplate")}
-          disabled={loading}
-          data-template-picker-trigger
-        >
-          {selected ? (
-            <TemplatePreview
-              html={selected.previewHtml}
-              title={selected.title}
-              width={selected.width}
-              height={selected.height}
-              className="h-4 w-7 shrink-0 rounded-[3px] border bg-muted/40"
-            />
-          ) : (
-            <IconTemplate className="size-4 shrink-0 text-muted-foreground" />
-          )}
-          <span
-            className={cn(
-              "min-w-0 truncate",
-              selected ? "text-foreground" : "text-muted-foreground",
-            )}
-          >
-            {t("promptDialog.template")} ·{" "}
-            {selected ? selected.title : t("promptDialog.blank")}
-          </span>
-          {selected?.isBuiltIn ? (
-            <Badge
-              variant="secondary"
-              className="h-5 shrink-0 px-1.5 text-[10px] font-medium"
-            >
-              {t("promptDialog.builtIn")}
-            </Badge>
-          ) : null}
-          <IconChevronDown className="ms-auto size-4 shrink-0 text-muted-foreground" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        side="top"
-        sideOffset={8}
-        data-agent-native-template-popover
-        className="w-[min(360px,calc(100vw-32px))] p-0"
-      >
-        <Command>
-          <CommandInput placeholder={t("promptDialog.searchTemplates")} />
-          <CommandList className="max-h-[min(420px,60vh)]">
-            <CommandEmpty>{t("promptDialog.noTemplatesFound")}</CommandEmpty>
-            <CommandGroup>
-              <CommandItem
-                value={t("promptDialog.blank")}
-                onSelect={() => choose(null)}
-                data-template-option="blank"
-                className="min-h-11"
-              >
-                <span className="flex h-8 w-12 shrink-0 items-center justify-center rounded-md border bg-muted/40 text-muted-foreground">
-                  <IconTemplate className="size-4" />
-                </span>
-                <span className="min-w-0 flex-1 truncate">
-                  {t("promptDialog.blank")}
-                </span>
-                {!selectedId ? <IconCheck className="size-4 shrink-0" /> : null}
-              </CommandItem>
-            </CommandGroup>
-            {userTemplates.length > 0 ? (
-              <CommandGroup heading={t("promptDialog.yourTemplates")}>
-                {userTemplates.map(item)}
-              </CommandGroup>
-            ) : null}
-            {builtInTemplates.length > 0 ? (
-              <CommandGroup heading={t("promptDialog.builtInTemplates")}>
-                {builtInTemplates.map(item)}
-              </CommandGroup>
-            ) : null}
-          </CommandList>
-        </Command>
       </PopoverContent>
     </Popover>
   );

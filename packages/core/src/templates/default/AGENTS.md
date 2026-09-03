@@ -24,12 +24,9 @@ cross-cutting work and `self-modifying-code` when changing app source.
   unauthenticated URLs, or non-JSON responses.
 - Keep database code provider-agnostic and migrations additive. Do not use
   adapter-only database methods or production schema push commands.
-- All user-facing AI work goes through the agent chat. UI and server code do
-  not call model providers or inline LLM APIs directly, or hide AI-shaped
-  multi-step work in one action.
-  Keep actions deterministic and focused; use the AgentSidebar for research,
-  analysis, generation, recommendation, synthesis, and follow-ups in the same
-  thread.
+- All AI work goes through agent chat. UI/server code must not call models or
+  hide multi-step AI in one action. Keep actions deterministic and focused; use
+  the AgentSidebar for research and follow-ups in the same thread.
 - Keep domain workflows on named routes and preserve the scaffold's full-page
   chat route. Use the right AgentSidebar for contextual AI and open it when a
   domain button hands work to the agent.
@@ -58,6 +55,13 @@ cross-cutting work and `self-modifying-code` when changing app source.
   exists. Keep custom setup UI provider-specific and never duplicate storage.
 - A missing or unreadable value must stay distinguishable from success. Throw or
   return an explicit error instead of silently falling back to an empty value.
+
+## Public and private routes
+
+`app/routes/_index.tsx` is the public SSR marketing page: no sessions, cookies,
+or private data. Use Toolkit `MarketingHome` with value props, backgrounds,
+action slots, or `children` for a custom hero. Keep the browser-gated app under
+`/home`; never server-redirect `/` based on authentication.
 
 ## Lightweight defaults
 

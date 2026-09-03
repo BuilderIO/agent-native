@@ -1,13 +1,19 @@
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server";
-import { putUserSetting } from "@agent-native/core/settings";
+import { mutateUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
-import { mergeSettings, readSettings } from "../server/lib/mail-settings.js";
+import {
+  mergePinnedLabels,
+  mergeSavedFilters,
+  mergeSettings,
+  normalizeMailSettings,
+} from "../server/lib/mail-settings.js";
 import type { UserSettings } from "../shared/types.js";
 
 const mobileActionId = z.enum([
   "archive",
+  "aiFilter",
   "trash",
   "star",
   "reply",
@@ -17,6 +23,11 @@ const mobileActionId = z.enum([
   "prev",
   "next",
 ]);
+const savedFilterSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  name: z.string().trim().min(1).max(80),
+  query: z.string().trim().min(1).max(500),
+});
 
 const patchSchema = z.object({
   name: z.string().optional(),
@@ -28,8 +39,12 @@ const patchSchema = z.object({
   density: z.enum(["compact", "comfortable", "spacious"]).optional(),
   previewPane: z.enum(["right", "bottom", "off"]).optional(),
   sendAndArchive: z.boolean().optional(),
+  combineInbox: z.boolean().optional(),
   undoSendDelay: z.coerce.number().optional(),
   pinnedLabels: z.array(z.string()).optional(),
+  pinnedLabelsBase: z.array(z.string()).optional(),
+  savedFilters: z.array(savedFilterSchema).max(20).optional(),
+  savedFiltersBase: z.array(savedFilterSchema).max(20).optional(),
   labelAliases: z.record(z.string(), z.string()).optional(),
   imagePolicy: z.enum(["show", "block-trackers", "block-all"]).optional(),
   trustedSenders: z.array(z.string()).optional(),
@@ -53,16 +68,32 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("Unauthorized");
 
-    const { requestSource, ...patch } = args;
-    const current = await readSettings(ownerEmail);
-    const updated = mergeSettings(current, patch as Partial<UserSettings>);
-
-    await putUserSetting(
+    const { requestSource, pinnedLabelsBase, savedFiltersBase, ...patch } =
+      args;
+    const updated = await mutateUserSetting(
       ownerEmail,
       "mail-settings",
-      updated as unknown as Record<string, unknown>,
+      (current) => {
+        const base = normalizeMailSettings(current, ownerEmail);
+        const next = mergeSettings(base, patch as Partial<UserSettings>);
+        if ("pinnedLabels" in patch) {
+          next.pinnedLabels = mergePinnedLabels(
+            base.pinnedLabels,
+            patch.pinnedLabels,
+            pinnedLabelsBase,
+          );
+        }
+        if ("savedFilters" in patch) {
+          next.savedFilters = mergeSavedFilters(
+            base.savedFilters,
+            patch.savedFilters,
+            savedFiltersBase,
+          );
+        }
+        return next as unknown as Record<string, unknown>;
+      },
       { requestSource },
     );
-    return updated;
+    return normalizeMailSettings(updated, ownerEmail);
   },
 });

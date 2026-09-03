@@ -2,6 +2,8 @@ import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { IconArrowUpRight } from "@tabler/icons-react";
 import { Link } from "react-router";
 
+import { CustomizeTemplatePopover } from "../CustomizeTemplatePopover";
+import { firstPartyAppUrl } from "../deployment-links";
 import { sitePathForLocale } from "../docs-locale";
 import { applyFirstTouchAttributionToLink } from "../marketing-attribution";
 import { TemplateDocsLink } from "../template-docs";
@@ -9,7 +11,7 @@ import { trackEvent, type Template } from "../TemplateCard";
 
 export type TemplateLandingCtaTemplate = Pick<
   Template,
-  "demoUrl" | "name" | "slug"
+  "cliCommand" | "demoUrl" | "name" | "slug"
 >;
 
 type TemplateLandingActionsProps = {
@@ -27,7 +29,7 @@ export function TemplateLandingActions({
   return (
     <>
       <a
-        href={template.demoUrl}
+        href={firstPartyAppUrl(template.demoUrl)}
         target="_blank"
         rel="noopener noreferrer"
         className="primary-button"
@@ -41,6 +43,10 @@ export function TemplateLandingActions({
       >
         {t("common.tryTemplateFree", { name: template.name })}
       </a>
+      <CustomizeTemplatePopover
+        template={template}
+        location="template_detail"
+      />
       <TemplateDocsLink
         template={template}
         location={location}

@@ -2,6 +2,11 @@
 import {
   generateTabId,
   AgentChatSurface,
+  buildDynamicAgentSuggestions,
+  type AgentDynamicSuggestionContext,
+  isAssistantChatHistoryVersion,
+  type AssistantChatHistoryConfig,
+  type AssistantChatHistoryVersion,
   setAgentChatContextItem,
   removeAgentChatContextItem,
   useAgentChatContext,
@@ -102,6 +107,7 @@ import {
 import { FULL_APP_BUILDING, readFusionApp } from "@shared/full-app";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
+import type { LayoutGrid } from "@shared/layout-grid";
 import { countLockedLayersAcrossFiles } from "@shared/locked-layers";
 import type { MotionAnimationClip, MotionEase } from "@shared/motion-timeline";
 import {
@@ -132,14 +138,12 @@ import {
   IconArrowUpRight,
   IconArrowsDown,
   IconPencil,
-  IconPlus,
   IconLayoutGrid,
   IconX,
   IconPin,
   IconCode,
   IconArchive,
   IconPhoto,
-  IconRefresh,
   IconChevronDown,
   IconCheck,
   IconDownload,
@@ -240,7 +244,9 @@ import {
 } from "@/components/design/EditPanel";
 import { FigmaHydrationDialog } from "@/components/design/FigmaHydrationDialog";
 import { FigmaPasteImagesNotice } from "@/components/design/FigmaPasteImagesNotice";
+import { FirstRunStart } from "@/components/design/FirstRunStart";
 import { FusionAppBanner } from "@/components/design/FusionAppBanner";
+import { GenerationStatusCard } from "@/components/design/GenerationStatusCard";
 import {
   beginEyedropperPick,
   hasEyeDropperSupport,
@@ -302,6 +308,10 @@ import type {
   RuntimeStructureMoveRequest,
 } from "@/components/design/types";
 import { DEVICE_FRAME_VIEWPORTS } from "@/components/design/types";
+import {
+  designSystemPickerOptions,
+  DesignSystemPickerControl,
+} from "@/components/editor/design-start-pickers";
 import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
@@ -403,6 +413,7 @@ import {
   updateFileResultPersistedContent,
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
+import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import { DESIGN_UI_TOGGLE_EVENT } from "@/lib/design-ui-events";
 import { isEmbedChromeRequested } from "@/lib/embed-chrome";
 import {
@@ -493,6 +504,7 @@ import { runAddScreen } from "./design-editor/commands/add-screen";
 import { runAlignSelection } from "./design-editor/commands/align-selection";
 import { runApplyDesignEditorCommand } from "./design-editor/commands/apply-design-editor-command";
 import { runApplyFileContentUpdate } from "./design-editor/commands/apply-file-content-update";
+import { runApplyLayoutFlow } from "./design-editor/commands/apply-layout-flow";
 import { runApplyLocalContentUpdate } from "./design-editor/commands/apply-local-content-update";
 import { runApplyPendingVisualStylesWithAgent } from "./design-editor/commands/apply-pending-visual-styles-with-agent";
 import { runApplyToSource } from "./design-editor/commands/apply-to-source";
@@ -560,6 +572,7 @@ import { runSendOverviewAnnotations } from "./design-editor/commands/send-overvi
 import { runSendRuntimeLayerMoveSemanticHandoff } from "./design-editor/commands/send-runtime-layer-move-semantic-handoff";
 import { runSendRuntimeLayerSemanticHandoff } from "./design-editor/commands/send-runtime-layer-semantic-handoff";
 import { runSendRuntimeLayerStateSemanticHandoff } from "./design-editor/commands/send-runtime-layer-state-semantic-handoff";
+import { runSetLayoutGrid } from "./design-editor/commands/set-layout-grid";
 import { runStartRetryGeneration } from "./design-editor/commands/start-retry-generation";
 import { runStartSidebarResize } from "./design-editor/commands/start-sidebar-resize";
 import { runStyleChange } from "./design-editor/commands/style-change";
@@ -577,10 +590,7 @@ import { runVisualDuplicateChange } from "./design-editor/commands/visual-duplic
 import { runVisualStructureChange } from "./design-editor/commands/visual-structure-change";
 import { runWriteFrameGeometrySnapshot } from "./design-editor/commands/write-frame-geometry-snapshot";
 import { getCreatedScreenNavigationPlan } from "./design-editor/created-screen-navigation";
-import {
-  designPrecedentDirectives,
-  loadCreativeContextPrecedent,
-} from "./design-editor/creative-context-precedent";
+import { designPrecedentDirectives } from "./design-editor/creative-context-precedent";
 import {
   applyDesignDataOperations,
   buildFrameGeometryDataOperations,
@@ -600,6 +610,7 @@ import {
   cloneCanvasFrameGeometry,
   getCanvasFrameGeometry,
   getDesignDataRecord,
+  getLayoutGrids,
   isDesignData,
   nextLocalhostScreenPosition,
   parseDesignDataJson,
@@ -660,6 +671,7 @@ import {
   type UndoRedoOrderKind,
 } from "./design-editor/editor-state";
 import { runAdoptDbFileContent } from "./design-editor/effects/adopt-db-file-content";
+import { focusAgentComposer } from "./design-editor/effects/focus-agent-composer";
 import { runMirrorSelectionToAgentChat } from "./design-editor/effects/mirror-selection-to-agent-chat";
 import { runMotionAutosave } from "./design-editor/effects/motion-autosave";
 import { runObserveCollabText } from "./design-editor/effects/observe-collab-text";
@@ -675,7 +687,10 @@ import {
   loadDesignSystemGenerationContext,
   promptRequestsVariantExploration,
 } from "./design-editor/generation-prompt-directives";
-import { sanitizeCanvasFrameGeometryForPersist } from "./design-editor/geometry-persistence";
+import {
+  quantizeCanvasFrameGeometryForPersist,
+  sanitizeCanvasFrameGeometryForPersist,
+} from "./design-editor/geometry-persistence";
 import {
   type ContentHistoryChange,
   type ContentHistoryEntry,
@@ -694,9 +709,14 @@ import {
 } from "./design-editor/history";
 import {
   getBodyInlineStyles,
+  setBodyInlineStyles,
   isAbsoluteCodeLayerNode,
   warnIfPoisonedBoardCoordsNormalized,
 } from "./design-editor/html-layer-positioning";
+import {
+  allIntakeTopicsCovered,
+  loadIntakeContextFromAppState,
+} from "./design-editor/intake-question-topics";
 import { createLatestWriteQueue } from "./design-editor/latest-write-queue";
 import {
   layerStateIdsForScreen,
@@ -802,6 +822,7 @@ import {
   getDesignBottomToolbarMode,
   getSingleScreenCreationTool,
   resolveToolAfterSelection,
+  shouldAskOnNewDesignArrival,
   shouldAutoEnableDrawOverlay,
 } from "./design-editor/tool-state";
 import {
@@ -953,6 +974,34 @@ function DesignEditor() {
     () => (id ? ({ type: "design" as const, id } as const) : null),
     [id],
   );
+  const designChatHistory = useMemo<
+    AssistantChatHistoryConfig | undefined
+  >(() => {
+    if (!designChatScope) return undefined;
+    const designId = designChatScope.id;
+    return {
+      list: {
+        action: "list-design-versions",
+        args: { designId, limit: 100 },
+        getVersions: (result: unknown) => {
+          const versions =
+            result && typeof result === "object"
+              ? (result as { versions?: unknown }).versions
+              : undefined;
+          return Array.isArray(versions)
+            ? versions.filter(isAssistantChatHistoryVersion)
+            : [];
+        },
+      },
+      restore: {
+        action: "restore-design-version",
+        args: (version: AssistantChatHistoryVersion) => ({
+          designId,
+          versionId: version.id,
+        }),
+      },
+    };
+  }, [designChatScope]);
   const {
     link: detectedFigmaComposerLink,
     onComposerTextChange: handleComposerTextChange,
@@ -1114,7 +1163,10 @@ function DesignEditor() {
   const [
     runtimeStructureVerificationRequest,
     setRuntimeStructureVerificationRequest,
-  ] = useState<{ requestId: number; screenIds: string[] } | null>(null);
+  ] = useState<{
+    requestId: number;
+    screenIds: string[];
+  } | null>(null);
   const [
     pendingStructureVerificationStatus,
     setPendingStructureVerificationStatus,
@@ -1382,6 +1434,7 @@ function DesignEditor() {
   const reviewFocusNonceRef = useRef(0);
   const [activeLeftPanel, setActiveLeftPanel] =
     useState<DesignLeftPanel | null>("file");
+  const layersRevealedForFirstCreateRef = useRef(false);
   const [activeCodeFile, setActiveCodeFile] =
     useState<CodeWorkbenchActiveFile | null>(null);
   const initialSearchCommandAppliedForIdRef = useRef<string | null>(null);
@@ -1402,9 +1455,8 @@ function DesignEditor() {
   const keyboardShortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
   const projectMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const suppressProjectMenuReturnFocusRef = useRef(false);
-  // PF13: refs to the resizable sidebar containers so a splitter drag can
-  // update width imperatively (no React re-render per pointermove) and only
-  // commit the final width to state once, on pointerup.
+  // Refs to the resizable sidebar containers keep the splitter responsive
+  // between React renders while the live width state drives dependent layout.
   const leftSidebarContentRef = useRef<HTMLDivElement | null>(null);
   const rightSidebarContentRef = useRef<HTMLDivElement | null>(null);
   const [layersSearchQuery, setLayersSearchQuery] = useState("");
@@ -1438,7 +1490,10 @@ function DesignEditor() {
     string[]
   >([]);
   const [createdOverviewLayerSelection, setCreatedOverviewLayerSelection] =
-    useState<{ screenId: string; layerId: string } | null>(null);
+    useState<{
+      screenId: string;
+      layerId: string;
+    } | null>(null);
   const pendingOverviewScreenSelectionRef = useRef<string | null>(null);
   const pendingOverviewLayerSelectionRef = useRef<string | null>(null);
   const lastOverviewSelectedScreenIdsRef = useRef<string[]>([]);
@@ -1492,20 +1547,6 @@ function DesignEditor() {
   );
 
   useEffect(() => {
-    const focusAgentComposer = () => {
-      requestAnimationFrame(() => {
-        const panel = document.querySelector("[data-design-agent-panel]");
-        const prosemirror = panel?.querySelector(
-          ".ProseMirror",
-        ) as HTMLElement | null;
-        if (prosemirror) {
-          prosemirror.focus();
-          return;
-        }
-        const textarea = panel?.querySelector("textarea") as HTMLElement | null;
-        textarea?.focus();
-      });
-    };
     const openAgentPanel = () => {
       setActiveLeftPanel("agent");
       focusAgentComposer();
@@ -1981,14 +2022,11 @@ function DesignEditor() {
     if (hasSelectedElement) focusDesignInspectorForSelection();
   }, [focusDesignInspectorForSelection, hasSelectedElement]);
 
-  // PF13: the splitter previously called setWidth (React state) on every raw
-  // pointermove, re-rendering the whole DesignEditor tree (including the
-  // canvas) per pixel dragged. Now the drag updates the target container's
-  // style.width imperatively via a ref — no re-render — and only commits the
-  // final width to state once, on pointerup/pointercancel. The left panel's
-  // `transition-[width]` class is temporarily suspended during the drag (it
-  // otherwise fights the imperative per-frame width with its own easing) and
-  // restored afterward so panel-open/close still animates normally.
+  // The splitter updates the target container immediately and mirrors every
+  // move into React state so width-dependent Inspector layout changes are
+  // visible during the gesture. The panel's `transition-[width]` class is
+  // suspended during the drag so easing cannot lag behind the pointer, then
+  // restored afterward for normal panel-open/close animation.
   const startSidebarResize = useCallback(
     (side: "left" | "right", event: ReactPointerEvent<HTMLDivElement>) =>
       runStartSidebarResize(
@@ -2428,10 +2466,8 @@ function DesignEditor() {
   const [figmaHydrationFileIds, setFigmaHydrationFileIds] = useState<string[]>(
     [],
   );
-  const generateBtnRef = useRef<HTMLButtonElement | null>(null);
   const promptAnchorRef = useRef<HTMLElement | null>(null);
   const tweakPromptAnchorRef = useRef<HTMLElement | null>(null);
-  promptAnchorRef.current = generateBtnRef.current;
 
   useEffect(() => {
     viewModeRef.current = viewMode;
@@ -2841,6 +2877,7 @@ function DesignEditor() {
       designAccessRole === "editor" ||
       designAccessRole === "commenter");
   const canRenderAuthenticatedShare = isSignedIn || canEditDesign;
+
   const reviewResult = useReviewComments(
     {
       resourceType: "design",
@@ -3193,7 +3230,7 @@ function DesignEditor() {
       if (result.saved.length > 0 || result.rebased.length > 0) {
         // rebased = a 409 the server moved past; refetch so the editor rebases
         // onto current content. No toast: the file wasn't lost, unlike dropped.
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],
         });
       }
@@ -3512,7 +3549,7 @@ function DesignEditor() {
       .then((result: any) => {
         if (!result?.id) throw new Error("Missing copied design id");
         const nextSearch = postAuthIntent === "share" ? "?intent=share" : "";
-        navigate(`/design/${result.id}${nextSearch}`, { replace: true });
+        void navigate(`/design/${result.id}${nextSearch}`, { replace: true });
       })
       .catch(() => {
         postAuthSaveRef.current = null;
@@ -3556,14 +3593,20 @@ function DesignEditor() {
     },
     [creativeContextState, t],
   );
-  const resolvePromptDesignSystemId = useCallback(
-    () =>
-      design?.designSystemId ??
-      defaultSystem?.id ??
-      designSystems[0]?.id ??
-      null,
-    [defaultSystem?.id, design?.designSystemId, designSystems],
-  );
+  const resolvePromptDesignSystemId = useCallback(() => {
+    if (design?.designSystemId) return design.designSystemId;
+    if (
+      defaultSystem &&
+      isDesignSystemUsableForGeneration(defaultSystem.data)
+    ) {
+      return defaultSystem.id;
+    }
+    return (
+      designSystems.find((system) =>
+        isDesignSystemUsableForGeneration(system.data),
+      )?.id ?? null
+    );
+  }, [defaultSystem, design?.designSystemId, designSystems]);
 
   const selectedPromptDesignSystemId =
     promptDesignSystemId === undefined
@@ -3615,7 +3658,9 @@ function DesignEditor() {
       });
       updateDesignMutation.mutate({ id, designSystemId } as any, {
         onError: () => {
-          queryClient.invalidateQueries({ queryKey: ["action", "get-design"] });
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "get-design"],
+          });
         },
       });
     },
@@ -3630,10 +3675,7 @@ function DesignEditor() {
 
   useEffect(() => {
     if (!design?.title) return;
-    const nextTitle = `${normalizeDocumentTitle(
-      design.title,
-      "Untitled design",
-    )} — Design`;
+    const nextTitle = `${normalizeDocumentTitle(design.title, "Untitled design")} — Design`;
     const previousTitle = document.title;
     document.title = nextTitle;
     return () => {
@@ -3677,8 +3719,12 @@ function DesignEditor() {
         for (const [queryKey, data] of previousListDesignsQueries) {
           queryClient.setQueryData(queryKey, data);
         }
-        queryClient.invalidateQueries({ queryKey: ["action", "get-design"] });
-        queryClient.invalidateQueries({ queryKey: ["action", "list-designs"] });
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "get-design"],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "list-designs"],
+        });
       },
     });
   }, [
@@ -3848,6 +3894,52 @@ function DesignEditor() {
     () => parseDesignDataJson(design?.data),
     [design?.data],
   );
+
+  // ── Layout grids ──────────────────────────────────────────────────────────
+  const layoutGrids = useMemo(
+    () => getLayoutGrids(designDataJson),
+    [designDataJson],
+  );
+  /** The grid step the ACTIVE screen's bridge quantizes in-iframe gestures to.
+   *  Content px, not board px: the bridge writes `style.left` directly. */
+  const activeScreenLayoutGridStep =
+    activeFileId && layoutGrids[activeFileId]
+      ? layoutGrids[activeFileId].size
+      : 1;
+  /** Flips visibility for every grid that exists; snapping is unaffected. */
+  const handleToggleLayoutGrids = useCallback(() => {
+    const frameIds = Object.keys(layoutGrids);
+    if (frameIds.length === 0) return;
+    const anyVisible = frameIds.some(
+      (frameId) => layoutGrids[frameId]!.visible,
+    );
+    for (const frameId of frameIds) {
+      handleLayoutGridChangeRef.current?.(frameId, {
+        ...layoutGrids[frameId]!,
+        visible: !anyVisible,
+      });
+    }
+  }, [layoutGrids]);
+  const handleLayoutGridChange = useCallback(
+    (frameId: string, next: Partial<LayoutGrid> | null) =>
+      runSetLayoutGrid(
+        {
+          id,
+          canEditDesign: canEditDesignRef.current,
+          designDataJsonRef,
+          queryClient,
+          updateDesignMutation,
+        },
+        frameId,
+        next,
+      ),
+    [id, queryClient, updateDesignMutation],
+  );
+  // The toggle above calls this from a callback, not during render, so a ref
+  // breaks the declaration-order cycle between them.
+  const handleLayoutGridChangeRef = useRef(handleLayoutGridChange);
+  handleLayoutGridChangeRef.current = handleLayoutGridChange;
+
   // Keep a ref in sync so debounced timer callbacks can read the freshest
   // designDataJson without closing over a stale snapshot from render time.
   const designDataJsonRef = useRef(designDataJson);
@@ -3898,6 +3990,58 @@ function DesignEditor() {
     id,
     migrateBoardObjectsMutation,
     queryClient,
+  ]);
+
+  /**
+   * Generate belongs to an empty design, not to the empty-state placeholder:
+   * drawing anything creates a file, the placeholder disappears, and the
+   * option went with it. It stays until the design actually has something in
+   * it, and hands off to the agent rather than reopening the prompt popover.
+   */
+  const openGenerateInAgent = useCallback(() => {
+    setRetryablePrompt(null);
+    // The agent-panel:open listener above already opens the panel and puts the
+    // caret in the composer; going through it keeps one focus path instead of
+    // a second copy that drifts.
+    window.dispatchEvent(new Event("agent-panel:open"));
+  }, []);
+
+  /**
+   * The New Design button creates the row and lands here, so the "what do you
+   * want" question is asked in the editor — the agent rail holds the ask while
+   * the drawing tools stay on the bottom bar, so either answer is one gesture
+   * away. The flag is stripped on the first ask so a reload does not reopen it.
+   */
+  const arrivedFromNewDesign = initialSearchParams.get("new") === "1";
+  const newDesignAskedRef = useRef(false);
+  useEffect(() => {
+    if (
+      !shouldAskOnNewDesignArrival({
+        arrivedFromNewDesign,
+        alreadyAsked: newDesignAskedRef.current,
+        canEditDesign,
+        embedded,
+        shellMode,
+      })
+    )
+      return;
+    newDesignAskedRef.current = true;
+    openGenerateInAgent();
+    const next = new URLSearchParams(location.search);
+    next.delete("new");
+    const query = next.toString();
+    void navigate(`${location.pathname}${query ? `?${query}` : ""}`, {
+      replace: true,
+    });
+  }, [
+    arrivedFromNewDesign,
+    canEditDesign,
+    embedded,
+    location.pathname,
+    location.search,
+    navigate,
+    openGenerateInAgent,
+    shellMode,
   ]);
 
   const overviewScreens = useMemo(() => {
@@ -4022,7 +4166,7 @@ function DesignEditor() {
               );
             await acknowledgeOutboxEntry(outboxEntry);
           } catch {
-            queryClient.invalidateQueries({
+            void queryClient.invalidateQueries({
               queryKey: ["action", "get-design"],
             });
             warnChangesWillRetry();
@@ -4104,7 +4248,9 @@ function DesignEditor() {
     (geometryById: CanvasFrameGeometryById) => {
       if (!id || !canEditDesignRef.current) return;
       pendingFrameGeometrySaveRef.current = {
-        geometryById: cloneCanvasFrameGeometry(geometryById),
+        geometryById: quantizeCanvasFrameGeometryForPersist(
+          cloneCanvasFrameGeometry(geometryById),
+        ),
         previousGeometry: cloneCanvasFrameGeometry(
           getCanvasFrameGeometry(designDataJsonRef.current),
         ),
@@ -5164,6 +5310,10 @@ function DesignEditor() {
   // edits) — so the reconcile/observe doesn't treat our own echo as external.
   const lastLocalContentRef = useRef<string | null>(null);
   const latestActiveContentRef = useRef<string | null>(null);
+  const livePreviewContentRef = useRef<{
+    fileId: string;
+    content: string;
+  } | null>(null);
   // Freshest known DB `updatedAt` for the active file, kept in a ref so the
   // Yjs observe handler can advance the reconcile watermark without re-subscribing.
   const documentFileUpdatedAtRef = useRef<string | null>(null);
@@ -5212,6 +5362,7 @@ function DesignEditor() {
   useEffect(() => {
     if (viewMode === "overview") {
       prevActiveFileIdRef.current = activeFileId;
+      livePreviewContentRef.current = null;
       setCollabContent(null);
       setCollabContentFileId(null);
       lastAppliedFileUpdatedAtRef.current = null;
@@ -5222,6 +5373,7 @@ function DesignEditor() {
     }
     if (activeFileId !== prevActiveFileIdRef.current) {
       prevActiveFileIdRef.current = activeFileId;
+      livePreviewContentRef.current = null;
       setCollabContent(null);
       setCollabContentFileId(null);
       lastAppliedFileUpdatedAtRef.current = null;
@@ -7105,7 +7257,7 @@ function DesignEditor() {
         } as any,
         {
           onSuccess: () => {
-            queryClient.invalidateQueries({
+            void queryClient.invalidateQueries({
               queryKey: ["action", "get-design"],
             });
             toast.success(t("designEditor.toasts.componentCreated"));
@@ -7270,18 +7422,28 @@ function DesignEditor() {
       }
       const replaceContent = (window as any).__designCanvasReplaceContent;
       if (typeof replaceContent !== "function") return "unavailable";
-      return replaceContent(
+      const replaced = replaceContent(
         nextContent,
         selector ?? selectedCanvasSelector,
         selectedCanvasSelectorCandidates,
         {
           forceFullDocument: options.forceFullDocument === true,
         },
-      )
-        ? "applied"
-        : "unavailable";
+      );
+      if (replaced && activeFile?.id) {
+        livePreviewContentRef.current = {
+          fileId: activeFile.id,
+          content: nextContent,
+        };
+      }
+      return replaced ? "applied" : "unavailable";
     },
-    [selectedCanvasSelector, selectedCanvasSelectorCandidates, selectedElement],
+    [
+      activeFile?.id,
+      selectedCanvasSelector,
+      selectedCanvasSelectorCandidates,
+      selectedElement,
+    ],
   );
 
   // BUG-UNDO-LIVE-SNAPSHOT: undo/redo replay for a live-snapshot
@@ -7703,7 +7865,9 @@ function DesignEditor() {
   const resolvedReviewPanelProps = useMemo<
     Omit<ReviewPanelProps, "className"> | undefined
   >(() => {
-    if (!id || !activeFile) return undefined;
+    // The Builder shell has no persisted Design action surface, so exposing
+    // Run audit there only produces the shell's "API is disabled" error.
+    if (!id || !activeFile || shellMode) return undefined;
     const reviewMatchesActiveFile = reviewFileId === activeFile.id;
     return {
       findings: reviewMatchesActiveFile ? reviewFindings : [],
@@ -7730,6 +7894,7 @@ function DesignEditor() {
     reviewAuditedAt,
     reviewFileId,
     reviewFindings,
+    shellMode,
   ]);
 
   const dispatchReviewFeedbackToAgent = useCallback(
@@ -8085,14 +8250,17 @@ function DesignEditor() {
     ) =>
       runPrimitiveCreated(
         {
+          activeLeftPanel,
           boardFileId,
           clearPendingOverviewLayerSelectionTimer,
           pendingEmptyTextEditRef,
           pendingOverviewLayerSelectionRef,
           pendingOverviewScreenSelectionRef,
           pendingTextEditNodeIdRef,
+          layersRevealedForFirstCreateRef,
           removeEmptyTextNodeWithRetry,
           setActiveFileId,
+          setActiveLeftPanel,
           setActiveTool,
           setCreatedOverviewLayerSelection,
           setHoveredElement,
@@ -8106,6 +8274,7 @@ function DesignEditor() {
         options,
       ),
     [
+      activeLeftPanel,
       boardFileId,
       clearPendingOverviewLayerSelectionTimer,
       removeEmptyTextNodeWithRetry,
@@ -8702,6 +8871,7 @@ function DesignEditor() {
         activeTool,
         design,
         designDataJson,
+        layoutGrids,
         designSelectionOwnerIdRef,
         files,
         hoveredElement,
@@ -8740,6 +8910,7 @@ function DesignEditor() {
       activeBreakpointWidthState,
       responsiveEditScope,
       designDataJson,
+      layoutGrids,
       selectedStateId,
       isSignedIn,
     ],
@@ -8766,12 +8937,30 @@ function DesignEditor() {
   // setAgentChatContextItem would re-fire itself every commit — an infinite
   // render loop (caught live: "Maximum update depth exceeded" in overview
   // mode). Instead, only the narrow "was our key removed" check reads the
-  // store, via a ref updated by a SEPARATE effect below whose only job is
+  // store, via a ref updated by a SEPARATE effect above whose only job is
   // bookkeeping (it never calls setAgentChatContextItem itself, so it cannot
   // feed back into this one).
   const mirroredSelectionIdRef = useRef<string | null>(null);
+  const mirroredExcerptRef = useRef<string | null>(null);
   const sentSelectionIdRef = useRef<string | null>(null);
   const composerContextHasOurKeyRef = useRef(true);
+
+  // Bookkeeping only — mirrors "does the shared composer context still carry
+  // our key" into a ref for the effect below to read. This is intentionally
+  // NOT a dependency of that effect (see its comment): this effect only ever
+  // writes a ref, never calls setAgentChatContextItem or any other state
+  // setter, so it can run on every store change without feeding back into a
+  // re-render loop. Declared (and thus run) before the mirror effect so a
+  // send that lands in the same commit as an unrelated content change is
+  // already reflected in the ref by the time the mirror effect reads it.
+  const composerContextItemsForBookkeeping =
+    useAgentChatContext(isSignedIn).items;
+  useEffect(() => {
+    const key = "design:selected-element";
+    composerContextHasOurKeyRef.current =
+      composerContextItemsForBookkeeping.some((item) => item.key === key);
+  }, [composerContextItemsForBookkeeping]);
+
   useEffect(
     () =>
       runMirrorSelectionToAgentChat({
@@ -8781,6 +8970,7 @@ function DesignEditor() {
         design,
         id,
         isSignedIn,
+        mirroredExcerptRef,
         mirroredSelectionIdRef,
         selectedCodeLayerNode,
         selectedElement,
@@ -8796,20 +8986,6 @@ function DesignEditor() {
       selectedElement,
     ],
   );
-
-  // Bookkeeping only — mirrors "does the shared composer context still carry
-  // our key" into a ref for the effect above to read. This is intentionally
-  // NOT a dependency of that effect (see its comment): this effect only ever
-  // writes a ref, never calls setAgentChatContextItem or any other state
-  // setter, so it can run on every store change without feeding back into a
-  // re-render loop.
-  const composerContextItemsForBookkeeping =
-    useAgentChatContext(isSignedIn).items;
-  useEffect(() => {
-    const key = "design:selected-element";
-    composerContextHasOurKeyRef.current =
-      composerContextItemsForBookkeeping.some((item) => item.key === key);
-  }, [composerContextItemsForBookkeeping]);
 
   useEffect(() => {
     const key = "design:design-system";
@@ -9325,6 +9501,7 @@ function DesignEditor() {
         // any structural/source mutation merely because it was behind another
         // layer at the pointer location.
         persistPendingNodeId: false,
+        breakpointWidthPx: candidate.breakpointWidthPx,
       });
       focusDesignInspectorForSelection();
     },
@@ -9343,7 +9520,7 @@ function DesignEditor() {
   }, []);
 
   const openRepromptComposer = useCallback(
-    (screenId: string, info: ElementInfo) => {
+    (screenId: string, info: ElementInfo, breakpointWidthPx?: number) => {
       if (!id || !canEditDesign) return;
       const screen = overviewScreens.find(
         (candidate) => candidate.id === screenId,
@@ -9365,6 +9542,7 @@ function DesignEditor() {
 
       handleScreenElementSelect(screenId, info, undefined, {
         persistPendingNodeId: false,
+        breakpointWidthPx,
       });
       setCommentsHidden(false);
       viewModeRef.current = "overview";
@@ -9397,14 +9575,22 @@ function DesignEditor() {
   const handleContextMenuReprompt = useCallback(() => {
     const screenId = activeFile?.id ?? activeFileId;
     if (!screenId || !selectedElement) return;
-    openRepromptComposer(screenId, selectedElement);
+    openRepromptComposer(
+      screenId,
+      selectedElement,
+      activeBreakpointWidthStateRef.current,
+    );
   }, [activeFile?.id, activeFileId, openRepromptComposer, selectedElement]);
 
   const handleContextMenuRepromptLayer = useCallback(
     (candidate: CanvasLayerHitCandidate) => {
       const screenId = candidate.screenId ?? activeFile?.id ?? activeFileId;
       if (!screenId) return;
-      openRepromptComposer(screenId, candidate.info);
+      openRepromptComposer(
+        screenId,
+        candidate.info,
+        candidate.breakpointWidthPx,
+      );
     },
     [activeFile?.id, activeFileId, openRepromptComposer],
   );
@@ -9620,6 +9806,13 @@ function DesignEditor() {
         lastLocalContent: lastLocalContentRef.current,
       }),
     [activeContent],
+  );
+  const getFreshActivePreviewContent = useCallback(
+    () =>
+      livePreviewContentRef.current?.fileId === activeFile?.id
+        ? livePreviewContentRef.current.content
+        : null,
+    [activeFile?.id],
   );
 
   // Item 14 — `meta.breakpointReset` contract (see StyleChangeMeta's doc
@@ -9967,11 +10160,32 @@ function DesignEditor() {
       styles: Record<string, string>,
       elementInfo?: ElementInfo,
       metadata?: {
+        phase?: "preview" | "commit";
         originalStyles?: Record<string, string>;
         preserveSelection?: boolean;
       },
     ) => {
       if (!activeFile?.id) return;
+      if (metadata?.phase === "preview") {
+        // Resize gestures mutate the iframe DOM on every pointermove. Mirror
+        // that payload into the Inspector immediately without creating a
+        // source patch or history entry; the bridge's final commit remains
+        // the single persistence boundary on pointerup.
+        if (elementInfo) {
+          setSelectedElement((current) =>
+            current
+              ? {
+                  ...current,
+                  computedStyles: elementInfo.computedStyles,
+                  inlineStyles: elementInfo.inlineStyles,
+                  boundingRect: elementInfo.boundingRect,
+                  parentBoundingRect: elementInfo.parentBoundingRect,
+                }
+              : current,
+          );
+        }
+        return;
+      }
       // The gesture already moved the live DOM, so this never needs the
       // runtime push. Which screens queue a pending edit instead of writing
       // source is commitVisualStyles' single decision — inline/fusion screens
@@ -10130,6 +10344,7 @@ function DesignEditor() {
       styles: Record<string, string>,
       elementInfo?: ElementInfo,
       metadata?: {
+        phase?: "preview" | "commit";
         originalStyles?: Record<string, string>;
         preserveSelection?: boolean;
       },
@@ -10760,10 +10975,12 @@ function DesignEditor() {
           canvasContainerRef,
           canvasFrameGeometryById,
           getFreshActiveContent,
+          getFreshActivePreviewContent,
           getScreenContent,
           overviewScreens,
           overviewSelectedScreenIds,
           pasteCascadeRef,
+          replacePreviewContent,
           selectInsertedLayers,
           t,
           uploadImageFileForHtml,
@@ -10780,9 +10997,11 @@ function DesignEditor() {
       canEditDesign,
       canvasFrameGeometryById,
       getFreshActiveContent,
+      getFreshActivePreviewContent,
       getScreenContent,
       overviewScreens,
       overviewSelectedScreenIds,
+      replacePreviewContent,
       selectInsertedLayers,
       t,
       uploadImageFileForHtml,
@@ -10824,10 +11043,12 @@ function DesignEditor() {
           canvasContainerRef,
           canvasFrameGeometryById,
           getFreshActiveContent,
+          getFreshActivePreviewContent,
           getScreenContent,
           overviewScreens,
           overviewSelectedScreenIds,
           pasteCascadeRef,
+          replacePreviewContent,
           selectInsertedLayers,
           t,
           uploadImageFileForHtml,
@@ -10846,9 +11067,11 @@ function DesignEditor() {
       canvasContainerRef,
       canvasFrameGeometryById,
       getFreshActiveContent,
+      getFreshActivePreviewContent,
       getScreenContent,
       overviewScreens,
       overviewSelectedScreenIds,
+      replacePreviewContent,
       selectInsertedLayers,
       t,
       uploadImageFileForHtml,
@@ -11403,6 +11626,53 @@ function DesignEditor() {
       return true;
     },
     [applyLocalContentUpdate],
+  );
+
+  // The inspector's Flow control owns the same conversion Shift+A does, so it
+  // reflows the children too — writing display:grid/flex alone leaves them
+  // absolutely positioned and the new layout never renders.
+  const handleApplyLayoutFlow = useCallback(
+    (nodeId: string | null, containerStyles: Record<string, string>) => {
+      const content = getFreshActiveContent();
+      // A merged multi-selection has no single sourceId, so the inspector
+      // cannot name its targets: resolve them from the selection itself, and
+      // hand a selection that reaches beyond this file to the style path
+      // rather than reflowing only the half that lives here.
+      const selectedNodeIds = content
+        ? getActiveFileSelectedNodeIds(content)
+        : [];
+      const selectedFileIds = new Set(files.map((file) => file.id));
+      const selectableLayerIds = selectedLayerIdsState.filter(
+        (layerId) => !layerId.startsWith("__") && !selectedFileIds.has(layerId),
+      );
+      if (
+        selectableLayerIds.length > 1 &&
+        selectedNodeIds.length !== selectableLayerIds.length
+      ) {
+        return "unsupported" as const;
+      }
+      const targetIds =
+        selectedNodeIds.length > 0 ? selectedNodeIds : nodeId ? [nodeId] : [];
+      return runApplyLayoutFlow(
+        {
+          applyLocalContentUpdate,
+          canEditDesign,
+          getFreshActiveContent,
+          t,
+        },
+        targetIds,
+        containerStyles,
+      );
+    },
+    [
+      applyLocalContentUpdate,
+      canEditDesign,
+      files,
+      getActiveFileSelectedNodeIds,
+      getFreshActiveContent,
+      selectedLayerIdsState,
+      t,
+    ],
   );
 
   // Figma parity: turning auto layout off must leave a freeform container.
@@ -13876,6 +14146,7 @@ function DesignEditor() {
     // editing actions, so they work regardless of canEditDesign.
     onToggleUi: handleToggleUi,
     onToggleComments: handleToggleComments,
+    onToggleLayoutGrids: canEditDesign ? handleToggleLayoutGrids : undefined,
     onShowKeyboardShortcuts: handleToggleKeyboardShortcuts,
   });
 
@@ -14913,46 +15184,31 @@ function DesignEditor() {
       </div>
     </div>
   );
-  const designShareTabLabelClassName =
-    "inline-flex items-center justify-center gap-1.5";
   const designSharePopoverClassName =
     "z-[100010] !w-[min(620px,calc(100vw-32px))] !p-3 " +
-    "[&_[role=tablist]]:!inline-flex [&_[role=tablist]]:!w-fit [&_[role=tablist]]:!self-start [&_[role=tablist]]:justify-start [&_[role=tablist]]:gap-1 [&_[role=tablist]]:rounded-lg [&_[role=tablist]]:border [&_[role=tablist]]:border-[var(--design-editor-panel-divider-color)] [&_[role=tablist]]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tablist]]:p-1 " +
+    "[&_[role=tablist]]:!inline-flex [&_[role=tablist]]:!w-fit [&_[role=tablist]]:!max-w-full [&_[role=tablist]]:!self-start [&_[role=tablist]]:!overflow-x-auto [&_[role=tablist]]:justify-start [&_[role=tablist]]:gap-1 [&_[role=tablist]]:rounded-lg [&_[role=tablist]]:border [&_[role=tablist]]:border-[var(--design-editor-panel-divider-color)] [&_[role=tablist]]:bg-[var(--design-editor-panel-raised-bg)] [&_[role=tablist]]:p-1 " +
     "[&_[role=tab]]:!h-8 [&_[role=tab]]:!flex-none [&_[role=tab]]:rounded-md [&_[role=tab]]:px-3 [&_[role=tab]]:!text-[12px] [&_[role=tab]]:font-semibold [&_[role=tab]]:shadow-none [&_[role=tab]]:ring-0 " +
-    "[&_[role=tab]:hover]:bg-white/70 dark:[&_[role=tab]:hover]:bg-[var(--design-editor-control-bg)] [&_[role=tab]:hover]:text-foreground " +
-    "[&_[role=tab][aria-selected=true]]:bg-white dark:[&_[role=tab][aria-selected=true]]:bg-[var(--design-editor-control-bg)] [&_[role=tab][aria-selected=true]]:text-foreground [&_[role=tab][aria-selected=true]]:shadow-sm [&_[role=tab][aria-selected=true]]:ring-1 [&_[role=tab][aria-selected=true]]:ring-[var(--design-editor-control-border)]";
+    "[&_[role=tab]:hover]:text-foreground " +
+    "[&_[role=tab][aria-selected=true]]:!bg-background dark:[&_[role=tab][aria-selected=true]]:!bg-[var(--design-editor-panel-bg)] [&_[role=tab][aria-selected=true]]:text-foreground";
   const designShareTabs = {
-    shareLabel: (
-      <span className={designShareTabLabelClassName}>
-        <IconLink className="size-3.5" />
-        {"Share link" /* i18n-ignore share tab label */}
-      </span>
-    ),
+    shareLabel: "Share link" /* i18n-ignore share tab label */,
     defaultValue: "share",
     tabs: [
       {
         value: "export",
-        label: (
-          <span className={designShareTabLabelClassName}>
-            <IconFileExport className="size-3.5" />
-            {t("designEditor.export")}
-          </span>
-        ),
+        label: t("designEditor.export"),
         content: shareExportTab,
       },
       {
         value: "send",
-        label: (
-          <span className={designShareTabLabelClassName}>
-            <IconTerminal2 className="size-3.5" />
-            {"Send to agent" /* i18n-ignore share tab label */}
-          </span>
-        ),
+        label: "Send to agent" /* i18n-ignore share tab label */,
         content: shareSendToTab,
       },
       {
         value: "context",
-        label: <span className={designShareTabLabelClassName}>Context</span>,
+        label: t("creativeContext.share.tabLabel", {
+          defaultValue: "Context",
+        }),
         content: (
           <CreativeContextShareTab
             resource={{
@@ -15422,6 +15678,106 @@ function DesignEditor() {
     return nodes.length > 0 ? nodes : undefined;
   }, [boardFileId, codeLayerModelByFileId, lockedLayerIds, hiddenLayerIds]);
 
+  const designIsEmpty = useMemo(
+    () => overviewScreens.length === 0 && (boardElements?.length ?? 0) === 0,
+    [boardElements, overviewScreens.length],
+  );
+
+  const firstRunTemplatesQuery = useActionQuery(
+    "list-design-templates",
+    // Without this the picker renders every row as the generic placeholder
+    // icon, which is the whole point of choosing a template visually.
+    { includePreview: "true" },
+    { enabled: canEditDesign && designIsEmpty },
+  );
+  const firstRunTemplates = useMemo(
+    () =>
+      (firstRunTemplatesQuery.data?.templates ?? []).map((template) => ({
+        id: template.id,
+        title: template.title,
+        description: template.description,
+        category: template.category,
+        width: template.width,
+        height: template.height,
+        previewHtml: template.previewHtml,
+        designSystemId: template.designSystemId,
+        isBuiltIn: template.isBuiltIn,
+      })),
+    [firstRunTemplatesQuery.data?.templates],
+  );
+  const firstRunDesignSystems = useMemo(
+    () => designSystemPickerOptions(designSystems),
+    [designSystems],
+  );
+  const [applyingTemplateId, setApplyingTemplateId] = useState<string | null>(
+    null,
+  );
+  // A started conversation retires the whole first-run affordance. `designIsEmpty`
+  // alone is not enough: generation can be under way for a while before the
+  // first screen row exists.
+  const [chatMessageCount, setChatMessageCount] = useState(0);
+  const showFirstRunStart = designIsEmpty && chatMessageCount === 0;
+  const applyTemplate = useActionMutation("create-design-from-template");
+  const handleFirstRunTemplate = useCallback(
+    async (templateId: string) => {
+      if (!id || applyingTemplateId) return;
+      setApplyingTemplateId(templateId);
+      try {
+        await applyTemplate.mutateAsync({
+          templateId,
+          targetDesignId: id,
+          ...(selectedPromptDesignSystemId
+            ? { designSystemId: selectedPromptDesignSystemId }
+            : {}),
+        });
+        await queryClient.invalidateQueries({
+          queryKey: ["action", "get-design"],
+        });
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : String(error));
+      } finally {
+        setApplyingTemplateId(null);
+      }
+    },
+    [
+      applyTemplate,
+      applyingTemplateId,
+      id,
+      queryClient,
+      selectedPromptDesignSystemId,
+    ],
+  );
+  const handleFirstRunDesignSystem = useCallback(
+    (designSystemId: string | null) => {
+      setPromptDesignSystemId(designSystemId ?? undefined);
+      persistPromptDesignSystem(designSystemId);
+    },
+    [persistPromptDesignSystem],
+  );
+
+  const designAgentSuggestions = useMemo(
+    () => [
+      t("chat.suggestionLandingPage"),
+      t("chat.suggestionBrandMatch"),
+      t("chat.suggestionMobile"),
+    ],
+    [t],
+  );
+  /**
+   * An empty design has nothing to explain, so the shared builder's generic
+   * "explain what I am looking at" crowds the three creation prompts out of
+   * the chip row on the one screen where creating is the only thing to do.
+   */
+  const designAgentSuggestionConfig = useMemo(
+    () => ({
+      getSuggestions: (context: AgentDynamicSuggestionContext) =>
+        designIsEmpty
+          ? designAgentSuggestions
+          : buildDynamicAgentSuggestions(context),
+    }),
+    [designAgentSuggestions, designIsEmpty],
+  );
+
   const activeLayerPanelNodes = useMemo<LayersPanelNode[]>(() => {
     const activeTree = activeFile?.id
       ? (codeLayerModelByFileId.get(activeFile.id)?.tree ?? activeCodeLayerTree)
@@ -15541,7 +15897,7 @@ function DesignEditor() {
         mode,
       });
       if (nextSearch === location.search) return;
-      navigate(
+      void navigate(
         {
           pathname: location.pathname,
           search: nextSearch,
@@ -15684,7 +16040,7 @@ function DesignEditor() {
     }
     urlSyncTimerRef.current = window.setTimeout(() => {
       urlSyncTimerRef.current = null;
-      navigate(
+      void navigate(
         {
           pathname: location.pathname,
           search: nextSearch,
@@ -15817,6 +16173,81 @@ function DesignEditor() {
   /** Applies a typed or preset frame size/position from the inspector. Routed
    *  through handleGeometryCommit so it lands in the same undo entry, viewport
    *  metadata sync, and persist guard that a pointer resize uses. */
+  const selectedScreenLayoutGrid = selectedScreenGeometry
+    ? (layoutGrids[selectedScreenGeometry.id] ?? null)
+    : null;
+  /**
+   * A screen whose source is a live URL keeps that URL as its authoritative
+   * content; the projection hands back a fetched snapshot that does have a
+   * <body>, so patching it would write a document over the route. Only inline
+   * screens own their markup.
+   */
+  const selectedScreenOwnsItsMarkup = useMemo(() => {
+    const screenId = selectedScreenGeometry?.id;
+    if (!screenId) return false;
+    return externalPreviewUrlForContent(getScreenContent(screenId)) === null;
+  }, [getScreenContent, selectedScreenGeometry]);
+  /**
+   * One patch, one write. Fill/Stroke/Effects emit multi-property changes
+   * (a gradient sets image, size, repeat and position together); applying them
+   * one property at a time recomputes each from the same pre-event projection,
+   * so the last write drops the earlier ones.
+   */
+  /** Screens whose on-screen state came from a preview tick and has not been
+   *  persisted yet, so a commit that computes identical content still saves. */
+  const unsavedPreviewScreenRef = useRef<Set<string>>(new Set());
+  const commitSelectedScreenStyles = useCallback(
+    (patch: Record<string, string>, meta?: StyleChangeMeta) => {
+      const screenId = selectedScreenGeometry?.id;
+      if (!screenId || !canEditDesignRef.current) return;
+      if (!selectedScreenOwnsItsMarkup) return;
+      const previewOnly = meta?.phase === "preview";
+      const content = getProjectionContentForScreen(screenId);
+      const next = setBodyInlineStyles(content, patch);
+      // A URL-backed screen has no <body> to patch.
+      if (next === null) return;
+      if (next === content) {
+        // Preview ticks paint without persisting, and they move the projection
+        // this reads from — so the gesture's final commit computes an identical
+        // document and used to return here, leaving the edit on screen but
+        // never in the file. A commit re-saves the previewed content instead.
+        if (previewOnly || !unsavedPreviewScreenRef.current.has(screenId)) {
+          return;
+        }
+        unsavedPreviewScreenRef.current.delete(screenId);
+        applyFileContentUpdate(screenId, content, {
+          persist: true,
+          recordHistory: true,
+        });
+        return;
+      }
+      // A colour drag emits a preview tick per frame; painting them without
+      // persisting keeps the canvas live without a save per tick, and the
+      // gesture's commit is what lands in history and the file.
+      if (previewOnly) unsavedPreviewScreenRef.current.add(screenId);
+      else unsavedPreviewScreenRef.current.delete(screenId);
+      applyFileContentUpdate(screenId, next, {
+        persist: !previewOnly,
+        recordHistory: !previewOnly,
+      });
+    },
+    [
+      applyFileContentUpdate,
+      getProjectionContentForScreen,
+      selectedScreenGeometry,
+      selectedScreenOwnsItsMarkup,
+    ],
+  );
+  const handleSelectedScreenStyleChange = useCallback(
+    (property: string, value: string, meta?: StyleChangeMeta) =>
+      commitSelectedScreenStyles({ [property]: value }, meta),
+    [commitSelectedScreenStyles],
+  );
+  const handleSelectedScreenStylesChange = useCallback(
+    (styles: Record<string, string>, meta?: StyleChangeMeta) =>
+      commitSelectedScreenStyles(styles, meta),
+    [commitSelectedScreenStyles],
+  );
   /** Design-level canvas background (the surround, not a screen's body). */
   // ── Canvas background, screen geometry, states panel ───────────────────────
   const persistedCanvasBackground = useMemo(
@@ -15942,6 +16373,38 @@ function DesignEditor() {
     codeLayerOwnerByNodeId,
     schedulePendingOverviewLayerSelectionClear,
     selectedLayerIdsState,
+  ]);
+  /**
+   * A selected screen's own <body>, as an inspectable element. The frame's box
+   * comes from the board and its paint from that file's <body>; the document
+   * now fills the frame (see EMBEDDED_FRAME_FIT_STYLE), so painting the body
+   * paints the screen's actual rectangle and the two read as one object.
+   */
+  const selectedScreenElement = useMemo(() => {
+    const screenId = selectedScreenGeometry?.id;
+    if (!screenId || !selectedScreenOwnsItsMarkup) return null;
+    const projection = getCodeLayerProjectionForScreen(screenId);
+    const body = projection?.nodes.find((node) => node.tag === "body");
+    if (!body) return null;
+    const element = elementInfoFromCodeLayerNode(body);
+    // The projection reports authored declarations verbatim, so a `background`
+    // shorthand never reaches the Fill row's `backgroundColor` and the section
+    // renders empty over a painted screen. getBodyInlineStyles resolves through
+    // CSSStyleDeclaration, which expands shorthands; only resolved values are
+    // merged so an absent longhand cannot blank a real one.
+    const resolved = getBodyInlineStyles(
+      getProjectionContentForScreen(screenId),
+    );
+    const computedStyles = { ...element.computedStyles };
+    for (const [property, value] of Object.entries(resolved)) {
+      if (value) computedStyles[property] = value;
+    }
+    return { ...element, computedStyles };
+  }, [
+    getCodeLayerProjectionForScreen,
+    getProjectionContentForScreen,
+    selectedScreenGeometry,
+    selectedScreenOwnsItsMarkup,
   ]);
 
   useEffect(() => {
@@ -17498,6 +17961,7 @@ function DesignEditor() {
 
       return (
         <DesignCanvas
+          layoutGridStep={layoutGrids[screen.id]?.size ?? 1}
           content={screenContent}
           contentKey={screenContentKey}
           runtimeReplacementContent={
@@ -17664,7 +18128,9 @@ function DesignEditor() {
           onIframeHotkey={handleIframeHotkey}
           onFigmaClipboardPaste={handleCanvasFigmaClipboardPaste}
           onImagePaste={handleCanvasImagePaste}
-          onIframeContextMenu={handleIframeContextMenu}
+          onIframeContextMenu={(payload) =>
+            handleIframeContextMenu({ ...payload, breakpointWidthPx })
+          }
           onVisualStyleChange={(selector, styles, info, metadata) => {
             activateResponsiveScope();
             handleScreenVisualStyleChange(
@@ -17723,8 +18189,9 @@ function DesignEditor() {
           }
           tweakValues={cssVarValues}
           drawMode={false}
-          pinMode={false}
-          commentPinsHidden
+          pinMode={screenIsActive && pinMode}
+          commentPinsHidden={commentsHidden || !screenIsActive}
+          onExitPinMode={handleExitReviewCommentMode}
           designId={id}
           designTitle={design?.title}
           commentContextId={`${id}:${screen.id}`}
@@ -17734,9 +18201,7 @@ function DesignEditor() {
               ? repromptDraftRequest
               : null
           }
-          nodeRewriteCanvasTarget={
-            screenIsActive && breakpointWidthPx === undefined
-          }
+          nodeRewriteCanvasTarget={screenIsActive}
           onRepromptDraftConsumed={handleRepromptDraftConsumed}
         />
       );
@@ -17774,6 +18239,8 @@ function DesignEditor() {
       mode,
       canEditDesign,
       activeTool,
+      pinMode,
+      commentsHidden,
       spacePanActive,
       overviewClearSelectionRequest,
       selectedCanvasSelector,
@@ -17805,6 +18272,8 @@ function DesignEditor() {
       design?.title,
       repromptDraftRequest,
       handleRepromptDraftConsumed,
+      handleExitReviewCommentMode,
+      layoutGrids,
       t,
     ],
   );
@@ -18007,6 +18476,9 @@ function DesignEditor() {
       // multi-id array through the single-id onPick signature, so a
       // shift-held pick must leave the current selection alone rather than
       // clobber it to a wrong singleton.
+      if (!shiftKeyHeldRef.current) {
+        setOverviewSelectedScreenIds([pickedId]);
+      }
       setSelectedLayerIdsState((current) =>
         computeOverviewScreenPickSelectionIds({
           pickedId,
@@ -18041,9 +18513,17 @@ function DesignEditor() {
           reflowOverviewScreensForBreakpoints([
             ...new Set([...persisted, widthPx]),
           ]);
+        })
+        .catch((error) => {
+          toast.error(t("common.genericError"), {
+            description:
+              error instanceof Error
+                ? error.message
+                : t("designEditor.breakpointBar.addBreakpoint"),
+          });
         });
     },
-    [addBreakpointMutation, id, reflowOverviewScreensForBreakpoints],
+    [addBreakpointMutation, id, reflowOverviewScreensForBreakpoints, t],
   );
   const handleBreakpointBarAdd = useCallback(
     (widthPx: number, label: string) => addDesignBreakpoint(widthPx, label),
@@ -18250,7 +18730,7 @@ function DesignEditor() {
   // render phase stays pure. This branch is unreachable in practice because the
   // design.$id.tsx route always supplies an id param.
   useEffect(() => {
-    if (!id) navigate("/");
+    if (!id) void navigate("/home");
   }, [id, navigate]);
 
   // ── Early returns and derived render values ────────────────────────────────
@@ -18290,7 +18770,7 @@ function DesignEditor() {
             variant="default"
             className="mt-7 h-9 cursor-pointer gap-2 rounded-md border border-foreground bg-foreground px-3.5 text-background shadow-sm hover:border-foreground/90 hover:bg-foreground/90 hover:text-background focus-visible:ring-foreground"
           >
-            <Link to="/">
+            <Link to="/home">
               <IconArrowLeft className="size-4 rtl:-scale-x-100" />
               {t("designEditor.backToDesigns")}
             </Link>
@@ -18387,7 +18867,7 @@ function DesignEditor() {
         }}
       >
         <DropdownMenuItem asChild>
-          <Link to="/">
+          <Link to="/home">
             <IconArrowLeft className="mr-2 h-4 w-4" />
             {t("designEditor.backToDesigns")}
           </Link>
@@ -18734,17 +19214,19 @@ function DesignEditor() {
     </>
   );
 
-  const pendingNodeRewriteCompact = rightSidebarWidth < 320;
+  // The right rail resizes down to 240px, so labelled controls in this row must
+  // collapse to icons or they push the Share CTA past the panel edge.
+  const rightToolbarCompact = rightSidebarWidth < 320;
   const pendingNodeRewriteLabel = t("designEditor.nodeRewrite.pendingReview", {
     count: pendingNodeRewriteProposals.length,
   });
   const pendingNodeRewriteButtonContent = (
     <>
-      {!pendingNodeRewriteCompact ? (
+      {!rightToolbarCompact ? (
         <span className="size-1.5 shrink-0 rounded-full bg-primary" />
       ) : null}
       <IconFileStack className="size-3.5 shrink-0" />
-      {pendingNodeRewriteCompact ? (
+      {rightToolbarCompact ? (
         <span className="min-w-4 rounded bg-primary/10 px-1 text-center text-[10px] font-semibold tabular-nums text-primary">
           {pendingNodeRewriteProposals.length}
         </span>
@@ -18755,9 +19237,7 @@ function DesignEditor() {
   );
   const pendingNodeRewriteButtonClassName = cn(
     "h-8 rounded-md border-primary/30 bg-primary/5 text-xs hover:bg-primary/10",
-    pendingNodeRewriteCompact
-      ? "min-w-10 gap-1 px-1.5"
-      : "max-w-44 gap-1.5 px-2",
+    rightToolbarCompact ? "min-w-10 gap-1 px-1.5" : "max-w-44 gap-1.5 px-2",
   );
   const pendingNodeRewriteControl =
     pendingNodeRewriteProposals.length ===
@@ -18777,7 +19257,7 @@ function DesignEditor() {
             {pendingNodeRewriteButtonContent}
           </Button>
         </TooltipTrigger>
-        {pendingNodeRewriteCompact ? (
+        {rightToolbarCompact ? (
           <TooltipContent>{pendingNodeRewriteLabel}</TooltipContent>
         ) : null}
       </Tooltip>
@@ -18794,13 +19274,13 @@ function DesignEditor() {
                 aria-label={pendingNodeRewriteLabel}
               >
                 {pendingNodeRewriteButtonContent}
-                {!pendingNodeRewriteCompact ? (
+                {!rightToolbarCompact ? (
                   <IconChevronDown className="size-3 shrink-0 opacity-70" />
                 ) : null}
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          {pendingNodeRewriteCompact ? (
+          {rightToolbarCompact ? (
             <TooltipContent>{pendingNodeRewriteLabel}</TooltipContent>
           ) : null}
         </Tooltip>
@@ -18828,9 +19308,15 @@ function DesignEditor() {
 
   // ── Right sidebar actions ──────────────────────────────────────────────────
   const rightSidebarActions = (
-    <div className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] px-2 py-1.5">
-      <div className="flex min-h-8 items-center gap-1">
-        <div className="flex min-w-0 flex-1 items-center gap-1">
+    <div
+      data-design-chrome-region="right-toolbar"
+      className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] px-[var(--design-baseline-unit)] py-[var(--design-baseline-half)]"
+    >
+      <div
+        data-design-chrome-region="right-toolbar-actions"
+        className="flex min-h-[var(--design-row-height)] items-center gap-[var(--design-baseline-half)]"
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-[var(--design-baseline-half)]">
           {hostEmbeddedEditor ? null : (
             <DesignCollaboratorsMenu
               collaborators={designCollaborators}
@@ -18845,14 +19331,14 @@ function DesignEditor() {
             nowrap label wide enough to push this row past the right rail's
             edge on its own, and a shrink-0 row has no way to give that space
             back — it just overflows the panel. */}
-        <div className="flex min-w-0 shrink items-center gap-1">
+        <div className="flex min-w-0 shrink items-center gap-[var(--design-baseline-half)]">
           {pendingNodeRewriteControl}
           {canEditDesign && reviewAgentQueueCount > 0 ? (
             <Button
               type="button"
               variant="outline"
               size="sm"
-              className="h-8 gap-1 rounded-md px-2 text-xs"
+              className="h-[var(--design-row-height)] gap-[var(--design-baseline-half)] rounded-md px-[var(--design-baseline-unit)] text-xs"
               onClick={handleApplyReviewFeedback}
               disabled={reviewFeedbackApplying}
             >
@@ -18883,7 +19369,7 @@ function DesignEditor() {
                     variant="ghost"
                     size="sm"
                     className={cn(
-                      "h-8 cursor-pointer gap-1 rounded-md px-2 text-foreground hover:bg-accent hover:text-foreground",
+                      "h-[var(--design-row-height)] cursor-pointer gap-[var(--design-baseline-half)] rounded-md px-[var(--design-baseline-unit)] text-foreground hover:bg-accent hover:text-foreground",
                       hostEmbeddedEditor && "hidden",
                     )}
                     aria-label={"Preview or publish app" /* i18n-ignore */}
@@ -19006,7 +19492,7 @@ function DesignEditor() {
               }}
               shareTabs={designShareTabs}
               popoverClassName={designSharePopoverClassName}
-              triggerClassName="h-8 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
+              triggerClassName="h-[var(--design-row-height)] rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-[calc(var(--design-baseline-unit)*1.5)] text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
             />
           ) : sessionResolved ? (
             signedOutPersistenceActions
@@ -19016,12 +19502,12 @@ function DesignEditor() {
       {activeScreenIsLocalSource &&
       viewMode === "single" &&
       activeScreenPreviewUrl ? (
-        <div className="mt-1 flex min-w-0 items-center gap-1">
+        <div className="mt-[var(--design-baseline-half)] flex h-[var(--design-row-height)] min-w-0 items-center gap-[var(--design-baseline-half)]">
           <a
             href={activeScreenPreviewUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-border bg-[var(--design-editor-panel-raised-bg)] px-2 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex h-[var(--design-control-height)] min-w-0 flex-1 items-center gap-[var(--design-baseline-half)] rounded-md border border-border bg-[var(--design-editor-panel-raised-bg)] px-[var(--design-baseline-unit)] text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={"Open local preview" /* i18n-ignore */}
             title={activeScreenPreviewUrl}
           >
@@ -19042,7 +19528,7 @@ function DesignEditor() {
                     <Button
                       size="icon"
                       variant="outline"
-                      className="size-7"
+                      className="size-[var(--design-control-height)]"
                       disabled
                       aria-label={t("designEditor.applyToSource")}
                     >
@@ -19060,7 +19546,7 @@ function DesignEditor() {
                   <Button
                     size="icon"
                     variant="outline"
-                    className="size-7"
+                    className="size-[var(--design-control-height)]"
                     disabled={
                       applyToSourcePending || !activeLocalhostSourceWriteContent
                     }
@@ -19100,8 +19586,8 @@ function DesignEditor() {
           collaborators menu to a sliver behind the segments. */}
       {/* Zoom sits here rather than in the inspector tab row below: sharing
           that row truncated the "Comments" tab label at normal panel widths. */}
-      <div className="mt-1 flex min-w-0 flex-nowrap items-center gap-1.5">
-        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="mt-[var(--design-baseline-half)] flex h-[var(--design-row-height)] min-w-0 flex-nowrap items-center gap-[var(--design-baseline-half)]">
+        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-[var(--design-baseline-half)] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {deviceFrameControl}
           {responsiveEditScopeControl}
         </div>
@@ -19126,6 +19612,8 @@ function DesignEditor() {
     readOnly: !canEditDesign,
     selectedElements: selectedInspectorElements,
     selectedScreenGeometry,
+    selectedScreenLayoutGrid,
+    onLayoutGridChange: canEditDesign ? handleLayoutGridChange : undefined,
     canvasBackground,
     onCanvasBackgroundChange: canEditDesign
       ? handleCanvasBackgroundChange
@@ -19134,12 +19622,31 @@ function DesignEditor() {
       ? handleScreenGeometryChange
       : undefined,
     pageStyles,
+    selectedScreenElement,
+    onSelectedScreenStyleChange: canEditDesign
+      ? handleSelectedScreenStyleChange
+      : undefined,
+    onSelectedScreenStylesChange: canEditDesign
+      ? handleSelectedScreenStylesChange
+      : undefined,
+    viewMode,
+    mode,
     files: documentColorFiles,
     activeTool,
     onCreateScreenFromPreset: canEditDesign
       ? handleCreateScreenFromPreset
       : undefined,
     zoom,
+    inspectorGridDebug: import.meta.env.DEV
+      ? editorPreferences.inspectorGridDebug
+      : false,
+    onInspectorGridDebugChange: import.meta.env.DEV
+      ? (inspectorGridDebug: boolean) =>
+          setEditorPreferences({
+            ...editorPreferences,
+            inspectorGridDebug,
+          })
+      : undefined,
     activeTab: activeInspectorTab,
     onActiveTabChange: setActiveInspectorTab,
     tweaks,
@@ -19181,6 +19688,7 @@ function DesignEditor() {
     reviewCommentsCount: reviewOpenCount,
     onAlignSelection: canEditDesign ? handleAlignSelection : undefined,
     onDisableAutoLayout: canEditDesign ? handleDisableAutoLayout : undefined,
+    onApplyLayoutFlow: canEditDesign ? handleApplyLayoutFlow : undefined,
     onInteractionStateChange: handleInteractionStateChange,
     onEditCode: handleShaderEditCode,
   };
@@ -19223,7 +19731,10 @@ function DesignEditor() {
       {/* ── Render: main canvas area ── */}
       <div className="flex-1 flex overflow-hidden relative">
         {!hostOwnsChrome && !uiHidden ? (
-          <div className="relative flex min-h-0 shrink-0 bg-[var(--design-editor-panel-bg)]">
+          <div
+            data-design-chrome-region="left-shell"
+            className="relative flex min-h-0 shrink-0 bg-[var(--design-editor-panel-bg)]"
+          >
             <DesignWorkspaceRail
               activePanel={activeLeftPanel}
               disabledPanels={
@@ -19244,7 +19755,7 @@ function DesignEditor() {
               ref={leftSidebarContentRef}
               aria-hidden={activeLeftPanel === null}
               className={cn(
-                "flex min-h-0 max-w-[calc(100dvw-57px)] shrink-0 flex-col overflow-hidden border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] transition-[width] duration-150 ease-out md:max-w-none",
+                "flex min-h-0 max-w-[calc(100dvw-var(--design-chrome-rail-width))] shrink-0 flex-col overflow-hidden border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] transition-[width] duration-150 ease-out md:max-w-none",
                 activeLeftPanel === null &&
                   "pointer-events-none invisible border-r-0",
               )}
@@ -19256,7 +19767,10 @@ function DesignEditor() {
                   activeLeftPanel === "file" ? "flex" : "hidden",
                 )}
               >
-                <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border px-3">
+                <div
+                  data-design-chrome-region="left-header"
+                  className="flex h-[var(--design-section-height)] shrink-0 items-center gap-[var(--design-baseline-half)] border-b border-border px-[var(--design-baseline-unit)]"
+                >
                   {projectTitleControl}
                 </div>
                 <div className="min-h-0 flex-1">
@@ -19325,24 +19839,50 @@ function DesignEditor() {
                     className="min-h-0 flex-1 border-0 bg-transparent shadow-none"
                     storageKey={DESIGN_CHAT_STORAGE_KEY}
                     emptyStateText={t("chat.emptyState")}
-                    suggestions={[
-                      t("chat.suggestionLandingPage"),
-                      t("chat.suggestionBrandMatch"),
-                      t("chat.suggestionMobile"),
-                    ]}
+                    suggestions={designAgentSuggestions}
+                    dynamicSuggestions={designAgentSuggestionConfig}
                     scope={designChatScope}
+                    chatHistory={designChatHistory}
                     showScopeBadge={false}
                     showHeader={false}
                     showTabBar={false}
                     browserTabId={browserTabId}
                     onComposerTextChange={handleComposerTextChange}
-                    composerSlot={
-                      detectedFigmaComposerLink ? (
-                        <FigmaLinkComposerBubble
-                          link={detectedFigmaComposerLink}
-                          designId={id}
+                    onMessageCountChange={setChatMessageCount}
+                    // After the suggestions and empty-state only: a template
+                    // and a suggestion are two ways to start, and neither is
+                    // worth offering once the conversation is under way.
+                    emptyStateFooter={
+                      showFirstRunStart ? (
+                        <FirstRunStart
+                          templates={firstRunTemplates}
+                          templatesLoading={firstRunTemplatesQuery.isLoading}
+                          applyingTemplateId={applyingTemplateId}
+                          onPickTemplate={(templateId) => {
+                            void handleFirstRunTemplate(templateId);
+                          }}
                         />
                       ) : null
+                    }
+                    composerSlot={
+                      <>
+                        {showFirstRunStart ? (
+                          <div data-design-system-picker className="px-3 pb-2">
+                            <DesignSystemPickerControl
+                              designSystems={firstRunDesignSystems}
+                              loading={designSystemsLoading}
+                              selectedId={selectedPromptDesignSystemId ?? null}
+                              onChange={handleFirstRunDesignSystem}
+                            />
+                          </div>
+                        ) : null}
+                        {detectedFigmaComposerLink ? (
+                          <FigmaLinkComposerBubble
+                            link={detectedFigmaComposerLink}
+                            designId={id}
+                          />
+                        ) : null}
+                      </>
                     }
                   />
                 ) : (
@@ -19363,7 +19903,7 @@ function DesignEditor() {
                     activeLeftPanel === "assets" ? "flex" : "hidden",
                   )}
                 >
-                  <div className="flex min-h-8 shrink-0 items-center border-b border-border/60 px-3">
+                  <div className="flex h-[var(--design-section-height)] shrink-0 items-center border-b border-border/60 px-[var(--design-baseline-unit)]">
                     <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
                       {t("designEditor.leftRail.assets")}
                     </h3>
@@ -19503,7 +20043,11 @@ function DesignEditor() {
           !uiHidden &&
           !responsiveInteractActive &&
           designBottomToolbarMode === "editor" &&
-          activeFile &&
+          // Not gated on activeFile: a new design has no file rows at all, so
+          // waiting for one held the toolbar back on exactly the first load
+          // where a user needs it. The draw tools create the file they write
+          // to, and `design` is enough to know the editor is real.
+          design &&
           !questionFlowActive && (
             <DesignBottomToolbar
               mode={mode}
@@ -19794,7 +20338,15 @@ function DesignEditor() {
             onToggleUi={handleToggleUi}
             onToggleComments={handleToggleComments}
           >
-            {activeFile ? (
+            {designIsEmpty &&
+            (generating || pendingGenerationActive || generationIssue) ? (
+              <GenerationStatusCard
+                generating={generating || pendingGenerationActive}
+                issue={generationIssue}
+                retryablePrompt={retryablePrompt?.prompt ?? null}
+                onRetry={handleRetryGeneration}
+              />
+            ) : viewMode === "overview" || activeFile ? (
               <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
                 {/* Interact's device chrome sits inside the canvas column so
                     the workspace rails stay put — Interact is a different view
@@ -20014,6 +20566,7 @@ function DesignEditor() {
                           canEditDesign ? handleOverviewDropFiles : undefined
                         }
                         boardFileId={boardFileId}
+                        canvasBackground={canvasBackground}
                         boardIsActive={activeFileId === boardFileId}
                         boardFileContent={boardFileContent}
                         boardFrameGeometry={boardFrameGeometry}
@@ -20108,6 +20661,8 @@ function DesignEditor() {
                         frameToolDraws={frameToolDraws}
                         onDeleteSelection={handleDeleteOverviewSelection}
                         onNudgeSelection={handleOverviewNudgeSelection}
+                        nudgeAmounts={editorPreferences.nudge}
+                        layoutGrids={layoutGrids}
                         onSelectionChange={handleOverviewScreenSelectionChange}
                         onLayerMarqueeSelectionChange={
                           handleLayerMarqueeSelectionChange
@@ -20164,6 +20719,7 @@ function DesignEditor() {
                       {/* ── Render: single-screen canvas ── */}
                       <DesignCanvas
                         screenId={activeFile.id}
+                        layoutGridStep={activeScreenLayoutGridStep}
                         content={activeContent}
                         contentKey={`${activeFile.id}:${contentRenderRevision}`}
                         styleRevertRequest={
@@ -20453,83 +21009,7 @@ function DesignEditor() {
                   />
                 </div>
               </div>
-            ) : (
-              <div className="flex min-h-0 flex-1 items-center justify-center px-8 py-10">
-                <div className="flex w-full max-w-md flex-col items-center text-center">
-                  {generating || pendingGenerationActive ? (
-                    <>
-                      <div className="mb-4 flex size-12 items-center justify-center rounded-xl border border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] shadow-[0_18px_50px_-34px_rgba(0,0,0,0.8)]">
-                        <Spinner className="size-5 text-foreground/40" />
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        {t("designEditor.generating")}
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <div
-                        aria-hidden="true"
-                        className="mb-5 w-full max-w-sm rounded-xl bg-[#f7f8fb] p-3 dark:bg-[#f4f6f8]"
-                      >
-                        <div className="flex h-7 items-center justify-between px-1 pb-2">
-                          <div className="flex gap-1.5">
-                            <span className="size-2 rounded-full bg-slate-950/[0.12]" />
-                            <span className="size-2 rounded-full bg-slate-950/[0.1]" />
-                            <span className="size-2 rounded-full bg-slate-950/[0.08]" />
-                          </div>
-                          <span className="h-2 w-16 rounded bg-slate-950/[0.08]" />
-                        </div>
-                        <div className="space-y-3 pt-4">
-                          <span className="block h-5 w-2/3 rounded bg-slate-950/[0.085]" />
-                          <span className="block h-4 w-1/2 rounded bg-slate-950/[0.07]" />
-                          <div className="grid grid-cols-3 gap-2 pt-2">
-                            <span className="h-12 rounded-md bg-slate-950/[0.07]" />
-                            <span className="h-12 rounded-md bg-slate-950/[0.07]" />
-                            <span className="h-12 rounded-md bg-slate-950/[0.07]" />
-                          </div>
-                          <span className="block h-20 rounded-lg bg-slate-950/[0.07]" />
-                        </div>
-                      </div>
-                      <p className="mb-3 text-sm font-medium text-foreground/85">
-                        {generationIssue ?? t("designEditor.noFiles")}
-                      </p>
-                      {retryablePrompt ? (
-                        <p className="mx-auto mb-4 max-w-sm text-xs italic text-muted-foreground/70">
-                          {`"${retryablePrompt.prompt}"`}
-                        </p>
-                      ) : null}
-                      <div className="flex items-center justify-center gap-2">
-                        {retryablePrompt ? (
-                          <Button
-                            size="sm"
-                            className="h-8 cursor-pointer rounded-md"
-                            onClick={handleRetryGeneration}
-                          >
-                            <IconRefresh className="h-3.5 w-3.5" />
-                            {t("designEditor.tryAgain")}
-                          </Button>
-                        ) : null}
-                        <Button
-                          ref={generateBtnRef}
-                          variant={retryablePrompt ? "ghost" : "outline"}
-                          size="sm"
-                          className="h-8 cursor-pointer rounded-md"
-                          onClick={() => {
-                            setRetryablePrompt(null);
-                            handlePromptOpenChange(true);
-                          }}
-                        >
-                          <IconPlus className="h-3.5 w-3.5" />
-                          {retryablePrompt
-                            ? t("designEditor.newPrompt")
-                            : t("designEditor.generateDesign")}
-                        </Button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
+            ) : null}
           </CanvasContextMenu>
         )}
 
@@ -20537,6 +21017,7 @@ function DesignEditor() {
         {!hostOwnsChrome && !uiHidden && !initialGenerationChromeLimited ? (
           <div
             ref={rightSidebarContentRef}
+            data-design-chrome-region="right-panel"
             className="relative hidden h-full min-h-0 shrink-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] md:flex"
             style={{ width: rightSidebarWidth }}
           >
@@ -20684,16 +21165,15 @@ function DesignEditor() {
             await loadDesignSystemGenerationContext(designSystemId);
           const shouldExploreVariants =
             promptRequestsVariantExploration(prompt);
-          const precedent = shouldExploreVariants
+          const intake = shouldExploreVariants
             ? null
             : await (async () => {
                 await creativeContextPersistRef.current?.catch(() => {});
-                return loadCreativeContextPrecedent(
-                  (await readCreativeContextState()).selectedContextId,
-                );
+                return loadIntakeContextFromAppState(readCreativeContextState);
               })();
           const shouldSkipQuestions =
-            shouldExploreVariants || precedent?.status === "strong";
+            shouldExploreVariants ||
+            (intake ? allIntakeTopicsCovered(intake.coverage) : false);
           const context = [
             `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
             `User request: "${prompt}"`,
@@ -20706,15 +21186,27 @@ function DesignEditor() {
               : shouldSkipQuestions
                 ? [
                     ...designGenerationDirectives(id, designSystemId),
-                    ...(precedent?.status === "strong"
+                    ...(intake?.explicitContext &&
+                    intake.precedent.status === "strong"
                       ? designPrecedentDirectives(
-                          precedent.contextId,
-                          precedent.matches,
+                          intake.precedent.contextId,
+                          intake.precedent.matches,
                           id,
                         )
                       : []),
                   ]
-                : designIntakeQuestionDirectives(id, designSystemId)),
+                : designIntakeQuestionDirectives(
+                    id,
+                    designSystemId,
+                    0,
+                    intake
+                      ? {
+                          coverage: intake.coverage,
+                          contextUnavailable: intake.unavailable,
+                          unavailableReason: intake.unavailableReason,
+                        }
+                      : undefined,
+                  )),
           ].join("\n");
           clearGenerationCompleteTimer();
           setGenerationIssue(null);
@@ -20724,6 +21216,8 @@ function DesignEditor() {
             effort: options.effort,
           };
           const startedAt = Date.now();
+          const { attachments: _composerAttachments, ...agentOptions } =
+            options;
           patchPendingGeneration(id, {
             prompt,
             files,
@@ -20734,13 +21228,11 @@ function DesignEditor() {
             startedAt,
           });
           setHasPendingGeneration(true);
-          const runTabId = agentSubmit(
-            shouldSkipQuestions
-              ? `Generate design for "${design.title}": ${prompt}`
-              : `Prepare design questions for "${design.title}": ${prompt}`,
-            context,
-            { ...options, newTab: true, images },
-          );
+          const runTabId = agentSubmit(prompt, context, {
+            ...agentOptions,
+            newTab: true,
+            images,
+          });
           setGenerationChatTabId(runTabId);
           patchPendingGeneration(id, {
             prompt,
@@ -20768,7 +21260,7 @@ function DesignEditor() {
         onCreativeContextChange={handleCreativeContextChange}
         onCreateDesignSystem={() => {
           handlePromptOpenChange(false);
-          navigate("/design-systems/setup");
+          void navigate("/design-systems/setup");
         }}
       />
       <PromptPopover

@@ -85,8 +85,23 @@ describe("emitSignupEventForCreatedUser", () => {
     expect(tracked[0].properties).toMatchObject({
       auth_provider: "better-auth",
       signup_origin: "browser_signup",
+      signup_method: "password",
       utm_source: "google",
       utm_campaign: "launch",
+    });
+  });
+
+  it("labels a signup created by magic-link verification", async () => {
+    const headers = headersWithCookie("an_aid=anon_magic_1");
+    await emitSignupEventForCreatedUser(USER, {
+      request: {
+        headers,
+        url: "/_agent-native/auth/ba/magic-link/verify?newUserCallbackURL=%2F",
+      },
+    });
+
+    expect(tracked[0]?.properties).toMatchObject({
+      signup_method: "magic_link",
     });
   });
 

@@ -4,6 +4,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockAssertAccess = vi.fn();
 const mockWriteAppState = vi.fn();
+const mockGetRequestRunContext = vi.fn(() => ({
+  browserTabId: "slides-tab-1",
+}));
 const mockNotifyClients = vi.fn();
 const mockGetUserEmail = vi.fn(() => "owner@example.com");
 const mockGetOrgId = vi.fn(() => null);
@@ -32,7 +35,9 @@ const mockTables = vi.hoisted(() => ({
   },
 }));
 
-let existingDeckRow: { id: string; data: string } | undefined = undefined;
+let existingDeckRow:
+  | { id: string; data: string; updatedAt: string }
+  | undefined = undefined;
 let defaultDesignSystemId: string | undefined = undefined;
 let insertedRow: Record<string, unknown> | undefined = undefined;
 let updatedFields: Record<string, unknown> | undefined = undefined;
@@ -60,14 +65,19 @@ const valuesFn = vi.fn(async (row: Record<string, unknown>) => {
 const insertFn = vi.fn(() => ({ values: valuesFn }));
 
 // db.update().set(...).where(...)
-const whereUpdateFn = vi.fn(async () => undefined);
+const whereUpdateFn = vi.fn(async () => ({ rowsAffected: 1 }));
 const setFn = vi.fn((fields: Record<string, unknown>) => {
   updatedFields = fields;
   return { where: whereUpdateFn };
 });
 const updateFn = vi.fn(() => ({ set: setFn }));
 
-const mockDb = { select: selectFn, insert: insertFn, update: updateFn };
+const mockDb = {
+  select: selectFn,
+  insert: insertFn,
+  update: updateFn,
+  transaction: async (run: (tx: typeof mockDb) => Promise<void>) => run(mockDb),
+};
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => mockDb,
@@ -103,6 +113,7 @@ vi.mock("../server/lib/deck-versions.js", () => ({
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => mockGetUserEmail(),
   getRequestOrgId: () => mockGetOrgId(),
+  getRequestRunContext: () => mockGetRequestRunContext(),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -136,6 +147,20 @@ describe("create-deck — aspectRatio", () => {
     expect(insertedRow).toBeDefined();
     const data = JSON.parse(insertedRow!.data as string);
     expect(data.slides).toEqual([]);
+  });
+
+  it("opens a newly created empty deck for incremental slide generation", async () => {
+    const result = await action.run({ title: "T", slides: [] });
+
+    expect(result.slideCount).toBe(0);
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "navigate:slides-tab-1",
+      expect.objectContaining({
+        view: "editor",
+        deckId: result.id,
+        _writeId: expect.any(String),
+      }),
+    );
   });
 
   it("omits aspectRatio from the data JSON when not provided (legacy default)", async () => {
@@ -194,6 +219,7 @@ describe("create-deck — aspectRatio", () => {
   it("preserves the existing aspectRatio when bulk-replacing slides without specifying it", async () => {
     existingDeckRow = {
       id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
       data: JSON.stringify({ title: "T", slides: [], aspectRatio: "1:1" }),
     };
     await action.run({
@@ -206,9 +232,25 @@ describe("create-deck — aspectRatio", () => {
     expect(data.aspectRatio).toBe("1:1");
   });
 
+  it("scopes existing-deck navigation to the invoking browser tab", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({ title: "T", slides: [] }),
+    };
+
+    await action.run({ title: "T2", slides: [], deckId: "deck-1" });
+
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "navigate:slides-tab-1",
+      expect.objectContaining({ view: "editor", deckId: "deck-1" }),
+    );
+  });
+
   it("overwrites the existing aspectRatio when one is provided on bulk replace", async () => {
     existingDeckRow = {
       id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
       data: JSON.stringify({ title: "T", slides: [], aspectRatio: "16:9" }),
     };
     await action.run({

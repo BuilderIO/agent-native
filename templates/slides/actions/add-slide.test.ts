@@ -1,14 +1,12 @@
+import { isAgentActionStopError } from "@agent-native/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { hashSlideContent } from "../shared/slide-fit";
 
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
 const mockReadAppState = vi.fn(async () => null);
 const mockWriteAppState = vi.fn(async () => undefined);
-// Each test sets this; the helper consults it to decide whether to report
-// overflow, fit, or timeout.
-let mockFitCheckResult:
-  | { status: "fits" | "overflows" | "timeout"; measurement?: unknown }
-  | undefined;
 
 let deckData: Record<string, unknown>;
 let updatedFields: Record<string, unknown> | undefined;
@@ -17,12 +15,13 @@ const whereSelectFn = vi.fn(async () => [
   {
     id: "deck-1",
     data: JSON.stringify(deckData),
+    updatedAt: "2026-01-01T00:00:00.000Z",
   },
 ]);
 const fromFn = vi.fn(() => ({ where: whereSelectFn }));
 const selectFn = vi.fn(() => ({ from: fromFn }));
 
-const whereUpdateFn = vi.fn(async () => undefined);
+const whereUpdateFn = vi.fn(async () => ({ rowsAffected: 1 }));
 const setFn = vi.fn((fields: Record<string, unknown>) => {
   updatedFields = fields;
   return { where: whereUpdateFn };
@@ -41,6 +40,22 @@ const mockDb = {
 
 const mockGetGenerationCreativeContext = vi.fn(async () => null);
 const mockRecordGenerationCreativeContext = vi.fn(async () => undefined);
+const mockCreateDeckVersionSnapshot = vi.fn(async () => ({ created: true }));
+const mockDeckVersionChatContextFromAction = vi.fn(
+  (context?: {
+    caller?: string;
+    threadId?: string;
+    runId?: string;
+    turnId?: string;
+  }) =>
+    context?.caller === "webmcp"
+      ? {
+          threadId: context.threadId,
+          runId: context.runId,
+          turnId: context.turnId,
+        }
+      : undefined,
+);
 const mockValidateGenerationCreativeContext = vi.fn(
   async (input: {
     contextPackId?: string;
@@ -112,14 +127,24 @@ vi.mock("@agent-native/core/collab", () => ({
 // on add-slide's own logic without exercising the shared lock module.
 vi.mock("./patch-deck.js", () => ({
   withDeckLock: (_deckId: string, fn: () => Promise<unknown>) => fn(),
+  isAgentPatchCaller: (caller: string | undefined) =>
+    caller === "tool" ||
+    caller === "mcp" ||
+    caller === "a2a" ||
+    caller === "webmcp",
 }));
 
 vi.mock("../server/lib/deck-versions.js", () => ({
-  createDeckVersionSnapshot: vi.fn(async () => ({ created: true })),
+  createDeckVersionSnapshot: (...args: unknown[]) =>
+    mockCreateDeckVersionSnapshot(...args),
+  deckVersionChatContextFromAction: (...args: unknown[]) =>
+    mockDeckVersionChatContextFromAction(...args),
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: (...args: unknown[]) => ({ and: args }),
   eq: (col: unknown, val: unknown) => ({ col, val }),
+  isNull: (col: unknown) => ({ isNull: col }),
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
@@ -132,17 +157,10 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestRunContext: () => undefined,
 }));
 
-vi.mock("./_await-fit-check.js", () => ({
-  awaitLayoutFitCheck: async () => mockFitCheckResult ?? { status: "timeout" },
-  formatOverflowForTool: (deckId: string, m: { verticalOverflow: number }) =>
-    `MOCK_OVERFLOW_MESSAGE deck=${deckId} overflow=${m.verticalOverflow}`,
-}));
-
 import action from "./add-slide";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockFitCheckResult = undefined;
   mockGetGenerationCreativeContext.mockResolvedValue(null);
   deckData = {
     title: "Test deck",
@@ -157,6 +175,128 @@ beforeEach(() => {
 describe("add-slide", () => {
   it("does not advertise parallel execution for deck writes", () => {
     expect(action.parallelSafe).toBeUndefined();
+  });
+
+  it.each(["tool", "webmcp"] as const)(
+    "rejects agent additions after the requested slide count for %s callers",
+    async (caller) => {
+      deckData.generationContext = { targetSlideCount: 2 };
+
+      const error = await action
+        .run(
+          {
+            deckId: "deck-1",
+            slideId: "slide-new",
+            content: "<div>New</div>",
+          },
+          { caller },
+        )
+        .catch((caught: unknown) => caught);
+
+      expect(isAgentActionStopError(error)).toBe(true);
+      expect(error).toMatchObject({
+        name: "AgentActionStopError",
+        errorCode: "target_slide_count_reached",
+        details: {
+          deckId: "deck-1",
+          currentSlideCount: 2,
+          targetSlideCount: 2,
+        },
+      });
+      expect(updateFn).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    {
+      name: "before the persisted target",
+      slides: [{ id: "slide-1", content: "<div>One</div>" }],
+      targetSlideCount: 2,
+      targetSlideCountOverride: 3,
+    },
+    {
+      name: "below the current deck size",
+      slides: [
+        { id: "slide-1", content: "<div>One</div>" },
+        { id: "slide-2", content: "<div>Two</div>" },
+        { id: "slide-3", content: "<div>Three</div>" },
+      ],
+      targetSlideCount: 2,
+      targetSlideCountOverride: 2,
+    },
+  ])("rejects target overrides $name", async (input) => {
+    deckData.slides = input.slides;
+    deckData.generationContext = {
+      targetSlideCount: input.targetSlideCount,
+    };
+
+    await expect(
+      action.run(
+        {
+          deckId: "deck-1",
+          slideId: "slide-new",
+          content: "<div>New</div>",
+          targetSlideCountOverride: input.targetSlideCountOverride,
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "target_slide_count_override_invalid",
+      details: {
+        currentSlideCount: input.slides.length,
+        targetSlideCount: input.targetSlideCount,
+        targetSlideCountOverride: input.targetSlideCountOverride,
+      },
+    });
+    expect(updateFn).not.toHaveBeenCalled();
+  });
+
+  it("forces a WebMCP version snapshot with its run context", async () => {
+    deckData.generationContext = { targetSlideCount: 3 };
+
+    await action.run(
+      {
+        deckId: "deck-1",
+        slideId: "slide-new",
+        content: "<div>New</div>",
+      },
+      {
+        caller: "webmcp",
+        threadId: "thread-webmcp",
+        runId: "run-webmcp",
+        turnId: "turn-webmcp",
+      },
+    );
+
+    expect(mockCreateDeckVersionSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "deck-1" }),
+      expect.objectContaining({
+        force: true,
+        chatContext: {
+          threadId: "thread-webmcp",
+          runId: "run-webmcp",
+          turnId: "turn-webmcp",
+        },
+      }),
+    );
+  });
+
+  it("allows an agent to extend the target after an explicit follow-up", async () => {
+    deckData.generationContext = { targetSlideCount: 2 };
+
+    await action.run(
+      {
+        deckId: "deck-1",
+        slideId: "slide-follow-up",
+        content: "<div>Follow-up</div>",
+        targetSlideCountOverride: 3,
+      },
+      { caller: "tool" },
+    );
+
+    const updated = JSON.parse(updatedFields!.data as string);
+    expect(updated.generationContext.targetSlideCount).toBe(3);
+    expect(updated.slides).toHaveLength(3);
   });
 
   it("repairs an opaque generated title from the first slide", async () => {
@@ -283,73 +423,30 @@ describe("add-slide", () => {
     ).rejects.toThrow();
   });
 
-  it("appends layoutOverflow + auto-fix message when the editor reports vertical overflow", async () => {
-    mockFitCheckResult = {
-      status: "overflows",
-      measurement: {
-        slideId: "slide-new",
-        contentHeight: 645,
-        viewportHeight: 420,
-        verticalOverflow: 225,
-        measuredAt: Date.now(),
-      },
-    };
-
+  it("returns a pending fit check keyed to the new slide revision", async () => {
     const result = (await action.run({
       deckId: "deck-1",
       slideId: "slide-new",
       content: "<div>New</div>",
     })) as Record<string, unknown>;
 
-    expect(result).toMatchObject({
-      deckId: "deck-1",
-      slideId: "slide-new",
-      layoutOverflow: {
-        verticalOverflow: 225,
-        contentHeight: 645,
-        viewportHeight: 420,
-      },
-    });
-    expect(result.message).toMatch(/MOCK_OVERFLOW_MESSAGE/);
-  });
-
-  it("omits layoutOverflow when the editor reports the slide fits", async () => {
-    mockFitCheckResult = {
-      status: "fits",
-      measurement: {
-        slideId: "slide-new",
-        contentHeight: 380,
-        viewportHeight: 420,
-        verticalOverflow: 0,
-        measuredAt: Date.now(),
-      },
-    };
-
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-new",
-      content: "<div>New</div>",
-    })) as Record<string, unknown>;
-
-    expect(result.layoutOverflow).toBeUndefined();
-    expect(result.message).toBeUndefined();
-  });
-
-  it("omits layoutOverflow when no editor is open to measure (timeout)", async () => {
-    mockFitCheckResult = { status: "timeout" };
-
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-new",
-      content: "<div>New</div>",
-    })) as Record<string, unknown>;
-
-    expect(result.layoutOverflow).toBeUndefined();
-    expect(result.message).toBeUndefined();
     expect(result).toMatchObject({
       deckId: "deck-1",
       slideId: "slide-new",
       slideCount: 3,
+      layoutFit: {
+        status: "pending",
+        slideId: "slide-new",
+      },
+    });
+    expect(
+      result.layoutFit as {
+        contentHash: string;
+        layoutFitRevision: string;
+      },
+    ).toMatchObject({
+      contentHash: hashSlideContent("<div>New</div>"),
+      layoutFitRevision: expect.any(String),
     });
   });
 

@@ -50,14 +50,16 @@ async function sharePublicMeetingResourcesWithParticipants(args: {
   await Promise.all(
     resources.flatMap(({ resourceType, resourceId }) =>
       participantEmails.map((principalId) =>
-        shareResource.run({
-          resourceType,
-          resourceId,
-          principalType: "user",
-          principalId,
-          role: "viewer",
-          notify: false,
-        }),
+        Promise.resolve(
+          shareResource.run({
+            resourceType,
+            resourceId,
+            principalType: "user",
+            principalId,
+            role: "viewer",
+            notify: false,
+          }),
+        ),
       ),
     ),
   );

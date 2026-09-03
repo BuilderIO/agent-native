@@ -22,6 +22,7 @@ import type {
 } from "../../shared/api.js";
 import { getDb, schema } from "../db/index.js";
 import { parseJson } from "./json.js";
+import { canReadDraftAsset, type DraftReadScope } from "./library-access.js";
 import { getObject } from "./storage.js";
 
 export interface ReferenceForGeneration {
@@ -1462,7 +1463,10 @@ function formatRenderedDesignEvidence(style: StyleBrief): string {
       ["shadow", component.boxShadow],
       ["padding", component.padding],
     ]
-      .filter(([, value]) => typeof value === "string" && value.trim())
+      .filter(
+        (entry): entry is [string, string] =>
+          typeof entry[1] === "string" && Boolean(entry[1].trim()),
+      )
       .map(([name, value]) => `${name} ${value}`);
     if (fields.length > 0)
       lines.push(`${role} component: ${fields.join("; ")}.`);
@@ -1498,6 +1502,13 @@ export async function selectReferences(input: {
   subjectAssetId?: string;
   intent?: GenerationIntent;
   limit?: number;
+  /**
+   * Drafts are private to their author, and the pool below scores every asset
+   * in the kit — including unsaved candidates. Without this scope an automatic
+   * selection would quietly send another drafter's candidate to the provider.
+   * Required: pass `unrestrictedDraftReadScope()` for an approver.
+   */
+  draftScope: DraftReadScope;
 }): Promise<ReferenceForGeneration[]> {
   const db = getDb();
   const requestedExplicitIds = new Set(input.referenceAssetIds ?? []);
@@ -1531,6 +1542,7 @@ export async function selectReferences(input: {
           asset.mimeType.startsWith("image/") &&
           asset.status !== "archived" &&
           asset.status !== "failed" &&
+          canReadDraftAsset(input.draftScope, asset) &&
           !excludedAssetIds.has(asset.id),
       );
     const explicitRefs = await loadReferenceData(
@@ -1569,6 +1581,7 @@ export async function selectReferences(input: {
       excludeAssetIds: input.excludeAssetIds,
       intent: input.intent,
       limit: styleLimit,
+      draftScope: input.draftScope,
     });
     const seen = new Set(explicitRefs.map((ref) => ref.id));
     return [...explicitRefs, ...styleRefs.filter((ref) => !seen.has(ref.id))];
@@ -1600,6 +1613,7 @@ export async function selectReferences(input: {
         asset.status !== "archived" &&
         asset.status !== "failed" &&
         metadata.category !== "skeleton" &&
+        canReadDraftAsset(input.draftScope, asset) &&
         !excludedAssetIds.has(asset.id)
       );
     })

@@ -208,6 +208,12 @@ CREATE INDEX IF NOT EXISTS idx_mail_inventory_cursors_owner_expiry ON mail_inven
       sql: `ALTER TABLE mail_inventory_cursors ADD COLUMN IF NOT EXISTS claim_id TEXT;
 ALTER TABLE mail_inventory_cursors ADD COLUMN IF NOT EXISTS claimed_at ${intType()}`,
     },
+    {
+      version: 20,
+      name: "automation-rules-kind",
+      sql: `ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'automation';
+CREATE INDEX IF NOT EXISTS idx_automation_rules_owner_kind ON automation_rules(owner_email, kind)`,
+    },
   ],
   { table: "mail_migrations" },
 );

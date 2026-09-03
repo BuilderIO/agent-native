@@ -8,6 +8,28 @@ import {
   workspaceAppEmbedTarget,
 } from "./workspace-apps";
 
+const defaultUserAgent = navigator.userAgent;
+
+function setUserAgent(userAgent: string) {
+  Object.defineProperty(navigator, "userAgent", {
+    configurable: true,
+    value: userAgent,
+  });
+}
+
+function setAncestorOrigin(origin: string | null) {
+  Object.defineProperty(window.location, "ancestorOrigins", {
+    configurable: true,
+    value: origin
+      ? {
+          0: origin,
+          length: 1,
+          item: (index: number) => (index === 0 ? origin : null),
+        }
+      : undefined,
+  });
+}
+
 describe("workspaceAppEmbedTarget", () => {
   it("uses the app URL as the embed root when a mount path is also present", () => {
     expect(
@@ -69,10 +91,13 @@ describe("workspaceAppDirectHref", () => {
 describe("navigateToWorkspaceApp", () => {
   beforeEach(() => {
     window.history.replaceState({}, "", "/");
+    setAncestorOrigin(null);
   });
 
   afterEach(() => {
     window.history.replaceState({}, "", "/");
+    setAncestorOrigin(null);
+    setUserAgent(defaultUserAgent);
     Object.defineProperty(window, "parent", {
       configurable: true,
       value: window,
@@ -88,6 +113,42 @@ describe("navigateToWorkspaceApp", () => {
       configurable: true,
       value: {},
     });
+
+    expect(shouldOpenWorkspaceAppInTopWindow()).toBe(false);
+  });
+
+  it("keeps unrelated Electron webviews inline", () => {
+    setUserAgent("Mozilla/5.0 Electron/38.0");
+
+    expect(shouldOpenWorkspaceAppInTopWindow()).toBe(false);
+  });
+
+  it("ignores a generic Electron preload global", () => {
+    setUserAgent("Mozilla/5.0 Electron/38.0");
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {},
+    });
+
+    try {
+      expect(shouldOpenWorkspaceAppInTopWindow()).toBe(false);
+    } finally {
+      delete (window as unknown as { electronAPI?: unknown }).electronAPI;
+    }
+  });
+
+  it("uses the top window in known native desktop hosts", () => {
+    setUserAgent("Mozilla/5.0 Electron/38.0 ChatGPT/1.0");
+
+    expect(shouldOpenWorkspaceAppInTopWindow()).toBe(true);
+  });
+
+  it("keeps the hosted Dispatch shell inline", () => {
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: {},
+    });
+    setAncestorOrigin("https://agent-workspace.builder.io");
 
     expect(shouldOpenWorkspaceAppInTopWindow()).toBe(false);
   });

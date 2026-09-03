@@ -57,6 +57,7 @@ import { cn } from "@/lib/utils";
 import { AttachmentStrip } from "./AttachmentStrip";
 import {
   getCurrentDraftBodyFromEditor,
+  isSameScheduledDraft,
   splitQuotedContent,
 } from "./compose-draft-context";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
@@ -200,6 +201,9 @@ export function ComposeModal({
   const editorRef = useRef<ComposeEditorHandle>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const sendingIdsRef = useRef<Set<string>>(new Set());
+  const schedulingRef = useRef(false);
+  const draftsRef = useRef(drafts);
+  draftsRef.current = drafts;
 
   // Reset CC/BCC visibility and quote expansion when switching tabs
   useEffect(() => {
@@ -222,7 +226,7 @@ export function ComposeModal({
   }, [activeDraft?.id, initialExpanded, onInitialExpandedConsumed]);
 
   const handleSend = async () => {
-    if (!activeDraft || !activeId) return;
+    if (!activeDraft || !activeId || schedulingRef.current) return;
     if (sendingIdsRef.current.has(activeId)) return;
     if (!activeDraft.to.trim()) {
       toast.error(t("mail.toasts.pleaseAddRecipient"));
@@ -321,12 +325,14 @@ export function ComposeModal({
   };
 
   const handleSendLater = async (runAt: number) => {
-    if (!activeDraft || !activeId) return;
+    if (!activeDraft || !activeId || schedulingRef.current) return;
     if (!activeDraft.to.trim()) {
       toast.error(t("mail.toasts.pleaseAddRecipient"));
       return;
     }
 
+    schedulingRef.current = true;
+    const schedulingId = activeId;
     const draftSnapshot = { ...activeDraft };
 
     try {
@@ -343,8 +349,13 @@ export function ComposeModal({
         runAt,
       });
 
-      // Job created successfully — now discard the draft
-      onDiscard(activeId);
+      // Preserve edits made while the scheduling request was in flight.
+      const currentDraft = draftsRef.current.find(
+        (draft) => draft.id === schedulingId,
+      );
+      if (currentDraft && isSameScheduledDraft(currentDraft, draftSnapshot)) {
+        onDiscard(schedulingId);
+      }
 
       const scheduledDate = new Date(runAt).toLocaleString("en-US", {
         weekday: "short",
@@ -356,6 +367,8 @@ export function ComposeModal({
       toast(`Scheduled for ${scheduledDate}`);
     } catch {
       toast.error(t("mail.toasts.failedToScheduleEmailDraftKeptOpen"));
+    } finally {
+      schedulingRef.current = false;
     }
   };
 
@@ -416,7 +429,7 @@ export function ComposeModal({
 
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
-      handleSend();
+      void handleSend();
     }
     if (e.key === "Escape") {
       e.preventDefault();
@@ -493,8 +506,12 @@ export function ComposeModal({
       const attachments = await uploadFiles(files);
       const existing = activeDraft.attachments ?? [];
       onUpdate(activeId, { attachments: [...existing, ...attachments] });
-    } catch {
-      toast.error(t("mail.toasts.failedToAttachFile"));
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("mail.toasts.failedToAttachFile"),
+      );
     }
   };
 
@@ -917,7 +934,7 @@ export function ComposeModal({
                         onKeyDown={(e) => {
                           if (e.key === "Enter" && !e.shiftKey) {
                             e.preventDefault();
-                            handleGenerate();
+                            void handleGenerate();
                           }
                           if (e.key === "Escape") {
                             e.stopPropagation();
@@ -965,6 +982,7 @@ export function ComposeModal({
                 onSendLater={handleSendLater}
                 disabled={!activeDraft.to.trim()}
                 isSending={sendEmail.isPending}
+                isScheduling={scheduleEmail.isPending}
               />
             </div>
           </div>

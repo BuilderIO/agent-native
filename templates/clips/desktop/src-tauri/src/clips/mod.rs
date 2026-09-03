@@ -1,17 +1,19 @@
-use serde::Serialize;
+#[cfg(target_os = "macos")]
+use objc2_foundation::{NSPoint, NSRect, NSSize};
+use serde::{Deserialize, Serialize};
 #[cfg(target_os = "macos")]
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 #[cfg(target_os = "macos")]
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder,
+    AppHandle, Emitter, Listener, Manager, PhysicalPosition, PhysicalSize, WebviewUrl,
+    WebviewWindow, WebviewWindowBuilder,
 };
 
 use crate::dlog;
@@ -22,13 +24,16 @@ use crate::state::{
 use crate::util::{
     build_overlay_url, configure_overlay_behavior, hide_voice_wake_popover, is_recording_active,
     mark_popover_shown, present_interactive_window, raise_to_status_level, set_capture_excluded,
-    set_capture_excluded_always, set_capture_included, tray_monitor_physical_rect,
+    set_capture_excluded_always, set_capture_included, start_topmost_reassert_loop,
+    tray_monitor_physical_rect,
 };
 
 /// Native overlay windows for the recording experience. These render the same
 /// React bundle with a hash route that `main.tsx` uses to pick the component.
 const COUNTDOWN_LABEL: &str = "countdown";
 const TOOLBAR_LABEL: &str = "toolbar";
+/// Supersedes stale toolbar topmost loops after window recreation.
+static TOOLBAR_TOPMOST_GENERATION: AtomicU64 = AtomicU64::new(0);
 // Geometry of the two circular cancel/skip buttons that flank the countdown
 // number. These MUST stay in sync with the CSS in
 // `templates/clips/desktop/src/styles.css` (`.countdown-control` is 64px and
@@ -47,6 +52,7 @@ static COUNTDOWN_CONTROL_TRACKING: AtomicBool = AtomicBool::new(false);
 // closes it. Cleared when the card is dismissed or the next session starts.
 static TOOLBAR_FINISHING: AtomicBool = AtomicBool::new(false);
 const BUBBLE_LABEL: &str = "bubble";
+const BUBBLE_DESTROYED_EVENT: &str = "clips:bubble-destroyed";
 const PREPARING_LABEL: &str = "preparing";
 const FINALIZING_LABEL: &str = "finalizing";
 const FLOW_BAR_LABEL: &str = "flow-bar";
@@ -962,25 +968,78 @@ fn toolbar_position_path(app: &AppHandle) -> Option<PathBuf> {
     Some(dir.join("toolbar-pill-position.json"))
 }
 
-fn load_toolbar_position(app: &AppHandle) -> Option<(i32, i32)> {
-    let path = toolbar_position_path(app)?;
-    let bytes = std::fs::read(&path).ok()?;
-    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
-    let x = value.get("x")?.as_i64()? as i32;
-    let y = value.get("y")?.as_i64()? as i32;
-    Some((x, y))
+#[derive(Debug, Deserialize)]
+struct ToolbarPositionPreference {
+    x: i32,
+    y: i32,
+    #[serde(default)]
+    mode: Option<String>,
+    #[serde(default)]
+    location: Option<String>,
 }
 
-/// Persist the pill's dragged position (outer physical px). The renderer
-/// calls this debounced from the window's move events while at rest — it
-/// skips saves mid-reveal so a grown pill never becomes the stored anchor.
-#[tauri::command]
-pub async fn toolbar_save_position(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
-    let Some(path) = toolbar_position_path(&app) else {
+#[derive(Clone, Copy)]
+struct ToolbarDragAnchor {
+    cursor_x: i32,
+    cursor_y: i32,
+    win_x: i32,
+    win_y: i32,
+}
+
+fn toolbar_drag_anchor() -> &'static Mutex<Option<ToolbarDragAnchor>> {
+    static ANCHOR: OnceLock<Mutex<Option<ToolbarDragAnchor>>> = OnceLock::new();
+    ANCHOR.get_or_init(|| Mutex::new(None))
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ToolbarDockPreference {
+    pub mode: String,
+    pub location: Option<String>,
+}
+
+fn normalized_toolbar_dock_preference(
+    saved: Option<&ToolbarPositionPreference>,
+) -> ToolbarDockPreference {
+    let location = saved
+        .and_then(|value| value.location.as_deref())
+        .filter(|value| matches!(*value, "left" | "right" | "top" | "bottom"))
+        .map(str::to_string);
+    let mode = if saved
+        .and_then(|value| value.mode.as_deref())
+        .is_some_and(|value| value == "docked")
+        && location.is_some()
+    {
+        "docked"
+    } else {
+        "floating"
+    }
+    .to_string();
+    ToolbarDockPreference { mode, location }
+}
+
+fn load_toolbar_position(app: &AppHandle) -> Option<ToolbarPositionPreference> {
+    let path = toolbar_position_path(app)?;
+    let bytes = std::fs::read(&path).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+fn save_toolbar_position_file(
+    app: &AppHandle,
+    x: i32,
+    y: i32,
+    mode: &str,
+    location: Option<&str>,
+) -> Result<(), String> {
+    let Some(path) = toolbar_position_path(app) else {
         return Ok(());
     };
-    let body =
-        serde_json::to_vec(&serde_json::json!({ "x": x, "y": y })).map_err(|e| e.to_string())?;
+    let body = serde_json::to_vec(&serde_json::json!({
+        "x": x,
+        "y": y,
+        "mode": mode,
+        "location": location,
+    }))
+    .map_err(|e| e.to_string())?;
     let tmp = path.with_extension("json.tmp");
     if std::fs::write(&tmp, &body).is_err() {
         return Ok(());
@@ -988,6 +1047,223 @@ pub async fn toolbar_save_position(app: AppHandle, x: i32, y: i32) -> Result<(),
     if std::fs::rename(&tmp, &path).is_err() {
         let _ = std::fs::remove_file(&tmp);
     }
+    Ok(())
+}
+
+/// Persist the pill's resolved outer position (physical px). The renderer
+/// writes only after a drag settles or after a dock correction completes, so
+/// transient hover geometry never becomes the stored anchor.
+#[tauri::command]
+pub async fn toolbar_save_position(
+    app: AppHandle,
+    x: i32,
+    y: i32,
+    mode: Option<String>,
+    location: Option<String>,
+) -> Result<(), String> {
+    save_toolbar_position_file(
+        &app,
+        x,
+        y,
+        &mode.unwrap_or_else(|| "floating".to_string()),
+        location.as_deref(),
+    )
+}
+
+#[tauri::command]
+pub async fn toolbar_get_dock_preference(app: AppHandle) -> Result<ToolbarDockPreference, String> {
+    Ok(normalized_toolbar_dock_preference(
+        load_toolbar_position(&app).as_ref(),
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn appkit_frame_for_physical_bounds(
+    current_frame: NSRect,
+    current_x: i32,
+    current_y: i32,
+    target_x: i32,
+    target_y: i32,
+    target_width: u32,
+    target_height: u32,
+    scale: f64,
+) -> NSRect {
+    let scale = scale.max(1.0);
+    let width = target_width as f64 / scale;
+    let height = target_height as f64 / scale;
+    let delta_x = (target_x - current_x) as f64 / scale;
+    let delta_y = (target_y - current_y) as f64 / scale;
+    NSRect::new(
+        NSPoint::new(
+            current_frame.origin.x + delta_x,
+            current_frame.origin.y + current_frame.size.height - height - delta_y,
+        ),
+        NSSize::new(width, height),
+    )
+}
+
+/// Apply the recorder window's origin and size as one native frame. A docked
+/// pill changes both values on every confirmation transition; separate Tauri
+/// calls expose an intermediate left-anchored frame on macOS.
+#[tauri::command]
+pub async fn toolbar_set_bounds(
+    app: AppHandle,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(TOOLBAR_LABEL) else {
+        return Ok(());
+    };
+
+    #[cfg(target_os = "macos")]
+    {
+        let current_position = window.outer_position().map_err(|err| err.to_string())?;
+        let scale = window.scale_factor().map_err(|err| err.to_string())?;
+        let win = window.clone();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        win.clone()
+            .run_on_main_thread(move || {
+                let result = (|| -> Result<(), String> {
+                    let ns_window_ptr = win.ns_window().map_err(|err| err.to_string())?;
+                    if ns_window_ptr.is_null() {
+                        return Err("toolbar NSWindow is unavailable".to_string());
+                    }
+                    // SAFETY: Tauri owns this live NSWindow and the closure is
+                    // executing on AppKit's main thread. `setFrame:display:`
+                    // updates origin and size in one transaction.
+                    unsafe {
+                        let obj = ns_window_ptr as *mut objc2::runtime::AnyObject;
+                        let current_frame: NSRect = objc2::msg_send![&*obj, frame];
+                        let target_frame = appkit_frame_for_physical_bounds(
+                            current_frame,
+                            current_position.x,
+                            current_position.y,
+                            x,
+                            y,
+                            width,
+                            height,
+                            scale,
+                        );
+                        let _: () = objc2::msg_send![&*obj, setFrame: target_frame, display: true];
+                    }
+                    Ok(())
+                })();
+                let _ = tx.send(result);
+            })
+            .map_err(|err| err.to_string())?;
+        return rx
+            .await
+            .map_err(|_| "toolbar frame update was cancelled".to_string())?;
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        window
+            .set_size(tauri::Size::Physical(PhysicalSize::new(width, height)))
+            .map_err(|err| err.to_string())?;
+        window
+            .set_position(PhysicalPosition::new(x, y))
+            .map_err(|err| err.to_string())?;
+        Ok(())
+    }
+}
+
+fn toolbar_monitor_for_cursor(
+    window: &WebviewWindow,
+    cursor_x: i32,
+    cursor_y: i32,
+) -> Option<(i32, i32, u32, u32)> {
+    let monitors = window.available_monitors().ok()?;
+    monitors
+        .iter()
+        .find(|monitor| {
+            let position = monitor.position();
+            let size = monitor.size();
+            cursor_x >= position.x
+                && cursor_x < position.x + size.width as i32
+                && cursor_y >= position.y
+                && cursor_y < position.y + size.height as i32
+        })
+        .or_else(|| monitors.first())
+        .map(|monitor| {
+            let position = monitor.position();
+            let size = monitor.size();
+            (position.x, position.y, size.width, size.height)
+        })
+}
+
+/// Start a renderer-owned drag for the recorder pill. Native OS dragging is
+/// intentionally avoided: it can continue moving the window while the
+/// renderer is resizing it for dock transitions, which causes snap-back and
+/// visible jitter at the edge of the screen.
+#[tauri::command]
+pub async fn toolbar_drag_start(app: AppHandle) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(TOOLBAR_LABEL) else {
+        return Ok(());
+    };
+    let (Ok(cursor), Ok(position)) = (window.cursor_position(), window.outer_position()) else {
+        return Ok(());
+    };
+    *toolbar_drag_anchor()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(ToolbarDragAnchor {
+        cursor_x: cursor.x.round() as i32,
+        cursor_y: cursor.y.round() as i32,
+        win_x: position.x,
+        win_y: position.y,
+    });
+    Ok(())
+}
+
+/// Move the recorder pill once per renderer animation frame. The position is
+/// clamped before applying it so the cursor can outrun a screen edge without
+/// making the overlay oscillate between the edge and an off-screen location.
+#[tauri::command]
+pub async fn toolbar_drag_move(app: AppHandle) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(TOOLBAR_LABEL) else {
+        return Ok(());
+    };
+    let Ok(cursor) = window.cursor_position() else {
+        return Ok(());
+    };
+    let anchor = *toolbar_drag_anchor()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let Some(anchor) = anchor else {
+        return Ok(());
+    };
+    let Ok(size) = window.outer_size() else {
+        return Ok(());
+    };
+    let cursor_x = cursor.x.round() as i32;
+    let cursor_y = cursor.y.round() as i32;
+    let target_x = anchor.win_x + cursor_x - anchor.cursor_x;
+    let target_y = anchor.win_y + cursor_y - anchor.cursor_y;
+    let Some((monitor_x, monitor_y, monitor_width, monitor_height)) =
+        toolbar_monitor_for_cursor(&window, cursor_x, cursor_y)
+    else {
+        return Ok(());
+    };
+    let gutter = (16.0 * window.scale_factor().unwrap_or(2.0)).round() as i32;
+    let min_x = monitor_x + gutter;
+    let min_y = monitor_y + gutter;
+    let max_x = (monitor_x + monitor_width as i32 - size.width as i32 - gutter).max(min_x);
+    let max_y = (monitor_y + monitor_height as i32 - size.height as i32 - gutter).max(min_y);
+    let x = target_x.clamp(min_x, max_x);
+    let y = target_y.clamp(min_y, max_y);
+    let _ = window.set_position(PhysicalPosition::new(x, y));
+    Ok(())
+}
+
+/// Finish a renderer-owned recorder drag. Docking is decided by the
+/// renderer after this command completes, using the final native position.
+#[tauri::command]
+pub async fn toolbar_drag_end() -> Result<(), String> {
+    *toolbar_drag_anchor()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = None;
     Ok(())
 }
 
@@ -1023,17 +1299,26 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     // here: its invisible margin eats clicks and fights screen-edge docking.
     // CSS is authored in logical px, while this command sizes the native
     // window in physical px.
-    let w: u32 = (248.0 * scale).round() as u32;
-    let h: u32 = (42.0 * scale).round() as u32;
+    let saved = load_toolbar_position(&app);
+    let preference = normalized_toolbar_dock_preference(saved.as_ref());
+    let vertical = preference.mode == "docked"
+        && matches!(preference.location.as_deref(), Some("left" | "right"));
+    let w: u32 = ((if vertical { 42.0 } else { 150.0 }) * scale).round() as u32;
+    let h: u32 = ((if vertical { 118.0 } else { 42.0 }) * scale).round() as u32;
+    let gutter = (16.0 * scale).round() as i32;
     // Bottom-center by default; a user-dragged position wins when it still
     // lands on the tray monitor (clamped so a monitor change can't strand
     // the pill off-screen).
     let default_x: i32 = mx + (mw as i32 - w as i32) / 2;
-    let default_y: i32 = my + mh as i32 - h as i32 - (48.0 * scale).round() as i32;
-    let (x, y) = match load_toolbar_position(&app) {
-        Some((sx, sy)) => (
-            sx.clamp(mx, mx + mw as i32 - w as i32),
-            sy.clamp(my, my + mh as i32 - h as i32),
+    let default_y: i32 = my + mh as i32 - h as i32 - (20.0 * scale).round() as i32;
+    let (x, y) = match saved {
+        Some(saved) => (
+            saved
+                .x
+                .clamp(mx + gutter, mx + mw as i32 - w as i32 - gutter),
+            saved
+                .y
+                .clamp(my + gutter, my + mh as i32 - h as i32 - gutter),
         ),
         None => (default_x, default_y),
     };
@@ -1044,6 +1329,7 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
         set_capture_excluded(&existing);
         configure_overlay_behavior(&existing);
         raise_to_status_level(&existing);
+        start_topmost_reassert_loop(&app, TOOLBAR_LABEL, &TOOLBAR_TOPMOST_GENERATION);
         return Ok(());
     }
     #[allow(unused_mut)]
@@ -1080,19 +1366,18 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     set_capture_excluded(&win);
     configure_overlay_behavior(&win);
     raise_to_status_level(&win);
-    // Deliberately NOT shown here. The pill owns its visibility through
-    // `toolbar_set_visible`: it stays hidden through pre-record and the
-    // countdown and appears only once the recorder reports capture live —
-    // recording controls before recording exists read as a broken state.
-    dlog!("[clips-tray] toolbar created (hidden until capture is live)");
+    // Deliberately NOT shown here. The renderer owns visibility through
+    // `toolbar_set_visible` so the window can mount in its disabled state
+    // before capture is live.
+    dlog!("[clips-tray] toolbar created (hidden until renderer is ready)");
 
     Ok(())
 }
 
 /// Show or hide the recording pill without activating it. Visibility is
-/// driven entirely by the pill renderer: hidden while the recorder is
-/// preparing or counting down, visible while capture is live or the
-/// completion card is up.
+/// driven entirely by the pill renderer: visible while the recorder is
+/// preparing, counting down, or capturing, and while the completion card is
+/// up.
 #[tauri::command]
 pub async fn toolbar_set_visible(app: AppHandle, visible: bool) -> Result<(), String> {
     let Some(win) = app.get_webview_window(TOOLBAR_LABEL) else {
@@ -1100,6 +1385,7 @@ pub async fn toolbar_set_visible(app: AppHandle, visible: bool) -> Result<(), St
     };
     if visible {
         raise_to_status_level(&win);
+        start_topmost_reassert_loop(&app, TOOLBAR_LABEL, &TOOLBAR_TOPMOST_GENERATION);
         crate::util::show_without_activation(&win);
     } else {
         let _ = win.hide();
@@ -1187,6 +1473,10 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
     let app_for_bounds = app.clone();
     let win_for_bounds = win.clone();
     win.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Destroyed) {
+            let _ = app_for_bounds.emit(BUBBLE_DESTROYED_EVENT, ());
+            return;
+        }
         if matches!(
             event,
             tauri::WindowEvent::Moved(_)
@@ -1325,15 +1615,47 @@ pub async fn hide_recording_chrome(
 /// stable. At that point the bubble webview is freshly spawned, acquires
 /// the camera cleanly, and there's no cross-webview contention because
 /// MediaRecorder doesn't touch the camera after start.
-#[tauri::command]
-pub async fn close_bubble(app: AppHandle) -> Result<(), String> {
+fn close_bubble_window(app: &AppHandle) {
     let _ = app.emit("clips:release-camera", ());
     if let Some(w) = app.get_webview_window(BUBBLE_LABEL) {
-        dlog!("[clips-tray] close_bubble — destroying bubble webview");
+        // Hide first so a slow WebKit teardown cannot leave the last frame
+        // composited on-screen while the window is being destroyed.
+        let _ = w.hide();
+        dlog!("[clips-tray] close_bubble - destroying bubble webview");
         let _ = w.close();
     } else {
-        dlog!("[clips-tray] close_bubble — no bubble window to close");
+        dlog!("[clips-tray] close_bubble - no bubble window to close");
     }
+}
+
+async fn close_bubble_window_and_wait(app: &AppHandle) -> Result<(), String> {
+    let (closed_tx, closed_rx) = tokio::sync::oneshot::channel();
+    let listener = app.once(BUBBLE_DESTROYED_EVENT, move |_| {
+        let _ = closed_tx.send(());
+    });
+    if app.get_webview_window(BUBBLE_LABEL).is_none() {
+        app.unlisten(listener);
+        return Ok(());
+    }
+
+    close_bubble_window(app);
+    closed_rx
+        .await
+        .map_err(|_| "camera bubble destruction acknowledgement was dropped".to_string())
+}
+
+/// Close the camera bubble whenever the popover is no longer visible, except
+/// while recording owns it independently of the popover.
+pub fn close_bubble_if_idle(app: &AppHandle) {
+    if is_recording_active(app) {
+        return;
+    }
+    close_bubble_window(app);
+}
+
+#[tauri::command]
+pub async fn close_bubble(app: AppHandle) -> Result<(), String> {
+    close_bubble_window(&app);
     Ok(())
 }
 
@@ -2005,13 +2327,14 @@ fn remembered_voice_target_bundle(app: &AppHandle) -> Option<String> {
 mod tests {
     use super::{
         overlay_labels_to_hide, strip_trailing_period_for_messaging, text_insertion_strategy,
-        TextInsertionStrategy, FINALIZING_LABEL,
+        TextInsertionStrategy, BUBBLE_LABEL, FINALIZING_LABEL,
     };
 
     #[test]
     fn overlay_cleanup_can_preserve_finalizing_progress() {
         assert!(!overlay_labels_to_hide(true).any(|label| label == FINALIZING_LABEL));
         assert!(overlay_labels_to_hide(false).any(|label| label == FINALIZING_LABEL));
+        assert!(overlay_labels_to_hide(false).any(|label| label == BUBBLE_LABEL));
     }
 
     #[test]
@@ -2086,8 +2409,32 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     mod macos_only {
-        use super::super::{chunk_graphemes_by_utf16_units, utf8_pasteboard_command};
+        use super::super::{
+            appkit_frame_for_physical_bounds, chunk_graphemes_by_utf16_units,
+            utf8_pasteboard_command,
+        };
+        use objc2_foundation::{NSPoint, NSRect, NSSize};
         use std::ffi::OsStr;
+
+        fn assert_close(actual: f64, expected: f64) {
+            assert!((actual - expected).abs() < 0.001, "{actual} != {expected}");
+        }
+
+        #[test]
+        fn atomic_toolbar_bounds_preserve_the_requested_screen_anchor() {
+            let current = NSRect::new(NSPoint::new(50.0, 300.0), NSSize::new(176.0, 176.0));
+
+            let right_anchored =
+                appkit_frame_for_physical_bounds(current, 100, 200, 368, 200, 84, 352, 2.0);
+            assert_close(
+                right_anchored.origin.x + right_anchored.size.width,
+                current.origin.x + current.size.width,
+            );
+
+            let bottom_anchored =
+                appkit_frame_for_physical_bounds(current, 100, 200, 100, 468, 352, 84, 2.0);
+            assert_close(bottom_anchored.origin.y, current.origin.y);
+        }
 
         #[test]
         fn pasteboard_commands_force_utf8_for_gui_launches() {
@@ -2393,6 +2740,21 @@ pub async fn set_recording_state(app: AppHandle, active: bool) -> Result<(), Str
     }
     crate::tray::rebuild_tray_menu(&app);
     Ok(())
+}
+
+/// Release a recording start flow and clean up a bubble that no recording owns.
+/// Keep the state change and cleanup in one native command so a new start cannot
+/// interleave after the guard is cleared but before the bubble is destroyed.
+#[tauri::command]
+pub async fn release_recording_state(app: AppHandle) -> Result<(), String> {
+    dlog!("[clips-tray] release_recording_state");
+    if let Some(state) = app.try_state::<RecordingActive>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = false;
+        }
+    }
+    crate::tray::rebuild_tray_menu(&app);
+    close_bubble_window_and_wait(&app).await
 }
 
 /// Set from JS when a live meeting recording/transcription session starts or
@@ -2779,6 +3141,7 @@ pub fn toggle_popover(app: &AppHandle) {
         window.is_visible().unwrap_or(false) && !voice_woken && !is_pinhole_popover(&window);
     if user_visible {
         let _ = window.hide();
+        close_bubble_if_idle(app);
         let _ = app.emit("clips:popover-visible", false);
         return;
     }

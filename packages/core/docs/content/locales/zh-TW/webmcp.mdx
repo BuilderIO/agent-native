@@ -8,4 +8,24 @@ description: "將明確的 Agent-Native 動作公開給瀏覽器代理，並在 
 WebMCP 是一項實驗性的瀏覽器 API，網頁可以註冊工具，獲授權的代理可以
 探索並執行這些工具。如需註冊、使用、瀏覽器工作階段和安全限制，請參閱[英文
 WebMCP 指南](/docs/webmcp)。
-每次執行都需要人工核准，並會在執行前重新驗證目前的工具清單。
+已驗證頁面會從現有動作登錄中自動註冊符合條件的後端動作。需要核准的動作
+不會包含在內，並會在執行前重新驗證目前的工具清單。
+使用 `sessionBypass` 的已驗證頁面（例如 MCP 嵌入路由）也會註冊後端動作工具。
+公開頁面和未登入頁面不會註冊這些工具。
+
+當瀏覽器沒有可用的原生 WebMCP 表面時，Agent-Native 核心會初始化 `@mcp-b/webmcp-polyfill`。它只作用於目前頁面，不會建立網路 MCP 連線。
+
+## HTTP 探索與 fetch 備援
+
+對於不執行瀏覽器的代理，Agent-Native 也會在 `GET /.well-known/mcp.json`
+提供可擷取的 HTTP 相容文件。文件描述動作端點、JSON schema、是否唯讀以及
+是否需要驗證。這是 Agent-Native 的互通慣例，不是 WebMCP 規格的一部分，也不是
+標準 MCP 的替代方案。
+
+工具可以透過 `fetch` 或 `curl` 呼叫 `POST /mcp/tool/:name`。驗證、授權、驗證
+以及租戶範圍仍由伺服器處理。文件也會連結到 `/mcp`、已驗證的 WebMCP manifest
+和 A2A agent card。
+
+頁面本機工具仍需要開啟支援 WebMCP 的瀏覽器。資源頁面也可以發布自己的 JSON
+探索連結。Clips 透過 `agentContextUrl` 提供完整 transcript 和 JPEG 畫格 URL，
+因此不開啟播放器也能繼續使用 HTTP 存取。

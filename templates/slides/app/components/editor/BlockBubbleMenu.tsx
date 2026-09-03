@@ -24,6 +24,8 @@ import {
 } from "@/components/ui/tooltip";
 import { shortcutLabel } from "@/lib/utils";
 
+import type { SlideRichTextEditorHandle } from "./SlideRichTextEditor";
+
 interface BlockBubbleMenuProps {
   /** The element currently in contentEditable mode. Menu only shows while selection is inside it. */
   editingEl: HTMLElement | null;
@@ -38,6 +40,8 @@ interface BlockBubbleMenuProps {
    * overwrites the revision the agent just wrote.
    */
   onCommitInlineEdit?: () => void;
+  /** Shared Content editor mounted inside the selected slide text block. */
+  richTextEditor?: SlideRichTextEditorHandle | null;
 }
 
 interface Position {
@@ -67,7 +71,7 @@ const AI_SEND_BUTTON_CLASS =
   // guard:allow-raw-color — same accent as the link Apply button below.
   "rounded p-1.5 text-[#609FF8] hover:bg-accent disabled:pointer-events-none disabled:opacity-40";
 
-export function buildReviseSelectionPrompt({
+export function buildReviseSelectionContext({
   selectedText,
   instruction,
   slideId,
@@ -118,6 +122,7 @@ export function BlockBubbleMenu({
   slideId,
   deckId,
   onCommitInlineEdit,
+  richTextEditor = null,
 }: BlockBubbleMenuProps) {
   const t = useT();
   const [pos, setPos] = useState<Position | null>(null);
@@ -192,6 +197,7 @@ export function BlockBubbleMenu({
   const restoreSelection = () => {
     const range = savedRangeRef.current;
     if (!range) return false;
+    if (richTextEditor) return richTextEditor.setSelectionFromRange(range);
     const sel = window.getSelection();
     if (!sel) return false;
     sel.removeAllRanges();
@@ -202,6 +208,35 @@ export function BlockBubbleMenu({
 
   const runCommand = (cmd: string, value?: string) => {
     if (!restoreSelection()) return;
+    const richEditor = richTextEditor;
+    const editor = richEditor?.getEditor();
+    if (richEditor && editor && !editor.isDestroyed) {
+      if (cmd === "bold") editor.chain().focus().toggleBold().run();
+      else if (cmd === "italic") editor.chain().focus().toggleItalic().run();
+      else if (cmd === "underline") {
+        const current = document.createElement("span");
+        const style = editor.getAttributes("textStyle").style as
+          | string
+          | undefined;
+        if (style) current.setAttribute("style", style);
+        const isUnderlined =
+          current.style.textDecoration.includes("underline") ||
+          current.style.textDecorationLine.includes("underline");
+        richEditor.applyTextStyle(
+          { textDecoration: isUnderlined ? "none" : "underline" },
+          savedRangeRef.current,
+        );
+      } else if (cmd === "strikeThrough") {
+        editor.chain().focus().toggleStrike().run();
+      } else if (cmd === "foreColor" && value) {
+        richEditor.applyTextStyle({ color: value }, savedRangeRef.current);
+      } else if (cmd === "createLink" && value) {
+        editor.chain().focus().setLink({ href: value }).run();
+      } else if (cmd === "unlink") {
+        editor.chain().focus().unsetLink().run();
+      }
+      return;
+    }
     // Force <span style="..."> output so colors survive sanitizeSlideHtml,
     // which strips <font> tags and would silently lose foreColor on save.
     document.execCommand("styleWithCSS", false, "true");
@@ -249,8 +284,8 @@ export function BlockBubbleMenu({
   };
 
   const submitAiRevision = async () => {
-    const instruction = aiInstruction.trim();
-    if (!instruction || !aiTargetText || aiSending) return;
+    const instruction = aiInstruction;
+    if (!instruction.trim() || !aiTargetText || aiSending) return;
 
     // Close the inline edit first. The block is still a live contentEditable
     // session; leaving it open means the next click away serializes the old
@@ -260,7 +295,8 @@ export function BlockBubbleMenu({
     setAiSending(true);
     try {
       const delivery = await sendToAgentChatAndConfirm({
-        message: buildReviseSelectionPrompt({
+        message: instruction,
+        context: buildReviseSelectionContext({
           selectedText: aiTargetText,
           instruction,
           slideId,

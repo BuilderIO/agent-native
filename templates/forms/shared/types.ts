@@ -21,7 +21,8 @@ export type FormFieldType =
   | "radio"
   | "date"
   | "rating"
-  | "scale";
+  | "scale"
+  | "file";
 
 export interface ConditionalRule {
   fieldId: string;
@@ -47,6 +48,22 @@ export interface FormField {
   validation?: FieldValidation;
   conditional?: ConditionalRule;
   width?: "full" | "half";
+  /** File input metadata. Only used when `type` is `file`. */
+  multiple?: boolean;
+  accept?: string;
+  maxSizeBytes?: number;
+  maxFiles?: number;
+}
+
+/** Storage reference persisted for a submitted file field. */
+export interface FormFileValue {
+  url: string;
+  name: string;
+  type: string;
+  size: number;
+  id?: string;
+  provider?: string;
+  handle?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,10 +84,22 @@ export interface FormIntegration {
 // Form settings
 // ---------------------------------------------------------------------------
 
+export type FormCompletionMode =
+  | "message"
+  | "redirect"
+  | "message_then_refresh"
+  | "refresh";
+
+export const DEFAULT_FORM_COMPLETION_REFRESH_SECONDS = 5;
+export const MIN_FORM_COMPLETION_REFRESH_SECONDS = 1;
+export const MAX_FORM_COMPLETION_REFRESH_SECONDS = 3600;
+
 export interface FormSettings {
   submitText?: string;
   successMessage?: string;
   redirectUrl?: string;
+  completionMode?: FormCompletionMode;
+  completionRefreshSeconds?: number;
   showProgressBar?: boolean;
   /** Send new response summaries to the form owner's account email. */
   emailOnNewResponses?: boolean;
@@ -88,6 +117,19 @@ export interface FormSettings {
   allowedOrigins?: string[];
 }
 
+export const FORM_SETTINGS_KEYS = [
+  "submitText",
+  "successMessage",
+  "redirectUrl",
+  "completionMode",
+  "completionRefreshSeconds",
+  "showProgressBar",
+  "emailOnNewResponses",
+  "anonymous",
+  "integrations",
+  "allowedOrigins",
+] as const;
+
 /**
  * The subset of {@link FormSettings} that is safe to expose to anonymous
  * respondents of a published form. This is an explicit ALLOWLIST: only the
@@ -103,7 +145,73 @@ export interface PublicFormSettings {
   submitText?: string;
   successMessage?: string;
   redirectUrl?: string;
+  completionMode?: FormCompletionMode;
+  completionRefreshSeconds?: number;
   showProgressBar?: boolean;
+}
+
+/** Resolve legacy forms that only have a redirect URL into the current mode. */
+export function getFormCompletionMode(
+  settings: Pick<FormSettings, "completionMode" | "redirectUrl">,
+): FormCompletionMode {
+  switch (settings.completionMode) {
+    case "message":
+    case "redirect":
+    case "message_then_refresh":
+    case "refresh":
+      return settings.completionMode;
+    default:
+      return settings.redirectUrl ? "redirect" : "message";
+  }
+}
+
+export function getFormCompletionRefreshSeconds(value: unknown): number {
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    return DEFAULT_FORM_COMPLETION_REFRESH_SECONDS;
+  }
+  return Math.min(
+    MAX_FORM_COMPLETION_REFRESH_SECONDS,
+    Math.max(MIN_FORM_COMPLETION_REFRESH_SECONDS, value),
+  );
+}
+
+export function assertValidFormCompletionSettings(
+  settings: FormSettings,
+): void {
+  const unknownKeys = Object.keys(settings).filter(
+    (key) => !(FORM_SETTINGS_KEYS as readonly string[]).includes(key),
+  );
+  if (unknownKeys.length > 0) {
+    throw new Error(
+      `Unknown form setting(s): ${unknownKeys.join(", ")}. Valid settings: ${FORM_SETTINGS_KEYS.join(", ")}`,
+    );
+  }
+
+  if (settings.completionMode !== undefined) {
+    switch (settings.completionMode) {
+      case "message":
+      case "redirect":
+      case "message_then_refresh":
+      case "refresh":
+        break;
+      default:
+        throw new Error(
+          "settings.completionMode must be message, redirect, message_then_refresh, or refresh",
+        );
+    }
+  }
+
+  const seconds = settings.completionRefreshSeconds;
+  if (
+    seconds !== undefined &&
+    (!Number.isInteger(seconds) ||
+      seconds < MIN_FORM_COMPLETION_REFRESH_SECONDS ||
+      seconds > MAX_FORM_COMPLETION_REFRESH_SECONDS)
+  ) {
+    throw new Error(
+      `settings.completionRefreshSeconds must be an integer between ${MIN_FORM_COMPLETION_REFRESH_SECONDS} and ${MAX_FORM_COMPLETION_REFRESH_SECONDS}`,
+    );
+  }
 }
 
 /**
@@ -120,6 +228,8 @@ export function toPublicFormSettings(
     submitText: s.submitText,
     successMessage: s.successMessage,
     redirectUrl: s.redirectUrl,
+    completionMode: s.completionMode,
+    completionRefreshSeconds: s.completionRefreshSeconds,
     showProgressBar: s.showProgressBar,
   };
 }
@@ -166,6 +276,14 @@ export interface FormResponse {
    * unknown or anonymous mode suppresses response metadata.
    */
   clientSurface?: string | null;
+  communityPromotion?: {
+    status: "publishing" | "published" | "failed" | "unknown";
+    builderContentId?: string | null;
+    communitySlug?: string | null;
+    error?: string | null;
+    promotedAt?: string | null;
+    promotedBy?: string | null;
+  } | null;
 }
 
 // ---------------------------------------------------------------------------

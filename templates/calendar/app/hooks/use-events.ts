@@ -6,12 +6,18 @@ import {
 import type { CalendarEvent, UpdateEventScope } from "@shared/api";
 import {
   useQueryClient,
+  useQuery,
   keepPreviousData,
   type QueryKey,
 } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
+import { useMemo } from "react";
 
 import { dateTimeInTimezoneToIso } from "@/lib/event-form-utils";
+import {
+  isSharedCalendarDemo,
+  SHARED_CALENDAR_DEMO_EVENTS,
+} from "@/lib/shared-calendar-demo";
 import {
   buildWorkingLocationProperties,
   getWorkingLocationEditableLabel,
@@ -47,6 +53,7 @@ type UpdateEventInput = Partial<CalendarEvent> & {
   id: string;
   targetAccountEmail?: string;
   addGoogleMeet?: boolean;
+  removeGoogleMeet?: boolean;
   addZoom?: boolean;
   addAttendees?: CalendarEvent["attendees"];
   sendUpdates?: "all" | "none";
@@ -71,6 +78,7 @@ type UpdateEventResult = Partial<CalendarEvent> & {
   success?: boolean;
   updated?: string[];
   message?: string;
+  removedGoogleMeet?: boolean;
 };
 
 const LIST_EVENTS_QUERY_KEY = ["action", "list-events"] as const;
@@ -80,12 +88,16 @@ function buildEventsParams(
   from?: string,
   to?: string,
   overlayEmails?: string[],
-): Record<string, string> {
-  const params: Record<string, string> = {};
+  calendarSourceKeys?: string[],
+): Record<string, string | string[]> {
+  const params: Record<string, string | string[]> = {};
   if (from) params.from = from;
   if (to) params.to = to;
   if (overlayEmails && overlayEmails.length > 0) {
     params.overlayEmails = overlayEmails.join(",");
+  }
+  if (calendarSourceKeys && calendarSourceKeys.length > 0) {
+    params.calendarSourceKeys = calendarSourceKeys;
   }
   return params;
 }
@@ -100,8 +112,12 @@ function getListEventsParams(
   return params as Record<string, string>;
 }
 
-function getEventQueryKey(id: string) {
-  return ["action", "get-event", { id }] as const;
+function getEventQueryKey(id: string, calendarSourceKey?: string) {
+  return [
+    "action",
+    "get-event",
+    calendarSourceKey ? { id, calendarSourceKey } : { id },
+  ] as const;
 }
 
 export function getOptimisticTitleIsGenerated(
@@ -276,15 +292,81 @@ export function useEvents(
   from?: string,
   to?: string,
   overlayEmails?: string[],
+  calendarSourceKeys?: string[],
 ) {
-  const params = buildEventsParams(from, to, overlayEmails);
-
-  return useActionQuery<CalendarEvent[]>("list-events", params, {
+  const params = buildEventsParams(from, to, overlayEmails, calendarSourceKeys);
+  const demo = isSharedCalendarDemo();
+  const live = useActionQuery<CalendarEvent[]>("list-events", params, {
+    enabled: !demo,
     retry: false,
     staleTime: 30_000,
     gcTime: 30 * 60 * 1000,
     placeholderData: keepPreviousData,
   });
+  const fixture = useQuery({
+    queryKey: ["shared-calendar-demo-events", params],
+    queryFn: async () => {
+      const selected = new Set(calendarSourceKeys ?? []);
+      return SHARED_CALENDAR_DEMO_EVENTS.filter((event) => {
+        if (!event.calendarSourceKey) return true;
+        return selected.size === 0 || selected.has(event.calendarSourceKey);
+      });
+    },
+    enabled: demo,
+    staleTime: Infinity,
+  });
+
+  return demo ? fixture : live;
+}
+
+type OverlaySourceCoverage = {
+  source: "overlay";
+  id: string;
+  status: "ok" | "error";
+  error?: { code: string; message: string; retryable: boolean };
+};
+
+type OverlayStatusResult = {
+  sourceCoverage: Array<
+    OverlaySourceCoverage | { source: string; id: string; status: string }
+  >;
+};
+
+/**
+ * Per-person read status for the "Other Calendars" sidebar list. Uses the
+ * same list-events action in its inventory format (which already tracks
+ * per-overlay-email status) with `sources: ["overlays"]` and a single-day
+ * range so it stays cheap - it never reads the caller's own Google events,
+ * ICS feeds, or bookings.
+ */
+export function useOverlayCalendarStatus(overlayEmails: string[]) {
+  const today = new Date().toISOString().slice(0, 10);
+  const query = useActionQuery<OverlayStatusResult>(
+    "list-events",
+    {
+      from: today,
+      to: today,
+      sources: ["overlays"],
+      overlayEmails,
+      format: "inventory",
+    },
+    {
+      enabled: overlayEmails.length > 0,
+      retry: false,
+      staleTime: 5 * 60_000,
+    },
+  );
+  const statusByEmail = useMemo(() => {
+    const coverage = query.data?.sourceCoverage ?? [];
+    return new Map(
+      coverage
+        .filter(
+          (entry): entry is OverlaySourceCoverage => entry.source === "overlay",
+        )
+        .map((entry) => [entry.id.toLowerCase(), entry]),
+    );
+  }, [query.data]);
+  return statusByEmail;
 }
 
 /**
@@ -298,8 +380,10 @@ export function prefetchEvents(
   from: string,
   to: string,
   overlayEmails?: string[],
+  calendarSourceKeys?: string[],
 ) {
-  const params = buildEventsParams(from, to, overlayEmails);
+  if (isSharedCalendarDemo()) return;
+  const params = buildEventsParams(from, to, overlayEmails, calendarSourceKeys);
   return queryClient.prefetchQuery({
     queryKey: ["action", "list-events", params],
     queryFn: () =>
@@ -309,8 +393,12 @@ export function prefetchEvents(
   });
 }
 
-export function useEvent(id: string) {
-  return useActionQuery<CalendarEvent>("get-event", { id }, { enabled: !!id });
+export function useEvent(id: string, calendarSourceKey?: string) {
+  return useActionQuery<CalendarEvent>(
+    "get-event",
+    calendarSourceKey ? { id, calendarSourceKey } : { id },
+    { enabled: !!id },
+  );
 }
 
 export function useCreateEvent() {
@@ -360,7 +448,7 @@ export function useCreateEvent() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
     },
   });
 }
@@ -379,6 +467,7 @@ export function useUpdateEvent() {
         });
         const {
           addGoogleMeet,
+          removeGoogleMeet,
           addZoom,
           addAttendees,
           targetAccountEmail,
@@ -389,7 +478,14 @@ export function useUpdateEvent() {
           workingLocationLabel,
           ...optimisticData
         } = newData;
-        const optimisticPatch = targetAccountEmail ? {} : optimisticData;
+        const optimisticPatch = targetAccountEmail
+          ? {}
+          : {
+              ...optimisticData,
+              ...(removeGoogleMeet
+                ? { hangoutLink: undefined, conferenceData: undefined }
+                : {}),
+            };
         const hasWorkingLocationUpdate =
           workingLocationType !== undefined ||
           workingLocationLabel !== undefined;
@@ -458,7 +554,9 @@ export function useUpdateEvent() {
         }
       },
       onSettled: () => {
-        queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "list-events"],
+        });
       },
     },
   );
@@ -474,6 +572,7 @@ export function reconcileUpdatedEventList(
     success: _success,
     updated: _updated,
     message: _message,
+    removedGoogleMeet: _removedGoogleMeet,
     replacedId,
     ...eventPatch
   } = result;
@@ -539,7 +638,9 @@ export function useDeleteEvent() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-events"],
+      });
     },
   });
 }
@@ -605,8 +706,10 @@ export function useRsvpEvent() {
       }
     },
     onSettled: (_data, _error, vars) => {
-      queryClient.invalidateQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
-      queryClient.invalidateQueries({ queryKey: getEventQueryKey(vars.id) });
+      void queryClient.invalidateQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
+      void queryClient.invalidateQueries({
+        queryKey: getEventQueryKey(vars.id),
+      });
     },
   });
 }

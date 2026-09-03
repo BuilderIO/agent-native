@@ -42,12 +42,13 @@ import {
   loadAppSkillManifest,
   resolvePluginVersion,
 } from "../packages/core/src/cli/app-skill.js";
+import { AN_COMMAND_MD } from "../packages/core/src/cli/skills-content/an-skill.js";
 import { BUILT_IN_APP_SKILLS } from "../packages/core/src/cli/skills.js";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(scriptDir, "..");
 
-type MarketplaceAppId = "visual-plans" | "design";
+type MarketplaceAppId = "agent-native" | "visual-plans" | "design";
 
 type MarketplaceApp = {
   appSkillId?: MarketplaceAppId;
@@ -62,6 +63,12 @@ const turnIntoAppManifest = loadAppSkillManifest(
 ).manifest;
 
 const APP_BUNDLES: MarketplaceApp[] = [
+  {
+    appSkillId: "agent-native",
+    skillSources: [{ sourcePath: "skills/an", exportAs: "an" }],
+    brandColor: "#0F766E",
+    chatgptConnector: true,
+  },
   {
     appSkillId: "visual-plans",
     // Source skill path -> exported skill name. The source path does not always
@@ -112,7 +119,8 @@ function manifestFor(app: MarketplaceApp): AppSkillManifest {
 }
 
 function pluginName(app: MarketplaceApp): string {
-  return `agent-native-${manifestFor(app).id}`;
+  const id = manifestFor(app).id;
+  return id === "agent-native" ? id : `agent-native-${id}`;
 }
 
 function bundleRoot(app: MarketplaceApp): string {
@@ -238,6 +246,12 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
           content: readFileSync(join(rootDir, sourcePath, rel), "utf-8"),
         });
       }
+    }
+    if (app.appSkillId === "agent-native") {
+      files.push({
+        rel: join(".agents", "plugins", name, "commands", "an.md"),
+        content: AN_COMMAND_MD,
+      });
     }
 
     // Only the canonical serverName goes into the plugin .mcp.json. Aliases are

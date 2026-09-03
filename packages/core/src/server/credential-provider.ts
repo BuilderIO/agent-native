@@ -32,7 +32,11 @@ import {
 } from "../db/client.js";
 import { getOrgSetting } from "../settings/org-settings.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
-import { getRequestUserEmail, getRequestOrgId } from "./request-context.js";
+import {
+  getRequestContext,
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "./request-context.js";
 
 const DISPATCH_VAULT_ACCESS_SETTINGS_KEY = "dispatch-vault-access-settings";
 
@@ -233,6 +237,10 @@ export function isDeployCredentialFallbackAllowed(): boolean {
 export function canUseDeployCredentialFallbackForRequest(
   key?: string,
 ): boolean {
+  // Synthetic checks must never fall through to a deploy-wide provider key.
+  // If the dedicated test credential is rejected, using the site's shared key
+  // would make a green retry both misleading and billable to real traffic.
+  if (getRequestContext()?.isSyntheticTraffic === true) return false;
   const email = getRequestUserEmail();
   if (!email) return true;
   if (isAppProvidedDeployCredentialKey(key)) return true;
@@ -263,7 +271,7 @@ function isBuilderCredentialKey(key: string): boolean {
   return (BUILDER_CREDENTIAL_KEYS as readonly string[]).includes(key);
 }
 
-function isHostedWorkspaceRuntime(): boolean {
+export function isHostedWorkspaceRuntime(): boolean {
   const hasFusionPreview = Boolean(
     process.env.FUSION_ENVIRONMENT ||
     process.env.FUSION_ENV_ORIGIN ||
@@ -278,9 +286,19 @@ function isHostedWorkspaceRuntime(): boolean {
   );
 }
 
-function isProductionLikeRuntime(): boolean {
+/**
+ * Whether a hosting PLATFORM marked this process as one of its runtimes.
+ *
+ * Deliberately excludes `NODE_ENV`: that one is set by the app's own env file,
+ * so it travels with a copied `.env` to a laptop and proves nothing about
+ * where the process is running. Every marker here is written by the platform
+ * itself, so a local run of a production build has none of them. Callers that
+ * only need "is this production-shaped" should use `isProductionLikeRuntime`;
+ * use this one where mistaking a developer's machine for the deployment has a
+ * consequence beyond the process itself.
+ */
+export function hasPlatformRuntimeMarker(): boolean {
   return (
-    process.env.NODE_ENV === "production" ||
     /^(1|true)$/i.test(process.env.NETLIFY ?? "") ||
     /^(1|true)$/i.test(process.env.VERCEL ?? "") ||
     /^(1|true)$/i.test(process.env.CF_PAGES ?? "") ||
@@ -292,6 +310,10 @@ function isProductionLikeRuntime(): boolean {
       process.env.RENDER,
     )
   );
+}
+
+export function isProductionLikeRuntime(): boolean {
+  return process.env.NODE_ENV === "production" || hasPlatformRuntimeMarker();
 }
 
 /**
@@ -394,8 +416,8 @@ function readOptionalBuilderBoolean(
   return /^(1|true)$/i.test(value);
 }
 
-export function isBuilderPrivateKey(value: string | null | undefined): boolean {
-  return typeof value === "string" && value.trim().startsWith("bpk-");
+function isBuilderAuthToken(value: string | null | undefined): boolean {
+  return typeof value === "string" && /^(?:bpk|btk)-/.test(value.trim());
 }
 
 async function readBuilderCredentialScope(
@@ -1553,9 +1575,9 @@ export async function writeBuilderCredentials(
 ): Promise<{ scope: "user" | "org"; scopeId: string }> {
   const privateKey = creds.privateKey.trim();
   const publicKey = creds.publicKey.trim();
-  if (!isBuilderPrivateKey(privateKey)) {
+  if (!isBuilderAuthToken(privateKey)) {
     throw new Error(
-      "Builder returned a credential that is not a Builder private key (expected bpk-...). Restart the Builder connect flow and choose a space that can issue a private key.",
+      "Builder returned an unsupported credential (expected a bpk- private key or btk- personal access token). Restart the Builder connect flow and choose a space that can issue a usable credential.",
     );
   }
   if (!publicKey) {
@@ -1673,7 +1695,7 @@ export async function deleteBuilderCredentials(
         key,
         scope: target.scope,
         scopeId: target.scopeId,
-      }).catch(() => {}),
+      }),
     ),
   );
   return target;
@@ -1708,21 +1730,23 @@ export async function prefetchSecrets(keys: readonly string[]): Promise<void> {
   const email = getRequestUserEmail();
   if (!email || keys.length === 0) return;
   const { readAppSecrets } = await import("../secrets/storage.js");
-  const orgId =
-    getRequestOrgId() || (await resolveOrgIdForRequestEmail(email)).orgId;
+  const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
+  const orgId = syntheticTraffic
+    ? undefined
+    : getRequestOrgId() || (await resolveOrgIdForRequestEmail(email)).orgId;
   const scopes: Array<{
     scope: "user" | "org" | "workspace";
     scopeId: string;
-  }> = [
-    { scope: "user", scopeId: email },
-    ...(orgId
-      ? ([
-          { scope: "org", scopeId: orgId },
-          { scope: "workspace", scopeId: orgId },
-        ] as const)
-      : []),
-    { scope: "workspace", scopeId: `solo:${email}` },
-  ];
+  }> = [{ scope: "user", scopeId: email }];
+  if (orgId && !syntheticTraffic) {
+    scopes.push(
+      { scope: "org", scopeId: orgId },
+      { scope: "workspace", scopeId: orgId },
+    );
+  }
+  if (!syntheticTraffic) {
+    scopes.push({ scope: "workspace", scopeId: `solo:${email}` });
+  }
   await Promise.all(
     scopes.map((s) => readAppSecrets({ keys, ...s }).catch(() => undefined)),
   );
@@ -1907,6 +1931,7 @@ export async function resolveSecretDetailed(
 ): Promise<{ value: string | null; lookupFailed: boolean; cause?: unknown }> {
   const traceLookup = shouldTraceCredentialResolve();
   const email = getRequestUserEmail();
+  const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
   let lookupFailed = false;
   let cause: unknown;
   if (email) {
@@ -1927,6 +1952,10 @@ export async function resolveSecretDetailed(
         }
         return { value: userSecret.value, lookupFailed: false };
       }
+
+      // The beta suite writes one user-scoped credential and must never turn a
+      // rejected or missing test key into a charge against a shared scope.
+      if (syntheticTraffic) return NOT_FOUND;
 
       // Mirrors resolveScopedBuilderCredential: a transient org_members read
       // failure makes getOrgContext report no org, which would otherwise hide

@@ -98,6 +98,9 @@ const messages = {
     conditionContains: "含む",
     conditionValue: "回答",
     conditionValuePlaceholder: "回答を入力...",
+    allowMultiple: "複数ファイルを許可",
+    accept: "許可するファイル形式",
+    acceptPlaceholder: "例: image/*, .pdf",
     fieldTypes: {
       text: "短いテキスト",
       email: "電子メール",
@@ -110,6 +113,7 @@ const messages = {
       date: "日付",
       rating: "評価",
       scale: "規模",
+      file: "ファイルアップロード",
     },
   },
   builder: {
@@ -180,6 +184,7 @@ const messages = {
       dateLabel: "日付",
       ratingLabel: "評価",
       scaleLabel: "スケール",
+      fileLabel: "ファイルアップロード",
       option1: "選択肢 1",
       option2: "選択肢 2",
       option3: "選択肢 3",
@@ -202,6 +207,12 @@ const messages = {
       successMessage: "成功メッセージ",
       defaultSuccessMessage: "ありがとうございます！回答が記録されました。",
       redirectUrl: "リダイレクト URL（任意）",
+      completionMode: "送信後",
+      completionMessage: "更新するまでメッセージを表示",
+      completionRedirect: "URL にリダイレクト",
+      completionMessageThenRefresh: "メッセージを表示してから更新",
+      completionRefresh: "新しいフォームで更新",
+      completionRefreshSeconds: "更新までの秒数",
       anonymousResponses: "匿名の回答",
       anonymousResponsesDescription:
         "IP アドレス、回答者の身元、送信元メタデータを保存しません。",
@@ -388,6 +399,13 @@ const messages = {
     page: "Page",
     source: "ソース",
     sortBy: "Sort by {{label}}",
+    communityReview: "確認",
+    communityPublish: "サイトに公開",
+    communityPublishing: "公開中...",
+    communityPublished: "公開済み",
+    communityView: "サイトで表示",
+    communityNeedsCheck: "再試行する前に Builder を確認",
+    communityPromotionFailed: "この送信を公開できませんでした。",
   },
 };
 

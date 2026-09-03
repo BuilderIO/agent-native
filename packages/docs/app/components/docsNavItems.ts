@@ -124,6 +124,37 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         ],
       },
       {
+        id: "database-providers",
+        labelKey: "databaseProviders",
+        children: [
+          {
+            id: "database-neon",
+            labelKey: "databaseNeon",
+            slug: "neon",
+          },
+          {
+            id: "database-supabase",
+            labelKey: "databaseSupabase",
+            slug: "supabase",
+          },
+          {
+            id: "database-turso",
+            labelKey: "databaseTurso",
+            slug: "turso",
+          },
+          {
+            id: "database-d1",
+            labelKey: "databaseD1",
+            slug: "cloudflare-d1",
+          },
+          {
+            id: "database-postgres",
+            labelKey: "databasePostgres",
+            slug: "postgres",
+          },
+        ],
+      },
+      {
         id: "deployment-production",
         labelKey: "deploymentProduction",
         children: [
@@ -515,14 +546,19 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "template-forms",
           },
           {
-            id: "template-forms-building-publishing",
-            labelKey: "formsBuildingPublishing",
-            slug: "template-forms-building-publishing",
+            id: "template-forms-features",
+            labelKey: "formsFeatures",
+            slug: "template-forms-features",
           },
           {
-            id: "template-forms-responses",
-            labelKey: "formsResponses",
-            slug: "template-forms-responses",
+            id: "template-forms-agent",
+            labelKey: "formsAgent",
+            slug: "template-forms-agent",
+          },
+          {
+            id: "template-forms-integrations",
+            labelKey: "formsIntegrations",
+            slug: "template-forms-integrations",
           },
           {
             id: "template-forms-developers",
@@ -897,11 +933,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "toolkit-ui",
       },
       {
-        id: "custom-design-system",
-        labelKey: "customDesignSystem",
-        slug: "custom-design-system",
-      },
-      {
         id: "toolkit-editors-canvases",
         labelKey: "toolkitEditorsCanvases",
         slug: "toolkit-editors-canvases",
@@ -1055,20 +1086,26 @@ function navLabel(t: Translate, key: keyof typeof enUS.nav): string {
 
 const SHOW_DRAFTS = import.meta.env.VITE_SHOW_DRAFTS === "true";
 
-// Keep the public template catalog after the framework/toolkit guidance so
-// readers encounter architecture and reusable primitives before app examples.
+// Keep Toolkit directly after deployment, and the public template catalog
+// after the framework guidance so readers encounter architecture and reusable
+// primitives before app examples.
 const NAV_SECTION_CONFIG_IN_DISPLAY_ORDER = (() => {
   const appsSection = NAV_SECTION_CONFIG.find(
     (section) => section.id === "apps",
   );
-  if (!appsSection) return NAV_SECTION_CONFIG;
+  const toolkitsSection = NAV_SECTION_CONFIG.find(
+    (section) => section.id === "toolkits",
+  );
+  if (!appsSection || !toolkitsSection) return NAV_SECTION_CONFIG;
 
   return NAV_SECTION_CONFIG.flatMap((section) =>
-    section.id === "apps"
+    section.id === "apps" || section.id === "toolkits"
       ? []
-      : section.id === "toolkits"
-        ? [section, appsSection]
-        : [section],
+      : section.id === "deployment"
+        ? [section, toolkitsSection]
+        : section.id === "core-architecture"
+          ? [section, appsSection]
+          : [section],
   );
 })();
 

@@ -563,6 +563,49 @@ describe("listWorkspaceApps", () => {
     ]);
   });
 
+  it("does not project manifest ownership over an empty SQL owner record", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      {
+        id: "legacy-app",
+        name: "Legacy app",
+        path: "/legacy-app",
+        owner: "attacker@example.test",
+        createdBy: "attacker@example.test",
+      },
+    ]);
+    const execute = vi.fn(async (statement: unknown) => {
+      const sql =
+        typeof statement === "string"
+          ? statement
+          : String((statement as { sql?: unknown })?.sql ?? "");
+      if (sql.includes("SELECT id, owner_email, org_id, visibility")) {
+        return {
+          rows: [
+            {
+              id: "legacy-app",
+              owner_email: "",
+              org_id: "org-123",
+              visibility: "org",
+            },
+          ],
+          rowsAffected: 0,
+        };
+      }
+      return { rows: [], rowsAffected: 0 };
+    });
+    mocks.getDbExec.mockReturnValue({ execute });
+
+    const apps = await runWithRequestContext(
+      { userEmail: "viewer@example.test", orgId: "org-123" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.find((app) => app.id === "legacy-app")).toMatchObject({
+      owner: null,
+    });
+  });
+
   it("projects exact custom SSO eligibility without exposing registry details", async () => {
     stubNoPendingContext();
     stubManifest([
@@ -766,6 +809,29 @@ describe("listWorkspaceApps", () => {
     );
 
     expect(apps.map((app) => app.id)).toEqual(["dispatch", "fresh-app"]);
+  });
+
+  it("extends existing pending Builder app rows to the current TTL", async () => {
+    stubManifest();
+    vi.stubEnv("BRANCH", "feature-a");
+    const dayMs = 24 * 60 * 60 * 1_000;
+    const now = Date.now();
+    mocks.settings.set(settingsKey, {
+      pendingApps: [
+        pendingApp("legacy-app", {
+          contextId: "branch:feature-a",
+          createdAt: new Date(now - 8 * dayMs).toISOString(),
+          expiresAt: new Date(now - dayMs).toISOString(),
+        }),
+      ],
+    });
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["dispatch", "legacy-app"]);
   });
 
   it("does not show a pending row after the app is present in the manifest", async () => {
@@ -1184,6 +1250,16 @@ describe("startWorkspaceAppCreation", () => {
     expect(result.mode).toBe("builder");
     expect(mocks.runBuilderAgent).toHaveBeenCalledWith(
       expect.objectContaining({ userId: "builder-user-42" }),
+    );
+    const pendingApps = (
+      mocks.settings.get("dispatch-app-creation-settings:org:org-123") as any
+    )?.pendingApps;
+    const pendingExpiresAt = Date.parse(pendingApps?.[0]?.expiresAt ?? "");
+    expect(pendingExpiresAt - Date.now()).toBeGreaterThan(
+      29 * 24 * 60 * 60 * 1_000,
+    );
+    expect(pendingExpiresAt - Date.now()).toBeLessThan(
+      31 * 24 * 60 * 60 * 1_000,
     );
     const builderPrompt = String(
       mocks.runBuilderAgent.mock.calls.at(-1)?.[0]?.prompt ?? "",

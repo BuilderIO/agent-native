@@ -32,6 +32,50 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Mencionar archivos, agentes o recursos",
   "commands.new": "Igual que /clear",
   "commands.plan": "Cambiar a la planificación de solo lectura",
+  "onboarding.back": "Atrás",
+  "onboarding.chooseRole": "Elige tu rol",
+  "onboarding.customizeRole": "Personalicemos esto para ti.",
+  "onboarding.roleQuestion": "¿Qué describe mejor tu función?",
+  "onboarding.roleProduct": "Producto",
+  "onboarding.roleDesign": "Diseño",
+  "onboarding.roleDeveloper": "Desarrollo",
+  "onboarding.roleMarketing": "Marketing",
+  "onboarding.roleSales": "Ventas",
+  "onboarding.roleOps": "Operaciones",
+  "onboarding.roleIndividual": "Individual",
+  "onboarding.roleOther": "Otro",
+  "onboarding.skipForNow": "Omitir por ahora",
+  "onboarding.saveRoleError": "No se pudo guardar tu rol.",
+  "onboarding.builderActivateCredits":
+    "Activar créditos gratuitos de Builder.io",
+  "onboarding.builderConnectCredits":
+    "Conectar créditos gratuitos de Builder.io",
+  "onboarding.builderActivateDescription":
+    "Crea o reutiliza tu cuenta de Builder.io y activa sus créditos gratuitos con un solo clic.",
+  "onboarding.builderActiveCredits":
+    "Incluido con créditos gratuitos activos de Builder.io",
+  "onboarding.builderCredits":
+    "Incluido con los créditos gratuitos de Builder.io",
+  "onboarding.builderActivateTitle": "Activar créditos gratuitos",
+  "onboarding.builderAccountExistsTitle": "Ya tienes una cuenta de Builder.io",
+  "onboarding.builderAccountExistsDescription":
+    "Inicia sesión para conectarla.",
+  "onboarding.builderActivationDescription":
+    "Crearemos automáticamente tu cuenta de Builder.io con un solo clic.",
+  "onboarding.builderCreateAndActivate": "Crear y activar",
+  "onboarding.builderConsentPrefix": "Al continuar, aceptas los",
+  "onboarding.builderTerms": "Términos",
+  "onboarding.builderPrivacy": "Privacidad",
+  "onboarding.builderConsentAnd": "y",
+  "onboarding.builderExistingAccount": "Tengo una cuenta de Builder.io",
+  "onboarding.builderActivating":
+    "Activando los créditos gratuitos de Builder.io",
+  "onboarding.builderConnecting":
+    "Conectando los créditos gratuitos de Builder.io",
+  "onboarding.builderProvisioningDescription":
+    "Creando o reutilizando tu cuenta de Builder.io. Esto suele tardar unos segundos.",
+  "onboarding.builderConnectionDescription":
+    "Finaliza la conexión con un clic en la nueva ventana.",
   "aboutAgentNative.title": "Acerca de Agent-Native",
   "aboutAgentNative.version": "Versión",
   "aboutAgentNative.environment": "Entorno",
@@ -41,6 +85,14 @@ const messages: AgentChatTranslation = {
   "common.agent": "Agente",
   "agentPanel.mode": "Modo",
   "agentPanel.uiMode": "Interfaz de usuario",
+  "agentHostNudge.sidebarTitle": "Usa el chat de {{agent}}",
+  "agentHostNudge.sidebarDescription":
+    "Ya estás chateando con {{agent}}. Pídele que trabaje directamente con esta app.",
+  "agentHostNudge.promptTitle": "Pregúntale a {{agent}} en su lugar",
+  "agentHostNudge.promptDescription":
+    "Puedes pedirle a {{agent}} que cree o cambie esto aquí.",
+  "agentHostNudge.useThisChat": "Usar este chat",
+  "agentHostNudge.useThisPrompt": "Usar este mensaje",
   "common.cancel": "Cancelar",
   "common.collapse": "Contraer",
   "common.connect": "Conectar",

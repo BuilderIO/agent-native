@@ -421,6 +421,16 @@ ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS has_prototype INTEGER;
 ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS preview_text TEXT`,
       },
     },
+    {
+      version: 38,
+      name: "plan-version-chat-context",
+      sql: {
+        postgres:
+          "ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS chat_context TEXT",
+        sqlite:
+          "ALTER TABLE plan_versions ADD COLUMN IF NOT EXISTS chat_context TEXT",
+      },
+    },
   ],
   { table: "plans_migrations" },
 );

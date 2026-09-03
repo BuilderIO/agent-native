@@ -115,6 +115,12 @@ export type MailboxView =
   | "all"
   | `label:${string}`;
 
+export type SavedMailFilter = {
+  id: string;
+  name: string;
+  query: string;
+};
+
 export type UserSettings = {
   name: string;
   email: string;
@@ -125,8 +131,11 @@ export type UserSettings = {
   density: "compact" | "comfortable" | "spacious";
   previewPane: "right" | "bottom" | "off";
   sendAndArchive: boolean;
+  /** Show the whole inbox instead of splitting it into pinned triage tabs. */
+  combineInbox: boolean;
   undoSendDelay: number;
   pinnedLabels?: string[];
+  savedFilters?: SavedMailFilter[];
   /** Display aliases for label tabs — maps label ID to custom short name */
   labelAliases?: Record<string, string>;
   /** "show" = load all images, "block-trackers" = block known trackers only, "block-all" = block all remote images */
@@ -155,6 +164,7 @@ export type EmailTrackingStats = {
 /** Identifiers for actions available in the mobile bottom bar */
 export type MobileActionId =
   | "archive"
+  | "aiFilter"
   | "trash"
   | "star"
   | "reply"
@@ -185,6 +195,7 @@ export type AutomationRule = {
   id: string;
   ownerEmail: string;
   domain: "mail" | "calendar";
+  kind?: "automation" | "ai-filter";
   name: string;
   condition: string;
   actions: AutomationAction[];

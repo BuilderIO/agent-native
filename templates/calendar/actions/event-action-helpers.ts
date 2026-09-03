@@ -1,18 +1,31 @@
+import { fail } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import type { WeekdayName } from "../server/lib/event-weekday.js";
 import {
   addDaysToDateOnly,
   zonedDateTimeToUtcIso,
 } from "../server/lib/find-time.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
+import type { CalendarEvent } from "../shared/api.js";
 
 export const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])
   .transform((value) => value === true || value === "true");
+
+/**
+ * Read a `cliBoolean` field the way the schema will. A `needsApproval`
+ * predicate is handed the raw tool input, before the schema runs, so
+ * `dryRun: "false"` still arrives as the truthy string `"false"`. Testing it
+ * with `!value` there would wave a real delete through as a dry run.
+ */
+export function rawCliBoolean(value: unknown): boolean {
+  return value === true || value === "true";
+}
 
 export const eventTypeInput = z
   .enum(["default", "outOfOffice", "focusTime", "workingLocation"])
@@ -173,6 +186,130 @@ export function requireActionUserEmail(): string {
 
 export function normalizeGoogleEventId(id: string): string {
   return id.startsWith("google-") ? id.slice("google-".length) : id;
+}
+
+export function normalizeWritableGoogleEventId(id: string): string {
+  if (id.startsWith("google-google-calendar:")) {
+    throw new Error("Shared Google calendar events are read-only");
+  }
+  return normalizeGoogleEventId(id);
+}
+
+export const MAX_MATCHED_EVENTS = 200;
+export const BULK_EVENT_CONCURRENCY = 4;
+
+export type BulkEventRange = {
+  from: string;
+  to: string;
+  timezone: string;
+};
+
+export type BookedGoogleEvent = {
+  googleEventId: string;
+  calendarAccountId: string | null;
+};
+
+export type BulkEventOutcome =
+  | "updated"
+  | "deleted"
+  | "already_absent"
+  | "matched"
+  | "skipped"
+  | "failed";
+
+export interface BulkEventResult {
+  id: string;
+  title?: string;
+  start?: string;
+  end?: string;
+  weekday?: WeekdayName;
+  accountEmail?: string;
+  outcome: BulkEventOutcome;
+  reason?: string;
+}
+
+export function isBookedOnAccount(
+  booked: readonly BookedGoogleEvent[],
+  googleEventId: string,
+  accountEmail: string | undefined,
+): boolean {
+  return booked.some(
+    (row) =>
+      row.googleEventId === googleEventId &&
+      (!row.calendarAccountId ||
+        !accountEmail ||
+        row.calendarAccountId.trim().toLowerCase() ===
+          accountEmail.trim().toLowerCase()),
+  );
+}
+
+export const BOOKED_EVENT_REASON =
+  'Is the Google event for an active booking; cancel the booking with "cancel-booking" instead';
+
+export function undeletableEventReason(
+  event: CalendarEvent,
+  booked: readonly BookedGoogleEvent[],
+): string | undefined {
+  if (
+    event.googleEventId &&
+    isBookedOnAccount(booked, event.googleEventId, event.accountEmail)
+  ) {
+    return BOOKED_EVENT_REASON;
+  }
+  if (event.source === "ical") {
+    return "Comes from a subscribed ICS feed, which is read-only";
+  }
+  if (event.source === "local") {
+    return 'Is a booking; cancel the booking with "cancel-booking" instead';
+  }
+  if (!event.googleEventId) return "Has no Google event id to delete";
+  return undefined;
+}
+
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function startsWithinRange(
+  start: string,
+  range: BulkEventRange,
+): boolean {
+  const startMs = DATE_ONLY_RE.test(start)
+    ? new Date(zonedDateTimeToUtcIso(start, "00:00", range.timezone)).getTime()
+    : new Date(start).getTime();
+  return (
+    startMs >= new Date(range.from).getTime() &&
+    startMs < new Date(range.to).getTime()
+  );
+}
+
+export function requireExplicitBound(
+  value: string,
+  label: "from" | "to",
+): string {
+  const trimmed = value.trim();
+  if (!trimmed) throw new Error(`${label} cannot be blank.`);
+  const datePart = trimmed.slice(0, 10);
+  if (DATE_ONLY_RE.test(datePart) && !isValidDateOnly(datePart)) {
+    throw new Error(`${label} is not a real calendar date: ${datePart}`);
+  }
+  return trimmed;
+}
+
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  run: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (next < items.length) {
+        const index = next++;
+        results[index] = await run(items[index], index);
+      }
+    }),
+  );
+  return results;
 }
 
 export async function resolveOwnedAccountEmail(
@@ -396,7 +533,7 @@ export function normalizeCreateEventInput(args: {
     args.title?.trim() ||
     (args.eventType === "outOfOffice" ? "Out of office" : "");
   if (!title && args.eventType !== "workingLocation") {
-    throw new Error("Event title is required.");
+    fail("Event title is required.");
   }
 
   if (args.eventType === "workingLocation" && args.allDay === true) {

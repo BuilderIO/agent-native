@@ -1,3 +1,4 @@
+import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "@agent-native/core/shared";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -142,6 +143,22 @@ describe("Clips share metadata", () => {
     expect(imageUrl).toBe(
       "https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs=350",
     );
+  });
+
+  it("keeps a valid fallback for legacy Loom embeds without thumbnails", () => {
+    expect(
+      resolveClipsSocialImageUrl({
+        recording: {
+          id: "rec-1",
+          visibility: "public",
+          status: "ready",
+          thumbnailUrl: null,
+          animatedThumbnailUrl: null,
+          isLoomEmbedBacked: true,
+        },
+        origin: "https://clips.example.com",
+      }),
+    ).toBe(AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE);
   });
 
   it("proxies public stored thumbnails through the same-origin image route", () => {

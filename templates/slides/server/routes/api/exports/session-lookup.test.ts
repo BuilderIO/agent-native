@@ -1,7 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetSession = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
+const mockGetGoogleDocsAccessToken = vi.hoisted(() => vi.fn());
+const mockReadMultipartFormData = vi.hoisted(() => vi.fn());
+const mockFetch = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
@@ -17,7 +20,8 @@ vi.mock("@agent-native/core/org", () => ({
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),
-  readMultipartFormData: vi.fn(async () => []),
+  readMultipartFormData: (...args: unknown[]) =>
+    mockReadMultipartFormData(...args),
   getRouterParam: vi.fn(() => "deck.pptx"),
 }));
 
@@ -30,7 +34,7 @@ vi.mock("../../../../actions/export-pptx.js", () => ({
 }));
 
 vi.mock("../../../lib/google-docs-oauth.js", () => ({
-  getGoogleDocsAccessToken: vi.fn(),
+  getGoogleDocsAccessToken: mockGetGoogleDocsAccessToken,
 }));
 
 vi.mock("../../../lib/tenant-files.js", () => ({
@@ -63,6 +67,9 @@ describe.each([
   beforeEach(() => {
     mockGetSession.mockReset();
     mockSetResponseStatus.mockReset();
+    mockGetGoogleDocsAccessToken.mockReset();
+    mockReadMultipartFormData.mockResolvedValue([]);
+    mockFetch.mockReset();
   });
 
   it("reports a 503 service error, not 401 Unauthorized, when the session lookup fails", async () => {
@@ -89,5 +96,106 @@ describe.each([
 
     expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 401);
     expect(result?.error).toBe("Unauthorized");
+  });
+});
+
+describe("google-slides connection failures", () => {
+  beforeEach(() => {
+    mockSetResponseStatus.mockReset();
+    vi.stubGlobal("fetch", mockFetch);
+    mockGetSession.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "org-1",
+    });
+    mockReadMultipartFormData.mockResolvedValue([
+      { name: "file", data: new Uint8Array([1, 2, 3]) },
+    ]);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("turns an expired Google connection into a reconnect response", async () => {
+    mockGetGoogleDocsAccessToken.mockRejectedValue(new Error("invalid_grant"));
+
+    const result = (await exportGoogleSlides({ node: { res: {} } } as any)) as {
+      code?: string;
+      error?: string;
+    };
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 409);
+    expect(mockGetGoogleDocsAccessToken).toHaveBeenCalledWith(
+      "owner@example.com",
+      { requireDriveUploadScope: true },
+    );
+    expect(result).toEqual({
+      error:
+        "Google Drive connection expired. Connect Google again, then retry.",
+      code: "google-not-connected",
+    });
+  });
+
+  it("turns a Drive insufficient-permissions response into a reconnect response", async () => {
+    mockGetGoogleDocsAccessToken.mockResolvedValue({
+      accessToken: "access-token",
+      accountEmail: "owner@example.com",
+    });
+    mockFetch.mockResolvedValue({
+      status: 403,
+      ok: false,
+      json: vi.fn().mockResolvedValue({
+        error: {
+          message: "The caller does not have permission",
+          errors: [{ reason: "insufficientPermissions" }],
+        },
+      }),
+    });
+
+    const result = (await exportGoogleSlides({ node: { res: {} } } as any)) as {
+      code?: string;
+      error?: string;
+    };
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 409);
+    expect(result).toEqual({
+      error:
+        "Google Drive connection expired. Connect Google again, then retry.",
+      code: "google-not-connected",
+    });
+  });
+
+  it("builds a stable Slides URL when Drive omits webViewLink", async () => {
+    mockGetGoogleDocsAccessToken.mockResolvedValue({
+      accessToken: "access-token",
+      accountEmail: "owner@example.com",
+    });
+    mockFetch.mockResolvedValue({
+      status: 200,
+      ok: true,
+      json: vi.fn().mockResolvedValue({ id: "presentation-123" }),
+    });
+
+    const result = await exportGoogleSlides({ node: { res: {} } } as any);
+
+    expect(result).toEqual({
+      url: "https://docs.google.com/presentation/d/presentation-123/edit",
+      accountEmail: "owner@example.com",
+    });
+    expect(mockSetResponseStatus).not.toHaveBeenCalled();
+  });
+
+  it("keeps invalid OAuth client configuration out of the reconnect flow", async () => {
+    mockGetGoogleDocsAccessToken.mockRejectedValue(new Error("invalid_client"));
+
+    const result = (await exportGoogleSlides({ node: { res: {} } } as any)) as {
+      code?: string;
+      error?: string;
+    };
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 502);
+    expect(result).toEqual({
+      error: "Could not use the Google Drive connection. Try again.",
+    });
   });
 });

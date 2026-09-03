@@ -3,6 +3,19 @@
 All notable user-facing changes to Assets are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-01
+
+### Improved
+
+- Image generation returns compact results so multi-image runs stop hitting delegated result limits.
+- You can now generate image and video drafts in a brand kit you only have view access to, from the app or from another agent. Saving a draft into the kit, uploading, and editing the kit still need edit access, and the drafts you generate stay yours to discard.
+
+## 2026-08-26
+
+### Added
+
+- Templates are now their own surface and can be used across brand kits.
+
 ## 2026-08-22
 
 ### Fixed

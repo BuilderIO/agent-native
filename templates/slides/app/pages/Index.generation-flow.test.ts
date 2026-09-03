@@ -8,6 +8,13 @@ const source = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "Index.tsx"),
   "utf8",
 );
+const onboardingSource = readFileSync(
+  path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../components/onboarding/FirstDeckOnboardingFlow.tsx",
+  ),
+  "utf8",
+);
 const flow = source.slice(
   source.indexOf("const handleCreateDeckWithPrompt"),
   source.indexOf("const handlePromptSubmit"),
@@ -46,11 +53,27 @@ describe("new deck generation flow", () => {
       "navigate(`/deck/${deck.id}?generating=1`",
     );
     const submitIndex = flow.indexOf(
-      "agentSubmit(createDeckAgentMessage(trimmedPrompt)",
+      "agentSubmit(createDeckAgentMessage(prompt)",
     );
 
     expect(generatingRouteIndex).toBeGreaterThan(-1);
     expect(submitIndex).toBeGreaterThan(generatingRouteIndex);
+  });
+
+  it("carries hidden prompt context through generation retries", () => {
+    expect(source).toContain("PENDING_PROMPT_CONTEXT_KEY");
+    expect(source).toContain("PENDING_PROMPT_MODEL_SELECTION_KEY");
+    expect(source).toContain("retryContext?: string");
+    expect(source).toContain("modelSelection?: DeckModelSelection");
+    expect(flow).toContain("retryContext: additionalContext || undefined");
+    expect(flow).toContain("modelSelection,");
+    expect(source).toContain("newDeckRetryPrompt");
+    expect(source).toContain(
+      "initialModelSelection={newDeckRetryModelSelection}",
+    );
+    expect(source).toContain(
+      "prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined",
+    );
   });
 
   it("requires a generated title before the first slide", () => {
@@ -111,10 +134,36 @@ describe("new deck generation flow", () => {
     );
   });
 
+  it("keeps prior attachment chips when a generation retry adds files", () => {
+    expect(flow).toContain("const attachmentsForGeneration = [");
+    expect(flow).toContain("...newDeckRetryAttachments");
+    expect(flow).toContain("...attachments");
+  });
+  it("passes uploaded image references through the home agent submission", () => {
+    expect(flow).toContain(
+      "...getUploadedImageAgentOptions(filesForGeneration)",
+    );
+    expect(source).toContain("getUploadedImageAgentOptions");
+  });
+
+  it("preserves the composer model selection through the reference step", () => {
+    expect(source).toContain("options?: PromptComposerSubmitOptions");
+    expect(source).toContain("modelSelection: options");
+    expect(flow).toContain("...modelSelection");
+    expect(onboardingSource).toContain("setPromptModelSelection");
+    expect(onboardingSource).toContain("modelSelection: promptModelSelection");
+    expect(onboardingSource).toContain(
+      "selectedModel={promptModelSelection?.model}",
+    );
+    expect(onboardingSource).toContain("handlePromptModelChange");
+  });
+
   it("routes both prompt submit and prompt skip into the reference step", () => {
     expect(source).toContain("const handlePromptSubmit");
     expect(source).toContain("const handlePromptSkip");
-    expect(source).toContain('setPendingDeck({ prompt: "", files: [] })');
+    expect(source).toContain(
+      'setPendingDeck({ prompt: "", files: [], attachments: [] })',
+    );
     expect(source).toContain("onSubmit={handlePromptSubmit}");
     expect(source).toContain("onSkip={handlePromptSkip}");
     expect(source).toContain("setShowNewDeckReferenceStep(true)");
@@ -145,6 +194,9 @@ describe("new deck generation flow", () => {
     // Whitespace-tolerant: passing the extended import timeout wraps the call
     // across lines, and this asserts the call exists, not how it is formatted.
     expect(referenceImportFlow).toMatch(/callAction\(\s*"import-pptx"/);
+    expect(referenceImportFlow).toContain(
+      "timeoutMs: IMPORT_ACTION_TIMEOUT_MS",
+    );
     expect(referenceImportFlow).toContain("importedReference = {");
     expect(referenceImportFlow).toContain('source: "pptx"');
     expect(referenceImportFlow).toContain("setPendingDeck((current) =>");
@@ -159,16 +211,36 @@ describe("new deck generation flow", () => {
     );
 
     expect(referenceImportFlow).toMatch(/callAction\(\s*"import-file"/);
-    expect(referenceImportFlow).toContain('format: "pdf"');
+    expect(referenceImportFlow).toContain(
+      'const documentFormat = pdfReference ? "pdf" : "docx"',
+    );
     expect(referenceImportFlow).toContain("importIntoDeck: true");
     expect(referenceImportFlow).toContain("setSelectedReferenceDeckId");
-    expect(referenceImportFlow).toContain(
-      "generationFiles = uploaded.filter((file) => file !== pdfReference)",
+    expect(referenceImportFlow).toMatch(
+      /generationFiles = uploaded\.filter\(\s*\(file\) => file !== documentReference,/,
     );
     expect(referenceImportFlow).not.toContain("handleCreateDeckWithPrompt(");
     expect(referenceImportFlow).toContain(
-      "The PDF reference deck could not be imported.",
+      't("editorToolbar.importFailedDescription")',
     );
+  });
+
+  it("imports an uploaded DOCX into a reusable reference deck", () => {
+    const referenceImportFlow = source.slice(
+      source.indexOf("const handleReferenceImport"),
+      source.indexOf("const handleReferenceSkip"),
+    );
+
+    expect(referenceImportFlow).toContain("const docxReference =");
+    expect(referenceImportFlow).toContain("format: documentFormat");
+    expect(referenceImportFlow).toContain("slideCount?: unknown;");
+    expect(referenceImportFlow).toContain("source: documentFormat");
+    expect(referenceImportFlow).toContain(
+      "timeoutMs: IMPORT_ACTION_TIMEOUT_MS",
+    );
+    expect(onboardingSource).toContain("const docxReference =");
+    expect(onboardingSource).toContain("format: documentFormat");
+    expect(onboardingSource).toContain("source: documentFormat");
   });
 
   it("imports a pasted Google Slides URL before selecting the reference deck", () => {

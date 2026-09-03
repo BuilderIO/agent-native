@@ -28,6 +28,14 @@ export default defineAction({
     provider: z.enum(["google"]).default("google"),
     /** Optional same-origin path to return the user to after success. */
     returnUrl: z.string().optional(),
+    flowId: z
+      .string()
+      .regex(/^[a-zA-Z0-9_-]{1,128}$/)
+      .optional(),
+    calendarAccountId: z
+      .string()
+      .regex(/^[a-zA-Z0-9_-]{1,128}$/)
+      .optional(),
   }),
   http: { method: "GET" },
   run: async (args) => {
@@ -49,6 +57,9 @@ export default defineAction({
     // http://localhost:<port>/_agent-native/google/callback.
     const params = new URLSearchParams({ calendar: "1", redirect: "1" });
     if (args.returnUrl) params.set("return", args.returnUrl);
+    if (args.flowId) params.set("flow_id", args.flowId);
+    if (args.calendarAccountId)
+      params.set("oauth_target_id", args.calendarAccountId);
     const url = `/_agent-native/google/auth-url?${params.toString()}`;
 
     return {

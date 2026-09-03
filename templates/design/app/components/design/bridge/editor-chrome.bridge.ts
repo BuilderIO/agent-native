@@ -490,6 +490,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return value ? "[" + name + '="' + escapeAttribute(value) + '"]' : "";
   }
 
+  // True only for a selector that names one node's own identity: the stable
+  // source-id attributes getSelector prefers, or an id. Anything with a
+  // combinator or an :nth-* step describes a POSITION, which a sibling can
+  // inherit after a delete or a reorder.
+  function isStableIdentitySelector(selector: string): boolean {
+    if (!selector || /[\s>+~,]/.test(selector)) return false;
+    if (/^#[^#.:[\]()]+$/.test(selector)) return true;
+    return /^\[(data-agent-native-node-id|data-code-layer-id|data-layer-id|data-builder-id|data-loc)="/.test(
+      selector,
+    );
+  }
+
   function classSelectorSuffix(el: Element | null, maxCount: number): string {
     if (!el || !el.classList) return "";
     return Array.prototype.slice
@@ -2695,6 +2707,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "position:fixed;inset:0;z-index:100000;display:none;pointer-events:none;";
   document.body.appendChild(snapGuideLayer);
 
+  // Cell boundaries of a selected grid container, empty cells included: the
+  // gap handles alone leave a two-child grid looking like a flex row.
+  var gridCellOverlay = document.createElement("div");
+  gridCellOverlay.setAttribute("data-agent-native-edit-overlay", "grid-cells");
+  gridCellOverlay.style.cssText =
+    "position:fixed;inset:0;z-index:99993;display:none;pointer-events:none;";
+  document.body.appendChild(gridCellOverlay);
+
+  // Name labels above the outermost frames, the in-screen twin of the overview
+  // canvas's screen labels. Above the shield's z-index so a label click can
+  // select its frame.
+  var frameLabelLayer = document.createElement("div");
+  frameLabelLayer.setAttribute("data-agent-native-edit-overlay", "frame-label");
+  frameLabelLayer.style.cssText =
+    "position:fixed;inset:0;z-index:99992;display:block;pointer-events:none;";
+  document.body.appendChild(frameLabelLayer);
+
   var measurementOverlay = document.createElement("div");
   measurementOverlay.setAttribute("data-agent-native-measurement-overlay", "");
   // Tag as an edit overlay so the content-replacement path preserves it (only
@@ -2889,6 +2918,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     selectionOverlay.style.display = "none";
     hideSizeBadge();
     hideSpacingOverlay();
+    hideGridCellOverlay();
+    refreshFrameNameLabels();
     hideParentAutoLayoutOverlay();
     clearComponentTag();
   }
@@ -3952,13 +3983,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       document.querySelectorAll("[data-agent-native-edit-overlay]"),
     );
     // A forced whole-document replace is used for structural edits (duplicate,
-    // delete, cut/paste, undo/redo). Never fall back to the current selection
-    // in that mode: doing so activates the single-subtree fast path below,
-    // which can faithfully replace the selected node while silently omitting
-    // newly inserted or removed siblings elsewhere in the document.
-    var activeSelector = forceFullDocument
-      ? ""
-      : preferredSelector || (selectedEl ? getSelector(selectedEl) : "");
+    // delete, cut/paste, undo/redo). The single-subtree fast path below must
+    // never run in that mode — it can faithfully replace the selected node
+    // while silently omitting inserted or removed siblings elsewhere — but the
+    // selectors still re-anchor the selection AFTER the morph, or an edit that
+    // keeps the same node selected (a layout flow change) leaves the canvas
+    // looking deselected while the inspector still shows it.
+    var activeSelector =
+      preferredSelector || (selectedEl ? getSelector(selectedEl) : "");
     var activeCandidates: string[] = [];
     if (Array.isArray(selectorCandidates)) {
       selectorCandidates.forEach(function (selector) {
@@ -4087,12 +4119,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       document.body.appendChild(node);
     });
     applyLayerStateSelectors();
+    // The morph can swap a frame for an equivalent element with the same name
+    // and box, which the label cache cannot see: rebuild so no label's click
+    // closure keeps pointing at a detached node.
+    frameLabelRenderKey = "";
 
     selectedEl = null;
     clearHoverGate();
-    for (var i = 0; i < activeCandidates.length && !selectedEl; i += 1) {
+    // A structural replace can have deleted the selected node, and a stale
+    // positional candidate then matches whichever sibling shifted into its
+    // place — so only whole-selector stable identity may re-anchor one.
+    var reanchorCandidates = forceFullDocument
+      ? activeCandidates.filter(isStableIdentitySelector)
+      : activeCandidates;
+    for (var i = 0; i < reanchorCandidates.length && !selectedEl; i += 1) {
       try {
-        var match = document.querySelector(activeCandidates[i]);
+        var match = document.querySelector(reanchorCandidates[i]);
         // Skip the editor's own injected overlay chrome and re-anchor to a
         // source-backed element. A stale positional candidate like
         // body > div:nth-of-type(6) can otherwise re-match an overlay div
@@ -5347,6 +5389,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // (see applySelectionHandleHitGeometry).
       applySelectionHandleHitGeometry(el);
       updateSpacingOverlay(el);
+      updateGridCellOverlay(el);
+      // A label paints in the accent colour while its frame is selected, so it
+      // has to repaint on every selection change, not only on a geometry tick.
+      refreshFrameNameLabels();
       // `rect` is undefined on the rotated-local-box path; updateComponentTag
       // falls back to its own read in that case.
       updateComponentTag(el, rect);
@@ -5355,6 +5401,304 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     } else {
       applyElementOverlayChrome(overlay, el);
     }
+  }
+
+  var gridCellOverlayRenderKey = "";
+
+  function hideGridCellOverlay(): void {
+    gridCellOverlay.style.display = "none";
+    if (gridCellOverlayRenderKey) {
+      gridCellOverlay.innerHTML = "";
+      gridCellOverlayRenderKey = "";
+    }
+  }
+
+  // Computed grid templates resolve to used px track sizes; a 0px track still
+  // occupies a line, so only a genuinely non-numeric token (a line name) drops.
+  function gridTrackSizes(template: string): number[] {
+    var sizes: number[] = [];
+    if (!template || template === "none") return sizes;
+    template.split(/\s+/).forEach(function (token) {
+      var size = readFinitePx(token);
+      if (size !== null) sizes.push(size);
+    });
+    return sizes;
+  }
+
+  /**
+   * Where the tracks actually start, and how far apart they sit, once
+   * justify-content / align-content has distributed the space the tracks do
+   * not fill. Reading only the content-box origin paints the cells of a
+   * centered or distributed grid away from its real tracks.
+   */
+  function gridTrackDistribution(
+    tracks: number[],
+    contentSize: number,
+    gap: number,
+    distribution: string,
+  ): { offset: number; gap: number } {
+    var used = 0;
+    for (var i = 0; i < tracks.length; i += 1) used += tracks[i];
+    used += gap * Math.max(0, tracks.length - 1);
+    var leftover = contentSize - used;
+    if (!(leftover > 0.01)) return { offset: 0, gap: gap };
+    var mode = (distribution || "normal").split(" ").pop() || "normal";
+    if (mode === "center") return { offset: leftover / 2, gap: gap };
+    if (mode === "end" || mode === "flex-end" || mode === "right") {
+      return { offset: leftover, gap: gap };
+    }
+    if (mode === "space-between" && tracks.length > 1) {
+      return { offset: 0, gap: gap + leftover / (tracks.length - 1) };
+    }
+    if (mode === "space-around" && tracks.length > 0) {
+      var around = leftover / tracks.length;
+      return { offset: around / 2, gap: gap + around };
+    }
+    if (mode === "space-evenly" && tracks.length > 0) {
+      var evenly = leftover / (tracks.length + 1);
+      return { offset: evenly, gap: gap + evenly };
+    }
+    return { offset: 0, gap: gap };
+  }
+
+  function updateGridCellOverlay(el: Element | null): void {
+    if (!el || !document.documentElement.contains(el)) {
+      hideGridCellOverlay();
+      return;
+    }
+    if (selectionChromeHidden || activeTextEditEl) {
+      hideGridCellOverlay();
+      return;
+    }
+    var cs = window.getComputedStyle(el);
+    if (cs.display !== "grid" && cs.display !== "inline-grid") {
+      hideGridCellOverlay();
+      return;
+    }
+    if (Math.abs(currentRotation(el)) > 0.01) {
+      hideGridCellOverlay();
+      return;
+    }
+    var columns = gridTrackSizes(cs.gridTemplateColumns);
+    var rows = gridTrackSizes(cs.gridTemplateRows);
+    if (columns.length === 0 || rows.length === 0) {
+      hideGridCellOverlay();
+      return;
+    }
+    var rect = el.getBoundingClientRect();
+    var contentLeft =
+      rect.left + readPx(cs.borderLeftWidth) + readPx(cs.paddingLeft);
+    var contentTop =
+      rect.top + readPx(cs.borderTopWidth) + readPx(cs.paddingTop);
+    var contentWidth =
+      rect.width -
+      readPx(cs.borderLeftWidth) -
+      readPx(cs.borderRightWidth) -
+      readPx(cs.paddingLeft) -
+      readPx(cs.paddingRight);
+    var contentHeight =
+      rect.height -
+      readPx(cs.borderTopWidth) -
+      readPx(cs.borderBottomWidth) -
+      readPx(cs.paddingTop) -
+      readPx(cs.paddingBottom);
+    var columnFlow = gridTrackDistribution(
+      columns,
+      contentWidth,
+      readPx(cs.columnGap),
+      cs.justifyContent,
+    );
+    var rowFlow = gridTrackDistribution(
+      rows,
+      contentHeight,
+      readPx(cs.rowGap),
+      cs.alignContent,
+    );
+    var originX = contentLeft + columnFlow.offset;
+    var originY = contentTop + rowFlow.offset;
+    var columnGap = columnFlow.gap;
+    var rowGap = rowFlow.gap;
+    var line = Math.max(1, chromeLineScale());
+    var nextKey = [
+      originX,
+      originY,
+      columnGap,
+      rowGap,
+      line,
+      columns.join(","),
+      rows.join(","),
+    ].join("|");
+    if (
+      gridCellOverlay.style.display === "block" &&
+      gridCellOverlayRenderKey === nextKey
+    ) {
+      return;
+    }
+    gridCellOverlayRenderKey = nextKey;
+    gridCellOverlay.innerHTML = "";
+    gridCellOverlay.style.display = "block";
+    var color = chromeColorForElement(el);
+    var cellY = originY;
+    for (var row = 0; row < rows.length; row += 1) {
+      var cellX = originX;
+      for (var column = 0; column < columns.length; column += 1) {
+        var cell = document.createElement("div");
+        cell.setAttribute("data-agent-native-grid-cell", column + ":" + row);
+        cell.style.cssText =
+          "position:absolute;box-sizing:border-box;pointer-events:none;left:" +
+          cellX +
+          "px;top:" +
+          cellY +
+          "px;width:" +
+          columns[column] +
+          "px;height:" +
+          rows[row] +
+          "px;border:" +
+          line +
+          "px solid color-mix(in srgb," +
+          color +
+          " 42%,transparent);";
+        gridCellOverlay.appendChild(cell);
+        cellX += columns[column] + columnGap;
+      }
+      cellY += rows[row] + rowGap;
+    }
+  }
+
+  // ── Frame name labels ───────────────────────────────────────────────────
+  // This chrome paints over the design's own page, never over editor surfaces.
+  // guard:allow-raw-color — a mid grey is legible on white screens and dark boards.
+  var FRAME_LABEL_IDLE_COLOR = "rgba(113,113,122,0.95)";
+  var FRAME_PRIMITIVE_SELECTOR = '[data-an-primitive="frame"]';
+  var frameLabelRenderKey = "";
+
+  // Only top-level canvas objects carry a name label. A screen is named by the
+  // host's screen card, so nothing inside a screen document is labeled here:
+  // "has no frame ancestor" is not "is top level", and a frame dropped inside a
+  // screen satisfied the former and got a stray canvas label.
+  function outermostFrameElements(): Element[] {
+    if (!designCanvasBoardSurface) return [];
+    var frames = Array.prototype.slice.call(
+      document.querySelectorAll(FRAME_PRIMITIVE_SELECTOR),
+    ) as Element[];
+    return frames.filter(function (frame) {
+      if (isOverlayElement(frame)) return false;
+      var parent = frame.parentElement;
+      return !parent || !parent.closest(FRAME_PRIMITIVE_SELECTOR);
+    });
+  }
+
+  function frameLabelText(frame: Element): string {
+    var name =
+      frame.getAttribute("data-agent-native-layer-name") ||
+      frame.getAttribute("aria-label") ||
+      "";
+    return name.trim() || "Frame" /* i18n-ignore canvas frame label */;
+  }
+
+  function selectFrameFromLabel(frame: Element, e: MouseEvent): void {
+    if (isLayerInteractionBlocked(frame)) return;
+    blurActiveTextEditor();
+    var previousSelectedEl = selectedEl;
+    selectedEl = frame;
+    positionOverlay(selectionOverlay, selectedEl);
+    // Same collapse the shield's own plain select does (phantom-passenger
+    // fix, §3.5): a drag started before the host mirrors this selection back
+    // would otherwise carry the previous multi-selection's members along.
+    if (!e.shiftKey && passiveSelectionEls.length) {
+      setPassiveSelectionElements([]);
+    }
+    preservePreviousSelectedElementForShiftClick(
+      previousSelectedEl,
+      selectedEl,
+      e,
+    );
+    postElementSelect(selectedEl, e);
+  }
+
+  function refreshFrameNameLabels(): void {
+    var frames = outermostFrameElements();
+    var line = chromeLineScale();
+    var fontSize = 11 * line;
+    var labelHeight = 16 * line;
+    var placements: {
+      frame: Element;
+      text: string;
+      left: number;
+      top: number;
+      maxWidth: number;
+      selected: boolean;
+    }[] = [];
+    frames.forEach(function (frame) {
+      var rect = frame.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      // A frame flush against the document top would have its label clipped by
+      // the iframe edge, so it rides just inside the frame instead.
+      var top = rect.top - labelHeight - 2 * line;
+      if (top < 0) top = rect.top + 2 * line;
+      placements.push({
+        frame: frame,
+        text: frameLabelText(frame),
+        left: rect.left,
+        top: top,
+        maxWidth: Math.max(48 * line, rect.width),
+        selected: frame === selectedEl,
+      });
+    });
+    var nextKey =
+      placements
+        .map(function (placement) {
+          return [
+            placement.text,
+            Math.round(placement.left),
+            Math.round(placement.top),
+            Math.round(placement.maxWidth),
+            placement.selected ? "1" : "0",
+          ].join(",");
+        })
+        .join("|") +
+      "@" +
+      line;
+    if (frameLabelRenderKey === nextKey) return;
+    frameLabelRenderKey = nextKey;
+    frameLabelLayer.innerHTML = "";
+    placements.forEach(function (placement) {
+      var label = document.createElement("button");
+      label.type = "button";
+      label.setAttribute("data-agent-native-frame-label", "");
+      label.textContent = placement.text;
+      label.title = placement.text;
+      label.style.cssText =
+        "position:absolute;margin:0;padding:0;border:0;background:transparent;" +
+        "max-width:" +
+        placement.maxWidth +
+        "px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" +
+        "pointer-events:auto;cursor:default;text-align:left;" +
+        "font:500 " +
+        fontSize +
+        "px/" +
+        labelHeight +
+        "px ui-sans-serif,system-ui,-apple-system,sans-serif;" +
+        "left:" +
+        placement.left +
+        "px;top:" +
+        placement.top +
+        "px;height:" +
+        labelHeight +
+        "px;color:" +
+        (placement.selected
+          ? "var(--design-editor-accent-color)"
+          : FRAME_LABEL_IDLE_COLOR);
+      label.addEventListener("mousedown", function (event) {
+        event.stopPropagation();
+      });
+      label.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        selectFrameFromLabel(placement.frame, event as MouseEvent);
+      });
+      frameLabelLayer.appendChild(label);
+    });
   }
 
   function refreshOverlays(): void {
@@ -5397,6 +5741,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (passiveSelectionEls.length > 0) hideSizeBadge();
     positionMultiSelectionBounds();
     positionGradientOverlay();
+    refreshFrameNameLabels();
     syncOverlayObservers();
   }
 
@@ -5525,7 +5870,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     target: EventTarget | null,
   ): boolean {
     if (!target) return false;
-    return target === selectedEl || target === hoveredEl;
+    if (target === selectedEl || target === hoveredEl) return true;
+    // Frame labels are always-on chrome, so a transition that moves or
+    // resizes a labelled frame — on the frame, an ancestor, or a child that
+    // grows a hug-sized one — has to drive this loop even with nothing
+    // selected. Mutation records never fire for a running keyframe.
+    var el = target as Element;
+    if (!el || typeof el.closest !== "function") return false;
+    return Boolean(
+      el.closest(FRAME_PRIMITIVE_SELECTOR) ||
+      (el.querySelector && el.querySelector(FRAME_PRIMITIVE_SELECTOR)),
+    );
   }
 
   function tickOverlayAnimationTracking(): void {
@@ -9623,8 +9978,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     var currentLeft = readPx(htmlEl.style.left || cs.left);
     var currentTop = readPx(htmlEl.style.top || cs.top);
-    htmlEl.style.left = currentLeft + (oldOriginX - newOriginX) + "px";
-    htmlEl.style.top = currentTop + (oldOriginY - newOriginY) + "px";
+    // Both origins come from getBoundingClientRect, so the raw difference is
+    // subpixel and would be authored as one.
+    htmlEl.style.left =
+      Math.round(currentLeft + (oldOriginX - newOriginX)) + "px";
+    htmlEl.style.top =
+      Math.round(currentTop + (oldOriginY - newOriginY)) + "px";
   }
 
   /** Convert flow members to absolute positioning at their drag release point
@@ -9733,8 +10092,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     var localDx = (clientDx * yy - yx * clientDy) / determinant;
     var localDy = (xx * clientDy - clientDx * xy) / determinant;
-    htmlEl.style.left = baseLeft + localDx + "px";
-    htmlEl.style.top = baseTop + localDy + "px";
+    // The exact client point is worth at most a subpixel here, and paying for
+    // it in a fractional authored left/top is the wrong trade.
+    htmlEl.style.left = Math.round(baseLeft + localDx) + "px";
+    htmlEl.style.top = Math.round(baseTop + localDy) + "px";
   }
 
   function applyRuntimeReorder(el, target) {
@@ -9920,6 +10281,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // base converted to content px at snap time via chromeLineScale (1/zoom) to
   // keep the snap tolerance constant on screen at any zoom.
   var SNAP_THRESHOLD_PX = 6;
+
+  /** This screen's layout grid step in content px, pushed by the host. 1 means
+   *  no grid, which is the whole-pixel floor every gesture already lands on. */
+  var layoutGridStep = 1;
+
+  function quantizeToLayoutGrid(value: number): number {
+    if (!(layoutGridStep > 1)) return Math.round(value);
+    return Math.round(value / layoutGridStep) * layoutGridStep;
+  }
   var SNAP_CANDIDATE_CAP = 200;
 
   // Accepts either a real DOMRect (getBoundingClientRect()) or a plain
@@ -11935,8 +12305,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var appliedDx = nextLeft - originLeft;
       var appliedDy = nextTop - originTop;
       memberStates.forEach(function (state) {
-        state.el.style.left = Math.round(state.originLeft + appliedDx) + "px";
-        state.el.style.top = Math.round(state.originTop + appliedDy) + "px";
+        state.el.style.left =
+          quantizeToLayoutGrid(state.originLeft + appliedDx) + "px";
+        state.el.style.top =
+          quantizeToLayoutGrid(state.originTop + appliedDy) + "px";
       });
       if (!duplicatedForDrag && !isGroupDrag) {
         scheduleCrossScreenDragMove(ev);
@@ -12491,15 +12863,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var rect = nextRect(ev);
       if (rect.touchesWidth) widthTouched = true;
       if (rect.touchesHeight) heightTouched = true;
-      resizeEl.style.left = Math.round(rect.left) + "px";
-      resizeEl.style.top = Math.round(rect.top) + "px";
+      resizeEl.style.left = quantizeToLayoutGrid(rect.left) + "px";
+      resizeEl.style.top = quantizeToLayoutGrid(rect.top) + "px";
       // Only write width/height for an axis this gesture actually touched —
       // writing the untouched axis every tick (even to its own unchanged
       // origin value) would silently convert e.g. `width: 100%` to a px
       // value on a pure vertical drag, which is exactly the "shrank instead
       // of preserved" class of bug this fixes.
-      if (widthTouched) resizeEl.style.width = Math.round(rect.width) + "px";
-      if (heightTouched) resizeEl.style.height = Math.round(rect.height) + "px";
+      if (widthTouched)
+        resizeEl.style.width = quantizeToLayoutGrid(rect.width) + "px";
+      if (heightTouched)
+        resizeEl.style.height = quantizeToLayoutGrid(rect.height) + "px";
       if (scaleToolEnabled) {
         // Uniform scale factor: scaleToolEnabled already forces the
         // aspect-ratio lock above (nextRect), so width/origin.width and
@@ -12531,6 +12905,32 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ev.clientX,
         ev.clientY,
       );
+      // Keep the host Inspector in lockstep with the live DOM. This is a
+      // preview only: the final pointerup message is still the one persistence
+      // boundary, so a drag does not create a history entry per pixel.
+      var previewStyles: Record<string, string> = {
+        position: resizeEl.style.position,
+        left: resizeEl.style.left,
+        top: resizeEl.style.top,
+      };
+      if (widthTouched) previewStyles.width = resizeEl.style.width;
+      if (heightTouched) previewStyles.height = resizeEl.style.height;
+      if (scaleToolEnabled && originBorderWidth > 0) {
+        previewStyles.borderWidth = resizeEl.style.borderWidth;
+      }
+      if (scaleToolEnabled && originFontSize > 0) {
+        previewStyles.fontSize = resizeEl.style.fontSize;
+      }
+      (window.parent as Window).postMessage(
+        {
+          type: "visual-style-change",
+          phase: "preview",
+          selector: getSelector(resizeEl),
+          styles: previewStyles,
+          payload: getElementInfo(resizeEl),
+        },
+        "*",
+      );
       refreshOverlays();
     }
     function cleanupResizeDrag() {
@@ -12556,6 +12956,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         });
         selectedEl = resizeEl;
         positionOverlay(selectionOverlay, selectedEl);
+        // Cancellation restores the iframe DOM without a commit packet. Send
+        // the restored snapshot back so the host Inspector does not keep
+        // displaying the last previewed dimensions.
+        var restoredComputed = window.getComputedStyle(resizeEl);
+        (window.parent as Window).postMessage(
+          {
+            type: "visual-style-change",
+            phase: "preview",
+            selector: getSelector(resizeEl),
+            styles: {
+              position: restoredComputed.position,
+              left: restoredComputed.left,
+              top: restoredComputed.top,
+              width: restoredComputed.width,
+              height: restoredComputed.height,
+              borderWidth: restoredComputed.borderWidth,
+              fontSize: restoredComputed.fontSize,
+            },
+            payload: getElementInfo(resizeEl),
+          },
+          "*",
+        );
       }
       suppressNextShieldClickBriefly();
       refreshOverlays();
@@ -12603,6 +13025,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       (window.parent as Window).postMessage(
         {
           type: "visual-style-change",
+          phase: "commit",
           selector: getSelector(resizeEl),
           styles: styles,
           originalStyles: originalInlineStylesForPatch(resizeEl, styles),
@@ -14445,6 +14868,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // set-read-only: toggle the bridge's readOnly state in-place without a reload.
     // When readOnly becomes true the shield/selection/drag/edit entry points are
     // gated so the surface is safe for background/inactive display use.
+    if (e.data.type === "set-layout-grid-step") {
+      var nextStep = Number(e.data.step);
+      layoutGridStep =
+        Number.isFinite(nextStep) && nextStep >= 1 ? nextStep : 1;
+      return;
+    }
     if (e.data.type === "set-read-only") {
       var nextReadOnly = !!e.data.readOnly;
       if (readOnly === nextReadOnly) return;
@@ -14569,6 +14998,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
       applyEditorChromeScale();
       if (selectedEl || hoveredEl) refreshOverlays();
+      else refreshFrameNameLabels();
       return;
     }
     if (e.data.type === "scale-tool-mode") {
@@ -15359,8 +15789,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       activeNodeHtmlPreview = null;
       replaceRuntimeDocument(
         e.data.content,
-        e.data.forceFullDocument ? "" : e.data.selectedSelector,
-        e.data.forceFullDocument ? [] : e.data.selectorCandidates,
+        e.data.selectedSelector,
+        e.data.selectorCandidates,
         Boolean(e.data.forceFullDocument),
         Boolean(e.data.preserveTextEditingSession),
       );
@@ -15641,6 +16071,40 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ],
     });
   }
+  // Frame labels are always-on chrome, so unlike the selection overlays they
+  // cannot ride selection-scoped observers: a frame added, renamed, moved, or
+  // arriving with a replaced document must relabel with nothing selected.
+  var frameLabelRefreshScheduled = false;
+  function scheduleFrameNameLabels(): void {
+    if (frameLabelRefreshScheduled) return;
+    frameLabelRefreshScheduled = true;
+    window.requestAnimationFrame(function () {
+      frameLabelRefreshScheduled = false;
+      refreshFrameNameLabels();
+    });
+  }
+  if (typeof MutationObserver !== "undefined" && document.body) {
+    new MutationObserver(function (mutations) {
+      // Skip our own label writes, or every refresh schedules the next one.
+      var touchedContent = mutations.some(function (mutation) {
+        var target = mutation.target;
+        return !(target instanceof Element) || !isOverlayElement(target);
+      });
+      if (touchedContent) scheduleFrameNameLabels();
+    }).observe(document.body, {
+      attributes: true,
+      attributeFilter: [
+        "data-agent-native-layer-name",
+        "data-an-primitive",
+        "class",
+        "style",
+      ],
+      childList: true,
+      subtree: true,
+    });
+  }
+  refreshFrameNameLabels();
+
   captureInitialSourceOwnership();
   if (runtimeLayerSnapshotEnabled) scheduleRuntimeLayerSnapshot();
 

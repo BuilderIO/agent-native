@@ -21,6 +21,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLocation,
   useNavigate,
 } from "react-router";
 import type { LinksFunction } from "react-router";
@@ -31,7 +32,6 @@ import { useNavigationState } from "@/hooks/use-navigation-state";
 import { APP_TITLE } from "@/lib/app-config";
 import { TAB_ID } from "@/lib/tab-id";
 
-import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
@@ -121,12 +121,7 @@ function AppContent() {
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
-      <CommandMenu
-        open={cmdkOpen}
-        onOpenChange={setCmdkOpen}
-        changelog={changelog}
-        changelogKey="chat"
-      >
+      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
         <CommandMenu.Group heading={t("root.commandActions")}>
           <CommandMenu.Item onSelect={() => {}}>
             {t("root.commandSearch")}
@@ -159,11 +154,23 @@ function AppContent() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const location = useLocation();
+  const isMarketingPath = location.pathname === "/";
   return (
     <AppToolkitProvider>
-      <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
-        <DbSyncSetup />
-        <AppContent />
+      <AppProviders
+        queryClient={queryClient}
+        isPublicPath={isMarketingPath}
+        i18n={{ catalog: i18nCatalog }}
+      >
+        {isMarketingPath ? (
+          <Outlet />
+        ) : (
+          <>
+            <DbSyncSetup />
+            <AppContent />
+          </>
+        )}
       </AppProviders>
     </AppToolkitProvider>
   );

@@ -102,7 +102,12 @@ interface Meeting {
   joinUrl?: string | null;
   recordingId?: string | null;
   recordingDurationMs?: number | null;
-  transcriptStatus?: "pending" | "ready" | "failed" | "in_progress" | string;
+  transcriptStatus?:
+    | "pending"
+    | "ready"
+    | "failed"
+    | "in_progress"
+    | (string & {});
   visibility?: "private" | "org" | "public" | null;
   shareTranscript?: boolean | null;
   summaryMd?: string | null;
@@ -934,8 +939,8 @@ export default function MeetingDetailRoute() {
       {
         onSuccess: () => {
           toast.success(t("meetingDetail.meetingRemoved"));
-          qc.invalidateQueries({ queryKey: ["action", "list-meetings"] });
-          navigate("/meetings", { replace: true });
+          void qc.invalidateQueries({ queryKey: ["action", "list-meetings"] });
+          void navigate("/meetings", { replace: true });
         },
         onError: (err: unknown) => {
           toast.error(
@@ -1313,7 +1318,7 @@ export default function MeetingDetailRoute() {
         )}
       </div>
 
-      <div className="clips-meeting-detail-grid grid grid-cols-1 gap-6 flex-1 min-h-0 lg:overflow-hidden">
+      <div className="clips-meeting-detail-grid grid grid-cols-1 gap-6 flex-1 min-h-0 overflow-y-auto">
         {/* Summary canvas with generated bullets and action items. */}
         <div
           className={cn(

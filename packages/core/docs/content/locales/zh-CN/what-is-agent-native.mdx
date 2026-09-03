@@ -5,17 +5,28 @@ description: "Agent-Native 是什么、其共享动作架构如何工作，以�
 
 # 什么是 Agent-Native？
 
-Agent-Native 是一个开源 TypeScript 框架，用于构建同时服务于人和 AI 智能体的应用。你只需将应用功能定义一次，作为[动作](/docs/actions-overview)——React UI 从代码中调用的类型化函数，智能体则将其用作工具。
+Agent-Native 是一个开源 TypeScript 框架，用于构建配备直观 UI 的自主型智能体。你只需将每项能力定义一次，作为一个[动作](/docs/actions-overview)——一种由智能体用作工具、由 UI 从代码中调用的类型化函数。
 
-## 为什么要以这种方式构建应用
+## 为什么要构建带 UI 的智能体
 
-大多数应用都是围绕人通过 UI 工作而设计的。加入智能体引入了另一种使用产品的方式。要让两者作为一个产品协同工作，必须满足三件事：
+<WireframeBlock id="doc-block-agent-ui-why">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:minmax(0,1fr) 54px minmax(0,1.15fr);gap:18px;align-items:center;padding:28px;min-height:420px;box-sizing:border-box'><section style='display:flex;flex-direction:column;gap:14px;align-items:center'><strong style='font-size:20px'>只有文本框的智能体</strong><div class='wf-card' style='width:100%;min-height:250px;display:flex;flex-direction:column;gap:18px;padding:20px;box-sizing:border-box;border-radius:calc(var(--wf-radius) * 0.45)'><span class='wf-muted'>智能体</span><div style='flex:1;display:flex;align-items:center;justify-content:center'><div class='wf-box' style='width:72%;height:42px;border-radius:calc(var(--wf-radius) * 0.45)'></div></div></div><span class='wf-muted'>它能做什么？</span></section><div aria-hidden='true' style='font-size:32px;text-align:center'>&rarr;</div><section style='display:flex;flex-direction:column;gap:14px;align-items:center'><strong style='font-size:20px'>带 UI 的智能体</strong><div class='wf-card' style='width:100%;min-height:250px;display:flex;flex-direction:column;gap:10px;padding:16px;box-sizing:border-box;border-radius:calc(var(--wf-radius) * 0.45)'><strong>发布演示文稿</strong><div style='display:flex;gap:7px'><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>大纲</span><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>幻灯片</span><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>审阅</span></div><div style='display:grid;grid-template-columns:minmax(0,1fr) 104px;gap:10px;flex:1;min-height:0'><div style='display:grid;grid-template-columns:42px minmax(0,1fr);gap:8px;min-width:0'><div style='display:flex;flex-direction:column;gap:7px'><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;padding:12px;text-align:center;border-radius:calc(var(--wf-radius) * 0.45)'><strong>第三季度产品发布</strong></div></div><aside class='wf-box' style='display:flex;flex-direction:column;gap:8px;padding:10px;min-width:0;border-radius:calc(var(--wf-radius) * 0.45)'><strong>智能体</strong><div style='flex:1'></div><div style='display:flex;align-items:center;gap:6px'><div class='wf-box' style='height:26px;flex:1;border-radius:calc(var(--wf-radius) * 0.45)'></div><button aria-hidden='true' tabindex='-1' style='width:26px;height:26px;padding:0;border-radius:calc(var(--wf-radius) * 0.45)'>&uarr;</button></div></aside></div></div><span class='wf-muted'>智能体和 UI 共用一个工作区</span></section></div>"
+    }
+  />
+</WireframeBlock>
 
-- **智能体需要访问产品。** 如果它得到的是较小、独立的一组工具，它仍然会受到限制。随着应用变化，你也会维护两套逐渐偏离的实现。
-- **人们仍然需要应用 UI。** 聊天很适合委派工作，但并不总适合浏览信息、比较选项、审查变更或与团队共享结果。
-- **工作需要能在两者之间流转。** 人应该能够检查或修改智能体的工作，而智能体应能从那里继续，不必重新开始。
+编码智能体会让人觉得文本框已经足够。但文本框只是其工作环境的一部分。代码库提供上下文，工具提供明确的行动方式，文件、测试和预览则让结果可见。
 
-Agent-Native 架构围绕这些要求构建。人们可以直接通过 UI 工作，也可以将结果委派给智能体，然后在两者之间切换而不会丢失进度。
+大多数知识工作没有这样的结构。面对空白文本框，人们只能猜测智能体能做什么、拥有什么上下文，以及该提出什么要求。
+
+UI 提供了文本框所缺少的东西。它让智能体的能力可见，将上下文和工作流带入体验，并让人们随着工作推进查看和调整结果。
+
+Agent-Native 让你能以这种方式构建智能体。UI 提供明确的起点，而不会将智能体限制在固定工作流中。由于智能体和 UI 使用相同的能力，人们可以把工作委派给智能体，在 UI 中检查或修改结果，并在两者之间切换而不会丢失进度。
+
+## Agent-Native 如何工作
 
 <Video
   src="https://cdn.builder.io/o/assets%2Fc5b47d20f6a943e485717e5895739988%2Fc88d506c160142ae9b8618616ceedcea%2Fcompressed?apiKey=c5b47d20f6a943e485717e5895739988&token=c88d506c160142ae9b8618616ceedcea&alt=media&optimized=true"
@@ -24,29 +35,13 @@ Agent-Native 架构围绕这些要求构建。人们可以直接通过 UI 工作
   caption="观看四分钟的 Agent-Native 架构介绍。"
 />
 
-## Agent-Native 如何工作
+Agent-Native 通过三个共享基础连接智能体和 UI：
 
-Agent-Native 应用为人和智能体提供两种使用同一产品的方式：
+- **[共享动作](/docs/actions-overview)。** 每项能力只定义一次。智能体将其作为工具调用，UI 则从代码中调用。两条路径使用相同的验证、权限和实现。
+- **[共享数据](/docs/server-database)。** 动作读取并更新相同的数据，因此智能体完成的工作会显示在 UI 中，而 UI 中完成的工作也可供智能体使用。
+- **[共享应用状态](/docs/context-awareness)。** 应用状态描述 UI 中正在发生的事情，例如当前页面、选定记录或活动视图。Agent-Native 将相关状态作为上下文提供给智能体，使其理解人正在处理什么。
 
-- **UI** 为人们提供熟悉的浏览、编辑、审查和共享工作的方法。
-- **智能体** 处理人们委派给它的工作。
-
-三个共享基础使之成为可能：
-
-- **共享操作。** 人通过 UI 触发操作，智能体则直接调用它们。Agent-Native 将每个操作只定义一次，作为一个[动作](/docs/actions-overview)。
-- **[共享数据](/docs/server-database)** 保存应用需要保留的工作和信息。根据应用的不同，可能是客户记录、项目计划、对话或报告。UI 和智能体都读写这些共享数据。
-- **[共享应用状态](/docs/context-awareness)** 描述当前正在发生的事情，例如当前页面、选定记录或活动视图。框架将相关状态作为上下文提供给智能体，使它知道人正在处理什么。
-
-```mermaid
-graph TD
-  UI[UI] --> App[一个应用]
-  Agent[智能体] --> App
-  App --- Operations[共享操作]
-  App --- Data[共享数据]
-  App --- State[共享应用状态]
-```
-
-智能体不会通过点击 UI 来操作。它调用与 UI 相同的动作，使用相同的验证、权限和实现。
+智能体不会通过点击 UI 来操作。它通过与 UI 相同的动作层工作。
 
 例如，一个人可以通过 UI 分配支持工单，也可以要求智能体完成此事。两条路径都会运行同一个动作并更新同一张工单。该人可以在 UI 中检查或修改结果，然后让智能体从那里继续。
 
@@ -54,11 +49,11 @@ graph TD
 
 以下情况适合使用 Agent-Native：
 
-- 智能体应在应用中完成实际工作，而不仅仅是回答问题。
-- 人们需要 UI 来检查、编辑、审批或共享工作。
-- 工作应能在 UI 和智能体之间流转，而不会丢失进度或上下文。
+- 智能体应完成实际工作，而不仅仅是回答问题。
+- 人们需要 UI 来了解智能体能做什么，并检查、编辑、审批或共享它的工作。
+- 人们应能在智能体和 UI 之间切换，而不会丢失进度或上下文。
 
-如果你只需要一次生成的回答，直接调用模型即可。如果工作流遵循固定且可预测的顺序，普通应用逻辑或自动化会更简单。当 UI 和智能体都需要在同一项工作中持续发挥作用时，请使用 Agent-Native。
+如果你只需要一次生成的回答，直接调用模型即可。如果工作遵循固定且可预测的顺序，普通应用逻辑或自动化会更简单。当智能体和 UI 都需要在同一项工作中持续发挥作用时，请使用 Agent-Native。
 
 ## 后续步骤
 

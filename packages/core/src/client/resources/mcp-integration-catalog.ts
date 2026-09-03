@@ -772,6 +772,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     connectionMode: "oauth",
     availability: "ready",
     verification: "preflight-only",
+    supportsOrganizationScope: true,
     logoUrl: mcpIntegrationLogo("builder-cms"),
     docsUrl: "https://www.builder.io/c/docs/mcp-builder-server/",
     setupNoteKey: "mcpIntegrations.catalog.builder.setupNote",
@@ -1063,7 +1064,7 @@ function findUrlForText(text: string): URL | null {
   const candidates = text.match(/https?:\/\/[^\s<>()[\]{}]+/gi) ?? [];
   for (const candidate of candidates) {
     try {
-      return new URL(candidate.replace(/[.,!?;:'\"]+$/, ""));
+      return new URL(candidate.replace(/[.,!?;:'"]+$/, ""));
     } catch {
       // Ignore prose that only looks like a URL.
     }

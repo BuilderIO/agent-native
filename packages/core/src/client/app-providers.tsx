@@ -60,6 +60,7 @@ import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
 } from "../shared/document-title.js";
+import { getSsrBetaRedirectScriptBody } from "../shared/ssr-beta-redirect.js";
 import { ClientOnly } from "./ClientOnly.js";
 import { DefaultSpinner } from "./DefaultSpinner.js";
 import { EnvironmentBadge } from "./EnvironmentBadge.js";
@@ -77,6 +78,7 @@ import {
   applyEmbeddedThemeUpdate,
   parseEmbeddedThemeUpdate,
 } from "./theme.js";
+import { createAgentNativeServerActionWebMcpRegistration } from "./webmcp.js";
 
 export interface AppProvidersProps {
   /** QueryClient instance — create with `createAgentNativeQueryClient()`. */
@@ -160,6 +162,15 @@ const DEFAULT_TOASTER = (
   />
 );
 
+function EarlyBetaRedirectScript() {
+  return (
+    <script
+      data-agent-native-beta-redirect="1"
+      dangerouslySetInnerHTML={{ __html: getSsrBetaRedirectScriptBody() }}
+    />
+  );
+}
+
 function RoutedAppEnhancements() {
   const isInRouter = useInRouterContext();
   if (!isInRouter) return null;
@@ -170,6 +181,18 @@ function RoutedAppEnhancements() {
       <RouteTransitionIndicator />
     </>
   );
+}
+
+export function AgentNativeWebMcpActionRegistration() {
+  useEffect(() => {
+    const registration = createAgentNativeServerActionWebMcpRegistration();
+    void registration.start().catch(() => {
+      // WebMCP is progressive enhancement. Session expiry or a transient
+      // manifest failure must not prevent the authenticated app from loading.
+    });
+    return () => registration.stop();
+  }, []);
+  return null;
 }
 
 function readDocumentTitleFallback(): string {
@@ -347,29 +370,38 @@ export function AppProviders({
     );
   }
 
+  // Keep the bootstrap outside ClientOnly so the HTML parser can run it before
+  // the authenticated client bundle starts.
   return (
-    <ClientOnly fallback={fallback}>
-      <ProvidersInner
-        queryClient={queryClient}
-        defaultTheme={defaultTheme}
-        themeAttribute={themeAttribute}
-        tooltipDelayDuration={tooltipDelayDuration}
-        toaster={toaster}
-        disableThemeTransitions={disableThemeTransitions}
-        i18n={i18n}
-        documentTitleFallback={documentTitleFallback}
-        showProductionEnvironmentBadge={!sessionBypass}
-      >
-        <RequireSession bypass={sessionBypass} fallback={fallback}>
-          {sessionBypass ? (
-            children
-          ) : (
-            <FirstRunOnboardingStartupGate>
-              {children}
-            </FirstRunOnboardingStartupGate>
-          )}
-        </RequireSession>
-      </ProvidersInner>
-    </ClientOnly>
+    <>
+      {!sessionBypass && <EarlyBetaRedirectScript />}
+      <ClientOnly fallback={fallback}>
+        <ProvidersInner
+          queryClient={queryClient}
+          defaultTheme={defaultTheme}
+          themeAttribute={themeAttribute}
+          tooltipDelayDuration={tooltipDelayDuration}
+          toaster={toaster}
+          disableThemeTransitions={disableThemeTransitions}
+          i18n={i18n}
+          documentTitleFallback={documentTitleFallback}
+          showProductionEnvironmentBadge={!sessionBypass}
+        >
+          <RequireSession bypass={sessionBypass} fallback={fallback}>
+            {sessionBypass ? (
+              <>
+                <AgentNativeWebMcpActionRegistration />
+                {children}
+              </>
+            ) : (
+              <FirstRunOnboardingStartupGate>
+                <AgentNativeWebMcpActionRegistration />
+                {children}
+              </FirstRunOnboardingStartupGate>
+            )}
+          </RequireSession>
+        </ProvidersInner>
+      </ClientOnly>
+    </>
   );
 }

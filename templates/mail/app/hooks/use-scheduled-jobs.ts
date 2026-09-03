@@ -46,7 +46,7 @@ export function useCreateScheduledJob() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: {
-      type: "snooze" | "send_later";
+      type: "snooze";
       emailId?: string;
       payload?: Record<string, unknown>;
       runAt: number;
@@ -111,11 +111,11 @@ export function useSnoozeEmail() {
       context?.previous?.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
+      void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
       // Delay email/label refetch — Gmail eventual consistency
       setTimeout(() => {
-        qc.invalidateQueries({ queryKey: ["emails"] });
-        qc.invalidateQueries({ queryKey: ["labels"] });
+        void qc.invalidateQueries({ queryKey: ["emails"] });
+        void qc.invalidateQueries({ queryKey: ["labels"] });
       }, 3000);
     },
   });
@@ -149,8 +149,8 @@ export function useScheduleEmail() {
       return res.json() as Promise<ScheduledJob>;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
-      qc.invalidateQueries({ queryKey: ["emails"] });
+      void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
+      void qc.invalidateQueries({ queryKey: ["emails"] });
     },
   });
 }
@@ -176,8 +176,8 @@ export function useDeleteScheduledJob() {
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
-      qc.invalidateQueries({ queryKey: ["emails"] });
+      void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
+      void qc.invalidateQueries({ queryKey: ["emails"] });
     },
   });
 }
@@ -202,8 +202,8 @@ export function useSendScheduledJobNow() {
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
-      qc.invalidateQueries({ queryKey: ["emails"] });
+      void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
+      void qc.invalidateQueries({ queryKey: ["emails"] });
     },
   });
 }

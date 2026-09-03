@@ -7,6 +7,7 @@ import {
 } from "@tabler/icons-react";
 
 import { BuilderImage } from "../components/builder-image";
+import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
 import {
@@ -108,10 +109,11 @@ export default function ContentTemplate() {
           </span>
         }
         title={t("templateLanding.content.s003")}
+        customizeTemplate={template}
         description={<p className="m-0">{t("templateLanding.content.s004")}</p>}
         headingAction={
           <a
-            href="https://content.agent-native.com"
+            href={firstPartyAppUrl("https://content.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
             className="primary-button"

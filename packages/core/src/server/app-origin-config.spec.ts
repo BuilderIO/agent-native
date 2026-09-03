@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { resetAppConfigForTests } from "../app-config/index.js";
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import {
   getAppOriginClientConfigScript,
   resolvePublicAppOriginConfig,
@@ -34,9 +37,9 @@ describe("app origin client config", () => {
     process.env = { ...originalEnv };
   });
 
-  it("projects nothing when no origin is configured", () => {
-    expect(resolvePublicAppOriginConfig()).toBeNull();
-    expect(getAppOriginClientConfigScript()).toBeNull();
+  it("projects the default public app home when no origin is configured", () => {
+    expect(resolvePublicAppOriginConfig()).toEqual({ appHomePath: "/home" });
+    expect(getAppOriginClientConfigScript()).toContain('"appHomePath":"/home"');
   });
 
   it("projects the declared origins into the shell", () => {
@@ -45,6 +48,7 @@ describe("app origin client config", () => {
     process.env.WORKSPACE_OAUTH_ORIGIN = "https://oauth.example.com";
 
     expect(resolvePublicAppOriginConfig()).toEqual({
+      appHomePath: "/home",
       appUrl: "https://app.example.com",
       workspaceGatewayUrl: "https://gateway.example.com",
       workspaceOAuthOrigin: "https://oauth.example.com",
@@ -58,6 +62,7 @@ describe("app origin client config", () => {
     process.env.VITE_WORKSPACE_GATEWAY_URL = "https://vite-gw.example.com";
 
     expect(resolvePublicAppOriginConfig()).toEqual({
+      appHomePath: "/home",
       appUrl: "https://vite.example.com",
       workspaceGatewayUrl: "https://vite-gw.example.com",
     });
@@ -67,7 +72,21 @@ describe("app origin client config", () => {
     process.env.AGENT_NATIVE_WORKSPACE = "true";
 
     expect(resolvePublicAppOriginConfig()).toEqual({
+      appHomePath: "/home",
       workspaceRuntime: true,
+    });
+  });
+
+  it("projects workspace mount paths for early runtime path reconciliation", () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify([
+      { id: "dispatch", path: "/dispatch" },
+      { id: "diagrams", path: "/diagrams/" },
+    ]);
+
+    expect(resolvePublicAppOriginConfig()).toEqual({
+      appHomePath: "/home",
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/dispatch", "/diagrams"],
     });
   });
 
@@ -77,6 +96,15 @@ describe("app origin client config", () => {
 
     expect(resolvePublicAppOriginConfig()?.appUrl).toBe(
       "https://canonical.example.com",
+    );
+  });
+
+  it("projects a configured private app home for client session fallbacks", () => {
+    defineAppConfig({ app: { homePath: "/inbox" } });
+
+    expect(resolvePublicAppOriginConfig()?.appHomePath).toBe("/inbox");
+    expect(getAppOriginClientConfigScript()).toContain(
+      '"appHomePath":"/inbox"',
     );
   });
 

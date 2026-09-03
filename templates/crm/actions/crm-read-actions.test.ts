@@ -525,7 +525,7 @@ describe("navigate", () => {
   });
 
   const cases: Array<[Record<string, unknown>, string]> = [
-    [{ view: "work" }, "/"],
+    [{ view: "work" }, "/home"],
     [{ view: "records" }, "/records"],
     [{ view: "records", kind: "person" }, "/records?kind=person"],
     [{ view: "record", recordId: "rec 1" }, "/records/rec%201"],
@@ -547,6 +547,7 @@ describe("navigate", () => {
       { view: "settings", settingsSection: "intelligence" },
       "/settings/intelligence",
     ],
+    [{ view: "settings", settingsSection: "mcp" }, "/settings/mcp"],
     [{ view: "settings", settingsSection: "advanced" }, "/settings/advanced"],
   ];
 

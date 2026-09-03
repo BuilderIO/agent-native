@@ -53,7 +53,8 @@ const TARGET_EMBED_SESSION_RETRY_BASE_MS = 250;
 const TARGET_EMBED_SESSION_CONNECT_TIMEOUT_MS = 90_000;
 const TARGET_EMBED_SESSION_BUDGET_MS = 95_000;
 const DISPATCH_ASK_APP_DEFAULT_INLINE_WAIT_MS = 20_000;
-const DISPATCH_ASK_APP_MAX_INLINE_WAIT_MS = 25_000;
+// Leave response headroom for the hosted MCP transport after the inline wait.
+const DISPATCH_ASK_APP_MAX_INLINE_WAIT_MS = 20_000;
 const DISPATCH_ASK_APP_POLL_INTERVAL_MS = 1_500;
 const DISPATCH_A2A_REQUEST_TIMEOUT_MS = 10_000;
 const DISPATCH_ASK_APP_STATUS_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
@@ -96,6 +97,31 @@ function boundedDispatchAskAppWaitMs(raw: unknown): number {
     0,
     Math.min(DISPATCH_ASK_APP_MAX_INLINE_WAIT_MS, Math.trunc(parsed)),
   );
+}
+
+async function dispatchAskAppIdempotencyKey(
+  target: DispatchMcpAccessibleApp,
+  message: string,
+): Promise<string> {
+  const requestId = getRequestContext()?.mcpRequestId;
+  if (!requestId) return `ask-app:${globalThis.crypto.randomUUID()}`;
+
+  const digest = await globalThis.crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(
+      JSON.stringify({
+        requestId,
+        app: target.id,
+        targetUrl: target.url,
+        message,
+      }),
+    ),
+  );
+  let hex = "";
+  for (const byte of new Uint8Array(digest)) {
+    hex += byte.toString(16).padStart(2, "0");
+  }
+  return `ask-app:v1:${hex}`;
 }
 
 function isTerminalDispatchTask(task: Task): boolean {
@@ -284,7 +310,7 @@ function isTransientDispatchAskAppStatusError(err: unknown): boolean {
 function dispatchAskAppStatusErrorCategory(
   err: unknown,
 ): DispatchAskAppStatusErrorCategory | null {
-  const message = err instanceof Error ? err.message : String(err ?? "");
+  const message = err instanceof Error ? err.message : safeJson(err);
   const causeCode = dispatchAskAppStatusErrorCauseCode(err) ?? "";
   const diagnostic = `${message} ${causeCode}`;
   if (/A2A request failed \(429\)/i.test(message)) return "rate_limited";
@@ -490,6 +516,15 @@ function safeAppPath(raw: unknown): string | null {
   }
   if (parsed.pathname !== rawPath) return null;
   return value;
+}
+
+function safeJson(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "[unserializable]";
+  }
 }
 
 function appendParamsToPath(
@@ -792,20 +827,31 @@ export async function askGrantedDispatchMcpApp(
       ? 0
       : boundedDispatchAskAppWaitMs(options?.maxWaitMs);
   const deadline = inlineWaitMs > 0 ? Date.now() + inlineWaitMs : undefined;
+  const submissionDeadline =
+    deadline ?? Date.now() + DISPATCH_A2A_REQUEST_TIMEOUT_MS;
 
   const { client, metadata } = await createDispatchA2AClient({
     targetUrl: target.url,
     userEmail,
     orgDomain: orgDomain ?? undefined,
     orgSecret: orgSecret ?? undefined,
-    deadline,
+    deadline: submissionDeadline,
   });
+  const idempotencyKey = await dispatchAskAppIdempotencyKey(
+    target,
+    trimmedMessage,
+  );
   const task = await client.send(
     {
       role: "user",
       parts: [{ type: "text", text: trimmedMessage }],
     },
-    { async: true, metadata },
+    {
+      async: true,
+      metadata,
+      idempotencyKey,
+      deadlineMs: submissionDeadline,
+    },
   );
   const finalOrRunning = await waitForDispatchA2ATask(client, task, deadline);
   return dispatchAskAppTaskResult(target.id, finalOrRunning, {
@@ -979,13 +1025,45 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function httpStatusFromError(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const record = error as Record<string, unknown>;
+  const nested =
+    record.data && typeof record.data === "object"
+      ? (record.data as Record<string, unknown>)
+      : undefined;
+  const status = record.status ?? nested?.status ?? record.code ?? nested?.code;
+  return typeof status === "number" && status >= 100 && status <= 599
+    ? status
+    : undefined;
+}
+
 function isRetryableTargetMcpError(error: unknown): boolean {
   const message =
     error instanceof Error
       ? error.message
       : typeof error === "string"
         ? error
-        : String(error ?? "");
+        : safeJson(error);
+  const status = httpStatusFromError(error);
+  if (status !== undefined) {
+    if (
+      status === 408 ||
+      status === 429 ||
+      status === 502 ||
+      status === 503 ||
+      status === 504
+    )
+      return true;
+    if (status >= 400 && status < 500) return false;
+  }
+  if (
+    /^(?:MCP server\b.*?\bnot connected:\s+)?HTTP(?:\/\d+(?:\.\d+)?)?\s+(?:502|503|504)\b/i.test(
+      message,
+    )
+  ) {
+    return true;
+  }
   if (
     /rejected the request|unauthorized|forbidden|401|403|404|405|html/i.test(
       message,
@@ -993,7 +1071,7 @@ function isRetryableTargetMcpError(error: unknown): boolean {
   ) {
     return false;
   }
-  return /streamable http|handshake|failed to fetch|fetch failed|networkerror|econnrefused|enotfound|timed out|timeout|502|503|504/i.test(
+  return /streamable http|handshake|failed to fetch|fetch failed|networkerror|econnrefused|enotfound|timed out|timeout/i.test(
     message,
   );
 }
@@ -1004,7 +1082,7 @@ function isTargetMcpAuthError(error: unknown): boolean {
       ? error.message
       : typeof error === "string"
         ? error
-        : String(error ?? "");
+        : safeJson(error);
   return /\b401\b|\b403\b|unauthorized|forbidden|invalid(?: or expired)? (?:a2a )?token|authentication required/i.test(
     message,
   );
@@ -1016,7 +1094,7 @@ function targetMcpErrorStatus(error: unknown): number | undefined {
       ? error.message
       : typeof error === "string"
         ? error
-        : String(error ?? "");
+        : safeJson(error);
   const status = message.match(/\b([45]\d{2})\b/)?.[1];
   return status ? Number(status) : undefined;
 }
@@ -1064,7 +1142,7 @@ async function callTargetCreateEmbedSession(input: {
         servers: {
           [serverId]: {
             type: "http",
-            url: `${appBaseUrl(input.app)}/mcp`,
+            url: `${appHomeBaseUrl(input.app)}/mcp`,
             headers: {
               Authorization: `Bearer ${input.token}`,
             },
@@ -1117,7 +1195,7 @@ async function createTargetMcpTokenAttempts(input: {
       tokenInput.secret,
       {
         expiresIn: "5m",
-        audience: canonicalA2AAudience(appBaseUrl(input.target)),
+        audience: canonicalA2AAudience(appHomeBaseUrl(input.target)),
         preferGlobalSecret: tokenInput.preferGlobalSecret,
       },
     );

@@ -222,6 +222,10 @@ describe("EventDetailPopover characterization", () => {
     calendarContext.setEventDetailSidebar.mockClear();
     calendarContext.setSidebarEvent.mockClear();
     calendarContext.setFocusedEvent.mockClear();
+    updateEventMutate.mockImplementation(
+      (_input: unknown, options?: { onSettled?: () => void }) =>
+        options?.onSettled?.(),
+    );
   });
 
   afterEach(() => {
@@ -272,7 +276,66 @@ describe("EventDetailPopover characterization", () => {
       'div[class*="radix-popover-content-available-height"]',
     );
     expect(content).toBeTruthy();
-    expect(content?.className).toContain("w-[min(420px,calc(100vw-2rem))]");
+    expect(content?.className).toContain("w-[min(284px,calc(100vw-2rem))]");
+    expect(content?.innerHTML).toContain("text-[13px] font-medium");
+  });
+
+  it("shows shared-calendar provenance without edit controls", () => {
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent({
+            accountEmail: "emdistal@gmail.com",
+            calendarName: "Friends",
+            calendarPrimary: false,
+            calendarReadOnly: true,
+          })}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    expect(document.body.textContent).toContain(
+      "eventForm.viewingOwnerCalendar",
+    );
+    expect(
+      document.querySelector('button[aria-label="eventForm.eventOptions"]'),
+    ).toBeNull();
+    const title = document.querySelector("h2");
+    act(() => {
+      title?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(
+      document.querySelector('input[placeholder="eventForm.addTitle"]'),
+    ).toBeNull();
+    expect(updateEventMutate).not.toHaveBeenCalled();
+  });
+
+  it("makes the event options visible and scrolls to them when opened", () => {
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent()}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const optionsButton = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="eventForm.eventOptions"]',
+    );
+    expect(optionsButton).toBeTruthy();
+    act(() => optionsButton!.click());
+
+    expect(optionsButton?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector(`#event-more-options-event-1`)).toBeTruthy();
+    expect(document.body.textContent).toContain("eventForm.showAs");
   });
 
   it("keeps the fallback label out of the input when renaming an unnamed event", () => {
@@ -662,8 +725,8 @@ describe("EventDetailPopover characterization", () => {
     const endTimeTrigger = document.querySelector<HTMLButtonElement>(
       'button[aria-label="eventForm.end"]',
     );
-    expect(startTimeTrigger?.textContent).toBe("12:00 PM");
-    expect(endTimeTrigger?.textContent).toBe("1:00 PM");
+    expect(startTimeTrigger?.textContent).toBe("12 PM");
+    expect(endTimeTrigger?.textContent).toBe("1 PM");
   });
 
   it("prefers the viewer's calendar timezone over the event's stored timezone when seeding the time editor", () => {
@@ -714,8 +777,8 @@ describe("EventDetailPopover characterization", () => {
     const endTimeTrigger = document.querySelector<HTMLButtonElement>(
       'button[aria-label="eventForm.end"]',
     );
-    expect(startTimeTrigger?.textContent).toBe("12:00 PM");
-    expect(endTimeTrigger?.textContent).toBe("1:00 PM");
+    expect(startTimeTrigger?.textContent).toBe("12 PM");
+    expect(endTimeTrigger?.textContent).toBe("1 PM");
   });
 
   it("prompts for guest notification before saving when the event has guests, and only mutates after the user confirms", async () => {
@@ -789,6 +852,7 @@ describe("EventDetailPopover characterization", () => {
         location: "Room B",
         sendUpdates: "all",
       }),
+      expect.objectContaining({ onSettled: expect.any(Function) }),
     );
   });
 
@@ -846,6 +910,105 @@ describe("EventDetailPopover characterization", () => {
         location: "Room B",
         sendUpdates: "none",
       }),
+      expect.objectContaining({ onSettled: expect.any(Function) }),
+    );
+  });
+
+  it("labels attendee draft creation Save while still submitting the draft", () => {
+    const onDraftCreate = vi.fn();
+    const event = baseEvent({
+      id: "attendee-draft",
+      source: "local",
+      attendees: [{ email: "guest@example.com" }],
+    });
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          isDraft
+          defaultOpen
+          onDelete={() => undefined}
+          onDraftCreate={onDraftCreate}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const saveButton = findByExactText("button", "eventForm.save");
+    expect(saveButton).toBeTruthy();
+    expect(
+      findByExactText("button", "eventForm.createAndSend"),
+    ).toBeUndefined();
+
+    act(() => {
+      (saveButton as HTMLElement).click();
+    });
+
+    expect(onDraftCreate).toHaveBeenCalledWith("attendee-draft", {
+      title: "Team sync",
+    });
+  });
+
+  it("offers series scope before removing Google Meet from a recurring event", async () => {
+    const event = baseEvent({
+      id: "event-recurring",
+      accountEmail: "steve@example.com",
+      recurringEventId: "series-1",
+      hangoutLink: "https://meet.google.com/abc-defg-hij",
+    });
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const removeButton = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="eventForm.delete eventForm.googleMeet"]',
+    );
+    expect(removeButton).toBeTruthy();
+
+    await act(async () => {
+      removeButton!.click();
+      await flushMicrotasks();
+    });
+
+    expect(document.body.textContent).toContain("eventForm.applyChangesTo");
+    expect(document.body.textContent).toContain("eventForm.thisEvent");
+    expect(document.body.textContent).toContain("eventForm.allEvents");
+    expect(updateEventMutate).not.toHaveBeenCalled();
+
+    const allEventsOption = document.querySelector<HTMLButtonElement>(
+      "#guest-update-scope-all",
+    );
+    expect(allEventsOption).toBeTruthy();
+    act(() => allEventsOption!.click());
+
+    const confirmButton = findByExactText<HTMLButtonElement>(
+      "button",
+      "eventForm.updateEvent",
+    );
+    expect(confirmButton).toBeTruthy();
+    await act(async () => {
+      confirmButton!.click();
+      await flushMicrotasks();
+    });
+
+    expect(updateEventMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "event-recurring",
+        removeGoogleMeet: true,
+        scope: "all",
+      }),
+      expect.objectContaining({ onSettled: expect.any(Function) }),
     );
   });
 

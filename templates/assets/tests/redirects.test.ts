@@ -1,6 +1,7 @@
 import { SSR_QUERY_CACHE_KEY_HEADER } from "@agent-native/core/shared";
 import { describe, expect, it } from "vitest";
 
+import { loader as presetLoader } from "../app/routes/brand-kits.$id_.presets.$presetId";
 import { loader as brandKitsLoader } from "../app/routes/brand-kits._index";
 import { loader as librariesLoader } from "../app/routes/libraries";
 import { loader as pickerLoader } from "../app/routes/picker";
@@ -34,4 +35,17 @@ describe("Assets legacy redirects", () => {
       expectLibraryRedirect(routeLoader, args);
     },
   );
+
+  it("redirects legacy generation preset URLs to templates", () => {
+    const response = presetLoader({
+      params: { presetId: "preset/one" },
+    } as never);
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/templates/preset%2Fone");
+    expect(response.headers.get("content-type")).toBe(
+      "text/html; charset=utf-8",
+    );
+    expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
+  });
 });

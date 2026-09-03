@@ -9,4 +9,30 @@ WebMCP es una API experimental del navegador que permite a las páginas
 registrar herramientas para que un agente autorizado las descubra y ejecute.
 Consulta la [guía de WebMCP en inglés](/docs/webmcp) para conocer el registro,
 el consumo, las sesiones del navegador y los límites de seguridad.
-Cada ejecución requiere aprobación humana y se valida la lista de herramientas activa antes de ejecutarla.
+Las páginas autenticadas registran automáticamente las acciones de backend aptas
+desde el registro de acciones existente. Se excluyen las acciones que requieren
+aprobación y se vuelve a validar la lista activa antes de ejecutarlas.
+Las superficies autenticadas con `sessionBypass`, como las rutas de inserción MCP,
+también registran herramientas de acciones de backend. Las páginas públicas y sin
+sesión no las registran.
+
+El núcleo de Agent-Native inicializa `@mcp-b/webmcp-polyfill` cuando el navegador no ofrece una superficie WebMCP nativa utilizable. El polyfill es local a la página y no crea una conexión MCP de red.
+
+## Descubrimiento HTTP y alternativa con fetch
+
+Para agentes que no ejecutan un navegador, Agent-Native también publica un
+documento de compatibilidad HTTP consultable en `GET /.well-known/mcp.json`.
+Describe los endpoints de las acciones, sus esquemas JSON y si son de solo
+lectura o requieren autenticación. Es una convención de interoperabilidad de
+Agent-Native, no parte de la especificación de WebMCP ni un sustituto de MCP.
+
+Las herramientas se pueden llamar con `fetch` o `curl` mediante
+`POST /mcp/tool/:name`. La autenticación, autorización, validación y el ámbito
+del tenant siguen siendo responsabilidad del servidor. El documento también
+enlaza con `/mcp`, el manifiesto WebMCP autenticado y la tarjeta A2A.
+
+Las herramientas locales de la página siguen necesitando un navegador abierto
+compatible con WebMCP. Las páginas de recursos pueden publicar su propio enlace
+JSON. Clips lo hace mediante `agentContextUrl`, que anuncia URLs directas para
+el transcript completo y los fotogramas JPEG, por lo que el acceso HTTP sigue
+funcionando sin abrir el reproductor.

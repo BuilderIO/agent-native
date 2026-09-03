@@ -13,17 +13,16 @@
  *   drawn with no explicit color should look the same (a soft Figma-like
  *   gray) regardless of which document theme it lands in, rather than
  *   silently tinting to whatever `--primary` resolves to there.
- * - Stroke (rect/ellipse): `rgb(168 168 168)` — a slightly darker plain gray,
- *   same rationale as fill above.
+ * - Stroke (rect/ellipse): none by default. Selection chrome supplies the
+ *   temporary outline while a user-chosen stroke is still preserved.
  * - Frame fill: the one default that *is* theme-adaptive —
  *   `hsl(var(--primary) / 0.05)`, a very faint tint of the editor's accent
  *   color so a layout frame's interior reads as "structural chrome" rather
  *   than a fixed gray. Its border stays a plain dashed gray, same as
- *   rect/ellipse's border.
+ *   a plain dashed gray border.
  * - Stroke width: 1px for div-based shapes.
  * - Ellipse: borderRadius "50%" in both paths — no more "oval on commit" jump.
- * - Rect: borderRadius "2px" (small, matches the previous committed value; the
- *   preview used Tailwind `rounded-sm` which resolves to 2px).
+ * - Rect: borderRadius "0px" — square corners, like Figma.
  * - Text: inherits current color by default. Selection/edit chrome owns
  *   outlines so text does not carry a persistent border that double-stacks
  *   with focused states.
@@ -72,14 +71,14 @@ export interface CanvasPrimitiveVisual {
 /** Default fill — a soft Figma-like neutral gray. */
 const DEFAULT_FILL = "rgb(218 218 218)";
 
-/** Default stroke — slightly darker so new rectangles stay visible. */
+/** Default stroke used when a caller explicitly enables a stroke. */
 const DEFAULT_STROKE = "rgb(168 168 168)";
 
 /** Stroke width in pixels for div-based shapes. */
 const DEFAULT_STROKE_WIDTH_PX = 1;
 
-/** Border shorthand shared by rect + ellipse. */
-const DEFAULT_BORDER = `${DEFAULT_STROKE_WIDTH_PX}px solid ${DEFAULT_STROKE}`;
+/** Shapes start un-stroked; selection chrome owns their temporary outline. */
+const NO_BORDER = "0 solid transparent";
 
 /** Text nodes rely on editor chrome for outlines; the element itself is bare. */
 const TEXT_BORDER = "0 solid transparent";
@@ -90,8 +89,8 @@ const FRAME_BORDER = `${DEFAULT_STROKE_WIDTH_PX}px dashed ${DEFAULT_STROKE}`;
 /** Very faint fill for frames so the interior is readable. */
 const FRAME_FILL = "hsl(var(--primary) / 0.05)";
 
-/** Small radius matching Tailwind `rounded-sm` (2 px). */
-const RECT_RADIUS = "2px";
+/** Square corners by default; a radius is a user choice, not a house style. */
+const RECT_RADIUS = "0px";
 
 /**
  * Canonical default stroke for vector primitives (line / arrow / pen path).
@@ -134,7 +133,7 @@ export function canvasPrimitiveVisual(
     case "ellipse":
       return {
         background: DEFAULT_FILL,
-        border: DEFAULT_BORDER,
+        border: NO_BORDER,
         borderRadius: "50%",
       };
     case "frame":
@@ -155,7 +154,7 @@ export function canvasPrimitiveVisual(
     default:
       return {
         background: DEFAULT_FILL,
-        border: DEFAULT_BORDER,
+        border: NO_BORDER,
         borderRadius: RECT_RADIUS,
       };
   }
@@ -236,7 +235,9 @@ export function canvasPrimitiveReactStyle(
 
   let background = v.background as string | undefined;
   let borderColor: string | undefined;
-  let borderWidth: number | string | undefined = DEFAULT_STROKE_WIDTH_PX;
+  let borderWidth: number | string | undefined = v.border.startsWith("0 ")
+    ? 0
+    : DEFAULT_STROKE_WIDTH_PX;
   let borderStyle: string | undefined = "solid";
 
   if (kind === "frame" || isText) {
@@ -260,6 +261,11 @@ export function canvasPrimitiveReactStyle(
   }
   if (overrides?.stroke) {
     borderColor = overrides.stroke;
+    if (overrides.strokeWidth === undefined) {
+      borderWidth = DEFAULT_STROKE_WIDTH_PX;
+    }
+  } else if (overrides?.strokeWidth !== undefined) {
+    borderColor = DEFAULT_STROKE;
   } else {
     // Extract from canonical border shorthand: "Npx style color"
     const borderParts = v.border.split(" ");

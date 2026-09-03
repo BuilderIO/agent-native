@@ -794,7 +794,7 @@ export function SlashCommandMenu({
         });
         return;
       }
-      navigate(`/page/${pageId}`, { flushSync: true });
+      void navigate(`/page/${pageId}`, { flushSync: true });
     },
   };
 
@@ -1110,7 +1110,7 @@ export function SlashCommandMenu({
         e.preventDefault();
         e.stopPropagation();
         if (filteredCommands[selectedIndex]) {
-          executeCommand(filteredCommands[selectedIndex]);
+          void executeCommand(filteredCommands[selectedIndex]);
         }
       } else if (e.key === "Escape") {
         e.stopPropagation();
@@ -1118,7 +1118,7 @@ export function SlashCommandMenu({
         setIsTurnInto(false);
         setQuery("");
         slashPosRef.current = null;
-        onDraftCommitted?.();
+        void onDraftCommitted?.();
       }
     };
 
@@ -1331,7 +1331,7 @@ export function SlashCommandMenu({
           <PopoverContent
             align="start"
             side="bottom"
-            className="w-[calc(100vw-2rem)] p-3 sm:w-[420px]"
+            className="relative w-[calc(100vw-2rem)] p-3 sm:w-[420px]"
           >
             <p className="px-1 pb-2 text-sm font-semibold text-foreground">
               {t("editor.generateWithAi")}

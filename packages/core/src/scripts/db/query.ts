@@ -294,6 +294,6 @@ Options:
       await client.execute(stmt).catch(() => {});
     }
   } finally {
-    client.close();
+    void client.close();
   }
 }

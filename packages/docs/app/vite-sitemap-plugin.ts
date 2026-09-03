@@ -12,6 +12,7 @@ import {
 import {
   DEFAULT_LOCALE,
   isLocaleCode,
+  normalizeLocaleCode,
 } from "../../core/src/localization/shared";
 import { createAgentWebVitePlugin } from "../../core/src/vite/agent-web-plugin";
 import { docsBodyToMarkdownMirror } from "../lib/docs-markdown-export";
@@ -19,7 +20,9 @@ import {
   docSourceSlugFromFilename,
   preferMdxDocSourceFiles,
 } from "../lib/docs-source";
+import { communityApps } from "./components/community-apps";
 import {
+  DOCS_LOCALES,
   docsMarkdownPathForSlug,
   docsPathForSlug,
   localizeDocsMarkdownLinks,
@@ -28,6 +31,7 @@ import {
 } from "./components/docs-locale";
 import { isRedirectedDocsPath } from "./components/docs-slug-redirects";
 import enUS from "./i18n/en-US";
+import { LEGAL_POLICY_METADATA } from "./legal-policy-list";
 
 export const SITE_URL = "https://www.agent-native.com";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -158,6 +162,8 @@ export function buildSitemapPaths(rootDir: string): string[] {
  *   `<meta http-equiv="refresh">` 200 page;
  * - draft docs, hidden by `VITE_SHOW_DRAFTS` — including every translation of a
  *   canonically-draft slug, matching `loadDocRespectingDraftVisibility`.
+ * - the community catalog, which is read from Builder at request time so new
+ *   published listings do not get frozen into the prerendered HTML.
  *
  * Redirected and draft paths keep falling through to the SSR function, which
  * still answers 301/404. Published docs stay prerendered because the Netlify
@@ -172,9 +178,23 @@ export function buildPrerenderPaths(): string[] {
   return pages
     .filter(
       (page) =>
-        !draftSlugs.has(page.docSlug) && !isRedirectedDocsPath(page.path),
+        !draftSlugs.has(page.docSlug) &&
+        !isRedirectedDocsPath(page.path) &&
+        !isDynamicCommunityPath(page.path),
     )
     .map((page) => page.path);
+}
+
+export function isDynamicCommunityPath(pagePath: string): boolean {
+  const segments = pagePath.split("/").filter(Boolean);
+  const pathWithoutLocale = normalizeLocaleCode(segments[0])
+    ? `/${segments.slice(1).join("/")}`
+    : pagePath;
+  return (
+    pathWithoutLocale === "/apps" ||
+    pathWithoutLocale === "/apps/" ||
+    pathWithoutLocale.startsWith("/apps/community/")
+  );
 }
 
 export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
@@ -193,6 +213,12 @@ type DocsSitePage = AgentWebPage & { docSlug?: string; draft?: boolean };
 
 function buildDocsSitePages(rootDir: string): DocsSitePage[] {
   const docsDir = path.resolve(rootDir, "../core/docs/content");
+  const legalPolicyPath = (filename: string) =>
+    path.resolve(rootDir, "app/legal-policies", filename);
+  const legalPolicyMarkdown = (filename: string) =>
+    fs.readFileSync(legalPolicyPath(filename), "utf8");
+  const legalPolicyLastmod = (filename: string) =>
+    gitLastmod(legalPolicyPath(filename));
   const templateCardPath = path.resolve(
     rootDir,
     "app/components/TemplateCard.tsx",
@@ -281,6 +307,90 @@ function buildDocsSitePages(rootDir: string): DocsSitePage[] {
       lastmod: gitLastmod(templateCardPath),
     };
   });
+  const communityPages = communityApps.map((app) => ({
+    path: sitePathForLocale(`/apps/community/${app.slug}`),
+    title: `${app.name} - Community App`,
+    description: app.description,
+    markdown: [
+      `# ${app.name}`,
+      "",
+      app.description,
+      "",
+      app.demoUrl
+        ? `- Hosted app: ${app.demoUrl}`
+        : "- Hosted app: Coming soon",
+      app.repositoryUrl
+        ? `- GitHub repository: ${app.repositoryUrl}`
+        : undefined,
+      app.sourceUrl ? `- Source: ${app.sourceUrl}` : undefined,
+      "",
+    ]
+      .filter((line): line is string => typeof line === "string")
+      .join("\n"),
+    lastmod: gitLastmod(
+      path.resolve(rootDir, "app/components/community-apps.ts"),
+    ),
+  }));
+
+  const legalHubMarkdown = [
+    `# ${enUS.legal.resources.title}`,
+    "",
+    enUS.legal.resources.intro,
+    "",
+    `## ${enUS.legal.resources.agentNative.title}`,
+    "",
+    enUS.legal.resources.agentNative.body,
+    "",
+    `- [${enUS.legal.resources.agentNative.terms}](${sitePathForLocale("/terms")})`,
+    `- [${enUS.legal.resources.agentNative.privacy}](${sitePathForLocale("/privacy")})`,
+    "",
+    `## ${enUS.legal.resources.builder.title}`,
+    "",
+    enUS.legal.resources.builder.body,
+    "",
+    ...LEGAL_POLICY_METADATA.slice(2).map(
+      ({ key, slug }) =>
+        "- [" +
+        enUS.legal.resources.links[key] +
+        "](" +
+        sitePathForLocale("/legal/" + slug) +
+        ")",
+    ),
+    "",
+    `## ${enUS.legal.resources.notIncluded.title}`,
+    "",
+    enUS.legal.resources.notIncluded.body,
+    "",
+  ].join("\n");
+  const legalLastmod = gitLastmod(
+    path.resolve(rootDir, "app/routes/legal.tsx"),
+  );
+  const localizedLegalPages = DOCS_LOCALES.filter(
+    (locale) => locale !== DEFAULT_LOCALE,
+  ).flatMap((locale) => [
+    {
+      path: sitePathForLocale("/legal", locale),
+      title: enUS.legal.resources.title,
+      description: enUS.legal.resources.intro,
+      markdown: localizeDocsMarkdownLinks(legalHubMarkdown, locale),
+      lastmod: legalLastmod,
+    },
+    ...LEGAL_POLICY_METADATA.map((policy) => ({
+      path: sitePathForLocale(
+        policy.key === "terms" || policy.key === "privacy"
+          ? `/${policy.slug}`
+          : `/legal/${policy.slug}`,
+        locale,
+      ),
+      title: policy.title,
+      description: policy.description,
+      markdown: localizeDocsMarkdownLinks(
+        legalPolicyMarkdown(policy.filename),
+        locale,
+      ),
+      lastmod: legalPolicyLastmod(policy.filename),
+    })),
+  ]);
 
   return sortPages([
     {
@@ -348,23 +458,34 @@ Agent-Native is an open source framework for building apps where AI agents and U
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/contact.tsx")),
     },
     {
+      path: sitePathForLocale("/legal"),
+      title: enUS.legal.resources.title,
+      description: enUS.legal.resources.intro,
+      markdown: legalHubMarkdown,
+      lastmod: legalLastmod,
+    },
+    {
       path: sitePathForLocale("/privacy"),
-      title: "Agent-Native Privacy Policy",
-      description:
-        "Privacy policy for Agent-Native hosted applications, apps, and browser extensions.",
-      markdown:
-        "# Agent-Native Privacy Policy\n\nPrivacy policy for Agent-Native hosted applications, apps, and browser extensions. Chrome extension disclosures are included at `/privacy#clips-chrome-extension`.\n",
-      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/privacy.tsx")),
+      title: LEGAL_POLICY_METADATA[1].title,
+      description: LEGAL_POLICY_METADATA[1].description,
+      markdown: legalPolicyMarkdown(LEGAL_POLICY_METADATA[1].filename),
+      lastmod: legalPolicyLastmod(LEGAL_POLICY_METADATA[1].filename),
     },
     {
       path: sitePathForLocale("/terms"),
-      title: "Agent-Native Terms of Service",
-      description:
-        "Terms of Service for Agent-Native hosted applications, apps, demos, and official hosted services.",
-      markdown:
-        "# Agent-Native Terms of Service\n\nTerms of Service for Agent-Native hosted applications, apps, demos, and official hosted services.\n",
-      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/terms.tsx")),
+      title: LEGAL_POLICY_METADATA[0].title,
+      description: LEGAL_POLICY_METADATA[0].description,
+      markdown: legalPolicyMarkdown(LEGAL_POLICY_METADATA[0].filename),
+      lastmod: legalPolicyLastmod(LEGAL_POLICY_METADATA[0].filename),
     },
+    ...LEGAL_POLICY_METADATA.slice(2).map((policy) => ({
+      path: sitePathForLocale("/legal/" + policy.slug),
+      title: policy.title,
+      description: policy.description,
+      markdown: legalPolicyMarkdown(policy.filename),
+      lastmod: legalPolicyLastmod(policy.filename),
+    })),
+    ...localizedLegalPages,
     {
       path: sitePathForLocale("/apps"),
       title: "Agent-Native Apps",
@@ -394,6 +515,7 @@ Agent-Native is an open source framework for building apps where AI agents and U
     ...docsPages,
     ...localizedDocsPages,
     ...templatePages,
+    ...communityPages,
   ]);
 }
 

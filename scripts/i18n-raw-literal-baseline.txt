@@ -37,8 +37,8 @@ templates/crm/app/components/crm/WorkOverview.tsx|Recently active
 templates/crm/app/components/crm/WorkOverview.tsx|Saved views
 templates/crm/app/components/crm/WorkOverview.tsx|Signals worth deciding on.
 templates/crm/app/components/crm/WorkOverview.tsx|Today’s work
-templates/crm/app/routes/_index.tsx|My work
-templates/crm/app/routes/_index.tsx|My work · CRM
+templates/crm/app/routes/home.tsx|My work
+templates/crm/app/routes/home.tsx|My work · CRM
 templates/crm/app/routes/accounts.tsx|Accounts · CRM
 templates/crm/app/routes/ask.tsx|Ask CRM
 templates/crm/app/routes/ask.tsx|Explore permitted account context, follow-up work, and evidence across Native SQL and connected records.

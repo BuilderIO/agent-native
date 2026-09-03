@@ -901,6 +901,28 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   margin-top: 2px;
 }
 
+.primary.start.start-loading {
+  position: relative;
+  overflow: hidden;
+  cursor: progress;
+}
+
+.primary.start.start-loading .start-label {
+  position: relative;
+  z-index: 1;
+}
+
+.start-loading-shimmer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  /* The CTA reverses foreground/background in dark mode; invert the shared
+     foreground shine so the sweep stays visible on either button fill. */
+  filter: invert(1);
+}
+
 /* ------------------------------------------------------------------------- */
 /* Readiness disclosure                                                       */
 /* ------------------------------------------------------------------------- */
@@ -1609,7 +1631,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .popover-list::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
+  background: var(--border);
   border-radius: 999px;
 }
 
@@ -2134,6 +2156,11 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   color: var(--fg-muted);
   font-size: 14px;
   line-height: 1.55;
+}
+
+.mic-off-confirmation-continue {
+  max-width: 300px;
+  margin-top: 24px;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -2996,46 +3023,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   color: #ffffff;
   animation: cd-pop 1s ease-out forwards;
   line-height: 1;
-}
-
-.countdown-hint {
-  position: fixed;
-  left: 50%;
-  bottom: 34px;
-  display: inline-flex;
-  align-items: center;
-  gap: 14px;
-  padding: 7px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-pill);
-  background: rgba(10, 12, 16, 0.28);
-  color: rgba(255, 255, 255, 0.58);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1;
-  transform: translateX(-50%);
-  backdrop-filter: blur(8px);
-}
-
-.countdown-hint span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  white-space: nowrap;
-}
-
-.countdown-hint kbd {
-  min-width: 24px;
-  padding: 3px 5px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.74);
-  font-family: inherit;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
-  text-align: center;
 }
 
 @keyframes cd-pop {

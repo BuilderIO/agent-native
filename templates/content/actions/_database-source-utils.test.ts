@@ -23,6 +23,7 @@ import {
   builderBodyChangeForUnsourcedLocalCreate,
   builderBodyHydrationPriorityForRequest,
   builderBodyHydrationAttemptIsTerminal,
+  builderBodyHydrationNextAttemptAt,
   builderBodyNeedsSourceComponentWrite,
   knownBuilderReviewDocumentIds,
   builderSourcePropertyAssignments,
@@ -875,6 +876,16 @@ describe("database source helpers", () => {
     expect(builderBodyHydrationAttemptIsTerminal(5)).toBe(true);
   });
 
+  it("backs Builder body retries off without exceeding five minutes", () => {
+    const attemptedAt = "2026-08-21T12:00:00.000Z";
+    expect(builderBodyHydrationNextAttemptAt(1, attemptedAt)).toBe(
+      "2026-08-21T12:00:30.000Z",
+    );
+    expect(builderBodyHydrationNextAttemptAt(5, attemptedAt)).toBe(
+      "2026-08-21T12:05:00.000Z",
+    );
+  });
+
   it("prioritizes opened Builder body hydration ahead of background work", () => {
     expect(
       builderBodyHydrationPriorityForRequest({ documentId: "doc-open" }),
@@ -1204,7 +1215,10 @@ describe("database source helpers", () => {
       },
     });
     const currentContent = String(
-      entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY],
+      typeof entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY] === "string"
+        ? entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]
+        : (JSON.stringify(entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]) ??
+            ""),
     );
     const change = await builderBodyChangeForLocalContent({
       row: { sourceValuesJson: JSON.stringify(entry.sourceValues) },
@@ -1374,9 +1388,18 @@ describe("database source helpers", () => {
         },
       },
     });
-    const content = String(entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]);
+    const content =
+      typeof entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY] === "string"
+        ? entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]
+        : (JSON.stringify(entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]) ??
+          "");
     const losslessContent = String(
-      entry.sourceValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY],
+      typeof entry.sourceValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY] ===
+        "string"
+        ? entry.sourceValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]
+        : (JSON.stringify(
+            entry.sourceValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY],
+          ) ?? ""),
     );
 
     expect(content).toContain("<5");
@@ -1447,7 +1470,11 @@ describe("database source helpers", () => {
     }>;
     const textHtml = blocks
       .filter((block) => block.component?.name === "Text")
-      .map((block) => String(block.component?.options?.text ?? ""))
+      .map((block) =>
+        typeof block.component?.options?.text === "string"
+          ? block.component.options.text
+          : (JSON.stringify(block.component?.options?.text ?? "") ?? ""),
+      )
       .join("\n");
     const image = blocks.find(
       (block) => block.component?.name === "Image",

@@ -9,6 +9,10 @@ const mockPutSetting = vi.fn();
 const mockDeleteSetting = vi.fn();
 const mockGetRequestUserEmail = vi.fn<[], string | undefined>();
 const mockGetRequestOrgId = vi.fn<[], string | undefined>();
+const mockGetRequestContext = vi.fn<
+  [],
+  { isSyntheticTraffic?: boolean } | undefined
+>();
 const mockIsLocalDatabase = vi.fn<[], boolean>();
 const mockResolveOrgIdForEmail = vi.fn<[string], Promise<string | null>>();
 const mockGetDbExec = vi.fn();
@@ -20,6 +24,7 @@ vi.mock("../secrets/storage.js", () => ({
   deleteAppSecret: (...args: any[]) => mockDeleteAppSecret(...args),
 }));
 vi.mock("./request-context.js", () => ({
+  getRequestContext: () => mockGetRequestContext(),
   getRequestUserEmail: () => mockGetRequestUserEmail(),
   getRequestOrgId: () => mockGetRequestOrgId(),
 }));
@@ -164,6 +169,7 @@ beforeEach(() => {
   mockDeleteSetting.mockResolvedValue(true);
   mockGetRequestUserEmail.mockReturnValue(undefined);
   mockGetRequestOrgId.mockReturnValue(undefined);
+  mockGetRequestContext.mockReturnValue(undefined);
   mockIsLocalDatabase.mockReturnValue(true);
   mockResolveOrgIdForEmail.mockResolvedValue(null);
   mockGetDbExec.mockReturnValue({
@@ -217,6 +223,20 @@ describe("writeBuilderCredentials", () => {
     expect(target).toEqual({ scope: "user", scopeId: "a@b.com" });
     const scopes = mockWriteAppSecret.mock.calls.map((c) => c[0].scope);
     expect(scopes.every((s) => s === "user")).toBe(true);
+  });
+
+  it("writes a personal access token at user scope", async () => {
+    const target = await writeBuilderCredentials("a@b.com", {
+      privateKey: "btk-test-token",
+      publicKey: "space",
+    });
+    expect(target).toEqual({ scope: "user", scopeId: "a@b.com" });
+    expect(mockWriteAppSecret).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "BUILDER_PRIVATE_KEY",
+        value: "btk-test-token",
+      }),
+    );
   });
 
   it("writes at org scope for an owner of an active org", async () => {
@@ -346,14 +366,16 @@ describe("writeBuilderCredentials", () => {
     );
   });
 
-  it("rejects non-private-key credentials before clearing existing rows", async () => {
+  it("rejects unsupported credentials before clearing existing rows", async () => {
     await expect(
       writeBuilderCredentials(
         "owner@b.com",
-        { privateKey: "btk-personal-access-token", publicKey: "pub" },
+        { privateKey: "not-a-builder-token", publicKey: "pub" },
         { orgId: "builder_io", role: "owner" },
       ),
-    ).rejects.toThrow("expected bpk-");
+    ).rejects.toThrow(
+      "expected a bpk- private key or btk- personal access token",
+    );
 
     expect(mockDeleteAppSecret).not.toHaveBeenCalled();
     expect(mockWriteAppSecret).not.toHaveBeenCalled();
@@ -648,6 +670,14 @@ describe("deleteBuilderCredentials", () => {
     expect(scopes.every((s) => s === "user")).toBe(true);
   });
 
+  it("surfaces secret-store deletion failures", async () => {
+    mockDeleteAppSecret.mockRejectedValueOnce(new Error("store unavailable"));
+
+    await expect(deleteBuilderCredentials("a@b.com")).rejects.toThrow(
+      "store unavailable",
+    );
+  });
+
   it("deletes at org scope for an owner — undoes a connect that landed at org scope", async () => {
     const target = await deleteBuilderCredentials("owner@b.com", {
       orgId: "builder_io",
@@ -779,6 +809,37 @@ describe("resolveBuilderCredential", () => {
     expect(canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")).toBe(
       true,
     );
+  });
+
+  it("never uses deploy provider keys for synthetic traffic", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.OPENAI_API_KEY = "openai-deploy-key";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestContext.mockReturnValue({ isSyntheticTraffic: true });
+    mockGetRequestUserEmail.mockReturnValue("e2e@example.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
+    expect(canUseDeployCredentialFallbackForRequest("OPENAI_API_KEY")).toBe(
+      false,
+    );
+  });
+
+  it("does not fall through to shared app secrets for synthetic traffic", async () => {
+    mockGetRequestContext.mockReturnValue({ isSyntheticTraffic: true });
+    mockGetRequestUserEmail.mockReturnValue("e2e@example.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockImplementation(async ({ scope }: any) =>
+      scope === "org"
+        ? { value: "shared-key", last4: "-key", updatedAt: 1 }
+        : null,
+    );
+
+    await expect(resolveSecret("OPENAI_API_KEY")).resolves.toBeNull();
+    expect(mockReadAppSecret.mock.calls.map((call) => call[0].scope)).toEqual([
+      "user",
+    ]);
   });
 
   it("uses app-provided email env keys for signed-in production shared-database users", async () => {

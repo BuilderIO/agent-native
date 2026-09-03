@@ -3,11 +3,62 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-02
+
+### Fixed
+
+- A greeting or question as the first message in a new design no longer ends with a false "couldn't confirm that a Design artifact was saved" reply.
+
+## 2026-09-01
+
+### Fixed
+
+- Frame labels now move smoothly into place after canvas zoom changes.
+- The Share button stays inside the editor's right panel. At the panel's default width the action row was wider than the panel, so Share was clipped at the window edge; Add to Context now collapses to an icon with a tooltip when the panel is narrow, and the whole row fits.
+
+## 2026-08-28
+
+### Added
+
+- Screens can carry a layout grid, like Figma's: set a size in the inspector and everything you drag, draw, or resize inside that screen lands on it. Ctrl+G (Ctrl+Shift+4 on Windows) shows or hides the lines, holding Cmd while dragging ignores the grid, and the agent reads the same grid so the layout it writes matches what you get by hand.
+
+### Fixed
+
+- X and Y are always whole numbers now. Drawing or dropping something while zoomed out used to commit a position like 192.1px, and the inspector showed the fraction back to you; every placement, drag, resize, and constraint change now lands on a whole pixel. The big nudge (Shift plus an arrow key) moved from 10px to 8px so it steps along the same grid, and board frames finally respect the nudge amounts you configure.
+
+## 2026-08-27
+
+### Added
+
+- Outermost frames now show their name above them on the canvas, and clicking the name selects the frame.
+
+### Improved
+
+- Grid auto layout now lays a frame's children out in its cells and draws the cell grid on canvas, with a Figma-style track picker and separate column and row gap fields.
+- Pasting a frame from Figma now matches what importing the same frame over the API produces — union shapes like speech bubbles keep their outline, and masked artwork is clipped to the right shape.
+- Figma import now matches Figma's own layout node for node on 23 of 26 real community designs, and a page's large images survive the export back to Figma instead of being dropped.
+
+### Fixed
+
+- Answered design questions now continue in the existing design instead of creating a duplicate.
+
 ## 2026-08-26
 
 ### Fixed
 
+- A toast now appears when a screen save conflicts with an edit made elsewhere.
+- Creating a new design no longer treats the empty board file as finished generation.
+- Dropping a layer onto an empty screen now places it at the pointer instead of the top-left corner.
+- Opening the same design in two tabs no longer undoes to the other tab's unsynced layout.
+- Paste over a copied layer now lands next to the original instead of creating an invisible extra layer.
+- Dragging a layer out of its screen now shows a proxy the size of that layer following your cursor, instead of a small dot that made the layer look like it had vanished. A release the canvas cannot place no longer drops the layer in the top-left corner, and a drag interrupted by switching windows restores the layer where it started.
 - Design no longer asks users to confirm guided questions they have already answered.
+
+## 2026-08-25
+
+### Fixed
+
+- Rubber-band selection now works when you start the drag on empty space inside a screen, instead of picking the whole screen up and moving it. The band also catches layers it used to skip: elements with no id of their own, hairline rules, and zero-height rows. Clicking a horizontal line selects the line itself with a grabbable outline rather than a two-pixel sliver, and clicking into a screen that is already selected now selects the element under your cursor on the first click.
 
 ## 2026-08-24
 
@@ -38,6 +89,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Completed Builder design-system imports now update the local Design system with indexed tokens, become the default when no default exists, and stay out of generation until ready.
 - Completed Builder design-system imports now update the local Design system with indexed tokens instead of leaving placeholder values.
 - Draw mode now needs Shift+Y, so a single stray keystroke can no longer switch the editor into annotate mode.
 - Moving or scaling several objects at once keeps them all selected, so you can keep adjusting instead of falling back to one object.

@@ -48,7 +48,8 @@ import {
   threadDataToEngineMessages,
 } from "../agent/thread-data-builder.js";
 import { attachToolSearch } from "../agent/tool-search.js";
-import type { ContinuationReason } from "../agent/types.js";
+import type { AgentChatEvent, ContinuationReason } from "../agent/types.js";
+import type { ArtifactReceipt } from "../artifacts/detect.js";
 import {
   createThread,
   getThread,
@@ -58,6 +59,7 @@ import {
 import { updateThreadData } from "../chat-threads/store.js";
 import { getOrgA2ASecret, resolveOrgIdForEmail } from "../org/context.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
+import { getAppProductionUrl } from "../server/app-url.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { resolveSelfDispatchBaseUrl } from "../server/self-dispatch.js";
 import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.js";
@@ -97,6 +99,7 @@ import type {
   IncomingMessage,
   OutgoingMessage,
   PlatformDeliveryReceipt,
+  PlatformRunProgress,
   PlatformRunProgressRef,
 } from "./types.js";
 import {
@@ -117,6 +120,12 @@ const CUTOFF_INTEGRATION_RESPONSE_MESSAGE =
 const INTEGRATION_CAMPAIGN_LEASE_MS = 16 * 60_000;
 const INTEGRATION_CAMPAIGN_MAX_CHUNKS = 4;
 const INTEGRATION_CAMPAIGN_A2A_CHECK_MS = 30_000;
+
+function stringifyInboundValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  return JSON.stringify(value) ?? "";
+}
+
 // Keep a lost handoff plus the one-minute sweep inside the two-minute messaging
 // target without shortening general background-run budgets.
 const INTEGRATION_CAMPAIGN_NO_PROGRESS_TIMEOUT_MS = 45_000;
@@ -190,6 +199,7 @@ type ToolDoneEvent = {
   result: string;
   isError?: boolean;
   completedSideEffect?: boolean;
+  artifacts?: ArtifactReceipt[];
 };
 
 export type IntegrationResponseDeliveryTaskPayload = {
@@ -197,6 +207,7 @@ export type IntegrationResponseDeliveryTaskPayload = {
   incoming: IncomingMessage;
   message: OutgoingMessage;
   placeholderRef?: string;
+  strictTargetRef?: boolean;
   internalThreadId?: string;
   userMessageId?: string;
   assistantMessageId?: string;
@@ -323,13 +334,22 @@ export interface WebhookHandlerOptions {
 async function resolveIntegrationEngineOption(
   engineOption: WebhookHandlerOptions["engine"],
   appId?: string,
+  includeConfiguredSelection = true,
 ): Promise<WebhookHandlerOptions["engine"]> {
   // A custom engine instance/config is an intentional per-plugin override and
   // must remain authoritative. A string option is the normal integration
   // plugin default; org/user Agent settings should override that default just
   // as they do in web chat.
   if (engineOption && typeof engineOption === "object") return engineOption;
+  // Managed service-principal recovery must bypass the rejected persisted
+  // selection. Integrations without an explicit engine use the hosted Builder
+  // gateway as their distinct managed fallback.
+  if (!includeConfiguredSelection) return engineOption ?? "builder";
   return (await getConfiguredEngineNameForRequest({ appId })) ?? engineOption;
+}
+
+function isMeaningfulIntegrationAgentEvent(event: AgentChatEvent): boolean {
+  return !["stream_keepalive", "activity", "model_stream"].includes(event.type);
 }
 
 function collectToolResultSummaries(
@@ -343,6 +363,7 @@ function collectToolResultSummaries(
       result: event.result,
       isError: event.isError,
       completedSideEffect: event.completedSideEffect,
+      artifacts: event.artifacts,
     }));
 }
 
@@ -357,10 +378,18 @@ function collectCompletedMutationToolResultSummaries(
         event.completedSideEffect === true &&
         event.isError !== true,
     )
-    .map((event) => ({ tool: event.tool, result: event.result }));
+    .map((event) => ({
+      tool: event.tool,
+      result: event.result,
+      artifacts: event.artifacts,
+    }));
 }
 
 export type ResolvedIntegrationApiKey = ResolvedOwnerApiKey;
+
+export function integrationResponseIdempotencyKey(taskId: string): string {
+  return `integration-response:${taskId}`;
+}
 
 export async function resolveIntegrationApiKey(
   engineOption: WebhookHandlerOptions["engine"],
@@ -681,7 +710,9 @@ async function recordInboundIntegrationAudit(
       sourcePlatform: incoming.platform,
       sourceId:
         incoming.replyRef ??
-        String(incoming.platformContext.messageTs ?? incoming.timestamp),
+        stringifyInboundValue(
+          incoming.platformContext.messageTs ?? incoming.timestamp,
+        ),
       sourceUrl: incoming.sourceUrl ?? null,
     });
   } catch {
@@ -716,6 +747,20 @@ async function processIncomingMessage(
     engine: engineOption,
   } = options;
   let effectiveSystemPrompt = systemPrompt + buildRuntimeContextPrompt();
+  const deliveryOptions = {
+    placeholderRef: opts.placeholderRef,
+    ...(opts.taskId
+      ? { idempotencyKey: integrationResponseIdempotencyKey(opts.taskId) }
+      : {}),
+  };
+  const deliveryOptionsForProgress = (progress?: PlatformRunProgress | null) =>
+    progress?.responseTargetRef
+      ? {
+          ...deliveryOptions,
+          placeholderRef: progress.responseTargetRef,
+          strictTargetRef: true,
+        }
+      : deliveryOptions;
 
   // Resolve or create internal thread
   let mapping = await getThreadMapping(
@@ -800,9 +845,11 @@ async function processIncomingMessage(
           JSON.stringify(deliveryPayload),
         );
       }
-      const receipt = await adapter.sendResponse(outgoing, incoming, {
-        placeholderRef: opts.placeholderRef,
-      });
+      const receipt = await adapter.sendResponse(
+        outgoing,
+        incoming,
+        deliveryOptions,
+      );
       if (receipt?.status !== "delivered") {
         throw new Error(
           `${incoming.platform} response completed without delivery proof`,
@@ -967,7 +1014,14 @@ async function processIncomingMessage(
         kind: "response-delivery",
         incoming,
         message: exhaustedMessage,
-        ...(opts.placeholderRef ? { placeholderRef: opts.placeholderRef } : {}),
+        ...(exhaustedProgress?.responseTargetRef
+          ? {
+              placeholderRef: exhaustedProgress.responseTargetRef,
+              strictTargetRef: true,
+            }
+          : opts.placeholderRef
+            ? { placeholderRef: opts.placeholderRef }
+            : {}),
         internalThreadId: threadId,
         campaignTerminalStatus: "failed",
         ...buildDeliveryHistoryMessageIds(incoming),
@@ -980,16 +1034,22 @@ async function processIncomingMessage(
         let receipt: void | PlatformDeliveryReceipt;
         if (exhaustedProgress) {
           try {
-            receipt = await exhaustedProgress.complete(exhaustedMessage);
-          } catch {
-            receipt = await adapter.sendResponse(exhaustedMessage, incoming, {
-              placeholderRef: opts.placeholderRef,
+            receipt = await exhaustedProgress.complete(exhaustedMessage, {
+              idempotencyKey: integrationResponseIdempotencyKey(opts.taskId),
             });
+          } catch {
+            receipt = await adapter.sendResponse(
+              exhaustedMessage,
+              incoming,
+              deliveryOptionsForProgress(exhaustedProgress),
+            );
           }
         } else {
-          receipt = await adapter.sendResponse(exhaustedMessage, incoming, {
-            placeholderRef: opts.placeholderRef,
-          });
+          receipt = await adapter.sendResponse(
+            exhaustedMessage,
+            incoming,
+            deliveryOptions,
+          );
         }
         if (receipt?.status !== "delivered") {
           throw new Error(
@@ -1250,7 +1310,7 @@ async function processIncomingMessage(
                       platform: incoming.platform,
                       id:
                         incoming.replyRef ||
-                        String(
+                        stringifyInboundValue(
                           incoming.platformContext.messageTs ??
                             incoming.timestamp,
                         ),
@@ -1263,82 +1323,121 @@ async function processIncomingMessage(
               : undefined,
           },
           async () => {
-            const effectiveEngineOption = await resolveIntegrationEngineOption(
-              engineOption,
-              options.appId,
-            );
-            const effectiveApiKey = await resolveIntegrationApiKey(
-              effectiveEngineOption,
-              ownerEmail,
-              apiKey,
-            );
-            const engine = await resolveEngine({
-              engineOption: effectiveEngineOption,
-              apiKey: effectiveApiKey.apiKey,
-              apiKeyEnvVar: effectiveApiKey.apiKeyEnvVar,
-              model,
-              appId: options.appId,
-            });
-            const modelCandidate =
-              (typeof incoming.platformContext.defaultModel === "string"
-                ? incoming.platformContext.defaultModel
-                : undefined) ??
-              (await getStoredModelForEngine(engine, {
+            const resolveTarget = async (
+              includeConfiguredSelection: boolean,
+            ) => {
+              const effectiveEngineOption =
+                await resolveIntegrationEngineOption(
+                  engineOption,
+                  options.appId,
+                  includeConfiguredSelection,
+                );
+              const effectiveApiKey = await resolveIntegrationApiKey(
+                effectiveEngineOption,
+                ownerEmail,
+                apiKey,
+              );
+              const engine = await resolveEngine({
+                engineOption: effectiveEngineOption,
+                apiKey: effectiveApiKey.apiKey,
+                apiKeyEnvVar: effectiveApiKey.apiKeyEnvVar,
+                model,
                 appId: options.appId,
-              })) ??
-              model ??
-              engine.defaultModel;
-            const resolvedModel = normalizeModelForEngine(
-              engine,
-              modelCandidate,
-            );
-            runOptions.model = resolvedModel;
-            runOptions.engineName = engine.name;
-
-            // Wrapper, not raw `runAgentLoop`: an integration turn has no
-            // browser to re-POST a continuation, so a transport-level cut
-            // (gateway 45s, socket hang up, upstream 5xx) has to be resumed
-            // inside this invocation or the user's Slack thread just stops.
-            // Same budget the run-manager resolved for this run below.
-            usage = await runAgentLoopDirectWithSoftTimeout(
-              {
+              });
+              const modelCandidate =
+                (typeof incoming.platformContext.defaultModel === "string"
+                  ? incoming.platformContext.defaultModel
+                  : undefined) ??
+                (await getStoredModelForEngine(engine, {
+                  appId: options.appId,
+                })) ??
+                model ??
+                engine.defaultModel;
+              return {
                 engine,
-                model: resolvedModel,
-                systemPrompt: effectiveSystemPrompt,
-                tools,
-                availableTools,
-                messages,
-                actions: runnableActions,
-                send: async (event) => {
-                  if (progress) {
-                    await Promise.resolve(progress.onEvent(event)).catch(
-                      () => {},
-                    );
-                  }
-                  await send(event);
-                },
-                signal,
-                threadId,
-                approvedToolCalls: incoming.approvedToolCalls,
-                // Messaging integrations are interactive chat surfaces. They
-                // need the same initial completion headroom as web chat so
-                // reasoning cannot consume the small per-engine default and
-                // leave a user-facing Slack reply empty.
-                maxOutputTokens: resolveMainChatMaxOutputTokens(resolvedModel),
-                // Explicitly resolve the normal chat default so an empty-final
-                // retry can step its effort down rather than
-                // repeatedly letting the engine choose Medium.
-                reasoningEffort: normalizeReasoningEffortForRequest(
-                  resolvedModel,
+                apiKey: effectiveApiKey.apiKey,
+                model: normalizeModelForEngine(engine, modelCandidate),
+              };
+            };
+
+            let target = await resolveTarget(true);
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+              let emittedAgentEvent = false;
+              runOptions.model = target.model;
+              runOptions.engineName = target.engine.name;
+              try {
+                // Wrapper, not raw `runAgentLoop`: an integration turn has no
+                // browser to re-POST a continuation, so a transport-level cut
+                // (gateway 45s, socket hang up, upstream 5xx) has to be resumed
+                // inside this invocation or the user's Slack thread just stops.
+                // Same budget the run-manager resolved for this run below.
+                usage = await runAgentLoopDirectWithSoftTimeout(
+                  {
+                    engine: target.engine,
+                    model: target.model,
+                    systemPrompt: effectiveSystemPrompt,
+                    tools,
+                    availableTools,
+                    messages,
+                    actions: runnableActions,
+                    send: async (event) => {
+                      if (isMeaningfulIntegrationAgentEvent(event)) {
+                        emittedAgentEvent = true;
+                      }
+                      if (progress) {
+                        await Promise.resolve(progress.onEvent(event)).catch(
+                          () => {},
+                        );
+                      }
+                      send(event);
+                    },
+                    signal,
+                    threadId,
+                    approvedToolCalls: incoming.approvedToolCalls,
+                    // Messaging integrations are interactive chat surfaces. They
+                    // need the same initial completion headroom as web chat so
+                    // reasoning cannot consume the small per-engine default and
+                    // leave a user-facing Slack reply empty.
+                    maxOutputTokens: resolveMainChatMaxOutputTokens(
+                      target.model,
+                    ),
+                    // Explicitly resolve the normal chat default so an empty-final
+                    // retry can step its effort down rather than
+                    // repeatedly letting the engine choose Medium.
+                    reasoningEffort: normalizeReasoningEffortForRequest(
+                      target.model,
+                      undefined,
+                    ),
+                  },
                   undefined,
-                ),
-              },
-              undefined,
-              {
-                useHostedDefault: true,
-                backgroundFunction: isInBackgroundFunctionRuntime(),
-              },
-            );
+                  {
+                    useHostedDefault: true,
+                    backgroundFunction: isInBackgroundFunctionRuntime(),
+                  },
+                );
+                return usage;
+              } catch (error) {
+                if (
+                  attempt > 0 ||
+                  opts.principalType !== "service" ||
+                  emittedAgentEvent ||
+                  !isLlmCredentialError(error)
+                ) {
+                  throw error;
+                }
+                const fallback = await resolveTarget(false);
+                if (
+                  fallback.engine.name === target.engine.name &&
+                  fallback.apiKey === target.apiKey
+                ) {
+                  throw error;
+                }
+                console.warn(
+                  `[integrations] model credential rejected before agent output; retrying with fallback taskId=${opts.taskId ?? "none"} runId=${runId} engine=${fallback.engine.name} principalType=${opts.principalType ?? "user"}`,
+                );
+                target = fallback;
+              }
+            }
             return usage;
           },
         );
@@ -1408,7 +1507,7 @@ async function processIncomingMessage(
           // fallback. A completed write must not be reported as though nothing
           // happened merely because the model ran out of time before its prose
           // summary. Read-only and unverified tool results do not qualify.
-          const baseUrl = process.env.APP_URL || process.env.URL || "";
+          const baseUrl = getAppProductionUrl(undefined, { fallback: "" });
           const appBaseUrl = baseUrl ? withConfiguredAppBasePath(baseUrl) : "";
           const toolResults = collectToolResultSummaries(completedRun);
           const verifiedMutationReceipt = buildA2AVerifiedMutationReceipt(
@@ -1424,15 +1523,19 @@ async function processIncomingMessage(
           const approval = completedRun.events
             .map((runEvent) => runEvent.event)
             .find((event) => event.type === "approval_required");
-          const runErrorText = completedRun.events
+          const runErrors = completedRun.events
             .map((runEvent) =>
-              runEvent.event.type === "error" ? runEvent.event.error : "",
+              runEvent.event.type === "error" ? runEvent.event : null,
             )
-            .filter(Boolean)
-            .join("\n");
+            .filter(
+              (event): event is Extract<AgentChatEvent, { type: "error" }> =>
+                event !== null,
+            );
           if (
             isLlmCredentialError(responseText) ||
-            isLlmCredentialError(runErrorText)
+            runErrors.some((event) =>
+              isLlmCredentialError(event.error, event.errorCode),
+            )
           ) {
             responseText = formatLlmCredentialErrorMessage();
           } else if (
@@ -1502,9 +1605,14 @@ async function processIncomingMessage(
               kind: "response-delivery",
               incoming,
               message: outgoing,
-              ...(opts.placeholderRef
-                ? { placeholderRef: opts.placeholderRef }
-                : {}),
+              ...(progress?.responseTargetRef
+                ? {
+                    placeholderRef: progress.responseTargetRef,
+                    strictTargetRef: true,
+                  }
+                : opts.placeholderRef
+                  ? { placeholderRef: opts.placeholderRef }
+                  : {}),
               internalThreadId: threadId,
               ...buildDeliveryHistoryMessageIds(incoming),
               artifacts: extractA2AArtifactIdentities(toolResults, {
@@ -1530,25 +1638,35 @@ async function processIncomingMessage(
               // Post substantive parent results as a normal thread reply while
               // the one continuation that claimed this resumable stream keeps
               // it open for its eventual terminal result.
-              deliveryReceipt = await adapter.sendResponse(outgoing, incoming, {
-                placeholderRef: opts.placeholderRef,
-              });
+              deliveryReceipt = await adapter.sendResponse(
+                outgoing,
+                incoming,
+                deliveryOptions,
+              );
             } else if (progress) {
               try {
-                deliveryReceipt = await progress.complete(outgoing);
+                deliveryReceipt = await progress.complete(outgoing, {
+                  ...(opts.taskId
+                    ? {
+                        idempotencyKey: integrationResponseIdempotencyKey(
+                          opts.taskId,
+                        ),
+                      }
+                    : {}),
+                });
               } catch {
                 deliveryReceipt = await adapter.sendResponse(
                   outgoing,
                   incoming,
-                  {
-                    placeholderRef: opts.placeholderRef,
-                  },
+                  deliveryOptionsForProgress(progress),
                 );
               }
             } else {
-              deliveryReceipt = await adapter.sendResponse(outgoing, incoming, {
-                placeholderRef: opts.placeholderRef,
-              });
+              deliveryReceipt = await adapter.sendResponse(
+                outgoing,
+                incoming,
+                deliveryOptionsForProgress(progress),
+              );
             }
             if (deliveryReceipt?.status !== "delivered") {
               throw new Error(
@@ -1826,7 +1944,9 @@ async function processIncomingMessage(
             const fallback = adapter.formatAgentResponse(
               "Something went wrong on my end while replying. Please try again.",
             );
-            if (!progress?.fail) await adapter.sendResponse(fallback, incoming);
+            if (!progress?.fail) {
+              await adapter.sendResponse(fallback, incoming, deliveryOptions);
+            }
           } catch {}
         } finally {
           // Any terminal path (including a failed run or an unrelated new
@@ -1933,7 +2053,7 @@ async function recordIntegrationUsage(options: {
       sourcePlatform: options.incoming.platform,
       sourceId:
         options.incoming.replyRef ??
-        String(
+        stringifyInboundValue(
           options.incoming.platformContext.messageTs ??
             options.incoming.timestamp,
         ),
@@ -2157,7 +2277,7 @@ function extractSlackInputRequest(
 
     let rawOptions: unknown;
     try {
-      rawOptions = JSON.parse(String(input?.options ?? "[]"));
+      rawOptions = JSON.parse(stringifyInboundValue(input?.options ?? "[]"));
     } catch {
       return null;
     }
@@ -2190,7 +2310,8 @@ function extractSlackInputRequest(
 
     const header =
       typeof input?.header === "string" ? input.header.trim().slice(0, 80) : "";
-    const allowFreeText = String(input?.allowFreeText ?? "true") !== "false";
+    const allowFreeText =
+      stringifyInboundValue(input?.allowFreeText ?? "true") !== "false";
     return {
       text: [
         header ? `*${header}*` : null,

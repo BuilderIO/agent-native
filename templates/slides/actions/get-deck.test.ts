@@ -56,6 +56,11 @@ beforeEach(() => {
     updatedAt: "2026-05-02T00:00:00.000Z",
     data: JSON.stringify({
       title: "Quarterly Review",
+      generationContext: {
+        originalPrompt: "Create a dark 6-slide deck from reference.png",
+        targetSlideCount: 6,
+        files: [{ path: "/uploads/reference.png" }],
+      },
       slides: [
         {
           id: "slide-a",
@@ -99,6 +104,7 @@ describe("get-deck", () => {
     });
     expect(result.createdByMe).toBe(true);
     expect(result.slides[0]).not.toHaveProperty("index");
+    expect(result.sourceEditability).toEqual({ structuralEdits: "allowed" });
   });
 
   it("repairs duplicate persisted slide IDs before returning the deck", async () => {
@@ -194,6 +200,75 @@ describe("get-deck", () => {
       textPreview: "Opening",
     });
     expect(result.slides[0]).not.toHaveProperty("content");
+    expect(result.generationContext).toMatchObject({
+      originalPrompt: "Create a dark 6-slide deck from reference.png",
+      targetSlideCount: 6,
+    });
+  });
+
+  it("reports source coverage and order in compact agent reads", async () => {
+    currentResource!.data = JSON.stringify({
+      title: "Imported source",
+      slides: [
+        { id: "source-1", content: "One" },
+        { id: "extra", content: "Unrelated" },
+        { id: "source-3", content: "Three" },
+      ],
+      sourceImport: {
+        mode: "source-preserving",
+        format: "pdf",
+        fidelity: "source-faithful",
+        slideCount: 3,
+        slideIds: ["source-1", "source-2", "source-3"],
+        slides: [{ id: "source-1" }, { id: "source-2" }, { id: "source-3" }],
+      },
+    });
+
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result.sourceCoverage).toMatchObject({
+      complete: false,
+      ordered: false,
+      expectedSlideIds: ["source-1", "source-2", "source-3"],
+      actualSlideIds: ["source-1", "extra", "source-3"],
+      missingSlideIds: ["source-2"],
+      unexpectedSlideIds: ["extra"],
+    });
+    expect(result.sourceEditability).toMatchObject({
+      structuralEdits: "blocked",
+      reason: "source-preserving import",
+      conversion: {
+        action: "patch-deck",
+        parameter: "rewriteSource",
+      },
+    });
+  });
+
+  it("reports editable source snapshots without structural restrictions", async () => {
+    currentResource!.data = JSON.stringify({
+      title: "Copied source",
+      slides: [{ id: "slide-1", content: "One" }],
+      sourceImport: {
+        mode: "source-preserving",
+        format: "pptx",
+        fidelity: "source-faithful",
+        slideCount: 1,
+        slideIds: ["slide-1"],
+        slides: [{ id: "slide-1" }],
+        editableSnapshot: true,
+      },
+    });
+
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result.sourceImport.editableSnapshot).toBe(true);
+    expect(result.sourceEditability).toEqual({ structuralEdits: "allowed" });
   });
 
   it("lets agent calls opt into full slide HTML", async () => {

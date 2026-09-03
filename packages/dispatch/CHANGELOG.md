@@ -1,5 +1,97 @@
 # @agent-native/dispatch
 
+## 0.33.1
+
+### Patch Changes
+
+- 485642e: Keep hosted Dispatch app launches inline outside Builder editor sessions.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [0566ce9]
+  - @agent-native/toolkit@0.19.2
+
+## 0.33.0
+
+### Minor Changes
+
+- 1fc5184: Add friendly automation schedules and webhook triggers.
+
+### Patch Changes
+
+- 4d86bff: Update shared auth pages with per-app product previews and learn-more links.
+- bbbac69: Keep pending Builder app reservations visible for 30 days.
+- Release all public npm packages with a patch version bump.
+- 4deb8a1: Make hosted ask_app submissions retry-safe and return before the MCP transport deadline.
+- Updated dependencies [e74593d]
+- Updated dependencies
+  - @agent-native/toolkit@0.19.1
+
+## 0.32.0
+
+### Minor Changes
+
+- d7d12c0: Add owner-scoped app adoption metrics to the Dispatch admin.
+
+### Patch Changes
+
+- 46abef1: Declare managed Google OAuth capability in app health contracts so deploy verification checks only apps that own the managed connection.
+- d142c4f: Fix workspace app embed session mint returning a 500 for apps whose discovered agent URL is a deep link (e.g. Clips share links). The target MCP connection and A2A audience now resolve through the app's home origin instead of the raw discovered URL.
+- b89ceb2: Hide empty optional sidebar slots when organization controls are unavailable.
+- Release all public npm packages with a patch version bump.
+- 307bd64: Match the Dispatch sidebar mark to its text color and tighten its size.
+- 349ce5c: Persist Agent-Native prompt drafts synchronously and keep prompt surfaces isolated across refreshes.
+- 353f95a: Split template marketing home routes from authenticated app entries and add the shared browser auth handoff.
+- 7c1565b: Register the workspace connection catalog action in Dispatch's server action surface.
+- 01d2112: Retry transient 502–504 gateway responses from workspace app MCP hosts, including HTML error pages.
+- f0fb6c5: Use the cube spinner for shared loading indicators and the worded loader for full-page states across apps.
+- Updated dependencies
+- Updated dependencies [349ce5c]
+- Updated dependencies [353f95a]
+- Updated dependencies [a1869cc]
+- Updated dependencies [f0fb6c5]
+- Updated dependencies [03711a6]
+  - @agent-native/toolkit@0.19.0
+
+## 0.31.29
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 5820376: Use a monochrome Agent-Native mark in app sidebars.
+- ea6123a: Remove the legacy settings view from agent chat surfaces.
+- 5b7a8ea: Replace flashing skeleton pulses with a smooth whole-surface loading shine.
+- Updated dependencies [844fa10]
+- Updated dependencies [4af2889]
+- Updated dependencies
+- Updated dependencies [dcc9f89]
+- Updated dependencies [163dd55]
+- Updated dependencies [5b7a8ea]
+  - @agent-native/toolkit@0.18.0
+
+## 0.31.28
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.17.6
+
+## 0.31.27
+
+### Patch Changes
+
+- 4ef1d8c: Route one-pager integration requests to Content or inline responses instead of Plan.
+- Release all public npm packages with a patch version bump.
+- 3e18636: Fix transactional email previews to render the canonical Agent-Native logo.
+- 4776e61: Reduce CI lint warnings with safer type narrowing, callback binding, and explicit async intent.
+- dd834e7: Prevent vault actions and the Dispatch UI from exposing stored secret values.
+- Updated dependencies [ac1ecfc]
+- Updated dependencies
+- Updated dependencies [5a12f71]
+- Updated dependencies [d2b314b]
+- Updated dependencies [5c96078]
+  - @agent-native/toolkit@0.17.5
+
 ## 0.31.26
 
 ### Patch Changes
@@ -780,53 +872,5 @@
 ### Patch Changes
 
 - 2765110: Restore the transactional email catalog and Brand Kit named-token public surfaces.
-
-## 0.17.3
-
-### Patch Changes
-
-- 277be3f: Clarify that a free Builder tier is available when connecting Dispatch app creation.
-- Updated dependencies [277be3f]
-- Updated dependencies [277be3f]
-  - @agent-native/toolkit@0.13.2
-
-## 0.17.2
-
-### Patch Changes
-
-- c71d383: Keep connected messaging chats out of app history by default, with an opt-in all-sources view and stable Dispatch branding.
-- Updated dependencies [c71d383]
-  - @agent-native/toolkit@0.13.1
-
-## 0.17.1
-
-### Patch Changes
-
-- Updated dependencies [106af0e]
-  - @agent-native/toolkit@0.13.0
-
-## 0.17.0
-
-### Minor Changes
-
-- 2b6fea3: Show connected apps alongside mounted workspace apps in the Dispatch control plane.
-
-## 0.16.7
-
-### Patch Changes
-
-- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
-  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
-  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
-  config merges it in.
-- Updated dependencies [f499dff]
-  - @agent-native/toolkit@0.12.2
-
-## 0.16.6
-
-### Patch Changes
-
-- eecd3ad: Expose the measured agent failure taxonomy and let thread diagnostics separate interactive runs from scheduled `job-` runs.
-- eecd3ad: Add a read-only `read-slack-thread-context` action for Slack-linked issue triage. It resolves child permalinks to their parent thread, returns message attachments and related links, and reports incomplete pagination instead of silently treating a partial thread as complete.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -19,6 +19,7 @@ interface ComposerStubProps {
 }
 
 vi.mock("@agent-native/core/client/api-path", () => ({
+  agentNativePath: (path: string) => path,
   appBasePath: () => "",
 }));
 
@@ -40,12 +41,21 @@ vi.mock("@agent-native/core/client/composer", () => ({
       <button
         type="button"
         data-testid="composer-submit"
-        onClick={() => props.onSubmit("hello world", [], [], {})}
+        onClick={() => props.onSubmit("  hello world  \n", [], [], {})}
       >
         submit
       </button>
     </div>
   ),
+  useEagerFileUploads: () => ({
+    commitFiles: () => {},
+    discardFiles: () => {},
+    retainFiles: () => {},
+    syncFiles: () => {},
+    uploadFiles: async () => [],
+    uploading: false,
+    reset: () => {},
+  }),
 }));
 
 vi.mock("@agent-native/core/embedding/react", () => ({
@@ -178,7 +188,9 @@ describe("PromptPopover submit failure recovery", () => {
     // The composer optimistically clears its own text as soon as onSubmit is
     // invoked, so the popover must feed the failed prompt back in via
     // `initialText`/`initialTextKey` rather than let it vanish.
-    expect(composer?.getAttribute("data-initial-text")).toBe("hello world");
+    expect(composer?.getAttribute("data-initial-text")).toBe(
+      "  hello world  \n",
+    );
     expect(composer?.getAttribute("data-initial-text-key")).not.toBe("");
     expect(composer?.getAttribute("data-initial-text-key")).not.toBe("0");
   });

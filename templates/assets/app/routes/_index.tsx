@@ -1,38 +1,5 @@
-import {
-  AgentChatSurface,
-  markAgentChatHomeHandoff,
-  sendToAgentChat,
-} from "@agent-native/core/client/agent-chat";
-import { getBrowserTabId } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
-import { IconPhoto, IconSparkles, IconVideo } from "@tabler/icons-react";
-import { useEffect } from "react";
-import { useNavigate, useParams } from "react-router";
-
-import { RecentDraftsSection } from "@/components/create/RecentDraftsSection";
-import { GenerationResults } from "@/components/generation/GenerationResults";
-import { useImageModelMenu } from "@/hooks/use-image-model-menu";
-import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
-
-// Empty-state starters. Clicking one prefills the composer (without sending) so
-// the user can finish the thought instead of staring at a chip that does
-// nothing. `submit: false` = prefill only; `openSidebar: false` keeps focus on
-// the page-level Create surface.
-const CHAT_STARTERS = [
-  {
-    key: "image",
-    Icon: IconPhoto,
-    label: "image",
-    prompt: "Create an image of ",
-  },
-  {
-    key: "video",
-    Icon: IconVideo,
-    label: "video",
-    prompt: "Create a video of ",
-  },
-  { key: "refine", Icon: IconSparkles, label: "refine", prompt: "Refine " },
-] as const;
+import { appPath } from "@agent-native/core/client/api-path";
+import { MarketingHome } from "@agent-native/toolkit/marketing";
 
 const SEO_TITLE =
   "Assets - Open Source AI asset library for brand-safe images and video";
@@ -51,87 +18,19 @@ export function meta() {
   ];
 }
 
-function chatThreadPath(threadId: string | null) {
-  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";
-}
-
-export default function CreatePage() {
-  const { threadId } = useParams();
-  const navigate = useNavigate();
-  const t = useT();
-  const threadUrlSync = threadId
-    ? {
-        routeThreadId: threadId,
-        getPath: chatThreadPath,
-        navigate,
-      }
-    : undefined;
-  const imageModelMenu = useImageModelMenu();
-
-  useEffect(() => {
-    function handleChatRunning(event: Event) {
-      const detail = (event as CustomEvent).detail;
-      if (detail?.isRunning === true) {
-        markAgentChatHomeHandoff(ASSETS_CHAT_STORAGE_KEY);
-      }
-    }
-
-    window.addEventListener("agentNative.chatRunning", handleChatRunning);
-    return () =>
-      window.removeEventListener("agentNative.chatRunning", handleChatRunning);
-  }, []);
-
+export default function MarketingHomeRoute() {
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <AgentChatSurface
-        mode="page"
-        chatViewTransition
-        className="assets-create-chat-panel"
-        defaultMode="chat"
-        storageKey={ASSETS_CHAT_STORAGE_KEY}
-        threadUrlSync={threadUrlSync}
-        browserTabId={getBrowserTabId()}
-        threadFooterSlot={({ threadId }) => (
-          <GenerationResults threadId={threadId} />
-        )}
-        imageModelMenu={imageModelMenu}
-        showHeader={false}
-        showTabBar={false}
-        dynamicSuggestions={false}
-        suggestions={[]}
-        emptyStateText={t("create.emptyState")}
-        emptyStateDisplay="hidden"
-        centerComposerWhenEmpty
-        composerLayoutVariant="hero"
-        composerPlaceholder={t("create.composerPlaceholder")}
-        composerSlot={
-          <div className="assets-create-chat-intro">
-            <h1>{t("create.heroTitle")}</h1>
-            <p>{t("create.heroDescription")}</p>
-            <div className="assets-create-chat-pill-row">
-              {CHAT_STARTERS.map(({ key, Icon, prompt }) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() =>
-                    sendToAgentChat({
-                      message: prompt,
-                      submit: false,
-                      openSidebar: false,
-                    })
-                  }
-                >
-                  <Icon className="size-3.5" />
-                  {t(`create.starters.${key}`)}
-                </button>
-              ))}
-            </div>
-            <div className="mt-8 w-[min(100vw-2rem,64rem)] px-4 text-left sm:px-6">
-              <RecentDraftsSection />
-            </div>
-          </div>
-        }
-      />
-    </div>
+    <MarketingHome
+      appName="Assets"
+      tagline="Your AI agent creates, refines, and organizes on-brand assets alongside you."
+      description={SEO_DESCRIPTION}
+      valueProps={[
+        "Build reusable libraries from logos, product shots, videos, and references",
+        "Generate heroes, diagrams, product visuals, and videos from a prompt",
+        "Audit prompts, references, outputs, and refinements across every run",
+      ]}
+      primaryActionHref={appPath("/home")}
+      secondaryActionHref={appPath("/sign-in")}
+    />
   );
 }

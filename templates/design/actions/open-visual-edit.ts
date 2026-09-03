@@ -441,26 +441,29 @@ export default defineAction({
         );
       }
 
-      const screens = await addLocalhostScreensAction.run({
-        designId,
-        connectionId: connection.id,
-        routes:
-          viewports && requestedRoutes
-            ? expandRoutesAcrossViewports({
-                routes: requestedRoutes,
-                viewports,
-                startX: args.startX ?? 0,
-                startY: args.startY ?? 0,
-                gap: args.gap ?? 160,
-              })
-            : args.routes,
-        paths: viewports ? undefined : args.paths,
-        defaultWidth: args.defaultWidth,
-        defaultHeight: args.defaultHeight,
-        startX: args.startX,
-        startY: args.startY,
-        gap: args.gap,
-      });
+      const screens = await addLocalhostScreensAction.run(
+        {
+          designId,
+          connectionId: connection.id,
+          routes:
+            viewports && requestedRoutes
+              ? expandRoutesAcrossViewports({
+                  routes: requestedRoutes,
+                  viewports,
+                  startX: args.startX ?? 0,
+                  startY: args.startY ?? 0,
+                  gap: args.gap ?? 160,
+                })
+              : args.routes,
+          paths: viewports ? undefined : args.paths,
+          defaultWidth: args.defaultWidth,
+          defaultHeight: args.defaultHeight,
+          startX: args.startX,
+          startY: args.startY,
+          gap: args.gap,
+        },
+        ctx,
+      );
 
       const urlPath = localVisualEditPath(designId);
       await writeAppState("visual-edit", {

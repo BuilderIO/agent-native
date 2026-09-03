@@ -6,10 +6,6 @@ import {
   useActionMutation,
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
-import {
-  injectSessionReplayIframeBootstrap,
-  SESSION_REPLAY_IFRAME_ATTRIBUTE,
-} from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   CreativeContextShareSheet,
@@ -32,9 +28,6 @@ import {
   IconDots,
   IconTrash,
   IconCopy,
-  IconCode,
-  IconStack2,
-  IconUserCircle,
   IconX,
   IconPencil,
 } from "@tabler/icons-react";
@@ -45,6 +38,8 @@ import { useNavigate, Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";
+import { DesignThumbnail } from "@/components/design/DesignThumbnail";
+import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type {
   PromptTemplateOption,
@@ -85,12 +80,11 @@ import {
   writeStoredDesignFilter,
   type DesignFilter,
 } from "@/lib/design-filter";
+import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import {
   clearPendingGeneration,
   writePendingGeneration,
 } from "@/lib/pending-generation";
-
-import { withLocalRuntimes } from "../components/design/design-canvas/local-runtime";
 
 type ProjectType = "prototype" | "other";
 interface Design {
@@ -100,6 +94,7 @@ interface Design {
   projectType: ProjectType;
   designSystemId?: string | null;
   ownerEmail?: string | null;
+  ownerName?: string | null;
   createdAt?: string;
   updatedAt?: string;
   /** Preview HTML for the thumbnail. Only present when the list query asks
@@ -202,6 +197,16 @@ export default function Index() {
     isLoading: designSystemsLoading,
   } = useDesignSystems();
 
+  /**
+   * The picker showed a column of near-identical names ("Builder indexed
+   * design system" three times over). Each system already carries its palette
+   * in `data`, so the row can show it and be chosen by colour.
+   */
+  const designSystemOptions = useMemo(
+    () => designSystemPickerOptions(designSystems),
+    [designSystems],
+  );
+
   const designs = useMemo(
     () => designsData?.designs ?? [],
     [designsData?.designs],
@@ -267,10 +272,19 @@ export default function Index() {
     setSelectedDesignIds(new Set());
   }, [designsData, page, totalPages]);
 
-  const resolveDefaultDesignSystemId = useCallback(
-    () => defaultSystem?.id ?? designSystems[0]?.id ?? null,
-    [defaultSystem?.id, designSystems],
-  );
+  const resolveDefaultDesignSystemId = useCallback(() => {
+    if (
+      defaultSystem &&
+      isDesignSystemUsableForGeneration(defaultSystem.data)
+    ) {
+      return defaultSystem.id;
+    }
+    return (
+      designSystems.find((system) =>
+        isDesignSystemUsableForGeneration(system.data),
+      )?.id ?? null
+    );
+  }, [defaultSystem, designSystems]);
 
   const syncSelectedTemplate = useCallback(
     (templateId: string | null) => {
@@ -281,19 +295,6 @@ export default function Index() {
       setSearchParams(next, { replace: true });
     },
     [searchParams, setSearchParams],
-  );
-
-  const openNewDesign = useCallback(
-    (e: React.MouseEvent<HTMLElement>) => {
-      anchorElRef.current = e.currentTarget;
-      newDesignSystemWasChosenRef.current = false;
-      syncSelectedTemplate(null);
-      setNewDesignSystemId(
-        designSystemsLoading ? undefined : resolveDefaultDesignSystemId(),
-      );
-      setShowNewPrompt(true);
-    },
-    [designSystemsLoading, resolveDefaultDesignSystemId, syncSelectedTemplate],
   );
 
   const handleNewPromptOpenChange = useCallback(
@@ -483,7 +484,7 @@ export default function Index() {
         })
         .catch((error) => {
           clearPendingGeneration(id);
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "list-designs"],
           });
           throw error;
@@ -554,7 +555,7 @@ export default function Index() {
             templateId: selectedTemplate.id,
             title,
             designSystemId,
-            ...(trimmedPrompt ? { prompt: trimmedPrompt } : {}),
+            ...(trimmedPrompt ? { prompt } : {}),
           });
           if (!result.id) {
             throw new Error("Template copy did not return a design ID");
@@ -567,7 +568,7 @@ export default function Index() {
               )?.title ?? t("promptDialog.designSystem");
             writePendingGeneration(result.id, {
               prompt:
-                trimmedPrompt ||
+                prompt.trim() ||
                 t("promptDialog.reskinTemplatePrompt", {
                   title: selectedTemplate.title,
                   system: effectiveSystemTitle,
@@ -594,7 +595,7 @@ export default function Index() {
               queryKey: ["action", "list-designs"],
             })
             .catch(() => {});
-          navigate(`/design/${result.id}`);
+          void navigate(`/design/${result.id}`);
           return;
         } catch (error) {
           setNewDesignHandoffPending(false);
@@ -646,8 +647,9 @@ export default function Index() {
             // which owns the connect-Builder card flow, keeping the user's
             // prompt so nothing is lost.
             sendToDesignAgentChat({
-              message: `I want to build this design as a full app: ${prompt}`,
+              message: prompt,
               context:
+                `The user's request is to build this design as a full app. ` +
                 `create-fusion-app returned status "not-configured" for design ` +
                 `${id}. ${result?.message ?? ""} Help the user connect ` +
                 `Builder.io (see connect-builder-app), then retry ` +
@@ -661,8 +663,9 @@ export default function Index() {
                 ? error.message
                 : String(error);
             sendToDesignAgentChat({
-              message: `I want to build this design as a full app: ${prompt}`,
+              message: prompt,
               context:
+                `The user's request is to build this design as a full app. ` +
                 `Starting the full-app build for design ${id} failed: ` +
                 `${message}. Check whether the design row exists, Builder is ` +
                 `connected, and create-fusion-app can be retried safely.`,
@@ -697,13 +700,14 @@ export default function Index() {
 
       trace("persist", "new-design-handoff", { id, designSystemId });
       setNewDesignHandoffPending(true);
-      navigate(`/design/${id}`);
+      void navigate(`/design/${id}`);
     },
     [
       createDesign,
       createFromTemplateMutation,
       createFusionAppMutation,
       designSystems,
+      fullAppBuildingEnabled,
       handleGenerateDesignTitle,
       navigate,
       newDesignMode,
@@ -715,47 +719,80 @@ export default function Index() {
     ],
   );
 
+  const startBlankDesign = useCallback(
+    async (askInEditor: boolean) => {
+      if (skipToEditorPendingRef.current) return;
+      skipToEditorPendingRef.current = true;
+      setNewDesignHandoffPending(true);
+
+      const designSystemId =
+        newDesignSystemId === undefined
+          ? resolveDefaultDesignSystemId()
+          : newDesignSystemId;
+      const { id, ready } = createDesign(
+        t("home.untitledDesign"),
+        designSystemId,
+      );
+
+      try {
+        // Unlike prompt-backed creation, an empty shell has no pending-generation
+        // marker to keep the editor polling across its route remount. Wait for the
+        // row to persist so the first get-design read cannot briefly return 404.
+        await ready;
+        void navigate(`/design/${id}${askInEditor ? "?new=1" : ""}`);
+      } catch (error) {
+        skipToEditorPendingRef.current = false;
+        setNewDesignHandoffPending(false);
+        toast.error(t("home.failedToCreateDesign"));
+        throw error;
+      }
+    },
+    [
+      createDesign,
+      navigate,
+      newDesignSystemId,
+      resolveDefaultDesignSystemId,
+      t,
+    ],
+  );
+
   const handleSkipToEditor = useCallback(async () => {
     if (selectedTemplate && newDesignMode === "design") {
       await handleSubmitPrompt("", [], {});
       return false;
     }
-    if (skipToEditorPendingRef.current) return;
-    skipToEditorPendingRef.current = true;
-    setNewDesignHandoffPending(true);
+    // Picking the blank-canvas card already answered "what do you want", so the
+    // editor must not open its own ask on arrival.
+    await startBlankDesign(false);
+    return false;
+  }, [handleSubmitPrompt, newDesignMode, selectedTemplate, startBlankDesign]);
 
-    const designSystemId =
-      newDesignSystemId === undefined
-        ? resolveDefaultDesignSystemId()
-        : newDesignSystemId;
-    const { id, ready } = createDesign(
-      t("home.untitledDesign"),
-      designSystemId,
-    );
-
-    try {
-      // Unlike prompt-backed creation, an empty shell has no pending-generation
-      // marker to keep the editor polling across its route remount. Wait for the
-      // row to persist so the first get-design read cannot briefly return 404.
-      await ready;
-      navigate(`/design/${id}`);
-      return false;
-    } catch (error) {
-      skipToEditorPendingRef.current = false;
-      setNewDesignHandoffPending(false);
-      toast.error(t("home.failedToCreateDesign"));
-      throw error;
-    }
-  }, [
-    createDesign,
-    handleSubmitPrompt,
-    navigate,
-    newDesignMode,
-    newDesignSystemId,
-    resolveDefaultDesignSystemId,
-    selectedTemplate,
-    t,
-  ]);
+  const openNewDesign = useCallback(
+    (e: React.MouseEvent<HTMLElement>) => {
+      // A design and an app are different creation calls, so that one choice
+      // has to be made before the row exists. With full app building off there
+      // is nothing left to ask up front, and the editor asks instead — where
+      // the drawing tools are also on screen.
+      if (!fullAppBuildingEnabled) {
+        void startBlankDesign(true);
+        return;
+      }
+      anchorElRef.current = e.currentTarget;
+      newDesignSystemWasChosenRef.current = false;
+      syncSelectedTemplate(null);
+      setNewDesignSystemId(
+        designSystemsLoading ? undefined : resolveDefaultDesignSystemId(),
+      );
+      setShowNewPrompt(true);
+    },
+    [
+      designSystemsLoading,
+      fullAppBuildingEnabled,
+      resolveDefaultDesignSystemId,
+      startBlankDesign,
+      syncSelectedTemplate,
+    ],
+  );
 
   const handleDelete = useCallback(() => {
     if (!deleteId) return;
@@ -794,12 +831,12 @@ export default function Index() {
         });
       },
       onError: () => {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-designs"],
         });
       },
     });
-  }, [deleteId, listDesignsParams, queryClient, deleteMutation]);
+  }, [deleteId, listDesignsParams, page, queryClient, deleteMutation]);
 
   const handleBulkDelete = useCallback(() => {
     const ids = Array.from(selectedDesignIds);
@@ -840,21 +877,21 @@ export default function Index() {
     void Promise.allSettled(
       ids.map((id) => deleteMutation.mutateAsync({ id } as any)),
     ).then(() => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-designs"],
       });
     });
-  }, [listDesignsParams, selectedDesignIds, queryClient, deleteMutation]);
+  }, [listDesignsParams, page, selectedDesignIds, queryClient, deleteMutation]);
 
   const handleDuplicate = useCallback(
     (id: string) => {
       duplicateMutation.mutate({ id } as any, {
         onSuccess: (data: any) => {
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "list-designs"],
           });
           if (data?.id) {
-            navigate(`/design/${data.id}`);
+            void navigate(`/design/${data.id}`);
           }
         },
       });
@@ -897,7 +934,7 @@ export default function Index() {
         });
       },
       onError: () => {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-designs"],
         });
       },
@@ -931,7 +968,6 @@ export default function Index() {
           aria-label={t("home.showMineDesigns")}
           className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
         >
-          <IconUserCircle className="me-1.5 h-3.5 w-3.5" />
           {t("home.mine")}
         </ToggleGroupItem>
         <ToggleGroupItem
@@ -939,7 +975,6 @@ export default function Index() {
           aria-label={t("home.showAllDesigns")}
           className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
         >
-          <IconStack2 className="me-1.5 h-3.5 w-3.5" />
           {t("home.all")}
         </ToggleGroupItem>
       </ToggleGroup>
@@ -985,9 +1020,7 @@ export default function Index() {
         ) : designs.length === 0 ? (
           <EmptyState
             onCreateDesign={openNewDesign}
-            onStarterPrompt={(prompt) =>
-              handleSubmitPrompt(prompt, [], {}, { skipQuestions: true })
-            }
+            onStarterPrompt={(prompt) => handleSubmitPrompt(prompt, [], {})}
           />
         ) : (
           <>
@@ -1108,7 +1141,10 @@ export default function Index() {
                         {showAuthors && design.ownerEmail ? (
                           <>
                             <span aria-hidden>·</span>
-                            <DesignAuthorByline email={design.ownerEmail} />
+                            <DesignAuthorByline
+                              email={design.ownerEmail}
+                              name={design.ownerName}
+                            />
                           </>
                         ) : null}
                       </div>
@@ -1282,6 +1318,7 @@ export default function Index() {
             : t("home.describeBuild")
         }
         onSkip={handleSkipToEditor}
+        offerStartChoice
         skipLabel={
           selectedTemplate
             ? t("templatesPage.useTemplate")
@@ -1293,7 +1330,7 @@ export default function Index() {
         templatesLoading={templatesLoading}
         selectedTemplateId={newTemplateId}
         onTemplateChange={handleTemplateChange}
-        designSystems={designSystems}
+        designSystems={designSystemOptions}
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={newDesignSystemId ?? null}
         onDesignSystemChange={handleNewDesignSystemChange}
@@ -1306,7 +1343,7 @@ export default function Index() {
         loading={newDesignHandoffPending}
         onCreateDesignSystem={() => {
           handleNewPromptOpenChange(false);
-          navigate("/design-systems/setup");
+          void navigate("/design-systems/setup");
         }}
         creationMode={fullAppBuildingEnabled ? newDesignMode : undefined}
         onCreationModeChange={
@@ -1405,8 +1442,14 @@ export default function Index() {
 }
 
 /** Who created a design, shown on its library card in shared workspaces. */
-function DesignAuthorByline({ email }: { email: string }) {
-  const name = emailToName(email);
+function DesignAuthorByline({
+  email,
+  name: profileName,
+}: {
+  email: string;
+  name?: string | null;
+}) {
+  const name = profileName?.trim() || emailToName(email);
   const avatarUrl = useAvatarUrl(email);
 
   return (
@@ -1436,77 +1479,6 @@ function DesignAuthorByline({ email }: { email: string }) {
  * allow-scripts (no allow-same-origin) so Tailwind/Alpine CDN render without
  * granting arbitrary design HTML access to the host origin.
  */
-function DesignThumbnail({ html }: { html: string | null }) {
-  const t = useT();
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(0.25);
-  const [loaded, setLoaded] = useState(false);
-
-  // Designs are generated for a desktop-ish viewport. Render at 1280×720 then
-  // shrink — close enough to 16:10 for the aspect-video card without leaving
-  // a sliver of letterbox at the bottom.
-  const NATURAL_WIDTH = 1280;
-  const NATURAL_HEIGHT = 720;
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const update = () => {
-      const w = el.clientWidth;
-      if (w > 0) setScale(w / NATURAL_WIDTH);
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
-    setLoaded(false);
-  }, [html]);
-
-  if (!html) {
-    return (
-      <div className="aspect-video bg-muted/50 flex items-center justify-center">
-        <IconCode className="w-8 h-8 text-muted-foreground/40" />
-      </div>
-    );
-  }
-
-  return (
-    <div
-      ref={containerRef}
-      className="relative aspect-video overflow-hidden bg-muted"
-    >
-      {!loaded ? (
-        <div className="absolute inset-0 flex items-center justify-center bg-muted">
-          <IconCode className="h-8 w-8 text-muted-foreground/40" />
-        </div>
-      ) : null}
-      <iframe
-        {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
-        srcDoc={injectSessionReplayIframeBootstrap(withLocalRuntimes(html))}
-        sandbox="allow-scripts"
-        loading="lazy"
-        tabIndex={-1}
-        aria-hidden
-        title={t("home.designPreview")}
-        onLoad={() => setLoaded(true)}
-        className="relative bg-muted transition-opacity duration-200"
-        style={{
-          width: `${NATURAL_WIDTH}px`,
-          height: `${NATURAL_HEIGHT}px`,
-          transform: `scale(${scale})`,
-          transformOrigin: "top left",
-          border: 0,
-          pointerEvents: "none",
-          opacity: loaded ? 1 : 0,
-        }}
-      />
-    </div>
-  );
-}
-
 function NewDesignHandoffOverlay() {
   const t = useT();
   return (

@@ -10,6 +10,7 @@ import path from "path";
  * (dynamic import) so this module can be loaded in any runtime (Node.js,
  * Cloudflare Workers, edge) without failing on missing native deps.
  */
+import { getAppConfig } from "../app-config/index.js";
 import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
 import {
   beginDatabaseOperation,
@@ -73,6 +74,14 @@ export function getCloudflareD1Binding(): unknown {
   return runtime.__cf_env?.DB ?? runtime.__env__?.DB;
 }
 
+function hasCloudflareRuntimeBinding(): boolean {
+  const runtime = globalThis as typeof globalThis & {
+    __cf_env?: unknown;
+    __env__?: unknown;
+  };
+  return runtime.__cf_env !== undefined || runtime.__env__ !== undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Per-app DATABASE_URL resolution
 // ---------------------------------------------------------------------------
@@ -98,6 +107,113 @@ export function getDatabaseUrl(fallback = ""): string {
   return (
     process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL || fallback
   );
+}
+
+function getConfiguredUnpooledDatabaseUrl(): string | undefined {
+  return (
+    getConfiguredAppDatabaseUrl("DATABASE_URL_UNPOOLED") ||
+    getAppConfig().runtime.databaseUrlUnpooled
+  );
+}
+
+function getConfiguredAppDatabaseUrl(
+  suffix: "DATABASE_URL" | "DATABASE_URL_UNPOOLED",
+): string | undefined {
+  const appName = getAppEnvPrefix();
+  return appName ? process.env[`${appName}_${suffix}`] : undefined;
+}
+
+function stripNeonPooler(url: string): string {
+  return url.replace(/-pooler(\.[a-z0-9.-]+\.neon\.tech)/, "$1");
+}
+
+interface RuntimeDatabaseResolution {
+  url: string;
+  source: string;
+}
+
+function envDatabaseValue(key: string): string | undefined {
+  const value = process.env[key]?.trim();
+  return value || undefined;
+}
+
+function resolveRuntimeDatabase(fallback = ""): RuntimeDatabaseResolution {
+  const appName = getAppEnvPrefix();
+  if (appName) {
+    const appUnpooled = envDatabaseValue(`${appName}_DATABASE_URL_UNPOOLED`);
+    if (appUnpooled) {
+      return {
+        url: stripNeonPooler(appUnpooled),
+        source: `${appName}_DATABASE_URL_UNPOOLED`,
+      };
+    }
+
+    const appUrl = envDatabaseValue(`${appName}_DATABASE_URL`);
+    if (appUrl) {
+      return {
+        url: isServerlessRuntime() ? stripNeonPooler(appUrl) : appUrl,
+        source: `${appName}_DATABASE_URL`,
+      };
+    }
+  }
+
+  const configuredUnpooled = getAppConfig().runtime.databaseUrlUnpooled;
+  if (configuredUnpooled) {
+    const netlifyUnpooled = envDatabaseValue("NETLIFY_DATABASE_URL_UNPOOLED");
+    const databaseUnpooled = envDatabaseValue("DATABASE_URL_UNPOOLED");
+    return {
+      url: stripNeonPooler(configuredUnpooled),
+      source:
+        netlifyUnpooled === configuredUnpooled
+          ? "NETLIFY_DATABASE_URL_UNPOOLED"
+          : databaseUnpooled === configuredUnpooled
+            ? "DATABASE_URL_UNPOOLED"
+            : "DATABASE_URL_UNPOOLED",
+    };
+  }
+
+  const netlifyUnpooled = envDatabaseValue("NETLIFY_DATABASE_URL_UNPOOLED");
+  if (netlifyUnpooled) {
+    return {
+      url: stripNeonPooler(netlifyUnpooled),
+      source: "NETLIFY_DATABASE_URL_UNPOOLED",
+    };
+  }
+
+  const databaseUnpooled = envDatabaseValue("DATABASE_URL_UNPOOLED");
+  if (databaseUnpooled) {
+    return {
+      url: stripNeonPooler(databaseUnpooled),
+      source: "DATABASE_URL_UNPOOLED",
+    };
+  }
+
+  const url = getDatabaseUrl(fallback);
+  return {
+    url: isServerlessRuntime() ? stripNeonPooler(url) : url,
+    source: envDatabaseValue("DATABASE_URL")
+      ? "DATABASE_URL"
+      : envDatabaseValue("NETLIFY_DATABASE_URL")
+        ? "NETLIFY_DATABASE_URL"
+        : "default",
+  };
+}
+
+/**
+ * Resolve the URL used by request-time database clients.
+ *
+ * A serverless Neon pooler can stall while the direct endpoint remains
+ * healthy, leaving auth and the first app query on the loading screen. Use an
+ * explicit unpooled URL when supplied; otherwise derive the direct endpoint
+ * for serverless runtimes. Keep getDatabaseUrl pooled for scripts and release
+ * checks that intentionally inspect the configured deployment value.
+ */
+export function getRuntimeDatabaseUrl(fallback = ""): string {
+  return resolveRuntimeDatabase(fallback).url;
+}
+
+export function getRuntimeDatabaseSource(fallback = ""): string {
+  return resolveRuntimeDatabase(fallback).source;
 }
 
 /** Same per-app resolution for DATABASE_AUTH_TOKEN (used by Turso/libsql). */
@@ -127,22 +243,14 @@ function getAppEnvPrefix(): string | undefined {
  * Non-Neon URLs and already-direct Neon URLs are returned unchanged.
  */
 export function getMigrationDatabaseUrl(): string {
-  const appName = getAppEnvPrefix();
-  const appUnpooled = appName
-    ? process.env[`${appName}_DATABASE_URL_UNPOOLED`]
-    : undefined;
-  const url =
-    appUnpooled ||
-    process.env.NETLIFY_DATABASE_URL_UNPOOLED ||
-    process.env.DATABASE_URL_UNPOOLED ||
-    getDatabaseUrl();
+  const url = getConfiguredUnpooledDatabaseUrl() || getDatabaseUrl();
   // Neon pooler hostname: ep-<id>-pooler.<region>.<cloud>.neon.tech
   // Direct hostname:      ep-<id>.<region>.<cloud>.neon.tech
   // The region between `-pooler.` and `.neon.tech` can contain multiple
   // dot-separated labels (e.g. `c-7.us-east-1.aws`), so the matched segment
   // must allow dots — `[a-z0-9.-]+` — not just a single label. Anchoring on the
   // stable `.neon.tech` suffix keeps this from touching non-Neon hosts.
-  return url.replace(/-pooler(\.[a-z0-9.-]+\.neon\.tech)/, "$1");
+  return stripNeonPooler(url);
 }
 
 export function isLocalSqliteUrl(url: string): boolean {
@@ -443,8 +551,8 @@ let _dialect: Dialect | undefined;
 export function getDialect(): Dialect {
   if (_dialect !== undefined) return _dialect;
 
-  // DATABASE_URL takes priority over D1 when set.
-  const url = getDatabaseUrl();
+  // The effective runtime URL takes priority over D1 when set.
+  const url = getRuntimeDatabaseUrl();
   if (
     url.startsWith("postgres://") ||
     url.startsWith("postgresql://") ||
@@ -504,9 +612,9 @@ function dialectForConfig(config: DbExecConfig): Dialect {
  * would read and write each other's settings, oauth tokens, and app state.
  */
 export function isLocalDatabase(): boolean {
-  if (isPgliteUrl(getDatabaseUrl())) return true;
+  const url = getRuntimeDatabaseUrl();
+  if (isPgliteUrl(url)) return true;
   if (getDialect() !== "sqlite") return false;
-  const url = getDatabaseUrl();
   return url === "" || url.startsWith("file:");
 }
 
@@ -954,7 +1062,8 @@ export function isServerlessRuntime(): boolean {
     !!process.env.VERCEL ||
     !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
     !!process.env.LAMBDA_TASK_ROOT ||
-    !!process.env.CF_PAGES
+    !!process.env.CF_PAGES ||
+    hasCloudflareRuntimeBinding()
   );
 }
 
@@ -2099,7 +2208,7 @@ async function initClient(): Promise<void> {
   if (_exec) return;
 
   const dialect = getDialect();
-  const url = getDatabaseUrl("file:./data/app.db");
+  const url = getRuntimeDatabaseUrl("file:./data/app.db");
   _exec = await createDbExecInternal(
     {
       url,
@@ -2201,7 +2310,7 @@ export function getDbExec(): DbExec {
                     assertSchemaMutationAllowed(s);
                     return tx.execute(sanitize(s));
                   },
-                  transaction: tx.transaction,
+                  transaction: tx.transaction?.bind(tx),
                 }),
               )
           : undefined,
@@ -2236,7 +2345,7 @@ export function getDbExec(): DbExec {
                     assertSchemaMutationAllowed(s);
                     return tx.execute(sanitize(s));
                   },
-                  transaction: tx.transaction,
+                  transaction: tx.transaction?.bind(tx),
                 }),
               )
           : undefined,
@@ -2249,7 +2358,7 @@ export function getDbExec(): DbExec {
               assertSchemaMutationAllowed(s);
               return tx.execute(sanitize(s));
             },
-            transaction: tx.transaction,
+            transaction: tx.transaction?.bind(tx),
           }),
         );
       }
@@ -2258,7 +2367,7 @@ export function getDbExec(): DbExec {
           "This database supports atomic batches, not interactive transactions.",
         );
       }
-      return explicitTransaction(wrapper.execute)(fn);
+      return explicitTransaction(wrapper.execute.bind(wrapper))(fn);
     },
     async atomicBatch(statements) {
       for (const statement of statements) {

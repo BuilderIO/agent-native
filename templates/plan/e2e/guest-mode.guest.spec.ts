@@ -115,6 +115,7 @@ test.describe("guest mode + claim", () => {
     );
 
     await expect(page.getByText("Start with /visual-plan")).toBeVisible();
+    await expect(page.locator("[data-onboarding-screen]")).toHaveCount(0);
     await expect(
       page.getByText(PLAN_SKILL_INSTALL_COMMAND, { exact: true }),
     ).toBeVisible();
@@ -388,6 +389,7 @@ test.describe("guest mode + claim", () => {
     // Reload the app as the now-authenticated user.
     await page.goto("/plans");
     await page.waitForLoadState("domcontentloaded");
+    await expect(page.locator("[data-onboarding-screen]")).toHaveCount(0);
 
     // Banner must be GONE once signed in.
     await expect(

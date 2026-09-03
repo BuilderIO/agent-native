@@ -102,6 +102,7 @@ describe("DocsSidebar", () => {
       "deploy-an-app",
       "workspace-deployment",
       "deployment-providers",
+      "database-providers",
       "deployment-production",
     ]);
     const providerGroup = deployment?.items.find(
@@ -118,6 +119,16 @@ describe("DocsSidebar", () => {
       "azure-static-web-apps",
       "koyeb",
       "render",
+    ]);
+    const databaseGroup = deployment?.items.find(
+      (item) => item.id === "database-providers",
+    );
+    expect(databaseGroup?.children?.map((item) => item.id)).toEqual([
+      "database-neon",
+      "database-supabase",
+      "database-turso",
+      "database-d1",
+      "database-postgres",
     ]);
     const productionGroup = deployment?.items.find(
       (item) => item.id === "deployment-production",
@@ -139,9 +150,13 @@ describe("DocsSidebar", () => {
       "environment-variables",
       "agent-native-config",
     ]);
-    expect(sectionIds.indexOf("toolkits")).toBeLessThan(
-      sectionIds.indexOf("apps"),
-    );
+    expect(sectionIds.slice(0, 5)).toEqual([
+      "overview",
+      "deployment",
+      "toolkits",
+      "core-architecture",
+      "apps",
+    ]);
   });
 
   it("uses the Agent Resources section and canonical overview link", () => {
@@ -198,6 +213,7 @@ describe("DocsSidebar", () => {
     for (const item of toolkitLinks) {
       expect(html).toContain(`href="${item.to}"`);
     }
+    expect(html).not.toContain('href="/docs/custom-design-system/"');
 
     const activeLink = getLinkMarkup(html, "/docs/toolkit-collaboration/");
     expect(activeLink).toContain("is-active");

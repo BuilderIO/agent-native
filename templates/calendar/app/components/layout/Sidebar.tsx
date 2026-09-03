@@ -1,10 +1,9 @@
-import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client/ui";
+import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import { getWeekdayOrder, getWeekStartsOn } from "@shared/calendar-week";
 import {
@@ -25,6 +24,7 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconSearch,
+  IconAlertTriangle,
 } from "@tabler/icons-react";
 import {
   startOfMonth,
@@ -63,6 +63,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useOverlayCalendarStatus } from "@/hooks/use-events";
 import {
   useExternalCalendars,
   useRemoveExternalCalendar,
@@ -72,6 +73,7 @@ import {
   useGoogleAuthStatus,
   useGoogleDesktopAuth,
 } from "@/hooks/use-google-auth";
+import { useGoogleCalendars } from "@/hooks/use-google-calendars";
 import {
   useOverlayPeople,
   useRemoveOverlayPerson,
@@ -91,7 +93,7 @@ import { cn } from "@/lib/utils";
 import { useCalendarContext } from "./AppLayout";
 
 const navItems = [
-  { path: "/", labelKey: "navigation.calendar", icon: IconCalendar },
+  { path: "/home", labelKey: "navigation.calendar", icon: IconCalendar },
   {
     path: "/booking-links",
     labelKey: "navigation.bookingLinks",
@@ -205,11 +207,13 @@ function MiniCalendar({
   const { data: settings } = useSettings();
   const weekStartsOn = getWeekStartsOn(settings?.weekStart);
 
-  // Sync viewMonth when selectedDate changes to a different month
+  // Sync viewMonth when selectedDate changes without undoing explicit month navigation.
   useEffect(() => {
-    if (!isSameMonth(viewMonth, selectedDate)) {
-      setViewMonth(startOfMonth(selectedDate));
-    }
+    setViewMonth((currentMonth) =>
+      isSameMonth(currentMonth, selectedDate)
+        ? currentMonth
+        : startOfMonth(selectedDate),
+    );
   }, [selectedDate]);
 
   const days = useMemo(() => {
@@ -632,6 +636,106 @@ function GoogleAccountsSection({
   );
 }
 
+function SharedGoogleCalendarsGroup() {
+  const t = useT();
+  const { data: calendars, enabled } = useGoogleCalendars();
+  const {
+    prefs: { googleCalendarVisibility },
+    updateGoogleCalendarVisibility,
+  } = useViewPreferences();
+  const sharedCalendars = (calendars ?? []).filter(
+    (calendar) => !calendar.primary && calendar.accessRole !== "freeBusyReader",
+  );
+  const grouped = useMemo(() => {
+    const groups = new Map<string, typeof sharedCalendars>();
+    for (const calendar of sharedCalendars) {
+      const current = groups.get(calendar.accountEmail) ?? [];
+      current.push(calendar);
+      groups.set(calendar.accountEmail, current);
+    }
+    return Array.from(groups.entries());
+  }, [sharedCalendars]);
+
+  if (!enabled || grouped.length === 0) return null;
+
+  return (
+    <div className="space-y-1">
+      {grouped.map(([accountEmail, accountCalendars]) => (
+        <div key={accountEmail}>
+          <div className="px-3 py-1 text-[10px] font-medium text-muted-foreground/60">
+            {accountEmail}
+          </div>
+          <div className="space-y-0.5">
+            {accountCalendars.map((calendar) => {
+              const visible =
+                googleCalendarVisibility[calendar.sourceKey] ??
+                calendar.selected;
+              return (
+                <div
+                  key={calendar.sourceKey}
+                  className="group flex min-h-7 items-center gap-2 px-3 text-xs"
+                >
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "block size-2.5 shrink-0 rounded-full ring-1 ring-border",
+                      !visible && "opacity-40",
+                    )}
+                    style={{
+                      backgroundColor: calendar.color || CALENDAR_COLORS[6],
+                    }}
+                  />
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate",
+                      visible
+                        ? "text-muted-foreground"
+                        : "text-muted-foreground/40",
+                    )}
+                  >
+                    {calendar.name}
+                  </span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateGoogleCalendarVisibility(
+                            calendar.sourceKey,
+                            !visible,
+                          )
+                        }
+                        className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+                        aria-label={
+                          visible
+                            ? t("sidebar.hideCalendar")
+                            : t("sidebar.showCalendar")
+                        }
+                        aria-pressed={visible}
+                      >
+                        {visible ? (
+                          <IconEye className="size-3" />
+                        ) : (
+                          <IconEyeOff className="size-3" />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      {visible
+                        ? t("sidebar.hideCalendar")
+                        : t("sidebar.showCalendar")}
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function Sidebar({
   open,
   onClose,
@@ -654,6 +758,11 @@ export function Sidebar({
   const overlayPeople = Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [];
   const removePerson = useRemoveOverlayPerson();
   const updatePersonColor = useUpdateOverlayPersonColor();
+  const overlayEmails = useMemo(
+    () => overlayPeople.map((person) => person.email),
+    [overlayPeople],
+  );
+  const overlayStatusByEmail = useOverlayCalendarStatus(overlayEmails);
   const { data: rawExternalCalendars } = useExternalCalendars();
   const externalCalendars = Array.isArray(rawExternalCalendars)
     ? rawExternalCalendars
@@ -682,8 +791,8 @@ export function Sidebar({
 
   function handleMiniCalendarDateSelect(date: Date) {
     setSelectedDate(date);
-    if (location.pathname !== "/") {
-      navigate("/");
+    if (location.pathname !== "/home") {
+      void navigate("/home");
     }
     onClose();
   }
@@ -766,7 +875,7 @@ export function Sidebar({
           )}
         >
           <Link
-            to="/"
+            to="/home"
             onClick={(event) => {
               onClose();
               if (
@@ -783,7 +892,7 @@ export function Sidebar({
               onCollapsedChange(!collapsed);
             }}
             className={cn(
-              "flex items-center gap-2 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "flex items-center gap-2 rounded text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring",
               collapsed ? "size-8 justify-center" : "flex-1",
             )}
             aria-label={
@@ -797,21 +906,9 @@ export function Sidebar({
             }
             data-sidebar-brand-toggle
           >
-            <img
-              src={appPath("/agent-native-icon-light.svg")}
-              alt=""
+            <AgentNativeIcon
               aria-hidden="true"
-              width={28}
-              height={16}
-              className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
-            />
-            <img
-              src={appPath("/agent-native-icon-dark.svg")}
-              alt=""
-              aria-hidden="true"
-              width={28}
-              height={16}
-              className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+              className="h-3.5 w-6 shrink-0 text-foreground"
             />
             {!collapsed && (
               <span className="text-base font-semibold tracking-tight">
@@ -933,6 +1030,7 @@ export function Sidebar({
                     <IconPlus className="h-3.5 w-3.5" />
                   </button>
                 </div>
+                <SharedGoogleCalendarsGroup />
                 {(overlayPeople.length > 0 || externalCalendars.length > 0) && (
                   <div className="mt-1 space-y-1">
                     {overlayPeople.length > 0 && (
@@ -999,6 +1097,32 @@ export function Sidebar({
                               >
                                 {person.name || person.email}
                               </span>
+                              {overlayStatusByEmail?.get(
+                                person.email.toLowerCase(),
+                              )?.status === "error" && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span
+                                      tabIndex={0}
+                                      className="inline-flex shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                      aria-label={t(
+                                        "sidebar.overlayCalendarUnavailable",
+                                        { email: person.name || person.email },
+                                      )}
+                                    >
+                                      <IconAlertTriangle
+                                        className="h-3 w-3 text-muted-foreground/60"
+                                        aria-hidden="true"
+                                      />
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right">
+                                    {t("sidebar.overlayCalendarUnavailable", {
+                                      email: person.name || person.email,
+                                    })}
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
                               <div className="flex items-center">
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -1154,7 +1278,7 @@ export function Sidebar({
             "shrink-0",
             collapsed
               ? "flex flex-col items-center gap-1 px-1 py-2"
-              : "space-y-0.5 p-2.5",
+              : "space-y-0.5 px-2.5 pt-2.5",
           )}
         >
           {bottomNavItems.map((item) => {
@@ -1190,15 +1314,15 @@ export function Sidebar({
         </nav>
 
         {!collapsed ? (
-          <div className="shrink-0">
-            <div className="px-3 py-2">
-              <OrgSwitcher reserveSpace />
+          <>
+            <div className="px-3 py-2 empty:hidden">
+              <OrgSwitcher />
             </div>
 
-            <div className="flex items-center gap-1 px-1.5 py-1.5">
+            <div className="px-3 py-2 empty:hidden">
               <DevDatabaseLink />
             </div>
-          </div>
+          </>
         ) : null}
         <SidebarFooterActions
           collapsed={collapsed}

@@ -3,8 +3,10 @@ import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
+import { eq } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { designFinalResponseGuard } from "../lib/design-response-guard.js";
 import { guardRepromptActionRegistry } from "../lib/reprompt-action-guard.js";
 import "../register-secrets.js";
 
@@ -43,18 +45,163 @@ const INITIAL_TOOL_NAMES = [
   "list-files",
   "create-file",
   "update-file",
+  "rename-screen",
   "navigate",
   "provider-api-catalog",
   "provider-api-docs",
   "provider-api-request",
 ];
 
+const DESIGN_EDIT_TOOLS = new Set([
+  "add-breakpoint",
+  "add-localhost-screens",
+  "apply-a11y-fix",
+  "apply-component-prop-edit",
+  "apply-design-token-edit",
+  "apply-motion-edit",
+  "apply-shader-fill",
+  "apply-tweaks",
+  "apply-visual-edit",
+  "create-file",
+  "detach-component-instance",
+  "delete-file",
+  "edit-design",
+  "generate-design",
+  "hydrate-figma-paste-images",
+  "insert-asset",
+  "insert-design-native-asset",
+  "remove-breakpoint",
+  "remove-motion-timeline",
+  "swap-component-instance",
+  "update-design",
+  "update-file",
+]);
+
+const DESIGN_FILE_TARGET_TOOLS = new Set([
+  "apply-a11y-fix",
+  "apply-component-prop-edit",
+  "apply-motion-edit",
+  "apply-shader-fill",
+  "apply-visual-edit",
+  "delete-file",
+  "detach-component-instance",
+  "edit-design",
+  "hydrate-figma-paste-images",
+  "insert-asset",
+  "insert-design-native-asset",
+  "remove-motion-timeline",
+  "swap-component-instance",
+  "update-file",
+]);
+
+function eventRecord(entry: unknown): Record<string, unknown> | undefined {
+  if (!entry || typeof entry !== "object") return undefined;
+  const event = (entry as { event?: unknown }).event;
+  return event && typeof event === "object"
+    ? (event as Record<string, unknown>)
+    : undefined;
+}
+
+function inputForCompletedTool(
+  events: readonly unknown[],
+  index: number,
+  completed: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (completed.input && typeof completed.input === "object") {
+    return completed.input as Record<string, unknown>;
+  }
+  const id = typeof completed.id === "string" ? completed.id : undefined;
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const candidate = eventRecord(events[cursor]);
+    if (
+      candidate?.type !== "tool_start" ||
+      candidate.tool !== completed.tool ||
+      (id && candidate.id !== id)
+    ) {
+      continue;
+    }
+    return candidate.input && typeof candidate.input === "object"
+      ? (candidate.input as Record<string, unknown>)
+      : undefined;
+  }
+  return undefined;
+}
+
+async function fileDesignId(fileId: string): Promise<string | undefined> {
+  const { getDb, schema } = await import("../db/index.js");
+  const [file] = await getDb()
+    .select({ designId: schema.designFiles.designId })
+    .from(schema.designFiles)
+    .where(eq(schema.designFiles.id, fileId))
+    .limit(1);
+  return file?.designId;
+}
+
+async function designIdForTool(
+  tool: string,
+  input: Record<string, unknown> | undefined,
+): Promise<string | undefined> {
+  if (typeof input?.designId === "string") return input.designId;
+  if (!DESIGN_FILE_TARGET_TOOLS.has(tool)) return undefined;
+  const fileId =
+    tool === "delete-file" || tool === "update-file"
+      ? input?.id
+      : input?.fileId;
+  return typeof fileId === "string" ? fileDesignId(fileId) : undefined;
+}
+
+async function hasDesignEdit(
+  run: { events: readonly unknown[] },
+  designId: string,
+): Promise<boolean> {
+  for (const [index, entry] of run.events.entries()) {
+    const record = eventRecord(entry);
+    if (
+      record?.type !== "tool_done" ||
+      record.completedSideEffect !== true ||
+      record.isError === true ||
+      typeof record.tool !== "string" ||
+      !DESIGN_EDIT_TOOLS.has(record.tool)
+    ) {
+      continue;
+    }
+    const input = inputForCompletedTool(run.events, index, record);
+    if ((await designIdForTool(record.tool, input)) === designId) return true;
+  }
+  return false;
+}
+
+async function autosaveDesignAfterAgentTurn(
+  scope: { type: string; id: string },
+  run: {
+    events: readonly unknown[];
+    threadId?: string;
+    runId?: string;
+    turnId?: string;
+  },
+): Promise<void> {
+  if (scope.type !== "design" || !(await hasDesignEdit(run, scope.id))) return;
+
+  const { createDesignVersionSnapshot } =
+    await import("../lib/design-versions.js");
+  await createDesignVersionSnapshot(scope.id, {
+    label: "Chat autosave",
+    chatContext: {
+      ...(run.threadId ? { threadId: run.threadId } : {}),
+      ...(run.runId ? { runId: run.runId } : {}),
+      ...(run.turnId ? { turnId: run.turnId } : {}),
+    },
+  });
+}
+
 export default createAgentChatPlugin({
   appId: "design",
+  onAgentTurnComplete: autosaveDesignAfterAgentTurn,
   actions: guardRepromptActionRegistry(
     loadActionsFromStaticRegistry(actionsRegistry),
   ),
   initialToolNames: INITIAL_TOOL_NAMES,
+  finalResponseGuard: designFinalResponseGuard,
   // Enable sandboxed JavaScript execution so Design agents can fetch,
   // paginate, and reduce provider data through providerFetch() without us
   // hardcoding one action per GitHub endpoint.
@@ -66,6 +213,8 @@ export default createAgentChatPlugin({
   systemPrompt: `You are an AI prototyping assistant. You create and edit designs, files, design systems, variants, exports, sharing, and connected repository context through actions and shared application state.
 
 Final responses should be concise and operational. Lead with what changed or what is needed. For ordinary design actions, use 1-3 short sentences or at most 3 flat bullets. Do not narrate your process, repeat the user's request, paste HTML or tool results, or write an essay. Mention screenshots and audits only as brief completion evidence. Expand only when the user explicitly asks for an explanation or detailed critique.
+
+Completion is evidence-based: any request to create, generate, build, edit, refine, add, or insert design content must finish with a successful mutating action result. Do not report a design, screen, variant, or asset as created, updated, or ready from prose alone. "create-design" creates only an empty shell (renderable: false), so continue to "generate-design", "present-design-variants", or the required "insert-asset" placement action and wait for its persisted proof.
 
 When a user message begins with [Reprompt selection], the design must remain unchanged until the user accepts a preview. Call propose-node-rewrite with the exact repromptId, target, and baseVersionHash from the message. Never call edit-design, update-design, update-file, generate-design, apply-visual-edit, or any other content-writing action for that turn. The proposal action stores preview state only; the frontend-only resolve-node-rewrite action persists a chosen variant after the user presses Accept.
 

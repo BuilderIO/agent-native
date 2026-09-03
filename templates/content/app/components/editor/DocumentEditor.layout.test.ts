@@ -304,6 +304,22 @@ describe("document editor layout", () => {
     );
   });
 
+  it("focuses the editor padding without moving the document scroll position", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("pm?.focus({ preventScroll: true });");
+    expect(source).toContain("scrollContainer.scrollTop = scrollTop;");
+    expect(source).toContain("window.setTimeout(restoreScroll, 50);");
+    expect(source).toContain(
+      "onPointerDownCapture={cancelPaddingScrollRestore}",
+    );
+    expect(source).toContain("onWheelCapture={cancelPaddingScrollRestore}");
+    expect(source).toContain("onKeyDownCapture={cancelPaddingScrollRestore}");
+  });
+
   it("shows the editor skeleton instead of stale data during document switches", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
@@ -445,10 +461,12 @@ describe("document editor layout", () => {
       "const collabEnabled = !isLocalFileDocument;",
     );
     expect(documentEditorSource).toContain(
-      'docId: collabEnabled ? documentId : "",',
+      "const collabDocumentId =\n    collabEnabled && !isDocumentCreationPending(document)",
     );
+    expect(documentEditorSource).toContain("docId: collabDocumentId,");
+    expect(documentEditorSource).toContain("const collabEditorEnabled =");
     expect(documentEditorSource).toContain(
-      "collabEnabled && canEdit && !bodyHydrationPending;",
+      'collabInitialization.status === "ready"',
     );
     expect(documentEditorSource).toContain(
       "ydoc={collabEditorEnabled ? ydoc : null}",
@@ -586,6 +604,40 @@ describe("document editor layout", () => {
     expect(source).not.toContain(
       'error instanceof Error\n                      ? error.message\n                      : "The live document could not be saved before syncing."',
     );
+  });
+
+  it("attests the authoritative content snapshot in keepalive body saves", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const teardown = source.slice(
+      source.indexOf("const flushForTeardown"),
+      source.indexOf("const onVisibilityChange"),
+    );
+
+    expect(teardown).toContain("const baseUpdatedAt");
+    expect(teardown).toContain("const loadedContentWasEmpty");
+    expect(teardown).toContain("const loadedUpdatedAt");
+    expect(teardown).toContain("lastSavedContentRef.current.content");
+    expect(teardown).toContain("{ loadedContentWasEmpty }");
+    expect(teardown).toContain("{ loadedUpdatedAt }");
+  });
+
+  it("keeps the canonical body read-only after collaborative initialization fails", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("initialization: collabInitialization");
+    expect(source).toContain('collabInitialization.status === "error"');
+    expect(source).toContain('collabInitialization.status === "ready"');
+    expect(source).toContain("collabSynced &&");
+    expect(source).toContain("!collabInitializationFailed");
+    expect(source).toContain("data-collab-initialization-error");
+    expect(source).toContain("onRetry={() => globalThis.location.reload()}");
+    expect(source).toContain("ydoc={collabEditorEnabled ? ydoc : null}");
   });
 
   it("wakes live-editor flush reads from shared sync events instead of polling", () => {

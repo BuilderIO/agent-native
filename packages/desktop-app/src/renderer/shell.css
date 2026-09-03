@@ -130,6 +130,7 @@ body {
   min-height: 0;
   height: auto;
   overflow: hidden;
+  position: relative;
 }
 
 /* ─── Windows/Linux custom window controls ───────────────────── */
@@ -286,7 +287,6 @@ body {
 .desktop-chat-first-hub > .code-agents-surface {
   min-width: 0;
   min-height: 0;
-  transition: grid-template-columns 200ms var(--ease-collapse);
 }
 
 .desktop-chat-first-hub
@@ -406,7 +406,7 @@ body {
   left: 50px;
   opacity: 0;
   pointer-events: none;
-  transform: translateX(-7px) scale(0.86);
+  transform: translateX(-4px) scale(0.8);
 }
 
 .collapsed-mac-window-controls:hover::before,
@@ -1069,10 +1069,6 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .desktop-chat-first-hub > .code-agents-surface {
-    transition: none;
-  }
-
   .desktop-chat-first-mac-window-controls,
   .collapsed-mac-window-controls,
   .collapsed-mac-window-controls::before,
@@ -1207,16 +1203,6 @@ body {
 
 .desktop-identity-gate__heading {
   margin-bottom: 24px;
-}
-
-.desktop-identity-gate__app-name {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--label-inactive);
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .desktop-identity-gate__heading h1 {

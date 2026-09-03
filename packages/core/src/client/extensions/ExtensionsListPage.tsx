@@ -179,7 +179,7 @@ export function ExtensionsListPage({
     } finally {
       setDeletingId(null);
       setConfirmDeleteId(null);
-      queryClient.invalidateQueries({ queryKey: ["extensions"] });
+      void queryClient.invalidateQueries({ queryKey: ["extensions"] });
     }
   };
 
@@ -192,7 +192,7 @@ export function ExtensionsListPage({
         { method: "POST" },
       );
     } finally {
-      queryClient.invalidateQueries({ queryKey: ["extensions"] });
+      void queryClient.invalidateQueries({ queryKey: ["extensions"] });
     }
   };
 
@@ -228,7 +228,7 @@ export function ExtensionsListPage({
             <PopoverContent
               align="end"
               sideOffset={6}
-              className="w-[420px] p-3"
+              className="relative w-[420px] p-3"
             >
               <p className="px-1 pb-2 text-sm font-semibold text-foreground">
                 {t("extensions.newExtensionTitle")}

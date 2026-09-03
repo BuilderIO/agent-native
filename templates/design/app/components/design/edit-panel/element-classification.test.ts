@@ -423,13 +423,15 @@ describe("commitElementSizing — hug must undo a previous fill", () => {
     const fill = vi.fn();
     commitElementSizing(element, "horizontal", "fill", vi.fn(), fill);
     expect(
-      (fill.mock.calls[0]?.[0] as Record<string, string>).justifySelf,
+      (fill.mock.calls[0]?.[0] as Record<string, string> | undefined)
+        ?.justifySelf,
     ).toBe("stretch");
     const hug = vi.fn();
     commitElementSizing(element, "horizontal", "hug", vi.fn(), hug);
-    expect((hug.mock.calls[0]?.[0] as Record<string, string>).justifySelf).toBe(
-      "auto",
-    );
+    expect(
+      (hug.mock.calls[0]?.[0] as Record<string, string> | undefined)
+        ?.justifySelf,
+    ).toBe("auto");
   });
 });
 

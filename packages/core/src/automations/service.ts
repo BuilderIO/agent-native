@@ -2,6 +2,7 @@ import { getDbExec } from "../db/client.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../jobs/cron.js";
 import {
   buildJobResourceContent,
+  isRecoveredFactoryJob,
   jobBelongsToApp,
   normalizeJobMcpTools,
   parseJobResource,
@@ -16,8 +17,18 @@ import {
   resourceGetByPath,
   resourceList,
   resourcePut,
+  SHARED_OWNER,
   type Resource,
 } from "../resources/store.js";
+import {
+  deleteAutomationWebhookToken,
+  readAutomationWebhookPath,
+  saveAutomationWebhookToken,
+} from "../triggers/webhook-store.js";
+import {
+  createAutomationWebhookToken,
+  automationWebhookPath,
+} from "../triggers/webhook.js";
 
 export type AutomationScope = "personal" | "organization";
 
@@ -35,11 +46,13 @@ export interface AutomationDefinition {
   name: string;
   scope: AutomationScope;
   meta: JobFrontmatter & {
-    triggerType: "schedule" | "event";
+    triggerType: "schedule" | "event" | "webhook";
     mode: "agentic" | "deterministic";
   };
   body: string;
   canUpdate: boolean;
+  /** Returned only to an actor who can update the webhook automation. */
+  webhookPath?: string;
 }
 
 export interface AutomationDelivery {
@@ -53,7 +66,7 @@ export interface AutomationDelivery {
 export interface DefineAutomationInput {
   name: string;
   scope: AutomationScope;
-  triggerType: "schedule" | "event";
+  triggerType: "schedule" | "event" | "webhook";
   body: string;
   schedule?: string;
   timezone?: string;
@@ -226,13 +239,22 @@ export async function canUpdateAutomationResource(
   const { meta } = parseJobResource(resource.content);
   const actor = normalizeActor(actorInput);
   if (!jobBelongsToApp(meta, actor.appId)) return false;
+  if (resource.owner === SHARED_OWNER) {
+    if (meta.orgId && actor.orgId !== meta.orgId) return false;
+    if (meta.createdBy?.trim().toLowerCase() === actor.userEmail) return true;
+    const orgId = meta.orgId || actor.orgId;
+    if (!orgId || actor.orgId !== orgId) return false;
+    const membership = await readOrganizationMembership(orgId, actor.userEmail);
+    return membership ? isOrganizationAdmin(membership) : false;
+  }
   return (await mutationAccess(actor, resource, meta)).canUpdate;
 }
 
 /**
  * Factory is a shared team workspace: any current org member may queue Run now
  * for that app's Factory-domain org jobs. Mail/CRM and other automations stay
- * on creator-or-admin `canUpdate`.
+ * on creator-or-admin `canUpdate`. Recovered Factory-folder jobs that lost
+ * `domain` / `appId` stay on the same team-member exception.
  */
 export async function canQueueAutomationRunNow(
   actorInput: AutomationActor,
@@ -241,7 +263,13 @@ export async function canQueueAutomationRunNow(
 ): Promise<boolean> {
   const { meta } = parseJobResource(resource.content);
   const actor = normalizeActor(actorInput);
-  if (!jobBelongsToApp(meta, actor.appId)) return false;
+  const recoveredFactory = isRecoveredFactoryJob(
+    meta,
+    resource.path,
+    actor.appId,
+    resource.owner,
+  );
+  if (!jobBelongsToApp(meta, actor.appId) && !recoveredFactory) return false;
   const access = await mutationAccess(actor, resource, meta);
   if (access.canUpdate) return true;
   const resourceOrgId = organizationIdFromResourceOwner(resource.owner);
@@ -250,7 +278,7 @@ export async function canQueueAutomationRunNow(
     Boolean(resourceOrgId) &&
     actor.orgId === resourceOrgId &&
     actor.appId === "factory" &&
-    meta.domain === "factory"
+    (meta.domain === "factory" || recoveredFactory)
   );
 }
 
@@ -293,11 +321,16 @@ async function readDefinition(
     throw httpError(`Automation "${automationName(path)}" not found.`, 404);
   }
   const access = await mutationAccess(actor, resource, definition.meta);
+  const webhookPath =
+    access.canUpdate && definition.meta.triggerType === "webhook"
+      ? await readAutomationWebhookPath(resource, definition.meta)
+      : undefined;
   return {
     ...definition,
     name: automationName(resource.path),
     scope,
     canUpdate: access.canUpdate,
+    webhookPath,
   };
 }
 
@@ -328,6 +361,10 @@ export async function listAutomationDefinitions(
     if (!jobBelongsToApp(parsed.meta, actor.appId)) continue;
     const isCreator =
       parsed.meta.createdBy?.trim().toLowerCase() === actor.userEmail;
+    const canUpdate =
+      scope === "personal" ||
+      isCreator ||
+      (membership ? isOrganizationAdmin(membership) : false);
     automations.push({
       resource,
       name: automationName(resource.path),
@@ -338,10 +375,11 @@ export async function listAutomationDefinitions(
         mode: parsed.meta.mode ?? "agentic",
       },
       body: parsed.body,
-      canUpdate:
-        scope === "personal" ||
-        isCreator ||
-        (membership ? isOrganizationAdmin(membership) : false),
+      canUpdate,
+      webhookPath:
+        canUpdate && parsed.classification.triggerType === "webhook"
+          ? await readAutomationWebhookPath(resource, parsed.meta)
+          : undefined,
     });
   }
 
@@ -445,13 +483,25 @@ export async function defineAutomation(
     deliveryTenantId: input.delivery?.tenantId,
   };
   const content = buildJobResourceContent(meta, body);
-  await resourcePut(owner, path, content);
+  const resource = await resourcePut(owner, path, content);
+  let webhookPath: string | undefined;
+  if (input.triggerType === "webhook") {
+    const token = createAutomationWebhookToken();
+    try {
+      await saveAutomationWebhookToken(resource, meta, token);
+    } catch (error) {
+      await resourceDelete(resource.id).catch(() => undefined);
+      throw error;
+    }
+    webhookPath = automationWebhookPath(token);
+  }
   return {
     name: automationName(path),
     scope: input.scope,
     meta: { ...meta, triggerType: input.triggerType, mode: "agentic" },
     body,
     canUpdate: true,
+    webhookPath,
   };
 }
 
@@ -469,7 +519,7 @@ export async function updateAutomation(
   const { meta } = definition;
   if (input.schedule !== undefined) {
     if (meta.triggerType !== "schedule") {
-      throw httpError("Event automations do not have a cron schedule.", 400);
+      throw httpError("Only scheduled automations have a cron schedule.", 400);
     }
     if (!isValidCron(input.schedule)) {
       throw httpError(`Invalid cron expression "${input.schedule}".`, 400);
@@ -481,7 +531,7 @@ export async function updateAutomation(
       throw httpError(`Unknown timezone "${input.timezone}".`, 400);
     }
     if (meta.triggerType !== "schedule") {
-      throw httpError("Event automations do not have a timezone.", 400);
+      throw httpError("Only scheduled automations have a timezone.", 400);
     }
     meta.timezone = input.timezone;
   }
@@ -570,6 +620,9 @@ export async function deleteAutomation(
       "Only the automation's creator or an organization admin can delete it.",
       403,
     );
+  }
+  if (definition.meta.triggerType === "webhook") {
+    await deleteAutomationWebhookToken(definition.resource, definition.meta);
   }
   await resourceDelete(definition.resource.id);
   // Names are reusable, so leaving history behind would attach these runs to

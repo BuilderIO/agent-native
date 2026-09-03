@@ -27,7 +27,7 @@ export default function NotFound() {
           </Button>
         )}
         <Button asChild variant="outline" className="cursor-pointer">
-          <Link to="/">
+          <Link to="/home">
             <IconArrowLeft className="size-4 rtl:-scale-x-100" />
             {t("pages.notFoundBackToDesigns")}
           </Link>

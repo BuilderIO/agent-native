@@ -31,6 +31,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
+vi.mock("../../hooks/use-mention-members", () => ({
+  useMentionMembers: () => ({
+    data: [{ email: "member@example.com", name: "Member" }],
+  }),
+}));
+
 const rootComment: Comment = {
   id: "comment-1",
   threadId: "thread-1",
@@ -45,6 +51,21 @@ const rootComment: Comment = {
   createdAt: "2026-07-10T12:00:00.000Z",
   updatedAt: "2026-07-10T12:00:00.000Z",
 };
+
+let notifyResize: (() => void) | undefined;
+
+class MockResizeObserver implements ResizeObserver {
+  constructor(callback: ResizeObserverCallback) {
+    notifyResize = () => callback([], this as unknown as ResizeObserver);
+  }
+
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+  takeRecords() {
+    return [];
+  }
+}
 
 function setTextareaValue(element: HTMLTextAreaElement, value: string) {
   const valueSetter = Object.getOwnPropertyDescriptor(
@@ -102,6 +123,7 @@ describe("CommentsPanel reply composer", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("ResizeObserver", MockResizeObserver);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -115,6 +137,7 @@ describe("CommentsPanel reply composer", () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+    notifyResize = undefined;
     vi.clearAllMocks();
   });
 
@@ -133,29 +156,85 @@ describe("CommentsPanel reply composer", () => {
     expect(container.textContent).toContain("www.example.org/help.");
   });
 
-  it("keeps the compact comment composer text inset", () => {
+  it("keeps the compact comment composer text inset without an outer border", () => {
     const composer = container.querySelector<HTMLTextAreaElement>(
       'textarea[placeholder="commentsPanel.leaveComment"]',
     );
 
     expect(composer?.className).toContain("px-3 py-2");
-    expect(composer?.parentElement?.className).toContain(
-      "border border-border",
+    expect(composer?.parentElement?.className).not.toContain("border");
+  });
+
+  it("grows comment textareas to fit their content without scrolling", () => {
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
     );
+    expect(composer).not.toBeNull();
+    Object.defineProperty(composer, "scrollHeight", {
+      configurable: true,
+      value: 144,
+    });
+
+    act(() => {
+      if (!composer) return;
+      setTextareaValue(composer, "A comment long enough to wrap");
+    });
+
+    expect(composer?.style.height).toBe("144px");
+    expect(composer?.className).toContain("overflow-y-hidden");
+  });
+
+  it("regrows comment textareas when their width changes wrapping", () => {
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    );
+    expect(composer).not.toBeNull();
+    Object.defineProperty(composer, "scrollHeight", {
+      configurable: true,
+      value: 192,
+    });
+
+    act(() => notifyResize?.());
+
+    expect(composer?.style.height).toBe("192px");
   });
 
   it("renders inline Markdown while flattening headings", () => {
     renderPanel("viewer@example.com", [
       {
         ...rootComment,
-        content: "# Not a heading\n\n**Bold** and `inline code`.",
+        content: "# Not a heading\n\n**Bold**, *italic* and `inline code`.",
       },
     ]);
 
     expect(container.querySelector("h1, h2, h3, h4, h5, h6")).toBeNull();
     expect(container.querySelector("strong")?.textContent).toBe("Bold");
+    expect(container.querySelector("em")?.textContent).toBe("italic");
     expect(container.querySelector("code")?.textContent).toBe("inline code");
     expect(container.textContent).toContain("Not a heading");
+  });
+
+  it("applies Markdown formatting shortcuts to selected text", () => {
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    );
+    expect(composer).not.toBeNull();
+
+    act(() => {
+      if (!composer) return;
+      setTextareaValue(composer, "format this");
+      composer.setSelectionRange(0, 11);
+      composer.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "b",
+          metaKey: true,
+        }),
+      );
+    });
+
+    expect(composer?.value).toBe("**format this**");
   });
 
   it("opens and focuses a reply field inline without replacing the new-comment draft", async () => {
@@ -189,6 +268,48 @@ describe("CommentsPanel reply composer", () => {
       inlineReply!.compareDocumentPosition(newComment as Node) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+    expect(inlineReply?.closest(".ml-12")).not.toBeNull();
+  });
+
+  it("inserts organization member mentions from autocomplete", async () => {
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    );
+    expect(composer).not.toBeNull();
+
+    act(() => {
+      if (!composer) return;
+      setTextareaValue(composer, "Hi @");
+      composer.setSelectionRange(4, 4);
+      composer.dispatchEvent(
+        new KeyboardEvent("keyup", { bubbles: true, key: "@" }),
+      );
+    });
+
+    const option = document.body.querySelector<HTMLButtonElement>(
+      'button[role="option"]',
+    );
+    expect(option?.textContent).toContain("Member");
+
+    await act(async () => {
+      option?.click();
+      await Promise.resolve();
+    });
+
+    expect(composer?.value).toBe("Hi @Member ");
+    act(() =>
+      composer?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+    act(() =>
+      container.querySelector<HTMLButtonElement>("button.size-8")?.click(),
+    );
+
+    expect(actionMocks.addComment).toHaveBeenCalledWith({
+      recordingId: "recording-1",
+      content: "Hi @Member",
+      videoTimestampMs: 34_000,
+      mentions: [{ email: "member@example.com", name: "Member" }],
+    });
   });
 
   it("submits the inline reply to the selected thread", async () => {

@@ -1,4 +1,4 @@
-/* Self-hosted via @fontsource-variable/inter and @fontsource/poppins — no render-blocking Google Fonts request */
+/* Self-hosted via Fontsource; no render-blocking Google Fonts request */
 @import "@fontsource-variable/inter";
 /* Poppins has no variable-font Fontsource package; use static weights */
 @import "@fontsource/poppins/300.css";
@@ -7,6 +7,11 @@
 @import "@fontsource/poppins/600.css";
 @import "@fontsource/poppins/700.css";
 @import "@fontsource/poppins/800.css";
+/* JetBrains Mono is offered by the shared font-family picker. */
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource/jetbrains-mono/600.css";
+@import "@fontsource/jetbrains-mono/700.css";
 
 @import "tailwindcss";
 @import "@agent-native/core/styles/agent-native.css";
@@ -251,11 +256,11 @@ button[title="Open agent sidebar"] {
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: hsl(var(--muted-foreground) / 0.3);
+    background: hsl(var(--muted-foreground) / 0.22);
     border-radius: 3px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground) / 0.5);
+    background: hsl(var(--muted-foreground) / 0.34);
   }
 }
 
@@ -1153,6 +1158,8 @@ button[title="Open agent sidebar"] {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   animation: overlay-fade-in 0.12s ease-out;
 }
 
@@ -1171,23 +1178,15 @@ button[title="Open agent sidebar"] {
    Sits above the rendered slide so it reads as "in progress" instead of a
    static placeholder for the length of the generation run. */
 .slide-thumbnail-ai-shimmer {
-  background: linear-gradient(
+  background-image: linear-gradient(
     100deg,
     transparent 30%,
-    rgba(255, 255, 255, 0.16) 50%,
+    rgba(255, 255, 255, 0.058) 50%,
     transparent 70%
   );
+  background-position: 150% 0;
   background-size: 200% 100%;
-  animation: slide-thumbnail-shimmer 1.6s ease-in-out infinite;
-}
-
-@keyframes slide-thumbnail-shimmer {
-  from {
-    background-position: 150% 0;
-  }
-  to {
-    background-position: -50% 0;
-  }
+  animation: skeleton-shimmer 1.6s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1214,6 +1213,39 @@ button[title="Open agent sidebar"] {
 
 .image-overlay-btn:hover {
   background: hsl(var(--accent));
+  color: hsl(var(--popover-foreground));
+}
+
+.image-overlay-position {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: hsl(var(--popover-foreground) / 0.8);
+}
+
+.image-overlay-position:hover,
+.image-overlay-position:focus-within {
+  background: hsl(var(--accent));
+  color: hsl(var(--popover-foreground));
+}
+
+.image-overlay-position select {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.image-overlay-position option {
+  background: hsl(var(--popover));
   color: hsl(var(--popover-foreground));
 }
 
@@ -1375,6 +1407,74 @@ button[title="Open agent sidebar"] {
 /* Selection highlight */
 .slide-tiptap-editor .tiptap ::selection {
   background: rgba(96, 159, 248, 0.35);
+}
+
+/* The shared editor supplies the Content editing behavior. Its surface stays
+   transparent so the slide's own background, geometry, and inherited styles
+   remain the source of truth. */
+.slide-content .slide-rich-editor-host,
+.slide-content .slide-shared-rich-editor,
+.slide-content .slide-shared-rich-editor .an-rich-md-wrapper {
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  background: transparent;
+}
+
+.slide-content .slide-shared-rich-editor .an-rich-md-prose {
+  min-height: 100%;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  white-space: pre-wrap;
+}
+
+.slide-content
+  .slide-shared-rich-editor
+  .an-rich-md-prose
+  :is(p, h1, h2, h3, h4, blockquote, ul, ol) {
+  margin: 0;
+  color: inherit;
+  font-family: inherit;
+  letter-spacing: inherit;
+}
+
+.slide-content .slide-shared-rich-editor .an-rich-md-prose :is(h1, h2, h3, h4) {
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+}
+
+.slide-content .slide-shared-rich-editor .an-rich-md-prose ul,
+.slide-content .slide-shared-rich-editor .an-rich-md-prose ol {
+  padding-left: 1.5em;
+  list-style-position: outside;
+}
+
+.slide-content .slide-shared-rich-editor .an-rich-md-prose li {
+  display: list-item;
+  margin: 0;
+  padding: 0;
+}
+
+.slide-content .slide-shared-rich-editor .an-rich-md-prose li p {
+  margin: 0;
+  font-size: inherit;
+}
+
+.slide-content .slide-shared-rich-editor .an-rich-md-prose code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.slide-content .slide-shared-rich-editor .an-rich-md-bubble-toolbar {
+  display: none;
 }
 
 /* Google Slides-style object selection chrome. The edge hit targets are wider

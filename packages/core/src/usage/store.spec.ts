@@ -1,6 +1,8 @@
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { runWithRequestContext } from "../server/request-context.js";
+
 // Real in-memory sqlite behind the raw getDbExec client so recordUsage /
 // getUserUsageCents / getUsageSummary exercise genuine aggregation + scoping.
 // A fresh DB per test keeps the module-level _initPromise (CREATE TABLE IF NOT
@@ -303,6 +305,24 @@ describe("recordUsage", () => {
     });
   });
 
+  it("inherits the organization from the active request when omitted", async () => {
+    await runWithRequestContext(
+      { userEmail: "a@example.com", orgId: "org-7" },
+      () =>
+        recordUsage({
+          ownerEmail: "a@example.com",
+          inputTokens: 100,
+          outputTokens: 50,
+          model: "claude-sonnet-4-5",
+        }),
+    );
+
+    const row = sqlite.prepare(`SELECT org_id FROM token_usage`).get() as {
+      org_id: string | null;
+    };
+    expect(row.org_id).toBe("org-7");
+  });
+
   it("leaves attribution NULL rather than empty-string when the caller omits it", async () => {
     await recordUsage({
       ownerEmail: "a@example.com",
@@ -544,6 +564,73 @@ describe("recordUsage refId + cost override", () => {
       .all() as Array<{ input_tokens: number }>;
     expect(rows).toHaveLength(1);
     expect(rows[0].input_tokens).toBe(200);
+  });
+
+  it("deduplicates a refId only within the same organization", async () => {
+    await runWithRequestContext(
+      { userEmail: "a@example.com", orgId: "org-a" },
+      () =>
+        recordUsage({
+          ownerEmail: "a@example.com",
+          inputTokens: 100,
+          outputTokens: 10,
+          model: "gpt-5.6-sol",
+          label: "visual-recap",
+          refId: "shared-recap",
+        }),
+    );
+    await runWithRequestContext(
+      { userEmail: "b@example.com", orgId: "org-b" },
+      () =>
+        recordUsage({
+          ownerEmail: "b@example.com",
+          inputTokens: 200,
+          outputTokens: 20,
+          model: "gpt-5.6-sol",
+          label: "visual-recap",
+          refId: "shared-recap",
+        }),
+    );
+
+    const rows = sqlite
+      .prepare(
+        "SELECT org_id, input_tokens FROM token_usage WHERE label = 'visual-recap' AND ref_id = 'shared-recap' ORDER BY org_id",
+      )
+      .all() as Array<{ org_id: string; input_tokens: number }>;
+    expect(rows).toEqual([
+      { org_id: "org-a", input_tokens: 100 },
+      { org_id: "org-b", input_tokens: 200 },
+    ]);
+  });
+
+  it("replaces a legacy unscoped refId when an organization is available", async () => {
+    sqlite
+      .prepare(
+        `INSERT INTO token_usage
+          (id, owner_email, input_tokens, output_tokens, model, label, ref_id, org_id, created_at)
+         VALUES (1, 'legacy@example.com', 100, 10, 'gpt-5.6-sol', 'visual-recap', 'legacy-recap', NULL, ?)`,
+      )
+      .run(Date.now());
+
+    await runWithRequestContext(
+      { userEmail: "owner@example.com", orgId: "org-a" },
+      () =>
+        recordUsage({
+          ownerEmail: "owner@example.com",
+          inputTokens: 200,
+          outputTokens: 20,
+          model: "gpt-5.6-sol",
+          label: "visual-recap",
+          refId: "legacy-recap",
+        }),
+    );
+
+    const rows = sqlite
+      .prepare(
+        "SELECT org_id, input_tokens FROM token_usage WHERE label = 'visual-recap' AND ref_id = 'legacy-recap'",
+      )
+      .all() as Array<{ org_id: string | null; input_tokens: number }>;
+    expect(rows).toEqual([{ org_id: "org-a", input_tokens: 200 }]);
   });
 
   it("stores a precomputed costCentsX100 verbatim instead of deriving from tokens", async () => {

@@ -63,6 +63,7 @@ const messages = {
     dialogLabel: "搜尋檔案",
     placeholder: "搜尋檔案...",
     empty: "輸入內容以搜尋所有檔案",
+    toggleChatSidebar: "切換聊天側邊欄",
     loadError: "搜尋無法載入。請再試一次。",
     retry: "再試一次",
     noResults: "未找到“{{query}}”的結果",
@@ -430,7 +431,7 @@ const messages = {
   homepage: {
     hero: {
       title: "面向 agentic 應用的框架",
-      bodyLine1: "為 agent 建置，不必為使用者另外打造第二個產品。",
+      bodyLine1: "建置配備直覺式 UI 的自主型 agent。",
       bodyLine2: "使用你自己的 LLM，隨處部署。",
       tryAnApp: "試用應用程式",
     },
@@ -439,14 +440,14 @@ const messages = {
     },
     actions: {
       title: "一個 Action 驅動所有能力面",
-      bodyLine1: "Action 是 Agent-Native 應用的基礎構建區塊。",
+      bodyLine1: "Action 定義你的 agent 能做什麼。",
       bodyLine2:
-        "只需定義一次功能，即可在 UI、agent 對話、HTTP API、MCP、A2A 或 CLI 中使用。",
+        "只需定義一次每項能力，即可在 agent、UI、HTTP API、MCP、A2A 或 CLI 中使用。",
       diagramAlt: "一個 Action 驅動 UI、MCP、Agent 對話、A2A、HTTP API 和 CLI",
     },
     builtIn: {
-      title: "每個 Agent-Native 應用都內建這些能力",
-      body: "使用者和 AI agent 協同工作所需的一切，已經整合到同一個應用中。",
+      title: "你的 agent 所需的一切",
+      body: "UI、脈絡、資料、權限和基礎設施都已連接在一起。",
       pillars: {
         reactUi: {
           title: "React UI",
@@ -454,7 +455,7 @@ const messages = {
         },
         agentChat: {
           title: "內嵌 agent 對話",
-          body: "讓使用者不必離開應用即可委派工作、提問和查看結果。",
+          body: "讓使用者在同一個 UI 中委派工作、提問和查看結果。",
         },
         sharedState: {
           title: "共用的應用狀態",
@@ -470,11 +471,11 @@ const messages = {
         },
         automations: {
           title: "自動化",
-          body: "按排程或應用事件自動執行 agent 工作。",
+          body: "按排程或事件自動執行 agent 工作。",
         },
         agentTeams: {
           title: "Agent 團隊",
-          body: "在應用內部或跨應用把工作委派給專業 agent。",
+          body: "在同一個工作區或相互連接的 agent 之間，把工作委派給專業 agent。",
         },
         auth: {
           title: "身分驗證與組織",
@@ -488,19 +489,19 @@ const messages = {
     },
     stack: {
       title: "適配你的技術堆疊",
-      body: "帶上你自己的 LLM、資料庫、工具和基礎設施，Agent-Native 是開放原始碼的 TypeScript，你的應用始終歸你所有。",
+      body: "帶上你自己的 LLM、資料庫、工具和基礎設施。Agent-Native 是開放原始碼的 TypeScript，因此你打造的一切始終歸你所有。",
       exploreApps: "探索用 Agent-Native 打造的應用",
     },
     showcase: {
       title: "你能用 Agent-Native 打造什麼？",
-      body: "從聊天、專注的內部工具，到完整的面向客戶產品，任何形態都能從這裡開始。每個應用都為使用者提供 UI，也為 agent 提供完成相同工作的工具。",
+      body: "為會議、設計、簡報、資料等工作打造配備 UI 的 agent。從其中一個開源應用開始，或打造你自己的 agent。",
       browseApps: "瀏覽應用",
       scrollLeft: "向左捲動應用",
       scrollRight: "向右捲動應用",
     },
     bottomCta: {
-      title: "打造你的第一個 Agent-Native 應用",
-      body: "為使用者和 AI agent 打造同一個應用。使用你自己的 LLM，隨處部署。",
+      title: "打造你的第一個配備 UI 的 agent",
+      body: "Agent 和 UI 共享相同的能力。使用你自己的 LLM，並隨處部署。",
     },
     footer: {
       tagline: "面向 agentic 應用的框架。",
@@ -509,10 +510,11 @@ const messages = {
       community: "社群",
       legal: "法律",
       docs: "文件",
-      actions: "行動",
+      download: "下載",
       apps: "應用",
       privacyPolicy: "隱私權政策",
-      saasTerms: "SaaS 條款",
+      saasTerms: "代管服務條款",
+      legalResources: "法律資源",
     },
   },
   gettingStarted: {
@@ -528,20 +530,67 @@ const messages = {
     title: "您擁有的開放原始碼、Agent-Native 應用程式",
     eyebrow: "從一個可執行的 app 開始，讓 agent 繼續改進它。",
     body: "你可以自訂一切。",
+    firstPartyTitle: "Agent-Native 官方應用程式",
     community: "想要空白應用？從框架指南開始從零建置。",
     createYourOwn: "從零開始",
-    communityTitle: "社群範本",
+    communityTitle: "社群應用程式",
     communityDescription:
-      "由作者獨立維護的應用程式。可從公開 GitHub 儲存庫安裝；如有託管版本，也可以先線上體驗。",
-    submitCommunityTemplate: "提交你的範本",
+      "探索由作者維護的社群應用程式。有託管版本時可以先體驗，也可以查看原始碼並自行自訂。",
+    submitCommunityTemplate: "提交應用程式",
     communityEmpty:
-      "社群目錄現已開放。請將專注於明確情境的 Agent-Native 應用程式發佈到公開儲存庫並提交收錄。",
+      "社群目錄現已開放。請發佈專注於明確情境的 Agent-Native 應用程式並提交收錄。",
     publishGuide: "閱讀發佈指南",
     communityTrust:
-      "社群範本屬於第三方程式碼。執行前請檢查儲存庫、授權、相依套件和安裝指令碼。",
+      "社群應用程式屬於第三方程式碼。執行前請檢查原始碼、授權、相依套件和安裝指令碼。",
     copyCommunityInstallCommand: "複製安裝指令",
     viewRepository: "查看儲存庫",
     tryCommunityDemo: "體驗示範",
+    customizeDescription: "以這個應用程式為起點。",
+    customizeOnline: "線上",
+    customizeOnlineBadge: "加入候補名單",
+    customizeLocally: "本機",
+    communityNew: "新應用程式",
+    communityComingSoon: "即將推出",
+    communityGithubStars: "{{count}} 個 GitHub 星星",
+    tryCommunityApp: "試用應用程式",
+    viewCommunitySource: "查看原始碼",
+    communityEyebrow: "社群應用程式",
+    communityScreenshots: "螢幕截圖",
+    previousScreenshot: "上一張螢幕截圖",
+    nextScreenshot: "下一張螢幕截圖",
+    communityNoScreenshots: "審核後，螢幕截圖會顯示在這裡。",
+    communityScreenshotAlt: "{{name}} 螢幕截圖 {{index}}",
+    communityNoHostedVersion: "託管版本即將推出。透過原始碼連結追蹤開發進度。",
+    communitySubmissionTitle: "分享社群應用程式",
+    communitySubmissionDescription:
+      "告訴我們在哪裡找到你的應用程式以及它的用途。我們會在刊登前先審核這些資訊。",
+    communitySubmissionName: "應用程式名稱",
+    communitySubmissionNamePlaceholder: "客戶支援中心",
+    communitySubmissionUrl: "應用程式 URL",
+    communitySubmissionUrlPlaceholder: "example.com",
+    communitySubmissionDescriptionLabel: "描述",
+    communitySubmissionDescriptionPlaceholder: "應用程式做什麼，適合哪些人？",
+    communitySubmissionRepository: "GitHub 儲存庫（選填）",
+    communitySubmissionRepositoryPlaceholder: "github.com/owner/repository",
+    communitySubmissionScreenshots: "螢幕截圖（選填）",
+    communitySubmissionScreenshotsPlaceholder: "將最多 5 張圖片拖曳到這裡",
+    communitySubmissionScreenshotDropHint:
+      "PNG、JPG 或 WebP。每張不超過 1.5 MB。",
+    communitySubmissionScreenshotSlot: "螢幕截圖 {{index}}",
+    communitySubmissionScreenshotsAdd: "新增螢幕截圖",
+    communitySubmissionScreenshotsCount: "已選取 {{count}} / 5",
+    communitySubmissionScreenshotRemove: "移除螢幕截圖 {{index}}",
+    communitySubmissionSubmit: "提交應用程式",
+    communitySubmissionReady: "謝謝。我們會在刊登前審核你的應用程式。",
+    communitySubmissionNameError: "請輸入應用程式名稱。",
+    communitySubmissionDescriptionError: "請新增簡短描述。",
+    communitySubmissionUrlError: "請輸入有效的應用程式連結，例如 example.com。",
+    communitySubmissionRepositoryError: "請輸入 GitHub 儲存庫連結。",
+    communitySubmissionScreenshotsError:
+      "請使用 PNG、JPG 或 WebP 圖片，每張不超過 1.5 MB，最多上傳 5 張。",
+    communitySubmissionSubmitError:
+      "目前無法提交。請檢查標記的欄位後再試一次。",
+    communitySubmissionSubmitting: "提交中…",
   },
   buildFromScratch: {
     title: "從零開始建置",
@@ -575,8 +624,7 @@ const messages = {
   templates: {
     clips: {
       replaces: "替代或增強 Loom、Granola 和 Wisprflow",
-      description:
-        "帶有瀏覽器偵錯捕獲、行事曆同步會議紀錄和 Fn-hold 語音聽寫的螢幕錄製 — 所有這些都經過轉錄、總結和搜尋，代理可以編輯其中任何內容。",
+      description: "錄製螢幕、會議和語音筆記，讓代理了解發生了什麼並採取行動。",
     },
     plan: {
       replaces: "面向 Codex、Claude Code 和編碼代理的視覺化計畫模式",
@@ -586,27 +634,27 @@ const messages = {
     design: {
       replaces: "替代或增強設計原型工具",
       description:
-        "Agent-Native HTML 原型工作室。生成互動式 Alpine/Tailwind 設計，比較變體，即時微調控制項，並匯出結果。",
+        "將提示轉化為符合你的設計系統的互動式設計，同時由代理根據回饋完善每個畫面。",
     },
     content: {
       replaces: "替換或增強 Obsidian 為 MDX、Notion、Google Docs",
       description:
-        "編輯本機 Markdown/MDX 檔案（如 Obsidian），生成豐富的互動式自訂塊，並使用 AI 代理來起草、重寫和發布。",
+        "處理你的文件，同時由代理以你的語氣草擬內容、建立互動式內容並發布到你的網站。",
     },
     slides: {
       replaces: "替換或增強 Google Slides、Pitch",
       description:
-        "根據提示產生完整的簡報。視覺或對話方式編輯。 AI 圖片生成、8 種布局和內建簡報模式。",
+        "根據提示或現有投影片建立符合品牌且可編輯的簡報，代理可以建立、編輯和完善。",
     },
     analytics: {
       replaces: "Amplitude 和 FullStory 的開放原始碼替代品",
       description:
-        "連線任何資料來源、提示任何圖表、建置可重用的儀表板。代理編寫 SQL、生成視覺化並改進應用程式。",
+        "連接你的資料，讓代理以淺白語言回答問題，並將結果轉化為圖表和儀表板。",
     },
     mail: {
       replaces: "替換或增強 Superhuman、Gmail",
       description:
-        "Superhuman 風格的電子郵件用戶端，具有鍵盤快速鍵、AI 分類、多帳戶支援和電子郵件自動化。擁有您的收件箱工作流程。",
+        "一個鍵盤優先的收件匣，代理可以排列郵件優先順序、草擬回覆、摘要對話串並持續跟進。",
     },
     forms: {
       replaces: "替換或增強 Typeform、Google Forms",
@@ -616,12 +664,12 @@ const messages = {
     assets: {
       replaces: "替換或增強 DAMs、品牌資產庫和 AI 媒體生成器",
       description:
-        "用於上傳、品牌庫、可搜尋參考和品牌圖片/影片產生的數位資產管理器，其他應用程式可以透過 A2A 呼叫或嵌入為選取器。",
+        "為代理提供共用的品牌指南、圖片和影片庫，以便在各個應用程式中建立和選擇符合品牌的媒體。",
     },
     calendar: {
       replaces: "替換或增強 Google Calendar、Calendly",
       description:
-        "具有 Google 同步、可用性管理和公開預訂頁面的完整行事曆。該代理會尋找空閒時段、建立活動並管理您的日程安排。",
+        "整合你的多個 Google 日曆，讓代理尋找空檔、安排或重新安排活動，並管理預約。",
     },
     dispatch: {
       replaces: "Agent-Native 應用程式的工作控制",
@@ -820,8 +868,11 @@ const messages = {
       s004: "口授",
       s005: "能看到+聽到",
       s006: "所有範本",
-      s007: "Loom 的開放原始碼替代方案",
-      s008: "將 Clips 連結貼上到代理中，即使其模型無法攝取原始影片或音訊，它也可以聽到文字紀錄、讀取摘要並檢視帶時間戳的幀。",
+      s007Primary: "AI 能看懂、聽懂的",
+      s007Secondary: "螢幕錄製。",
+      s008: "擷取瀏覽器除錯記錄、取得文字紀錄並使用內建聽寫。100% 免費、開放原始碼且可自訂。",
+      s063: "取得個人化建議",
+      s064: "將此提示貼上到 Claude、ChatGPT 或 Cursor 中，看看 Clips 會如何改變你的工作流程。",
       s009: "試試看",
       s010: "你能做什麼",
       s011: "紀錄、轉錄和偵錯 — 一個應用程式、一個庫，無需訂閱堆堆疊。",
@@ -1387,8 +1438,8 @@ const messages = {
       s003: "生成",
       s004: "精煉",
       s005: "所有範本",
-      s006Primary: "為人與代理打造的",
-      s006Secondary: "幻燈片簡報",
+      s006Primary: "由你的 AI 代理生成的簡報。",
+      s006Secondary: "符合品牌，可自由編輯",
       s007: "使用 AI 代理產生符合品牌風格的投影片簡報，隨時手動修改，並可匯出到任何地方。",
       s008: "試用",
       s009: "它是如何運作的",
@@ -1597,7 +1648,7 @@ const messages = {
   },
   downloadPage: {
     title: "下載 Agent-Native",
-    body: "所有 agent-native 應用都在一個桌面外殼中。內建正式環境應用，並提供用於本機開發的開發模式開關。",
+    body: "試用適用於會議、設計、簡報、資料、排程、郵件等場景的智能體應用程式，全部整合在一個桌面應用程式中。",
     openDesktop: "開啟 Agent-Native",
     downloadInstaller: "下載安裝程式",
     downloadStarted: "已開始下載",
@@ -1606,27 +1657,33 @@ const messages = {
     checkingRelease: "正在檢查最新桌面版...",
     retry: "重試",
     unavailable: "此平台沒有可用的安裝程式",
+    allPlatforms: "所有平台",
     stable: "穩定版",
     nightly: "Nightly",
-    switchToNightly: "切換至 Nightly 建置",
-    switchToStable: "切換至穩定版建置",
-    runFromSource: "或從來源碼執行",
+    runFromSource: "自行建置",
     runFromSourceBody:
-      "還沒有適用於你平台的安裝程式，或更喜歡 CLI？使用 npm 建立新應用並在本機執行；支援 macOS、Windows 和 Linux。",
+      "透過命令列建立一個 Agent-Native 應用程式，並在 macOS、Windows 或 Linux 上本機執行。",
     platforms: {
       mac: {
         primary: "下載 Apple Silicon 版本",
         alternative: "Intel Mac 版本",
+        gridPrimary: "Apple Silicon",
+        gridAlternative: "Intel",
       },
       windows: {
         primary: "下載 Windows 版本",
         alternative: "ARM64",
+        gridPrimary: "x64 安裝程式",
+        gridAlternative: "Arm64 安裝程式",
         note: "Windows 10 或更高版本。",
       },
       linux: {
         primary: "下載 Linux 封存包",
         appImage: "下載 AppImage",
         deb: "下載 .deb",
+        gridPrimary: "x86_64",
+        gridAppImage: "通用",
+        gridDeb: "Debian / Ubuntu",
         note: "封存包無需 FUSE 即可使用。某些發行版上的 AppImage 可能需要 FUSE 2。",
       },
     },
@@ -1664,6 +1721,34 @@ const messages = {
   },
   legal: {
     lastUpdated: "上次更新：{{date}}",
+    resources: {
+      eyebrow: "法律資源",
+      title: "Agent-Native 法律資源",
+      intro: "適用於 Agent-Native 代管應用程式與服務的獨立法律政策。",
+      agentNative: {
+        title: "Agent-Native 政策",
+        body: "這些頁面將通用政策框架調整為適用於 Agent-Native 開放原始碼專案和託管範例的版本。",
+        terms: "Agent-Native 服務條款",
+        privacy: "Agent-Native 隱私權政策",
+      },
+      builder: {
+        title: "代管服務的其他政策",
+        body: "這些本地副本涵蓋可接受使用、AI 功能、平台規則、暫停與下架、著作權及執法請求。英文版本具有控制效力。",
+      },
+      links: {
+        terms: "SaaS 服務協議",
+        privacy: "隱私權政策",
+        acceptableUse: "可接受使用政策",
+        aiTerms: "AI 條款",
+        platformRules: "平台規則",
+        takedown: "暫停、下架和資料處理政策",
+        lawEnforcement: "執法機關請求政策",
+      },
+      notIncluded: {
+        title: "不包含商業條款",
+        body: "Agent-Native 沒有付費方案或企業合約。不包含企業 SLA、支援條款、DPA、安全附錄、專業服務條款及費用等商業資料。",
+      },
+    },
     privacy: {
       eyebrow: "隱私政策",
       title: "Agent-Native 託管應用程式",
@@ -1686,6 +1771,7 @@ const messages = {
       sections: {
         scope: "適用範圍",
         information: "我們收集的資訊",
+        cookies: "Cookie 和分析",
         clipsExtension: "Agent-Native Clips Chrome 擴充功能",
         use: "我們如何使用資訊",
         sharing: "共用和第三方",
@@ -1699,6 +1785,8 @@ const messages = {
           "Agent-Native 是開放原始碼的，來源程式碼可在 MIT 授權證下獲得。本政策僅適用於 Builder.io 為 Agent-Native 使用者運營的託管應用程式和服務。它不適用於其他人對程式碼的使用，包括分叉、自訂範本、私人部署或自託管版本。如果您操作自己的部署，則您應對自己的資料實踐和隱私政策負責。",
         scope2Prefix: "本政策旨在補充 Builder.io 更廣泛的政策",
         scope2Suffix: "對於 Agent-Native 託管應用程式行為。",
+        cookies:
+          "Agent-Native 文件網站和託管應用程式可能會使用必要的 Cookie 來進行驗證與安全防護、儲存語言或主題等偏好設定，以及執行已設定的分析技術。如果部署已進行設定，文件網站可能會載入 Google Analytics 或 Google Tag Manager；託管服務也可能使用第一方分析來衡量可靠性和功能使用情況。我們不會將託管應用程式內容用於第三方廣告。您可以在瀏覽器設定中管理 Cookie，但停用必要 Cookie 可能會導致無法登入或使用其他功能。",
         clips1:
           "Agent-Native Clips Chrome extension 可幫助您開始基於瀏覽器的錄製，並在啟用後將瀏覽器診斷附加到剪輯。它可能會收集所選的捕獲來源、您選取包含的攝影機和麥克風媒體、活動分頁標題和 URL，以及將擴充功能連線到託管 Clips 所需的驗證狀態。",
         clips2:
@@ -1841,6 +1929,8 @@ const messages = {
         scope2Middle: "和 Agent-Native",
         scope2Suffix:
           "如果您代表公司或組織使用託管 Agent-Native 應用程式，則表示您有權接受該組織的這些條款。",
+        scope3:
+          "Agent-Native 沒有付費方案或付費託管訂閱。除非另行簽署書面協議，Builder.io 的商業條款（例如訂單表、費用、企業支援、服務級別和資料處理附錄）不屬於本服務的一部分。",
         hostedService:
           "Builder.io 可以提供託管的 Agent-Native 應用程式、範本、示範、共用工作區、瀏覽器擴充功能和相關代理工作流程。隨著產品的發展，託管服務可能會更新、限制、暫停或終止。",
         accounts1:
@@ -1955,6 +2045,12 @@ const messages = {
     actionsAgentTools: "正式環境 Agent 存取權限",
     publicAgentWeb: "公開 Agent Web",
     database: "資料庫",
+    databaseProviders: "資料庫提供者",
+    databaseNeon: "Neon Postgres",
+    databaseSupabase: "Supabase Postgres",
+    databaseTurso: "libSQL / Turso",
+    databaseD1: "Cloudflare D1",
+    databasePostgres: "Plain Postgres",
     internationalization: "國際化",
     localFileMode: "本機檔案模式",
     fileUploads: "檔案上傳",
@@ -2107,8 +2203,9 @@ const messages = {
     dispatchDevelopers: "開發者指南",
     forms: "表單",
     formsOverview: "總覽",
-    formsBuildingPublishing: "建置與發布",
-    formsResponses: "回應與洞察",
+    formsFeatures: "功能",
+    formsAgent: "與 Agent 對話",
+    formsIntegrations: "跨應用使用",
     docsComponents: "Docs Components",
     formsDevelopers: "開發者指南",
   },

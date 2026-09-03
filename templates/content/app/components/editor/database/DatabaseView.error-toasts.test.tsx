@@ -24,11 +24,10 @@ vi.mock("sonner", async (importOriginal) => {
   const actual = await importOriginal<typeof import("sonner")>();
   return {
     ...actual,
-    toast: {
-      ...actual.toast,
+    toast: Object.assign({}, actual.toast, {
       error: toastErrorMock,
       success: toastSuccessMock,
-    },
+    }),
   };
 });
 
@@ -195,6 +194,7 @@ vi.mock("@/hooks/use-content-database", () => ({
 vi.mock("@/hooks/use-document-properties", () => ({
   useSetDocumentProperty: () => benignMutation,
   useConfigureDocumentProperty: () => benignMutation,
+  useUpdateDatabaseItems: () => benignMutation,
 }));
 
 vi.mock("@/hooks/use-content-spaces", () => ({

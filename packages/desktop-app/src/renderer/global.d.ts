@@ -34,6 +34,8 @@ type DesktopEnvironmentLanePreference =
   import("../../shared/environment-lane.js").DesktopEnvironmentLanePreference;
 type DesktopEnvironmentLaneState =
   import("../../shared/ipc-channels.js").DesktopEnvironmentLaneState;
+type DesktopTerminalContext =
+  import("../../shared/ipc-channels.js").DesktopTerminalContext;
 
 type CodeAgentRunStatus =
   | "queued"
@@ -76,7 +78,7 @@ type CodeAgentReasoningEffort =
 type CodeAgentModelSelection = {
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
 };
 
 type CodeAgentModelOption = {
@@ -250,7 +252,7 @@ type CodeAgentProjectSelectResult = {
 type CodeAgentQueueMetadata = {
   queued: boolean;
   queuedAt?: string;
-  queuedBy?: "desktop" | "cli" | "host" | string;
+  queuedBy?: "desktop" | "cli" | "host" | (string & {});
   queueId?: string;
   queuePosition?: number;
   attempt?: number;
@@ -263,7 +265,7 @@ type CodeAgentSteeringMetadata = {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
 };
 
@@ -384,7 +386,7 @@ type CodeAgentCreateRunRequest = {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
   metadata?: Record<string, unknown>;
 };
@@ -476,7 +478,7 @@ type CodeAgentFollowUpRequest = {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
   metadata?: Record<string, unknown>;
 };
@@ -533,7 +535,7 @@ type CodeAgentUpdateRunRequest = {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   metadata?: Record<string, unknown>;
 };
 
@@ -584,7 +586,7 @@ type CodeAgentRerunRequest = {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
   metadata?: Record<string, unknown>;
 };
@@ -599,7 +601,7 @@ type CodeAgentRetryRunRequest = {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   metadata?: Record<string, unknown>;
 };
 
@@ -621,7 +623,7 @@ type CodeAgentCodePackMetadata = {
 
 type CodeAgentHostMetadata = {
   status: "ok" | "unavailable";
-  platform: NodeJS.Platform | string;
+  platform: NodeJS.Platform | (string & {});
   desktopVersion?: string;
   storeRoot: string;
   runsDir: string;
@@ -680,6 +682,12 @@ type DesktopOpenRequest = {
   path?: string;
   softOpen?: boolean;
   runId?: string;
+};
+
+type DesktopChatOpenAppRequest = {
+  app: string;
+  path?: string;
+  view?: string;
 };
 
 type DesktopShortcutActivationRequest = DesktopOpenRequest & {
@@ -754,7 +762,7 @@ type QuickPromptSubmitRequest = {
   cwd?: string;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
 };
 
@@ -1112,7 +1120,10 @@ interface ElectronAPI {
 
   desktopChat: {
     getApiUrl(appId: string): Promise<string | null>;
-    getTerminalInfoUrl(appId: string): Promise<string | null>;
+    getTerminalInfoUrl(
+      context?: DesktopTerminalContext | null,
+    ): Promise<string | null>;
+    onOpenApp(cb: (request: DesktopChatOpenAppRequest) => void): () => void;
   };
 
   mcpServers: {

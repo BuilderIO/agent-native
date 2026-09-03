@@ -1,7 +1,7 @@
 ---
-title: "Agentes Externos: Claude, ChatGPT, Codex, Cursor, Cowork"
-description: "Conecte Claude, ChatGPT, Codex, Cursor, Claude Cowork ou qualquer host compatível com MCP a um aplicativo nativo de agente hospedado e, em seguida, faça o retorno dos artefatos ao UI em execução com aplicativos MCP e links diretos."
-search: "Claude ChatGPT Claude Código Codex Cursor Claude Cowork MCP Aplicativos agente nativo conectar ferramentas de agente local agentes externos"
+title: "Agentes Externos: Claude, ChatGPT, Codex, Cursor, Cowork, Grok"
+description: "Conecte Claude, ChatGPT, Codex, Cursor, Claude Cowork, Grok ou qualquer host compatível com MCP a um aplicativo nativo de agente hospedado e, em seguida, faça o retorno dos artefatos ao UI em execução com aplicativos MCP e links diretos."
+search: "Claude Anthropic ChatGPT OpenAI Claude Código Codex Cursor Claude Cowork Grok xAI MCP Aplicativos agente nativo conectar ferramentas de agente local agentes externos"
 ---
 
 # Agentes Externos
@@ -93,7 +93,17 @@ A regra de identidade é a dobradiça de segurança: o link é apenas `view` + i
 
 ## Configuração fácil {#easy-setup}
 
-Adicione um conector MCP remoto ao host onde você deseja usar Agent-Native.
+Cada aplicativo Agent-Native expõe uma URL MCP canônica:
+
+```text
+https://<your-app>.agent-native.com/mcp
+```
+
+No aplicativo, abra **Settings → Integrations** e pesquise pelo nome de host que
+você já conhece: Claude, Claude Cowork, Claude Code, Anthropic, ChatGPT, OpenAI,
+Codex, Grok ou xAI. O único resultado de host externo abre **Settings → MCP**
+com o guia mais adequado selecionado. Copie a **MCP server URL** e cole-a no
+host de IA. A URL é a URL base do aplicativo implantado seguida de `/mcp`.
 
 Para trabalho em espaço de trabalho ou entre aplicativos, use Dispatch:
 
@@ -115,17 +125,17 @@ https://<your-app>.agent-native.com/mcp
 
 Todo aplicativo hospedado também tem uma página auxiliar em
 `https://&lt;app&gt;/mcp/connect` com o URL copiável e
-guias específicas do host para Claude, ChatGPT, Cursor, Código Claude, Codex e Outros.
+guias específicas do host para Claude, ChatGPT, Cursor, Claude Code, Codex, Grok e Outros.
 
-### A aba Access no aplicativo {#access-tab}
+<a id="access-tab"></a>
 
-Os aplicativos que montam `AgentTabsPage` oferecem o mesmo fluxo de conexão na
-aba **Access**. Ela mostra a URL MCP, um cartão de agente A2A quando disponível e
-os guias compartilhados de configuração para Claude, ChatGPT, Cursor, Claude
-Code, Codex e outros clientes. Use-a como ponto de partida dentro do app e abra
-`/mcp/connect` para o fluxo completo e o fallback de token. É uma UI de
-configuração de conexão, não um console geral de acesso: a aba ainda não gerencia
-grants, edição de escopo ou revogação.
+### A configuração MCP no aplicativo {#mcp-settings}
+
+As configurações padrão do aplicativo incluem uma aba **MCP** ao lado de
+**Integrations**. Ela mostra a URL MCP canônica do aplicativo, um cartão de agente A2A
+quando disponível e os mesmos guias da página de conexão completa. Use **Settings → MCP**
+como ponto de partida ou abra `/mcp/connect` diretamente para o fluxo completo e o fallback
+de token.
 
 ### Claude e ChatGPT OAuth {#oauth}
 
@@ -134,10 +144,14 @@ Claude / Claude Desktop: adicione um conector personalizado, cole o MCP URL, cli
 e habilite o conector em um chat. O código Claude usa o mesmo URL: adicione-o como
 servidor HTTP MCP remoto, execute `/mcp` e escolha **Autenticar**.
 
-ChatGPT: use um espaço de trabalho onde estejam conectores MCP personalizados ou aplicativos em modo de desenvolvedor
-ativado, crie um conector/aplicativo personalizado, cole o mesmo MCP URL, escolha OAuth,
-ferramentas de verificação/descoberta, login com Agent-Native, aprovação dos escopos e ativação
-o conector em um bate-papo.
+ChatGPT: aplicativos MCP personalizados exigem um espaço de trabalho web do ChatGPT
+compatível. Se você tiver acesso, abra **Settings → Apps → Advanced settings**, ative o modo
+de desenvolvedor quando necessário, escolha **Create app**, cole a mesma URL MCP, escolha
+OAuth, faça a verificação das ferramentas, entre com sua conta Agent-Native, aprove os
+escopos solicitados e ative o aplicativo em um chat. Os espaços Business, Enterprise e Edu
+oferecem MCP completo, incluindo ações de escrita; o Pro oferece leitura e busca no modo de
+desenvolvedor. Se **Apps** ou **Create app** não aparecer, seu plano ou a política do espaço
+de trabalho não permite esta configuração.
 
 As concessões OAuth são por host e por usuário. O host armazena os tokens e
 media chamadas de ferramentas/recursos, para que as visualizações do aplicativo MCP in-line nunca recebam dados brutos

@@ -3,6 +3,7 @@ import { IconArrowLeft } from "@tabler/icons-react";
 import { Link, useParams, type LoaderFunctionArgs } from "react-router";
 
 import { BuilderImage } from "../components/builder-image";
+import { firstPartyAppUrl } from "../components/deployment-links";
 import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
@@ -149,11 +150,12 @@ export default function GenericTemplatePage() {
           </span>
         }
         title={t("templateDetail.title", { name: template.name })}
+        customizeTemplate={template}
         description={<p className="m-0">{description}</p>}
         headingAction={
           hasDemoUrl ? (
             <a
-              href={template.demoUrl}
+              href={firstPartyAppUrl(template.demoUrl)}
               target="_blank"
               rel="noopener noreferrer"
               className="primary-button"

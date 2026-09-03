@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -211,6 +212,47 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     expect(call.newTab).toBe(true);
     expect(call.tabId).toBe("existing-tab");
     expect(onContinue).toHaveBeenCalledWith("generated-tab-id");
+
+    await cleanup();
+  });
+
+  it("keeps answered questions on the existing design shell", async () => {
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      continuationTabId: null,
+    });
+
+    await act(async () => {
+      latestHook!.handleSubmit({ q1: "answer" });
+    });
+
+    const call = agentChatMocks.sendToDesignAgentChat.mock.calls[0]![0] as {
+      context?: string;
+    };
+    expect(call.context).toContain(
+      "The design shell already exists and is the only design to modify.",
+    );
+    expect(call.context).toContain(
+      'Use designId "design-1" for generation. Never call create-design',
+    );
+
+    await cleanup();
+  });
+
+  it("marks the continuation as the turn that must persist a design", async () => {
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      continuationTabId: null,
+    });
+
+    await act(async () => {
+      latestHook!.handleSkip();
+    });
+
+    const call = agentChatMocks.sendToDesignAgentChat.mock.calls[0]![0] as {
+      context?: string;
+    };
+    expect(call.context).toContain(DESIGN_MUTATION_REQUIRED_DIRECTIVE);
 
     await cleanup();
   });

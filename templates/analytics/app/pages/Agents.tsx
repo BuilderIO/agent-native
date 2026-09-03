@@ -134,7 +134,8 @@ function toCount(value: unknown): number {
 
 function DashboardUsageAdminPanel() {
   const t = useT();
-  const { formatDate } = useFormatters();
+  const formatters = useFormatters();
+  const formatDate = formatters.formatDate.bind(formatters);
   const numberFormat = useMemo(() => new Intl.NumberFormat(), []);
   const [sortBy, setSortBy] = useState<"views" | "edits">("views");
   const {

@@ -1,6 +1,6 @@
 ---
 title: "WebMCP"
-description: "Expose explicit Agent-Native client actions to browser agents and consume page-local WebMCP tools from Agent-Native chat."
+description: "Automatically expose Agent-Native actions to browser agents, register explicit client actions, and consume page-local WebMCP tools from Agent-Native chat."
 search: "WebMCP browser tools modelContext registerTool getTools executeTool browser session"
 ---
 
@@ -15,24 +15,89 @@ discover them, and the browser mediates execution.
 
 The framework supports both directions:
 
-<!-- i18n-copy-ignore: oxfmt-only table alignment; no translated prose changed. -->
-
 | You want to...                                                           | Use                                                                                                      |
 | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| Make selected actions in your app available to a browser agent           | `createAgentNativeWebMcpRegistration`                                                                    |
+| Make backend actions available to a browser agent                        | Automatic on authenticated pages through `AppProviders`                                                  |
+| Make page-local client actions available to a browser agent              | `createAgentNativeWebMcpRegistration`                                                                    |
 | Let Agent-Native chat discover and call WebMCP tools in the current page | `createAgentNativeWebMcpClient` plus `webmcp` on `AgentNativeEmbedded` or `AgentNativeFrame`             |
 | Connect a headless or remote agent to an app                             | [MCP Server](/docs/mcp-protocol), [External Agents](/docs/external-agents), or [A2A](/docs/a2a-protocol) |
 
 WebMCP is not a network MCP server and does not make a closed app globally
 discoverable. A consuming agent needs an open, connected browser page and the
-page must explicitly opt into the tools it exposes.
+page must expose tools to it.
 
 The browser API is experimental and may change. See the [Chrome WebMCP
 Imperative API](https://developer.chrome.com/docs/ai/webmcp/imperative-api) and
 the [WebMCP specification](https://webmachinelearning.github.io/webmcp/) for
 the current browser contract.
 
-## Produce WebMCP tools
+## Automatic backend actions
+
+On an authenticated app page, `AppProviders` automatically registers eligible
+backend actions with `document.modelContext`. The tools are derived from the
+same action registry used by the in-app agent and execute through the same
+validated, authenticated server dispatcher. This includes agent-only actions
+declared with `http: false`; WebMCP does not turn those actions into public HTTP
+APIs.
+
+The core also initializes `@mcp-b/webmcp-polyfill` when the browser does not
+provide a usable native WebMCP surface. This keeps `document.modelContext`
+available for a host browser JavaScript evaluator. The polyfill is page-local.
+It does not grant access to the page or create a network MCP connection.
+
+An action is eligible when `agentTool` is not `false` and `needsApproval` is
+not declared. The latter is a fail-closed boundary: the server action approval
+contract belongs to the agent loop and cannot be delegated to a browser hint.
+Authenticated `sessionBypass` surfaces, such as MCP embed routes, also register
+backend action tools. Public paths and signed-out pages do not. Browsers
+without `document.modelContext` simply keep the normal app behavior.
+
+No per-app WebMCP list or new `defineAction` metadata is required. Change the
+existing action definition when its exposure should change.
+
+## Use WebMCP from Claude Code or Cowork
+
+The ChatGPT app has named framework host tools for browser-session WebMCP.
+Other agents may expose the same capability through an MCP-B local relay or a
+browser JavaScript evaluator instead. The `/webmcp` skill tries the host bridge
+first, then the relay, then the evaluator.
+
+When a browser evaluator is the available path, it can call the live page API
+directly. The evaluator must run in the requested tab:
+
+```js
+const tools = await document.modelContext.getTools();
+const tool = tools.find(({ name }) => name === "create-deck");
+if (!tool) throw new Error("create-deck is unavailable in this tab");
+const result = await document.modelContext.executeTool(
+  tool,
+  JSON.stringify({ title: "Customer onboarding", slides: [] }),
+);
+return typeof result === "string" ? JSON.parse(result) : result;
+```
+
+`executeTool()` invokes the registered page callback. For framework backend
+actions, that callback uses the shared action dispatcher with the current
+browser session. Agents should list tools immediately before each mutation and
+pass the descriptor returned by that listing. They should not call an internal
+action `run()` function, hand-build an authenticated HTTP request, or use the
+visible developer console as the transport.
+
+For agents that use the MCP-B local relay, the page also needs the relay's
+browser embed script and the local MCP server must be configured in the agent
+host. The server exposes `webmcp_list_sources`, `webmcp_list_tools`, and the
+live page tools. Restrict the relay to the app origin instead of leaving its
+development default open:
+
+```bash
+npx @mcp-b/webmcp-local-relay@latest --widget-origin https://slides.agent-native.com
+```
+
+The strict polyfill makes the page API available, but it does not inject the
+relay embed script automatically. This separation prevents every deployed app
+from opening a local connection without the app owner's opt-in.
+
+## Explicit page-local actions
 
 Register only the actions that should be available to a page agent. The
 framework removes the action's local `run` function from the descriptor and
@@ -181,21 +246,62 @@ remote or headless tool calls, and use A2A when another app's agent should
 receive work and reason over it. WebMCP is an opt-in browser bridge, not a
 replacement for either network protocol.
 
-The framework does not auto-register every backend action as a WebMCP tool.
-Choose a small explicit producer list, keep side effects behind approval, and
-retain normal MCP or A2A exposure for capabilities that must work without an
-open browser page.
+The framework automatically projects eligible backend actions and still lets a
+page register explicit client-only capabilities. Keep server-side approval
+actions on the agent loop, and retain normal MCP or A2A exposure for
+capabilities that must work without an open browser page.
+
+## HTTP discovery and fetch fallback
+
+For agents that do not run a browser, Agent-Native also publishes an additive
+HTTP compatibility document at `GET /.well-known/mcp.json`. It is a small,
+fetchable capability catalog inspired by the practical WebMCP examples in the
+ecosystem. It is not part of the WebMCP browser specification and it is not a
+replacement for the standard MCP protocol.
+
+The document includes each eligible backend action's `endpoint`, `method`,
+`parameters` / `inputSchema`, `readOnly`, and `requiresAuth` fields. Call the
+endpoint with ordinary HTTP, for example:
+
+```ts
+const manifest = await fetch(
+  "https://app.example.com/.well-known/mcp.json",
+).then((response) => response.json());
+const tool = manifest.tools.find(({ name }) => name === "list-orders");
+
+const result = await fetch(tool.endpoint, {
+  method: tool.method,
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({}),
+}).then((response) => response.json());
+```
+
+`POST /mcp/tool/:name` uses the same validated action dispatcher as the
+existing `/_agent-native/webmcp/actions/:name` route. Authentication,
+authorization, approval, validation, and tenant scoping remain server-side;
+the compatibility document does not make protected actions public.
+
+The manifest links to the standard `/mcp` endpoint, the authenticated
+`/_agent-native/webmcp/manifest`, and the A2A agent card. Page-local client
+tools still require an open WebMCP-capable browser. Resource pages should also
+publish their own alternate JSON discovery link when their capabilities are
+scoped to a particular object. Clips does this: fetch its `agentContextUrl`,
+then use the advertised transcript and JPEG frame URLs directly. That HTTP
+path remains the complete, browser-independent fallback; the page tools are a
+bounded convenience when the clip is already open in a compatible browser.
 
 ## Compatibility and safety
 
-- Feature-detect `document.modelContext`; `supported` is false when the
-  browser has no WebMCP implementation.
+- Feature-detect `document.modelContext`; call
+  `initializeAgentNativeWebMcp()` when a standalone page needs the framework's
+  polyfill before creating a client or registration.
 - Keep `fromOrigins` and `exposedTo` to exact secure origins. Do not use `*` in
   production.
 - Treat descriptions, schemas, annotations, and results as page-provided
   data. The framework validates and bounds them, but agents should still treat
   `untrustedContentHint` results as untrusted content.
-- Use `stop()` when the owning page or component unmounts so stale tools do not
-  remain available.
+- Automatic registrations are aborted when the private app shell unmounts. Use
+  `stop()` for explicit page-local registrations so stale tools do not remain
+  available.
 - Keep server MCP and A2A endpoints for remote access. WebMCP only reaches the
   tools registered in a connected browser context.

@@ -28,6 +28,7 @@ vi.mock("@agent-native/core/a2a", () => ({
 
 import {
   delegateImageGenerationToAssets,
+  extractAssetImages,
   extractAssetUrl,
   extractAssetUrls,
   imagePreviewMarkdown,
@@ -167,6 +168,25 @@ describe("delegateImageGenerationToAssets", () => {
 });
 
 describe("extractAssetUrl", () => {
+  it("recovers both artifact endpoints from compact generation replies", () => {
+    const reply = JSON.stringify({
+      id: "asset-1",
+      runId: "run-1",
+      Artifacts: [
+        "previewUrl: https://cdn.example.com/asset-1.png (ID: asset-1, Run: run-1)",
+        "downloadUrl: https://assets.example.com/api/assets/asset-1/content?download=1",
+      ],
+    });
+
+    expect(extractAssetImages(reply)).toEqual([
+      {
+        previewUrl: "https://cdn.example.com/asset-1.png",
+        downloadUrl:
+          "https://assets.example.com/api/assets/asset-1/content?download=1",
+      },
+    ]);
+  });
+
   it("keeps a sentence-ending period out of the url", () => {
     expect(
       extractAssetUrl(

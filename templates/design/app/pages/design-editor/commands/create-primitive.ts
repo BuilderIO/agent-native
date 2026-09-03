@@ -122,7 +122,7 @@ export function runCreatePrimitive(
       ? (() => {
           const liveContent =
             ydoc && isSynced
-              ? ydoc.getText("content").toString()
+              ? ydoc.getText("content").toJSON()
               : ((collabContentFileIdRef.current === activeFile.id
                   ? collabContentRef.current
                   : null) ?? activeContent);

@@ -4,22 +4,32 @@ import {
   IconCopy,
   IconLink,
   IconLoader2,
-  IconPlayerPauseFilled,
-  IconPlayerPlayFilled,
-  IconRefresh,
-  IconTrash,
   IconX,
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
-import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
 import { emit, listen } from "@tauri-apps/api/event";
 import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useEffect, useRef, useState } from "react";
-import type { FocusEvent } from "react";
-import { flushSync } from "react-dom";
+import type { PointerEvent as ReactPointerEvent } from "react";
 
+import { RecordingPlayhead } from "../../../shared/recording-playhead";
+import type {
+  RecordingPlayheadConfirmChange,
+  RecordingPlayheadIntent,
+} from "../../../shared/recording-playhead";
+import {
+  positionRecordingPlayheadAtEdge,
+  RECORDING_PLAYHEAD_EDGE_THRESHOLD,
+} from "../../../shared/recording-playhead-position";
+import type {
+  RecordingPlayheadDock,
+  RecordingPlayheadDockLocation,
+  RecordingPlayheadDockMode,
+  RecordingPlayheadOrientation,
+  RecordingPlayheadSize,
+} from "../../../shared/recording-playhead-position";
 import { LiveWaveform } from "../components/live-waveform";
 import {
   completionCardState,
@@ -33,14 +43,21 @@ import type {
 import { toolbarEnabledEffect } from "../lib/pill-session";
 import type { PillMode } from "../lib/pill-session";
 
-const SEG_MS = 180;
-const HOVER_INTENT_MS = 150;
 // Within this distance of the right screen edge the pill anchors its RIGHT
 // edge and grows left instead, so growth never runs off-screen.
 const RIGHT_EDGE_ANCHOR_PX = 200;
+const NATIVE_LAYOUT_GUARD_MS = 1_500;
+const NATIVE_DOCK_SETTLE_MS = 32;
 const FINALIZING_RESULT_STORAGE_KEY = "clips-finalizing-result";
 
-type Seg = "mid" | "q" | "del" | "res" | "extras";
+const FALLBACK_HORIZONTAL_PLAYHEAD_SIZE: RecordingPlayheadSize = {
+  width: 150,
+  height: 42,
+};
+const FALLBACK_VERTICAL_PLAYHEAD_SIZE: RecordingPlayheadSize = {
+  width: 42,
+  height: 118,
+};
 
 type RecorderSession = {
   viewUrl?: string | null;
@@ -131,20 +148,10 @@ export function RecordingPill() {
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [enabled, setEnabled] = useState(demoMode);
+  const [toolbarVisible, setToolbarVisible] = useState(true);
   /** Demo harness only: the meter reads capture events in the real app. */
   const [demoLevel, setDemoLevel] = useState<number | null>(null);
   const [announcement, setAnnouncement] = useState("");
-  const [confirmQuestion, setConfirmQuestion] = useState("");
-  // What the confirm's action button does. Both intents share the confirm
-  // strip, but only delete is destructive-red; restart is a start-fresh
-  // action and wears the pill's white affirmative treatment, same family
-  // as Stop.
-  const [confirmIntent, setConfirmIntent] = useState<"delete" | "restart">(
-    "delete",
-  );
-  // Whether the delete confirm was entered from an already-paused recording:
-  // Esc then backs out to that pause, while the Resume button always resumes.
-  const confirmFromPausedRef = useRef(false);
   const [doneStage, setDoneStage] = useState<DoneStage>("finishing");
   const [doneDurationMs, setDoneDurationMs] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -152,6 +159,12 @@ export function RecordingPill() {
   const [pendingAction, setPendingAction] = useState<
     "restart" | "cancel" | null
   >(null);
+  const [playheadOrientation, setPlayheadOrientation] =
+    useState<RecordingPlayheadOrientation>("horizontal");
+  const [playheadDock, setPlayheadDockState] =
+    useState<RecordingPlayheadDock>("free");
+  const [playheadDockTransitioning, setPlayheadDockTransitioning] =
+    useState(false);
 
   const modeRef = useRef<PillMode>("recording");
   const elapsedRef = useRef(0);
@@ -161,29 +174,44 @@ export function RecordingPill() {
   const reducedRef = useRef(
     window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   );
-  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const revealedRef = useRef(false);
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const shrinkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const animatingUntilRef = useRef(0);
+  const toolbarDraggingRef = useRef(false);
+  const toolbarDragGenerationRef = useRef(0);
+  const toolbarMoveFrameRef = useRef<number | null>(null);
+  const toolbarMovePromiseRef = useRef<Promise<void> | null>(null);
+  const toolbarPendingMoveRef = useRef<{
+    generation: number;
+    startPromise: Promise<unknown>;
+  } | null>(null);
+  const toolbarDragStartPromiseRef = useRef<Promise<unknown>>(
+    Promise.resolve(),
+  );
+  const playheadOrientationRef =
+    useRef<RecordingPlayheadOrientation>("horizontal");
+  const playheadDockTransitioningRef = useRef(false);
+  const dockPreferenceReadyRef = useRef(false);
+  const playheadDockRef = useRef<RecordingPlayheadDock>("free");
+  const playheadSizesRef = useRef({
+    horizontal: FALLBACK_HORIZONTAL_PLAYHEAD_SIZE,
+    vertical: FALLBACK_VERTICAL_PLAYHEAD_SIZE,
+  });
+  const pendingNativeDockRef = useRef<{
+    x: number;
+    y: number;
+    mode: RecordingPlayheadDockMode;
+    location: RecordingPlayheadDockLocation | null;
+  } | null>(null);
+  const toolbarDismissedRef = useRef(false);
   const pauseTransitionRef = useRef<"pause" | "resume" | null>(null);
   const pauseTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const playheadConfirmOpenRef = useRef(false);
 
-  const settleBatchRef = useRef(0);
-  const pendingSegsRef = useRef<Set<Seg>>(new Set());
-  const finishSettleRef = useRef<(() => void) | null>(null);
-  const pillRef = useRef<HTMLDivElement | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
-  const segRefs = useRef<Record<Seg, HTMLSpanElement | null>>({
-    mid: null,
-    q: null,
-    del: null,
-    res: null,
-    extras: null,
-  });
 
   modeRef.current = mode;
   elapsedRef.current = elapsed;
@@ -197,53 +225,31 @@ export function RecordingPill() {
     }
   }
 
-  // ---- segment motion: measure natural width, animate exact pixels ----
-
-  function segInnerWidth(k: Seg): number {
-    const el = segRefs.current[k];
-    const inner = el?.firstElementChild as HTMLElement | null;
-    if (!inner) return 0;
-    return Math.ceil(inner.getBoundingClientRect().width);
-  }
-
-  function segCurrentWidth(k: Seg): number {
-    const el = segRefs.current[k];
-    if (!el) return 0;
-    return el.getBoundingClientRect().width;
-  }
-
-  function setSeg(k: Seg, open: boolean, delayMs = 0) {
-    const el = segRefs.current[k];
-    if (!el) return;
-    // A segment that still sits at `auto` (the Stop capsule before its first
-    // collapse) cannot animate FROM auto — snap it to its measured pixels
-    // and force a reflow so the width transition has a number to leave from.
-    if (!open && (!el.style.width || el.style.width === "auto")) {
-      el.style.transition = "none";
-      el.style.width = `${segCurrentWidth(k)}px`;
-      void el.offsetWidth;
-    }
-    const reduced = reducedRef.current;
-    el.style.transition = reduced
-      ? "none"
-      : `width ${SEG_MS}ms var(--pill-ease), opacity ${SEG_MS}ms ease`;
-    el.style.transitionDelay = reduced ? "0ms" : `${delayMs}ms`;
-    el.style.width = open ? `${segInnerWidth(k)}px` : "0px";
-    el.style.opacity = open ? "1" : "0";
+  function setPlayheadDock(
+    orientation: RecordingPlayheadOrientation,
+    dock: RecordingPlayheadDock,
+  ) {
+    playheadOrientationRef.current = orientation;
+    playheadDockRef.current = dock;
+    setPlayheadOrientation(orientation);
+    setPlayheadDockState(dock);
   }
 
   // Native window ops run strictly one at a time. Concurrent
   // setSize/setPosition sequences read stale rects out from under each other
   // and strand the window clipped and offset (a half-cut pill with content
   // painting past the window edge). Every op re-reads geometry at execution
-  // time inside the chain.
+  // time inside the chain. Resize requests are also coalesced: a fast hover
+  // reversal must not replay an obsolete intermediate frame after the newer
+  // layout has already won.
   const windowOpChainRef = useRef<Promise<void>>(Promise.resolve());
-  function queueWindowOp(op: () => Promise<void>) {
-    windowOpChainRef.current = windowOpChainRef.current
-      .then(op)
-      .catch((err) => {
-        console.warn("[record-pill] window op failed", err);
-      });
+  const resizeGenerationRef = useRef(0);
+  function queueWindowOp(op: () => Promise<void>): Promise<void> {
+    const queued = windowOpChainRef.current.then(op);
+    windowOpChainRef.current = queued.catch((err) => {
+      console.warn("[record-pill] window op failed", err);
+    });
+    return queued.catch(() => {});
   }
 
   /**
@@ -253,9 +259,14 @@ export function RecordingPill() {
    * holds and growth extends left. Height keeps the bottom edge fixed so the
    * taller completion card rises from where the pill sat.
    */
-  function resizeWindowTo(contentW: number, contentH: number) {
-    if (!hasTauri) return;
-    queueWindowOp(async () => {
+  function resizeWindowTo(contentW: number, contentH: number): Promise<void> {
+    if (!hasTauri) return Promise.resolve();
+    const resizeGeneration = ++resizeGenerationRef.current;
+    return queueWindowOp(async () => {
+      if (resizeGeneration !== resizeGenerationRef.current) return;
+      // Tauri emits `moved` for these programmatic anchor corrections too;
+      // keep them out of the persisted user drag position.
+      animatingUntilRef.current = Date.now() + NATIVE_LAYOUT_GUARD_MS;
       const win = getCurrentWindow();
       const [pos, size, scale, monitor] = await Promise.all([
         win.outerPosition(),
@@ -263,163 +274,270 @@ export function RecordingPill() {
         win.scaleFactor(),
         currentMonitor(),
       ]);
+      if (resizeGeneration !== resizeGenerationRef.current) return;
       const w = Math.ceil(contentW * scale);
       const h = Math.ceil(contentH * scale);
       let x = pos.x;
+      let y = pos.y + size.height - h;
+      const activeDock = playheadDockRef.current;
+      const dockToPersist = pendingNativeDockRef.current;
       if (monitor) {
         const monRight = monitor.position.x + monitor.size.width;
-        const nearRightEdge =
-          pos.x + size.width >=
-          monRight - Math.round(RIGHT_EDGE_ANCHOR_PX * scale);
-        if (nearRightEdge) x = pos.x + size.width - w;
-        // Never let growth push past the screen edge — macOS shoves the
-        // window back and the correction fights the next resize.
-        x = Math.min(x, monRight - w);
-        x = Math.max(x, monitor.position.x);
+        if (dockToPersist) {
+          x = dockToPersist.x;
+          y = dockToPersist.y;
+        } else if (activeDock !== "free") {
+          const docked = positionRecordingPlayheadAtEdge(
+            activeDock,
+            pos.x,
+            pos.y,
+            { width: w, height: h },
+            {
+              left: monitor.position.x,
+              top: monitor.position.y,
+              width: monitor.size.width,
+              height: monitor.size.height,
+            },
+            Math.round(16 * scale),
+          );
+          x = docked.left;
+          y = docked.top;
+        } else {
+          const nearRightEdge =
+            pos.x + size.width >=
+            monRight - Math.round(RIGHT_EDGE_ANCHOR_PX * scale);
+          if (nearRightEdge) x = pos.x + size.width - w;
+          // Never let growth push past the screen edge — macOS shoves the
+          // window back and the correction fights the next resize.
+          x = Math.min(x, monRight - w);
+          x = Math.max(x, monitor.position.x);
+          const monBottom = monitor.position.y + monitor.size.height;
+          // The vertical pill's bottom anchor can land below the visible
+          // desktop when it is pulled away from an edge and becomes horizontal.
+          y = Math.min(y, monBottom - h);
+          y = Math.max(y, monitor.position.y);
+        }
       }
-      const y = pos.y + size.height - h;
-      // Order the ops so the window never transiently overhangs: when the
-      // origin moves left/up (right-anchored growth), move first, then
-      // grow; otherwise grow first, then move.
-      if (x < pos.x || y < pos.y) {
-        await win.setPosition(new PhysicalPosition(x, y));
-        await win.setSize(new PhysicalSize(w, h));
-      } else {
-        await win.setSize(new PhysicalSize(w, h));
-        await win.setPosition(new PhysicalPosition(x, y));
+      // Position and size must land in one native frame transaction. Applying
+      // them separately makes a right-docked confirmation collapse against
+      // its old left edge before the small pill moves back to the right.
+      await invoke("toolbar_set_bounds", { x, y, width: w, height: h });
+      if (dockToPersist && pendingNativeDockRef.current === dockToPersist) {
+        pendingNativeDockRef.current = null;
+        await safeInvoke("toolbar_save_position", {
+          x,
+          y,
+          mode: dockToPersist.mode,
+          location: dockToPersist.location,
+        });
       }
     });
   }
 
+  function afterPaint(): Promise<void> {
+    return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  }
+
+  async function transitionPlayheadDock(
+    orientation: RecordingPlayheadOrientation,
+    dock: RecordingPlayheadDock,
+    positionToPersist: {
+      x: number;
+      y: number;
+      mode: RecordingPlayheadDockMode;
+      location: RecordingPlayheadDockLocation | null;
+    } | null,
+  ) {
+    playheadDockTransitioningRef.current = true;
+    setPlayheadDockTransitioning(true);
+    await afterPaint();
+
+    pendingNativeDockRef.current = positionToPersist;
+    setPlayheadDock(orientation, dock);
+    await afterPaint();
+
+    const fallback =
+      orientation === "vertical"
+        ? FALLBACK_VERTICAL_PLAYHEAD_SIZE
+        : FALLBACK_HORIZONTAL_PLAYHEAD_SIZE;
+    const measured = playheadSizesRef.current[orientation];
+    await resizeWindowTo(
+      measured.width || fallback.width,
+      measured.height || fallback.height,
+    );
+    await afterPaint();
+    playheadDockTransitioningRef.current = false;
+    setPlayheadDockTransitioning(false);
+  }
+
+  async function settleNativePlayheadDock() {
+    if (!hasTauri || modeRef.current === "done") return;
+    const win = getCurrentWindow();
+    const [monitor, position, size, scale] = await Promise.all([
+      currentMonitor(),
+      win.outerPosition(),
+      win.outerSize(),
+      win.scaleFactor(),
+    ]);
+    if (!monitor) return;
+    if (!dockPreferenceReadyRef.current) return;
+
+    const gutter = Math.round(16 * scale);
+    const edgeThreshold = Math.round(RECORDING_PLAYHEAD_EDGE_THRESHOLD * scale);
+    const viewport = {
+      left: monitor.position.x,
+      top: monitor.position.y,
+      width: monitor.size.width,
+      height: monitor.size.height,
+    };
+    const monitorRight = viewport.left + viewport.width;
+    const monitorBottom = viewport.top + viewport.height;
+    const sizes = {
+      horizontal: {
+        width: Math.ceil(playheadSizesRef.current.horizontal.width * scale),
+        height: Math.ceil(playheadSizesRef.current.horizontal.height * scale),
+      },
+      vertical: {
+        width: Math.ceil(playheadSizesRef.current.vertical.width * scale),
+        height: Math.ceil(playheadSizesRef.current.vertical.height * scale),
+      },
+    };
+    const nearLeft = position.x <= viewport.left + gutter + edgeThreshold;
+    const nearRight =
+      position.x + size.width >= monitorRight - gutter - edgeThreshold;
+    const nearTop = position.y <= viewport.top + gutter + edgeThreshold;
+    const nearBottom =
+      position.y + size.height >= monitorBottom - gutter - edgeThreshold;
+
+    // Docking is a post-drag decision. While the renderer-owned drag is active,
+    // the webview must not resize itself or fight the cursor-follow loop.
+    // Pulling a pill clear of every edge is the escape hatch back to a normal
+    // horizontal floating playhead.
+    const dock: RecordingPlayheadDockLocation | null = nearLeft
+      ? "left"
+      : nearRight
+        ? "right"
+        : nearTop
+          ? "top"
+          : nearBottom
+            ? "bottom"
+            : null;
+    if (!dock) {
+      const horizontalWidth = sizes.horizontal.width;
+      const horizontalHeight = sizes.horizontal.height;
+      // Preserve the point the user was holding through the axis change. A
+      // bottom-edge anchor makes a vertical pill leap when it becomes wide.
+      const nextX = Math.max(
+        monitor.position.x + gutter,
+        Math.min(
+          position.x + size.width / 2 - horizontalWidth / 2,
+          monitorRight - horizontalWidth - gutter,
+        ),
+      );
+      const nextY = Math.max(
+        monitor.position.y + gutter,
+        Math.min(
+          position.y + size.height / 2 - horizontalHeight / 2,
+          monitorBottom - horizontalHeight - gutter,
+        ),
+      );
+      const needsFloatingLayout =
+        playheadDockRef.current !== "free" ||
+        playheadOrientationRef.current !== "horizontal" ||
+        Math.abs(position.x - nextX) > 1 ||
+        Math.abs(position.y - nextY) > 1 ||
+        size.width !== horizontalWidth ||
+        size.height !== horizontalHeight;
+      if (needsFloatingLayout) {
+        await transitionPlayheadDock("horizontal", "free", {
+          x: nextX,
+          y: nextY,
+          mode: "floating",
+          location: null,
+        });
+      } else {
+        await safeInvoke("toolbar_save_position", {
+          x: nextX,
+          y: nextY,
+          mode: "floating",
+          location: null,
+        });
+      }
+      return;
+    }
+
+    const verticalDock = dock === "left" || dock === "right";
+    const nextSize = verticalDock ? sizes.vertical : sizes.horizontal;
+    const target = positionRecordingPlayheadAtEdge(
+      dock,
+      position.x + size.width / 2 - nextSize.width / 2,
+      position.y + size.height / 2 - nextSize.height / 2,
+      nextSize,
+      viewport,
+      gutter,
+    );
+    const alreadySettled =
+      playheadDockRef.current === dock &&
+      playheadOrientationRef.current ===
+        (verticalDock ? "vertical" : "horizontal");
+    if (
+      alreadySettled &&
+      Math.abs(position.x - target.left) <= 1 &&
+      Math.abs(position.y - target.top) <= 1
+    ) {
+      void safeInvoke("toolbar_save_position", {
+        x: target.left,
+        y: target.top,
+        mode: "docked",
+        location: dock,
+      });
+      return;
+    }
+    await transitionPlayheadDock(
+      verticalDock ? "vertical" : "horizontal",
+      dock,
+      {
+        x: target.left,
+        y: target.top,
+        mode: "docked",
+        location: dock,
+      },
+    );
+  }
+
+  function applyToolbarDockPreference(
+    mode: RecordingPlayheadDockMode,
+    location: RecordingPlayheadDockLocation,
+  ) {
+    if (!hasTauri) return;
+    dockPreferenceReadyRef.current = true;
+    pendingNativeDockRef.current = null;
+    if (mode === "floating") {
+      void transitionPlayheadDock("horizontal", "free", null);
+      return;
+    }
+    const verticalDock = location === "left" || location === "right";
+    void transitionPlayheadDock(
+      verticalDock ? "vertical" : "horizontal",
+      location,
+      null,
+    );
+  }
+
   function syncWindowToContent() {
-    const el =
-      (mode === "done" ? cardRef.current : pillRef.current) ?? pillRef.current;
+    const el = cardRef.current;
     if (!el) return;
     // offsetWidth/Height are layout metrics, immune to the card's scale-in
     // entrance — a rect measured mid-animation locks the window too narrow.
     resizeWindowTo(el.offsetWidth, el.offsetHeight);
   }
 
-  // Which segments are (or are animating toward) open. Live rects mid-flight
-  // under-measure a transition target, so the window budget is computed from
-  // this intent instead of from the DOM.
-  const openSegsRef = useRef<Record<Seg, boolean>>({
-    mid: true,
-    q: false,
-    del: false,
-    res: false,
-    extras: false,
-  });
-
-  /**
-   * Run one choreographed set of segment transitions: pre-grow the window to
-   * the post-transition budget (plus slack) so nothing clips, start every
-   * segment's width+opacity bar, then shrink to the exact measured rect once
-   * the last bar lands.
-   */
-  function transitionSegs(changes: Array<[Seg, boolean, number]>) {
-    const pill = pillRef.current;
-    if (!pill) return;
-    for (const [k, open] of changes) openSegsRef.current[k] = open;
-    const pillW = pill.getBoundingClientRect().width;
-    const segsW = (Object.keys(openSegsRef.current) as Seg[]).reduce(
-      (sum, k) => sum + segCurrentWidth(k),
-      0,
-    );
-    const staticW = pillW - segsW;
-    const targetW = (Object.keys(openSegsRef.current) as Seg[]).reduce(
-      (sum, k) => sum + (openSegsRef.current[k] ? segInnerWidth(k) : 0),
-      staticW,
-    );
-    const maxDelay = changes.reduce((m, [, , d]) => Math.max(m, d), 0);
-    const settleMs = reducedRef.current ? 16 : SEG_MS + maxDelay + 40;
-    animatingUntilRef.current = Date.now() + settleMs;
-    if (shrinkTimerRef.current) clearTimeout(shrinkTimerRef.current);
-    // Budget the window for whichever is wider, plus slack for measurement
-    // rounding — the settle pass snaps to the exact rect.
-    resizeWindowTo(
-      Math.ceil(Math.max(pillW, targetW)) + 12,
-      Math.ceil(pill.getBoundingClientRect().height),
-    );
-    // The settle is driven by the transitions actually ending, not by a
-    // timer — a throttled clock runs them late, and snapping on a fixed
-    // schedule cuts the choreography off mid-motion.
-    const batch = ++settleBatchRef.current;
-    pendingSegsRef.current.clear();
-    for (const [k, open, delay] of changes) {
-      const before = segCurrentWidth(k);
-      setSeg(k, open, delay);
-      const el = segRefs.current[k];
-      const after = el ? Number.parseFloat(el.style.width) : before;
-      if (!reducedRef.current && Math.abs(after - before) > 0.5) {
-        pendingSegsRef.current.add(k);
-      }
-    }
-    const finishSettle = () => {
-      if (settleBatchRef.current !== batch) return;
-      if (shrinkTimerRef.current) clearTimeout(shrinkTimerRef.current);
-      pendingSegsRef.current.clear();
-      animatingUntilRef.current = Date.now();
-      syncWindowToContent();
-    };
-    finishSettleRef.current = finishSettle;
-    if (pendingSegsRef.current.size === 0) {
-      finishSettle();
-      return;
-    }
-    // Dead-clock fallback: if the ends never fire, force every segment to
-    // its intended state so the pill can never strand half-open. Sized well
-    // past any late-running transition so it never clips a live one.
-    shrinkTimerRef.current = setTimeout(
-      () => {
-        if (settleBatchRef.current !== batch) return;
-        for (const k of Object.keys(openSegsRef.current) as Seg[]) {
-          const el = segRefs.current[k];
-          if (!el) continue;
-          el.style.transition = "none";
-          el.style.width = openSegsRef.current[k]
-            ? `${segInnerWidth(k)}px`
-            : "0px";
-          el.style.opacity = openSegsRef.current[k] ? "1" : "0";
-        }
-        finishSettle();
-      },
-      Math.max(1_000, settleMs * 3),
-    );
-  }
-
-  /** Snap every segment to its resting state (Stop visible, all confirm and
-   * hover segments collapsed) with no animation — used when the recorder
-   * disables the pill (restart teardown, session reset). */
+  /** Return the outer overlay to its idle state when a session ends. */
   function resetToRest() {
     revealedRef.current = false;
-    for (const k of ["q", "del", "res", "extras"] as Seg[]) {
-      const el = segRefs.current[k];
-      if (!el) continue;
-      el.style.transition = "none";
-      el.style.width = "0px";
-      el.style.opacity = "0";
-      openSegsRef.current[k] = false;
-    }
-    const mid = segRefs.current.mid;
-    if (mid) {
-      mid.style.transition = "none";
-      mid.style.width = "auto";
-      mid.style.opacity = "1";
-      openSegsRef.current.mid = true;
-    }
     setMode("recording");
     clearPauseTransition();
     setPaused(false);
-  }
-
-  // ---- reveal / confirm / done choreography ----
-
-  function reveal(open: boolean) {
-    if (open === revealedRef.current) return;
-    if (open && modeRef.current !== "recording") return;
-    revealedRef.current = open;
-    transitionSegs([["extras", open, 0]]);
   }
 
   const pausedRef = useRef(false);
@@ -443,55 +561,6 @@ export function RecordingPill() {
     }, 250);
     return () => clearInterval(t);
   }, [enabled, paused, mode]);
-
-  function enterConfirm(intent: "delete" | "restart") {
-    if (modeRef.current !== "recording") return;
-    const wasPaused = pausedRef.current;
-    confirmFromPausedRef.current = wasPaused;
-    setMode("confirm");
-    // The question's segment width is measured synchronously below, so the
-    // new text (and the action button's label) must be committed to the DOM
-    // before transitionSegs runs — without flushSync it would measure the
-    // previous (empty) question.
-    flushSync(() => {
-      setConfirmIntent(intent);
-      setConfirmQuestion(
-        intent === "delete"
-          ? `Delete ${formatDurationCopy(elapsedRef.current)}?`
-          : "Start a new recording?",
-      );
-    });
-    // Pause at the instant of the click — the deliberation must not end up
-    // in the clip. A recording already paused by hand stays exactly as the
-    // user left it, and exiting the confirm restores that state instead of
-    // resuming behind their back.
-    if (!wasPaused) applyPauseIntent("pause");
-    revealedRef.current = false;
-    transitionSegs([
-      ["extras", false, 0],
-      ["mid", false, 0],
-      ["q", true, 0],
-      ["del", true, 20],
-      ["res", true, 40],
-    ]);
-    setAnnouncement("Paused");
-  }
-
-  function exitConfirm(resume: boolean) {
-    if (modeRef.current !== "confirm") return;
-    setMode("recording");
-    if (resume && pausedRef.current) applyPauseIntent("resume");
-    else if (!resume && !confirmFromPausedRef.current) {
-      applyPauseIntent("resume");
-    }
-    transitionSegs([
-      ["res", false, 0],
-      ["del", false, 20],
-      ["q", false, 40],
-      ["mid", true, 40],
-    ]);
-    setAnnouncement(pausedRef.current ? "Paused" : "Recording");
-  }
 
   function applyPauseIntent(transition: "pause" | "resume") {
     clearPauseTransition();
@@ -529,7 +598,12 @@ export function RecordingPill() {
   function stop() {
     // Guarded through the ref: the tray-stop listener holds a first-render
     // closure of this function, where the `enabled` state is still false.
-    if (!enabledRef.current || modeRef.current === "done") return;
+    if (
+      !enabledRef.current ||
+      modeRef.current === "done" ||
+      playheadConfirmOpenRef.current
+    )
+      return;
     setDoneDurationMs(elapsedRef.current);
     // Every stop — hosted or local-only — starts as "finishing" and is only
     // called done by the completion event the stop actually produces. A
@@ -571,22 +645,18 @@ export function RecordingPill() {
     }, 3_000);
   }
 
-  function confirmDestructive() {
+  function confirmDestructive(intent: RecordingPlayheadIntent) {
     if (pendingAction) return;
-    // The confirm strip is a question about the session that is ending here.
-    // Leave it now, before either answer is dispatched: the restart path
-    // reuses this same window for the replacement take, and a pill still in
-    // `confirm` would come back with the old question up and Stop/Pause
-    // disabled. `pendingAction` (cleared by the next `toolbar-enabled`) keeps
-    // the restart/delete glyphs disabled meanwhile.
+    playheadConfirmOpenRef.current = false;
     resetToRest();
-    if (confirmIntent === "restart") {
+    if (intent === "restart") {
       setPendingAction("restart");
       setElapsed(0);
-      // Hide immediately — the restart teardown and fresh countdown follow,
-      // and recording controls must not sit on screen while no capture is
-      // live. The replacement session's `clips:toolbar-enabled` re-shows the
-      // pill at 0:00, reusing this window thanks to the finishing hold.
+      // Hide immediately — the restart teardown follows. The replacement
+      // session's `clips:toolbar-preparing` re-shows the disabled pill for its
+      // countdown, reusing this window when the finishing hold keeps it alive.
+      toolbarDismissedRef.current = true;
+      setToolbarVisible(false);
       setEnabled(false);
       void safeInvoke("set_toolbar_finishing", { hold: true }).then(() => {
         void safeEmit("clips:recorder-restart");
@@ -606,6 +676,8 @@ export function RecordingPill() {
     setPendingAction("cancel");
     // Vanish now — feedback must not wait on the recorder's teardown. The
     // window close (or its 3s fallback) follows behind.
+    toolbarDismissedRef.current = true;
+    setToolbarVisible(false);
     setEnabled(false);
     void safeEmit("clips:recorder-cancel").then(() =>
       scheduleCloseFallback("cancel"),
@@ -618,7 +690,21 @@ export function RecordingPill() {
         getCurrentWindow()
           .close()
           .catch(() => {});
+      else resetToRest();
     });
+  }
+
+  async function openRecording(url: string) {
+    try {
+      if (hasTauri) {
+        await openExternal(url);
+      } else if (!window.open(url, "_blank")) {
+        return;
+      }
+      dismissCard();
+    } catch (err) {
+      console.warn("[record-pill] opening recording failed:", err);
+    }
   }
 
   function handleUploadFinished(payload: NativeUploadFinished) {
@@ -677,9 +763,39 @@ export function RecordingPill() {
       ),
     );
     track(
+      safeListen("clips:toolbar-preparing", () => {
+        if (modeRef.current === "done") {
+          if (stallTimerRef.current) {
+            clearTimeout(stallTimerRef.current);
+            stallTimerRef.current = null;
+          }
+          setViewUrl(null);
+          setCopied(false);
+          setSavedLocally(false);
+          setDoneStage("finishing");
+          sessionRef.current = {};
+        }
+        setElapsed(0);
+        elapsedAnchorRef.current = null;
+        setPendingAction(null);
+        resetToRest();
+        toolbarDismissedRef.current = false;
+        setToolbarVisible(true);
+      }),
+    );
+    track(
+      safeListen("clips:toolbar-hidden", () => {
+        toolbarDismissedRef.current = true;
+        setToolbarVisible(false);
+      }),
+    );
+    track(
       safeListen<boolean>("clips:toolbar-enabled", (payload) => {
         setEnabled(!!payload);
         setPendingAction(null);
+        if (payload && !toolbarDismissedRef.current) {
+          setToolbarVisible(true);
+        }
         if (fallbackTimerRef.current) {
           clearTimeout(fallbackTimerRef.current);
           fallbackTimerRef.current = null;
@@ -786,38 +902,13 @@ export function RecordingPill() {
         }
       });
       for (const t of [
-        hoverTimerRef,
         fallbackTimerRef,
-        shrinkTimerRef,
         stallTimerRef,
         pauseTransitionTimerRef,
       ]) {
         if (t.current) clearTimeout(t.current);
       }
     };
-  }, []);
-
-  function handleSegTransitionEnd(e: React.TransitionEvent) {
-    if (e.propertyName !== "width") return;
-    const el = e.target as HTMLElement;
-    const entry = (Object.keys(segRefs.current) as Seg[]).find(
-      (k) => segRefs.current[k] === el,
-    );
-    if (!entry) return;
-    pendingSegsRef.current.delete(entry);
-    if (pendingSegsRef.current.size === 0) finishSettleRef.current?.();
-  }
-
-  // Escape resumes during confirm — window-level, per the spec.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && modeRef.current === "confirm") {
-        e.preventDefault();
-        exitConfirm(false);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   // Fit the native window to the measured pill once fonts have settled.
@@ -831,6 +922,24 @@ export function RecordingPill() {
       void document.fonts.ready.then(fit);
     } else {
       fit();
+    }
+    if (hasTauri) {
+      void safeInvoke<{
+        mode?: RecordingPlayheadDockMode;
+        location?: RecordingPlayheadDockLocation;
+      }>("toolbar_get_dock_preference").then((preference) => {
+        const mode =
+          preference?.mode === "docked" ? "docked" : ("floating" as const);
+        const location =
+          preference?.location === "right" ||
+          preference?.location === "top" ||
+          preference?.location === "bottom"
+            ? preference.location
+            : "left";
+        applyToolbarDockPreference(mode, location);
+      });
+    } else {
+      dockPreferenceReadyRef.current = true;
     }
     return () => {
       cancelled = true;
@@ -864,40 +973,6 @@ export function RecordingPill() {
     });
   }, [mode]);
 
-  // Persist the dragged position, debounced, only while at rest so a grown
-  // pill never becomes the stored anchor.
-  useEffect(() => {
-    if (!hasTauri) return;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let unlisten: (() => void) | null = null;
-    void getCurrentWindow()
-      .onMoved(() => {
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(() => {
-          if (
-            modeRef.current !== "recording" ||
-            revealedRef.current ||
-            Date.now() < animatingUntilRef.current
-          ) {
-            return;
-          }
-          void getCurrentWindow()
-            .outerPosition()
-            .then((pos) =>
-              safeInvoke("toolbar_save_position", { x: pos.x, y: pos.y }),
-            );
-        }, 600);
-      })
-      .then((u) => {
-        unlisten = u;
-      })
-      .catch(() => {});
-    return () => {
-      if (timer) clearTimeout(timer);
-      unlisten?.();
-    };
-  }, []);
-
   // Demo drive for browser previews (no Tauri): tick the timer and meter.
   useEffect(() => {
     if (!demoMode) return;
@@ -929,7 +1004,7 @@ export function RecordingPill() {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => syncWindowToContent(), 120);
     });
-    const el = mode === "done" ? cardRef.current : pillRef.current;
+    const el = mode === "done" ? cardRef.current : null;
     if (el) observer.observe(el);
     return () => {
       if (timer) clearTimeout(timer);
@@ -937,20 +1012,20 @@ export function RecordingPill() {
     };
   }, [mode]);
 
-  // The pill owns its window's visibility: hidden through pre-record and the
-  // countdown, shown the moment capture is live, and kept up while the
-  // completion card is open. Rust never shows this window itself.
+  // The pill owns its window's visibility: shown in its disabled state while
+  // preparing/counting down, enabled once capture is live, and kept up while
+  // the completion card is open. Rust never shows this window itself.
   const visibleRef = useRef(false);
   useEffect(() => {
     if (!hasTauri) return;
-    const visible = enabled || mode === "done";
+    const visible = toolbarVisible;
     if (visibleRef.current === visible) return;
     visibleRef.current = visible;
     if (visible) syncWindowToContent();
     queueWindowOp(async () => {
       await invoke("toolbar_set_visible", { visible });
     });
-  }, [enabled, mode]);
+  }, [toolbarVisible]);
 
   // The pill is also the single writer of the menu bar's recording mode:
   // stop square + ticking timer exactly while capture is live, the app logo
@@ -986,39 +1061,125 @@ export function RecordingPill() {
 
   // ---- interactions ----
 
-  function handleMouseEnter() {
-    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-    hoverTimerRef.current = setTimeout(() => reveal(true), HOVER_INTENT_MS);
-  }
-  function handleMouseLeave() {
-    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-    reveal(false);
-  }
-  function handleFocusCapture() {
-    reveal(true);
-  }
-  function handleBlurCapture(e: FocusEvent<HTMLDivElement>) {
-    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
-    reveal(false);
+  function queueToolbarDragMove(
+    generation: number,
+    startPromise: Promise<unknown>,
+  ): Promise<void> {
+    toolbarPendingMoveRef.current = { generation, startPromise };
+    if (toolbarMovePromiseRef.current) return toolbarMovePromiseRef.current;
+
+    const movePromise = (async () => {
+      while (toolbarPendingMoveRef.current) {
+        const pendingMove = toolbarPendingMoveRef.current;
+        toolbarPendingMoveRef.current = null;
+        await pendingMove.startPromise;
+        if (
+          !toolbarDraggingRef.current ||
+          toolbarDragGenerationRef.current !== pendingMove.generation
+        ) {
+          continue;
+        }
+        await safeInvoke("toolbar_drag_move");
+      }
+    })();
+    toolbarMovePromiseRef.current = movePromise;
+    void movePromise.then(() => {
+      if (toolbarMovePromiseRef.current !== movePromise) return;
+      toolbarMovePromiseRef.current = null;
+      const pendingMove = toolbarPendingMoveRef.current;
+      if (pendingMove) {
+        void queueToolbarDragMove(
+          pendingMove.generation,
+          pendingMove.startPromise,
+        );
+      }
+    });
+    return movePromise;
   }
 
-  function handlePillMouseDown(e: React.MouseEvent) {
-    if (e.button !== 0) return;
-    const target = e.target as HTMLElement;
-    if (target.closest("button")) return;
-    // During confirm only Delete, Resume, or Esc answer the question — a
-    // stray tap must never resume the recording.
-    if (hasTauri) {
-      getCurrentWindow()
-        .startDragging()
-        .catch(() => {});
+  async function waitForToolbarDragMoves(generation: number): Promise<void> {
+    while (toolbarDragGenerationRef.current === generation) {
+      const movePromise = toolbarMovePromiseRef.current;
+      if (!movePromise) return;
+      await movePromise;
     }
   }
 
-  const inConfirm = mode === "confirm";
-  const showPaused = paused;
-  const meterFlat = showPaused || !enabled;
-  const timerText = formatTimer(elapsed);
+  function handlePillPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!hasTauri || event.pointerType !== "mouse" || event.button !== 0) {
+      return;
+    }
+    const target = event.target as HTMLElement;
+    if (target.closest("[data-recording-playhead-button]")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    toolbarDraggingRef.current = true;
+    ++toolbarDragGenerationRef.current;
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // coercion-ok: pointer capture is optional; native dragging remains authoritative
+      // Pointer capture is best-effort; the native window can still finish a
+      // short drag before the pointer leaves the overlay.
+    }
+    toolbarDragStartPromiseRef.current = safeInvoke("toolbar_drag_start");
+  }
+
+  function handlePillPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (
+      !toolbarDraggingRef.current ||
+      event.pointerType !== "mouse" ||
+      toolbarMoveFrameRef.current !== null
+    ) {
+      return;
+    }
+    event.preventDefault();
+    const generation = toolbarDragGenerationRef.current;
+    const startPromise = toolbarDragStartPromiseRef.current;
+    toolbarMoveFrameRef.current = requestAnimationFrame(() => {
+      toolbarMoveFrameRef.current = null;
+      if (
+        !toolbarDraggingRef.current ||
+        toolbarDragGenerationRef.current !== generation
+      ) {
+        return;
+      }
+      // Rust reads the live cursor, so keep one move in flight and retain only
+      // the newest pending frame instead of replaying stale cursor samples.
+      void queueToolbarDragMove(generation, startPromise);
+    });
+  }
+
+  function handlePillPointerEnd(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!toolbarDraggingRef.current || event.pointerType !== "mouse") return;
+    toolbarDraggingRef.current = false;
+    const generation = toolbarDragGenerationRef.current;
+    const startPromise = toolbarDragStartPromiseRef.current;
+    if (toolbarMoveFrameRef.current !== null) {
+      cancelAnimationFrame(toolbarMoveFrameRef.current);
+      toolbarMoveFrameRef.current = null;
+    }
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // coercion-ok: the platform may release capture before this best-effort cleanup
+      // The pointer may already have been released by the platform.
+    }
+    void (async () => {
+      await startPromise;
+      await waitForToolbarDragMoves(generation);
+      if (toolbarDragGenerationRef.current !== generation) return;
+      await safeInvoke("toolbar_drag_move");
+      if (toolbarDragGenerationRef.current !== generation) return;
+      await safeInvoke("toolbar_drag_end");
+      if (toolbarDragGenerationRef.current !== generation) return;
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, NATIVE_DOCK_SETTLE_MS),
+      );
+      if (toolbarDragGenerationRef.current !== generation) return;
+      void settleNativePlayheadDock();
+    })();
+  }
 
   const card = completionCardState(doneStage, {
     hasLink: Boolean(viewUrl),
@@ -1041,7 +1202,7 @@ export function RecordingPill() {
   return (
     <div
       data-tw-surface
-      className="record-pill-scope flex h-screen w-screen select-none items-end"
+      className={`record-pill-scope flex h-screen w-screen select-none ${mode === "done" || (playheadOrientation === "horizontal" && playheadDock !== "top") ? "items-end" : "items-start"}`}
     >
       <div aria-live="polite" className="sr-only">
         {announcement}
@@ -1115,10 +1276,7 @@ export function RecordingPill() {
               <>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (hasTauri) void openExternal(viewUrl).catch(() => {});
-                    else window.open(viewUrl, "_blank");
-                  }}
+                  onClick={() => void openRecording(viewUrl)}
                   className="h-[34px] flex-1 rounded-lg bg-[var(--pill-card-ink)] text-[13px] font-semibold text-[var(--pill-on-chrome)]"
                 >
                   Open
@@ -1135,145 +1293,73 @@ export function RecordingPill() {
           </div>
         </div>
       ) : (
-        <div
-          ref={pillRef}
-          onMouseDown={handlePillMouseDown}
-          onTransitionEnd={handleSegTransitionEnd}
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
-          onFocusCapture={handleFocusCapture}
-          onBlurCapture={handleBlurCapture}
-          className={`flex h-[42px] flex-none items-center rounded-full bg-[var(--pill-chrome)] p-1.5 text-[var(--pill-on-chrome)] ${enabled ? "" : "opacity-80"}`}
-        >
-          <button
-            type="button"
-            onClick={stop}
-            disabled={!enabled || inConfirm}
-            aria-label="Stop and save"
-            className="flex size-[30px] flex-none items-center justify-center rounded-full transition-colors duration-150 disabled:cursor-default"
-            style={{
-              color: showPaused ? "var(--pill-ghost-ink)" : "var(--pill-rec)",
-            }}
-          >
-            <span
-              aria-hidden
-              className="size-[13px] rounded-[3px] bg-current"
+        <RecordingPlayhead
+          elapsedMs={elapsed}
+          paused={paused}
+          enabled={enabled}
+          pendingAction={pendingAction}
+          meter={
+            <LiveWaveform
+              sources="mic"
+              dimmed={paused || !enabled}
+              level={demoMode ? demoLevel : null}
             />
-          </button>
-          <span
-            aria-live="off"
-            className="record-pill-mono ml-1.5 flex-none text-sm font-medium transition-colors duration-150"
-            style={{
-              color: showPaused ? "var(--pill-on-chrome)" : "var(--pill-rec)",
-            }}
-          >
-            {timerText}
-          </span>
-          <span
-            ref={(el) => {
-              segRefs.current.mid = el;
-            }}
-            className="record-pill-seg"
-            style={{ width: "auto", opacity: 1 }}
-          >
-            <span className="inline-flex flex-none items-center">
-              <LiveWaveform
-                className="ml-3.5 h-3.5 w-[18px] flex-none"
-                sources="mic"
-                dimmed={meterFlat}
-                level={demoMode ? demoLevel : null}
-              />
-              <button
-                type="button"
-                onClick={togglePause}
-                disabled={!enabled || inConfirm}
-                aria-label={showPaused ? "Resume" : "Pause"}
-                className="ml-1.5 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] transition-colors duration-150 hover:text-[var(--pill-on-chrome)] disabled:cursor-default disabled:opacity-50"
-              >
-                {showPaused ? (
-                  <IconPlayerPlayFilled size={14} aria-hidden />
-                ) : (
-                  <IconPlayerPauseFilled size={14} aria-hidden />
-                )}
-              </button>
-            </span>
-          </span>
-          <span
-            ref={(el) => {
-              segRefs.current.q = el;
-            }}
-            className="record-pill-seg"
-          >
-            <span className="inline-flex flex-none items-center">
-              <span className="pl-2.5 text-xs whitespace-nowrap text-[var(--pill-q-ink)]">
-                {confirmQuestion}
-              </span>
-            </span>
-          </span>
-          <span
-            ref={(el) => {
-              segRefs.current.del = el;
-            }}
-            className="record-pill-seg"
-          >
-            <span className="inline-flex flex-none items-center">
-              <button
-                type="button"
-                onClick={confirmDestructive}
-                className={`ml-2.5 flex h-7 flex-none items-center rounded-full px-3.5 text-xs font-semibold ${confirmIntent === "delete" ? "bg-[var(--pill-rec)] text-[var(--pill-on-chrome)]" : "bg-[var(--pill-on-chrome)] text-[var(--pill-chrome)]"}`}
-              >
-                {confirmIntent === "delete" ? "Delete" : "Restart"}
-              </button>
-            </span>
-          </span>
-          <span
-            ref={(el) => {
-              segRefs.current.res = el;
-            }}
-            className="record-pill-seg"
-          >
-            <span className="inline-flex flex-none items-center">
-              <button
-                type="button"
-                onClick={() => exitConfirm(true)}
-                className="ml-2 flex h-7 flex-none items-center rounded-full bg-[var(--pill-soft)] px-3.5 text-xs font-semibold text-[var(--pill-on-chrome)]"
-              >
-                Resume
-              </button>
-            </span>
-          </span>
-          <span
-            ref={(el) => {
-              segRefs.current.extras = el;
-            }}
-            className="record-pill-seg"
-          >
-            <span className="inline-flex flex-none items-center">
-              <span
-                aria-hidden
-                className="ml-1.5 h-[18px] w-px flex-none bg-[var(--pill-soft)]"
-              />
-              <button
-                type="button"
-                onClick={() => enterConfirm("restart")}
-                disabled={!enabled || !!pendingAction}
-                aria-label="Restart recording"
-                className="ml-1.5 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] hover:text-[var(--pill-on-chrome)]"
-              >
-                <IconRefresh size={14} stroke={2} aria-hidden />
-              </button>
-              <button
-                type="button"
-                onClick={() => enterConfirm("delete")}
-                disabled={!enabled || !!pendingAction}
-                aria-label="Delete recording"
-                className="ml-0 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] hover:text-[var(--pill-on-chrome)]"
-              >
-                <IconTrash size={14} stroke={2} aria-hidden />
-              </button>
-            </span>
-          </span>
-        </div>
+          }
+          labels={{
+            controls: "Recording controls",
+            stop: "Stop and save",
+            pause: "Pause",
+            resume: "Resume",
+            pauseShortcut: "Pause (⌥⇧P)",
+            resumeShortcut: "Resume (⌥⇧P)",
+            restart: "Restart recording",
+            restartShortcut: "Restart (⌥⇧R)",
+            delete: "Delete recording",
+            deleteShortcut: "Delete (⌥⇧C)",
+            restartQuestion: "Start a new recording?",
+            deleteQuestion: (durationMs) =>
+              `Delete ${formatDurationCopy(durationMs)}?`,
+            restartConfirm: "Restart",
+            deleteConfirm: "Delete",
+            resumeConfirm: "Resume",
+          }}
+          onStop={stop}
+          onTogglePause={togglePause}
+          onConfirmAction={confirmDestructive}
+          onConfirmChange={(change: RecordingPlayheadConfirmChange) => {
+            if (change.type === "open") {
+              playheadConfirmOpenRef.current = true;
+              if (!change.enteredPaused) applyPauseIntent("pause");
+              setAnnouncement("Paused");
+              return;
+            }
+            playheadConfirmOpenRef.current = false;
+            if (change.resume || !change.enteredPaused) {
+              applyPauseIntent("resume");
+            }
+            setAnnouncement(change.resume ? "Recording" : "Paused");
+          }}
+          onExpandedChange={(expanded) => {
+            revealedRef.current = expanded;
+          }}
+          onLayoutChange={(layout) => {
+            const nextLayout = {
+              width: Math.ceil(layout.width),
+              height: Math.ceil(layout.height),
+            };
+            playheadSizesRef.current[playheadOrientationRef.current] =
+              nextLayout;
+            if (!playheadDockTransitioningRef.current) {
+              void resizeWindowTo(nextLayout.width, nextLayout.height);
+            }
+          }}
+          orientation={playheadOrientation}
+          onPointerDown={handlePillPointerDown}
+          onPointerMove={handlePillPointerMove}
+          onPointerUp={handlePillPointerEnd}
+          onPointerCancel={handlePillPointerEnd}
+          className={`${enabled ? "" : "opacity-80"} ${playheadDockTransitioning ? "opacity-0" : "transition-opacity duration-100"}`}
+        />
       )}
     </div>
   );

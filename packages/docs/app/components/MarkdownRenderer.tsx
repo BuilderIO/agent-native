@@ -16,7 +16,7 @@ import {
 } from "./builder-image-urls";
 import {
   DEFAULT_DOCS_LOCALE,
-  localizeDocsHref,
+  localizeSiteHref,
   type DocsLocale,
 } from "./docs-locale";
 import { slugifyHeading } from "./heading-slug";
@@ -328,7 +328,7 @@ function createRenderer(locale: DocsLocale) {
     const text = this.parser.parseInline(token.tokens);
     if (!isSafeUrl(token.href, "link")) return text;
     const title = token.title ? ` title="${escapeHtml(token.title)}"` : "";
-    const href = localizeDocsHref(token.href, locale);
+    const href = localizeSiteHref(token.href, locale);
     return `<a href="${escapeHtml(href)}"${title}>${text}</a>`;
   };
 
@@ -528,7 +528,7 @@ export default function MarkdownRenderer({
       if (!cancelled) setHighlightedHtml({ sourceHtml: html, html: result });
     }
 
-    highlightCodeBlocks(baseHtml);
+    void highlightCodeBlocks(baseHtml);
     return () => {
       cancelled = true;
     };

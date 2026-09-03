@@ -1,6 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
+import { resolveUserProfileName } from "@agent-native/core/user-profile";
+import { getUserProfiles } from "@agent-native/core/user-profile/server";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -21,8 +23,9 @@ function escapeLike(value: string): string {
 export default defineAction({
   description:
     "List design projects accessible to the current user. Pass page and " +
-    "pageSize for pagination; omit them for the complete lightweight list. " +
-    "Returns optional HTML previews.",
+    "pageSize for pagination; omitted values use the first bounded page. " +
+    "Set includeAll only for a lightweight UI picker; it returns the first " +
+    "bounded picker page. Returns optional HTML previews.",
   schema: z.object({
     page: z.coerce
       .number()
@@ -37,6 +40,12 @@ export default defineAction({
       .max(DESIGN_LIST_MAX_PAGE_SIZE)
       .optional()
       .describe("Maximum designs returned in this page"),
+    includeAll: z
+      .boolean()
+      .optional()
+      .describe(
+        "Set to true only for a lightweight UI picker; it returns the first bounded picker page and hasMore when more exist.",
+      ),
     createdBy: z
       .enum(["all", "me"])
       .optional()
@@ -63,9 +72,11 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   run: async (args) => {
-    const isPaginated = args.page !== undefined || args.pageSize !== undefined;
-    const page = args.page ?? 1;
-    const pageSize = args.pageSize ?? DESIGN_LIST_DEFAULT_PAGE_SIZE;
+    const includeAll = args.includeAll === true;
+    const page = includeAll ? 1 : (args.page ?? 1);
+    const pageSize = includeAll
+      ? DESIGN_LIST_MAX_PAGE_SIZE
+      : (args.pageSize ?? DESIGN_LIST_DEFAULT_PAGE_SIZE);
     const ownerEmail = getRequestUserEmail()?.trim().toLowerCase() || null;
     if (args.createdBy === "me" && !ownerEmail) {
       return {
@@ -90,7 +101,7 @@ export default defineAction({
         ? sql`lower(${schema.designs.title}) LIKE ${`%${escapeLike(search)}%`} ESCAPE '\\'`
         : undefined,
     );
-    const offset = isPaginated ? (page - 1) * pageSize : 0;
+    const offset = (page - 1) * pageSize;
 
     // Project only the columns the list path uses. The `data` TEXT column holds
     // the full design JSON (tweaks, selections, etc.) which can be large and is
@@ -110,9 +121,7 @@ export default defineAction({
       .from(schema.designs)
       .where(where)
       .orderBy(desc(schema.designs.updatedAt), desc(schema.designs.id));
-    const rowsPromise = isPaginated
-      ? designsQuery.limit(pageSize).offset(offset)
-      : designsQuery;
+    const rowsPromise = designsQuery.limit(pageSize).offset(offset);
     const [countRows, rows] = await Promise.all([
       db
         .select({ count: sql<number>`count(*)` })
@@ -166,6 +175,11 @@ export default defineAction({
       }
     }
 
+    const profiles =
+      args.compact === "true"
+        ? new Map()
+        : await getUserProfiles(rows.map((row) => row.ownerEmail));
+
     const items = rows.map((row) => {
       if (args.compact === "true") {
         return {
@@ -182,6 +196,11 @@ export default defineAction({
         designSystemId: row.designSystemId,
         visibility: row.visibility,
         ownerEmail: row.ownerEmail,
+        ownerName: resolveUserProfileName(
+          row.ownerEmail,
+          null,
+          profiles.get(row.ownerEmail.toLowerCase())?.name,
+        ),
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       };
@@ -191,20 +210,14 @@ export default defineAction({
       return base;
     });
 
-    const hasMore = isPaginated && offset + rows.length < totalCount;
-    const totalPages = isPaginated
-      ? Math.ceil(totalCount / pageSize)
-      : totalCount > 0
-        ? 1
-        : 0;
+    const hasMore = offset + rows.length < totalCount;
+    const totalPages = Math.ceil(totalCount / pageSize);
     return {
       count: totalCount,
       totalCount,
       hasMore,
       page,
-      pageSize: isPaginated
-        ? pageSize
-        : totalCount || DESIGN_LIST_DEFAULT_PAGE_SIZE,
+      pageSize,
       totalPages,
       designs: items,
     };

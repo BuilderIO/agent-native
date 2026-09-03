@@ -123,6 +123,16 @@ describe("defineAction", () => {
     expect(action.parallelSafe).toBe(true);
   });
 
+  it("preserves explicit endsTurn metadata", () => {
+    const action = defineAction({
+      description: "puts a question form on screen",
+      parameters: { x: { type: "string" } },
+      endsTurn: true,
+      run: async () => "ok",
+    });
+    expect(action.endsTurn).toBe(true);
+  });
+
   it("preserves explicit duplicate-read opt-out metadata", () => {
     const action = defineAction({
       description: "volatile polling read",
@@ -272,6 +282,17 @@ describe("defineAction", () => {
     expect(action.mcpApp?.resource.csp).toEqual({
       connectDomains: ["https://mail.agent-native.com"],
     });
+  });
+
+  it("preserves an action title for WebMCP and MCP hosts", () => {
+    const action = defineAction({
+      title: "Review draft",
+      description: "review draft",
+      parameters: {},
+      run: async () => "ok",
+    });
+
+    expect(action.tool.title).toBe("Review draft");
   });
 
   it("drops malformed MCP Apps config", () => {

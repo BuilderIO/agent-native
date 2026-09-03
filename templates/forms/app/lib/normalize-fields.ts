@@ -1,5 +1,7 @@
 import type { FormField, FormFieldType } from "@shared/types";
 
+import type { AppFormFieldType } from "@/lib/form-field-types";
+
 // Single source of truth for coercing FormField[] coming back from the API
 // into a renderable shape. Both the agent and the UI can write arbitrary
 // JSON into form.fields — this helper protects every React consumer from:
@@ -11,7 +13,7 @@ import type { FormField, FormFieldType } from "@shared/types";
 // FieldRenderer keeps its own `dedupeRenderableOptions` for the *builder*
 // preview where the user is mid-typing — that handles transient live-edit
 // state, not stored data.
-const KNOWN_FIELD_TYPES: FormFieldType[] = [
+const KNOWN_FIELD_TYPES: AppFormFieldType[] = [
   "text",
   "email",
   "number",
@@ -23,6 +25,7 @@ const KNOWN_FIELD_TYPES: FormFieldType[] = [
   "date",
   "rating",
   "scale",
+  "file",
 ];
 
 function coerceOptionToString(raw: unknown): string | null {
@@ -34,7 +37,15 @@ function coerceOptionToString(raw: unknown): string | null {
     if (typeof v.value === "string") return v.value;
     return "";
   }
-  return String(raw);
+  if (
+    typeof raw === "number" ||
+    typeof raw === "boolean" ||
+    typeof raw === "bigint" ||
+    typeof raw === "symbol"
+  ) {
+    return String(raw);
+  }
+  return JSON.stringify(raw);
 }
 
 export function normalizeFields(fields: FormField[] | undefined): FormField[] {

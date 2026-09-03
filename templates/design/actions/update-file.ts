@@ -5,22 +5,23 @@ import {
   applyText,
   seedFromText,
 } from "@agent-native/core/collab";
-import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { isPostgres } from "@agent-native/core/db";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { withSourceFileWriteLock } from "../server/source-workspace.js";
 import { assertDesignHtmlEditIntegrity } from "../shared/html-integrity.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 
 // TEMPORARY diagnostic — remove once we've read a few real conflicts in prod.
-// Conflicts are now benign 409s the framework no longer error-logs; this keeps
-// them visible in Netlify, and `content-conflict`'s cacheIsStale field tells us
-// whether they're the multi-instance stale-cache phantom (→ worth the core
-// reload fix) or a genuine concurrent writer (→ 409-rebase is already correct).
+// Conflicts are benign 409s the framework no longer error-logs, so they are
+// otherwise invisible in Netlify. Every remaining one should be a genuine
+// concurrent writer now that core's ydoc-manager re-checks the stored version
+// instead of answering from whatever this instance loaded first.
 function logSaveConflictDebug(
   event: string,
   detail: Record<string, unknown>,
@@ -198,6 +199,7 @@ export default defineAction({
     }
 
     await assertAccess("design", file.designId, "editor");
+    await snapshotDesignBeforeAgentEdit(file.designId, context);
 
     // Optimistic-concurrency guard (cross-pipeline write-race fix): a content
     // update here is a FULL-document write that, when syncCollab runs, is
@@ -269,12 +271,10 @@ export default defineAction({
               fileType ?? persistedFile.fileType ?? file.fileType ?? "html",
           });
         }
-        if (
-          content !== undefined &&
-          context?.caller !== "frontend" &&
-          (fileType === "html" ||
-            liveContent.includes("data-agent-native-locked"))
-        ) {
+        // Applicability belongs to the guard, which cheaply short-circuits
+        // when neither side carries a lock. Gating on the REQUEST's fileType
+        // let a content-only save add a lock the live document never had.
+        if (content !== undefined && context?.caller !== "frontend") {
           assertLockedLayersPreserved(liveContent, content);
         }
         const hasVersionedContentOperation =
@@ -408,25 +408,6 @@ export default defineAction({
                 skippedStaleMirror = true;
               }
             } else {
-              const liveContentHash = sourceContentHash(liveContent);
-              // Diagnostic probe (never affects the outcome): `getText` read this
-              // instance's Y.Doc cache, never re-hydrated from the DB. Compare it
-              // to the freshly persisted text_snapshot so the log distinguishes a
-              // multi-instance stale cache (cacheIsStale) from a genuine writer.
-              let freshDbLiveHash: string | null = null;
-              try {
-                const { rows } = await getDbExec().execute({
-                  sql: "SELECT text_snapshot FROM _collab_docs WHERE doc_id = ?",
-                  args: [id],
-                });
-                if (rows.length > 0) {
-                  freshDbLiveHash = sourceContentHash(
-                    String(rows[0]?.text_snapshot ?? ""),
-                  );
-                }
-              } catch {
-                // diagnostic only
-              }
               logSaveConflictDebug("content-conflict", {
                 id,
                 caller: context?.caller,
@@ -434,12 +415,8 @@ export default defineAction({
                 operationRevision: operationRevision ?? null,
                 expectedVersionHash,
                 sentContentHash: sourceContentHash(content),
-                liveContentHash,
+                liveContentHash: sourceContentHash(liveContent),
                 persistedMirrorHash: persistedContentHash,
-                cacheIsStale:
-                  freshDbLiveHash !== null &&
-                  freshDbLiveHash !== liveContentHash,
-                freshDbMatchesExpected: freshDbLiveHash === expectedVersionHash,
               });
               // 409 (statusCode), not a bare 500: an expected optimistic-
               // concurrency outcome the framework returns verbatim and the client

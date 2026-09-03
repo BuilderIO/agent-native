@@ -150,6 +150,64 @@ CREATE INDEX IF NOT EXISTS form_shares_resource_idx ON form_shares (resource_id,
         sqlite: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS client_surface TEXT`,
       },
     },
+    {
+      version: 13,
+      name: "responses-idempotency-key",
+      sql: {
+        postgres: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS responses_form_idempotency_key_idx ON responses (form_id, idempotency_key)`,
+        sqlite: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS responses_form_idempotency_key_idx ON responses (form_id, idempotency_key)`,
+      },
+    },
+    {
+      version: 14,
+      name: "responses-delivery-status",
+      sql: {
+        postgres: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS delivery_status TEXT`,
+        sqlite: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS delivery_status TEXT`,
+      },
+    },
+    {
+      version: 15,
+      name: "response-delivery-snapshots",
+      sql: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS delivery_snapshot TEXT;
+CREATE TABLE IF NOT EXISTS response_deliveries (
+  id TEXT PRIMARY KEY,
+  response_id TEXT NOT NULL REFERENCES responses(id),
+  destination TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  claim_token TEXT,
+  claimed_at TEXT,
+  error_message TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS response_deliveries_response_destination_idx
+  ON response_deliveries (response_id, destination);
+CREATE INDEX IF NOT EXISTS response_deliveries_status_idx
+  ON response_deliveries (status, claimed_at)`,
+    },
+    {
+      version: 16,
+      name: "community-app-promotion-state",
+      sql: {
+        postgres: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS promotion_status TEXT;
+ALTER TABLE responses ADD COLUMN IF NOT EXISTS builder_content_id TEXT;
+ALTER TABLE responses ADD COLUMN IF NOT EXISTS community_slug TEXT;
+ALTER TABLE responses ADD COLUMN IF NOT EXISTS promotion_error TEXT;
+ALTER TABLE responses ADD COLUMN IF NOT EXISTS promoted_at TEXT;
+ALTER TABLE responses ADD COLUMN IF NOT EXISTS promoted_by TEXT`,
+        sqlite: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS promotion_status TEXT;
+ALTER TABLE responses ADD COLUMN IF NOT EXISTS builder_content_id TEXT;
+ALTER TABLE responses ADD COLUMN IF NOT EXISTS community_slug TEXT;
+ALTER TABLE responses ADD COLUMN IF NOT EXISTS promotion_error TEXT;
+ALTER TABLE responses ADD COLUMN IF NOT EXISTS promoted_at TEXT;
+ALTER TABLE responses ADD COLUMN IF NOT EXISTS promoted_by TEXT`,
+      },
+    },
   ],
   { table: "forms_migrations" },
 );

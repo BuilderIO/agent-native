@@ -26,7 +26,7 @@ import {
 import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { captureError } from "./analytics.js";
-import { agentNativePath } from "./api-path.js";
+import { agentChatStreamingUrl, agentNativePath } from "./api-path.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   createRunStreamToken,
@@ -69,9 +69,11 @@ type AdapterHistoryMessage = {
 };
 
 type AssistantUiAttachment = {
+  type?: string;
   name: string;
   contentType?: string;
   content: readonly Record<string, unknown>[];
+  metadata?: Record<string, unknown>;
 };
 
 type AgentChatAdapterAttachment = {
@@ -83,6 +85,7 @@ type AgentChatAdapterAttachment = {
   uploadProvider?: string;
   referenceOnly?: boolean;
   securityNote?: string;
+  displayOnly?: boolean;
   text?: string;
 };
 
@@ -173,6 +176,111 @@ const MAX_HISTORY_WORD_CHARS = 32_000;
 const MAX_HISTORY_MESSAGE_CHARS = 12_000;
 const MAX_HISTORY_TOOL_ARGS_CHARS = 8_000;
 const MAX_HISTORY_TOOL_RESULT_CHARS = 12_000;
+const MAX_JSON_RESPONSE_PROBE_BYTES = 8_192;
+const JSON_RESPONSE_PROBE_TIMEOUT_MS = 1_000;
+
+type JsonResponseProbeOutcome =
+  | { type: "json"; body: string }
+  | { type: "not-json" };
+
+function isSseResponsePrefix(prefix: string): boolean {
+  const trimmed = prefix.trimStart();
+  return (
+    trimmed.startsWith("data:") ||
+    trimmed.startsWith("event:") ||
+    trimmed.startsWith("id:") ||
+    trimmed.startsWith("retry:") ||
+    trimmed.startsWith(":")
+  );
+}
+
+function classifyJsonResponsePrefix(prefix: string): JsonResponseProbeOutcome {
+  if (isSseResponsePrefix(prefix)) return { type: "not-json" };
+  const firstChar = prefix.trimStart()[0] ?? "";
+  return firstChar === '"' || "{[-0123456789tfn".includes(firstChar)
+    ? { type: "json", body: prefix }
+    : { type: "not-json" };
+}
+
+function jsonResponseError(body?: string): Error {
+  if (body !== undefined) {
+    try {
+      const parsed: unknown = JSON.parse(body);
+      if (
+        parsed !== null &&
+        typeof parsed === "object" &&
+        "error" in parsed &&
+        parsed.error
+      ) {
+        return new Error(stringifyValue(parsed.error));
+      }
+      // coercion-ok: an incomplete timeout probe uses the generic JSON error.
+    } catch {
+      // A timed-out probe may only have received a JSON prefix.
+    }
+  }
+  return new Error(
+    "Agent chat endpoint returned JSON instead of an event stream.",
+  );
+}
+
+async function continueJsonResponseProbe(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  decoder: TextDecoder,
+  prefix: string,
+  abortSignal: AbortSignal,
+  initialBytes: number,
+  pendingRead?: Promise<ReadableStreamReadResult<Uint8Array>>,
+): Promise<JsonResponseProbeOutcome> {
+  let onAbort: (() => void) | undefined;
+  const abort = new Promise<"abort">((resolve) => {
+    const handleAbort = () => resolve("abort");
+    onAbort = handleAbort;
+    if (abortSignal.aborted) handleAbort();
+    else abortSignal.addEventListener("abort", handleAbort, { once: true });
+  });
+
+  try {
+    let nextRead = pendingRead;
+    let bytes = initialBytes;
+    while (true) {
+      const read = nextRead ?? reader.read();
+      nextRead = undefined;
+      void read.catch(() => {});
+      const chunk = await Promise.race([read, abort]);
+      if (chunk === "abort") {
+        throw abortSignal.reason instanceof Error &&
+          abortSignal.reason.name === "AbortError"
+          ? abortSignal.reason
+          : new DOMException("The operation was aborted.", "AbortError");
+      }
+      if (chunk.done) {
+        const completePrefix = prefix + decoder.decode();
+        return completePrefix.trimStart() === ""
+          ? { type: "json", body: completePrefix }
+          : classifyJsonResponsePrefix(completePrefix);
+      }
+
+      const value = chunk.value.subarray(
+        0,
+        MAX_JSON_RESPONSE_PROBE_BYTES - bytes,
+      );
+      bytes += value.byteLength;
+      prefix += decoder.decode(value, { stream: true });
+      const trimmedPrefix = prefix.trimStart();
+      if (trimmedPrefix !== "") {
+        return classifyJsonResponsePrefix(prefix);
+      }
+      if (bytes >= MAX_JSON_RESPONSE_PROBE_BYTES) {
+        return { type: "json", body: prefix + decoder.decode() };
+      }
+    }
+  } finally {
+    if (onAbort) abortSignal.removeEventListener("abort", onAbort);
+    void reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
 // Tools whose entire input IS the artifact being built (extension HTML, etc.).
 // Lossy-truncating these to a `{ __agentNativeTruncated }` placeholder strands
 // the resumed agent — it can no longer refine the artifact because it sees a
@@ -530,12 +638,29 @@ function extractAttachmentsFromMessage(message: {
 }): AgentChatAdapterAttachment[] {
   const attachments: AgentChatAdapterAttachment[] = [];
   for (const att of message.attachments ?? []) {
+    const persistedMetadata =
+      att && typeof att.metadata === "object" ? att.metadata : undefined;
+    if (persistedMetadata?.displayOnly === true) {
+      const textPart = att.content.find(
+        (part) => part.type === "text" && typeof part.text === "string",
+      );
+      attachments.push({
+        type: att.type ?? "file",
+        name: att.name,
+        contentType: att.contentType,
+        displayOnly: true,
+        ...(textPart && typeof textPart.text === "string"
+          ? {
+              text: truncateOutboundAttachment(
+                unwrapAttachmentEnvelope(textPart.text),
+              ),
+            }
+          : {}),
+      });
+      continue;
+    }
     for (const part of att.content) {
       if (part.type === "image" && typeof part.image === "string") {
-        const persistedMetadata =
-          att && typeof (att as any).metadata === "object"
-            ? ((att as any).metadata as Record<string, unknown>)
-            : undefined;
         const imageIsDataUrl = part.image.startsWith("data:");
         attachments.push({
           type: "image",
@@ -563,10 +688,6 @@ function extractAttachmentsFromMessage(message: {
           (typeof part.mimeType === "string" ? part.mimeType : undefined);
         const data = typeof part.data === "string" ? part.data : undefined;
         const url = typeof part.url === "string" ? part.url : undefined;
-        const persistedMetadata =
-          att && typeof (att as any).metadata === "object"
-            ? ((att as any).metadata as Record<string, unknown>)
-            : undefined;
         const preserveDataUrl =
           typeof data === "string" &&
           data.startsWith("data:") &&
@@ -790,7 +911,7 @@ function toolResultContent(result: unknown, toolName?: string): string {
   try {
     return JSON.stringify(result);
   } catch {
-    return String(result ?? "");
+    return stringifyValue(result ?? "");
   }
 }
 
@@ -1002,7 +1123,7 @@ function estimateHistoryMessageCost(message: {
     cost += Math.min(argsText.length, argsCap);
     if (tool.result !== undefined) {
       cost += Math.min(
-        // Price the string the request actually carries. `String(result)` is
+        // Price the string the request actually carries. `stringifyValue(result)` is
         // 15 chars ("[object Object]") for every object result, which is most
         // of them.
         toolResultContent(tool.result, tool.toolName).length,
@@ -1364,7 +1485,7 @@ function stableJson(value: unknown): string {
   try {
     return JSON.stringify(value);
   } catch {
-    return String(value ?? "");
+    return stringifyValue(value ?? "");
   }
 }
 
@@ -1838,6 +1959,7 @@ function missingCredentialFailure(message: string): {
  */
 export interface CreateAgentChatAdapterOptions {
   apiUrl?: string;
+  streamingUrl?: string;
   tabId?: string;
   threadId?: string;
   modelRef?: { current: string | undefined };
@@ -1927,6 +2049,68 @@ export function createAgentChatAdapter(
 ): ChatModelAdapter {
   const apiUrl =
     options?.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
+  const streamTargetUrl =
+    options?.streamingUrl?.trim() || agentChatStreamingUrl();
+  let streamTokenWarningShown = false;
+  const resolveChatRequestTarget = async (
+    headers: Record<string, string>,
+    abortSignal: AbortSignal,
+    forcePrimary = false,
+  ): Promise<{
+    url: string;
+    headers: Record<string, string>;
+    credentials: RequestCredentials;
+    usesStreamingOrigin: boolean;
+  }> => {
+    if (forcePrimary || !streamTargetUrl) {
+      return {
+        url: apiUrl,
+        headers,
+        credentials: "same-origin",
+        usesStreamingOrigin: false,
+      };
+    }
+
+    const tokenUrl = `${apiUrl.replace(/\/+$/, "")}/stream-token`;
+    try {
+      const tokenResponse = await fetch(tokenUrl, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        credentials: "same-origin",
+        cache: "no-store",
+        signal: abortSignal,
+      });
+      if (!tokenResponse.ok) throw new Error(`HTTP ${tokenResponse.status}`);
+      const payload: unknown = await tokenResponse.json();
+      const token =
+        payload && typeof payload === "object" && "token" in payload
+          ? (payload as { token?: unknown }).token
+          : undefined;
+      if (typeof token !== "string" || !token.trim()) {
+        throw new Error("missing token");
+      }
+      return {
+        url: streamTargetUrl,
+        headers: { ...headers, Authorization: `Bearer ${token}` },
+        credentials: "omit",
+        usesStreamingOrigin: true,
+      };
+    } catch (error) {
+      if (!streamTokenWarningShown && !abortSignal.aborted) {
+        streamTokenWarningShown = true;
+        console.warn(
+          "[agent-chat] streaming origin auth handoff unavailable; using the primary chat route",
+          error instanceof Error ? error.message : error,
+        );
+      }
+      return {
+        url: apiUrl,
+        headers,
+        credentials: "same-origin",
+        usesStreamingOrigin: false,
+      };
+    }
+  };
   const tabId = options?.tabId;
   const threadId = options?.threadId;
   const modelRef = options?.modelRef;
@@ -1953,7 +2137,7 @@ export function createAgentChatAdapter(
   }
 
   return {
-    async *run({ messages, abortSignal, runConfig }) {
+    async *run({ messages, abortSignal, runConfig, unstable_parentId }) {
       // Extract latest user message and build history from prior messages
       const adapterMessages = messages as readonly AdapterMessage[];
       const latestUserIndex = (() => {
@@ -2002,6 +2186,18 @@ export function createAgentChatAdapter(
         typeof runConfig.custom === "object" &&
         (runConfig.custom as { trackInRunsTray?: unknown }).trackInRunsTray ===
           true;
+      // Names what the turn is for (`sendToAgentChat({ usageLabel })`). Rides
+      // the run config so a queued send keeps its label when it finally flushes,
+      // and every auto-continuation of the turn re-sends the same one.
+      const usageLabel = (() => {
+        const raw =
+          runConfig?.custom && typeof runConfig.custom === "object"
+            ? (runConfig.custom as { usageLabel?: unknown }).usageLabel
+            : undefined;
+        return typeof raw === "string" && raw.trim()
+          ? raw.trim().slice(0, 120)
+          : undefined;
+      })();
       const queuedMessageId = (() => {
         const raw =
           runConfig?.custom && typeof runConfig.custom === "object"
@@ -2063,6 +2259,7 @@ export function createAgentChatAdapter(
         return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
       })();
       const turnId = requestedTurnId ?? generateTurnId();
+      let streamTransportFallbackUsed = false;
 
       const withRequestModeMetadata = (
         result: ChatModelRunResult,
@@ -2655,7 +2852,7 @@ export function createAgentChatAdapter(
               }
               const active = await activeRes.json();
               if (active?.active && active.runId) {
-                const activeRunId = String(active.runId);
+                const activeRunId = stringifyValue(active.runId);
                 const activeTurnId =
                   typeof active.turnId === "string" ? active.turnId : "";
                 if (options?.requireCurrentTurn && activeTurnId !== turnId) {
@@ -2731,7 +2928,7 @@ export function createAgentChatAdapter(
                 }
                 const active = await activeRes.json();
                 if (!active?.active || !active.runId) return false;
-                const activeRunId = String(active.runId);
+                const activeRunId = stringifyValue(active.runId);
                 const dispatchMode =
                   typeof active.dispatchMode === "string"
                     ? active.dispatchMode
@@ -3191,7 +3388,7 @@ export function createAgentChatAdapter(
               }
               const recheckRunId =
                 recheck?.active === true && recheck.runId
-                  ? String(recheck.runId)
+                  ? stringifyValue(recheck.runId)
                   : null;
               if (recheckRunId && recheckRunId !== staleRunId) {
                 return "successor";
@@ -3306,7 +3503,9 @@ export function createAgentChatAdapter(
               typeof active?.turnId === "string" ? active.turnId : "";
             const activeStatus =
               typeof active?.status === "string" ? active.status : "";
-            const reportedRunId = active?.runId ? String(active.runId) : null;
+            const reportedRunId = active?.runId
+              ? stringifyValue(active.runId)
+              : null;
             // Some deployed readers report a terminal snapshot with
             // `active: false` while the row is being released. It is still
             // authoritative when it names this turn or a run we already
@@ -3866,14 +4065,34 @@ export function createAgentChatAdapter(
         };
 
         while (true) {
+          let requestUsedStreamingOrigin = false;
+          let responseReceived = false;
+          let delayedJsonProbe: Promise<JsonResponseProbeOutcome> | undefined;
+          let delayedJsonProbeOutcome: JsonResponseProbeOutcome | undefined;
+          let delayedJsonProbeReader:
+            | ReadableStreamDefaultReader<Uint8Array>
+            | undefined;
+          const cancelDelayedJsonProbe = () => {
+            if (!delayedJsonProbeReader) return;
+            void delayedJsonProbeReader.cancel().catch(() => {});
+            delayedJsonProbeReader = undefined;
+          };
+
           try {
             runId = null;
             lastSeq = -1;
+            const requestTarget = await resolveChatRequestTarget(
+              headers,
+              abortSignal,
+              streamTransportFallbackUsed,
+            );
+            requestUsedStreamingOrigin = requestTarget.usesStreamingOrigin;
             const res = await fetchWithStartupTimeout(
-              apiUrl,
+              requestTarget.url,
               {
                 method: "POST",
-                headers,
+                headers: requestTarget.headers,
+                credentials: requestTarget.credentials,
                 body: JSON.stringify({
                   message: currentMessageText,
                   displayMessage: userMessageText,
@@ -3882,7 +4101,11 @@ export function createAgentChatAdapter(
                   structuredHistory: currentStructuredHistory,
                   turnId,
                   ...(trackInRunsTray ? { trackInRunsTray: true } : {}),
+                  ...(usageLabel ? { usageLabel } : {}),
                   ...(threadId ? { threadId } : {}),
+                  ...(unstable_parentId !== undefined
+                    ? { parentId: unstable_parentId }
+                    : {}),
                   ...(internalContinuationRequest
                     ? { internalContinuation: true }
                     : {}),
@@ -3903,6 +4126,7 @@ export function createAgentChatAdapter(
               STARTUP_RESPONSE_TIMEOUT_MS,
               abortSignal,
             );
+            responseReceived = true;
 
             // Check for auth errors returned as 200 with JSON (common with middleware issues)
             const contentType = res.headers.get("content-type") || "";
@@ -3911,19 +4135,126 @@ export function createAgentChatAdapter(
               contentType.includes("application/json") &&
               !contentType.includes("text/event-stream")
             ) {
-              try {
+              let looksLikeSSE = false;
+              let probeCompleted = false;
+              let probeTimedOut = false;
+              let probePrefix = "";
+              let probeBytes = 0;
+              {
+                // Read a bounded prefix so a mislabeled live SSE stream is not
+                // buffered until it closes before the original reader starts.
+                const probeReader = res.clone().body?.getReader();
+                if (probeReader) {
+                  const decoder = new TextDecoder();
+                  let probeAborted = false;
+                  let probeReaderTransferred = false;
+                  let timedOutRead:
+                    | Promise<ReadableStreamReadResult<Uint8Array>>
+                    | undefined;
+                  let onAbort: (() => void) | undefined;
+                  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+                  const abort = new Promise<"abort">((resolve) => {
+                    const handleAbort = () => resolve("abort");
+                    onAbort = handleAbort;
+                    if (abortSignal.aborted) handleAbort();
+                    else
+                      abortSignal.addEventListener("abort", handleAbort, {
+                        once: true,
+                      });
+                  });
+                  const timeout = new Promise<"timeout">((resolve) => {
+                    timeoutId = setTimeout(
+                      () => resolve("timeout"),
+                      JSON_RESPONSE_PROBE_TIMEOUT_MS,
+                    );
+                  });
+
+                  try {
+                    while (probeBytes < MAX_JSON_RESPONSE_PROBE_BYTES) {
+                      const read = probeReader.read();
+                      void read.catch(() => {});
+                      const chunk = await Promise.race([read, timeout, abort]);
+                      if (chunk === "abort") {
+                        probeAborted = true;
+                        throw abortSignal.reason instanceof Error &&
+                          abortSignal.reason.name === "AbortError"
+                          ? abortSignal.reason
+                          : new DOMException(
+                              "The operation was aborted.",
+                              "AbortError",
+                            );
+                      }
+                      if (chunk === "timeout") {
+                        probeTimedOut = true;
+                        probeReaderTransferred = true;
+                        timedOutRead = read;
+                        // The timeout only releases the diagnostic clone; the
+                        // original body remains available for SSE parsing.
+                        break;
+                      }
+
+                      probeCompleted = chunk.done;
+                      if (chunk.done) {
+                        probePrefix += decoder.decode();
+                        break;
+                      }
+
+                      const value = chunk.value.subarray(
+                        0,
+                        MAX_JSON_RESPONSE_PROBE_BYTES - probeBytes,
+                      );
+                      probeBytes += value.byteLength;
+                      probePrefix += decoder.decode(value, { stream: true });
+                      if (probePrefix.trimStart() !== "") break;
+                    }
+                    probePrefix += decoder.decode();
+                  } finally {
+                    if (timeoutId !== undefined) clearTimeout(timeoutId);
+                    if (probeAborted && res.body) {
+                      void res.body.cancel().catch(() => {});
+                    }
+                    if (onAbort) {
+                      abortSignal.removeEventListener("abort", onAbort);
+                    }
+                    if (!probeReaderTransferred) {
+                      void probeReader.cancel().catch(() => {});
+                      probeReader.releaseLock();
+                    }
+                  }
+
+                  if (probeReaderTransferred) {
+                    delayedJsonProbeReader = probeReader;
+                    delayedJsonProbe = continueJsonResponseProbe(
+                      probeReader,
+                      decoder,
+                      probePrefix,
+                      abortSignal,
+                      probeBytes,
+                      timedOutRead,
+                    );
+                    void delayedJsonProbe.then(
+                      (outcome) => {
+                        delayedJsonProbeOutcome = outcome;
+                      },
+                      () => {},
+                    );
+                  }
+
+                  looksLikeSSE = isSseResponsePrefix(probePrefix);
+                }
+              }
+
+              const firstChar = probePrefix.trimStart()[0] ?? "";
+              const looksLikeJson =
+                !probeTimedOut &&
+                (probeCompleted ||
+                  probeBytes >= MAX_JSON_RESPONSE_PROBE_BYTES ||
+                  (firstChar !== "" &&
+                    (firstChar === '"' ||
+                      "{[-0123456789tfn".includes(firstChar))));
+              if (!looksLikeSSE && looksLikeJson) {
                 const body = await res.text();
-                const parsed = JSON.parse(body) as { error?: unknown };
-                if (parsed.error) {
-                  throw new Error(String(parsed.error));
-                }
-              } catch (e) {
-                if (
-                  e instanceof Error &&
-                  e.message !== "Unexpected end of JSON input"
-                ) {
-                  throw e;
-                }
+                throw jsonResponseError(body);
               }
             }
 
@@ -3933,7 +4264,7 @@ export function createAgentChatAdapter(
                 try {
                   const body = await res.json();
                   if (body?.activeRunId) {
-                    activeRunId = String(body.activeRunId);
+                    activeRunId = stringifyValue(body.activeRunId);
                   }
                 } catch {
                   // Fall through to the generic response handling below.
@@ -4182,22 +4513,74 @@ export function createAgentChatAdapter(
                 content.pop();
               }
               if (continueAfterMissingFinalResponse()) {
+                cancelDelayedJsonProbe();
                 continue;
               }
               settleTerminalChatRun();
               yield missingFinalResponseResult;
+              cancelDelayedJsonProbe();
               clearOwnedActiveRun();
               return;
             }
 
             // Run completed normally — clear active run state
+            cancelDelayedJsonProbe();
             clearOwnedActiveRun();
             return;
-          } catch (err: unknown) {
+          } catch (caughtError: unknown) {
+            let err = caughtError;
             if (err instanceof Error && err.name === "AbortError") {
+              cancelDelayedJsonProbe();
               // User-initiated abort (Stop button) — clear active run
               clearOwnedActiveRun();
               return;
+            }
+
+            if (
+              requestUsedStreamingOrigin &&
+              !responseReceived &&
+              !runId &&
+              !streamTransportFallbackUsed
+            ) {
+              streamTransportFallbackUsed = true;
+              continue;
+            }
+
+            let delayedJsonOutcome = delayedJsonProbeOutcome;
+            if (
+              !delayedJsonOutcome &&
+              delayedJsonProbe &&
+              err instanceof AgentAutoContinueSignal &&
+              err.reason === "stream_ended"
+            ) {
+              let delayedJsonProbeTimeoutId:
+                | ReturnType<typeof setTimeout>
+                | undefined;
+              const delayedJsonProbeTimeout = new Promise<undefined>(
+                (resolve) => {
+                  delayedJsonProbeTimeoutId = setTimeout(
+                    () => resolve(undefined),
+                    JSON_RESPONSE_PROBE_TIMEOUT_MS,
+                  );
+                },
+              );
+              try {
+                delayedJsonOutcome = await Promise.race([
+                  delayedJsonProbe,
+                  delayedJsonProbeTimeout,
+                ]);
+              } catch {
+                delayedJsonOutcome = undefined;
+              } finally {
+                if (delayedJsonProbeTimeoutId !== undefined) {
+                  clearTimeout(delayedJsonProbeTimeoutId);
+                }
+              }
+            }
+            if (delayedJsonOutcome?.type === "json") {
+              err = jsonResponseError(delayedJsonOutcome.body);
+            } else {
+              cancelDelayedJsonProbe();
             }
 
             if (err instanceof AgentAutoContinueSignal) {
@@ -4657,4 +5040,14 @@ export function createAgentChatAdapter(
       }
     },
   };
+}
+
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
 }

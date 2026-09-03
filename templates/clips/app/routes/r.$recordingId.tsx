@@ -1,5 +1,8 @@
 import { AgentPanel } from "@agent-native/core/client/agent-chat";
-import { agentNativePath } from "@agent-native/core/client/api-path";
+import {
+  agentNativePath,
+  appBasePath,
+} from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useActionMutation,
@@ -11,7 +14,10 @@ import {
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import {
+  buildSignInReturnHref,
+  DefaultSpinner,
+} from "@agent-native/core/client/ui";
 import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
@@ -37,7 +43,6 @@ import {
   IconArrowLeft,
   IconChevronDown,
   IconCalendar,
-  IconScissors,
   IconAlertTriangle,
   IconHelpCircle,
   IconClipboardCopy,
@@ -59,6 +64,7 @@ import { toast } from "sonner";
 
 import { EditableRecordingTitle } from "@/components/editable-recording-title";
 import { EditorLayout } from "@/components/editor/editor-layout";
+import { useClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
 import { CommentsPanel } from "@/components/player/comments-panel";
 import { RecordingOptionsMenu } from "@/components/player/delete-recording-menu";
@@ -105,6 +111,7 @@ import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
 import { cn } from "@/lib/utils";
 
+import { buildAgentApiUrls } from "../../shared/agent-context";
 import { STALE_PENDING_TRANSCRIPT_REASON } from "../../shared/transcript-status";
 
 const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
@@ -193,7 +200,7 @@ const WORKFLOW_MENU_ITEMS: Array<{
 
 interface GeneratedWorkflowState {
   kind?: WorkflowKind;
-  status?: "generating" | "ready" | "failed" | string;
+  status?: "generating" | "ready" | "failed" | (string & {});
   content?: string;
   recordingId?: string;
   requestedAt?: string;
@@ -419,7 +426,7 @@ export default function RecordingPage() {
     const shareParams = new URLSearchParams();
     shareParams.set(REF_PARAM, CLIP_SHARE_REF);
     shareParams.set(DASHBOARD_REDIRECT_PARAM, DASHBOARD_REDIRECT_VALUE);
-    navigate(
+    void navigate(
       `/share/${encodeURIComponent(recordingId)}?${shareParams.toString()}`,
       {
         replace: true,
@@ -444,6 +451,25 @@ export default function RecordingPage() {
     | "commenter"
     | "viewer"
     | undefined;
+  const directAgentContextUrl = useMemo(() => {
+    if (
+      typeof window === "undefined" ||
+      !recording?.id ||
+      (recording.visibility !== "public" && role !== "owner")
+    ) {
+      return null;
+    }
+    return buildAgentApiUrls(recording.id, {
+      origin: window.location.origin,
+      basePath: appBasePath(),
+    }).contextUrl;
+  }, [recording?.id, recording?.visibility, role]);
+  useClipAgentWebMcp({
+    recordingId: recording?.id ?? "",
+    agentContextUrl: directAgentContextUrl,
+    recordingStatus: recording?.status,
+    frameAvailable: !isLoomEmbedBackedRecording(recording),
+  });
   const comments = playerDataQ.data?.comments ?? [];
   const reactions = useMemo(
     () =>
@@ -927,11 +953,7 @@ export default function RecordingPage() {
   if (!recordingId) return null;
 
   if (playerDataQ.isLoading || playerDataForbidden) {
-    return (
-      <div className="flex items-center justify-center h-screen w-full bg-background">
-        <Spinner className="h-8 w-8" />
-      </div>
-    );
+    return <DefaultSpinner />;
   }
 
   if (playerDataQ.isError || !recording) {
@@ -941,11 +963,7 @@ export default function RecordingPage() {
         ? `/r/${recordingId}`
         : window.location.pathname + window.location.search;
     if (sessionLoading) {
-      return (
-        <div className="flex items-center justify-center h-screen w-full bg-background">
-          <Spinner className="h-8 w-8" />
-        </div>
-      );
+      return <DefaultSpinner />;
     }
     return (
       <div className="flex flex-col items-center justify-center h-screen w-full bg-background px-6">
@@ -1176,7 +1194,7 @@ export default function RecordingPage() {
                 return;
               }
               setProcessingTimeout(false);
-              playerDataQ.refetch();
+              void playerDataQ.refetch();
             }}
             variant="outline"
             size="sm"
@@ -1309,6 +1327,7 @@ export default function RecordingPage() {
             comments={comments}
             currentMs={playbackMs}
             currentUserEmail={session?.email}
+            currentUserName={session?.name}
             enableComments={recording.enableComments}
             canComment={canComment}
             onSeek={(ms) => playerRef.current?.seek(ms)}
@@ -1437,7 +1456,6 @@ export default function RecordingPage() {
               )}
               onClick={() => setEditing((v) => !v)}
             >
-              <IconScissors className="h-4 w-4" />
               {editing ? t("recordingPage.done") : t("recordingPage.edit")}
             </Button>
           ) : null}

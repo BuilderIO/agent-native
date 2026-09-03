@@ -1,4 +1,7 @@
-import { captureClientException } from "@agent-native/core/client/analytics";
+import {
+  captureClientException,
+  trackEvent,
+} from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
   appBasePath,
@@ -15,6 +18,7 @@ import {
   chunkUploadParallelism,
   chunkUploadUrl,
   pickMimeType,
+  UPLOAD_SLICE_BYTES,
   type UploadMode,
 } from "@shared/recording-core";
 import {
@@ -76,6 +80,8 @@ import {
   decideRecordingVisibilityAction,
   isMobileRecorderRuntime,
 } from "@/lib/recording-visibility";
+import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
+import { uploadChunkRequest } from "@/lib/upload-request";
 import { cn } from "@/lib/utils";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
@@ -799,6 +805,7 @@ export default function RecordRoute() {
   const [isPaused, setIsPaused] = useState(false);
   const visibilityAutoPausedRef = useRef(false);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
+  const playheadConfirmOpenRef = useRef(false);
   // Tracks whether opening the discard-confirm dialog paused the recording
   // itself (vs. the user having already paused) — so "Resume" only resumes
   // when we're the ones who paused it, and the dialog never gets captured in
@@ -964,6 +971,7 @@ export default function RecordRoute() {
   const browserDiagnosticsRef = useRef<BrowserDiagnosticsCapture | null>(null);
   // Bumped by doCancel() to invalidate any in-flight startFlow().
   const startSessionRef = useRef(0);
+  const restartInFlightRef = useRef<Promise<void> | null>(null);
 
   // Elapsed-time display now ticks inside RecordingToolbar itself (via
   // `active` + `getElapsedMs`) so the ~4x/sec poll doesn't re-render this
@@ -1333,7 +1341,6 @@ export default function RecordRoute() {
   // Netlify's effective binary function payload limit. Mirrors the recorder's
   // upload pipeline so finalize-recording handles it identically.
   // -------------------------------------------------------------------------
-  const UPLOAD_CHUNK_BYTES = 3 * 1024 * 1024;
   const UPLOAD_PARALLELISM = 4;
 
   const probeVideoMetadata = useCallback(
@@ -1582,16 +1589,25 @@ export default function RecordRoute() {
         fileUploadRecordingIdRef.current = createdId;
         await saveBugReportContextRef.current(info.id);
         if (isStale()) throw makeAbortError("Upload cancelled");
+        void uploadVideoBlobThumbnail(createdId, uploadBlob, {
+          signal: abort.signal,
+        }).catch((err) => {
+          console.warn("[recorder] local-file thumbnail upload skipped", {
+            recordingId: createdId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+        if (isStale()) throw makeAbortError("Upload cancelled");
         const uploadBase = `${appBasePath()}${info.uploadChunkUrl}`;
 
         const totalChunks = Math.max(
           1,
-          Math.ceil(uploadBlob.size / UPLOAD_CHUNK_BYTES),
+          Math.ceil(uploadBlob.size / UPLOAD_SLICE_BYTES),
         );
 
         const chunkDescs = Array.from({ length: totalChunks }, (_, i) => {
-          const start = i * UPLOAD_CHUNK_BYTES;
-          const end = Math.min(start + UPLOAD_CHUNK_BYTES, uploadBlob.size);
+          const start = i * UPLOAD_SLICE_BYTES;
+          const end = Math.min(start + UPLOAD_SLICE_BYTES, uploadBlob.size);
           const isFinal = i === totalChunks - 1;
           return {
             index: i,
@@ -1637,9 +1653,9 @@ export default function RecordRoute() {
 
             let chunkRes: Response;
             try {
-              chunkRes = await fetch(url, {
-                method: "POST",
-                headers: { "Content-Type": uploadMimeType },
+              chunkRes = await uploadChunkRequest({
+                url,
+                contentType: uploadMimeType,
                 body: await slice.arrayBuffer(),
                 signal: chunkAbort.signal,
               });
@@ -1697,9 +1713,9 @@ export default function RecordRoute() {
         const { index, slice, url } = finalChunkDesc;
         let chunkRes: Response | null = null;
         try {
-          chunkRes = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": uploadMimeType },
+          chunkRes = await uploadChunkRequest({
+            url,
+            contentType: uploadMimeType,
             body: await slice.arrayBuffer(),
             signal: abort.signal,
           });
@@ -1789,7 +1805,7 @@ export default function RecordRoute() {
             path,
           });
           setTimeout(() => {
-            navigate(path);
+            void navigate(path);
           }, 50);
         } else {
           await writeAppState(`navigate:${getBrowserTabId()}`, {
@@ -1797,7 +1813,7 @@ export default function RecordRoute() {
             recordingId: createdId,
           });
           setTimeout(() => {
-            if (createdId) navigate(`/r/${createdId}`);
+            if (createdId) void navigate(`/r/${createdId}`);
           }, 50);
         }
       } catch (err) {
@@ -1904,6 +1920,12 @@ export default function RecordRoute() {
     if (!engine) return;
     try {
       await engine.start();
+      trackEvent("app.first_action", {
+        action: "recording_start",
+        surface: "recorder",
+        resource_type: "recording",
+        resource_id: pendingRef.current?.id,
+      });
       countdownAudioCueRef.current?.cleanup();
       countdownAudioCueRef.current = null;
       browserDiagnosticsRef.current?.dispose();
@@ -1986,7 +2008,7 @@ export default function RecordRoute() {
           path,
         }).catch(() => {});
         setTimeout(() => {
-          navigate(path);
+          void navigate(path);
         }, 50);
         return;
       }
@@ -1996,7 +2018,7 @@ export default function RecordRoute() {
         recordingId,
       }).catch(() => {});
       setTimeout(() => {
-        navigate(`/r/${recordingId}`);
+        void navigate(`/r/${recordingId}`);
       }, 50);
     },
     [navigate, showSavedToast],
@@ -2196,6 +2218,8 @@ export default function RecordRoute() {
     fileUploadRecordingIdRef.current = null;
     const engine = engineRef.current;
     const pendingId = pendingRef.current?.id;
+    engineRef.current = null;
+    pendingRef.current = null;
     liveTranscription.stop();
     browserDiagnosticsRef.current?.dispose();
     browserDiagnosticsRef.current = null;
@@ -2242,8 +2266,6 @@ export default function RecordRoute() {
     setIsPaused(false);
     setUiState("idle");
     setUploadProgress(null);
-    pendingRef.current = null;
-    engineRef.current = null;
   }, [extensionCapture, liveTranscription]);
 
   const playCountdownAudioCue = useCallback(() => {
@@ -2371,13 +2393,68 @@ export default function RecordRoute() {
     };
   }, [cameraStream, liveTranscription, recordingMode]);
 
-  const restart = useCallback(async () => {
-    await doCancel();
-    const opts = pendingStartOptsRef.current;
-    if (opts) {
-      await startFlow(opts);
-    }
+  const restart = useCallback(() => {
+    if (restartInFlightRef.current) return restartInFlightRef.current;
+    const run = (async () => {
+      await doCancel();
+      const opts = pendingStartOptsRef.current;
+      if (opts) {
+        await startFlow(opts);
+      }
+    })();
+    restartInFlightRef.current = run;
+    void run.then(
+      () => {
+        if (restartInFlightRef.current === run) {
+          restartInFlightRef.current = null;
+        }
+      },
+      () => {
+        if (restartInFlightRef.current === run) {
+          restartInFlightRef.current = null;
+        }
+      },
+    );
+    return run;
   }, [doCancel, startFlow]);
+
+  const handlePlayheadConfirmChange = useCallback(
+    (
+      change: import("@shared/recording-playhead").RecordingPlayheadConfirmChange,
+    ) => {
+      playheadConfirmOpenRef.current = change.type === "open";
+      if (change.type === "open") {
+        if (!change.enteredPaused) {
+          const engine = engineRef.current;
+          engine?.pause();
+          liveTranscription.pause();
+          setIsPaused(true);
+        }
+        return;
+      }
+      if (change.resume || !change.enteredPaused) {
+        const engine = engineRef.current;
+        if (engine?.getState() === "paused") {
+          engine.resume();
+          liveTranscription.resume();
+          setIsPaused(false);
+        }
+      }
+    },
+    [liveTranscription],
+  );
+
+  const handlePlayheadConfirmAction = useCallback(
+    (intent: import("@shared/recording-playhead").RecordingPlayheadIntent) => {
+      playheadConfirmOpenRef.current = false;
+      if (intent === "restart") {
+        void restart();
+      } else {
+        void doCancel();
+      }
+    },
+    [doCancel, restart],
+  );
 
   const fireConfetti = useCallback(() => {
     confettiRef.current?.burst();
@@ -2388,7 +2465,7 @@ export default function RecordRoute() {
   // -------------------------------------------------------------------------
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (discardConfirmOpen) return;
+      if (discardConfirmOpen || playheadConfirmOpenRef.current) return;
       const alt = e.altKey;
       const shift = e.shiftKey;
       const meta = e.metaKey;
@@ -2584,7 +2661,7 @@ export default function RecordRoute() {
             // awaited), so navigate() can fire immediately while the
             // best-effort server abort settles in the background.
             void doCancel();
-            navigate("/library");
+            void navigate("/library");
           }}
           className="fixed start-4 top-4 z-30 inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
@@ -2595,7 +2672,7 @@ export default function RecordRoute() {
       {/* Idle / pre-record panel. `/record` sits outside the `_app` layout, so
           it renders its own standalone surface for direct visits. */}
       {uiState === "idle" && (
-        <div className="flex min-h-screen flex-col items-center justify-center px-4 py-10">
+        <div className="flex min-h-screen flex-col items-center justify-start px-4 py-10">
           <div className="mb-6 flex items-center gap-2 text-primary">
             <IconVideo className="h-6 w-6" />
             <span className="text-sm font-medium uppercase tracking-wide">
@@ -2722,6 +2799,8 @@ export default function RecordRoute() {
           onTogglePause={togglePause}
           onStop={() => void doStop()}
           onCancel={requestDiscard}
+          onConfirmAction={handlePlayheadConfirmAction}
+          onConfirmChange={handlePlayheadConfirmChange}
         />
       )}
 

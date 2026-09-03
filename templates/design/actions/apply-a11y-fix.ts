@@ -30,6 +30,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   readLiveSourceFile,
   writeInlineSourceFile,
@@ -261,14 +262,10 @@ export default defineAction({
       .default(false)
       .describe("Include the patched HTML content in the response."),
   }),
-  run: async ({
-    designId,
-    fileId,
-    filename,
-    finding,
-    color,
-    includeContent,
-  }) => {
+  run: async (
+    { designId, fileId, filename, finding, color, includeContent },
+    context,
+  ) => {
     const plan = a11yFindingToEdit(finding as A11yFinding, { color });
 
     if (!plan) {
@@ -289,6 +286,7 @@ export default defineAction({
       fileId,
       filename,
     });
+    await snapshotDesignBeforeAgentEdit(file.designId, context);
 
     const patch = applyVisualEdit(file.content, plan.edit as EditIntent, {
       source: {

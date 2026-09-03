@@ -1,4 +1,5 @@
 import {
+  CollabBaseVersionConflictError,
   hasCollabState,
   getText,
   applyText,
@@ -352,13 +353,7 @@ export async function writeInlineSourceFile(args: {
       };
     }
 
-    if (
-      currentFile.fileType === "html" ||
-      currentFile.fileType === "jsx" ||
-      current.content.includes("data-agent-native-locked")
-    ) {
-      assertLockedLayersPreserved(current.content, args.content);
-    }
+    assertLockedLayersPreserved(current.content, args.content);
     assertDesignHtmlEditIntegrity({
       previousContent: current.content,
       nextContent: args.content,
@@ -379,6 +374,22 @@ export async function writeInlineSourceFile(args: {
       if (liveBeforeApply !== args.content) {
         try {
           await applyText(args.file.id, args.content, "content", "agent", {
+            // The check above ran before the write lock and against a value
+            // that another serverless process can invalidate a millisecond
+            // later. Re-assert it on the text the diff is actually computed
+            // from: `args.content` is a whole document built on the older
+            // base, so a peer's edit that landed in between would be
+            // overwritten silently rather than reported as a conflict.
+            validateBase: (base) => {
+              if (
+                args.expectedVersionHash &&
+                args.expectedVersionHash !== sourceContentHash(base)
+              ) {
+                throw new SourceWorkspaceEditConflictError(
+                  "Source file changed while the edit was being applied. Re-read the file and retry.",
+                );
+              }
+            },
             // A human artboard edit can reach the shared Y.Doc from another
             // serverless process after the version check above. Validate the
             // fully converged CRDT snapshot before core persists or broadcasts
@@ -392,6 +403,13 @@ export async function writeInlineSourceFile(args: {
               }),
           });
         } catch (error) {
+          // A peer that commits after the base check now fails the persistence
+          // CAS by name; it is the same retryable conflict, not a bad edit.
+          if (error instanceof CollabBaseVersionConflictError) {
+            throw new SourceWorkspaceEditConflictError(
+              "Source file changed while the edit was being applied. Re-read the file and retry.",
+            );
+          }
           if (!isDesignHtmlIntegrityError(error)) throw error;
           // The caller's candidate already passed the integrity check above.
           // A failure here therefore came from concurrent CRDT convergence,

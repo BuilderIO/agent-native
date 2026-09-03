@@ -53,9 +53,9 @@
   --b-bg-prominent: #1a1a1a;
   /* One stop past --b-bg-prominent, for a chip that has to read as lifted off
      a surface which is itself already lifted (the ⌘K badge inside the header
-     search box). Indirect on purpose: the light theme overrides
-     --c-neutral-800, so this follows the neutral ramp one stop in whichever
-     direction that theme separates, instead of needing a second literal. */
+     search box). The light theme sets its own value: separating from white by
+     as many ramp steps as dark mode separates from near-black overshoots, and
+     the chip reads as a dark blot rather than a lift. */
   --b-bg-elevated: var(--c-neutral-800);
   --b-bg-translucent: #0a0a0ae6;
   --b-bg-alternative: #00161b;
@@ -206,10 +206,35 @@
   --b-t-label-1: 14px;
   --b-t-label-2: 11px;
 
-  /* The hero shader draws the same greyscale field in both themes, but one
-     opacity cannot serve both: over near-white, 0.15 reads as almost nothing
-     next to what it reads as over near-black. */
+  /* The hero shader draws the same field in both themes, but one opacity
+     cannot serve both: over near-white, 0.15 reads as almost nothing next to
+     what it reads as over near-black. */
   --b-hero-shader-opacity: 0.15;
+  --b-hero-shader-fg: var(--b-text-secondary);
+  /* Overshoot past --b-hero-shader-fg for the brightest dots. Dark mode can
+     push this far because the fg/bg direction points at white; light mode
+     points at black, so the same value crushes the focus into a dark blot
+     behind the headline. */
+  --b-hero-shader-brightness: 3;
+
+  /* Separate from the halftone's knob above. The ocean's tone is concentrated
+     in thin wave crests rather than spread over a dot grid, so the two need
+     very different blends to land at the same visual weight. */
+  --b-hero-ocean-opacity: 0.32;
+
+  /* Fluid scale for the hero only, not the shared heading/paragraph/spacing
+     tokens above: the hero's headline and padding need to grow past the
+     site's normal desktop ceiling without ever hitting the shared tokens'
+     hard mobile cliff at 768px, so each one interpolates continuously
+     between a floor (today's mobile value) and a ceiling (today's desktop
+     value) instead of switching between two fixed sizes. */
+  --b-hero-title-size: clamp(32px, 8vw, 56px);
+  --b-hero-body-size: clamp(16px, calc(14px + 0.5vw), 18px);
+  --b-hero-gap: clamp(24px, 6vw, 48px);
+  --b-hero-inner-gap: clamp(20px, calc(16px + 1vw), 24px);
+  --b-hero-px: clamp(24px, calc(8px + 4vw), 40px);
+  --b-hero-pt: clamp(96px, calc(-48px + 36vw), 240px);
+  --b-hero-pb: clamp(88px, calc(16px + 18vw), 160px);
 
   background: var(--b-bg-page);
   color: var(--b-text-primary);
@@ -229,6 +254,7 @@
   --b-bg-surface: #faf9f5;
   --b-bg-raised: #ffffff;
   --b-bg-prominent: #f0efeb;
+  --b-bg-elevated: #f4f3ef;
   --b-bg-translucent: #faf9f5e6;
   --b-bg-alternative: #e5f8fa;
   --b-bg-inset: #ffffff;
@@ -244,7 +270,13 @@
 
   --b-snackbar-bg: #ffffff;
 
-  --b-hero-shader-opacity: 0.28;
+  /* Teal rather than the near-black text color: at light-mode contrast the
+     field reads as a tinted dot grid instead of a grey smudge under the
+     headline. */
+  --b-hero-shader-fg: #00677f;
+  --b-hero-shader-brightness: 1.15;
+  --b-hero-shader-opacity: 0.22;
+  --b-hero-ocean-opacity: 0.3;
 
   --b-border-default: #cac9c6;
   --b-border-subtle: #e0e0d7;

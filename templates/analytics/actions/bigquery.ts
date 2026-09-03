@@ -84,8 +84,11 @@ function hasPriorFailedBigQueryCall(sql: string): boolean {
     if (
       !input ||
       typeof input !== "object" ||
-      normalizeSqlForRepeat(String((input as { sql?: unknown }).sql ?? "")) !==
-        normalizedSql
+      normalizeSqlForRepeat(
+        typeof (input as { sql?: unknown }).sql === "string"
+          ? (input as { sql: string }).sql
+          : "",
+      ) !== normalizedSql
     ) {
       return false;
     }

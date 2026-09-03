@@ -1,4 +1,14 @@
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
+import {
+  AgentSidebar,
+  focusAgentChat,
+  isAgentChatHomeHandoffActive,
+  isAssistantChatHistoryVersion,
+  navigateWithAgentChatViewTransition,
+  useAgentChatHomeHandoff,
+  useAgentChatHomeHandoffLinks,
+  type AssistantChatHistoryConfig,
+  type AssistantChatHistoryVersion,
+} from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
@@ -6,9 +16,8 @@ import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { extractGoogleSlidesUrls } from "@shared/google-docs";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
-import { useLocation } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
-import { useDecks } from "@/context/DeckContext";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import {
   hasCurrentSlideSelection,
@@ -41,6 +50,7 @@ interface EditorSidebarOverride {
 /** Routes whose pages render their own toolbar — Layout still renders chrome
  * (sidebar + AgentSidebar wrapper) but skips its own Header. */
 function pageHasOwnToolbar(pathname: string): boolean {
+  if (pathname === "/chat" || pathname.startsWith("/chat/")) return true;
   if (pathname.startsWith("/deck/")) return true;
   // /extensions (list) and /extensions/<id> (viewer) both render their own headers
   // from @agent-native/core/client/extensions.
@@ -51,7 +61,16 @@ function pageHasOwnToolbar(pathname: string): boolean {
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const t = useT();
+  const isChatRoute =
+    location.pathname === "/chat" || location.pathname.startsWith("/chat/");
+  const chatHomeHandoffActive = useAgentChatHomeHandoff({
+    storageKey: "slides",
+    activePath: location.pathname,
+    enabled: !isChatRoute,
+  });
+  const chatHomeHandoffPending = isAgentChatHomeHandoffActive("slides");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [composerText, setComposerText] = useState("");
   const [slidesSelection, setSlidesSelection] =
@@ -60,10 +79,6 @@ export function Layout({ children }: LayoutProps) {
     useState<EditorSidebarOverride | null>(null);
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
     useSidebarCollapsed();
-  const { decks, loading: decksLoading } = useDecks();
-  const isEmptyDecksState =
-    location.pathname === "/" && !decksLoading && decks.length === 0;
-
   useEffect(() => {
     const onSelectionChanged = (event: Event) => {
       setSlidesSelection(
@@ -94,6 +109,41 @@ export function Layout({ children }: LayoutProps) {
       contextKey: "slides-current-context",
     };
   }, [location.pathname, slidesSelection, t]);
+  const deckChatHistory = useMemo<
+    AssistantChatHistoryConfig | undefined
+  >(() => {
+    if (!deckScope) return undefined;
+    const deckId = deckScope.id;
+    return {
+      list: {
+        action: "list-deck-versions",
+        args: { deckId, limit: 100 },
+        getVersions: (result: unknown) => {
+          const versions =
+            result && typeof result === "object"
+              ? (result as { versions?: unknown }).versions
+              : undefined;
+          return Array.isArray(versions)
+            ? versions.filter(isAssistantChatHistoryVersion)
+            : [];
+        },
+      },
+      restore: {
+        action: "restore-deck-version",
+        args: (version: AssistantChatHistoryVersion) => ({
+          deckId,
+          versionId: version.id,
+        }),
+      },
+    };
+  }, [deckScope]);
+
+  useAgentChatHomeHandoffLinks({
+    storageKey: "slides",
+    isChatPath: (pathname) =>
+      pathname === "/chat" || pathname.startsWith("/chat/"),
+    requireActiveHandoff: true,
+  });
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -129,88 +179,110 @@ export function Layout({ children }: LayoutProps) {
     void setSidebarCollapsed((prev) => !prev);
   };
 
+  function openAgentChatFullscreen() {
+    focusAgentChat();
+    const deckQuery = deckScope
+      ? `?deckId=${encodeURIComponent(deckScope.id)}`
+      : "";
+    navigateWithAgentChatViewTransition(navigate, `/chat${deckQuery}`);
+  }
+
+  const showMobileNavigation = isChatRoute || !ownToolbar;
+  const shell = (
+    <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
+      {showAppSidebar && (
+        <>
+          {sidebarOpen && (
+            <div
+              className="fixed inset-0 z-40 bg-foreground/50 md:hidden"
+              onClick={() => setSidebarOpen(false)}
+            />
+          )}
+          <div
+            className={cn(
+              "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 transition-transform duration-200 ease-out md:static md:z-auto md:transition-none",
+              sidebarOpen
+                ? "translate-x-0"
+                : "-translate-x-full rtl:translate-x-full md:translate-x-0 md:rtl:translate-x-0",
+            )}
+          >
+            <Sidebar
+              collapsed={effectiveSidebarCollapsed && !sidebarOpen}
+              // In the mobile drawer the sidebar is forced expanded, so the
+              // desktop collapse toggle would be a silent no-op (worse: it'd
+              // mutate the desktop preference). Hide it while the drawer is
+              // open.
+              onToggleCollapsed={
+                sidebarOpen ? undefined : toggleSidebarCollapsed
+              }
+            />
+          </div>
+        </>
+      )}
+      <div className="agent-layout-main-surface flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Mobile-only nav strip with hamburger — only when there's no page toolbar */}
+        {showMobileNavigation && (
+          <div className="flex h-12 items-center border-b border-border px-4 md:hidden shrink-0">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground cursor-pointer"
+              aria-label={t("sidebar.openNavigation")}
+            >
+              <IconMenu2 className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+        {!ownToolbar && !isChatRoute && <Header />}
+        <InvitationBanner />
+        <main
+          className={cn(
+            "agent-native-app-main min-h-0 flex-1",
+            ownToolbar ? "overflow-hidden" : "overflow-y-auto",
+          )}
+        >
+          {children}
+        </main>
+      </div>
+      {!isChatRoute && <AgentWorkIndicator />}
+    </div>
+  );
+
   return (
     <HeaderActionsProvider>
-      <AgentSidebar
-        position="right"
-        defaultOpen={false}
-        emptyStateText={t("agent.emptyState")}
-        suggestions={[
-          t("agent.suggestionPitch"),
-          t("agent.suggestionBrand"),
-          t("agent.suggestionHero"),
-        ]}
-        scope={deckScope}
-        browserTabId={TAB_ID}
-        agentPageHref="/settings/agent"
-        suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}
-        onComposerTextChange={setComposerText}
-        composerSlot={
-          <>
-            <GoogleDriveConnectionCta
-              active={extractGoogleSlidesUrls(composerText).length > 0}
-            />
-            <CreativeContextComposerChip />
-          </>
-        }
-      >
-        <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
-          {!isEmptyDecksState && showAppSidebar && (
+      {isChatRoute ? (
+        shell
+      ) : (
+        <AgentSidebar
+          position="right"
+          defaultOpen={false}
+          chatViewTransition
+          chatViewTransitionHandoff={chatHomeHandoffPending}
+          openOnChatRunning={chatHomeHandoffActive}
+          onFullscreenRequest={openAgentChatFullscreen}
+          emptyStateText={t("agent.emptyState")}
+          suggestions={[
+            t("agent.suggestionPitch"),
+            t("agent.suggestionBrand"),
+            t("agent.suggestionHero"),
+          ]}
+          scope={deckScope}
+          chatHistory={deckChatHistory}
+          browserTabId={TAB_ID}
+          agentPageHref="/settings/agent"
+          suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}
+          onComposerTextChange={setComposerText}
+          composerSlot={
             <>
-              {sidebarOpen && (
-                <div
-                  className="fixed inset-0 z-40 bg-foreground/50 md:hidden"
-                  onClick={() => setSidebarOpen(false)}
-                />
-              )}
-              <div
-                className={cn(
-                  "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 transition-transform duration-200 ease-out md:static md:z-auto md:transition-none",
-                  sidebarOpen
-                    ? "translate-x-0"
-                    : "-translate-x-full rtl:translate-x-full md:translate-x-0 md:rtl:translate-x-0",
-                )}
-              >
-                <Sidebar
-                  collapsed={effectiveSidebarCollapsed && !sidebarOpen}
-                  // In the mobile drawer the sidebar is forced expanded, so the
-                  // desktop collapse toggle would be a silent no-op (worse: it'd
-                  // mutate the desktop preference). Hide it while the drawer is
-                  // open.
-                  onToggleCollapsed={
-                    sidebarOpen ? undefined : toggleSidebarCollapsed
-                  }
-                />
-              </div>
+              <GoogleDriveConnectionCta
+                active={extractGoogleSlidesUrls(composerText).length > 0}
+              />
+              <CreativeContextComposerChip />
             </>
-          )}
-          <div className="agent-layout-main-surface flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-            {/* Mobile-only nav strip with hamburger — only when there's no page toolbar */}
-            {!isEmptyDecksState && !ownToolbar && (
-              <div className="flex h-12 items-center border-b border-border px-4 md:hidden shrink-0">
-                <button
-                  onClick={() => setSidebarOpen(true)}
-                  className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground cursor-pointer"
-                  aria-label={t("sidebar.openNavigation")}
-                >
-                  <IconMenu2 className="h-4 w-4" />
-                </button>
-              </div>
-            )}
-            {!isEmptyDecksState && !ownToolbar && <Header />}
-            {!isEmptyDecksState && <InvitationBanner />}
-            <main
-              className={cn(
-                "agent-native-app-main min-h-0 flex-1",
-                ownToolbar ? "overflow-hidden" : "overflow-y-auto",
-              )}
-            >
-              {children}
-            </main>
-          </div>
-          <AgentWorkIndicator />
-        </div>
-      </AgentSidebar>
+          }
+        >
+          {shell}
+        </AgentSidebar>
+      )}
     </HeaderActionsProvider>
   );
 }

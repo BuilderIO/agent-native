@@ -1,5 +1,4 @@
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
-import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import {
@@ -9,7 +8,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client/ui";
+import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import type {
   ContentDatabaseItem,
@@ -88,6 +87,7 @@ import {
   useTrashedContentDatabases,
 } from "@/hooks/use-content-database";
 import {
+  shouldAutoEnsureContentSpaces,
   useContentSpaces,
   useEnsureContentSpaces,
   type ContentSpaceSummary,
@@ -916,20 +916,58 @@ export function DocumentSidebar({
   const moveWorkspaceItem = useMoveDatabaseItem(
     workspaceCatalogDocumentId ?? "",
   );
-  const spaceProvisionAttemptedRef = useRef(false);
+  const attemptedSpaceReconciliationKeyRef = useRef<string | null>(null);
+  const spaceReconciliationRetryTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const [spaceReconciliationRetryNonce, setSpaceReconciliationRetryNonce] =
+    useState(0);
+  useEffect(
+    () => () => {
+      if (spaceReconciliationRetryTimerRef.current) {
+        clearTimeout(spaceReconciliationRetryTimerRef.current);
+      }
+    },
+    [],
+  );
   useEffect(() => {
+    const reconciliationNeeded =
+      contentSpacesQuery.data?.needsReconciliation ?? false;
+    if (contentSpacesQuery.isSuccess && !reconciliationNeeded) {
+      attemptedSpaceReconciliationKeyRef.current = null;
+    }
+    const reconciliationKey = contentSpacesQuery.data?.reconciliationKey ?? "";
     if (
-      contentSpacesQuery.isSuccess &&
-      !spaceProvisionAttemptedRef.current &&
-      !ensureContentSpaces.isPending
+      shouldAutoEnsureContentSpaces({
+        querySucceeded: contentSpacesQuery.isSuccess,
+        reconciliationNeeded,
+        reconciliationKey,
+        attemptedReconciliationKey: attemptedSpaceReconciliationKeyRef.current,
+        provisioningPending: ensureContentSpaces.isPending,
+      })
     ) {
-      spaceProvisionAttemptedRef.current = true;
-      ensureContentSpaces.mutate({});
+      attemptedSpaceReconciliationKeyRef.current = reconciliationKey;
+      ensureContentSpaces.mutate(
+        {},
+        {
+          onError: () => {
+            if (spaceReconciliationRetryTimerRef.current) return;
+            spaceReconciliationRetryTimerRef.current = setTimeout(() => {
+              attemptedSpaceReconciliationKeyRef.current = null;
+              spaceReconciliationRetryTimerRef.current = null;
+              setSpaceReconciliationRetryNonce((nonce) => nonce + 1);
+            }, 5_000);
+          },
+        },
+      );
     }
   }, [
+    contentSpacesQuery.data?.needsReconciliation,
+    contentSpacesQuery.data?.reconciliationKey,
     contentSpacesQuery.isSuccess,
     ensureContentSpaces,
     ensureContentSpaces.isPending,
+    spaceReconciliationRetryNonce,
   ]);
   const [storedSpaceId, setStoredSpaceId] = useLocalStorage<string | null>(
     SELECTED_CONTENT_SPACE_STORAGE_KEY,
@@ -976,17 +1014,18 @@ export function DocumentSidebar({
     contentSpacesLoading: contentSpacesQuery.isLoading,
     contentSpacesFetching: contentSpacesQuery.isFetching,
     contentSpacesError: contentSpacesQuery.isError,
-    provisioningAttempted: spaceProvisionAttemptedRef.current,
+    provisioningAttempted: attemptedSpaceReconciliationKeyRef.current !== null,
     provisioningPending: ensureContentSpaces.isPending,
     provisioningError: ensureContentSpaces.isError,
   });
   const handleRetryContentSpaces = useCallback(() => {
     if (contentSpacesQuery.isError) {
-      spaceProvisionAttemptedRef.current = false;
+      attemptedSpaceReconciliationKeyRef.current = null;
       void contentSpacesQuery.refetch();
       return;
     }
-    spaceProvisionAttemptedRef.current = true;
+    attemptedSpaceReconciliationKeyRef.current =
+      contentSpacesQuery.data?.reconciliationKey ?? "manual-retry";
     ensureContentSpaces.mutate({});
   }, [contentSpacesQuery, ensureContentSpaces]);
   useEffect(() => {
@@ -1090,7 +1129,7 @@ export function DocumentSidebar({
             persistSelection: setStoredSpaceId,
             openFiles: (documentId) => {
               if (targetDocumentId === null) return;
-              navigate(`/page/${targetDocumentId ?? documentId}`, {
+              void navigate(`/page/${targetDocumentId ?? documentId}`, {
                 flushSync: true,
               });
             },
@@ -1236,7 +1275,7 @@ export function DocumentSidebar({
 
   const navigateToDocument = useCallback(
     (id: string) => {
-      navigate(`/page/${id}`, { flushSync: true });
+      void navigate(`/page/${id}`, { flushSync: true });
     },
     [navigate],
   );
@@ -1264,7 +1303,7 @@ export function DocumentSidebar({
             ["action", "get-document", { id: created.id }],
             created,
           );
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "list-documents"],
           });
           navigateToDocument(created.id);
@@ -1344,12 +1383,12 @@ export function DocumentSidebar({
         }
         // Replace optimistic doc with real server doc + clear any 404 error
         // state from the in-flight fetch that ran before create completed.
-        queryClient.invalidateQueries(documentQueryFilter(nextId));
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries(documentQueryFilter(nextId));
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
         if (rootFilesDatabaseId) {
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: contentDatabaseByIdQueryKey(rootFilesDatabaseId),
           });
         }
@@ -1359,7 +1398,7 @@ export function DocumentSidebar({
           id,
           previousDocuments !== undefined,
         );
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
         queryClient.removeQueries(documentQueryFilter(id));
@@ -1369,7 +1408,7 @@ export function DocumentSidebar({
             (current) => removeOptimisticItemFromContentDatabase(current, id),
           );
         }
-        navigate(previousPath, {
+        void navigate(previousPath, {
           replace: true,
           flushSync: true,
         });
@@ -1463,7 +1502,7 @@ export function DocumentSidebar({
       }
 
       if (activeDeleted) {
-        navigate(nextDocument ? `/page/${nextDocument.id}` : "/", {
+        void navigate(nextDocument ? `/page/${nextDocument.id}` : "/home", {
           replace: true,
           flushSync: true,
         });
@@ -1477,7 +1516,7 @@ export function DocumentSidebar({
         } else {
           await deleteDocument.mutateAsync({ id });
         }
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
       } catch (err) {
@@ -1487,11 +1526,11 @@ export function DocumentSidebar({
           previousDocumentQueries,
           deletedIds,
         );
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
         if (activeDeleted) {
-          navigate(previousPath, {
+          void navigate(previousPath, {
             replace: true,
             flushSync: true,
           });
@@ -1608,10 +1647,10 @@ export function DocumentSidebar({
     async (documentId: string) => {
       try {
         await permanentlyDeleteDocument.mutateAsync({ id: documentId });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-trashed-content-databases"],
         });
         toast.success(t("sidebar.databasePermanentlyDeleted"));
@@ -1658,7 +1697,7 @@ export function DocumentSidebar({
   const handleRemoveLocalFiles = useCallback(async () => {
     try {
       const result = await removeLocalFileSource.mutateAsync({});
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
       });
       setRemoveLocalFilesDialogOpen(false);
@@ -1782,21 +1821,9 @@ export function DocumentSidebar({
       )}
       data-sidebar-brand-toggle
     >
-      <img
-        src={appPath("/agent-native-icon-light.svg")}
-        alt=""
+      <AgentNativeIcon
         aria-hidden="true"
-        width={28}
-        height={16}
-        className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
-      />
-      <img
-        src={appPath("/agent-native-icon-dark.svg")}
-        alt=""
-        aria-hidden="true"
-        width={28}
-        height={16}
-        className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+        className="h-3.5 w-6 shrink-0 text-foreground"
       />
       {!isCollapsed && (
         <span className="text-base font-semibold tracking-tight">Content</span>
@@ -2437,7 +2464,7 @@ export function DocumentSidebar({
         />
       </div>
 
-      <div className="shrink-0 px-3 py-2">
+      <div className="shrink-0 px-3 py-2 empty:hidden">
         <OrgSwitcher reserveSpace />
       </div>
 

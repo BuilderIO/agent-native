@@ -15,7 +15,6 @@ import {
   type CodeAgentsNewSessionExtension,
 } from "@agent-native/code-agents-ui";
 import {
-  ChatFirstSurfacePanelToggle,
   chatFirstSurfaceTabId,
   closeChatFirstSessionWatch,
   emitChatFirstOpenApp,
@@ -121,6 +120,7 @@ import type {
 import type { SubscriptionStatus } from "../../../shared/subscription-status.js";
 import {
   DESKTOP_TERMINAL_AGENT_OPTIONS,
+  type DesktopTerminalAgentId,
   writeDesktopTerminalPreferences,
   useDesktopTerminalPreferences,
 } from "../lib/desktop-terminal-preferences.js";
@@ -136,6 +136,7 @@ import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
 import CodeAgentSchedulesPanel from "./CodeAgentSchedulesPanel.js";
 import CreateAppPromptPopover from "./CreateAppPromptPopover.js";
 import DesktopAppChatShell from "./DesktopAppChatShell.js";
+import DesktopChatFirstSurfaceMenu from "./DesktopChatFirstSurfaceMenu.js";
 import DesktopIntegrationsPage from "./DesktopIntegrationsPage.js";
 import DesktopTerminalSurface, {
   type DesktopTerminalPromptRequest,
@@ -143,7 +144,6 @@ import DesktopTerminalSurface, {
 import DesktopTerminalTabs from "./DesktopTerminalTabs.js";
 import {
   initialMultiFrontierRunAutoContinue,
-  locksMultiFrontierMode,
   providerOperationFailureNotice,
   readNewerMultiFrontierSnapshot,
 } from "./multi-frontier-renderer-state.js";
@@ -352,13 +352,11 @@ export function shouldShowNativeDesktopIntegrations(input: {
   appId: string;
   path?: string;
   appAuthState?: AppWebviewAuthState;
-  desktopIdentityStatus?: DesktopIdentityStatus | "checking";
 }): boolean {
   return (
     input.appId === "dispatch" &&
     isNativeDesktopIntegrationsPath(input.path) &&
-    input.appAuthState === "authenticated" &&
-    input.desktopIdentityStatus === "signed-in"
+    input.appAuthState !== "unauthenticated"
   );
 }
 
@@ -651,7 +649,12 @@ interface CodeAgentsHubProps {
   workspaceAppList?: DesktopWorkspaceAppListResult;
   isActive?: boolean;
   openRequest?: { goalId?: string; runId?: string; nonce: number };
-  chatFirstAppOpenRequest?: { appId: string; path?: string; nonce: number };
+  chatFirstAppOpenRequest?: {
+    appId: string;
+    path?: string;
+    nonce: number;
+    focusNonce?: number;
+  };
   chatFirstPreviewRequest?: { appId: string; nonce: number };
   chatFirstPreviewStatus?: "starting" | "ready" | "error";
   chatFirstPreviewStatusMessage?: string;
@@ -860,17 +863,10 @@ export default function CodeAgentsHub({
       ) ?? null,
     [visibleActiveChatFirstSurfaceTabId, visibleChatFirstSurfaceTabs],
   );
-  const chatFirstDefaultInitializedRef = useRef(false);
   useEffect(() => {
-    if (chatFirstDefaultInitializedRef.current) return;
-    chatFirstDefaultInitializedRef.current = true;
     closeChatFirstSessionWatch();
-    chatFirstSurfaceTabsStore.closeAll();
-    setChatFirstSurfacePanelOpen(false);
-  }, [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen]);
-  const chatFirstAppTakesMain =
-    activeChatFirstSurfaceTab?.kind === "app" &&
-    activeChatFirstSurfaceTab.placement === "main";
+  }, []);
+  const chatFirstAppTakesMain = activeChatFirstSurfaceTab?.kind === "app";
   const chatFirstAppSelected = activeChatFirstSurfaceTab?.kind === "app";
   const chatFirstAppChatEnabled =
     chatFirstAppSelected &&
@@ -935,11 +931,8 @@ export default function CodeAgentsHub({
   const [multiFrontierNotices, setMultiFrontierNotices] = useState<
     MultiFrontierNotice[]
   >([]);
-  const [multiFrontierOpenDetailRequest, setMultiFrontierOpenDetailRequest] =
-    useState<{ detailId: string; nonce: number }>();
   const multiFrontierSequence = useRef(-1);
   const multiFrontierSettingsHydrated = useRef(false);
-  const multiFrontierDetailNonce = useRef(0);
   const multiFrontierNoticeNonce = useRef(0);
   const multiFrontierActivationTracked = useRef(false);
   const multiFrontierLastPhaseTelemetry = useRef("");
@@ -948,15 +941,9 @@ export default function CodeAgentsHub({
   >({});
   const activeMultiFrontierCollaborationId =
     multiFrontierState?.collaborationId;
-  const multiFrontierModeLocked = locksMultiFrontierMode(multiFrontierState);
 
   const openChatFirstApp = useCallback(
-    (
-      appId: string,
-      path?: string,
-      view?: string,
-      placement: ChatFirstAppSurfacePlacement = "main",
-    ) => {
+    (appId: string, path?: string, view?: string) => {
       const app = surfaceApps.find(
         (candidate) => candidate.id === appId && candidate.enabled,
       );
@@ -979,7 +966,7 @@ export default function CodeAgentsHub({
       setChatFirstNotice(null);
       setChatFirstBrowserSelection(null);
       closeChatFirstSessionWatch();
-      const surfaceTab = chatFirstAppSurfaceTab(app, path, view, placement);
+      const surfaceTab = chatFirstAppSurfaceTab(app, path, view, "main");
       chatFirstSurfaceTabsStore.open(
         dispatchControlPlane
           ? {
@@ -988,14 +975,8 @@ export default function CodeAgentsHub({
             }
           : surfaceTab,
       );
-      setChatFirstSurfacePanelOpen(true);
     },
-    [
-      chatFirstSurfaceTabsStore,
-      setChatFirstSurfacePanelOpen,
-      setScheduledTasksOpen,
-      surfaceApps,
-    ],
+    [chatFirstSurfaceTabsStore, setScheduledTasksOpen, surfaceApps],
   );
 
   useEffect(() => {
@@ -1012,7 +993,7 @@ export default function CodeAgentsHub({
     );
     if (!app) return;
     handledChatFirstAppOpenNonceRef.current = chatFirstAppOpenRequest.nonce;
-    openChatFirstApp(app.id, chatFirstAppOpenRequest.path, undefined, "main");
+    openChatFirstApp(app.id, chatFirstAppOpenRequest.path);
   }, [chatFirstAppOpenRequest, isActive, openChatFirstApp, surfaceApps]);
 
   useEffect(() => {
@@ -1082,6 +1063,10 @@ export default function CodeAgentsHub({
     setChatFirstSurfacePanelOpen,
     setScheduledTasksOpen,
   ]);
+  const openChatFirstNewChat = useCallback(() => {
+    setHasChatFirstActiveChat(false);
+    returnToChatFirstChats();
+  }, [returnToChatFirstChats]);
   const handleTerminalPromptSubmit = useCallback((prompt: string) => {
     const request: DesktopTerminalPromptRequest = {
       id: ++terminalPromptSequence.current,
@@ -1102,10 +1087,33 @@ export default function CodeAgentsHub({
     setTerminalPromptRequest(null);
     setTerminalSessionStarted(true);
   }, []);
+  const setDesktopTerminalMode = useCallback(
+    (enabled: boolean, startSession = false) => {
+      const state = chatFirstSurfaceTabsStore.getSnapshot();
+      const activeTab = state.tabs.find(
+        (tab) => tab.id === state.activeTabId && tab.kind === "app",
+      );
+      const appTab = activeTab ?? state.tabs.find((tab) => tab.kind === "app");
+      if (appTab?.kind === "app") {
+        chatFirstSurfaceTabsStore.open({
+          ...appTab,
+          placement: "main",
+        });
+      } else if (!enabled) {
+        setChatFirstSurfacePanelOpen(false);
+      }
+      writeDesktopTerminalPreferences({ enabled });
+      if (enabled && startSession) {
+        setTerminalPromptRequest(null);
+        setTerminalSessionStarted(true);
+      }
+    },
+    [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen],
+  );
   const handleTerminalModeChange = useCallback(
     (enabled: boolean) => {
       const wasEnabled = terminalPreferences.enabled;
-      writeDesktopTerminalPreferences({ enabled });
+      setDesktopTerminalMode(enabled);
       if (wasEnabled && !enabled) {
         toast({
           title: "Terminal mode is off",
@@ -1121,8 +1129,23 @@ export default function CodeAgentsHub({
         });
       }
     },
-    [onOpenSettings, terminalPreferences.enabled],
+    [onOpenSettings, setDesktopTerminalMode, terminalPreferences.enabled],
   );
+  const handleNewCliTab = useCallback(
+    () => setDesktopTerminalMode(true, true),
+    [setDesktopTerminalMode],
+  );
+  const handleTerminalAgentChange = useCallback(
+    (agent: DesktopTerminalAgentId) => {
+      writeDesktopTerminalPreferences({ agent });
+    },
+    [],
+  );
+  const handleNewUiTab = useCallback(() => {
+    setTerminalPromptRequest(null);
+    setTerminalSessionStarted(false);
+    setDesktopTerminalMode(false);
+  }, [setDesktopTerminalMode]);
   const openChatFirstAllApps = useCallback(() => {
     setChatFirstAllAppsOpen(true);
     setScheduledTasksOpen(false);
@@ -1155,7 +1178,7 @@ export default function CodeAgentsHub({
   const chatFirstNavigation = useMemo(
     () => ({
       activeTab: activeChatFirstPrimaryTab,
-      onNewChat: returnToChatFirstChats,
+      onNewChat: openChatFirstNewChat,
       onOpenChats: returnToChatFirstChats,
       onOpenAllApps: openChatFirstAllApps,
       onOpenIntegrations: () => openChatFirstApp("dispatch", "/integrations"),
@@ -1165,19 +1188,14 @@ export default function CodeAgentsHub({
       activeChatFirstPrimaryTab,
       openChatFirstApp,
       openChatFirstAllApps,
+      openChatFirstNewChat,
       openScheduledTasks,
       returnToChatFirstChats,
     ],
   );
   const openChatFirstAppFromRail = useCallback(
-    (app: ChatFirstAppItem) =>
-      openChatFirstApp(
-        app.id,
-        undefined,
-        undefined,
-        terminalPreferences.enabled ? "side" : "main",
-      ),
-    [openChatFirstApp, terminalPreferences.enabled],
+    (app: ChatFirstAppItem) => openChatFirstApp(app.id, undefined, undefined),
+    [openChatFirstApp],
   );
   const reloadChatFirstApp = useCallback(
     (app: ChatFirstAppItem) => {
@@ -1194,24 +1212,12 @@ export default function CodeAgentsHub({
     [chatFirstSurfaceTabs.tabs, openChatFirstAppFromRail],
   );
   const openChatFirstAppFromGrid = useCallback(
-    (app: AppConfig) =>
-      openChatFirstApp(
-        app.id,
-        undefined,
-        undefined,
-        terminalPreferences.enabled ? "side" : "main",
-      ),
-    [openChatFirstApp, terminalPreferences.enabled],
+    (app: AppConfig) => openChatFirstApp(app.id, undefined, undefined),
+    [openChatFirstApp],
   );
   const selectChatFirstAppFromKeyboard = useCallback(
-    (appId: string) =>
-      openChatFirstApp(
-        appId,
-        undefined,
-        undefined,
-        terminalPreferences.enabled ? "side" : "main",
-      ),
-    [openChatFirstApp, terminalPreferences.enabled],
+    (appId: string) => openChatFirstApp(appId, undefined, undefined),
+    [openChatFirstApp],
   );
   const chatFirstKeyboardNavigation = useMemo<ChatFirstKeyboardNavigation>(
     () => ({
@@ -1348,7 +1354,6 @@ export default function CodeAgentsHub({
         resolution.target.appId,
         resolution.target.path,
         resolution.target.view,
-        "side",
       );
     },
     [chatFirstAppRegistrations, openChatFirstApp],
@@ -1363,6 +1368,10 @@ export default function CodeAgentsHub({
         );
         return;
       }
+      if (!hasChatFirstActiveChat) {
+        setChatFirstNotice("Open a chat to view browser surfaces.");
+        return;
+      }
       setChatFirstNotice(null);
       closeChatFirstSessionWatch();
       chatFirstSurfaceTabsStore.open({
@@ -1373,7 +1382,7 @@ export default function CodeAgentsHub({
       });
       setChatFirstBrowserSelection(resolution.target);
     },
-    [chatFirstSurfaceTabsStore],
+    [hasChatFirstActiveChat, chatFirstSurfaceTabsStore],
   );
 
   useEffect(() => {
@@ -1381,6 +1390,7 @@ export default function CodeAgentsHub({
     if (!request || handledChatFirstPreviewNonceRef.current === request.nonce) {
       return;
     }
+    if (!hasChatFirstActiveChat) return;
     const app = apps.find(
       (candidate) => candidate.id === request.appId && candidate.enabled,
     );
@@ -1396,7 +1406,12 @@ export default function CodeAgentsHub({
       url: app.devUrl,
       title: `${app.name} preview`,
     });
-  }, [apps, chatFirstPreviewRequest, resolveChatFirstOpenBrowser]);
+  }, [
+    apps,
+    chatFirstPreviewRequest,
+    hasChatFirstActiveChat,
+    resolveChatFirstOpenBrowser,
+  ]);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -1407,8 +1422,12 @@ export default function CodeAgentsHub({
 
   useEffect(() => {
     if (window.electronAPI?.platform !== "darwin") return;
-    const setNativeTrafficLightsVisible =
-      window.electronAPI.windowControls?.setNativeTrafficLightsVisible;
+    const setNativeTrafficLightsVisible = window.electronAPI.windowControls
+      ? (visible: boolean) =>
+          window.electronAPI.windowControls!.setNativeTrafficLightsVisible(
+            visible,
+          )
+      : undefined;
     if (!setNativeTrafficLightsVisible) return;
     setNativeTrafficLightsVisible(!chatFirstRailCollapsed);
   }, [chatFirstRailCollapsed]);
@@ -1417,11 +1436,15 @@ export default function CodeAgentsHub({
     setChatFirstBrowserSelection(null);
     setChatFirstNotice(null);
     const unsubscribeApp = subscribeChatFirstOpenApp(resolveChatFirstOpenApp);
+    const unsubscribeDesktopApp =
+      window.electronAPI?.desktopChat?.onOpenApp(resolveChatFirstOpenApp) ??
+      (() => undefined);
     const unsubscribeBrowser = subscribeChatFirstOpenBrowser(
       resolveChatFirstOpenBrowser,
     );
     return () => {
       unsubscribeApp();
+      unsubscribeDesktopApp();
       unsubscribeBrowser();
     };
   }, [
@@ -1445,26 +1468,26 @@ export default function CodeAgentsHub({
   useEffect(() => {
     const tabCount = visibleChatFirstSurfaceTabs.length;
     const previousTabCount = previousChatFirstSurfaceTabCountRef.current;
-    if (!hasChatFirstActiveChat && !terminalPreferences.enabled) {
-      setChatFirstSurfacePanelOpen(false);
-    } else if (
-      tabCount > 0 &&
-      (previousTabCount === null || previousTabCount === 0)
-    ) {
-      setChatFirstSurfacePanelOpen(true);
-    } else if (
-      tabCount === 0 &&
-      previousTabCount !== null &&
-      previousTabCount > 0
-    ) {
+    if (tabCount === 0 && previousTabCount !== null && previousTabCount > 0) {
       setChatFirstSurfacePanelOpen(false);
     }
     previousChatFirstSurfaceTabCountRef.current = tabCount;
+  }, [setChatFirstSurfacePanelOpen, visibleChatFirstSurfaceTabs.length]);
+
+  useEffect(() => {
+    if (
+      !hasChatFirstActiveChat &&
+      !(
+        activeChatFirstSurfaceTab?.kind === "app" &&
+        activeChatFirstSurfaceTab.placement === "side"
+      )
+    ) {
+      setChatFirstSurfacePanelOpen(false);
+    }
   }, [
+    activeChatFirstSurfaceTab,
     hasChatFirstActiveChat,
     setChatFirstSurfacePanelOpen,
-    terminalPreferences.enabled,
-    visibleChatFirstSurfaceTabs.length,
   ]);
 
   useEffect(() => {
@@ -1572,7 +1595,6 @@ export default function CodeAgentsHub({
           kind: "terminal",
           title: "Terminal",
         });
-        setChatFirstSurfacePanelOpen(true);
         return;
       }
       if (kind !== "agents") return;
@@ -1619,6 +1641,19 @@ export default function CodeAgentsHub({
         : nextActivities,
     );
   }, []);
+
+  const handleChatFirstSelectedRunChange = useCallback(
+    (runId: string | null) => {
+      setHasChatFirstActiveChat(Boolean(runId));
+    },
+    [],
+  );
+  const handleChatFirstMainKindChange = useCallback(
+    (kind: "agent" | "code") => {
+      if (kind === "code") returnToChatFirstChats();
+    },
+    [returnToChatFirstChats],
+  );
 
   const handleChatFirstWatchedRunChange = useCallback(
     (run: CodeAgentRun | null, sourceRunId?: string | null) => {
@@ -1809,32 +1844,11 @@ export default function CodeAgentsHub({
           if (!disposed) appendProviderOperationFailure(providerId, "load");
         });
     }
-    void api
-      .list()
-      .then((snapshots) => {
-        if (disposed) return;
-        const recovered = snapshots.find(
-          (snapshot) => snapshot.phase === "paused",
-        );
-        if (!recovered) return;
-        applyMultiFrontierSnapshot(recovered);
-        multiFrontierSettingsHydrated.current = true;
-        setMultiFrontierRunAutoContinue(
-          recovered.autoContinueAfterAgreement ?? false,
-        );
-        setMultiFrontierMode(true);
-        multiFrontierDetailNonce.current += 1;
-        setMultiFrontierOpenDetailRequest({
-          detailId: recovered.collaborationId,
-          nonce: multiFrontierDetailNonce.current,
-        });
-      })
-      .catch(() => undefined);
     return () => {
       disposed = true;
       unsubscribeProviderStatus();
     };
-  }, [appendProviderOperationFailure, applyMultiFrontierSnapshot, isActive]);
+  }, [appendProviderOperationFailure, isActive]);
 
   useEffect(() => {
     if (!isActive || !activeMultiFrontierCollaborationId) return;
@@ -1980,7 +1994,7 @@ export default function CodeAgentsHub({
     [appendMultiFrontierNotice, applyMultiFrontierSnapshot],
   );
 
-  const multiFrontierExtension = useMemo<CodeAgentsNewSessionExtension>(
+  const _multiFrontierExtension = useMemo<CodeAgentsNewSessionExtension>(
     () => ({
       active: multiFrontierMode,
       disabled: multiFrontierBusy,
@@ -1991,24 +2005,12 @@ export default function CodeAgentsHub({
             permissionMode={permissionMode}
             subscriptions={multiFrontierSubscriptions}
             busy={multiFrontierBusy}
-            modeLocked={multiFrontierModeLocked}
             autoContinueAfterAgreement={multiFrontierRunAutoContinue}
             defaultAutoContinueAfterAgreement={
               multiFrontierDefaultSettings.autoContinueAfterAgreement
             }
             onModeChange={(mode) => {
-              if (mode === "multi-frontier") {
-                if (!multiFrontierMode) {
-                  setMultiFrontierRunAutoContinue(
-                    initialMultiFrontierRunAutoContinue(
-                      multiFrontierDefaultSettings,
-                    ),
-                  );
-                }
-                setMultiFrontierMode(true);
-                return;
-              }
-              if (multiFrontierModeLocked) return;
+              if (mode === "multi-frontier") return;
               setMultiFrontierMode(false);
               onPermissionModeChange(
                 mode === "plan" ? "read-only" : "full-auto",
@@ -2129,7 +2131,6 @@ export default function CodeAgentsHub({
       connectMultiFrontierSubscription,
       multiFrontierBusy,
       multiFrontierDefaultSettings.autoContinueAfterAgreement,
-      multiFrontierModeLocked,
       multiFrontierMode,
       multiFrontierNotices,
       multiFrontierRunAutoContinue,
@@ -2647,7 +2648,6 @@ export default function CodeAgentsHub({
       if (tab.kind === "terminal") {
         return (
           <DesktopTerminalTabs
-            apps={apps}
             agent={terminalPreferences.agent}
             theme={theme}
             className="desktop-terminal-tabs--side-surface"
@@ -2667,15 +2667,19 @@ export default function CodeAgentsHub({
           tabId: tab.id,
           activeTabId: activeChatFirstSurfaceTab?.id,
         });
+        const shouldFocusRequestedTab =
+          isTabActive &&
+          chatFirstAppOpenRequest?.appId === tab.appId &&
+          chatFirstAppOpenRequest.path === tab.path;
         const appAuthState = appAuthStateByTab[tab.id];
         const desktopIdentityStatus = desktopIdentityStatusByTab[tab.id];
         const showNativeIntegrations = shouldShowNativeDesktopIntegrations({
           appId: surfaceApp.id,
           path: tab.path,
           appAuthState,
-          desktopIdentityStatus,
         });
         const nativeOAuthActive =
+          appAuthState !== "unauthenticated" &&
           surfaceApp.id === "dispatch" &&
           isNativeDesktopIntegrationsPath(tab.path) &&
           nativeOAuthActiveByTab[tab.id] === true;
@@ -2695,6 +2699,7 @@ export default function CodeAgentsHub({
               <DesktopAppChatShell
                 appId={surfaceApp.id}
                 appName={surfaceApp.name}
+                onOpenSettings={onOpenSettings}
                 desktopIdentityUnauthenticated={isDesktopIdentityGateUnauthenticated(
                   desktopIdentityStatus,
                 )}
@@ -2706,6 +2711,19 @@ export default function CodeAgentsHub({
                 isActive={isTabActive}
                 chatEnabled={shouldUseDesktopAppChatShell(tab.path)}
                 toggleScopeId={tab.id}
+                defaultMode={
+                  terminalPreferences.enabled && isTabActive ? "cli" : "chat"
+                }
+                terminal={
+                  terminalPreferences.enabled
+                    ? {
+                        agent: terminalPreferences.agent,
+                        theme,
+                        ...(tab.path ? { path: tab.path } : {}),
+                        ...(tab.view ? { view: tab.view } : {}),
+                      }
+                    : undefined
+                }
                 onLocalCodeChangeStarted={onLocalCodeChangeStarted}
               >
                 <div
@@ -2731,6 +2749,12 @@ export default function CodeAgentsHub({
                       app={toAppDefinition(surfaceApp)}
                       appConfig={surfaceApp}
                       isActive={isTabActive}
+                      focusNonce={
+                        shouldFocusRequestedTab
+                          ? chatFirstAppOpenRequest.focusNonce
+                          : undefined
+                      }
+                      showDesktopIdentityGate={false}
                       surfaceHidden={!showNativeIntegrationsGuest}
                       refreshKey={refreshKey}
                       theme={theme}
@@ -2751,9 +2775,9 @@ export default function CodeAgentsHub({
                           handleAppAuthStateChange(tab.id, "unauthenticated");
                         }
                       }}
-                      onDesktopIdentityStatusChange={(status) =>
-                        handleDesktopIdentityStatusChange(tab.id, status)
-                      }
+                      onDesktopIdentityStatusChange={(status) => {
+                        handleDesktopIdentityStatusChange(tab.id, status);
+                      }}
                       onWebContentsIdChange={(webContentsId) =>
                         handleWebContentsIdChange(tab.id, webContentsId)
                       }
@@ -2769,6 +2793,7 @@ export default function CodeAgentsHub({
                       aria-hidden={nativeOAuthActive}
                     >
                       <DesktopIntegrationsPage
+                        appAuthState={appAuthState}
                         targetWebContentsId={webContentsIdByTab[tab.id]}
                         onOAuthActiveChange={(active) =>
                           handleNativeOAuthActiveChange(tab.id, active)
@@ -2811,12 +2836,15 @@ export default function CodeAgentsHub({
       handleAppAuthStateChange,
       handleWebContentsIdChange,
       handleNativeOAuthActiveChange,
+      handleNewCliTab,
       host,
       isActive,
       onLocalCodeChangeStarted,
+      onOpenSettings,
       refreshKey,
       surfaceApps,
       terminalPreferences.agent,
+      terminalPreferences.enabled,
       theme,
       nativeOAuthActiveByTab,
       webContentsIdByTab,
@@ -2825,7 +2853,31 @@ export default function CodeAgentsHub({
   );
   const showTerminalSurface =
     terminalPreferences.enabled &&
-    (terminalSessionStarted || hasChatFirstActiveChat || chatFirstAppSelected);
+    !chatFirstAppSelected &&
+    (terminalSessionStarted || hasChatFirstActiveChat);
+  const canRenderChatFirstSurfacePanel =
+    (hasChatFirstActiveChat || terminalSessionStarted) &&
+    !chatFirstAllAppsOpen &&
+    !scheduledTasksOpen &&
+    !chatFirstAppSelected;
+  const canToggleChatFirstSurfacePanel = canRenderChatFirstSurfacePanel;
+  const activeTerminalApp = useMemo(() => {
+    if (activeChatFirstSurfaceTab?.kind !== "app") return undefined;
+    const app = surfaceApps.find(
+      (candidate) => candidate.id === activeChatFirstSurfaceTab.appId,
+    );
+    if (!app) return undefined;
+    return {
+      id: app.id,
+      name: app.name,
+      ...(activeChatFirstSurfaceTab.path
+        ? { path: activeChatFirstSurfaceTab.path }
+        : {}),
+      ...(activeChatFirstSurfaceTab.view
+        ? { view: activeChatFirstSurfaceTab.view }
+        : {}),
+    };
+  }, [activeChatFirstSurfaceTab, surfaceApps]);
   return (
     <QueryClientProvider client={codeAgentsQueryClient}>
       <div
@@ -2850,11 +2902,18 @@ export default function CodeAgentsHub({
           brandIconUrl={agentNativeIconUrl}
           onOpenSettings={onOpenSettings}
           mainToolbarSlot={
-            hasChatFirstActiveChat && !chatFirstAppTakesMain ? (
-              <ChatFirstSurfacePanelToggle
-                open={chatFirstSurfacePanel.open}
-                onToggle={chatFirstSurfacePanel.toggle}
-                className="static"
+            !showTerminalSurface &&
+            !chatFirstAllAppsOpen &&
+            !scheduledTasksOpen &&
+            !chatFirstAppSelected ? (
+              <DesktopChatFirstSurfaceMenu
+                sidebarOpen={chatFirstSurfacePanel.open}
+                onToggleSidebar={chatFirstSurfacePanel.toggle}
+                onNewCliTab={handleNewCliTab}
+                onNewUiTab={openChatFirstNewChat}
+                onClose={
+                  hasChatFirstActiveChat ? openChatFirstNewChat : undefined
+                }
               />
             ) : undefined
           }
@@ -2896,11 +2955,24 @@ export default function CodeAgentsHub({
           renderChatFirstChatSurface={
             showTerminalSurface ? (
               <DesktopTerminalSurface
-                apps={apps}
                 agent={terminalPreferences.agent}
                 theme={theme}
+                activeApp={activeTerminalApp}
                 submitRequest={terminalPromptRequest ?? undefined}
                 onPromptSubmitted={handleTerminalPromptSubmitted}
+                onNewUiTab={handleNewUiTab}
+                onClose={handleNewUiTab}
+                sidebarOpen={
+                  canToggleChatFirstSurfacePanel
+                    ? chatFirstSurfacePanel.open
+                    : undefined
+                }
+                onToggleSidebar={
+                  canToggleChatFirstSurfacePanel
+                    ? chatFirstSurfacePanel.toggle
+                    : undefined
+                }
+                onAgentChange={handleTerminalAgentChange}
               />
             ) : undefined
           }
@@ -2922,14 +2994,10 @@ export default function CodeAgentsHub({
             onNewTerminal: handleNewTerminal,
           }}
           keyboardNavigation={chatFirstKeyboardNavigation}
-          onChatFirstMainKindChange={(kind) => {
-            if (kind === "code") returnToChatFirstChats();
-          }}
+          onChatFirstMainKindChange={handleChatFirstMainKindChange}
           suppressChatFirstUnavailableNotice
           onRunsChange={handleChatFirstRunsChange}
-          onSelectedRunChange={(runId) =>
-            setHasChatFirstActiveChat(Boolean(runId))
-          }
+          onSelectedRunChange={handleChatFirstSelectedRunChange}
           onWatchedRunChange={handleChatFirstWatchedRunChange}
           chatFirstNavigation={chatFirstNavigation}
           onChatFirstOpenApp={emitChatFirstOpenAppStable}
@@ -3045,14 +3113,13 @@ export default function CodeAgentsHub({
               </>
             </TooltipProvider>
           }
-          newSessionExtension={multiFrontierExtension}
-          openDetailRequest={multiFrontierOpenDetailRequest}
           renderAppSurface={({ app, urlParams, refreshKey: appRefreshKey }) => (
             <div className="code-agents-embedded-app-surface">
               <AppWebview
                 app={toAppDefinition(app)}
                 appConfig={app}
                 isActive={isActive}
+                showDesktopIdentityGate={false}
                 theme={theme}
                 urlParams={urlParams}
                 // Shell key folded in: a lane change remounts every hosted
@@ -3062,9 +3129,7 @@ export default function CodeAgentsHub({
             </div>
           )}
         />
-        {(hasChatFirstActiveChat || terminalPreferences.enabled) &&
-        chatFirstSurfacePanel.open &&
-        !chatFirstAppTakesMain ? (
+        {chatFirstSurfacePanel.open && canRenderChatFirstSurfacePanel ? (
           <ChatFirstSurfacePanel
             width={chatFirstSurfaceResize.width}
             onResizePointerDown={chatFirstSurfaceResize.onPointerDown}
@@ -3099,9 +3164,7 @@ export default function CodeAgentsHub({
                   terminalPreferences.enabled ? ["terminal"] : undefined
                 }
                 apps={chatFirstAppItems}
-                onOpenApp={(app) =>
-                  openChatFirstApp(app.id, undefined, undefined, "side")
-                }
+                onOpenApp={(app) => openChatFirstApp(app.id)}
                 renderAppIcon={renderChatFirstAppIcon}
                 copy={defaultChatFirstCopy}
               />
@@ -3147,7 +3210,6 @@ export function MultiFrontierModeControl({
   permissionMode,
   subscriptions,
   busy,
-  modeLocked,
   autoContinueAfterAgreement,
   defaultAutoContinueAfterAgreement,
   onModeChange,
@@ -3160,7 +3222,6 @@ export function MultiFrontierModeControl({
   permissionMode: CodeAgentPermissionMode;
   subscriptions: Partial<Record<MultiFrontierProviderId, SubscriptionStatus>>;
   busy: boolean;
-  modeLocked: boolean;
   autoContinueAfterAgreement: boolean;
   defaultAutoContinueAfterAgreement: boolean;
   onModeChange: (mode: "plan" | "auto" | "multi-frontier") => void;
@@ -3176,11 +3237,7 @@ export function MultiFrontierModeControl({
       : "auto";
   return (
     <div className="code-agents-multi-frontier-control">
-      <Select
-        value={value}
-        disabled={busy || modeLocked}
-        onValueChange={onModeChange}
-      >
+      <Select value={value} disabled={busy} onValueChange={onModeChange}>
         <SelectTrigger
           className="desktop-select-trigger code-agents-mode-select code-agents-multi-frontier-mode-select"
           aria-label="Run mode"

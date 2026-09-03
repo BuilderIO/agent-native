@@ -9,6 +9,7 @@ const getUserSettingMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
+  getDialect: () => "sqlite",
   intType: () => "INTEGER",
   isPostgres: () => false,
 }));
@@ -23,6 +24,7 @@ vi.mock("../settings/user-settings.js", () => ({
 }));
 
 vi.mock("../resources/store.js", () => ({
+  SHARED_OWNER: "__shared__",
   organizationIdFromResourceOwner: (owner: string) =>
     owner.startsWith("__organization__:")
       ? owner.slice("__organization__:".length)
@@ -253,6 +255,97 @@ describe("automation domain service", () => {
         "organization",
       ),
     ).toBe(true);
+  });
+
+  it("lets a Factory org member queue a recovered folder job that lost domain", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
+    const recovered = resource(`---
+enabled: true
+createdBy: alice@example.com
+orgId: "org-1"
+---
+
+Observe Slack.`);
+    recovered.path = "jobs/factories/demo-factory/factory-slack-feedback.md";
+
+    expect(
+      await canQueueAutomationRunNow(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "factory" },
+        recovered,
+        "organization",
+      ),
+    ).toBe(true);
+    expect(
+      await canQueueAutomationRunNow(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "mail" },
+        recovered,
+        "organization",
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses a personal job on a Factory-looking path", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
+    const personal = resource(
+      `---
+enabled: true
+createdBy: alice@example.com
+orgId: "org-1"
+---
+
+Observe Slack.`,
+      "alice@example.com",
+    );
+    personal.path = "jobs/factories/demo-factory/factory-slack-feedback.md";
+
+    expect(
+      await canQueueAutomationRunNow(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "factory" },
+        personal,
+        "organization",
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses a Factory-path job whose orgId does not match its owner", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
+    const mismatched = resource(`---
+enabled: true
+createdBy: alice@example.com
+orgId: "org-2"
+---
+
+Observe Slack.`);
+    mismatched.path = "jobs/factories/demo-factory/factory-slack-feedback.md";
+
+    expect(
+      await canQueueAutomationRunNow(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "factory" },
+        mismatched,
+        "organization",
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses a recovered Factory-folder job owned by another app", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
+    const calendarJob = resource(`---
+enabled: true
+createdBy: alice@example.com
+orgId: "org-1"
+appId: calendar
+---
+
+Send the digest.`);
+    calendarJob.path = "jobs/factories/demo-factory/calendar-digest.md";
+
+    expect(
+      await canQueueAutomationRunNow(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "factory" },
+        calendarJob,
+        "organization",
+      ),
+    ).toBe(false);
   });
 
   it("still refuses a Mail org member who is not the creator or admin", async () => {

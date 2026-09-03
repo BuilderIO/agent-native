@@ -8,8 +8,15 @@ import {
   IconKey,
   IconLoader2,
   IconSearch,
+  IconX,
 } from "@tabler/icons-react";
-import React, { useCallback, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import type {
   OnboardingAppProfile,
@@ -22,6 +29,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useT } from "../i18n.js";
 import { IntegrationGrid } from "../integrations/IntegrationGrid.js";
 import {
   buildMcpOAuthStartUrl,
@@ -38,11 +46,13 @@ import {
   useCreateMcpServer,
   useMcpServers,
 } from "../resources/use-mcp-servers.js";
+import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
 import { shouldSkipFirstRunIntegrations } from "./first-run-enabled.js";
 import { listFirstRunOnboardingExtensions } from "./first-run-registry.js";
-import { useOnboarding } from "./use-onboarding.js";
+import { saveFirstRunOnboardingRole } from "./first-run-status.js";
+import { trackOnboardingEvent, useOnboarding } from "./use-onboarding.js";
 import { useOnboardingPreviewMode } from "./use-preview-mode.js";
 
 type FirstRunScreen =
@@ -50,9 +60,49 @@ type FirstRunScreen =
   | "choice"
   | "manual"
   | "tools"
+  | "role"
   | "connecting"
   | "ready"
   | "extension";
+
+const FIRST_RUN_SCREEN_ORDER: readonly Exclude<FirstRunScreen, "extension">[] =
+  ["intro", "choice", "manual", "tools", "role", "connecting", "ready"];
+
+function firstRunStepProperties(
+  screen: FirstRunScreen,
+  extensions: readonly { id: string }[],
+  extensionIndex: number,
+): Record<string, unknown> {
+  if (screen === "extension") {
+    return {
+      flow: "first_run",
+      step_id: `extension:${extensions[extensionIndex]?.id ?? "unknown"}`,
+      step_index: FIRST_RUN_SCREEN_ORDER.length + extensionIndex,
+      ...(extensions[extensionIndex]
+        ? { extension_id: extensions[extensionIndex].id }
+        : {}),
+    };
+  }
+  return {
+    flow: "first_run",
+    step_id: screen,
+    step_index: FIRST_RUN_SCREEN_ORDER.indexOf(screen),
+  };
+}
+
+const FIRST_RUN_ROLE_OPTIONS = [
+  { value: "product", labelKey: "agentChat.onboarding.roleProduct" },
+  { value: "design", labelKey: "agentChat.onboarding.roleDesign" },
+  { value: "developer", labelKey: "agentChat.onboarding.roleDeveloper" },
+  { value: "marketing", labelKey: "agentChat.onboarding.roleMarketing" },
+  { value: "sales", labelKey: "agentChat.onboarding.roleSales" },
+  { value: "ops", labelKey: "agentChat.onboarding.roleOps" },
+  {
+    value: "individual",
+    labelKey: "agentChat.onboarding.roleIndividual",
+  },
+  { value: "other", labelKey: "agentChat.onboarding.roleOther" },
+] as const;
 
 const BUILDER_MORE_SERVICES = [
   "Voice input",
@@ -76,6 +126,7 @@ export function FirstRunOnboarding({
   skipIntegrations = shouldSkipFirstRunIntegrations(),
   initialFirstRun = false,
 }: FirstRunOnboardingProps = {}) {
+  const t = useT();
   const previewMode = useOnboardingPreviewMode();
   const {
     firstRun,
@@ -85,15 +136,11 @@ export function FirstRunOnboarding({
     completeFirstRun,
     completeFirstRunError,
   } = useOnboarding({ preview: previewMode, initialFirstRun });
-  // completeFirstRun() rejects on failure — swallow it here so a Skip/
-  // Continue click never becomes an unhandled rejection; completeFirstRunError
-  // (rendered below) is the real signal, and the user stays on this screen
-  // to retry instead of being bounced to an unrelated error screen.
-  const finishOnboarding = useCallback(() => {
-    completeFirstRun().catch(() => {});
-  }, [completeFirstRun]);
   const [screen, setScreen] = useState<FirstRunScreen>("intro");
   const [extensionIndex, setExtensionIndex] = useState(0);
+  const [selectedRole, setSelectedRole] = useState<string | null>(null);
+  const [savingRole, setSavingRole] = useState(false);
+  const [roleSaveError, setRoleSaveError] = useState<string | null>(null);
   const [integrationQuery, setIntegrationQuery] = useState("");
   const [integrationDialogId, setIntegrationDialogId] = useState<string | null>(
     null,
@@ -102,6 +149,9 @@ export function FirstRunOnboarding({
     string | null
   >(null);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [builderConnectionMode, setBuilderConnectionMode] = useState<
+    "existing" | "provision"
+  >("existing");
   const extensions = useMemo(() => listFirstRunOnboardingExtensions(), []);
   const mcpCatalog = useMemo(() => getDefaultMcpIntegrations(), []);
   const mcpServersQuery = useMcpServers();
@@ -110,6 +160,62 @@ export function FirstRunOnboarding({
     () => filterMcpIntegrations(integrationQuery, mcpCatalog),
     [integrationQuery, mcpCatalog],
   );
+  // completeFirstRun() rejects on failure — swallow it here so a Skip/
+  // Continue click never becomes an unhandled rejection; completeFirstRunError
+  // (rendered below) is the real signal, and the user stays on this screen
+  // to retry instead of being bounced to an unrelated error screen.
+  const trackFirstRunStepCompleted = useCallback(
+    (stepScreen: FirstRunScreen, stepExtensionIndex = extensionIndex) => {
+      if (previewMode) return;
+      trackOnboardingEvent(
+        "onboarding_step_completed",
+        firstRunStepProperties(stepScreen, extensions, stepExtensionIndex),
+      );
+    },
+    [extensionIndex, extensions, previewMode],
+  );
+  const completionAttemptRef = useRef<{
+    screen: FirstRunScreen | null;
+    extensionIndex: number;
+  } | null>(null);
+  const finishOnboarding = useCallback(
+    async (
+      completedScreen: FirstRunScreen | null,
+      completedExtensionIndex = extensionIndex,
+    ) => {
+      completionAttemptRef.current = completedScreen
+        ? { screen: completedScreen, extensionIndex: completedExtensionIndex }
+        : { screen: null, extensionIndex: completedExtensionIndex };
+      try {
+        await completeFirstRun();
+        if (completedScreen) {
+          trackFirstRunStepCompleted(completedScreen, completedExtensionIndex);
+        }
+        completionAttemptRef.current = null;
+      } catch {
+        // coercion-ok: completeFirstRun exposes this failure as the inline retry state.
+      }
+    },
+    [completeFirstRun, extensionIndex, trackFirstRunStepCompleted],
+  );
+  useEffect(() => {
+    if (!previewMode && firstRun && !loading && profile) {
+      trackOnboardingEvent("onboarding_started", { flow: "first_run" });
+    }
+  }, [firstRun, loading, previewMode, profile]);
+  useEffect(() => {
+    if (previewMode || !firstRun || loading || !profile) return;
+    const step = firstRunStepProperties(screen, extensions, extensionIndex);
+    trackOnboardingEvent("onboarding_step_viewed", step);
+  }, [
+    extensionIndex,
+    extensions,
+    firstRun,
+    loading,
+    previewMode,
+    profile,
+    screen,
+  ]);
   const connectedUrls = useMemo(() => {
     if (previewMode) return new Set<string>();
     const servers = [
@@ -129,19 +235,50 @@ export function FirstRunOnboarding({
       mcpServersQuery.data?.role === "admin"),
   );
 
-  const showTools = () => setScreen(skipIntegrations ? "ready" : "tools");
+  const showTools = useCallback(
+    () => setScreen(skipIntegrations ? "role" : "tools"),
+    [skipIntegrations],
+  );
+  const handleBuilderConnected = useCallback(() => {
+    trackFirstRunStepCompleted("choice");
+    trackFirstRunStepCompleted("connecting");
+    showTools();
+  }, [showTools, trackFirstRunStepCompleted]);
+  const roleBackScreen = skipIntegrations ? "manual" : "tools";
   const connectFlow = useBuilderConnectFlow({
     enabled: firstRun && !previewMode,
+    provisionAccount: true,
     trackingSource: "first_run_onboarding",
     trackingFlow: "connect_llm",
-    onConnected: showTools,
+    onConnected: handleBuilderConnected,
   });
+  const canActivateBuilderFreeCredits =
+    connectFlow.agentNativeProvisioningEnabled;
+  const dismissOnboarding = useCallback(() => {
+    void finishOnboarding(null);
+  }, [finishOnboarding]);
+  const retryOnboardingCompletion = useCallback(() => {
+    const attempt = completionAttemptRef.current;
+    void finishOnboarding(
+      attempt?.screen ?? null,
+      attempt?.extensionIndex ?? extensionIndex,
+    );
+  }, [extensionIndex, finishOnboarding]);
+  const completionErrorProps = {
+    completionError: completeFirstRunError,
+    onRetry: retryOnboardingCompletion,
+  };
 
   if (!firstRun) return null;
 
   if (error) {
     return (
-      <OnboardingShell profile={profile} screen="choice">
+      <OnboardingShell
+        profile={profile}
+        screen="choice"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <div className="mx-auto flex w-full max-w-md flex-col items-center gap-4 text-center">
           <h1 className="text-xl font-semibold tracking-[-0.03em]">
             Setup is almost ready.
@@ -169,19 +306,26 @@ export function FirstRunOnboarding({
     (capability) => capability.builderIncluded,
   );
 
-  const handleBuilder = () => {
+  const handleBuilder = (provisionAccount = canActivateBuilderFreeCredits) => {
     if (previewMode) {
       showTools();
       return;
     }
     if (connectFlow.hasFetchedStatus && connectFlow.configured) {
+      trackFirstRunStepCompleted("choice");
       showTools();
       return;
     }
+    setBuilderConnectionMode(
+      provisionAccount && canActivateBuilderFreeCredits
+        ? "provision"
+        : "existing",
+    );
     setScreen("connecting");
     connectFlow.start({
       trackingSource: "first_run_onboarding",
       trackingFlow: "connect_llm",
+      provisionAccount,
     });
   };
 
@@ -191,16 +335,35 @@ export function FirstRunOnboarding({
         detail: { section: "integrations" },
       }),
     );
-    finishOnboarding();
+    void finishOnboarding("manual");
   };
 
-  const handleFinish = () => {
+  const handleFinish = (completeStep = true) => {
     if (extensions.length === 0) {
-      finishOnboarding();
+      void finishOnboarding(completeStep ? "role" : null);
       return;
     }
+    if (completeStep) trackFirstRunStepCompleted("role");
     setExtensionIndex(0);
     setScreen("extension");
+  };
+
+  const handleRoleContinue = async () => {
+    if (!selectedRole || savingRole) return;
+    setSavingRole(true);
+    setRoleSaveError(null);
+    try {
+      if (!previewMode) await saveFirstRunOnboardingRole(selectedRole);
+      handleFinish();
+    } catch (error) {
+      setRoleSaveError(
+        error instanceof Error
+          ? error.message
+          : t("agentChat.onboarding.saveRoleError"),
+      );
+    } finally {
+      setSavingRole(false);
+    }
   };
 
   const returnUrl =
@@ -280,33 +443,41 @@ export function FirstRunOnboarding({
   if (screen === "extension") {
     const extension = extensions[extensionIndex];
     if (!extension) {
-      finishOnboarding();
+      void finishOnboarding(null);
       return null;
     }
     const Extension = extension.component;
     const advanceExtension = () => {
       if (extensionIndex < extensions.length - 1) {
+        trackFirstRunStepCompleted("extension", extensionIndex);
         setExtensionIndex((current) => current + 1);
         return;
       }
-      finishOnboarding();
+      void finishOnboarding("extension", extensionIndex);
     };
     return (
-      <>
-        <Extension onComplete={advanceExtension} onSkip={finishOnboarding} />
-        {completeFirstRunError && (
-          <FirstRunCompletionError
-            message={completeFirstRunError}
-            onRetry={finishOnboarding}
-          />
-        )}
-      </>
+      <OnboardingShell
+        profile={profile}
+        screen="extension"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
+        <Extension
+          onComplete={advanceExtension}
+          onSkip={() => void finishOnboarding(null)}
+        />
+      </OnboardingShell>
     );
   }
 
   if (screen === "intro") {
     return (
-      <OnboardingShell profile={profile} screen="intro">
+      <OnboardingShell
+        profile={profile}
+        screen="intro"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <div className="mx-auto flex w-full max-w-lg flex-col items-center text-center">
           <h1 className="text-3xl font-semibold tracking-[-0.05em] sm:text-4xl">
             Free forever.
@@ -336,7 +507,10 @@ export function FirstRunOnboarding({
           <button
             type="button"
             className={cn(primaryButtonClass, "mt-6")}
-            onClick={() => setScreen("choice")}
+            onClick={() => {
+              trackFirstRunStepCompleted("intro");
+              setScreen("choice");
+            }}
           >
             Continue
             <IconArrowRight size={15} />
@@ -358,7 +532,12 @@ export function FirstRunOnboarding({
 
   if (screen === "choice") {
     return (
-      <OnboardingShell profile={profile} screen="choice">
+      <OnboardingShell
+        profile={profile}
+        screen="choice"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
           <h1 className="text-center text-xl font-semibold tracking-[-0.04em] sm:text-2xl">
             Choose your setup.
@@ -368,26 +547,36 @@ export function FirstRunOnboarding({
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-sm font-semibold">
-                    Connect Builder.io free credits
+                    {canActivateBuilderFreeCredits
+                      ? t("agentChat.onboarding.builderActivateCredits")
+                      : t("agentChat.onboarding.builderConnectCredits")}
                   </h2>
                   <p className="mt-1 max-w-xs text-xs leading-5 text-muted-foreground">
-                    One click connects{" "}
-                    <a
-                      href="https://www.builder.io/"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      Builder.io free credits
-                    </a>{" "}
-                    with the services this app needs.
+                    {canActivateBuilderFreeCredits ? (
+                      t("agentChat.onboarding.builderActivateDescription")
+                    ) : (
+                      <>
+                        One click connects{" "}
+                        <a
+                          href="https://www.builder.io/"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          Builder.io free credits
+                        </a>{" "}
+                        with the services this app needs.
+                      </>
+                    )}
                   </p>
                 </div>
                 <IconArrowRight className="mt-0.5 text-primary" size={17} />
               </div>
               <div className="mt-5 pt-3">
                 <p className="text-[11px] font-medium text-muted-foreground">
-                  Included with Builder.io free credits
+                  {canActivateBuilderFreeCredits
+                    ? t("agentChat.onboarding.builderActiveCredits")
+                    : t("agentChat.onboarding.builderCredits")}
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px]">
                   {builderCapabilities.map((capability, index) => (
@@ -435,15 +624,28 @@ export function FirstRunOnboarding({
                   </Tooltip>
                 </div>
               </div>
-              <button
-                type="button"
-                data-testid="first-run-connect-builder"
-                className={cn(primaryButtonClass, "mt-5 w-full")}
-                onClick={handleBuilder}
+              <BuilderConnectPopover
+                flow={connectFlow}
+                onConnect={(provisionAccount) =>
+                  handleBuilder(provisionAccount)
+                }
+                contentTestId="first-run-builder-consent"
+                primaryTestId="first-run-builder-create-and-activate"
+                secondaryTestId="first-run-builder-existing-account"
               >
-                Connect Builder.io free credits
-                <IconArrowRight size={15} />
-              </button>
+                <button
+                  type="button"
+                  data-testid="first-run-connect-builder"
+                  className={cn(primaryButtonClass, "mt-5 w-full")}
+                >
+                  {t(
+                    canActivateBuilderFreeCredits
+                      ? "agentChat.onboarding.builderActivateCredits"
+                      : "agentChat.onboarding.builderConnectCredits",
+                  )}
+                  <IconArrowRight size={15} />
+                </button>
+              </BuilderConnectPopover>
             </section>
 
             <div
@@ -452,10 +654,14 @@ export function FirstRunOnboarding({
               aria-label="Use my own keys"
               data-testid="first-run-use-own-keys"
               className="rounded-xl bg-muted/35 p-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={() => setScreen("manual")}
+              onClick={() => {
+                trackFirstRunStepCompleted("choice");
+                setScreen("manual");
+              }}
               onKeyDown={(event) => {
                 if (event.key !== "Enter" && event.key !== " ") return;
                 event.preventDefault();
+                trackFirstRunStepCompleted("choice");
                 setScreen("manual");
               }}
             >
@@ -503,7 +709,12 @@ export function FirstRunOnboarding({
 
   if (screen === "manual") {
     return (
-      <OnboardingShell profile={profile} screen="choice">
+      <OnboardingShell
+        profile={profile}
+        screen="choice"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
         <div className="mx-auto flex w-full max-w-xl flex-col gap-4">
           <div>
             <button
@@ -538,7 +749,10 @@ export function FirstRunOnboarding({
               <button
                 type="button"
                 className={secondaryButtonClass}
-                onClick={() => setScreen(skipIntegrations ? "ready" : "tools")}
+                onClick={() => {
+                  trackFirstRunStepCompleted("manual");
+                  setScreen(skipIntegrations ? "role" : "tools");
+                }}
               >
                 {skipIntegrations ? "Continue" : "Continue to tools"}
               </button>
@@ -554,6 +768,8 @@ export function FirstRunOnboarding({
       <OnboardingShell
         profile={profile}
         screen="tools"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
         footer={
           <div
             data-testid="onboarding-tools-footer"
@@ -562,16 +778,19 @@ export function FirstRunOnboarding({
             <button
               type="button"
               className={secondaryButtonClass}
-              onClick={handleFinish}
+              onClick={() => setScreen("role")}
             >
-              Skip for now
+              {t("agentChat.onboarding.skipForNow")}
             </button>
             <button
               type="button"
               className={primaryButtonClass}
-              onClick={handleFinish}
+              onClick={() => {
+                trackFirstRunStepCompleted("tools");
+                setScreen("role");
+              }}
             >
-              Continue
+              {t("agentChat.common.continue")}
               <IconArrowRight size={15} />
             </button>
           </div>
@@ -681,42 +900,166 @@ export function FirstRunOnboarding({
     );
   }
 
-  if (screen === "connecting") {
+  if (screen === "role") {
     return (
-      <OnboardingShell profile={profile} screen="choice">
-        <div className="mx-auto flex w-full max-w-md flex-col items-center text-center">
-          <div className="flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <IconLoader2 className="animate-spin" size={19} />
-          </div>
-          <h1 className="mt-5 text-xl font-semibold tracking-[-0.04em]">
-            Connecting Builder.io free credits
+      <OnboardingShell
+        profile={profile}
+        screen="role"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
+        <div
+          className="mx-auto flex w-full max-w-md flex-col"
+          data-testid="first-run-role"
+        >
+          <button
+            type="button"
+            className="mb-5 self-start text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => setScreen(roleBackScreen)}
+          >
+            {t("agentChat.onboarding.back")}
+          </button>
+          <h1 className="text-2xl font-semibold tracking-[-0.05em] sm:text-3xl">
+            {t("agentChat.onboarding.customizeRole")}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Finish the one-click connection in the new window.
+            {t("agentChat.onboarding.roleQuestion")}
           </p>
-          <div className="mt-7 w-full rounded-xl bg-muted/35 p-4 text-left">
-            <div className="flex items-center justify-between gap-3">
-              <Skeleton className="h-3 w-28" />
-              <Skeleton className="h-5 w-16 rounded-full" />
-            </div>
-            <Skeleton className="mt-4 h-8 w-full" />
-            <div className="mt-3 grid grid-cols-3 gap-2">
-              <Skeleton className="h-7 w-full" />
-              <Skeleton className="h-7 w-full" />
-              <Skeleton className="h-7 w-full" />
-            </div>
-          </div>
-          {connectFlow.error && (
-            <div className="mt-4 flex flex-col items-center gap-2">
-              <p className="text-xs text-destructive">{connectFlow.error}</p>
-              <button
-                type="button"
-                className={secondaryButtonClass}
-                onClick={() => setScreen("choice")}
+          <fieldset className="mt-7 grid gap-2">
+            <legend className="sr-only">
+              {t("agentChat.onboarding.chooseRole")}
+            </legend>
+            {FIRST_RUN_ROLE_OPTIONS.map(({ value, labelKey }) => (
+              <label
+                key={value}
+                data-testid={`first-run-role-${value}`}
+                className={cn(
+                  "flex cursor-pointer items-center gap-3 rounded-xl px-4 py-3 text-sm transition-colors focus-within:ring-2 focus-within:ring-ring",
+                  selectedRole === value
+                    ? "bg-primary/[0.06] ring-1 ring-primary/30"
+                    : "bg-muted/35 hover:bg-muted/50",
+                )}
               >
-                Try again
-              </button>
-            </div>
+                <input
+                  type="radio"
+                  name="first-run-role"
+                  value={value}
+                  checked={selectedRole === value}
+                  onChange={() => setSelectedRole(value)}
+                  className="size-4 accent-primary"
+                />
+                <span>{t(labelKey)}</span>
+              </label>
+            ))}
+          </fieldset>
+          {roleSaveError && (
+            <p className="mt-4 text-xs leading-5 text-destructive" role="alert">
+              {roleSaveError}
+            </p>
+          )}
+          <div className="mt-6 flex justify-between gap-2">
+            <button
+              type="button"
+              className={secondaryButtonClass}
+              onClick={() => handleFinish(false)}
+              disabled={savingRole}
+            >
+              {t("agentChat.onboarding.skipForNow")}
+            </button>
+            <button
+              type="button"
+              className={primaryButtonClass}
+              onClick={() => void handleRoleContinue()}
+              disabled={!selectedRole || savingRole}
+            >
+              {savingRole
+                ? t("agentChat.common.saving")
+                : t("agentChat.common.continue")}
+              {!savingRole && <IconArrowRight size={15} />}
+            </button>
+          </div>
+        </div>
+      </OnboardingShell>
+    );
+  }
+
+  if (screen === "connecting") {
+    const accountExists = connectFlow.accountExists;
+    const provisioning =
+      builderConnectionMode === "provision" && !accountExists;
+    return (
+      <OnboardingShell
+        profile={profile}
+        screen="choice"
+        onDismiss={dismissOnboarding}
+        {...completionErrorProps}
+      >
+        <div
+          className="mx-auto flex w-full max-w-md flex-col items-center text-center"
+          role="status"
+          aria-live="polite"
+          aria-busy={connectFlow.connecting}
+        >
+          <div className="flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+            {accountExists ? (
+              <IconKey size={19} />
+            ) : (
+              <IconLoader2 className="animate-spin" size={19} />
+            )}
+          </div>
+          <h1 className="mt-5 text-xl font-semibold tracking-[-0.04em]">
+            {accountExists
+              ? t("agentChat.onboarding.builderAccountExistsTitle")
+              : provisioning
+                ? t("agentChat.onboarding.builderActivating")
+                : t("agentChat.onboarding.builderConnecting")}
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {accountExists
+              ? t("agentChat.onboarding.builderAccountExistsDescription")
+              : provisioning
+                ? t("agentChat.onboarding.builderProvisioningDescription")
+                : t("agentChat.onboarding.builderConnectionDescription")}
+          </p>
+          {accountExists ? (
+            <button
+              type="button"
+              className={cn(primaryButtonClass, "mt-7 w-full")}
+              onClick={() => handleBuilder(false)}
+              disabled={connectFlow.connecting}
+            >
+              {t("agentChat.auth.logIn")}
+              <IconArrowRight size={15} />
+            </button>
+          ) : (
+            <>
+              <div className="mt-7 w-full rounded-xl bg-muted/35 p-4 text-left">
+                <div className="flex items-center justify-between gap-3">
+                  <Skeleton className="h-3 w-28" />
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                </div>
+                <Skeleton className="mt-4 h-8 w-full" />
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <Skeleton className="h-7 w-full" />
+                  <Skeleton className="h-7 w-full" />
+                  <Skeleton className="h-7 w-full" />
+                </div>
+              </div>
+              {connectFlow.error && (
+                <div className="mt-4 flex flex-col items-center gap-2">
+                  <p className="text-xs text-destructive">
+                    {connectFlow.error}
+                  </p>
+                  <button
+                    type="button"
+                    className={secondaryButtonClass}
+                    onClick={() => setScreen("choice")}
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       </OnboardingShell>
@@ -724,7 +1067,12 @@ export function FirstRunOnboarding({
   }
 
   return (
-    <OnboardingShell profile={profile} screen="ready">
+    <OnboardingShell
+      profile={profile}
+      screen="ready"
+      onDismiss={dismissOnboarding}
+      {...completionErrorProps}
+    >
       <div className="mx-auto flex w-full max-w-2xl flex-col items-center text-center">
         <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
           <IconCheck size={20} />
@@ -775,18 +1123,12 @@ export function FirstRunOnboarding({
           type="button"
           data-testid="first-run-open-app"
           className={cn(primaryButtonClass, "mt-7")}
-          onClick={handleFinish}
+          onClick={() => void finishOnboarding("ready")}
         >
           Open app
           <IconArrowRight size={15} />
         </button>
       </div>
-      {completeFirstRunError && (
-        <FirstRunCompletionError
-          message={completeFirstRunError}
-          onRetry={finishOnboarding}
-        />
-      )}
     </OnboardingShell>
   );
 }
@@ -795,13 +1137,20 @@ function OnboardingShell({
   profile,
   screen,
   footer,
+  onDismiss,
+  completionError,
+  onRetry,
   children,
 }: {
   profile: OnboardingAppProfile | null;
-  screen: "intro" | "choice" | "tools" | "ready";
+  screen: FirstRunScreen;
   footer?: React.ReactNode;
+  onDismiss?: () => void;
+  completionError?: string | null;
+  onRetry?: () => void;
   children: React.ReactNode;
 }) {
+  const t = useT();
   return (
     <div
       className="fixed inset-0 z-[100] flex h-full min-h-0 flex-col bg-background text-foreground"
@@ -810,6 +1159,17 @@ function OnboardingShell({
       aria-modal="true"
       aria-label={`${profile?.appName ?? "Your app"} setup`}
     >
+      {onDismiss ? (
+        <button
+          type="button"
+          data-testid="first-run-dismiss"
+          aria-label={t("agentChat.common.dismiss")}
+          onClick={onDismiss}
+          className="absolute end-4 top-4 z-10 flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <IconX size={17} />
+        </button>
+      ) : null}
       <div
         className="h-0.5 shrink-0 bg-muted"
         data-testid="onboarding-progress"
@@ -820,7 +1180,10 @@ function OnboardingShell({
             width:
               screen === "intro"
                 ? "33.33%"
-                : screen === "tools" || screen === "ready"
+                : screen === "tools" ||
+                    screen === "role" ||
+                    screen === "ready" ||
+                    screen === "extension"
                   ? "100%"
                   : "66.66%",
           }}
@@ -839,6 +1202,9 @@ function OnboardingShell({
           {footer}
         </footer>
       )}
+      {completionError && onRetry ? (
+        <FirstRunCompletionError message={completionError} onRetry={onRetry} />
+      ) : null}
     </div>
   );
 }
@@ -976,7 +1342,7 @@ function CapabilityInfoButton({
 }
 
 const primaryButtonClass =
-  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
 
 /** Inline failure signal for a failed completeFirstRun() call — keeps the
  *  user on their current screen with a way forward, instead of swapping to
@@ -1004,7 +1370,7 @@ function FirstRunCompletionError({
 }
 
 const secondaryButtonClass =
-  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
 
 function compareUrl(value: string): string {
   try {

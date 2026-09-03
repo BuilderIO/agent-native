@@ -5,6 +5,15 @@ export {
   type AgentAskPopoverProps,
 } from "../AgentAskPopover.js";
 export {
+  detectExternalAgentHost,
+  ExternalAgentNudge,
+  getExternalAgentHost,
+  useExternalAgentHost,
+  type ExternalAgentHost,
+  type ExternalAgentHostId,
+  type ExternalAgentHostSignals,
+} from "../external-agent-host.js";
+export {
   addContextToAgentChat,
   appendAgentChatContextToMessage,
   clearAgentChatContext,
@@ -125,6 +134,7 @@ export { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 export {
   AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES,
   getMcpAppHostContext,
+  initializeMcpAppHost,
   openMcpAppHostLink,
   requestMcpAppDisplayMode,
   sendMcpAppHostMessage,
@@ -135,6 +145,7 @@ export {
   type McpAppHostChatMessage,
   type McpAppHostCapabilities,
   type McpAppHostContext,
+  type McpAppHostInfo,
   type McpAppHostContextSnapshot,
   type McpAppModelContextContentPart,
   type McpAppModelContextUpdate,
@@ -160,6 +171,14 @@ export {
   type AssistantChatHandle,
   type AssistantChatAdapterContext,
 } from "../AssistantChat.js";
+export {
+  isAssistantChatHistoryVersion,
+  type AssistantChatHistoryConfig,
+  type AssistantChatHistoryContext,
+  type AssistantChatHistoryMessage,
+  type AssistantChatHistoryScope,
+  type AssistantChatHistoryVersion,
+} from "../chat/message-components.js";
 export {
   MultiTabAssistantChat,
   type MultiTabAssistantChatProps,

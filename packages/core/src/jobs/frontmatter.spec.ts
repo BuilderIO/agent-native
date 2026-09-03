@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   buildJobResourceContent,
   classifyJobResource,
+  isRecoveredFactoryJob,
   jobBelongsToApp,
+  recoveredFactoryOwnerOrgId,
   parseJobResource,
+  patchJobFrontmatterFields,
   type JobFrontmatter,
 } from "./frontmatter.js";
 
@@ -82,6 +85,97 @@ Run the automation.`;
     expect(rewritten).toContain('lastRun: "2026-08-21T17:30:01.097Z"');
   });
 
+  it("patches execution fields without dropping tags a partial rebuild would lose", () => {
+    const content = `---
+enabled: true
+schedule: "*/5 * * * *"
+triggerType: schedule
+domain: factory
+appId: factory
+factoryId: demo-factory
+displayName: Slack feedback
+maxIterations: 32
+lastError: previous failure
+---
+
+Observe Slack.`;
+    const patched = patchJobFrontmatterFields(content, {
+      lastRun: "2026-09-01T21:45:00.000Z",
+      lastStatus: "running",
+      lastError: undefined,
+    });
+
+    expect(patched).toContain("triggerType: schedule");
+    expect(patched).toContain("domain: factory");
+    expect(patched).toContain("appId: factory");
+    expect(patched).toContain("factoryId: demo-factory");
+    expect(patched).toContain("displayName: Slack feedback");
+    expect(patched).toContain("maxIterations: 32");
+    expect(patched).toContain('lastRun: "2026-09-01T21:45:00.000Z"');
+    expect(patched).toContain("lastStatus: running");
+    expect(patched).not.toContain("lastError:");
+    expect(patched).toContain("Observe Slack.");
+  });
+
+  it("patches execution fields on CRLF job resources without rewriting the rest", () => {
+    const content = [
+      "---",
+      "enabled: true",
+      "triggerType: schedule",
+      "domain: factory",
+      "factoryId: demo-factory",
+      "---",
+      "",
+      "Observe Slack.",
+    ].join("\r\n");
+    const patched = patchJobFrontmatterFields(content, {
+      lastStatus: "running",
+      lastRun: "2026-09-01T21:45:00.000Z",
+    });
+    expect(patched.startsWith("---\r\n")).toBe(true);
+    expect(patched).toContain("triggerType: schedule");
+    expect(patched).toContain("domain: factory");
+    expect(patched).toContain("factoryId: demo-factory");
+    expect(patched).toContain("lastStatus: running");
+    expect(patched).toContain('lastRun: "2026-09-01T21:45:00.000Z"');
+  });
+
+  it("removes the last scheduler-owned field instead of leaving it stale", () => {
+    const content = `---
+lastStatus: running
+---
+
+Observe Slack.`;
+    const patched = patchJobFrontmatterFields(content, {
+      lastStatus: undefined,
+    });
+    expect(patched).not.toContain("lastStatus:");
+    expect(patched).toContain("Observe Slack.");
+  });
+
+  it("does not serialize webhook automation credentials into resource content", () => {
+    const meta: JobFrontmatter = {
+      schedule: "",
+      enabled: true,
+      triggerType: "webhook",
+      webhookToken: "a".repeat(43),
+    };
+    const content = buildJobResourceContent(
+      meta,
+      "Run from the incoming payload.",
+    );
+    expect(content).not.toContain("webhookToken");
+    expect(parseJobResource(content).meta.webhookToken).toBeUndefined();
+    expect(
+      parseJobResource(`---
+triggerType: webhook
+webhookToken: ${meta.webhookToken}
+---
+
+Legacy webhook.`).meta.webhookToken,
+    ).toBe(meta.webhookToken);
+  });
+
   it("distinguishes legacy jobs from explicit scheduled automations", () => {
     const legacy = `---
 schedule: "0 9 * * *"
@@ -140,5 +234,47 @@ Run the job.`),
       false,
     );
     expect(jobBelongsToApp({}, "mail")).toBe(true);
+  });
+
+  it("recovers Factory-folder org jobs that lost appId for Factory only", () => {
+    const path = "jobs/factories/demo-factory/factory-slack-feedback.md";
+    const orgOwner = "__organization__:org-1";
+    expect(isRecoveredFactoryJob({}, path, "factory", orgOwner)).toBe(true);
+    expect(
+      isRecoveredFactoryJob({ appId: "factory" }, path, "factory", orgOwner),
+    ).toBe(true);
+    expect(isRecoveredFactoryJob({}, path, "mail", orgOwner)).toBe(false);
+    expect(
+      isRecoveredFactoryJob({ appId: "calendar" }, path, "factory", orgOwner),
+    ).toBe(false);
+    expect(
+      isRecoveredFactoryJob({}, "jobs/calendar-digest.md", "factory", orgOwner),
+    ).toBe(false);
+    expect(
+      isRecoveredFactoryJob(
+        {},
+        "jobs/factory-pr-babysit.md",
+        "factory",
+        orgOwner,
+      ),
+    ).toBe(true);
+    expect(
+      isRecoveredFactoryJob(
+        { orgId: "org-1" },
+        path,
+        "factory",
+        "alice@example.com",
+      ),
+    ).toBe(false);
+    expect(
+      isRecoveredFactoryJob({ orgId: "org-1" }, path, "factory", orgOwner),
+    ).toBe(true);
+    expect(
+      isRecoveredFactoryJob({ orgId: "org-2" }, path, "factory", orgOwner),
+    ).toBe(false);
+    expect(recoveredFactoryOwnerOrgId({}, path, orgOwner)).toBe("org-1");
+    expect(recoveredFactoryOwnerOrgId({ orgId: "org-2" }, path, orgOwner)).toBe(
+      null,
+    );
   });
 });

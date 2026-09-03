@@ -280,7 +280,7 @@ export type EditCapability =
     }
   | {
       kind: "structure";
-      operations: Array<"moveNode">;
+      operations: Array<"moveNode" | "deleteNode">;
       confidence: number;
       reason?: string;
     }
@@ -305,7 +305,7 @@ export interface CodeLayerNode {
   dataAttributes: Record<string, string>;
   classes: string[];
   textSnippet: string | null;
-  style: Partial<Record<VisualStyleProperty | string, string>>;
+  style: Partial<Record<VisualStyleProperty | (string & {}), string>>;
   styleTokens: StyleToken[];
   parentId?: string;
   children: string[];
@@ -413,7 +413,7 @@ export interface EditIntentTarget {
 export interface StyleEditIntent {
   kind: "style";
   target: EditIntentTarget;
-  property: VisualStyleProperty | string;
+  property: VisualStyleProperty | (string & {});
   value: string;
 }
 
@@ -450,6 +450,11 @@ export interface AttributeEditIntent {
   target: EditIntentTarget;
   name: string;
   value: string;
+}
+
+export interface DeleteNodeEditIntent {
+  kind: "deleteNode";
+  target: EditIntentTarget;
 }
 
 export interface MoveNodeEditIntent {
@@ -496,6 +501,12 @@ export interface AutoLayoutEditIntent {
   kind: "autoLayout";
   targetId: string;
   enabled: boolean;
+  /**
+   * Container declarations to write instead of the flex trio, so a grid flow
+   * also reaches the child reflow below — without it the children stay
+   * pinned where they were drawn and the new layout renders as a no-op.
+   */
+  containerStyles?: Record<string, string>;
   direction?: "row" | "column";
   gap?: string;
   /**
@@ -596,6 +607,7 @@ export type EditIntent =
   | ClassEditIntent
   | TextEditIntent
   | AttributeEditIntent
+  | DeleteNodeEditIntent
   | MoveNodeEditIntent
   | WrapNodesEditIntent
   | UnwrapEditIntent
@@ -627,7 +639,7 @@ export interface PatchNodeSummary {
   selector: string;
   tag: string;
   classes: string[];
-  style: Partial<Record<VisualStyleProperty | string, string>>;
+  style: Partial<Record<VisualStyleProperty | (string & {}), string>>;
   textSnippet: string | null;
 }
 
@@ -978,6 +990,18 @@ function escapeHtmlText(value: string): string {
 
 function decodeBasicHtmlEntities(value: string): string {
   return value
+    .replace(/&#x([0-9a-f]+);?/gi, (_, hex: string) => {
+      const codePoint = Number.parseInt(hex, 16);
+      return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff
+        ? String.fromCodePoint(codePoint)
+        : _;
+    })
+    .replace(/&#([0-9]+);?/g, (_, decimal: string) => {
+      const codePoint = Number.parseInt(decimal, 10);
+      return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff
+        ? String.fromCodePoint(codePoint)
+        : _;
+    })
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
@@ -1957,12 +1981,12 @@ function treeTypeForNode(node: CodeLayerNode): CodeLayerTreeNodeType {
   return "element";
 }
 
-function isCollapsibleDocumentShellNode(
-  node: CodeLayerTreeNode,
-  nodesById: Map<string, CodeLayerNode>,
-): boolean {
-  if (node.tag !== "html" && node.tag !== "body") return false;
-  return nodesById.get(node.id)?.layerNameSource === "tag";
+function isCollapsibleDocumentShellNode(node: CodeLayerTreeNode): boolean {
+  // A screen IS its document: the frame's box comes from the board and its
+  // paint from this <body>, and the inspector now shows both on the screen's
+  // own selection. Older screens stamped the screen title onto <body>, which
+  // exempted them here and listed the same object twice under one name.
+  return node.tag === "html" || node.tag === "body";
 }
 
 function compactCodeLayerTreeNodes(
@@ -1984,10 +2008,7 @@ function compactCodeLayerTreeNodes(
       nextAncestors,
     );
     const compactedNode: CodeLayerTreeNode = { ...node, children };
-    const promotedNodes = isCollapsibleDocumentShellNode(
-      compactedNode,
-      nodesById,
-    )
+    const promotedNodes = isCollapsibleDocumentShellNode(compactedNode)
       ? children
       : [compactedNode];
 
@@ -2246,7 +2267,12 @@ function projectionSourceKey(source: CodeLayerSource): string {
   const record = source as unknown as Record<string, unknown>;
   return Object.keys(source)
     .sort()
-    .map((field) => `${field}=${record[field] ?? ""}`)
+    .map((field) => {
+      const value = record[field];
+      const serialized =
+        typeof value === "string" ? value : (JSON.stringify(value) ?? "");
+      return `${field}=${serialized}`;
+    })
     .join("\u0000");
 }
 
@@ -2936,10 +2962,48 @@ function applyClassEdit(
 
 // Same shape as the bridge's own attributeOverrides guard (editor-chrome.bridge.ts)
 // — alphanumeric/dash/colon/dot/underscore, must start with a letter, never an
-// `on*` event handler. Deliberately conservative: this path is for host-side
-// bookkeeping writes (pending node-id persistence today), not general-purpose
-// attribute editing, so unknown/unsafe names are rejected rather than guessed at.
+// `on*` event handler. URL-bearing values get a second scheme check below so a
+// general attribute edit cannot persist executable markup.
 const SAFE_ATTRIBUTE_NAME = /^(?!on)[a-zA-Z][a-zA-Z0-9:_.-]*$/;
+const URL_ATTRIBUTE_NAMES = new Set([
+  "action",
+  "background",
+  "cite",
+  "data",
+  "formaction",
+  "href",
+  "poster",
+  "src",
+  "srcset",
+  "xlink:href",
+]);
+
+function isSafeAttributeValue(name: string, value: string): boolean {
+  const lowerName = name.toLowerCase();
+  if (lowerName === "style" || lowerName === "srcdoc") return false;
+  if (!URL_ATTRIBUTE_NAMES.has(lowerName)) return true;
+
+  const decoded = decodeBasicHtmlEntities(value);
+  if (/[\u0000-\u001f\u007f]/.test(decoded)) return false;
+  const candidates =
+    lowerName === "srcset"
+      ? decoded
+          .split(",")
+          .map((candidate) => candidate.trim().split(/\s+/, 1)[0] ?? "")
+      : [decoded.trim()];
+  return candidates.every((candidate) => {
+    if (!candidate) return true;
+    const compact = candidate.replace(/[\u0000-\u0020]+/g, "");
+    if (/^(?:javascript|vbscript):/i.test(compact)) return false;
+    if (/^data:/i.test(compact)) {
+      return /^data:image\/(?:png|jpe?g|gif|webp);/i.test(compact);
+    }
+    if (/^[a-z][a-z0-9+.-]*:/i.test(compact)) {
+      return /^(?:https?|mailto|tel):/i.test(compact);
+    }
+    return true;
+  });
+}
 
 function applyAttributeEdit(
   html: string,
@@ -2949,6 +3013,7 @@ function applyAttributeEdit(
   if (!intent.name || !SAFE_ATTRIBUTE_NAME.test(intent.name)) {
     return "unsupported";
   }
+  if (!isSafeAttributeValue(intent.name, intent.value)) return "unsupported";
   return {
     content: replaceOrInsertAttribute(html, element, intent.name, intent.value),
     capability: {
@@ -3399,11 +3464,20 @@ function stripAbsolutePositioningFromChild(
   // inset utilities can remain because they are inert for a statically
   // positioned flex/grid item, and preserving them avoids needless source
   // churn if the user later makes the layer absolute again.
-  const reparsedRoot = parseHtmlElements(nextHtml).find(
-    (element) => element.parentIndex === undefined,
-  );
-  if (!reparsedRoot) return nextHtml;
-  const classes = classList(reparsedRoot);
+  // Re-find THE CHILD: this also runs against whole documents (see
+  // applyAutoLayout), where the reparse's root is the container, not the child.
+  const reparsed = parseHtmlElements(nextHtml);
+  const childNodeId = attributeValue(child, "data-agent-native-node-id");
+  const reparsedChild =
+    (childNodeId
+      ? reparsed.find(
+          (element) =>
+            attributeValue(element, "data-agent-native-node-id") ===
+            childNodeId,
+        )
+      : undefined) ?? reparsed.find((element) => element.start === child.start);
+  if (!reparsedChild) return nextHtml;
+  const classes = classList(reparsedChild);
   const flowClasses = classes.filter((token) => {
     const variants = token.split(":");
     const utility = variants[variants.length - 1]?.replace(/^!/, "");
@@ -3414,7 +3488,7 @@ function stripAbsolutePositioningFromChild(
   if (flowClasses.length === classes.length) return nextHtml;
   nextHtml = replaceOrInsertAttribute(
     nextHtml,
-    reparsedRoot,
+    reparsedChild,
     "class",
     flowClasses.join(" "),
   );
@@ -3898,6 +3972,7 @@ function applyAutoLayout(
   if (!enabled) {
     const childRects = intent.childRects;
     const hasRects = !!childRects && Object.keys(childRects).length > 0;
+    if (!hasRects) return "needsAgent";
     const currentStyle = attributeValue(element, "style");
     const declarations = parseStyleDeclarations(currentStyle);
     const setOnContainer = (property: string, value: string) => {
@@ -3938,13 +4013,6 @@ function applyAutoLayout(
       "style",
       serializeStyleDeclarations(declarations),
     );
-    if (!hasRects) {
-      return {
-        content: result,
-        capability: { kind: "style", properties: ["display"], confidence: 0.9 },
-      };
-    }
-
     const updatedElements = parseHtmlElements(result);
     const targetAttr = attributeValue(element, "data-agent-native-node-id");
     const updatedTarget =
@@ -4024,9 +4092,30 @@ function applyAutoLayout(
       declarations.push({ property: prop, value: val });
     }
   };
-  setOrReplace("display", "flex");
-  setOrReplace("flex-direction", direction);
-  setOrReplace("gap", gap);
+  const containerStyles = intent.containerStyles;
+  const writtenProperties: VisualStyleProperty[] = [];
+  if (containerStyles) {
+    const declared: Array<[VisualStyleProperty, string]> = [];
+    for (const [rawProperty, rawValue] of Object.entries(containerStyles)) {
+      const property = normalizeStyleProperty(rawProperty);
+      // All or nothing: a half-written flow (a display without its tracks) is
+      // a layout nobody asked for, and it would report as applied.
+      if (!property || !isSafeStyleValue(property, rawValue)) {
+        return "needsAgent";
+      }
+      declared.push([property, rawValue.trim()]);
+    }
+    if (declared.length === 0) return "needsAgent";
+    for (const [property, value] of declared) {
+      setOrReplace(property, value);
+      writtenProperties.push(property);
+    }
+  } else {
+    setOrReplace("display", "flex");
+    setOrReplace("flex-direction", direction);
+    setOrReplace("gap", gap);
+    writtenProperties.push("display", "flex-direction", "gap");
+  }
   let result = replaceOrInsertAttribute(
     html,
     element,
@@ -4079,7 +4168,7 @@ function applyAutoLayout(
     content: result,
     capability: {
       kind: "style",
-      properties: ["display", "flex-direction", "gap"],
+      properties: writtenProperties,
       confidence: 0.88,
     },
   };
@@ -4294,6 +4383,44 @@ export function applyVisualEdit(
         "The target node does not have editable source spans.",
         beforeNode,
         undefined,
+        before,
+      ),
+    };
+  }
+
+  if (intent.kind === "deleteNode") {
+    const deleted = removeCodeLayerNodeFromHtml(html, beforeNode);
+    if (deleted === null) {
+      return {
+        content: html,
+        projection: initial.projection,
+        result: patchResult(
+          "unsupported",
+          source,
+          intent,
+          false,
+          "This node cannot be deleted from the editable source.",
+          beforeNode,
+          undefined,
+          before,
+        ),
+      };
+    }
+    return {
+      content: deleted,
+      projection: buildCodeLayerProjection(deleted, { source }),
+      result: patchResult(
+        "applied",
+        source,
+        intent,
+        deleted !== html,
+        "Node deleted.",
+        beforeNode,
+        {
+          kind: "structure",
+          operations: ["deleteNode"],
+          confidence: 0.95,
+        },
         before,
       ),
     };

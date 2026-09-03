@@ -40,6 +40,11 @@ import {
   type IntervalJobHandle,
 } from "../server/interval-job.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import { dispatchAutomationWebhookTask } from "../triggers/dispatcher.js";
+import {
+  AUTOMATION_WEBHOOK_PLATFORM,
+  type AutomationWebhookTaskPayload,
+} from "../triggers/webhook.js";
 import {
   processA2AContinuationById,
   processDueA2AContinuations,
@@ -66,6 +71,7 @@ import { getIntegrationConfig, saveIntegrationConfig } from "./config-store.js";
 import { claimIntegrationControl } from "./controls-store.js";
 import {
   startGoogleDocsPoller,
+  stopGoogleDocsPoller,
   handlePushNotification,
   verifyGoogleDocsPushNotification,
 } from "./google-docs-poller.js";
@@ -194,6 +200,7 @@ import {
 } from "./usage-budget-store.js";
 import {
   handleWebhook,
+  integrationResponseIdempotencyKey,
   processIntegrationTask,
   recordIntegrationResponseDelivery,
   type IntegrationResponseDeliveryTaskPayload,
@@ -882,6 +889,38 @@ export function createIntegrationsPlugin(
 
     const h3 = getH3App(nitroApp);
     const P = `${FRAMEWORK_ROUTE_PREFIX}/integrations`;
+    let googleDocsPollerTransition: Promise<void> = Promise.resolve();
+    const runGoogleDocsPollerTransition = (
+      operation: () => Promise<void>,
+    ): Promise<void> => {
+      const previous = googleDocsPollerTransition;
+      let release!: () => void;
+      googleDocsPollerTransition = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return previous
+        .catch(() => undefined)
+        .then(operation)
+        .finally(release);
+    };
+    const createGoogleDocsPollerOptions = (event?: any) => {
+      const configuredBaseUrl = getAppConfig().integrations.webhookBaseUrl;
+      const baseUrl =
+        configuredBaseUrl || (event ? getBaseUrl(event) : undefined);
+      const webhookUrl = baseUrl
+        ? `${withConfiguredAppBasePath(baseUrl)}${P}/google-docs/webhook`
+        : undefined;
+
+      return {
+        systemPrompt: baseSystemPrompt,
+        actions,
+        initialToolNames,
+        model: model ?? "",
+        apiKey: getApiKey(),
+        ownerEmail: "integration@google-docs",
+        webhookUrl,
+      };
+    };
 
     // Routes mounted under a platform's own name rather than reached through
     // the `/:platform/...` catch-all. The catch-all 404s a platform the
@@ -1990,6 +2029,7 @@ export function createIntegrationsPlugin(
         let taskPayload:
           | IntegrationSystemNoticeTaskPayload
           | IntegrationResponseDeliveryTaskPayload
+          | AutomationWebhookTaskPayload
           | { kind?: undefined };
         try {
           taskPayload = JSON.parse(task.payload) as typeof taskPayload;
@@ -2056,6 +2096,54 @@ export function createIntegrationsPlugin(
             }
           | undefined;
         try {
+          if (task.platform === AUTOMATION_WEBHOOK_PLATFORM) {
+            if (
+              taskPayload.kind !== "automation-webhook" ||
+              campaignContinuation
+            ) {
+              await markTaskFailed(taskId, "Invalid automation webhook task");
+              setResponseStatus(event, 400);
+              return { error: "Invalid automation webhook task" };
+            }
+            const webhookResult = await runWithRequestContext(
+              {
+                userEmail: task.ownerEmail,
+                ...(task.orgId ? { orgId: task.orgId } : {}),
+                isIntegrationCaller: true,
+              },
+              () =>
+                dispatchAutomationWebhookTask(
+                  taskPayload as AutomationWebhookTaskPayload,
+                ),
+            );
+            if (webhookResult === "retry") {
+              await markTaskRetryable(
+                taskId,
+                "Automation is already running.",
+                { resetAttempts: true },
+              );
+              setResponseStatus(event, 202);
+              return { ok: true, taskId, retrying: "automation-active" };
+            }
+            await markTaskCompleted(taskId);
+            const nextTask = await getNextPendingTaskForThread(
+              task.platform,
+              task.externalThreadId,
+            );
+            if (nextTask) {
+              await dispatchPendingIntegrationTask({
+                taskId: nextTask.id,
+                task: {
+                  platform: task.platform,
+                  externalThreadId: task.externalThreadId,
+                },
+                event,
+                baseUrl: getBaseUrl(event),
+              });
+            }
+            setResponseStatus(event, 200);
+            return { ok: true, taskId };
+          }
           const adapter = adapterMap.get(task.platform);
           if (!adapter) {
             await markTaskFailed(taskId, `Unknown platform: ${task.platform}`);
@@ -2146,6 +2234,13 @@ export function createIntegrationsPlugin(
                       ...(taskPayload.placeholderRef
                         ? { placeholderRef: taskPayload.placeholderRef }
                         : {}),
+                      ...(taskPayload.strictTargetRef
+                        ? { strictTargetRef: true }
+                        : {}),
+                      idempotencyKey: integrationResponseIdempotencyKey(
+                        task.id,
+                      ),
+                      reconcileAfter: task.createdAt,
                     },
                   );
                 }
@@ -2544,7 +2639,7 @@ export function createIntegrationsPlugin(
           return { error: "Invalid webhook signature" };
         }
         try {
-          const raw = String(event.context?.__rawBody ?? "");
+          const raw = stringifyValue(event.context?.__rawBody ?? "");
           const encoded = new URLSearchParams(raw).get("payload");
           const payload = encoded ? JSON.parse(encoded) : null;
           const action = payload?.actions?.[0];
@@ -2812,9 +2907,9 @@ export function createIntegrationsPlugin(
           return {
             memory: await rememberForIntegrationScope(
               {
-                name: String(body.name ?? ""),
-                description: String(body.description ?? ""),
-                content: String(body.content ?? ""),
+                name: stringifyValue(body.name ?? ""),
+                description: stringifyValue(body.description ?? ""),
+                content: stringifyValue(body.content ?? ""),
               },
               scope.id,
             ),
@@ -2823,7 +2918,7 @@ export function createIntegrationsPlugin(
         if (body?.action === "forget") {
           return {
             memory: await forgetIntegrationMemory(
-              { name: String(body.name ?? "") },
+              { name: stringifyValue(body.name ?? "") },
               scope.id,
             ),
           };
@@ -3147,6 +3242,14 @@ export function createIntegrationsPlugin(
               setResponseStatus(event, 401);
               return { ok: false, error: "unauthorized" };
             }
+            const config = await getIntegrationConfig(platform);
+            if (!config?.configData?.enabled) {
+              setResponseStatus(event, 404);
+              return {
+                ok: false,
+                error: `Integration ${platform} is not enabled`,
+              };
+            }
             handlePushNotification().catch((err) => {
               console.error("[google-docs] Push handler error:", err);
             });
@@ -3414,6 +3517,11 @@ export function createIntegrationsPlugin(
             "default",
             session?.email,
           );
+          if (platform === "google-docs") {
+            await runGoogleDocsPollerTransition(() =>
+              startGoogleDocsPoller(createGoogleDocsPollerOptions(event)),
+            );
+          }
           return { ok: true, platform, enabled: true };
         }
 
@@ -3428,6 +3536,9 @@ export function createIntegrationsPlugin(
             "default",
             session?.email,
           );
+          if (platform === "google-docs") {
+            await runGoogleDocsPollerTransition(stopGoogleDocsPoller);
+          }
           return { ok: true, platform, enabled: false };
         }
 
@@ -3519,7 +3630,7 @@ export function createIntegrationsPlugin(
       // processor killed mid-flight). No-ops gracefully if the queue table
       // hasn't been created yet on this deployment.
       startPendingTasksRetryJob({
-        webhookBaseUrl: process.env.WEBHOOK_BASE_URL,
+        webhookBaseUrl: getAppConfig().integrations.webhookBaseUrl,
       });
       startA2AContinuationRetryJob(adapterMap);
       startRemoteCommandsRetryJob();
@@ -3534,20 +3645,9 @@ export function createIntegrationsPlugin(
           // resolved. We pass it as a special option; the poller will attempt
           // to register a watch when the first request reveals the base URL,
           // or use the WEBHOOK_BASE_URL env var if set.
-          const baseUrl = process.env.WEBHOOK_BASE_URL;
-          const webhookUrl = baseUrl
-            ? `${withConfiguredAppBasePath(baseUrl)}${P}/google-docs/webhook`
-            : undefined;
-
-          void startGoogleDocsPoller({
-            systemPrompt: baseSystemPrompt,
-            actions,
-            initialToolNames,
-            model: model ?? "",
-            apiKey: getApiKey(),
-            ownerEmail: "integration@google-docs",
-            webhookUrl,
-          });
+          void runGoogleDocsPollerTransition(() =>
+            startGoogleDocsPoller(createGoogleDocsPollerOptions()),
+          );
         }, 2000);
       }
     }
@@ -3720,4 +3820,14 @@ function computerSupervisionRouteError(event: any, error: unknown) {
     return { error: error.message, code: error.code };
   }
   throw error;
+}
+
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
 }

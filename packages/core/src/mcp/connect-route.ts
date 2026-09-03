@@ -34,6 +34,13 @@ import { getMethod, getHeader } from "h3";
 
 import { signA2AToken } from "../a2a/client.js";
 import { getAppConfig } from "../app-config/index.js";
+import { MCP_SETTINGS_MESSAGES } from "../localization/mcp-settings-messages.js";
+import { resolveLocaleFromRequest } from "../localization/server.js";
+import {
+  localeDirection,
+  normalizeLocaleCode,
+  type LocaleCode,
+} from "../localization/shared.js";
 import { getOrgDomain } from "../org/context.js";
 import {
   getSession,
@@ -42,10 +49,13 @@ import {
 } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
-  MCP_CONNECT_GUIDES,
   MCP_CONNECT_MCP_URL_TEMPLATE,
-  MCP_STATIC_TOKEN_FALLBACK,
+  getMcpConnectGuides,
+  getMcpStaticTokenFallback,
   interpolateMcpConnectTemplate,
+  resolveMcpConnectGuideId,
+  type McpConnectGuide,
+  type McpConnectGuideId,
 } from "../shared/mcp-connect-content.js";
 import {
   recordMintedToken,
@@ -425,8 +435,10 @@ function agentNativeMarkSvg(className: string, gradientId: string): string {
 }
 
 function renderConnectGuide(
-  guide: (typeof MCP_CONNECT_GUIDES)[number],
+  guide: McpConnectGuide,
+  activeGuideId: McpConnectGuideId,
   values: Parameters<typeof interpolateMcpConnectTemplate>[1],
+  copyLabel: string,
 ): string {
   const guideId = escapeHtml(guide.id);
   const content = [
@@ -443,11 +455,11 @@ function renderConnectGuide(
       : "",
     guide.commandTemplate
       ? `<pre id="${guideId}Command">${escapeHtml(interpolateMcpConnectTemplate(guide.commandTemplate, values))}</pre>
-        <button type="button" class="primary-link compact" data-copy="${guideId}Command">${escapeHtml(guide.action?.label ?? "Copy")}</button>`
+        <button type="button" class="primary-link compact" data-copy="${guideId}Command">${escapeHtml(guide.action?.label ?? copyLabel)}</button>`
       : "",
     guide.configTemplate
       ? `<pre id="${guideId}Config">${escapeHtml(interpolateMcpConnectTemplate(guide.configTemplate, values))}</pre>
-        <button type="button" class="primary-link compact" data-copy="${guideId}Config">${escapeHtml(guide.action?.label ?? "Copy")}</button>`
+        <button type="button" class="primary-link compact" data-copy="${guideId}Config">${escapeHtml(guide.action?.label ?? copyLabel)}</button>`
       : "",
     guide.action?.kind === "link" && guide.action.href
       ? `<a class="primary-link" href="${escapeHtml(guide.action.href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(guide.action.label)}</a>`
@@ -457,7 +469,7 @@ function renderConnectGuide(
       : "",
   ].join("\n");
 
-  return `<div class="tab-panel${guide.id === MCP_CONNECT_GUIDES[0]?.id ? " is-active" : ""}" role="tabpanel" data-panel="${guideId}">${content}</div>`;
+  return `<div class="tab-panel${guide.id === activeGuideId ? " is-active" : ""}" role="tabpanel" id="mcp-guide-panel-${guideId}" aria-labelledby="mcp-guide-tab-${guideId}" data-panel="${guideId}">${content}</div>`;
 }
 
 function renderConnectPage(params: {
@@ -467,11 +479,25 @@ function renderConnectPage(params: {
   appUrl: string;
   serverId: string;
   userCode: string | null;
+  locale: LocaleCode;
+  requestedGuide: string | null;
 }): string {
-  const { connectBasePath, email, appName, appUrl, serverId, userCode } =
-    params;
+  const {
+    connectBasePath,
+    email,
+    appName,
+    appUrl,
+    serverId,
+    userCode,
+    locale,
+    requestedGuide,
+  } = params;
+  const direction = localeDirection(locale);
+  const messages = MCP_SETTINGS_MESSAGES[locale];
+  const connectMessages = messages.mcpConnect;
+  const guides = getMcpConnectGuides(locale);
+  const staticTokenFallback = getMcpStaticTokenFallback(locale);
   const safeEmail = escapeHtml(email);
-  const safeApp = escapeHtml(appName);
   const mcpUrl = interpolateMcpConnectTemplate(MCP_CONNECT_MCP_URL_TEMPLATE, {
     appName,
     appUrl,
@@ -480,39 +506,54 @@ function renderConnectPage(params: {
   });
   const safeMcpUrl = escapeHtml(mcpUrl);
   const connectTemplateValues = { appName, appUrl, mcpUrl, serverId };
+  const localize = (message: string) =>
+    escapeHtml(interpolateMcpConnectTemplate(message, connectTemplateValues));
   const flowMarkSvg = agentNativeMarkSvg(
     "flow-mark",
     "agent-native-connect-flow-gradient",
   );
   const safeUserCode =
     userCode && USER_CODE_RE.test(userCode) ? escapeHtml(userCode) : "";
-  const guideTabsHtml = MCP_CONNECT_GUIDES.map(
-    (guide) =>
-      `<button type="button" class="tab${guide.id === MCP_CONNECT_GUIDES[0]?.id ? " is-active" : ""}" role="tab" data-tab="${escapeHtml(guide.id)}" aria-selected="${guide.id === MCP_CONNECT_GUIDES[0]?.id ? "true" : "false"}">${escapeHtml(guide.label)}</button>`,
-  ).join("\n");
-  const guidePanelsHtml = MCP_CONNECT_GUIDES.map((guide) =>
-    renderConnectGuide(guide, connectTemplateValues),
-  ).join("\n");
+  const resolvedGuideId = resolveMcpConnectGuideId(requestedGuide);
+  const activeGuideId = guides.some((guide) => guide.id === resolvedGuideId)
+    ? resolvedGuideId
+    : (guides[0]?.id ?? "claude");
+  const guideTabsHtml = guides
+    .map(
+      (guide) =>
+        `<button type="button" class="tab${guide.id === activeGuideId ? " is-active" : ""}" role="tab" id="mcp-guide-tab-${escapeHtml(guide.id)}" data-tab="${escapeHtml(guide.id)}" aria-controls="mcp-guide-panel-${escapeHtml(guide.id)}" aria-selected="${guide.id === activeGuideId ? "true" : "false"}">${escapeHtml(guide.label)}</button>`,
+    )
+    .join("\n");
+  const guidePanelsHtml = guides
+    .map((guide) =>
+      renderConnectGuide(
+        guide,
+        activeGuideId,
+        connectTemplateValues,
+        messages.mcpCopy,
+      ),
+    )
+    .join("\n");
   const setupHtml = safeUserCode
     ? ""
     : `
   <div class="mcp-url-block">
-    <div class="section-label">Your MCP URL</div>
+    <div class="section-label">${localize(connectMessages.urlTitle)}</div>
     <div class="url-row">
       <code id="mcpUrlValue">${safeMcpUrl}</code>
-      <button type="button" class="ghost" data-copy="mcpUrlValue" aria-label="Copy MCP URL">Copy</button>
+      <button type="button" class="ghost" data-copy="mcpUrlValue" aria-label="${localize(`${messages.mcpCopy} ${connectMessages.urlTitle}`)}">${localize(messages.mcpCopy)}</button>
     </div>
   </div>
 
   <details id="assistantSetup" class="hosts">
     <summary>
-      <span class="connections-title">Assistant setup</span>
-      <span class="connections-state">MCP URL guides</span>
+      <span class="connections-title">${localize(messages.mcpClientSetup)}</span>
+      <span class="connections-state">${localize(connectMessages.guidesLabel)}</span>
       <span class="chev" aria-hidden="true"></span>
     </summary>
     <div class="hosts-body">
-      <div class="section-label">Pick your AI assistant</div>
-      <div class="tabs" role="tablist" aria-label="Choose your AI assistant">
+      <div class="section-label">${localize(messages.mcpChooseAssistant)}</div>
+      <div class="tabs" role="tablist" aria-label="${localize(messages.mcpChooseAssistant)}">
         ${guideTabsHtml}
       </div>
       ${guidePanelsHtml}
@@ -521,28 +562,28 @@ function renderConnectPage(params: {
   const tokenAdvancedOptionsHtml = safeUserCode
     ? ""
     : `
-        <details class="advanced">
+      <details class="advanced">
           <summary>
-            Advanced options
+            ${localize(connectMessages.advancedOptions)}
             <span class="chev" aria-hidden="true"></span>
           </summary>
           <div class="advanced-body">
             <div class="field">
-              <label for="label">Label (optional)</label>
-              <input id="label" type="text" placeholder="e.g. Claude Code on my laptop" maxlength="120" />
+              <label for="label">${localize(connectMessages.labelOptional)}</label>
+              <input id="label" type="text" placeholder="${localize(connectMessages.labelPlaceholder)}" maxlength="120" />
             </div>
             <div class="field">
-              <label for="ttl">Expires in (days, 1–365)</label>
+              <label for="ttl">${localize(connectMessages.expiresInDays)}</label>
               <input id="ttl" type="number" min="1" max="365" value="${DEFAULT_TOKEN_TTL_DAYS}" />
             </div>
           </div>
         </details>`;
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${escapeHtml(locale)}" dir="${direction}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Connect ${safeApp}</title>
+<title>${localize(connectMessages.pageTitle)}</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -864,7 +905,7 @@ function renderConnectPage(params: {
 <body>
 <div class="card">
   <div class="hero">
-    <div class="flow" role="img" aria-label="Authorize ${safeApp}">
+    <div class="flow" role="img" aria-label="${localize(connectMessages.authorizeLabel)}">
       <span class="tile" aria-hidden="true">
         ${flowMarkSvg}
       </span>
@@ -874,14 +915,14 @@ function renderConnectPage(params: {
       </span>
     </div>
 
-    <h1>${safeUserCode ? `Authorize ${safeApp} from your terminal?` : `Use ${safeApp} from your AI assistant`}</h1>
+    <h1>${safeUserCode ? localize(connectMessages.terminalTitle) : localize(connectMessages.assistantTitle)}</h1>
     <p class="identity">
-      <span>Signed in as <strong>${safeEmail}</strong></span>
+      <span>${localize(connectMessages.signedInAs)} <strong>${safeEmail}</strong></span>
     </p>
   </div>
 
   <div id="codeCallout" class="device-strip ${safeUserCode ? "" : "hidden"}">
-    <span class="label">Device code</span>
+    <span class="label">${localize(connectMessages.deviceCode)}</span>
     <span class="value" id="userCodeValue">${safeUserCode}</span>
   </div>
 
@@ -889,23 +930,23 @@ function renderConnectPage(params: {
 
   <details id="staticTokenMint" class="connections static-token-mint"${safeUserCode ? " open" : ""}>
     <summary>
-      <span class="connections-title">${safeUserCode ? "Authorize this device" : MCP_STATIC_TOKEN_FALLBACK.title}</span>
+      <span class="connections-title">${safeUserCode ? localize(connectMessages.authorizeDevice) : escapeHtml(staticTokenFallback.title)}</span>
       <span class="chev" aria-hidden="true"></span>
     </summary>
     <div class="static-token-body">
       <div id="msg" class="msg" role="status" aria-live="polite"></div>
       <div id="mintForm">
-        <button id="authorizeBtn" class="primary">${safeUserCode ? "Authorize device" : "Create connection token"}</button>
+        <button id="authorizeBtn" class="primary">${safeUserCode ? localize(connectMessages.authorizeDevice) : localize(connectMessages.createToken)}</button>
         ${tokenAdvancedOptionsHtml}
       </div>
       <div id="result" class="result-panel hidden">
-        <div class="result-title">${MCP_STATIC_TOKEN_FALLBACK.resultTitle}</div>
-        <p class="result-copy" id="resultMsg">${MCP_STATIC_TOKEN_FALLBACK.resultCopy}</p>
-        <div class="section-label">MCP config</div>
+        <div class="result-title">${escapeHtml(staticTokenFallback.resultTitle)}</div>
+        <p class="result-copy" id="resultMsg">${escapeHtml(staticTokenFallback.resultCopy)}</p>
+        <div class="section-label">${localize(messages.mcpConfig)}</div>
         <pre id="mcpJson"></pre>
         <details class="advanced">
           <summary>
-            Terminal alternative
+            ${localize(connectMessages.terminalAlternative)}
             <span class="chev" aria-hidden="true"></span>
           </summary>
           <div class="advanced-body">
@@ -918,17 +959,18 @@ function renderConnectPage(params: {
 
   <details id="connections" class="connections">
     <summary>
-      <span class="connections-title">Existing connections</span>
+      <span class="connections-title">${localize(connectMessages.existingConnections)}</span>
       <span id="connectionsState" class="connections-state hidden" aria-live="polite"></span>
       <span class="chev" aria-hidden="true"></span>
     </summary>
-    <div id="tokenList" class="token-list"><div class="empty-state">Checking connections...</div></div>
+    <div id="tokenList" class="token-list"><div class="empty-state">${localize(connectMessages.checkingConnections)}</div></div>
   </details>
 </div>
 <script>
 (function () {
   var BASE = ${JSON.stringify(joinAppPath(connectBasePath, MCP_PUBLIC_ROUTE_PREFIX + "/connect"))};
   var USER_CODE = ${JSON.stringify(safeUserCode || null)};
+  var COPY = ${JSON.stringify(connectMessages)};
   var msgEl = document.getElementById("msg");
   var connectionsEl = document.getElementById("connections");
   var connectionsStateEl = document.getElementById("connectionsState");
@@ -962,7 +1004,7 @@ function renderConnectPage(params: {
     if (!node || !navigator.clipboard) return;
     navigator.clipboard.writeText(node.textContent || "").then(function () {
       var prev = btn.textContent;
-      btn.textContent = "Copied";
+      btn.textContent = ${JSON.stringify(messages.mcpCopied)};
       btn.classList.add("copy-flash");
       setTimeout(function () {
         btn.textContent = prev;
@@ -1025,14 +1067,21 @@ function renderConnectPage(params: {
     return { ok: res.ok, status: res.status, data: data };
   }
 
+  function deviceAuthorizationError(response) {
+    if (response.status === 404) return COPY.unknownDeviceCode;
+    if (response.status === 410) return COPY.expiredDeviceCode;
+    if (response.status === 409) return COPY.alreadyUsedDeviceCode;
+    return COPY.couldNotAuthorize;
+  }
+
   async function loadTokens() {
     var listEl = document.getElementById("tokenList");
     try {
       var res = await fetch(BASE + "/tokens", { credentials: "same-origin" });
       if (!res.ok) {
-        connectionsStateEl.textContent = "Unavailable";
+        connectionsStateEl.textContent = COPY.unavailable;
         connectionsStateEl.classList.remove("hidden");
-        listEl.innerHTML = '<div class="empty-state">Could not load connections.</div>';
+        listEl.innerHTML = '<div class="empty-state">' + COPY.couldNotLoadConnections + '</div>';
         return;
       }
       var data = await res.json();
@@ -1041,7 +1090,7 @@ function renderConnectPage(params: {
         connectionsStateEl.textContent = "";
         connectionsStateEl.classList.add("hidden");
         connectionsEl.open = false;
-        listEl.innerHTML = '<div class="empty-state">Created connections will appear here for revoking later.</div>';
+        listEl.innerHTML = '<div class="empty-state">' + COPY.emptyConnections + '</div>';
         return;
       }
       var activeCount = tokens.filter(function (t) { return !t.revokedAt; }).length;
@@ -1052,49 +1101,49 @@ function renderConnectPage(params: {
         var div = document.createElement("div");
         div.className = "tok" + (t.revokedAt ? " revoked" : "");
         var when = t.createdAt ? new Date(t.createdAt).toLocaleString() : "";
-        var used = t.lastUsedAt ? " · last used " + new Date(t.lastUsedAt).toLocaleString() : "";
+        var used = t.lastUsedAt ? " · " + COPY.lastUsed + " " + new Date(t.lastUsedAt).toLocaleString() : "";
         var left = document.createElement("div");
         var label = document.createElement("div");
-        label.textContent = t.label || "(unlabeled)";
+        label.textContent = t.label || COPY.unlabeled;
         var meta = document.createElement("div");
         meta.className = "meta";
-        meta.textContent = (t.revokedAt ? "Revoked · " : "Created ") + when + used;
+        meta.textContent = (t.revokedAt ? COPY.revoked + " · " : COPY.created + " ") + when + used;
         left.appendChild(label); left.appendChild(meta);
         div.appendChild(left);
         if (!t.revokedAt) {
           var btn = document.createElement("button");
           btn.className = "ghost";
-          btn.textContent = "Revoke";
+          btn.textContent = COPY.revoke;
           btn.onclick = async function () {
             btn.disabled = true;
             var r = await postJson("/tokens/revoke", { id: t.id });
             if (r.ok) { loadTokens(); }
-            else { btn.disabled = false; showMsg("Could not revoke token."); }
+            else { btn.disabled = false; showMsg(COPY.couldNotRevoke); }
           };
           div.appendChild(btn);
         }
         listEl.appendChild(div);
       });
     } catch (e) {
-      connectionsStateEl.textContent = "Unavailable";
+      connectionsStateEl.textContent = COPY.unavailable;
       connectionsStateEl.classList.remove("hidden");
-      listEl.innerHTML = '<div class="empty-state">Could not load connections.</div>';
+      listEl.innerHTML = '<div class="empty-state">' + COPY.couldNotLoadConnections + '</div>';
     }
   }
 
   document.getElementById("authorizeBtn").onclick = async function () {
     var btn = this;
-    setButtonLoading(btn, USER_CODE ? "Authorizing device..." : "Creating token...");
+    setButtonLoading(btn, USER_CODE ? COPY.authorizingDevice : COPY.creatingToken);
     clearMsg();
     try {
       if (USER_CODE) {
         var a = await postJson("/device/authorize", { user_code: USER_CODE });
         if (!a.ok) {
           resetButtonLoading(btn);
-          showMsg((a.data && a.data.error) || "Could not authorize this device code.");
+          showMsg(deviceAuthorizationError(a));
           return;
         }
-        showMsg("Finishing connection… you can return to your terminal.", "ok", "Device authorized");
+        showMsg(COPY.finishingConnection, "ok", COPY.deviceAuthorized);
         btn.classList.add("hidden");
         document.getElementById("mintForm").classList.add("hidden");
         var cc = document.getElementById("codeCallout");
@@ -1129,7 +1178,7 @@ function renderConnectPage(params: {
               });
               if (fresh.length > 0) {
                 clearInterval(iv);
-                showMsg("This device can now act as you — manage or revoke it below.", "ok", "Connected");
+                showMsg(COPY.connectedDescription, "ok", COPY.connected);
                 loadTokens();
                 return;
               }
@@ -1153,7 +1202,7 @@ function renderConnectPage(params: {
         var m = await postJson("/token", { label: label, ttlDays: ttlDays });
         if (!m.ok) {
           resetButtonLoading(btn);
-          showMsg((m.data && m.data.error) || "Could not create token.");
+          showMsg(COPY.couldNotCreate);
           return;
         }
         renderResult(m.data);
@@ -1161,7 +1210,7 @@ function renderConnectPage(params: {
       loadTokens();
     } catch (e) {
       resetButtonLoading(btn);
-      showMsg("Network error. Please try again.");
+      showMsg(COPY.networkError);
     }
   };
 
@@ -1192,6 +1241,22 @@ export async function handleMcpConnect(
   const origin = deriveOrigin(event);
   const basePath = configuredBasePath();
   const appUrl = `${origin}${basePath}`;
+  let requestUrl: URL | null = null;
+  try {
+    requestUrl = new URL(
+      event.node?.req?.url ?? event.path ?? "/",
+      "http://an.invalid",
+    );
+  } catch {
+    requestUrl = null;
+  }
+  const requestedLocale = normalizeLocaleCode(
+    requestUrl?.searchParams.get("locale"),
+  );
+  const locale = resolveLocaleFromRequest({
+    acceptLanguage: getHeader(event, "accept-language"),
+    preference: requestedLocale ?? undefined,
+  }).locale;
   const sub = ("/" + subpath.replace(/^\/+/, "").replace(/\/+$/, "")).replace(
     /^\/$/,
     "",
@@ -1217,20 +1282,14 @@ export async function handleMcpConnect(
           appUrl,
           serverId: serverName(appUrl, options),
           userCode: null,
+          locale,
+          requestedGuide: requestUrl?.searchParams.get("guide") ?? null,
         }),
       );
     }
     let userCode: string | null = null;
-    try {
-      const u = new URL(
-        event.node?.req?.url ?? event.path ?? "/",
-        "http://an.invalid",
-      );
-      const raw = u.searchParams.get("user_code");
-      if (raw && USER_CODE_RE.test(raw)) userCode = raw;
-    } catch {
-      userCode = null;
-    }
+    const raw = requestUrl?.searchParams.get("user_code");
+    if (raw && USER_CODE_RE.test(raw)) userCode = raw;
     return html(
       renderConnectPage({
         connectBasePath: basePath,
@@ -1239,6 +1298,8 @@ export async function handleMcpConnect(
         appUrl,
         serverId: serverName(appUrl, options),
         userCode,
+        locale,
+        requestedGuide: requestUrl?.searchParams.get("guide") ?? null,
       }),
     );
   }

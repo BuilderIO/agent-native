@@ -198,6 +198,22 @@ export interface PresetReference {
   required: boolean;
 }
 
+export type AssetAccessRole =
+  | "viewer"
+  | "commenter"
+  | "editor"
+  | "admin"
+  | "owner";
+
+/**
+ * True when this role may approve, not only draft: save a candidate into the
+ * kit, organize it, or change its settings. Mirrors `assertCanApprove` on the
+ * server — see `server/lib/library-access.ts` for the rule itself.
+ */
+export function canApproveWithRole(role: unknown): boolean {
+  return role === "editor" || role === "admin" || role === "owner";
+}
+
 export interface ImageLibrarySummary {
   id: string;
   title: string;
@@ -244,7 +260,7 @@ export interface ImageAssetMetadata {
   colors?: string[];
   contentHash?: string;
   generated?: boolean;
-  intent?: "subject" | string;
+  intent?: "subject" | (string & {});
   sourceAssetId?: string;
   referenceAssetIds?: string[];
   prompt?: string;
@@ -321,6 +337,18 @@ export interface GenerationPresetSummary {
   sortOrder: number;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface TemplateSummary extends Omit<
+  GenerationPresetSummary,
+  "libraryId"
+> {
+  libraryId: string | null;
+  scope: "global" | "library";
+  visibility: "private" | "org" | "public";
+  ownerEmail: string;
+  accessRole?: "viewer" | "commenter" | "editor" | "admin" | "owner";
+  libraryTitle?: string | null;
 }
 
 export interface GenerationSessionSummary {

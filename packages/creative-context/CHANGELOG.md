@@ -1,5 +1,44 @@
 # @agent-native/creative-context
 
+## 0.7.19
+
+### Patch Changes
+
+- 56404c7: Restore Creative context as a Share tab and compact its submission controls.
+- Release all public npm packages with a patch version bump.
+
+## 0.7.18
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.17
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.16
+
+### Patch Changes
+
+- 1f8e13c: Route managed Google OAuth through the provider-aware root callback on standalone apps.
+- Release all public npm packages with a patch version bump.
+
+## 0.7.15
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.14
+
+### Patch Changes
+
+- 4776e61: Reduce CI lint warnings across publishable packages.
+- Release all public npm packages with a patch version bump.
+
 ## 0.7.13
 
 ### Patch Changes

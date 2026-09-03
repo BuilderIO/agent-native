@@ -1,6 +1,8 @@
 import { emit } from "@agent-native/core/event-bus";
+import { getOrgContext, orgMembers } from "@agent-native/core/org";
 import {
   getSession,
+  getAppProductionUrl,
   recordChange,
   readBody,
   runWithRequestContext,
@@ -8,7 +10,7 @@ import {
 } from "@agent-native/core/server";
 import { getSetting, getUserSetting } from "@agent-native/core/settings";
 import { accessFilter } from "@agent-native/core/sharing";
-import { eq, and, gt, gte, lt, lte, ne, inArray } from "drizzle-orm";
+import { and, eq, gt, gte, inArray, lt, lte, ne, or, sql } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
@@ -44,6 +46,10 @@ import {
   buildBookingEventAttendees,
   buildBookingEventTitle,
 } from "../lib/booking-event-details.js";
+import {
+  getEligibleHostAvailability,
+  type EligibleHostAvailability,
+} from "../lib/booking-host-availability.js";
 import {
   getBookingLinkCoHostEmails,
   getBookingLinkRequiredHostEmails,
@@ -93,7 +99,13 @@ async function getBookingLinkOwnerEmail(
 }
 
 function stripCrlf(value: unknown): string {
-  return String(value ?? "")
+  return (
+    typeof value === "string"
+      ? value
+      : value == null
+        ? ""
+        : JSON.stringify(value)
+  )
     .replace(/[\r\n]+/g, " ")
     .trim();
 }
@@ -101,6 +113,8 @@ function stripCrlf(value: unknown): string {
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
+
+const MAX_ADDITIONAL_BOOKING_GUESTS = 5;
 
 export async function resolveBookingCalendarAccount({
   booking,
@@ -128,7 +142,7 @@ export async function resolveBookingCalendarAccount({
   return googleCalendar.getDefaultAccountSelection(ownerEmail);
 }
 
-async function deleteGoogleEventForBooking({
+export async function deleteGoogleEventForBooking({
   booking,
   hostEmail,
 }: {
@@ -147,7 +161,7 @@ async function deleteGoogleEventForBooking({
     });
     if (!account) return;
     await googleCalendar.deleteEvent(booking.googleEventId, account, {
-      sendUpdates: "none",
+      sendUpdates: "all",
     });
   } catch (error) {
     console.warn(
@@ -174,6 +188,8 @@ type AvailabilityContext = {
   effectiveConfig: AvailabilityConfig | null;
   ownerEmail?: string;
   hostEmails: string[];
+  /** Overlay-listed hosts with a saved working-hours schedule/time zone. */
+  eligibleHosts: EligibleHostAvailability[];
   slug: string;
   bookingLink?: BookingLinkRow;
   durationSource?: BookingDurationSource;
@@ -185,6 +201,41 @@ type ConflictResult = { items: ConflictItem[]; unavailableReason?: string };
 type BookingLinkRow = typeof schema.bookingLinks.$inferSelect;
 type ConflictDb = Pick<ReturnType<typeof getDb>, "select">;
 const BOOKING_SLOT_STEP_MINUTES = 30;
+
+type SameOrgBookingViewer = { email: string; orgId: string };
+
+function resolveSameOrgBookingViewer(
+  session: { email?: string; orgId?: string } | null,
+  bookingLink?: BookingLinkRow,
+): SameOrgBookingViewer | undefined {
+  const viewerEmail = session?.email?.trim().toLowerCase();
+  if (!viewerEmail || !session?.orgId || !bookingLink) return undefined;
+  if (viewerEmail === bookingLink.ownerEmail.trim().toLowerCase()) {
+    return undefined;
+  }
+  return bookingLink.orgId === session.orgId
+    ? { email: viewerEmail, orgId: session.orgId }
+    : undefined;
+}
+
+async function resolveBookingViewer(
+  event: H3Event,
+  bookingLink?: BookingLinkRow,
+): Promise<SameOrgBookingViewer | undefined> {
+  const session = await getSession(event);
+  if (!session?.email || !bookingLink) return undefined;
+  if (
+    session.email.trim().toLowerCase() ===
+    bookingLink.ownerEmail.trim().toLowerCase()
+  ) {
+    return undefined;
+  }
+  const orgContext = await getOrgContext(event);
+  return resolveSameOrgBookingViewer(
+    { ...session, orgId: orgContext.orgId ?? undefined },
+    bookingLink,
+  );
+}
 
 const bookingAvailabilityDraftSchema = z
   .object({
@@ -318,6 +369,13 @@ function getTimezoneOffsetMs(date: Date, timezone: string): number {
   return utcForLocalParts - date.getTime();
 }
 
+// Thrown by zonedTimeToUtc for a local date that a time zone skipped
+// entirely. Callers that generate availability for a specific date should
+// catch only this - it's an expected "no such date" outcome, not a bug -
+// and treat it as no availability rather than letting it surface as a
+// generic 500 or, worse, silently masking a real error the same way.
+class SkippedLocalDateError extends Error {}
+
 function zonedTimeToUtc(
   localDate: string,
   localTime: string,
@@ -330,6 +388,44 @@ function zonedTimeToUtc(
     utcGuess - getTimezoneOffsetMs(new Date(utcGuess), timezone),
   );
   result = new Date(utcGuess - getTimezoneOffsetMs(result, timezone));
+
+  // A spring-forward DST transition skips a span of local wall-clock time —
+  // usually an hour, but zones such as Australia/Lord_Howe advance by only
+  // 30 minutes. If the requested time falls in that gap, the two-pass guess
+  // above can converge to either side of the transition, and `result`
+  // silently lands on some other real instant instead of the requested time
+  // not existing. Detect that by round-tripping back to local time, and if
+  // it doesn't match, resolve deterministically using the offset from a full
+  // day before the guess (definitely pre-transition): reapplying that fixed
+  // offset to the requested wall-clock numbers is equivalent to shifting the
+  // request forward by the transition's actual size and resolving it
+  // normally on the post-transition side, whatever that size is.
+  let roundTrip = getLocalDateTimeParts(result, timezone);
+  if (roundTrip.hour !== hour || roundTrip.minute !== minute) {
+    const offsetBefore = getTimezoneOffsetMs(
+      new Date(utcGuess - 24 * 60 * 60 * 1000),
+      timezone,
+    );
+    result = new Date(utcGuess - offsetBefore);
+    roundTrip = getLocalDateTimeParts(result, timezone);
+  }
+
+  // A handful of IANA zones (Pacific/Apia's 2011 international date line
+  // move, Pacific/Kiritimati's 1994 move) skip an entire calendar date
+  // rather than a span within one, so the corrected instant above can land
+  // on a different day while still round-tripping to the same hour/minute —
+  // e.g. requesting Pacific/Apia's nonexistent 2011-12-30 silently resolves
+  // to 2011-12-31. Reject that outright instead of generating availability
+  // for a date the caller never asked for.
+  if (
+    roundTrip.year !== year ||
+    roundTrip.month !== month ||
+    roundTrip.day !== day
+  ) {
+    throw new SkippedLocalDateError(
+      `${localDate} does not exist in time zone ${timezone} (skipped calendar date)`,
+    );
+  }
   return result;
 }
 
@@ -443,6 +539,46 @@ function dateEndIso(date: string, timezone: string): string {
   ).toISOString();
 }
 
+const BOUNDARY_SKIP_SEARCH_DAYS = 3;
+
+// The requested date itself may not exist locally (a whole-date DST skip);
+// in that case there is no valid lower bound at that date, so walk back to
+// the nearest earlier date that does exist. That date's start is always an
+// earlier (and therefore still safe) lower bound for a conflict window.
+function safeRangeStartIso(date: string, timezone: string): string {
+  let cursor = date;
+  for (let i = 0; i <= BOUNDARY_SKIP_SEARCH_DAYS; i++) {
+    try {
+      return dateStartIso(cursor, timezone);
+    } catch (error) {
+      if (!(error instanceof SkippedLocalDateError)) throw error;
+      cursor = addDateString(cursor, -1);
+    }
+  }
+  throw new SkippedLocalDateError(
+    `No valid local date found near ${date} in time zone ${timezone}`,
+  );
+}
+
+// dateEndIso's boundary is exclusive (the start of the *next* date), which
+// can itself be a date the time zone skips even though `date` is perfectly
+// valid. Walk forward to the nearest later date that exists - it's still a
+// safe (only slightly wider) upper bound for a conflict window.
+function safeRangeEndIso(date: string, timezone: string): string {
+  let cursor = date;
+  for (let i = 0; i <= BOUNDARY_SKIP_SEARCH_DAYS; i++) {
+    try {
+      return dateEndIso(cursor, timezone);
+    } catch (error) {
+      if (!(error instanceof SkippedLocalDateError)) throw error;
+      cursor = addDateString(cursor, 1);
+    }
+  }
+  throw new SkippedLocalDateError(
+    `No valid local date found near ${date} in time zone ${timezone}`,
+  );
+}
+
 function formatAvailabilityUnavailableReason(email?: string): string {
   return email
     ? `Calendar availability unavailable for ${email}`
@@ -456,12 +592,6 @@ function unavailableAvailabilityResponse(event: H3Event) {
       "The host's calendar availability could not be checked. Please try again later.",
     code: "calendar_availability_unavailable",
   };
-}
-
-function formatLocalTime(totalMinutes: number): string {
-  const hour = Math.floor(totalMinutes / 60);
-  const minute = totalMinutes % 60;
-  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
 async function resolveAvailabilityContext({
@@ -522,6 +652,10 @@ async function resolveAvailabilityContext({
   ]);
   const ownerConfig = ownerConfigRaw as unknown as AvailabilityConfig | null;
   const ownerSettings = ownerSettingsRaw as { timezone?: string } | null;
+  const eligibleHosts = await getEligibleHostAvailability(
+    ownerEmail,
+    hostEmails,
+  );
 
   return {
     effectiveConfig:
@@ -533,6 +667,7 @@ async function resolveAvailabilityContext({
         : config),
     ownerEmail,
     hostEmails,
+    eligibleHosts,
     slug,
     bookingLink,
     durationSource: overrides?.durationSource,
@@ -545,6 +680,8 @@ export async function getConflictItems({
   ownerEmail,
   hostEmails,
   conflictSlugs,
+  viewerEmail,
+  viewerOrgId,
   rangeStartIso,
   rangeEndIso,
   timezone,
@@ -553,6 +690,8 @@ export async function getConflictItems({
   ownerEmail?: string;
   hostEmails: string[];
   conflictSlugs: string[];
+  viewerEmail?: string;
+  viewerOrgId?: string;
   rangeStartIso: string;
   rangeEndIso: string;
   timezone: string;
@@ -567,14 +706,24 @@ export async function getConflictItems({
   );
   const freeBusyResolvedHosts = new Set<string>();
 
-  // Google is an availability enhancement, not a requirement: an owner who
-  // hasn't connected Google still has a schedule-only availability computed
-  // below from the weekly schedule and existing SQL bookings. Only actual
-  // Google failures (free/busy errors, event-listing errors, thrown
-  // exceptions) mark availability unavailable — not "not connected".
-  const ownerConnected = ownerEmail
-    ? await googleCalendar.isConnected(ownerEmail)
-    : false;
+  let ownerConnected = false;
+  try {
+    ownerConnected = ownerEmail
+      ? await googleCalendar.isConnected(ownerEmail)
+      : false;
+  } catch {
+    return {
+      items: [],
+      unavailableReason: formatAvailabilityUnavailableReason(ownerEmail),
+    };
+  }
+
+  if (requiredHosts.length > 0 && !ownerConnected) {
+    return {
+      items: [],
+      unavailableReason: formatAvailabilityUnavailableReason(ownerEmail),
+    };
+  }
 
   if (ownerConnected) {
     try {
@@ -602,9 +751,14 @@ export async function getConflictItems({
         }
         for (const [email, calendar] of Object.entries(freeBusy.calendars)) {
           const normalizedEmail = email.toLowerCase();
-          if (!calendar.errors || calendar.errors.length === 0) {
-            freeBusyResolvedHosts.add(normalizedEmail);
+          if (calendar.errors && calendar.errors.length > 0) {
+            return {
+              items: [],
+              unavailableReason:
+                formatAvailabilityUnavailableReason(normalizedEmail),
+            };
           }
+          freeBusyResolvedHosts.add(normalizedEmail);
           conflictItems.push(
             ...calendar.busy.map((busy) => ({
               start: busy.start,
@@ -638,19 +792,67 @@ export async function getConflictItems({
     }
   }
 
-  if (requiredHosts.length > 1) {
-    const owner = ownerEmail?.toLowerCase();
-    const unresolvedCoHosts = requiredHosts.filter(
-      (email) => email !== owner && !freeBusyResolvedHosts.has(email),
-    );
-    if (unresolvedCoHosts.length > 0) {
+  const unresolvedHosts = requiredHosts.filter(
+    (email) => !freeBusyResolvedHosts.has(email),
+  );
+  if (unresolvedHosts.length > 0) {
+    return {
+      items: conflictItems,
+      unavailableReason: `Availability unavailable for ${unresolvedHosts.join(", ")}`,
+    };
+  }
+
+  if (viewerEmail && !requiredHosts.includes(viewerEmail)) {
+    try {
+      const viewerAccounts =
+        await googleCalendar.getOwnedAccountEmails(viewerEmail);
+      if (viewerAccounts.length > 0) {
+        const viewerEvents = await googleCalendar.listEvents(
+          rangeStartIso,
+          rangeEndIso,
+          viewerEmail,
+          { accountEmails: viewerAccounts },
+        );
+        if (viewerEvents.errors.length > 0) {
+          return {
+            items: [],
+            unavailableReason: formatAvailabilityUnavailableReason(
+              viewerEvents.errors[0]?.email || viewerEmail,
+            ),
+          };
+        }
+        conflictItems.push(
+          ...viewerEvents.events
+            .filter(eventBlocksAvailability)
+            .map((event) => ({
+              start: event.start,
+              end: event.end,
+            })),
+        );
+      }
+    } catch {
       return {
-        items: conflictItems,
-        unavailableReason: `Availability unavailable for ${unresolvedCoHosts.join(", ")}`,
+        items: [],
+        unavailableReason: formatAvailabilityUnavailableReason(viewerEmail),
       };
     }
   }
 
+  const viewerBookingScope =
+    viewerEmail && viewerOrgId
+      ? and(
+          eq(schema.bookings.email, viewerEmail),
+          eq(schema.bookings.orgId, viewerOrgId),
+        )
+      : undefined;
+  const bookingScope =
+    conflictSlugs.length > 0 && viewerBookingScope
+      ? or(inArray(schema.bookings.slug, conflictSlugs), viewerBookingScope)
+      : conflictSlugs.length > 0
+        ? inArray(schema.bookings.slug, conflictSlugs)
+        : viewerBookingScope
+          ? viewerBookingScope
+          : undefined;
   const bookings = await db
     .select()
     .from(schema.bookings)
@@ -659,9 +861,7 @@ export async function getConflictItems({
         ne(schema.bookings.status, "cancelled"),
         lte(schema.bookings.start, rangeEndIso),
         gte(schema.bookings.end, rangeStartIso),
-        conflictSlugs.length > 0
-          ? inArray(schema.bookings.slug, conflictSlugs)
-          : undefined,
+        bookingScope,
       ),
     );
 
@@ -675,34 +875,156 @@ export async function getConflictItems({
   return { items: conflictItems };
 }
 
+type ScheduleWindow = { start: Date; end: Date };
+
+const DAY_NAMES = [
+  "sunday",
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+] as const;
+
+function getScheduleWindowsForLocalDate(
+  date: string,
+  timezone: string,
+  weeklySchedule: AvailabilityConfig["weeklySchedule"],
+): ScheduleWindow[] {
+  const targetNoon = zonedTimeToUtc(date, "12:00", timezone);
+  const dayName = DAY_NAMES[getDayOfWeekInTimezone(targetNoon, timezone)];
+  const daySchedule = weeklySchedule[dayName as keyof typeof weeklySchedule];
+  if (!daySchedule || !daySchedule.enabled || daySchedule.slots.length === 0) {
+    return [];
+  }
+
+  const windows: ScheduleWindow[] = [];
+  for (const slot of normalizeAvailabilitySlots(daySchedule.slots)) {
+    const start = zonedTimeToUtc(date, slot.start, timezone);
+    const end = zonedTimeToUtc(date, slot.end, timezone);
+    if (end > start) windows.push({ start, end });
+  }
+  return windows;
+}
+
+/**
+ * Hosts can be in a different timezone, so their local weekday can shift
+ * relative to the owner's target date. Scan the day before/of/after in the
+ * host's own timezone and keep only windows that actually overlap the
+ * owner's absolute UTC range.
+ */
+function getScheduleWindowsOverlappingRange(
+  rangeStart: Date,
+  rangeEnd: Date,
+  timezone: string,
+  weeklySchedule: AvailabilityConfig["weeklySchedule"],
+): ScheduleWindow[] {
+  const startDate = formatLocalDateInTimezone(
+    new Date(rangeStart.getTime() - 24 * 60 * 60 * 1000),
+    timezone,
+  );
+  const endDate = formatLocalDateInTimezone(
+    new Date(rangeEnd.getTime() + 24 * 60 * 60 * 1000),
+    timezone,
+  );
+
+  const windows: ScheduleWindow[] = [];
+  for (
+    let cursor = startDate;
+    cursor <= endDate;
+    cursor = addDateString(cursor, 1)
+  ) {
+    let dayWindows: ScheduleWindow[];
+    try {
+      dayWindows = getScheduleWindowsForLocalDate(
+        cursor,
+        timezone,
+        weeklySchedule,
+      );
+    } catch (error) {
+      if (!(error instanceof SkippedLocalDateError)) throw error;
+      // This padding day doesn't exist in the host's own time zone (e.g.
+      // a whole-date DST skip) - it contributes no schedule window, so
+      // just move on instead of discarding the whole surrounding range.
+      continue;
+    }
+    windows.push(...dayWindows);
+  }
+  return windows.filter(
+    (window) => window.end > rangeStart && window.start < rangeEnd,
+  );
+}
+
+function intersectScheduleWindows(
+  a: ScheduleWindow[],
+  b: ScheduleWindow[],
+): ScheduleWindow[] {
+  const result: ScheduleWindow[] = [];
+  for (const windowA of a) {
+    for (const windowB of b) {
+      const start =
+        windowA.start > windowB.start ? windowA.start : windowB.start;
+      const end = windowA.end < windowB.end ? windowA.end : windowB.end;
+      if (end > start) result.push({ start, end });
+    }
+  }
+  return result;
+}
+
+function roundUpToStepInTimezone(
+  date: Date,
+  timezone: string,
+  stepMinutes: number,
+): Date {
+  const parts = getLocalDateTimeParts(date, timezone);
+  const currentMinutes = parts.hour * 60 + parts.minute;
+  const roundedMinutes = Math.ceil(currentMinutes / stepMinutes) * stepMinutes;
+  const diffMs =
+    (roundedMinutes - currentMinutes) * 60 * 1000 - parts.second * 1000;
+  return new Date(date.getTime() + diffMs);
+}
+
 export function generateAvailableSlotsForDate({
   date,
   duration,
   config,
   conflictItems,
+  hostSchedules = [],
 }: {
   date: string;
   duration: number;
   config: AvailabilityConfig;
   conflictItems: ConflictItem[];
+  /** Eligible hosts' saved schedules to hard-filter against, if any. */
+  hostSchedules?: EligibleHostAvailability[];
 }): TimeSlot[] {
   const timezone = config.timezone || "UTC";
-  const dayNames = [
-    "sunday",
-    "monday",
-    "tuesday",
-    "wednesday",
-    "thursday",
-    "friday",
-    "saturday",
-  ] as const;
-  const targetNoon = zonedTimeToUtc(date, "12:00", timezone);
-  const dayName = dayNames[getDayOfWeekInTimezone(targetNoon, timezone)];
-  const daySchedule =
-    config.weeklySchedule[dayName as keyof typeof config.weeklySchedule];
+  let windows = getScheduleWindowsForLocalDate(
+    date,
+    timezone,
+    config.weeklySchedule,
+  );
+  if (windows.length === 0) return [];
 
-  if (!daySchedule || !daySchedule.enabled || daySchedule.slots.length === 0) {
-    return [];
+  for (const host of hostSchedules) {
+    if (!host.weeklySchedule) continue;
+    const rangeStart = windows.reduce(
+      (min, w) => (w.start < min ? w.start : min),
+      windows[0].start,
+    );
+    const rangeEnd = windows.reduce(
+      (max, w) => (w.end > max ? w.end : max),
+      windows[0].end,
+    );
+    const hostWindows = getScheduleWindowsOverlappingRange(
+      rangeStart,
+      rangeEnd,
+      host.timezone || timezone,
+      host.weeklySchedule,
+    );
+    windows = intersectScheduleWindows(windows, hostWindows);
+    if (windows.length === 0) return [];
   }
 
   const availableSlots: TimeSlot[] = [];
@@ -729,35 +1051,17 @@ export function generateAvailableSlotsForDate({
     timezone,
   );
 
-  for (const scheduleSlot of normalizeAvailabilitySlots(daySchedule.slots)) {
-    const [startHour, startMin] = scheduleSlot.start.split(":").map(Number);
-    const [endHour, endMin] = scheduleSlot.end.split(":").map(Number);
-    if (
-      !Number.isFinite(startHour) ||
-      !Number.isFinite(startMin) ||
-      !Number.isFinite(endHour) ||
-      !Number.isFinite(endMin)
-    ) {
-      continue;
-    }
-
-    const slotStart = zonedTimeToUtc(date, scheduleSlot.start, timezone);
-    const slotEnd = zonedTimeToUtc(date, scheduleSlot.end, timezone);
-    if (slotEnd <= slotStart) continue;
-
-    const scheduleStartMinutes = startHour * 60 + startMin;
-    const firstSlotStartMinutes =
-      Math.ceil(scheduleStartMinutes / BOOKING_SLOT_STEP_MINUTES) *
-      BOOKING_SLOT_STEP_MINUTES;
-    if (firstSlotStartMinutes >= 24 * 60) continue;
-
-    let current = zonedTimeToUtc(
-      date,
-      formatLocalTime(firstSlotStartMinutes),
+  for (const window of windows) {
+    let current = roundUpToStepInTimezone(
+      window.start,
       timezone,
+      BOOKING_SLOT_STEP_MINUTES,
     );
 
-    while (current.getTime() + slotDuration * 60 * 1000 <= slotEnd.getTime()) {
+    while (
+      current.getTime() + slotDuration * 60 * 1000 <=
+      window.end.getTime()
+    ) {
       const candidateStart = new Date(current);
       const candidateEnd = new Date(
         current.getTime() + slotDuration * 60 * 1000,
@@ -797,13 +1101,17 @@ async function requestedSlotIsCurrentlyAvailable({
   start,
   end,
   duration,
+  viewerEmail,
+  viewerOrgId,
 }: {
   db?: ConflictDb;
   slug: string;
   start: Date;
   end: Date;
   duration: number;
-}): Promise<boolean> {
+  viewerEmail?: string;
+  viewerOrgId?: string;
+}): Promise<boolean | { unavailableReason: string }> {
   const context = await resolveAvailabilityContext({ slug, db });
   if (!context.effectiveConfig) return false;
 
@@ -814,16 +1122,26 @@ async function requestedSlotIsCurrentlyAvailable({
     ownerEmail: context.ownerEmail,
     hostEmails: context.hostEmails,
     conflictSlugs: context.conflictSlugs,
+    viewerEmail,
+    viewerOrgId,
+    // `date` is derived from a real instant, so it can never itself be a
+    // skipped local date - but the exclusive day-after boundary used for
+    // `rangeEndIso` is plain calendar arithmetic and can still land on
+    // one (e.g. immediately before a whole-date DST skip). Widen it the
+    // same way the availability queries above do, instead of throwing.
     rangeStartIso: dateStartIso(date, timezone),
-    rangeEndIso: dateEndIso(date, timezone),
+    rangeEndIso: safeRangeEndIso(date, timezone),
     timezone,
   });
-  if (conflictResult.unavailableReason) return false;
+  if (conflictResult.unavailableReason) {
+    return { unavailableReason: conflictResult.unavailableReason };
+  }
   const slots = generateAvailableSlotsForDate({
     date,
     duration,
     config: context.effectiveConfig,
     conflictItems: conflictResult.items,
+    hostSchedules: context.eligibleHosts,
   });
   const startMs = start.getTime();
   const endMs = end.getTime();
@@ -873,6 +1191,23 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     const cancelToken = nanoid();
     const attendeeName = stripCrlf(body.name);
     const attendeeEmail = stripCrlf(body.email).toLowerCase();
+    if (
+      body.additionalGuestEmails !== undefined &&
+      !Array.isArray(body.additionalGuestEmails)
+    ) {
+      setResponseStatus(event, 400);
+      return { error: "additionalGuestEmails must be an array" };
+    }
+    const normalizedAdditionalGuestEmails: string[] = Array.isArray(
+      body.additionalGuestEmails,
+    )
+      ? (body.additionalGuestEmails as unknown[]).map((email) =>
+          stripCrlf(email).toLowerCase(),
+        )
+      : [];
+    const additionalGuestEmails: string[] = Array.from(
+      new Set(normalizedAdditionalGuestEmails.filter((email) => email.length)),
+    ).filter((email) => email !== attendeeEmail);
     const notes = String(body.notes ?? "").trim();
 
     // Validate required fields
@@ -883,6 +1218,16 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     if (!isValidEmail(attendeeEmail)) {
       setResponseStatus(event, 400);
       return { error: "Enter a valid email address" };
+    }
+    if (additionalGuestEmails.length > MAX_ADDITIONAL_BOOKING_GUESTS) {
+      setResponseStatus(event, 400);
+      return {
+        error: `You can add up to ${MAX_ADDITIONAL_BOOKING_GUESTS} guests`,
+      };
+    }
+    if (additionalGuestEmails.some((email) => !isValidEmail(email))) {
+      setResponseStatus(event, 400);
+      return { error: "Enter valid email addresses for additional guests" };
     }
     const requestedSlug = stripCrlf(body.slug);
 
@@ -902,6 +1247,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     // After the guard above, bookingLink is either undefined (no requestedSlug)
     // or the full DB row. Cast away the "" from the short-circuit type.
     const link = bookingLink || undefined;
+
+    const viewer = await resolveBookingViewer(event, link);
 
     const hostEmail = (link as any)?.ownerEmail || (link as any)?.owner_email;
     if (!hostEmail) {
@@ -1022,6 +1369,19 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     // Check for conflicts + insert atomically in a transaction
     const db = getDb();
     const insertResult = await db.transaction(async (tx) => {
+      if (viewer) {
+        // The viewer row is the stable lock shared by every booking link in
+        // the viewer's org, including links owned by different hosts.
+        await tx
+          .update(orgMembers)
+          .set({ email: sql`${orgMembers.email}` })
+          .where(
+            and(
+              eq(orgMembers.orgId, viewer.orgId),
+              sql`lower(${orgMembers.email}) = ${viewer.email}`,
+            ),
+          );
+      }
       // Serialize booking creation per required host. The no-op write takes row
       // locks on each host's booking links without changing user-visible data.
       for (const email of requiredHostEmails) {
@@ -1037,15 +1397,19 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           ? [requestedSlug]
           : [];
 
-      if (
-        !(await requestedSlotIsCurrentlyAvailable({
-          db: tx,
-          slug: requestedSlug,
-          start: requestedRange.start,
-          end: requestedRange.end,
-          duration: requestedRange.duration,
-        }))
-      ) {
+      const slotAvailability = await requestedSlotIsCurrentlyAvailable({
+        db: tx,
+        slug: requestedSlug,
+        start: requestedRange.start,
+        end: requestedRange.end,
+        duration: requestedRange.duration,
+        viewerEmail: viewer?.email,
+        viewerOrgId: viewer?.orgId,
+      });
+      if (typeof slotAvailability !== "boolean") {
+        return slotAvailability;
+      }
+      if (!slotAvailability) {
         return { conflict: true } as const;
       }
 
@@ -1071,6 +1435,10 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         id,
         name: attendeeName,
         email: attendeeEmail,
+        additionalGuestEmails:
+          additionalGuestEmails.length > 0
+            ? JSON.stringify(additionalGuestEmails)
+            : null,
         start: requestedRange.start.toISOString(),
         end: requestedRange.end.toISOString(),
         slug: requestedSlug,
@@ -1090,6 +1458,9 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       return { conflict: false } as const;
     });
 
+    if ("unavailableReason" in insertResult) {
+      return unavailableAvailabilityResponse(event);
+    }
     if (insertResult.conflict) {
       setResponseStatus(event, 409);
       return { error: "This time slot is no longer available" };
@@ -1190,6 +1561,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
             attendeeEmail,
             attendeeName,
             hostEmails: coHostEmails,
+            additionalGuestEmails,
           }),
           createdAt: now,
           updatedAt: now,
@@ -1236,6 +1608,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       id,
       name: attendeeName,
       email: attendeeEmail,
+      additionalGuestEmails:
+        additionalGuestEmails.length > 0 ? additionalGuestEmails : undefined,
       start: requestedRange.start.toISOString(),
       end: requestedRange.end.toISOString(),
       slug: requestedSlug,
@@ -1332,19 +1706,36 @@ async function getAvailableSlotsForQuery(
     return { error: durationResult.error };
   }
   const duration = durationResult.duration;
+  const viewer = await resolveBookingViewer(event, context.bookingLink);
 
   if (hasRangeQuery) {
     const rangeStart = formatDateOnly(from!);
     const rangeEnd = formatDateOnly(to!);
     const timezone = context.effectiveConfig.timezone || "UTC";
-    const conflictResult = await getConflictItems({
-      ownerEmail: context.ownerEmail,
-      hostEmails: context.hostEmails,
-      conflictSlugs: context.conflictSlugs,
-      rangeStartIso: dateStartIso(rangeStart, timezone),
-      rangeEndIso: dateEndIso(rangeEnd, timezone),
-      timezone,
-    });
+    let conflictResult;
+    try {
+      conflictResult = await getConflictItems({
+        ownerEmail: context.ownerEmail,
+        hostEmails: context.hostEmails,
+        conflictSlugs: context.conflictSlugs,
+        viewerEmail: viewer?.email,
+        viewerOrgId: viewer?.orgId,
+        // The literal rangeStart/rangeEnd dates can themselves be skipped
+        // by the time zone (or, for rangeEnd, the exclusive day-after
+        // boundary can be). Widen to the nearest valid neighboring date
+        // rather than failing the whole range - the per-day loop below
+        // still correctly excludes any individual skipped day.
+        rangeStartIso: safeRangeStartIso(rangeStart, timezone),
+        rangeEndIso: safeRangeEndIso(rangeEnd, timezone),
+        timezone,
+      });
+    } catch (error) {
+      if (!(error instanceof SkippedLocalDateError)) throw error;
+      // Only reachable if several consecutive local dates near the range
+      // boundary are all skipped - an extreme edge case with no valid
+      // conflict window to compute.
+      return { dates: [] };
+    }
     if (conflictResult.unavailableReason) {
       return unavailableAvailabilityResponse(event);
     }
@@ -1355,12 +1746,22 @@ async function getAvailableSlotsForQuery(
       cursor = addLocalDays(cursor, 1)
     ) {
       const day = formatDateOnly(cursor);
-      const slots = generateAvailableSlotsForDate({
-        date: day,
-        duration,
-        config: context.effectiveConfig,
-        conflictItems: conflictResult.items,
-      });
+      let slots: TimeSlot[];
+      try {
+        slots = generateAvailableSlotsForDate({
+          date: day,
+          duration,
+          config: context.effectiveConfig,
+          conflictItems: conflictResult.items,
+          hostSchedules: context.eligibleHosts,
+        });
+      } catch (error) {
+        if (!(error instanceof SkippedLocalDateError)) throw error;
+        // A calendar date that a time zone skipped entirely has no valid
+        // availability by definition - treat it as unavailable rather
+        // than failing the whole range.
+        continue;
+      }
       if (slots.length > 0) {
         dates.push(day);
       }
@@ -1369,23 +1770,36 @@ async function getAvailableSlotsForQuery(
   }
 
   const timezone = context.effectiveConfig.timezone || "UTC";
-  const conflictResult = await getConflictItems({
-    ownerEmail: context.ownerEmail,
-    hostEmails: context.hostEmails,
-    conflictSlugs: context.conflictSlugs,
-    rangeStartIso: dateStartIso(date, timezone),
-    rangeEndIso: dateEndIso(date, timezone),
-    timezone,
-  });
-  if (conflictResult.unavailableReason) {
-    return unavailableAvailabilityResponse(event);
+  let availableSlots: TimeSlot[];
+  try {
+    const conflictResult = await getConflictItems({
+      ownerEmail: context.ownerEmail,
+      hostEmails: context.hostEmails,
+      conflictSlugs: context.conflictSlugs,
+      viewerEmail: viewer?.email,
+      viewerOrgId: viewer?.orgId,
+      // `date` itself not existing is a genuine "no availability" case,
+      // caught below. The exclusive day-after boundary used for
+      // `rangeEndIso` can be skipped even when `date` is perfectly valid,
+      // so widen that side instead of discarding the requested date.
+      rangeStartIso: dateStartIso(date, timezone),
+      rangeEndIso: safeRangeEndIso(date, timezone),
+      timezone,
+    });
+    if (conflictResult.unavailableReason) {
+      return unavailableAvailabilityResponse(event);
+    }
+    availableSlots = generateAvailableSlotsForDate({
+      date,
+      duration,
+      config: context.effectiveConfig,
+      conflictItems: conflictResult.items,
+      hostSchedules: context.eligibleHosts,
+    });
+  } catch (error) {
+    if (!(error instanceof SkippedLocalDateError)) throw error;
+    return { slots: [] };
   }
-  const availableSlots = generateAvailableSlotsForDate({
-    date,
-    duration,
-    config: context.effectiveConfig,
-    conflictItems: conflictResult.items,
-  });
 
   return { slots: availableSlots };
 }
@@ -1419,62 +1833,65 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
   }
 });
 
+export async function cancelBookingById(
+  id: string,
+  origin = getAppProductionUrl(),
+) {
+  if (!id)
+    throw createError({ statusCode: 400, statusMessage: "id is required" });
+
+  const db = getDb();
+  const existing = await db
+    .select()
+    .from(schema.bookings)
+    .where(eq(schema.bookings.id, id))
+    .then((rows) => rows[0]);
+
+  if (!existing) {
+    throw createError({ statusCode: 404, statusMessage: "Booking not found" });
+  }
+
+  // Bookings have no ownerEmail of their own — scope through the booking link.
+  const accessibleLinks = await db
+    .select({ slug: schema.bookingLinks.slug })
+    .from(schema.bookingLinks)
+    .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
+  const accessibleSlugs = new Set(accessibleLinks.map((link) => link.slug));
+  if (!accessibleSlugs.has(existing.slug)) {
+    throw createError({ statusCode: 403, statusMessage: "Access denied" });
+  }
+
+  if (existing.status === "cancelled") {
+    return { success: true, alreadyCancelled: true };
+  }
+
+  const hostEmail = await getBookingLinkOwnerEmail(existing.slug);
+  const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
+  const bookAgainUrl = existing.slug
+    ? `${origin}/book/${existing.slug}`
+    : undefined;
+  await sendBookingCancellationEmails({
+    booking: rowToBooking(existing),
+    hostEmail,
+    bookAgainUrl,
+    timeZone: bookingTimeZone,
+  });
+  await deleteGoogleEventForBooking({ booking: existing, hostEmail });
+  await db
+    .update(schema.bookings)
+    .set({ status: "cancelled" })
+    .where(eq(schema.bookings.id, id));
+  recordBookingsChanged(hostEmail);
+  return { success: true };
+}
+
 export const deleteBooking = defineEventHandler(async (event: H3Event) => {
   return requireRequestContext(event, async () => {
     try {
-      const id = getRouterParam(event, "id") as string;
-      const db = getDb();
-
-      const existing = await db
-        .select()
-        .from(schema.bookings)
-        .where(eq(schema.bookings.id, id))
-        .then((rows) => rows[0]);
-
-      if (!existing) {
-        setResponseStatus(event, 404);
-        return { error: "Booking not found" };
-      }
-
-      // Verify the caller has access to the booking link that owns this booking.
-      // Bookings have no ownerEmail of their own — scoping is via the slug →
-      // bookingLink ownership/sharing chain.
-      const accessibleLinks = await db
-        .select({ slug: schema.bookingLinks.slug })
-        .from(schema.bookingLinks)
-        .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
-      const accessibleSlugs = new Set(accessibleLinks.map((l) => l.slug));
-
-      if (!accessibleSlugs.has(existing.slug)) {
-        setResponseStatus(event, 403);
-        return { error: "Access denied" };
-      }
-
-      if (existing.status === "cancelled") {
-        return { success: true, alreadyCancelled: true };
-      }
-
-      const hostEmail = await getBookingLinkOwnerEmail(existing.slug);
-      const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
-      const reqUrl = getRequestURL(event);
-      const bookAgainUrl = existing.slug
-        ? `${reqUrl.origin}/book/${existing.slug}`
-        : undefined;
-
-      await sendBookingCancellationEmails({
-        booking: rowToBooking(existing),
-        hostEmail,
-        bookAgainUrl,
-        timeZone: bookingTimeZone,
-      });
-      await deleteGoogleEventForBooking({ booking: existing, hostEmail });
-
-      await db
-        .update(schema.bookings)
-        .set({ status: "cancelled" })
-        .where(eq(schema.bookings.id, id));
-      recordBookingsChanged(hostEmail);
-      return { success: true };
+      return await cancelBookingById(
+        getRouterParam(event, "id") as string,
+        getRequestURL(event).origin,
+      );
     } catch (error: any) {
       setResponseStatus(event, error?.statusCode ?? 500);
       return { error: error.message };
@@ -1581,10 +1998,14 @@ function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
       fieldResponses = JSON.parse(row.fieldResponses);
     } catch {}
   }
+  const additionalGuestEmails = parseAdditionalGuestEmails(
+    row.additionalGuestEmails,
+  );
   return {
     id: row.id,
     name: row.name,
     email: row.email,
+    additionalGuestEmails,
     start: row.start,
     end: row.end,
     slug: row.slug,
@@ -1596,4 +2017,21 @@ function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
     status: row.status,
     createdAt: row.createdAt,
   };
+}
+
+function parseAdditionalGuestEmails(
+  value: string | null | undefined,
+): string[] | undefined {
+  if (!value) return undefined;
+  const parsed: unknown = JSON.parse(value);
+  if (!Array.isArray(parsed)) {
+    throw new Error("Invalid stored additional guest emails");
+  }
+  const emails = parsed.filter(
+    (email): email is string => typeof email === "string",
+  );
+  if (emails.length !== parsed.length) {
+    throw new Error("Invalid stored additional guest emails");
+  }
+  return emails;
 }

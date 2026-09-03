@@ -3,6 +3,56 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-01
+
+### Improved
+
+- Calendar keeps the learn-more link clear of the language control on every screen size.
+- Signed-in coworkers now see their own calendar conflicts and booking details are prefilled.
+
+## 2026-08-31
+
+### Improved
+
+- Lower-contrast scrollbars keep desktop surfaces calm
+- Per-app auth pages show a product preview and learn-more link
+
+### Fixed
+
+- Booking link availability aligns with its tabs
+- Calendar no longer shows duplicate agent controls on Home and can remove saved Google Meet links
+
+## 2026-08-29
+
+### Improved
+
+- Calendar now has a public marketing page with a direct path into the app.
+
+## 2026-08-28
+
+### Improved
+
+- Event popovers match Notion Calendar's density: a 284px blurred panel with one 13px type scale, 30px rows, and compact attendee rows
+- Sidebar branding matches the app text color with a tighter mark size.
+- Event creators can choose whether a meeting shows as Free or Busy.
+- Sidebar branding uses a monochrome Agent-Native mark.
+
+### Fixed
+
+- Calendar organizer-note emails now link back to Agent-Native Calendar on the event's local day
+- Calendar shows Google profile photos in the desktop app
+- Fixed Calendar navigation, scheduling permissions, action feedback, and event-note links.
+- Google Calendar connections use the registered callback on mounted apps
+- The Calendar sidebar keeps the settings link compact
+- All-day events stay in the compact top bar in day and week views.
+- The Calendar sidebar keeps the workspace picker compact
+
+## 2026-08-27
+
+### Fixed
+
+- Public booking pages now pause availability when Google Calendar is disconnected or cannot be checked.
+
 ## 2026-08-24
 
 ### Improved
@@ -161,6 +211,12 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 - Secondary controls and dashboard surfaces now use quieter borderless styling.
 - Sidebar utility controls now follow a consistent footer order.
 
+## 2026-07-23
+
+### Improved
+
+- Booking links now derive an overlay-listed host's time zone from their general calendar settings when they haven't set explicit working hours
+
 ## 2026-07-22
 
 ### Improved
@@ -170,6 +226,12 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 ### Fixed
 
 - Calendar views now render, navigate, and create events in the timezone selected in Calendar settings.
+
+## 2026-07-21
+
+### Added
+
+- Group booking links can now enforce a peer's real working hours and time zone when they're in your calendar overlay, with an optional multi-time-zone grid on the public booking page.
 
 ## 2026-07-20
 

@@ -55,7 +55,7 @@ export function runSeedCollabContent({
   if (!ydoc || !isSynced || !activeFileId) return;
   const fileId = activeFileId;
   const ytext = ydoc.getText("content");
-  const text = ytext.toString();
+  const text = ytext.toJSON();
   const pendingLocalContent =
     pendingLocalFileContentsRef.current.get(fileId)?.content;
   if (pendingLocalContent && text !== pendingLocalContent) {

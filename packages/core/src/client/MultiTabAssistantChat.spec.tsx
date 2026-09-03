@@ -5,8 +5,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  AGENT_CHAT_CONTEXT_CHANGED_EVENT,
   cancelAgentChatSubmit,
   listAgentChatContext,
+  removeAgentChatContextItem,
   requestAgentChatThreadOpen,
   requestAgentTaskOpen,
   setAgentChatContextItem,
@@ -28,6 +30,7 @@ afterEach(() => {
 
 const chatHandleMocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
+  implementPlan: vi.fn(() => false),
   prefillMessage: vi.fn(),
   setComposerContextItem: vi.fn(),
   removeComposerContextItem: vi.fn(),
@@ -40,6 +43,7 @@ const chatHandleMocks = vi.hoisted(() => ({
 
 const assistantChatMockState = vi.hoisted(() => ({
   onThreadRestoreNotFound: undefined as (() => void) | undefined,
+  onSlashCommand: undefined as ((command: string) => void) | undefined,
 }));
 
 const threadMocks = vi.hoisted(() => ({
@@ -207,6 +211,10 @@ async function mountWithCatalog(
       el
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-selected-engine") ?? null,
+    modelOf: () =>
+      el
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-selected-model") ?? null,
     catalogOf: () =>
       el
         .querySelector("[data-testid='assistant-chat']")
@@ -238,11 +246,14 @@ vi.mock("./AssistantChat.js", async () => {
         contextScope?: ChatThreadScope | null;
         contextNamespace?: string;
         onThreadRestoreNotFound?: () => void;
+        onSlashCommand?: (command: string) => void;
       };
       assistantChatMockState.onThreadRestoreNotFound =
         props.onThreadRestoreNotFound;
+      assistantChatMockState.onSlashCommand = props.onSlashCommand;
       React.useImperativeHandle(ref, () => ({
         sendMessage: chatHandleMocks.sendMessage,
+        implementPlan: chatHandleMocks.implementPlan,
         prefillMessage: chatHandleMocks.prefillMessage,
         setComposerContextItem: chatHandleMocks.setComposerContextItem,
         removeComposerContextItem: chatHandleMocks.removeComposerContextItem,
@@ -280,6 +291,7 @@ vi.mock("./AssistantChat.js", async () => {
 
 function resetThreadMocks() {
   assistantChatMockState.onThreadRestoreNotFound = undefined;
+  assistantChatMockState.onSlashCommand = undefined;
   threadMocks.activeThreadId = "thread-1";
   threadMocks.threads = [
     {
@@ -593,6 +605,29 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     await view.cleanup();
   });
 
+  it("heals a persisted selection when its provider is hidden as unconfigured", async () => {
+    window.localStorage.setItem(
+      "agent-native:chat-models:selection:catalog-test",
+      JSON.stringify({ model: "z-ai/glm-5.2", engine: "ai-sdk:openrouter" }),
+    );
+    const view = await mountWithCatalog(
+      [
+        ...ANTHROPIC_ENGINES,
+        {
+          name: "ai-sdk:openrouter",
+          label: "OpenRouter",
+          supportedModels: ["z-ai/glm-5.2"],
+          requiredEnvVars: ["OPENROUTER_API_KEY"],
+        },
+      ],
+      ["ANTHROPIC_API_KEY"],
+    );
+
+    expect(view.engineOf()).toBe("anthropic");
+    expect(view.modelOf()).toBe("claude-sonnet-5");
+    await view.cleanup();
+  });
+
   it("applies a submitted model override sent without an engine", () => {
     act(() => {
       dispatchSubmitChat({
@@ -683,6 +718,17 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       undefined,
       { requestMode: "plan" },
     );
+  });
+
+  it("implements the latest plan when /act is selected", () => {
+    chatHandleMocks.implementPlan.mockImplementationOnce(() => true);
+
+    act(() => {
+      assistantChatMockState.onSlashCommand?.("act");
+    });
+
+    expect(chatHandleMocks.implementPlan).toHaveBeenCalledOnce();
+    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
   });
 
   it("reuses a known-new empty active chat for opted-in foreground sends", () => {
@@ -1163,6 +1209,83 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         ),
       }),
     ]);
+  });
+
+  it("updates resource context in place when only its label changes", async () => {
+    const contextTransitions: string[][] = [];
+    const onContextChanged = (event: Event) => {
+      const items = (event as CustomEvent<{ items: Array<{ key: string }> }>)
+        .detail.items;
+      contextTransitions.push(items.map((item) => item.key));
+    };
+    window.addEventListener(AGENT_CHAT_CONTEXT_CHANGED_EVENT, onContextChanged);
+
+    try {
+      await act(async () => {
+        root.render(
+          <MultiTabAssistantChat
+            storageKey="bridge-test"
+            scope={{ type: "deck", id: "deck-1", label: "This Slide" }}
+          />,
+        );
+        await Promise.resolve();
+      });
+      contextTransitions.length = 0;
+
+      await act(async () => {
+        root.render(
+          <MultiTabAssistantChat
+            storageKey="bridge-test"
+            scope={{
+              type: "deck",
+              id: "deck-1",
+              label: "Current Selection",
+            }}
+          />,
+        );
+        await Promise.resolve();
+      });
+
+      expect(listAgentChatContext()).toEqual([
+        expect.objectContaining({ title: "Current Selection" }),
+      ]);
+      expect(contextTransitions).not.toContainEqual([]);
+    } finally {
+      window.removeEventListener(
+        AGENT_CHAT_CONTEXT_CHANGED_EVENT,
+        onContextChanged,
+      );
+    }
+  });
+
+  it("does not restore a resource context after it is dismissed", async () => {
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{ type: "deck", id: "deck-1", label: "This Slide" }}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    removeAgentChatContextItem("agent-current-resource-context");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{
+            type: "deck",
+            id: "deck-1",
+            label: "Current Selection",
+          }}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(listAgentChatContext()).toEqual([]);
   });
 
   it("passes an app context namespace to the active composer", async () => {

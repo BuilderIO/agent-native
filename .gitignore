@@ -75,6 +75,7 @@ templates/slides/data/exports/
 
 # Playwright/vitest test run state
 test-results/
+playwright-report/
 e2e/.auth/
 **/.auth/
 **/.auth-debug/
@@ -103,6 +104,7 @@ advisor-plans/
 
 # Local scratch files from ad hoc repo/video tooling
 **/scratch/
+.tmp/
 .video-bakeoff/
 
 # Regenerable plan artifacts. Keep plans/*/.plan-state.json tracked: it carries

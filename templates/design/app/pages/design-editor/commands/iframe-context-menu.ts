@@ -57,13 +57,18 @@ export function runIframeContextMenu(
   if (!container || !menu) return;
   const contextScreenId =
     payload.screenId ?? activeFile?.id ?? activeFileId ?? null;
+  const layerCandidates = (payload.layerCandidates ?? []).map((candidate) => ({
+    ...candidate,
+    breakpointWidthPx: payload.breakpointWidthPx,
+  }));
   flushSync(() => {
-    setCanvasLayerHitCandidates(payload.layerCandidates ?? []);
+    setCanvasLayerHitCandidates(layerCandidates);
   });
   if (payload.info && contextScreenId) {
     flushSync(() => {
       handleScreenElementSelect(contextScreenId, payload.info!, undefined, {
         persistPendingNodeId: false,
+        breakpointWidthPx: payload.breakpointWidthPx,
       });
     });
     focusDesignInspectorForSelection();

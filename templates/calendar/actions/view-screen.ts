@@ -1,21 +1,25 @@
 import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { accessFilter } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { rowToBookingLink } from "../server/lib/booking-link-utils.js";
-import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
+import { readCalendarSettings } from "../server/lib/calendar-settings.js";
+import { listGoogleCalendars } from "../server/lib/google-calendar.js";
 import type { CalendarEvent, CalendarEventDraft } from "../shared/api.js";
 import {
   CALENDAR_VIEW_PREFERENCES_KEY,
   normalizeCalendarViewPreferences,
 } from "../shared/calendar-view-preferences.js";
+import { getWeekStartsOn } from "../shared/calendar-week.js";
+import { SHARED_GOOGLE_CALENDARS } from "../shared/feature-flags.js";
 import {
-  addDaysToDateKey,
+  getCalendarViewDateRange,
   dateKeyInTimezone,
-  dateTimeInTimezoneToIso,
+  type CalendarViewMode,
 } from "../shared/timezone.js";
 import { extractVideoLink } from "./event-action-helpers.js";
 import { listCalendarEvents } from "./list-events.js";
@@ -24,9 +28,15 @@ function safeDraftId(id: unknown): string | null {
   return typeof id === "string" && /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
 }
 
+function isCalendarViewMode(value: unknown): value is CalendarViewMode {
+  return value === "month" || value === "week" || value === "day";
+}
+
 async function fetchEventsForRange(
   from: string,
   to: string,
+  timezone: string,
+  calendarSourceKeys?: string[],
 ): Promise<{
   events: CalendarEvent[];
   errors: Array<{ email: string; error: string }>;
@@ -34,7 +44,10 @@ async function fetchEventsForRange(
   range: { from: string; to: string; timezone: string; defaulted: boolean };
 }> {
   try {
-    return await listCalendarEvents({ from, to });
+    return await listCalendarEvents(
+      { from, to, calendarSourceKeys },
+      { timezone },
+    );
   } catch (error: any) {
     return {
       events: [],
@@ -48,7 +61,7 @@ async function fetchEventsForRange(
       range: {
         from,
         to,
-        timezone: "UTC",
+        timezone,
         defaulted: false,
       },
     };
@@ -60,7 +73,7 @@ export default defineAction({
     "See what the user is currently looking at on screen. Returns the current view, date range, and visible events. Always call this first before taking any action.",
   schema: z.object({}),
   http: false,
-  run: async () => {
+  run: async (_args, ctx) => {
     const navigation = await readAppState("navigation");
     const visualPreferences = normalizeCalendarViewPreferences(
       (await readAppState(CALENDAR_VIEW_PREFERENCES_KEY)) as any,
@@ -75,20 +88,65 @@ export default defineAction({
     if (nav?.view === "calendar" || !nav?.view) {
       const email = getRequestUserEmail();
       if (!email) throw new Error("no authenticated user");
-      const timezone = await getCalendarTimezone(email);
-      // Work in calendar days, then resolve the two edges to instants once.
-      const viewDay = nav?.date ?? dateKeyInTimezone(new Date(), timezone);
-      // Noon UTC so the weekday can never be shifted by an offset.
-      const weekday = new Date(`${viewDay}T12:00:00Z`).getUTCDay();
-      const weekStart = addDaysToDateKey(viewDay, -weekday);
+      const settings = await readCalendarSettings(email);
+      const timezone = settings.timezone;
+      const viewMode = isCalendarViewMode(nav?.calendarViewMode)
+        ? nav.calendarViewMode
+        : "week";
+      const viewDay =
+        typeof nav?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(nav.date)
+          ? nav.date
+          : dateKeyInTimezone(new Date(), timezone);
+      const range = getCalendarViewDateRange(
+        viewMode,
+        viewDay,
+        timezone,
+        getWeekStartsOn(settings.weekStart),
+      );
+
+      const sharedCalendarsEnabled = await isFeatureFlagEnabled(
+        SHARED_GOOGLE_CALENDARS,
+        ctx,
+      );
+      const calendarSourceResult = sharedCalendarsEnabled
+        ? await listGoogleCalendars(email)
+        : { calendars: [], errors: [] };
+      const calendarSources = calendarSourceResult.calendars;
+      const visibleCalendarSources = calendarSources.filter(
+        (source) =>
+          source.accessRole !== "freeBusyReader" &&
+          (source.primary ||
+            (visualPreferences.googleCalendarVisibility[source.sourceKey] ??
+              source.selected)),
+      );
+
+      if (sharedCalendarsEnabled) {
+        screen.googleCalendars = calendarSources.map((source) => ({
+          sourceKey: source.sourceKey,
+          accountEmail: source.accountEmail,
+          calendarId: source.calendarId,
+          name: source.name,
+          color: source.color,
+          visible:
+            source.primary ||
+            (visualPreferences.googleCalendarVisibility[source.sourceKey] ??
+              source.selected),
+          primary: source.primary,
+          accessRole: source.accessRole,
+          readOnly: source.readOnly || !source.primary,
+        }));
+        if (calendarSourceResult.errors.length > 0) {
+          screen.googleCalendarErrors = calendarSourceResult.errors;
+        }
+      }
 
       const eventResult = await fetchEventsForRange(
-        dateTimeInTimezoneToIso(weekStart, "00:00", timezone),
-        dateTimeInTimezoneToIso(
-          addDaysToDateKey(weekStart, 7),
-          "00:00",
-          timezone,
-        ),
+        range.from,
+        range.to,
+        timezone,
+        sharedCalendarsEnabled
+          ? visibleCalendarSources.map((source) => source.sourceKey)
+          : undefined,
       );
       const { events } = eventResult;
 
@@ -100,8 +158,16 @@ export default defineAction({
           end: e.end,
           source: e.source,
           accountEmail: e.accountEmail || undefined,
+          calendarSourceKey: e.calendarSourceKey || undefined,
+          calendarId: e.calendarId || undefined,
+          calendarName: e.calendarName || undefined,
+          calendarAccessRole: e.calendarAccessRole || undefined,
+          calendarPrimary: e.calendarPrimary,
+          calendarReadOnly: e.calendarReadOnly,
           location: e.location || undefined,
           allDay: e.allDay || undefined,
+          recurrence: e.recurrence || undefined,
+          recurringEventId: e.recurringEventId || undefined,
           attendeeCount: e.attendees?.length ?? 0,
           attendeeNames: e.attendees
             ?.filter((a: any) => !a.self)

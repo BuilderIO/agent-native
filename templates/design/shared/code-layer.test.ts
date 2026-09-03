@@ -439,7 +439,7 @@ describe("code-layer projection", () => {
     expect(tree).toEqual([]);
   });
 
-  it("keeps explicitly named document shell rows in the layer tree", () => {
+  it("omits a named document shell too, since a screen IS its body", () => {
     const html = `
       <!doctype html>
       <html data-agent-native-layer-name="Document">
@@ -453,18 +453,13 @@ describe("code-layer projection", () => {
 
     const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
 
+    // The screen frame carries the document's fill, stroke and effects now, so
+    // a shell row would only repeat the screen under a second name.
     expect(tree.map((node) => ({ tag: node.tag, name: node.name }))).toEqual([
-      { tag: "html", name: "Document" },
+      { tag: "main", name: "Home" },
     ]);
-    expect(
-      tree[0]?.children.map((node) => ({ tag: node.tag, name: node.name })),
-    ).toEqual([{ tag: "body", name: "Body" }]);
-    expect(
-      tree[0]?.children[0]?.children.map((node) => ({
-        tag: node.tag,
-        name: node.name,
-      })),
-    ).toEqual([{ tag: "main", name: "Home" }]);
+    expect(JSON.stringify(tree)).not.toContain('"tag":"html"');
+    expect(JSON.stringify(tree)).not.toContain('"tag":"body"');
   });
 });
 
@@ -621,6 +616,112 @@ describe("applyVisualEdit", () => {
       `<button id="cta" class="px-4 bg-black">Buy</button>`,
     );
     expect(patch.result.after?.classes).toEqual(["px-4", "bg-black"]);
+  });
+
+  it("rejects executable attribute URLs and style payloads", () => {
+    const html = `<a id="link">Open</a>`;
+    for (const value of ["javascript:alert(1)", "java&#x73;cript:alert(1)"]) {
+      const patch = applyVisualEdit(html, {
+        kind: "attribute",
+        target: { selector: "#link" },
+        name: "href",
+        value,
+      });
+      expect(patch.result.status).toBe("unsupported");
+      expect(patch.content).toBe(html);
+    }
+
+    const stylePatch = applyVisualEdit(html, {
+      kind: "attribute",
+      target: { selector: "#link" },
+      name: "style",
+      value: "background: url(javascript:alert(1))",
+    });
+    expect(stylePatch.result.status).toBe("unsupported");
+    expect(stylePatch.content).toBe(html);
+  });
+
+  it("allows safe attribute values", () => {
+    const patch = applyVisualEdit(`<a id="link">Open</a>`, {
+      kind: "attribute",
+      target: { selector: "#link" },
+      name: "href",
+      value: "https://example.com",
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('href="https://example.com"');
+  });
+
+  it("rejects vbscript: attribute URLs", () => {
+    const html = `<a id="link">Open</a>`;
+    const patch = applyVisualEdit(html, {
+      kind: "attribute",
+      target: { selector: "#link" },
+      name: "href",
+      value: "vbscript:msgbox(1)",
+    });
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
+  });
+
+  it("rejects non-image data: attribute URLs", () => {
+    const html = `<a id="link">Open</a>`;
+    for (const value of [
+      "data:text/html,<script>alert(1)</script>",
+      "data:image/svg+xml,<svg onload=alert(1)>",
+    ]) {
+      const patch = applyVisualEdit(html, {
+        kind: "attribute",
+        target: { selector: "#link" },
+        name: "href",
+        value,
+      });
+      expect(patch.result.status).toBe("unsupported");
+      expect(patch.content).toBe(html);
+    }
+  });
+
+  it("allows safe data:image attribute URLs", () => {
+    const patch = applyVisualEdit(`<img id="pic" />`, {
+      kind: "attribute",
+      target: { selector: "#pic" },
+      name: "src",
+      value: "data:image/png;base64,iVBORw0KGgo=",
+    });
+    expect(patch.result.status).toBe("applied");
+  });
+
+  it("rejects control-character and whitespace evasions of javascript:", () => {
+    const html = `<a id="link">Open</a>`;
+    for (const value of [
+      "java\tscript:alert(1)",
+      "java\nscript:alert(1)",
+      " javascript:alert(1)",
+      " javascript:alert(1)",
+    ]) {
+      const patch = applyVisualEdit(html, {
+        kind: "attribute",
+        target: { selector: "#link" },
+        name: "href",
+        value,
+      });
+      expect(patch.result.status, `value ${JSON.stringify(value)}`).toBe(
+        "unsupported",
+      );
+      expect(patch.content).toBe(html);
+    }
+  });
+
+  it("rejects on* event-handler attribute names outright, regardless of value", () => {
+    const html = `<button id="btn">Click</button>`;
+    const patch = applyVisualEdit(html, {
+      kind: "attribute",
+      target: { selector: "#btn" },
+      name: "onclick",
+      value: "alert(1)",
+    });
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
   });
 
   it("applies textContent edits only to leaf elements", () => {
@@ -1432,6 +1533,47 @@ describe("autoLayout", () => {
     expect(patch.content).toContain("gap: 16px");
   });
 
+  it("writes grid tracks from containerStyles and reflows the children", () => {
+    const html =
+      `<div data-agent-native-node-id="box">` +
+      `<div data-agent-native-node-id="a" style="position: absolute; left: 40px; top: 12px">A</div>` +
+      `<div data-agent-native-node-id="b" class="absolute" style="left: 90px">B</div>` +
+      `</div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: true,
+      containerStyles: {
+        display: "grid",
+        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+        gridTemplateRows: "repeat(1, max-content)",
+      },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("display: grid");
+    expect(patch.content).toContain(
+      "grid-template-columns: repeat(2, minmax(0, 1fr))",
+    );
+    expect(patch.content).not.toContain("display: flex");
+    expect(patch.content).not.toMatch(/position:\s*absolute/);
+    expect(patch.content).not.toMatch(/left:\s*40px/);
+    expect(patch.content).not.toMatch(/class="absolute"/);
+  });
+
+  it("rejects containerStyles that carry no writable declaration", () => {
+    const html = `<div data-agent-native-node-id="box"><span>A</span></div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: true,
+      containerStyles: { display: "grid; content: url(javascript:0)" },
+    });
+
+    expect(patch.result.status).toBe("needsAgent");
+    expect(patch.content).toBe(html);
+  });
+
   it("uses column and 8px defaults when direction and gap are omitted", () => {
     const html = `<div data-agent-native-node-id="box"><span>A</span></div>`;
     const patch = applyVisualEdit(html, {
@@ -1552,8 +1694,8 @@ describe("autoLayout", () => {
       enabled: false,
     });
 
-    expect(patch.result.status).toBe("applied");
-    expect(patch.content).toContain("display: block");
+    expect(patch.result.status).toBe("needsAgent");
+    expect(patch.content).toBe(html);
     expect(patch.content).not.toContain("position: absolute");
   });
 
@@ -1584,8 +1726,8 @@ describe("autoLayout", () => {
       enabled: false,
     });
 
-    expect(patch.result.status).toBe("applied");
-    expect(patch.content).toContain("display: block");
+    expect(patch.result.status).toBe("needsAgent");
+    expect(patch.content).toBe(html);
   });
 
   it("returns conflict when targetId is not found", () => {

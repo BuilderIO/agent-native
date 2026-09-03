@@ -1,4 +1,4 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction, embedApp, fail } from "@agent-native/core";
 import { buildDeepLink, getAppProductionUrl } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
@@ -11,9 +11,15 @@ import { getDb, schema } from "../server/db/index.js";
 import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
 import {
   assertValidFields,
+  FIELD_TYPES,
   normalizeFieldIds,
 } from "../server/lib/validate-fields.js";
-import type { FormField, FormSettings } from "../shared/types.js";
+import {
+  assertValidFormCompletionSettings,
+  FORM_SETTINGS_KEYS,
+  type FormField,
+  type FormSettings,
+} from "../shared/types.js";
 import { assertPublishableForm } from "./lib/assert-publishable-form.js";
 
 const nanoid = customAlphabet(
@@ -39,7 +45,7 @@ function formDeepLink(formId: string): string {
 
 export default defineAction({
   description:
-    "Create a draft or published form. Set settings.anonymous=true to suppress submitter IP, identity, and source metadata, or settings.emailOnNewResponses=true to email the form owner when responses arrive. Published results include a canonical publicUrl; copy it verbatim (it includes /f/<slug>) instead of deriving a URL from slug. Drafts return an editor URL.",
+    "Create a draft or published form. Set settings.completionMode to message, redirect, message_then_refresh, or refresh; use settings.completionRefreshSeconds for the message_then_refresh delay. Set settings.anonymous=true to suppress submitter IP, identity, and source metadata, or settings.emailOnNewResponses=true to email the form owner when responses arrive. Published results include a canonical publicUrl; copy it verbatim (it includes /f/<slug>) instead of deriving a URL from slug. Drafts return an editor URL.",
   schema: z.object({
     title: z.string().optional().describe("Form title"),
     description: z.string().optional().describe("Form description"),
@@ -50,13 +56,13 @@ export default defineAction({
       .union([z.string(), z.array(z.any())])
       .optional()
       .describe(
-        "Array of complete field objects with id, type, label, and required (or JSON string of the same); never use shorthand strings such as 'text: Enter a name'.",
+        `Array of complete field objects with id, type, label, and required (or JSON string of the same). Field types: ${FIELD_TYPES.join(", ")}. Never use shorthand strings such as 'text: Enter a name'.`,
       ),
     settings: z
       .union([z.string(), z.record(z.string(), z.any())])
       .optional()
       .describe(
-        "Form settings object (or JSON string). Set anonymous=true for strict no-IP, no-identity, no-source-metadata responses.",
+        `Form settings object (or JSON string). Valid settings: ${FORM_SETTINGS_KEYS.join(", ")}. Set completionMode to message, redirect, message_then_refresh, or refresh. Use completionRefreshSeconds with message_then_refresh. Set anonymous=true for strict no-IP, no-identity, no-source-metadata responses.`,
       ),
     slug: z.string().optional().describe("Custom URL slug"),
     status: z
@@ -87,7 +93,7 @@ export default defineAction({
         try {
           fields = JSON.parse(args.fields);
         } catch {
-          throw new Error("--fields must be valid JSON");
+          fail("--fields must be valid JSON", { errorCode: "invalid_fields" });
         }
       } else {
         fields = args.fields as unknown as FormField[];
@@ -103,27 +109,32 @@ export default defineAction({
       emailOnNewResponses: false,
     };
 
-    let settings = defaultSettings;
+    let incomingSettings: FormSettings = {};
     if (args.settings) {
       if (typeof args.settings === "string") {
         try {
-          settings = { ...defaultSettings, ...JSON.parse(args.settings) };
+          incomingSettings = JSON.parse(args.settings) as FormSettings;
         } catch {
-          throw new Error("--settings must be valid JSON");
+          fail("--settings must be valid JSON", {
+            errorCode: "invalid_settings",
+          });
         }
       } else {
-        settings = {
-          ...defaultSettings,
-          ...(args.settings as unknown as FormSettings),
-        };
+        incomingSettings = args.settings as unknown as FormSettings;
       }
     }
+    assertValidFormCompletionSettings(incomingSettings);
+    const settings = { ...defaultSettings, ...incomingSettings };
     // Reject blocked integration URLs at save time. fireIntegrations also
     // re-checks at runtime as defense-in-depth.
     assertIntegrationUrlsAllowed(settings);
 
     const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) throw new Error("no authenticated user");
+    if (!ownerEmail)
+      fail("no authenticated user", {
+        errorCode: "not_authenticated",
+        statusCode: 401,
+      });
     const orgId = getRequestOrgId();
     const status = args.status || "draft";
     if (status === "published") {

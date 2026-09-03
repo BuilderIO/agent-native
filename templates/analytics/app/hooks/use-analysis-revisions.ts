@@ -36,10 +36,10 @@ export function useRestoreAnalysisRevision(analysisId: string) {
     { analysisId: string; revisionId: string }
   >("restore-analysis-revision", {
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-analysis-revisions", { analysisId }],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["analysis-detail", analysisId],
       });
     },

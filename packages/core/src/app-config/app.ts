@@ -1,5 +1,20 @@
 import { z } from "zod";
 
+const AUTH_ENTRY_PATHS = new Set([
+  "/sign-in",
+  "/_agent-native/sign-in",
+  "/login",
+  "/signup",
+]);
+
+function isAuthEntryPath(value: string): boolean {
+  const normalized = value.replace(/\/+$/, "") || "/";
+  for (const path of AUTH_ENTRY_PATHS) {
+    if (normalized === path || normalized.endsWith(path)) return true;
+  }
+  return false;
+}
+
 /**
  * App identity.
  *
@@ -52,13 +67,38 @@ export const appConfig = z.object({
       env: ["APP_NAME"],
       doc: "User-facing display name of this app.",
     }),
+  homePath: z
+    .string()
+    .trim()
+    .min(1)
+    .refine((value) => {
+      if (
+        !value.startsWith("/") ||
+        value.startsWith("//") ||
+        /[\u0000-\u001f\u007f\\<>"'?#]/.test(value)
+      ) {
+        return false;
+      }
+      const base = "https://agent-native.invalid";
+      if (!URL.canParse(value, base)) return false;
+      const parsed = new URL(value, base);
+      return (
+        parsed.origin === base &&
+        parsed.pathname === value &&
+        !isAuthEntryPath(value)
+      );
+    }, "must be an origin-relative non-auth path without a query or fragment")
+    .optional()
+    .meta({
+      doc: "Private app route used after authentication. Apps default to /home; set this to / to keep the app at the root.",
+    }),
   logoUrl: z
     .string()
     .min(1)
     .optional()
     .meta({
       env: ["APP_LOGO_URL"],
-      doc: "Absolute HTTPS logo URL used in transactional emails.",
+      doc: "Absolute HTTPS logo URL used in transactional emails and social OG images.",
     }),
   pingMessage: z
     .string()
