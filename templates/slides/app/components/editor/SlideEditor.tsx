@@ -4132,7 +4132,6 @@ export default function SlideEditor({
         overlappingNativeClipboardIdsRef.current.get(nativeClipboardId) ===
           clipboard.clipboardId
       ) {
-        overlappingNativeClipboardIdsRef.current.delete(nativeClipboardId);
         pasteLocalClipboard();
         return;
       }
@@ -4142,6 +4141,8 @@ export default function SlideEditor({
           Boolean(e.clipboardData?.getData(type)?.length),
       );
       if (hasNativeText) return;
+      // Markerless text-only writes cannot prove ownership. Readable native
+      // text stays authoritative above; only empty events use the local copy.
       // Pending or failed native writes have no trustworthy provenance, so
       // keep Cmd/Ctrl+V usable through the local copy when the event is empty.
       if (
