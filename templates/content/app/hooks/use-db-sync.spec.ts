@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  contentDocumentIdFromPathname,
   contentActionRefreshPrefixes,
   refreshContentActionQueries,
 } from "./content-action-refresh";
@@ -34,6 +35,7 @@ describe("contentActionRefreshPrefixes", () => {
     "restore-document-version",
     "set-document-property",
     "set-image-alt-text",
+    "sync-local-folder-source",
     "transcribe-media",
     "update-document",
   ])("refreshes the open document after external %s", (key) => {
@@ -83,16 +85,72 @@ describe("contentActionRefreshPrefixes", () => {
       },
       { source: "action", key: "update-comment", requestSource: "agent" },
       "browser-tab",
+      "document-1",
     );
 
-    expect(calls).toEqual([
+    expect(calls).toHaveLength(1);
+    const [{ filters, options }] = calls as Array<{
+      filters: {
+        queryKey: string[];
+        type: "active";
+        predicate: (query: { queryKey: readonly unknown[] }) => boolean;
+      };
+      options: { cancelRefetch: false };
+    }>;
+    expect(filters.queryKey).toEqual(["action", "list-comments"]);
+    expect(filters.type).toBe("active");
+    expect(options).toEqual({ cancelRefetch: false });
+    expect(
+      filters.predicate({
+        queryKey: ["action", "list-comments", { documentId: "document-1" }],
+      }),
+    ).toBe(true);
+    expect(
+      filters.predicate({
+        queryKey: ["action", "list-comments", { documentId: "document-2" }],
+      }),
+    ).toBe(false);
+  });
+
+  it("scopes document refreshes to the document open in this browser", () => {
+    const calls: unknown[] = [];
+    refreshContentActionQueries(
       {
-        filters: {
-          queryKey: ["action", "list-comments"],
-          type: "active",
+        refetchQueries: (filters, options) => {
+          calls.push({ filters, options });
         },
-        options: { cancelRefetch: false },
       },
-    ]);
+      { source: "action", key: "edit-document", requestSource: "agent" },
+      "browser-tab",
+      "document-1",
+    );
+
+    const [{ filters }] = calls as Array<{
+      filters: {
+        predicate: (query: { queryKey: readonly unknown[] }) => boolean;
+      };
+    }>;
+    expect(
+      filters.predicate({
+        queryKey: ["action", "get-document", { id: "document-1" }],
+      }),
+    ).toBe(true);
+    expect(
+      filters.predicate({
+        queryKey: ["action", "get-document", { id: "document-2" }],
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("contentDocumentIdFromPathname", () => {
+  it("reads only Content document routes", () => {
+    expect(contentDocumentIdFromPathname("/page/document-1")).toBe(
+      "document-1",
+    );
+    expect(contentDocumentIdFromPathname("/page/document%202/")).toBe(
+      "document 2",
+    );
+    expect(contentDocumentIdFromPathname("/settings")).toBeUndefined();
   });
 });

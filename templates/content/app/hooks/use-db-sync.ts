@@ -4,7 +4,10 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { refreshContentActionQueries } from "./content-action-refresh";
+import {
+  contentDocumentIdFromPathname,
+  refreshContentActionQueries,
+} from "./content-action-refresh";
 
 export function useDbSync() {
   const queryClient = useQueryClient();
@@ -13,7 +16,14 @@ export function useDbSync() {
   useCoreDbSync({
     queryClient,
     onEvent: (event) => {
-      refreshContentActionQueries(queryClient, event, browserTabId);
+      refreshContentActionQueries(
+        queryClient,
+        event,
+        browserTabId,
+        typeof window === "undefined"
+          ? undefined
+          : contentDocumentIdFromPathname(window.location.pathname),
+      );
     },
     // refresh-notion-sync-status is a POST behind an ["action"]-keyed query
     // (useDocumentSyncStatus). Without suppression its own action-change event

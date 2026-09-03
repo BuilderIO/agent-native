@@ -19,9 +19,36 @@ const DOCUMENT_BODY_MUTATIONS = new Set([
   "restore-document-version",
   "set-document-property",
   "set-image-alt-text",
+  "sync-local-folder-source",
   "transcribe-media",
   "update-document",
 ]);
+
+interface ActionQueryFilter {
+  queryKey: string[];
+  type: "active";
+  predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+}
+
+function queryTargetsDocument(
+  query: { queryKey: readonly unknown[] },
+  documentId: string,
+): boolean {
+  const args = query.queryKey[2];
+  return (
+    !!args &&
+    typeof args === "object" &&
+    (("id" in args && args.id === documentId) ||
+      ("documentId" in args && args.documentId === documentId))
+  );
+}
+
+export function contentDocumentIdFromPathname(
+  pathname: string,
+): string | undefined {
+  const match = /^\/page\/([^/]+)\/?$/.exec(pathname);
+  return match?.[1] ? decodeURIComponent(match[1]) : undefined;
+}
 
 export function contentActionRefreshPrefixes(
   event: {
@@ -50,20 +77,19 @@ export function contentActionRefreshPrefixes(
 export function refreshContentActionQueries(
   queryClient: {
     refetchQueries: (
-      filters: {
-        queryKey: string[];
-        type: "active";
-      },
+      filters: ActionQueryFilter,
       options: { cancelRefetch: false },
     ) => unknown;
   },
   event: { source?: string; key?: string; requestSource?: string },
   browserTabId: string,
+  documentId?: string,
 ): void {
   for (const queryKey of contentActionRefreshPrefixes(event, browserTabId)) {
-    void queryClient.refetchQueries(
-      { queryKey, type: "active" },
-      { cancelRefetch: false },
-    );
+    const filters: ActionQueryFilter = { queryKey, type: "active" };
+    if (documentId) {
+      filters.predicate = (query) => queryTargetsDocument(query, documentId);
+    }
+    void queryClient.refetchQueries(filters, { cancelRefetch: false });
   }
 }
