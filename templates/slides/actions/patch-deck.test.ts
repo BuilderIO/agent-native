@@ -1,3 +1,4 @@
+import { isAgentActionStopError } from "@agent-native/core";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import { buildSourceImportMetadata } from "../server/lib/source-import.js";
@@ -1174,6 +1175,51 @@ describe("run() — asynchronous layout fit metadata", () => {
       }),
     };
   });
+
+  it.each(["tool", "webmcp"] as const)(
+    "rejects an agent add that would exceed the persisted target for %s callers",
+    async (caller) => {
+      const slides = Array.from({ length: 8 }, (_, index) => ({
+        id: `slide-${index + 1}`,
+        content: `<div>${index + 1}</div>`,
+      }));
+      mockDeckRow!.data = JSON.stringify({
+        title: "Deck",
+        generationContext: { targetSlideCount: 8 },
+        slides,
+      });
+
+      const error = await patchDeckAction
+        .run(
+          {
+            deckId: "deck-1",
+            requireAllSourceSlides: false,
+            operations: [
+              {
+                op: "add-slide",
+                slideId: "slide-9",
+                fields: { content: "<div>9</div>" },
+              },
+            ],
+          },
+          { caller },
+        )
+        .catch((caught: unknown) => caught);
+
+      expect(isAgentActionStopError(error)).toBe(true);
+      expect(error).toMatchObject({
+        name: "AgentActionStopError",
+        errorCode: "target_slide_count_reached",
+        details: {
+          deckId: "deck-1",
+          currentSlideCount: 8,
+          projectedSlideCount: 9,
+          targetSlideCount: 8,
+        },
+      });
+      expect(lastUpdatedDeckData).toBeUndefined();
+    },
+  );
 
   it("returns pending hashes for every content-changed slide", async () => {
     const result = (await patchDeckAction.run(

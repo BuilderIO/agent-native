@@ -1199,6 +1199,18 @@ export const migrations = runMigrations(
         )`,
       ].join("; "),
     },
+    {
+      version: 68,
+      name: "recording-thumbnail-status",
+      // Additive. NULL on every existing row — the thumbnail sweeper (and
+      // ensureRecordingThumbnail's own status writes) treat NULL the same as
+      // 'pending' so pre-migration rows are still picked up.
+      sql: [
+        `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS thumbnail_status TEXT`,
+        `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS thumbnail_failure_reason TEXT`,
+        `CREATE INDEX IF NOT EXISTS recordings_thumbnail_status_idx ON recordings (status, thumbnail_status)`,
+      ].join("; "),
+    },
   ],
   { table: "clips_migrations" },
 );

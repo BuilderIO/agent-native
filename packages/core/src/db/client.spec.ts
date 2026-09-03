@@ -605,6 +605,65 @@ describe("getDbExec", () => {
   });
 });
 
+describe("initClient hosted-runtime local database guard", () => {
+  // App-prefixed URLs (e.g. PLAN_DATABASE_URL) are read straight off
+  // process.env, bypassing getAppConfig()'s self-invalidating cache — an
+  // earlier spec in this file that stubs APP_NAME without also clearing it
+  // is enough to leak a real-looking Neon URL in here, so every case below
+  // clears APP_NAME too, not just the generic DATABASE_URL* keys.
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.doUnmock("better-sqlite3");
+    vi.resetModules();
+  });
+
+  it("throws instead of silently serving a hosted function invocation off local SQLite", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "app-server");
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { getDbExec, HostedRuntimeLocalDatabaseError } =
+      await import("./client.js");
+
+    await expect(getDbExec().execute("SELECT 1")).rejects.toThrow(
+      HostedRuntimeLocalDatabaseError,
+    );
+  });
+
+  it("still falls back to local SQLite outside a hosted function invocation", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const pragma = vi.fn().mockReturnValue(undefined);
+    const prepare = vi.fn().mockReturnValue({
+      reader: false,
+      run: () => ({ changes: 0 }),
+    });
+    const close = vi.fn();
+    vi.doMock("better-sqlite3", () => ({
+      default: class MockDatabase {
+        pragma = pragma;
+        prepare = prepare;
+        close = close;
+      },
+    }));
+
+    const { getDbExec } = await import("./client.js");
+    await expect(getDbExec().execute("SELECT 1")).resolves.toEqual({
+      rows: [],
+      rowsAffected: 0,
+    });
+  });
+});
+
 describe("sqliteToPostgresParams", () => {
   it("converts placeholders while preserving question marks inside SQL literals", async () => {
     const { sqliteToPostgresParams } = await import("./client.js");

@@ -22,6 +22,7 @@ import { getDb, schema } from "../../../db/index.js";
 import {
   ensureRecordingThumbnail,
   isRetryableRecordingThumbnailStatus,
+  markThumbnailFailed,
 } from "../../../lib/ensure-recording-thumbnail.js";
 import {
   dispatchPostFinalizeJob,
@@ -174,6 +175,7 @@ export default defineEventHandler(async (event: H3Event) => {
               status: result.status,
               retryAttempt,
             });
+            await markThumbnailFailed(recordingId, result.status);
             return {
               ok: true,
               kind,
@@ -203,6 +205,10 @@ export default defineEventHandler(async (event: H3Event) => {
               retryAttempt,
               error: error instanceof Error ? error.message : String(error),
             },
+          );
+          await markThumbnailFailed(
+            recordingId,
+            error instanceof Error ? error.message : String(error),
           );
           return {
             ok: true,

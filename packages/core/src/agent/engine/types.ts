@@ -40,6 +40,12 @@ export class EngineError extends Error {
   readonly contextOverflow?: boolean;
   /** Sizes and counts of the failed request; see {@link EngineRequestShape}. */
   readonly requestShape?: EngineRequestShape;
+  /**
+   * Provider-requested backoff (ms) from a `Retry-After` header, when the
+   * engine's classifier found one. Optional so engines that never populate it
+   * keep compiling unchanged.
+   */
+  readonly retryAfterMs?: number;
   constructor(
     message: string,
     opts?: {
@@ -50,6 +56,7 @@ export class EngineError extends Error {
       requestId?: string;
       contextOverflow?: boolean;
       requestShape?: EngineRequestShape;
+      retryAfterMs?: number;
     },
   ) {
     super(message);
@@ -61,6 +68,7 @@ export class EngineError extends Error {
     this.requestId = opts?.requestId;
     this.contextOverflow = opts?.contextOverflow;
     this.requestShape = opts?.requestShape;
+    this.retryAfterMs = opts?.retryAfterMs;
   }
 }
 
@@ -276,6 +284,13 @@ export type EngineEvent =
        * capture, which an opaque gateway 500 otherwise leaves unanswerable.
        */
       requestShape?: EngineRequestShape;
+      /**
+       * Provider-requested backoff (ms) from a `Retry-After` header, when the
+       * engine classified one. production-agent's retry loop uses this
+       * instead of its fixed backoff so the actual sleep and the budget
+       * estimate that approved the retry agree on the same number.
+       */
+      retryAfterMs?: number;
     };
 
 /**

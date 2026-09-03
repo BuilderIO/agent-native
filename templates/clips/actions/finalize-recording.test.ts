@@ -149,6 +149,10 @@ vi.mock("../server/lib/post-finalize-dispatch.js", () => ({
     mockDispatchPostFinalizeJob(...args),
 }));
 
+vi.mock("../server/lib/reconcile-meeting-on-finalize.js", () => ({
+  reconcileMeetingOnRecordingReady: vi.fn(async () => undefined),
+}));
+
 vi.mock("../server/lib/faststart.js", () => ({
   applyFaststart: vi.fn((bytes: Uint8Array) => bytes),
   hasPlayableMp4Metadata: vi.fn(() => true),
@@ -577,6 +581,7 @@ describe("finalize-recording media serve verification", () => {
     expect(mockUpdateSet).toHaveBeenCalledWith(
       expect.objectContaining({ status: "ready", videoSizeBytes: 2 }),
     );
+    expect(mockUpdateSet).toHaveBeenCalledWith({ thumbnailStatus: "pending" });
     expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
       recordingId: "rec_1",
       kind: "thumbnail",
