@@ -4335,9 +4335,22 @@ describe("server/auth", () => {
       expect(getBetterAuth).toHaveBeenCalledTimes(2);
     });
 
-    it("returns a retryable status for HEAD when session resolution is unavailable", async () => {
+    it("accepts HEAD on the auth session endpoint", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      delete process.env.ACCESS_TOKENS;
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
       const { autoMountAuth } = await import("./auth.js");
 
       const app = createMockApp();
@@ -4354,8 +4367,8 @@ describe("server/auth", () => {
 
       const result = await sessionHandler(event);
 
-      expect(event.res.status).toBe(503);
-      expect(result).toEqual({ error: "Session unavailable" });
+      expect(event.res.status).toBe(200);
+      expect(result).toEqual({ error: "Not authenticated" });
     });
 
     it("returns a retryable status when session resolution is unavailable", async () => {
