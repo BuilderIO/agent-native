@@ -13,11 +13,9 @@ permissions:
   contents: read
   actions: read
 
-concurrency:
-  # Beta is a latest-main environment. A newer merge supersedes an in-flight
-  # older publish so stale artifacts cannot overwrite the current main commit.
-  group: agent-native-beta-publisher
-  cancel-in-progress: true
+# Every main push gets its own workflow. The reusable beta deploy serializes
+# each site's remote Netlify publish, while its source freshness check skips
+# artifacts that are no longer the current main commit.
 
 jobs:
   resolve-source:
