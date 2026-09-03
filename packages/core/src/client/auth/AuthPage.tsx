@@ -2633,6 +2633,7 @@ export function AuthPage(props: AuthPageProps) {
         marketingCopy.learnMoreUrl ? (
           <a
             className="auth-marketing-learn-more"
+            data-auth-marketing-learn-more="true"
             href={marketingCopy.learnMoreUrl}
             target="_blank"
             rel="noreferrer"

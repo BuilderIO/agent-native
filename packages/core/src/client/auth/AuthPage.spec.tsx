@@ -53,11 +53,16 @@ describe("AuthPage", () => {
     );
     expect(onboardingHtml).toContain("aspect-ratio: 914 / 818");
     expect(onboardingHtml).toContain("width: 100%");
-    expect(onboardingHtml).toContain("filter: blur(5px)");
+    expect(onboardingHtml).toContain("filter: blur(0.3px)");
     expect(onboardingHtml).toContain("opacity: 0.8");
+    expect(onboardingHtml).toContain(
+      "box-shadow: 0 18px 50px rgba(0,0,0,0.62)",
+    );
     expect(onboardingHtml).toContain("flex: 1 1 0;");
     expect(onboardingHtml).toContain("flex: 0 0 28rem;");
-    expect(onboardingHtml).toContain("margin-inline: auto;");
+    expect(onboardingHtml).toContain("margin-inline: 0;");
+    expect(onboardingHtml).toContain("@media (prefers-color-scheme: light)");
+    expect(onboardingHtml).toContain("color-scheme: light;");
     expect(onboardingHtml).toContain(
       "@media (min-width: 901px) and (max-width: 1500px)",
     );
@@ -72,6 +77,16 @@ describe("AuthPage", () => {
 
     expect(props.marketing?.learnMorePlacement).toBe("bottom-right");
     expect(html).toContain("has-bottom-right-learn-more");
+  });
+
+  it.each([
+    ["slides.agent-native.com", "914 / 818"],
+    ["analytics.agent-native.com", "927 / 818"],
+  ])("keeps the declared screenshot ratio for %s", (requestHost, ratio) => {
+    const html = getOnboardingHtml({ requestHost });
+
+    expect(html).toContain(`style="aspect-ratio:${ratio}"`);
+    expect(html).toContain('class="auth-marketing-screenshot"');
   });
 
   it("keeps the magic-link entry and completion surfaces in the React tree", () => {
