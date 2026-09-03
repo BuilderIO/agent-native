@@ -128,15 +128,16 @@ async function checkHealth(
   if (body.database?.identityMismatch === true) {
     const recordedApp =
       identity?.state === "recorded" ? identity.app : "unknown";
-    // Warn, do not fail, until the fleet has shown that the identity a hosted
-    // bundle derives for itself matches what its release migration recorded.
-    // The first crm promotion failed on a null runtime identity; promote this
-    // to a hard failure once every host reports a non-null, matching
-    // `runningApp`.
-    console.warn(
-      `WARN (health): database identity mismatch — recorded for app "${recordedApp}", but "${runningApp ?? "unknown"}" is running against it.`,
-    );
-  } else if (identity?.state === "recorded" && runningApp == null) {
+    // Health only sets this when BOTH identities are known and differ, so it
+    // is a confirmed wrong-database deployment — the 08-19..08-31 incident —
+    // and must fail the cutover. A runtime that cannot derive its own
+    // identity is reported below as a warning instead.
+    return {
+      ok: false,
+      reason: `database identity mismatch: recorded for app "${recordedApp}", but "${runningApp ?? "unknown"}" is running against it`,
+    };
+  }
+  if (identity?.state === "recorded" && runningApp == null) {
     console.warn(
       `WARN (health): database identity recorded for "${identity.app}" but this runtime could not derive its own app identity (runningApp=null).`,
     );
