@@ -3208,6 +3208,9 @@ describe("server/auth", () => {
       const firstHtml = await (first as Response).text();
       const secondHtml = await (second as Response).text();
       expect(firstHtml).toBe(secondHtml);
+      expect(firstHtml).toContain(
+        '"workspaceAppMountPaths":["/plan","/diagrams"]',
+      );
       expect(firstHtml).not.toContain("/plan/_agent-native/auth/session");
       expect(firstHtml).not.toContain("/diagrams/_agent-native/auth/session");
     });

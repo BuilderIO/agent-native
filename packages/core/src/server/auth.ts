@@ -133,6 +133,7 @@ import {
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import { injectAnalyticsIntoHtml } from "./analytics.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
+import { getAppOriginClientConfigScript } from "./app-origin-config.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
   addSignupAttributionHeader,
@@ -3240,10 +3241,17 @@ function loginHtmlResponse(
     requestIndependent?: boolean;
   } = {},
 ): Response {
+  const appOriginConfigScript = getAppOriginClientConfigScript();
   let html = injectLoginSocialImageMeta(
     injectBetaOptOutPersistence(loginHtml),
     options.requestIndependent ? undefined : event,
   );
+  if (
+    appOriginConfigScript &&
+    !html.includes("data-agent-native-app-origin-config")
+  ) {
+    html = injectHeadScript(html, appOriginConfigScript);
+  }
   if (options.includeRootAuthRedirect) {
     html = injectHeadScript(
       html,
