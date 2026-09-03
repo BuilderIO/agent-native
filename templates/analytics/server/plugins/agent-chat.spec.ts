@@ -275,7 +275,6 @@ describe("Analytics agent Plan mode policy", () => {
         discovery: true,
         lineage: true,
         healthAndFreshness: true,
-        semanticLayer: false,
       },
       sqlTools: { available: true, intentionallyUnused: true },
       toolCount: 8,
@@ -289,7 +288,6 @@ describe("Analytics agent Plan mode policy", () => {
         discovery: false,
         lineage: false,
         healthAndFreshness: false,
-        semanticLayer: false,
       },
       sqlTools: { available: false, intentionallyUnused: true },
       toolCount: 0,
@@ -298,9 +296,6 @@ describe("Analytics agent Plan mode policy", () => {
 
     expect(connected).toContain("discover the exact dynamic dbt tools");
     expect(connected).toContain("direct SQL only through the bigquery action");
-    expect(connected).toContain(
-      "Missing Semantic Layer tools are a capability gap",
-    );
     expect(unreadable).toContain("status is unreadable");
     expect(unreadable).toContain("Do not infer that dbt is disconnected");
     expect(connected).toContain(
@@ -340,25 +335,18 @@ describe("Analytics agent Plan mode policy", () => {
     expect(dataQueryingSkill).toMatch(/Complex inferred joins/);
   });
 
-  it("documents the governed dbt and MetricFlow decision order", () => {
+  it("documents governed dbt discovery and warehouse query routing", () => {
     for (const toolName of [
       "get_node_details",
       "get_lineage",
       "get_model_health",
       "get_model_performance",
       "get_all_sources",
-      "list_metrics",
-      "get_dimensions",
-      "get_entities",
-      "get_dimension_values",
-      "query_metrics",
-      "get_metrics_compiled_sql",
     ]) {
       expect(dbtSkill).toContain(`\`${toolName}\``);
     }
     expect(dbtSkill).toContain("Never use dbt `execute_sql` or `text_to_sql`");
     expect(dbtSkill).toContain("keep it unknown");
-    expect(dbtSkill).toContain("label the result as ad hoc SQL");
     expect(dbtSkill).toContain("shared workspace dbt identity");
   });
 
@@ -413,12 +401,6 @@ describe("Analytics agent Plan mode policy", () => {
         "get_model_health",
         "get_model_performance",
         "get_all_sources",
-        "list_metrics",
-        "get_dimensions",
-        "get_entities",
-        "get_dimension_values",
-        "query_metrics",
-        "get_metrics_compiled_sql",
       ]),
     );
   });

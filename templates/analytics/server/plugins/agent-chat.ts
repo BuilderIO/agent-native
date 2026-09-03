@@ -339,12 +339,12 @@ Data-dictionary definitions are available through \`search-analytics-query-catal
 export function analyticsDbtRoutingContext(status: DbtMcpStatus): string {
   if (status.configured === null) {
     return `<dbt-routing>
-dbt capability status is unreadable. Do not infer that dbt is disconnected or that no dbt models or metrics exist. For a dbt-backed request, read the dbt skill and use tool-search to look for the official dynamic dbt tools; preserve a real connection error if discovery fails.
+dbt capability status is unreadable. Do not infer that dbt is disconnected or that no dbt models exist. For a dbt-backed request, read the dbt skill and use tool-search to look for the official dynamic dbt tools; preserve a real connection error if discovery fails.
 </dbt-routing>`;
   }
   if (!status.configured) {
     return `<dbt-routing>
-No dynamic dbt capability was visible in a successful connection check. This is a connection capability gap, not evidence that no governed metrics exist. If the request requires dbt semantics, explain the missing connection and link to ${status.setupLink}.
+No dynamic dbt capability was visible in a successful connection check. This is a connection capability gap, not evidence that no governed models exist. If the request requires dbt semantics, explain the missing connection and link to ${status.setupLink}.
 </dbt-routing>`;
   }
 
@@ -352,13 +352,9 @@ No dynamic dbt capability was visible in a successful connection check. This is 
     status.capabilities.discovery ? "Discovery" : null,
     status.capabilities.lineage ? "lineage" : null,
     status.capabilities.healthAndFreshness ? "health/freshness" : null,
-    status.capabilities.semanticLayer ? "Semantic Layer" : null,
   ].filter((capability): capability is string => Boolean(capability));
-  const semanticLayerGuidance = status.capabilities.semanticLayer
-    ? "Use MetricFlow for governed metric requests."
-    : "Missing Semantic Layer tools are a capability gap, not evidence that no metrics exist.";
   return `<dbt-routing>
-dbt is connected with these visible capabilities: ${capabilities.join(", ") || "none classified"}. Read the dbt skill, then discover the exact dynamic dbt tools with tool-search. dbt owns model semantics and lineage; verify physical BigQuery relations with search-bigquery-schema and run direct SQL only through the bigquery action. A visible health/freshness capability does not mean the underlying data is fresh; use the returned status and timestamps. ${semanticLayerGuidance}
+  dbt is connected with these visible capabilities: ${capabilities.join(", ") || "none classified"}. Read the dbt skill, then discover the exact dynamic dbt tools with tool-search. dbt owns model semantics and lineage; verify physical BigQuery relations with search-bigquery-schema and run direct SQL only through the bigquery action. A visible health/freshness capability does not mean the underlying data is fresh; use the returned status and timestamps.
 </dbt-routing>`;
 }
 

@@ -9,7 +9,7 @@ analyses remain readable.
 Read the relevant skill before deeper work:
 
 - `data-querying` for source inspection, SQL, result handling, and `/chart` embeds.
-- `dbt` for governed model semantics, lineage, freshness, MetricFlow, and dbt-backed SQL.
+- `dbt` for governed model semantics, lineage, freshness, and dbt-backed SQL.
   Read provider skills such as `bigquery`, `hubspot`, `gong`, and `prometheus`
   for provider specifics.
 - `account-health` for named customer health, QBR, renewal, contract usage,

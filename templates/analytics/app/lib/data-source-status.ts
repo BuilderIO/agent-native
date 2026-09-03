@@ -36,7 +36,6 @@ export interface DbtMcpStatus {
     discovery: boolean;
     lineage: boolean;
     healthAndFreshness: boolean;
-    semanticLayer: boolean;
   };
   sqlTools: {
     available: boolean;

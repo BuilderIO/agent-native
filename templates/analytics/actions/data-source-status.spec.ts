@@ -100,7 +100,6 @@ describe("data-source-status", () => {
         discovery: false,
         lineage: false,
         healthAndFreshness: false,
-        semanticLayer: false,
       },
       sqlTools: {
         available: false,
@@ -172,7 +171,6 @@ describe("data-source-status", () => {
         discovery: false,
         lineage: false,
         healthAndFreshness: false,
-        semanticLayer: false,
       },
       sqlTools: {
         available: false,

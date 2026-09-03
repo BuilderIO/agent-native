@@ -1,14 +1,14 @@
 ---
 name: dbt
 description: >-
-  Governed dbt model, lineage, freshness, and Semantic Layer routing for analytics.
-  Use when a question depends on dbt models, sources, metrics, or warehouse SQL.
+  Governed dbt model, lineage, and freshness routing for analytics.
+  Use when a question depends on dbt models, sources, or warehouse SQL.
 scope: runtime
 ---
 
 # dbt
 
-dbt is authoritative for dbt model semantics, lineage, freshness, and governed metrics. Connected dbt MCP tools are dynamic: find them with `tool-search` when needed rather than assuming they are on the initial tool surface.
+dbt is authoritative for dbt model semantics, lineage, and freshness. Connected dbt MCP tools are dynamic: find them with `tool-search` when needed rather than assuming they are on the initial tool surface.
 
 ## Decision Order
 
@@ -18,16 +18,7 @@ dbt is authoritative for dbt model semantics, lineage, freshness, and governed m
 4. Run direct SQL with the existing `bigquery` action. Never use dbt `execute_sql` or `text_to_sql`.
 5. If dbt metadata does not establish a grain or relationship, keep it unknown. Do not infer a join or silently turn uncertainty into a metric.
 
-## Phase 2: MetricFlow / Semantic Layer
-
-When Semantic Layer tools are available:
-
-1. Call `list_metrics` to find the governed metric.
-2. Inspect `get_dimensions` and `get_entities`; use `get_dimension_values` when a requested filter value needs validation.
-3. Call `query_metrics` with the requested dimensions, filters, range, and time grain.
-4. Call `get_metrics_compiled_sql` only when the user requests provenance or query validation. It is not a default preflight.
-
-Report the metric name, dimensions, filters, date range and time grain, plus environment or freshness caveats. dbt calls use the shared workspace dbt identity, not a personal warehouse identity.
+dbt calls use the shared workspace dbt identity, not a personal warehouse identity.
 
 ## Restricted Schemas
 
@@ -37,8 +28,8 @@ Report the metric name, dimensions, filters, date range and time grain, plus env
 
 A visible dbt health or freshness capability does not mean the data is fresh. Warn that data is stale only when returned dbt source/model metadata explicitly says it is beyond the expected refresh window, and include the observed timestamp or window when available. If freshness is unknown, do not claim freshness; mention that it could not be verified only when freshness materially affects the answer.
 
-If MetricFlow cannot express the request, fall back to dbt metadata plus the `bigquery` action and label the result as ad hoc SQL. Missing Semantic Layer tools are a capability gap, not evidence that no metrics exist. Use Discovery metadata and BigQuery only when they can answer without inventing semantic definitions.
+Use Discovery metadata and BigQuery only when they can answer without inventing semantic definitions.
 
 ## Failure Semantics
 
-A dbt connection or tool-list error means capability status is unreadable, not that dbt is disconnected or that no dbt models or metrics exist. Preserve the actual error, try dynamic tool discovery when appropriate, and do not replace a failed dbt lookup with guessed semantics.
+A dbt connection or tool-list error means capability status is unreadable, not that dbt is disconnected or that no dbt models exist. Preserve the actual error, try dynamic tool discovery when appropriate, and do not replace a failed dbt lookup with guessed semantics.

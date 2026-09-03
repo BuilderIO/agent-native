@@ -16,21 +16,11 @@ const DBT_HEALTH_TOOLS = new Set([
   "get_model_performance",
   "get_all_sources",
 ]);
-const DBT_SEMANTIC_LAYER_TOOLS = new Set([
-  "list_metrics",
-  "get_dimensions",
-  "get_entities",
-  "get_dimension_values",
-  "query_metrics",
-  "get_metrics_compiled_sql",
-  "list_saved_queries",
-]);
 const DBT_SQL_TOOLS = new Set(["execute_sql", "text_to_sql"]);
 const DBT_CAPABILITY_TOOLS = new Set([
   ...DBT_DISCOVERY_TOOLS,
   ...DBT_LINEAGE_TOOLS,
   ...DBT_HEALTH_TOOLS,
-  ...DBT_SEMANTIC_LAYER_TOOLS,
 ]);
 const DBT_CONTRACT_TOOLS = new Set([...DBT_CAPABILITY_TOOLS, ...DBT_SQL_TOOLS]);
 
@@ -43,7 +33,6 @@ export interface DbtMcpStatus {
     discovery: boolean;
     lineage: boolean;
     healthAndFreshness: boolean;
-    semanticLayer: boolean;
   };
   sqlTools: {
     available: boolean;
@@ -62,7 +51,6 @@ function emptyStatus(configured: false | null, error?: string): DbtMcpStatus {
       discovery: false,
       lineage: false,
       healthAndFreshness: false,
-      semanticLayer: false,
     },
     sqlTools: {
       available: false,
@@ -123,9 +111,6 @@ export async function readDbtMcpStatus(): Promise<DbtMcpStatus> {
       lineage: dbtTools.some((tool) => DBT_LINEAGE_TOOLS.has(tool.name)),
       healthAndFreshness: dbtTools.some((tool) =>
         DBT_HEALTH_TOOLS.has(tool.name),
-      ),
-      semanticLayer: dbtTools.some((tool) =>
-        DBT_SEMANTIC_LAYER_TOOLS.has(tool.name),
       ),
     },
     sqlTools: {

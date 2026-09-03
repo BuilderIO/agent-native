@@ -17,13 +17,6 @@ const fullContractNames = [
   "get_lineage",
   "get_model_health",
   "get_model_performance",
-  "list_metrics",
-  "get_dimensions",
-  "get_entities",
-  "get_dimension_values",
-  "query_metrics",
-  "get_metrics_compiled_sql",
-  "list_saved_queries",
   "execute_sql",
   "text_to_sql",
 ];
@@ -55,7 +48,6 @@ describe("readDbtMcpStatus", () => {
         discovery: true,
         lineage: true,
         healthAndFreshness: true,
-        semanticLayer: true,
       },
       sqlTools: {
         available: true,
@@ -81,7 +73,6 @@ describe("readDbtMcpStatus", () => {
         discovery: true,
         lineage: false,
         healthAndFreshness: false,
-        semanticLayer: false,
       },
       sqlTools: {
         available: true,
