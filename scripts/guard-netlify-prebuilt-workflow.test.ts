@@ -241,10 +241,11 @@ describe("production Netlify site concurrency guard", () => {
       reusableSource,
       /SOURCE_REF: \$\{\{ steps\.source\.outputs\.source_ref \}\}/,
     );
-    assert.match(
-      reusableSource,
-      /for variable in NETLIFY_DATABASE_URL_UNPOOLED NETLIFY_DATABASE_URL DATABASE_URL/,
-    );
+    assert.match(reusableSource, /netlify api getEnvVars/);
+    assert.match(reusableSource, /account_id.*builder-io/);
+    assert.match(reusableSource, /readFileSync\(0, "utf8"\)/);
+    assert.match(reusableSource, /NETLIFY_DATABASE_URL_UNPOOLED/);
+    assert.match(reusableSource, /DATABASE_URL/);
     const betaMigrate = (beta.jobs as Workflow).migrate as Workflow;
     assert.equal((betaMigrate.with as Workflow).caller, "release-migration");
     assert.equal((betaMigrate.with as Workflow).migration_only, true);
