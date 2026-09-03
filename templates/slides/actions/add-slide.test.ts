@@ -110,6 +110,8 @@ vi.mock("@agent-native/core/collab", () => ({
 // on add-slide's own logic without exercising the shared lock module.
 vi.mock("./patch-deck.js", () => ({
   withDeckLock: (_deckId: string, fn: () => Promise<unknown>) => fn(),
+  isAgentPatchCaller: (caller: string | undefined) =>
+    caller === "tool" || caller === "mcp" || caller === "a2a",
 }));
 
 vi.mock("../server/lib/deck-versions.js", () => ({
@@ -151,6 +153,29 @@ beforeEach(() => {
 describe("add-slide", () => {
   it("does not advertise parallel execution for deck writes", () => {
     expect(action.parallelSafe).toBeUndefined();
+  });
+
+  it("rejects agent additions after the requested slide count", async () => {
+    deckData.generationContext = { targetSlideCount: 2 };
+
+    await expect(
+      action.run(
+        {
+          deckId: "deck-1",
+          slideId: "slide-new",
+          content: "<div>New</div>",
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "target_slide_count_reached",
+      details: {
+        deckId: "deck-1",
+        currentSlideCount: 2,
+        targetSlideCount: 2,
+      },
+    });
+    expect(updateFn).not.toHaveBeenCalled();
   });
 
   it("repairs an opaque generated title from the first slide", async () => {
