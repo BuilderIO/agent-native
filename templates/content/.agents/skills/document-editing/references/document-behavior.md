@@ -70,6 +70,11 @@ using the framework-wide `share-resource` / `unshare-resource` /
 `list-resource-shares` / `set-resource-visibility` actions (`resourceType`
 `document`). See the `sharing` skill for the general access model.
 
+For documents, `set-resource-visibility` is a whole-owned-tree operation: it
+applies the selected visibility to the requested page and its descendants.
+This is separate from `set-document-discoverability`, whose `includeChildren`
+option controls search/sidebar listing rather than link or organization access.
+
 Read (`get-document`, `list-documents`, `search-documents`) admits rows the
 current user owns, has been shared on, or that match the resource's
 visibility. Write (`update-document`, `edit-document`) requires `editor` role
