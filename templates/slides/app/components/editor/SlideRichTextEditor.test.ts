@@ -91,6 +91,27 @@ describe("slide rich text normalization", () => {
     );
   });
 
+  it("round-trips a positioned heading without losing its semantic root", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<h2 style="position:absolute;left:107px;top:190px">Title</h2>';
+    const heading = root.firstElementChild as HTMLElement;
+    const editorContent = contentForSlideTextContainer(
+      heading.tagName,
+      heading.outerHTML,
+    );
+
+    const restored = restoreSlideTextContainerContent(
+      heading,
+      `<p>${editorContent}</p>`,
+    );
+
+    expect(restored).toBe(heading);
+    expect(restored.tagName).toBe("H2");
+    expect(restored.textContent).toBe("Title");
+    expect(restored.style.left).toBe("107px");
+  });
+
   it("promotes semantic containers to one wrapper for structural edits", () => {
     const root = document.createElement("div");
     root.innerHTML =

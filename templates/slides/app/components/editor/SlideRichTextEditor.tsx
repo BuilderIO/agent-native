@@ -89,13 +89,18 @@ export function restoreSlideTextContainerContent(
     return element;
   }
 
+  const nextRoot = new DOMParser().parseFromString(html, "text/html").body
+    .firstElementChild;
+  if (/^H[1-6]$/.test(element.tagName) && nextRoot?.tagName === "P") {
+    element.innerHTML = nextRoot.innerHTML;
+    return element;
+  }
+
   const replacement = element.ownerDocument.createElement("div");
   for (const attribute of Array.from(element.attributes)) {
     replacement.setAttribute(attribute.name, attribute.value);
   }
   if (element.tagName === "UL" || element.tagName === "OL") {
-    const nextRoot = new DOMParser().parseFromString(html, "text/html").body
-      .firstElementChild;
     if (nextRoot?.tagName !== "UL" && nextRoot?.tagName !== "OL") {
       for (const property of [
         "list-style",
