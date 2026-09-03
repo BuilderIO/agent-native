@@ -505,6 +505,33 @@ describe("AgentSidebar composer focus", () => {
       vi.useRealTimers();
     }
   });
+
+  it("focuses a frame-owned composer", () => {
+    const previousRequestAnimationFrame = window.requestAnimationFrame;
+    const frames: Array<FrameRequestCallback> = [];
+    const panel = document.createElement("div");
+    const composer = document.createElement("div");
+    panel.className = "agent-frame-sidebar";
+    panel.dataset.agentFrameSidebarState = "open";
+    composer.className = "ProseMirror";
+    panel.appendChild(composer);
+    document.body.appendChild(panel);
+
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    }) as typeof window.requestAnimationFrame;
+
+    try {
+      focusAgentChat();
+      frames[0]!(0);
+
+      expect(document.activeElement).toBe(composer);
+    } finally {
+      window.requestAnimationFrame = previousRequestAnimationFrame;
+      panel.remove();
+    }
+  });
 });
 
 describe("AgentSidebar toggle routing", () => {

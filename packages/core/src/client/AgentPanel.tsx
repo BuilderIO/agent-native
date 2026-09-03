@@ -3816,18 +3816,27 @@ export function AgentSidebar({
         setOpenPersisted((prev) => !prev);
       }
     };
-    const openHandler = () => {
+    const openHandler = (event: Event) => {
+      const focusOnOpen =
+        (event as CustomEvent<{ focus?: unknown }>).detail?.focus === true;
       if (isPerAppChatHosted) {
-        requestPerAppChatCommand("open");
+        requestPerAppChatCommand(
+          "open",
+          focusOnOpen ? { focus: true } : undefined,
+        );
         return;
       }
       if (frameCodeMode && shouldParentFrameOwnAgentPanel()) {
         window.parent.postMessage(
-          { type: "agentNative.toggleSidebar", data: { open: true } },
+          {
+            type: "agentNative.toggleSidebar",
+            data: { open: true, ...(focusOnOpen ? { focus: true } : {}) },
+          },
           parentFrameTargetOrigin(),
         );
       } else {
         setOpenPersisted(true);
+        if (focusOnOpen) focusAgentChatComposer();
       }
     };
     const closeHandler = () => {
@@ -4385,10 +4394,17 @@ export function focusAgentChat() {
       detail: { mode: "chat" },
     }),
   );
-  window.dispatchEvent(new Event("agent-panel:open"));
+  window.dispatchEvent(
+    new CustomEvent("agent-panel:open", { detail: { focus: true } }),
+  );
+  focusAgentChatComposer();
+}
+
+function focusAgentChatComposer() {
   const focusComposer = (attempt = 0) => {
     const panel = document.querySelector(
-      ".agent-sidebar-panel[data-agent-sidebar-state='open']",
+      ".agent-sidebar-panel[data-agent-sidebar-state='open'], " +
+        ".agent-frame-sidebar[data-agent-frame-sidebar-state='open']",
     );
     const composer = panel?.querySelector<HTMLElement>(
       ".ProseMirror, textarea",
