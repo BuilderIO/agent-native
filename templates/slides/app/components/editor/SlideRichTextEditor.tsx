@@ -120,6 +120,7 @@ export function contentForSlideTextContainer(
   }
   if (["BLOCKQUOTE", "OL", "UL"].includes(tagName.toUpperCase())) {
     const wrapper = doc.createElement(tagName.toLowerCase());
+    syncSlideEditorBlockFormatting(first as HTMLElement, wrapper);
     wrapper.innerHTML = first.innerHTML;
     return wrapper.outerHTML;
   }
@@ -143,8 +144,8 @@ export function restoreSlideTextContainerContent(
   const nextDocument = new DOMParser().parseFromString(html, "text/html");
   const nextRoot = nextDocument.body.firstElementChild as HTMLElement | null;
   const nextChildren = Array.from(nextDocument.body.children);
-  const nextTags = nextChildren.map((child) => child.tagName);
   if (nextChildren.length === 1 && nextRoot?.tagName === element.tagName) {
+    syncSlideEditorBlockFormatting(nextRoot, element, true);
     element.innerHTML = nextRoot.innerHTML;
     return element;
   }
@@ -155,13 +156,17 @@ export function restoreSlideTextContainerContent(
     return element;
   }
 
-  const preservesRoot =
-    (element.tagName === "LI" &&
-      nextTags.length > 0 &&
-      nextTags.every((tagName) => tagName === "P")) ||
-    ((element.tagName === "UL" || element.tagName === "OL") &&
-      nextTags.length > 0 &&
-      nextTags.every((tagName) => tagName === "LI"));
+  const preservesListItemRoot =
+    element.tagName === "LI" &&
+    nextChildren.length > 0 &&
+    nextChildren.every((child) => ["OL", "P", "UL"].includes(child.tagName));
+  const preservesListRoot =
+    (element.tagName === "UL" || element.tagName === "OL") &&
+    nextRoot !== null &&
+    ["OL", "UL"].includes(nextRoot.tagName) &&
+    nextRoot.children.length > 0 &&
+    Array.from(nextRoot.children).every((child) => child.tagName === "LI");
+  const preservesRoot = preservesListItemRoot || preservesListRoot;
   if (
     nextChildren.length === 1 &&
     /^H[1-6]$/.test(element.tagName) &&
@@ -172,6 +177,25 @@ export function restoreSlideTextContainerContent(
     return element;
   }
   if (preservesRoot) {
+    if (preservesListRoot && nextRoot?.tagName !== element.tagName) {
+      const replacement = element.ownerDocument.createElement(
+        nextRoot.tagName.toLowerCase(),
+      );
+      for (const attribute of Array.from(element.attributes)) {
+        replacement.setAttribute(attribute.name, attribute.value);
+      }
+      syncSlideEditorBlockFormatting(nextRoot, replacement, true);
+      replacement.innerHTML = nextRoot.innerHTML;
+      element.replaceWith(replacement);
+      return replacement;
+    }
+    if (element.tagName === "LI" && nextChildren[0]?.tagName === "P") {
+      syncSlideEditorBlockFormatting(
+        nextChildren[0] as HTMLElement,
+        element,
+        true,
+      );
+    }
     element.innerHTML = html;
     return element;
   }

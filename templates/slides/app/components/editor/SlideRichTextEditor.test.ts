@@ -207,6 +207,70 @@ describe("slide rich text normalization", () => {
     expect(unquoted.querySelector("p")?.textContent).toBe("Quote");
   });
 
+  it("syncs same-root block formatting without moving the canvas object", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<blockquote style="position:absolute;left:10px;color:red" dir="ltr" data-pptx-paragraph="1"><p>Quote</p></blockquote>';
+    const quote = root.firstElementChild as HTMLElement;
+
+    const restored = restoreSlideTextContainerContent(
+      quote,
+      '<blockquote style="color:blue;text-align:center" dir="rtl" data-pptx-paragraph="2"><p>Quote</p></blockquote>',
+    );
+
+    expect(restored).toBe(quote);
+    expect(restored.style.position).toBe("absolute");
+    expect(restored.style.left).toBe("10px");
+    expect(restored.style.color).toBe("blue");
+    expect(restored.style.textAlign).toBe("center");
+    expect(restored.getAttribute("dir")).toBe("rtl");
+    expect(restored.getAttribute("data-pptx-paragraph")).toBe("2");
+  });
+
+  it("keeps positioned list objects when changing list type", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<ul data-builder-id="list" style="position:absolute;left:12px;list-style-type:disc"><li>First</li></ul>';
+    const list = root.firstElementChild as HTMLElement;
+
+    const ordered = restoreSlideTextContainerContent(
+      list,
+      "<ol><li>First</li></ol>",
+    );
+
+    expect(ordered.tagName).toBe("OL");
+    expect(ordered.getAttribute("data-builder-id")).toBe("list");
+    expect(ordered.style.position).toBe("absolute");
+    expect(ordered.style.left).toBe("12px");
+    expect(ordered.style.listStyleType).toBe("disc");
+
+    const unordered = restoreSlideTextContainerContent(
+      ordered,
+      "<ul><li>First</li></ul>",
+    );
+    expect(unordered.tagName).toBe("UL");
+    expect(unordered.querySelector("li")?.textContent).toBe("First");
+  });
+
+  it("keeps list-item roots containing nested lists", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      "<ul><li><p>First</p><ul><li><p>Nested</p></li></ul></li></ul>";
+    const item = root.querySelector("ul > li") as HTMLElement;
+
+    const restored = restoreSlideTextContainerContent(
+      item,
+      "<p>Updated</p><ul><li><p>Nested updated</p></li></ul>",
+    );
+
+    expect(restored).toBe(item);
+    expect(restored.tagName).toBe("LI");
+    expect(restored.querySelector(":scope > p")?.textContent).toBe("Updated");
+    expect(restored.querySelector(":scope > ul li")?.textContent).toBe(
+      "Nested updated",
+    );
+  });
+
   it("promotes semantic containers to one wrapper for structural edits", () => {
     const root = document.createElement("div");
     root.innerHTML =
