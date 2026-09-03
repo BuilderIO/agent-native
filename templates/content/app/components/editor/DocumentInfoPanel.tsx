@@ -141,20 +141,26 @@ export function documentInfoBlockFields(args: {
   }
 
   return args.properties
-    .filter(
-      (property) =>
-        isBlocksPropertyType(property.definition.type) &&
-        property.definition.visibility !== "always_hide" &&
-        (property.definition.visibility !== "hide_when_empty" ||
-          !isEmptyPropertyValue(property.value)),
-    )
+    .filter((property) => isBlocksPropertyType(property.definition.type))
     .sort((a, b) => a.definition.position - b.definition.position)
-    .map((property) => ({
-      propertyId: property.definition.id,
-      name: property.definition.name,
-      content: isPrimaryBlocksField(property.definition.options)
+    .flatMap((property) => {
+      const content = isPrimaryBlocksField(property.definition.options)
         ? args.documentContent
         : (args.additionalBlockContents?.[property.definition.id] ??
-          (typeof property.value === "string" ? property.value : "")),
-    }));
+          (typeof property.value === "string" ? property.value : ""));
+      if (
+        property.definition.visibility === "always_hide" ||
+        (property.definition.visibility === "hide_when_empty" &&
+          isEmptyPropertyValue(content))
+      ) {
+        return [];
+      }
+      return [
+        {
+          propertyId: property.definition.id,
+          name: property.definition.name,
+          content,
+        },
+      ];
+    });
 }

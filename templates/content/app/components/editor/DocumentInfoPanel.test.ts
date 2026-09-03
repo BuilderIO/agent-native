@@ -123,4 +123,30 @@ describe("documentInfoBlockFields", () => {
       }),
     ).toEqual([]);
   });
+
+  it("evaluates hide-when-empty against the live editor value", () => {
+    const property = blocksProperty({
+      id: "notes",
+      name: "Notes",
+      position: 1,
+      visibility: "hide_when_empty",
+      value: "",
+    });
+    expect(
+      documentInfoBlockFields({
+        documentContent: "Primary",
+        properties: [property],
+        additionalBlockContents: { notes: "Unsaved words" },
+      }),
+    ).toEqual([
+      { propertyId: "notes", name: "Notes", content: "Unsaved words" },
+    ]);
+    expect(
+      documentInfoBlockFields({
+        documentContent: "Primary",
+        properties: [{ ...property, value: "Stored words" }],
+        additionalBlockContents: { notes: "" },
+      }),
+    ).toEqual([]);
+  });
 });

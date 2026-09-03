@@ -87,6 +87,27 @@ describe("get-blocks-field-word-count", () => {
     }
   });
 
+  it("can structurally select an empty hide-when-empty field before flushing", () => {
+    const property = field({
+      id: "notes",
+      visibility: "hide_when_empty",
+      value: "",
+    });
+    expect(
+      selectReadableBlocksField(
+        { properties: [property], hasDatabase: true },
+        "notes",
+        { requireValueVisibility: false },
+      ),
+    ).toMatchObject({ property, primary: false });
+    expect(() =>
+      selectReadableBlocksField(
+        { properties: [property], hasDatabase: true },
+        "notes",
+      ),
+    ).toThrow(/not found for this Page/i);
+  });
+
   it("keeps the implicit primary field only for standalone Pages", () => {
     expect(
       selectReadableBlocksField(

@@ -38,7 +38,9 @@ export default defineAction({
   run: async ({ documentId, propertyId }) => {
     const access = await resolveReadableDocument(documentId);
     const context = await readableFieldContext(access.resource);
-    const selected = selectReadableBlocksField(context, propertyId);
+    const selected = selectReadableBlocksField(context, propertyId, {
+      requireValueVisibility: false,
+    });
 
     await flushOpenDocumentEditorToSql({
       documentId,
@@ -103,13 +105,15 @@ async function readableFieldContext(
 export function selectReadableBlocksField(
   context: { properties: DocumentProperty[]; hasDatabase: boolean },
   propertyId: string | undefined,
+  options: { requireValueVisibility?: boolean } = {},
 ) {
   const { properties } = context;
   const visibleBlocks = properties.filter(
     (property) =>
       isBlocksPropertyType(property.definition.type) &&
       property.definition.visibility !== "always_hide" &&
-      (property.definition.visibility !== "hide_when_empty" ||
+      (options.requireValueVisibility === false ||
+        property.definition.visibility !== "hide_when_empty" ||
         !isEmptyPropertyValue(property.value)),
   );
   if (propertyId === undefined) {
