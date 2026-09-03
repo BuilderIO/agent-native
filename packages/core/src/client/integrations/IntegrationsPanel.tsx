@@ -1121,7 +1121,8 @@ export function IntegrationsPanel() {
     return status?.configured || status?.enabled;
   });
   const normalizedQuery = query.trim().toLowerCase();
-  const externalHostMatches = matchesMcpConnectHost(normalizedQuery);
+  const externalHostMatches =
+    normalizedQuery.length > 0 && matchesMcpConnectHost(normalizedQuery);
   const externalHostGuide = resolveMcpConnectGuideId(normalizedQuery);
   const mcpIntegrations = useMemo(
     () =>

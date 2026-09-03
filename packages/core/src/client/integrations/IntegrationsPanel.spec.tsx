@@ -170,6 +170,7 @@ describe("IntegrationsPanel MCP connection errors", () => {
     expect(container.textContent).toContain("Available integrations");
     expect(container.textContent).toContain("Context7");
     expect(container.textContent).not.toContain("Builder.io");
+    expect(container.textContent).not.toContain("settings.mcpClientSetup");
     expect(container.querySelector(".animate-pulse")).toBeNull();
   });
 
