@@ -253,6 +253,7 @@ export const SlideRichTextEditor = forwardRef<
         );
         const to = editor.view.posAtDOM(range.endContainer, range.endOffset);
         return editor.commands.setTextSelection({ from, to });
+        // coercion-ok: a native range can be stale after the slide DOM is replaced.
       } catch {
         return false;
       }
@@ -419,6 +420,7 @@ export const SlideRichTextEditor = forwardRef<
           editor.commands.setTextSelection(position);
           selectionAppliedRef.current = true;
           return;
+          // coercion-ok: the shared editor may still be applying its initial value.
         } catch {
           // The shared editor may still be applying its initial value.
         }
