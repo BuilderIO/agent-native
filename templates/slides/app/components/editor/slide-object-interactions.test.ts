@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { sanitizeSlideHtml } from "@/lib/sanitize-slide-html";
 
@@ -16,6 +16,9 @@ import {
   computeSlideObjectZOrder,
   createSlideObjectPlacementGeometry,
   copySlideObjects,
+  readSlideObjectClipboardId,
+  slideObjectClipboardHtml,
+  writeSlideObjectClipboard,
   createSlidesSelectionState,
   ensureSlideObjectId,
   ensureSlideTextBoxCanvas,
@@ -57,6 +60,40 @@ function createFreeformObject(
 }
 
 describe("slide object interactions", () => {
+  it("marks layer clipboard HTML so native text and layer copies are exclusive", () => {
+    const copied = {
+      html: ['<div data-slide-object-id="layer-1">Layer</div>'],
+    };
+    const html = slideObjectClipboardHtml("copy-1", copied);
+
+    expect(readSlideObjectClipboardId(html, document)).toBe("copy-1");
+    expect(
+      readSlideObjectClipboardId("<div>external text</div>", document),
+    ).toBe(null);
+  });
+
+  it("writes readable text and a layer marker to the native clipboard", async () => {
+    const write = vi.fn(async (_items: ClipboardItem[]) => undefined);
+    class FakeClipboardItem {
+      constructor(readonly items: Record<string, Blob>) {}
+    }
+    vi.stubGlobal("navigator", { clipboard: { write } });
+    vi.stubGlobal("ClipboardItem", FakeClipboardItem);
+
+    await writeSlideObjectClipboard(
+      "copy-1",
+      { html: ['<div data-slide-object-id="layer-1">Layer</div>'] },
+      null,
+    );
+
+    const item = write.mock.calls[0]![0]![0] as unknown as FakeClipboardItem;
+    expect(await item.items["text/plain"]?.text()).toBe("Layer");
+    expect(await item.items["text/html"]?.text()).toContain(
+      'data-agent-native-slide-object-clipboard="copy-1"',
+    );
+    vi.unstubAllGlobals();
+  });
+
   it("lets explicit image sizing override image size caps", () => {
     const image = document.createElement("img");
     image.style.setProperty("height", "auto", "important");

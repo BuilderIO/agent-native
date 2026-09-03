@@ -179,7 +179,9 @@ describe("SlideEditor render-phase safety", () => {
   });
 
   it("lets HTML-only native paste beat a stale object clipboard", () => {
-    const pasteStart = source.indexOf("// Object paste waits");
+    const pasteStart = source.indexOf(
+      "// The native paste event is authoritative",
+    );
     const pasteEnd = source.indexOf(
       "// Appearance clipboard shortcuts",
       pasteStart,
@@ -189,6 +191,21 @@ describe("SlideEditor render-phase safety", () => {
     expect(pasteBody).toContain('type.startsWith("text/")');
     expect(pasteBody).toContain("e.clipboardData?.getData(type)?.length");
     expect(pasteBody).toContain("if (hasNativeText) return;");
+  });
+
+  it("uses the native layer marker instead of a timer to arbitrate paste", () => {
+    expect(source).toContain("writeSlideObjectClipboard");
+    expect(source).toContain("readSlideObjectClipboardId");
+    expect(source).not.toContain("objectPasteFallbackRef");
+    const pasteStart = source.indexOf("const onPaste = (e: ClipboardEvent)");
+    const pasteEnd = source.indexOf(
+      "// Appearance clipboard shortcuts",
+      pasteStart,
+    );
+    const pasteBody = source.slice(pasteStart, pasteEnd);
+    expect(pasteBody.indexOf("nativeClipboardId")).toBeLessThan(
+      pasteBody.indexOf("const hasNativeText"),
+    );
   });
 
   it("re-measures portaled selection chrome after the editor layout moves", () => {

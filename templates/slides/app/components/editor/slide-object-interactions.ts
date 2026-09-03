@@ -1338,6 +1338,123 @@ export interface CopiedSlideObjects {
   html: string[];
 }
 
+const SLIDE_OBJECT_CLIPBOARD_MARKER =
+  "data-agent-native-slide-object-clipboard";
+
+export function slideObjectClipboardHtml(
+  clipboardId: string,
+  copied: CopiedSlideObjects,
+): string {
+  return `<meta ${SLIDE_OBJECT_CLIPBOARD_MARKER}="${encodeURIComponent(clipboardId)}">${copied.html.join("\n")}`;
+}
+
+export function readSlideObjectClipboardId(
+  html: string | null | undefined,
+  doc: Document,
+): string | null {
+  if (!html) return null;
+  const template = doc.createElement("template");
+  template.innerHTML = html;
+  const marker = template.content.querySelector(
+    `meta[${SLIDE_OBJECT_CLIPBOARD_MARKER}]`,
+  );
+  const encodedId = marker?.getAttribute(SLIDE_OBJECT_CLIPBOARD_MARKER);
+  if (!encodedId) return null;
+  try {
+    const clipboardId = decodeURIComponent(encodedId);
+    return clipboardId || null;
+  } catch (error) {
+    if (error instanceof URIError) return null;
+    throw error;
+  }
+}
+
+function slideObjectClipboardText(
+  copied: CopiedSlideObjects,
+  doc: Document,
+): string {
+  return copied.html
+    .map((html) => {
+      const container = doc.createElement("div");
+      container.innerHTML = html;
+      return container.textContent ?? "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function writeSlideObjectClipboardLegacy(
+  representations: { text: string; html: string },
+  doc: Document | null,
+): boolean {
+  if (!doc || typeof doc.execCommand !== "function") return false;
+  let wrote = false;
+  const handleCopy = (event: ClipboardEvent) => {
+    if (!event.clipboardData) return;
+    event.clipboardData.setData("text/plain", representations.text);
+    event.clipboardData.setData("text/html", representations.html);
+    event.preventDefault();
+    wrote = true;
+  };
+  doc.addEventListener("copy", handleCopy, { capture: true, once: true });
+  try {
+    return doc.execCommand("copy") && wrote;
+  } catch (error) {
+    if (error instanceof Error) return false;
+    throw error;
+  } finally {
+    doc.removeEventListener("copy", handleCopy, true);
+  }
+}
+
+/**
+ * Give layer copies a native marker so the paste event can identify which
+ * clipboard source is newest. The in-memory copy remains the local fallback.
+ */
+export async function writeSlideObjectClipboard(
+  clipboardId: string,
+  copied: CopiedSlideObjects,
+  doc: Document | null = typeof document === "undefined" ? null : document,
+): Promise<void> {
+  const html = slideObjectClipboardHtml(clipboardId, copied);
+  const textDocument =
+    doc ?? (typeof document === "undefined" ? null : document);
+  if (!textDocument) throw new Error("Clipboard writing requires a document");
+  const text = slideObjectClipboardText(copied, textDocument);
+  const representations = { text, html };
+  if (writeSlideObjectClipboardLegacy(representations, doc)) return;
+
+  const clipboard =
+    typeof navigator === "undefined" ? null : (navigator.clipboard ?? null);
+  const ClipboardItemCtor =
+    typeof globalThis.ClipboardItem === "undefined"
+      ? null
+      : globalThis.ClipboardItem;
+
+  let richWriteError: unknown;
+  if (clipboard?.write && ClipboardItemCtor) {
+    try {
+      await clipboard.write([
+        new ClipboardItemCtor({
+          "text/plain": new Blob([text], { type: "text/plain" }),
+          "text/html": new Blob([html], { type: "text/html" }),
+        }),
+      ]);
+      return;
+    } catch (error) {
+      richWriteError = error;
+    }
+  }
+
+  if (writeSlideObjectClipboardLegacy(representations, doc)) return;
+  if (clipboard?.writeText) {
+    await clipboard.writeText(text);
+    return;
+  }
+  if (richWriteError) throw richWriteError;
+  throw new Error("Clipboard writing is not supported");
+}
+
 export function copySlideObjects(elements: HTMLElement[]): CopiedSlideObjects {
   return {
     html: normalizeSlideObjectRoots(elements)
