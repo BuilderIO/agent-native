@@ -412,13 +412,14 @@ fn anchored_rect(
                 position.y.clamp(my, max_y_exp),
             ),
             Some(position) => {
-                let (expanded_w, _) = pill_size_physical(app, true);
-                let right_margin = (PILL_RIGHT_MARGIN_LOGICAL as f64 * scale_factor(app)) as i32;
+                // Legacy coordinates are physical pixels, so reconstruct the
+                // old expanded edge in the target monitor's coordinate space.
+                let target_scale = monitor_scale_factor(app, (mx, my, mw, mh));
+                let expanded_w = (PILL_W_EXPANDED_MEETING_LOGICAL as f64 * target_scale) as u32;
+                let right_margin = (PILL_RIGHT_MARGIN_LOGICAL as f64 * target_scale) as i32;
                 let legacy_right_edge = position.x + expanded_w as i32;
                 let monitor_right = mx + mw as i32;
-                // Legacy coordinates are physical pixels, so scale the logical tolerance too.
-                let migration_tolerance =
-                    (4.0 * monitor_scale_factor(app, (mx, my, mw, mh))) as i32;
+                let migration_tolerance = (4.0 * target_scale) as i32;
                 if (legacy_right_edge - (monitor_right - right_margin)).abs() <= migration_tolerance
                 {
                     save_meeting_position_to_disk(app, position.x, position.y, expanded_w);
