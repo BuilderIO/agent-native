@@ -21,6 +21,7 @@ import {
   useDecideResourceSuggestion,
   useResourceSuggestions,
 } from "@agent-native/core/client/review";
+import type { ResourceSuggestion } from "@agent-native/core/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { Document, DocumentSyncStatus } from "@shared/api";
 import {
@@ -128,7 +129,7 @@ import {
 } from "./local-source-write-state";
 import { NotionConflictBanner } from "./NotionConflictBanner";
 import { suggestedEditorIsolation } from "./suggestions/editor-isolation";
-import { markdownSuggestionOperation } from "./suggestions/markdown-operation";
+import { markdownSuggestionOperations } from "./suggestions/markdown-operation";
 import {
   normalizeTitleText,
   stripMarkdownHeadingPrefixFromTitlePaste,
@@ -136,6 +137,7 @@ import {
 import { VisualEditor } from "./VisualEditor";
 import type {
   NotionPageLink,
+  VisualEditorSuggestion,
   VisualEditorHistoryController,
   VisualEditorHistoryState,
 } from "./VisualEditor";
@@ -151,6 +153,52 @@ interface DocumentEditorProps {
 type FieldSaveWatermark = { title: string; updatedAt: string | null };
 type ContentSaveWatermark = { content: string; updatedAt: string | null };
 type DocumentUtilityPanel = "info" | "comments" | null;
+
+function suggestionPresentation(
+  suggestion: ResourceSuggestion,
+): VisualEditorSuggestion | null {
+  if (suggestion.status !== "pending") return null;
+  const operation = suggestion.operations[0];
+  if (!operation) return null;
+  const before = operation.before as { changedText?: unknown } | null;
+  const after = operation.after as { changedText?: unknown } | null;
+  const anchor = operation.anchor as {
+    from?: unknown;
+    prefix?: unknown;
+    suffix?: unknown;
+  } | null;
+  const supportedKinds = [
+    "insert_text",
+    "delete_text",
+    "replace_text",
+    "add_text_block",
+    "set_inline_mark",
+  ] as const;
+  if (
+    !supportedKinds.includes(
+      operation.kind as (typeof supportedKinds)[number],
+    ) ||
+    typeof before?.changedText !== "string" ||
+    typeof after?.changedText !== "string" ||
+    typeof anchor?.from !== "number" ||
+    typeof anchor.prefix !== "string" ||
+    typeof anchor.suffix !== "string"
+  ) {
+    return null;
+  }
+  return {
+    id: suggestion.id,
+    kind: operation.kind as VisualEditorSuggestion["kind"],
+    beforeText: before.changedText,
+    afterText: after.changedText,
+    anchor: {
+      from: anchor.from,
+      prefix: anchor.prefix,
+      suffix: anchor.suffix,
+    },
+    presentation: "canonical",
+  };
+}
 
 export function metadataUpdatesWithPendingTitle<
   T extends {
@@ -719,10 +767,16 @@ function DocumentEditorBody({
   );
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [suggestionDraft, setSuggestionDraft] = useState(document.content);
+  const [selectedSuggestionId, setSelectedSuggestionId] = useState<
+    string | null
+  >(null);
   const suggestionBaseRef = useRef<{
     content: string;
     updatedAt: string;
   } | null>(null);
+  const createdSuggestionOperationsRef = useRef(
+    new Map<string, { idempotencyKey: string; suggestionId?: string }>(),
+  );
   const [utilityPanel, setUtilityPanel] = useState<DocumentUtilityPanel>(null);
   const [lastUtilityPanel, setLastUtilityPanel] =
     useState<Exclude<DocumentUtilityPanel, null>>("comments");
@@ -1997,6 +2051,7 @@ function DocumentEditorBody({
     async (next: boolean) => {
       if (next) {
         if (!canSuggest) return;
+        createdSuggestionOperationsRef.current.clear();
         suggestionBaseRef.current = {
           content: document.content,
           updatedAt: document.updatedAt,
@@ -2011,29 +2066,52 @@ function DocumentEditorBody({
       if (suggestionDraft === base.content) {
         setIsSuggesting(false);
         suggestionBaseRef.current = null;
+        createdSuggestionOperationsRef.current.clear();
         return;
       }
       try {
-        const operation = markdownSuggestionOperation(
+        const operations = markdownSuggestionOperations(
           base.content,
           suggestionDraft,
         );
-        if (!operation) {
+        if (operations.length === 0) {
           setIsSuggesting(false);
           suggestionBaseRef.current = null;
           return;
         }
-        await createSuggestion.mutateAsync({
-          resourceType: "document",
-          resourceId: documentId,
-          adapterKind: "content.document-markdown",
-          baseRevision: base.updatedAt,
-          summary: t("editor.toolbar.suggestEdits"),
-          idempotencyKey: globalThis.crypto.randomUUID(),
-          operations: [operation],
-        });
+        const createdIds: string[] = [];
+        for (const operation of operations) {
+          const operationKey = JSON.stringify(operation);
+          const existing =
+            createdSuggestionOperationsRef.current.get(operationKey);
+          if (existing?.suggestionId) {
+            createdIds.push(existing.suggestionId);
+            continue;
+          }
+          const idempotencyKey =
+            existing?.idempotencyKey ?? globalThis.crypto.randomUUID();
+          createdSuggestionOperationsRef.current.set(operationKey, {
+            idempotencyKey,
+          });
+          const created = await createSuggestion.mutateAsync({
+            resourceType: "document",
+            resourceId: documentId,
+            adapterKind: "content.document-markdown",
+            baseRevision: base.updatedAt,
+            summary: t("editor.toolbar.suggestEdits"),
+            idempotencyKey,
+            operations: [operation],
+          });
+          createdSuggestionOperationsRef.current.set(operationKey, {
+            idempotencyKey,
+            suggestionId: created.id,
+          });
+          createdIds.push(created.id);
+        }
         setIsSuggesting(false);
         suggestionBaseRef.current = null;
+        createdSuggestionOperationsRef.current.clear();
+        setSelectedSuggestionId(createdIds[0] ?? null);
         setUtilityPanel("comments");
         setCommentsBrowseOpen(true);
       } catch (error) {
@@ -2057,6 +2135,28 @@ function DocumentEditorBody({
   useEffect(() => {
     if (!canSuggest && isSuggesting) setIsSuggesting(false);
   }, [canSuggest, isSuggesting]);
+
+  const visualSuggestions = useMemo<VisualEditorSuggestion[]>(() => {
+    const base = suggestionBaseRef.current;
+    if (isSuggesting && base) {
+      return markdownSuggestionOperations(base.content, suggestionDraft).map(
+        (operation) => ({
+          id: `draft-${operation.ordinal}`,
+          kind: operation.kind,
+          beforeText: operation.before.changedText,
+          afterText: operation.after.changedText,
+          anchor: operation.anchor,
+          presentation: "draft",
+        }),
+      );
+    }
+    return (suggestionsQuery.data?.suggestions ?? [])
+      .map(suggestionPresentation)
+      .filter(
+        (suggestion): suggestion is VisualEditorSuggestion =>
+          suggestion !== null,
+      );
+  }, [isSuggesting, suggestionDraft, suggestionsQuery.data?.suggestions]);
 
   useEffect(() => {
     void setClientAppState(
@@ -2234,11 +2334,34 @@ function DocumentEditorBody({
   }, [clearCommentFocus, hasUtilityRailSpace]);
 
   const activateCommentThread = useCallback((threadId: string) => {
+    setSelectedSuggestionId(null);
     setPendingComment(null);
     setHoveredThreadId(null);
     setSelectedThreadId(threadId);
     setCommentsBrowseOpen(false);
     setUtilityPanel("comments");
+  }, []);
+
+  const activateSuggestion = useCallback((suggestionId: string) => {
+    setPendingComment(null);
+    setHoveredThreadId(null);
+    setSelectedThreadId(null);
+    setSelectedSuggestionId(suggestionId);
+    setCommentsBrowseOpen(false);
+    setUtilityPanel("comments");
+    requestAnimationFrame(() => {
+      const escaped = globalThis.CSS?.escape
+        ? globalThis.CSS.escape(suggestionId)
+        : suggestionId.replace(/["\\]/g, "\\$&");
+      const targets = globalThis.document.querySelectorAll<HTMLElement>(
+        `[data-suggestion-id="${escaped}"]`,
+      );
+      const pageTarget = Array.from(targets).find((target) =>
+        target.closest(".notion-editor"),
+      );
+      pageTarget?.scrollIntoView({ behavior: "smooth", block: "center" });
+      pageTarget?.focus({ preventScroll: true });
+    });
   }, []);
 
   const handleUtilityPanelChange = useCallback(
@@ -2262,6 +2385,7 @@ function DocumentEditorBody({
     setCommentsBrowseOpen(false);
     setUtilityPanel(null);
     clearCommentFocus();
+    setSelectedSuggestionId(null);
   }, [clearCommentFocus, documentId]);
 
   useEffect(() => {
@@ -2481,6 +2605,8 @@ function DocumentEditorBody({
       activeThreadId={activeThreadId}
       selectedThreadId={selectedThreadId}
       onActivateThread={activateCommentThread}
+      activeSuggestionId={selectedSuggestionId}
+      onActivateSuggestion={activateSuggestion}
       onSelectedThreadChange={setSelectedThreadId}
       onHoveredThreadChange={setHoveredThreadId}
       currentUserEmail={session?.email}
@@ -3052,6 +3178,9 @@ function DocumentEditorBody({
                                 ? activateCommentThread
                                 : undefined
                             }
+                            suggestions={visualSuggestions}
+                            activeSuggestionId={selectedSuggestionId}
+                            onActivateSuggestion={activateSuggestion}
                             showCommentIndicators={showCommentIndicators}
                             onJoinTitle={joinFirstBodyBlockToTitle}
                             notionPageLinks={notionPageLinks}

@@ -262,6 +262,8 @@ describe("comments sidebar layout", () => {
       '"pending",\n                    "accepted",\n                    "rejected"',
     );
     expect(source).toContain("renderSuggestionCards(historySuggestions)");
+    expect(source).toContain("renderSuggestionText(before.changedText)");
+    expect(source).toContain("<InlineMarkdown content={content} inline />");
     expect(source).toContain(
       'className="w-full min-w-0 overflow-hidden rounded-lg bg-popover',
     );

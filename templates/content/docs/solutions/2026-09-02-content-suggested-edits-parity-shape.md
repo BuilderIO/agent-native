@@ -3,8 +3,8 @@ title: "Content Suggested Edits parity shape"
 date: 2026-09-02
 status: shape-complete
 authoritySchemaVersion: 3
-ledgerRevision: content-suggested-edits-shape-r2
-governingArtifactRevision: content-suggested-edits-shape-r2
+ledgerRevision: content-suggested-edits-shape-r3
+governingArtifactRevision: content-suggested-edits-shape-r3
 ---
 
 # Content Suggested Edits parity
@@ -14,6 +14,39 @@ governingArtifactRevision: content-suggested-edits-shape-r2
 Add **Suggested Edits** to Agent-Native Content with behavioral parity to Notion's observed feature: a commenter, editor, admin, owner, or authorized agent can propose page-body text changes without changing the canonical page; reviewers inspect each proposal in place, discuss it, and accept or reject it durably. The first shipped slice deliberately matches Notion's narrow page-body boundary rather than prematurely implementing Content's broader typed-diff roadmap.
 
 The implementation should extend Core's existing review domain with executable suggestions and let Content register the document-specific operation and renderer adapter. Content owns page semantics, supported blocks, editor mode, and canonical mutation. Core owns proposal identity, thread/disposition lifecycle, permissions integration, notifications, audit/history seams, and shared actions. Suggestions are not comments with overloaded metadata, recovery versions, raw Yjs updates, or draft copies of pages.
+
+## 2026-09-03 return-to-shape: in-place review repair
+
+Human QA of PR #4274 at `c820218ee5e811c0328d68e16085a0b1bcce2fc1` proved that the staged interface does not satisfy this artifact's already-frozen parity contract. While Suggesting is active, edits render as ordinary canonical-looking content and the Comments rail reports no proposal. Stopping Suggesting replaces the draft with canonical content, then creates one detached whole-session markdown diff. Pending changes have no marker in the Page after submission or reload, raw markdown leaks into the review card, and the tablet/mobile review modal obscures the Page. Accept, reject, and persistence work, but only after the reviewer discovers and reconstructs the detached proposal.
+
+The firsthand Notion reference keeps every pending change visibly anchored in the ordinary document. Insertions, replacements, formatting, and new blocks have inline treatment and per-location counts; activating an anchor opens the exact suggestion thread with author, time, discussion, and Accept/Reject beside the affected material. The repair therefore restores the existing contract rather than adding optional polish.
+
+### Bound repair
+
+1. **Capture semantic operations, not one markdown session diff.** The suggesting editor must translate supported ProseMirror transactions into typed Add/Delete/Replace/Add block/Set mark operations with stable operation and thread identity. Keystrokes that form one continuous edit may coalesce, but distinct ranges and operation kinds remain independently reviewable. `markdownSuggestionOperation(base, finalDraft)` may remain a compatibility/test helper; it cannot be the UI's primary capture boundary.
+2. **Render one pending overlay in the ordinary editor.** Canonical Markdown/Yjs remains unchanged, while the editor projects canonical content plus local and durable pending operations. Insertions and marks receive visible non-color-only treatment; deletions remain readable with deletion treatment. Block markers/counts and keyboard-focusable anchors open the existing review rail at the matching thread.
+3. **Persist without a disappearing-submit transition.** A completed semantic operation becomes a pending suggestion at a clear edit boundary and remains inline through mode exit, reload, and another authorized viewer. Exiting Suggesting changes authoring mode only; it does not submit an invisible batch or make proposed material vanish. Pending-save and failed-save states are explicit, and a failed proposal write cannot masquerade as a durable suggestion.
+4. **Review the affected material, not serialized markdown.** The rail renders typed before/after content through the Content renderer, preserves formatting, identifies operation kind/author/time/status, and supports independent Accept/Reject where operations are compatible. Selecting a rail item focuses its Page anchor; selecting an anchor opens its rail item. Historical or stale operations retain an honest contextual fallback.
+5. **Preserve context at narrow widths.** The narrow review surface may use a sheet, but it must provide the affected before/after material and a reliable return-to-anchor path. On widths that can support split review, the Page and decision surface remain simultaneously readable.
+
+### Smallest implementation sequence
+
+- Wire the existing typed suggestion model/controller into `VisualEditor` through a ProseMirror plugin that captures supported transactions and supplies decorations/markers. Delete the parallel plain-markdown draft as the source of suggestion semantics.
+- Extend the existing Core suggestion aggregate only as needed for multiple stable operations and per-operation thread/decision identity; do not create a second Content-only persistence system.
+- Hydrate durable pending operations through `useResourceSuggestions`, resolve their anchors against the canonical document, and render the same overlay used for local operations. Local operations transition to their returned durable IDs without visual replacement or focus loss.
+- Replace the Comments rail's `operations[0]`/plain-text rendering with typed operation rows connected bidirectionally to editor anchors. Reuse existing review replies, reactions, unread, mute, deep links, and dispositions.
+- Keep the already-shaped prepare/commit/publish acceptance path for canonical application. This repair changes proposal composition and presentation, not transaction ownership, access enforcement, or the SQL/Yjs authority boundary.
+
+### Explicit exclusions for this repair
+
+- No Property, database cell/schema, title, icon, cover, media, embed, local-file, or source-owned suggestions.
+- No Accept all/Reject all, filtered-set review, AI summaries, or general change-graph work.
+- No separate diff page, permanent review dashboard, duplicate discussion store, or canonical Yjs mutation while a suggestion is pending.
+- No claim of complete Feature 7 availability; this remains the page-body parity slice of `content.revision.suggestions` and `content.diff.in-place`.
+
+### QA evidence
+
+The current exact-head report and screenshots are retained outside the product repository at `/Users/alicemoore/.codex/visualizations/2026/09/03/01a06892-a5f4-77d0-a834-27af7c39c530/suggested-edits-qa/HUMAN-QA.md`. They are task evidence, not intended shipping documentation.
 
 ## Human problem and stakes
 
@@ -210,10 +243,10 @@ Automated coverage is required for model/store/action/permission/idempotency/sta
 
 ```yaml
 stage: shape
-authority-source: "User invoked $shape and requested exact Suggested Edits feature parity for Agent-Native Content."
+authority-source: "User invoked $shape on 2026-09-03 to shape the fixes after exact-head human QA of PR #4274."
 authorized-scope:
   repositories:
-    - /home/teenylilmonkey/Developer/agent-native
+    - /Users/alicemoore/.codex/worktrees/5438/agent-native
   product-surfaces:
     - Agent-Native Content page editor
     - Agent-Native Core review substrate
@@ -225,7 +258,7 @@ write-targets:
     - templates/content/docs/solutions/2026-09-02-content-suggested-edits-parity-shape.md
 governing-artifact:
   path: templates/content/docs/solutions/2026-09-02-content-suggested-edits-parity-shape.md
-  revision: content-suggested-edits-shape-r2
+  revision: content-suggested-edits-shape-r3
 architecture-fingerprint:
   outcome: Commenters, editors, and agents can propose supported page-body edits without changing canonical Content until an authorized reviewer accepts them.
   shipping-surfaces:
@@ -247,6 +280,9 @@ architecture-fingerprint:
     summary: A commenter or agent proposes supported edits in the ordinary Content editor; an authorized editor discusses and decides each proposal; only accepted material reaches canonical Content and every state remains attributable and recoverable.
     required-assertions:
       - proposal creation preserves canonical content
+      - each supported semantic edit is visibly distinguished and independently anchored while authoring and after persistence or reload
+      - exiting Suggesting changes authoring mode without removing pending material from the Page
+      - typed review renders exact before and after material without exposing serialized markdown syntax
       - selective accept/reject applies exactly the decided operation
       - discussion and resolved history persist with deep links
       - UI, agent, and action permission parity fails closed
@@ -264,6 +300,7 @@ architecture-fingerprint:
   risk-strategy:
     kind: feature-flagged
     production-validation-after-merge: true
+    rationale: The repair crosses shared review persistence and collaborative SQL/Yjs mutation seams, so the existing default-off flag remains necessary for beta dogfooding and post-merge cross-client validation before ordinary-user enablement.
 architecture-grounding:
   applicability: required
   reason: The feature crosses shared review, permissions, history, action, collaboration, and Content domain boundaries.
@@ -291,7 +328,7 @@ architecture-grounding:
     - accepted
     - rejected
     - stale
-  smallest-compatible-delta: Core executable-suggestion lifecycle and narrow decision coordinator, a Core prepared Yjs mutation lease, one shared Content canonical body-mutation helper, and the Content page-body text/mark adapter plus ordinary-editor presentation.
+  smallest-compatible-delta: Preserve the existing Core executable-suggestion lifecycle and canonical mutation coordinator; replace the UI's whole-session markdown diff with typed semantic operation capture, durable pending-operation hydration, in-place editor overlays and anchors, and typed rail rendering for the Content page-body slice.
   deferred-capabilities:
     - generic typed Property/Database/media proposals
     - filtered bulk review
@@ -311,32 +348,38 @@ architecture-grounding:
   unresolved-owner-questions: []
 delegation-ceiling: []
 acceptance-state:
-  status: in-progress
-  summary: Core and Content implementation is staged; local real-interface proof covers proposal isolation plus accept and reject decisions in the contextual rail.
+  status: blocked
+  summary: PR #4274 preserves canonical isolation and can accept, reject, and reload proposals, but exact-head human QA fails the frozen in-place authoring and review story because pending changes are detached from the Page and collapsed into one markdown diff.
   evidence:
     - templates/content/docs/solutions/evidence/suggested-edits-accept-reject.png
     - focused Core and Content automated suites
   remaining:
+    - typed semantic operation capture in the real editor
+    - immediate and durable in-place decorations, markers, and bidirectional thread anchors
+    - typed before/after rail rendering without raw markdown leakage
     - commenter/editor role-separated acceptance
     - accountable agent proposal acceptance
     - two-client sync and narrow-width accessibility acceptance
     - independent technical review closure
-  blockers: []
+  blockers:
+    - exact-head real-interface H1-H10 failed the in-place comparison and discoverability assertions
   last-land-packet: null
 change-record:
-  from-revision: content-suggested-edits-shape-r1
-  to-revision: content-suggested-edits-shape-r2
-  trigger: Independent review proved that direct SQL acceptance could diverge from the cached Y.Doc and bypass normal Content mutation effects.
+  from-revision: content-suggested-edits-shape-r2
+  to-revision: content-suggested-edits-shape-r3
+  trigger: Exact-head human QA proved that the staged plain-markdown draft and detached review card violate the already-frozen in-place parity contract.
   preserved:
     - outcome and exact Notion-parity product boundary
     - shipping surfaces and ownership split between Core and Content
     - default-off feature-flag risk strategy
+    - prepare/commit/publish canonical mutation coordination
   changed:
-    - canonical mutation coordination is now an explicit prepare/commit/publish architecture
-    - ordinary Content saves and accepted suggestions must share one Content body-mutation helper
-    - durable Yjs state and sync event join the suggestion decision transaction
-    - acceptance now proves stale-client overwrite prevention and crash-window convergence
-ledger-revision: content-suggested-edits-shape-r2
+    - whole-session markdown diff is explicitly rejected as the editor capture boundary
+    - typed semantic operations must remain independently anchored and reviewable
+    - pending suggestions must render in place while authoring and after persistence or reload
+    - the rail must render typed material and maintain bidirectional focus with Page anchors
+    - narrow-width review must preserve affected-content context and return focus
+ledger-revision: content-suggested-edits-shape-r3
 status: shape-complete
 ```
 
@@ -344,29 +387,32 @@ status: shape-complete
 
 ```yaml
 stage: work
-authority-source: "User invoked $work on 2026-09-03 against content-suggested-edits-shape-r2."
-ledger-revision: content-suggested-edits-work-r2-2
+authority-source: "User invoked $work on 2026-09-03 against content-suggested-edits-shape-r3."
+ledger-revision: content-suggested-edits-work-r3-1
 governing-artifact:
   path: templates/content/docs/solutions/2026-09-02-content-suggested-edits-parity-shape.md
-  revision: content-suggested-edits-shape-r2
+  revision: content-suggested-edits-shape-r3
 allowed-mutations:
   - artifact-write
   - ephemeral-test-resource
-  - branch
   - commit
+  - push
+  - pull-request
 write-targets:
   repositories:
-    - /home/teenylilmonkey/.codex/worktrees/content-suggested-edits/agent-native
+    - /Users/alicemoore/.codex/worktrees/5438/agent-native
+  artifacts:
+    - templates/content/docs/solutions/2026-09-02-content-suggested-edits-parity-shape.md
 test-resources:
-  - id: content-suggested-edits-r2-page
+  - id: content-suggested-edits-r3-page
     kind: record
-    surface: local Content SQLite document id codex-suggested-edits-r2-20260903
-    ownership-marker: title "[task-test] Suggested Edits r2 2026-09-03"
-    baseline: exact document id returned zero rows immediately before creation
-    allowed-actions: [create, update, exercise, delete]
+    surface: local Content SQLite page BI4G0ihYdTeK at http://127.0.0.1:8080
+    ownership-marker: title "QA Suggested Edits 2026-09-03 A"
+    baseline: task-created disposable page with Alpha, Beta, and Gamma baseline sentences before its first suggestion
+    allowed-actions: [update, exercise, delete]
     cleanup-trigger: before Work completion
-    cleanup-method: delete suggestion/review/version/collab/membership rows for the exact document id, then delete that document row in one local SQLite transaction
-    cleanup-proof: read every named table for the exact document id and observe zero rows
+    cleanup-method: delete the exact page and its suggestion/review/version/collaboration rows through the local Content action or exact database transaction
+    cleanup-proof: independently query every affected table for exact page id BI4G0ihYdTeK and observe zero rows
     shared-impact: none
     isolation: local-runtime
     ownership: task-created
@@ -374,22 +420,18 @@ test-resources:
     customer-data: false
     cost: none
     boundary-evidence:
-      - fixed id is absent from the local Content database before creation
-      - pending replacement created through the real editor and accepted through the review card
-      - a second live client converged from Alpha old Omega to Alpha new Omega
-      - rejected replacement resolved without changing the accepted document body
-      - viewport screenshots retained under C:/Users/emdis/.codex/visualizations/2026/09/01/01a05dfc-8e21-7780-a44a-4937701320e4
-    max-lifetime-minutes: 240
-    declared-at: 2026-09-03T16:48:52Z
-    expires-at: 2026-09-03T20:48:52Z
-    status: cleaned
-    cleanup-result: documents=0, suggestions=0, comments=0, versions=0, collab_docs=0 after one local SQLite write batch
+      - unique task marker and exact returned page id
+      - local demo-only runtime at 127.0.0.1:8080
+    max-lifetime-minutes: 720
+    declared-at: 2026-09-03T15:30:00-04:00
+    expires-at: 2026-09-04T03:30:00-04:00
+    status: active
     phase: work
-acceptance-reconciliation: consistent
+acceptance-reconciliation: consistent — schema-v3 real-interface, preferred independence, same-context-allowed custody
 task-attention: autonomous
-status: verification
+status: implementation
 ```
 
 ## Next step
 
-Invoke `/work templates/content/docs/solutions/2026-09-02-content-suggested-edits-parity-shape.md` to revise the staged implementation against r2. Work resumes at Slice 1 by replacing the direct-SQL acceptance path with the frozen mutation coordinator and shared Content helper before proceeding to remaining interface acceptance. Failure to make the document lease span the decision transaction, persist the Yjs fence in that transaction, or prevent stale-client overwrite is a return-to-shape condition rather than permission to degrade silently.
+Invoke `/work templates/content/docs/solutions/2026-09-02-content-suggested-edits-parity-shape.md` to revise PR #4274 against r3. Work begins with the editor capture/rendering boundary: preserve the accepted Core lifecycle and canonical mutation coordinator, replace the whole-session markdown diff with typed semantic operations, and prove that proposed material stays visibly anchored before and after persistence. The PR remains acceptance-blocked until the complete H1-H10 story passes on the exact head; accept/reject persistence alone is not sufficient.

@@ -58,6 +58,7 @@ import {
   useMentionMembers,
   type MentionMember,
 } from "@/hooks/use-mention-members";
+import { cn } from "@/lib/utils";
 
 import type { CommentTextAnchor } from "./comment-anchors";
 import { CommentComposer, type MentionEntry } from "./CommentComposer";
@@ -77,6 +78,10 @@ function commentMentionSpans(
     label: `@${label}`,
     className: "comment-mention",
   }));
+}
+
+function renderSuggestionText(content: string) {
+  return <InlineMarkdown content={content} inline />;
 }
 
 function renderCommentBody(content: string, mentions: CommentMention[]) {
@@ -362,6 +367,8 @@ interface CommentsSidebarProps {
   activeThreadId?: string | null;
   selectedThreadId?: string | null;
   onActivateThread?: (id: string) => void;
+  activeSuggestionId?: string | null;
+  onActivateSuggestion?: (id: string) => void;
   onSelectedThreadChange?: (id: string | null) => void;
   onHoveredThreadChange?: (id: string | null) => void;
   currentUserEmail?: string;
@@ -390,6 +397,8 @@ export function CommentsSidebar({
   activeThreadId,
   selectedThreadId,
   onActivateThread,
+  activeSuggestionId,
+  onActivateSuggestion,
   onSelectedThreadChange,
   onHoveredThreadChange,
   currentUserEmail,
@@ -763,9 +772,19 @@ export function CommentsSidebar({
           return (
             <article
               key={suggestion.id}
-              className="rounded-lg bg-popover p-3 shadow-sm ring-1 ring-border/50"
+              className={cn(
+                "rounded-lg bg-popover p-3 shadow-sm ring-1 ring-border/50",
+                activeSuggestionId === suggestion.id && "ring-2 ring-primary",
+              )}
               data-suggestion-id={suggestion.id}
-              tabIndex={-1}
+              tabIndex={0}
+              onClick={() => onActivateSuggestion?.(suggestion.id)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onActivateSuggestion?.(suggestion.id);
+                }
+              }}
             >
               <div className="mb-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
                 <span>
@@ -777,11 +796,13 @@ export function CommentsSidebar({
               <p className="break-words text-sm">
                 {before?.changedText ? (
                   <del className="text-muted-foreground">
-                    {before.changedText}
+                    {renderSuggestionText(before.changedText)}
                   </del>
                 ) : null}
                 {before?.changedText && after?.changedText ? " → " : null}
-                {after?.changedText ? <ins>{after.changedText}</ins> : null}
+                {after?.changedText ? (
+                  <ins>{renderSuggestionText(after.changedText)}</ins>
+                ) : null}
               </p>
               {canDecideSuggestions && suggestion.status === "pending" ? (
                 <div className="mt-3 flex justify-end gap-1">
@@ -789,7 +810,10 @@ export function CommentsSidebar({
                     type="button"
                     className="rounded-md px-2.5 py-1 text-xs text-muted-foreground hover:bg-accent"
                     disabled={decidingSuggestion}
-                    onClick={() => onDecideSuggestion?.(suggestion, "rejected")}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDecideSuggestion?.(suggestion, "rejected");
+                    }}
                   >
                     {t("editor.rejectSuggestion")}
                   </button>
@@ -797,7 +821,10 @@ export function CommentsSidebar({
                     type="button"
                     className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground disabled:opacity-40"
                     disabled={decidingSuggestion}
-                    onClick={() => onDecideSuggestion?.(suggestion, "accepted")}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDecideSuggestion?.(suggestion, "accepted");
+                    }}
                   >
                     {t("editor.acceptSuggestion")}
                   </button>
@@ -977,9 +1004,19 @@ export function CommentsSidebar({
             return (
               <article
                 key={suggestion.id}
-                className="rounded-lg bg-popover p-3 shadow-sm ring-1 ring-border/50"
+                className={cn(
+                  "rounded-lg bg-popover p-3 shadow-sm ring-1 ring-border/50",
+                  activeSuggestionId === suggestion.id && "ring-2 ring-primary",
+                )}
                 data-suggestion-id={suggestion.id}
-                tabIndex={-1}
+                tabIndex={0}
+                onClick={() => onActivateSuggestion?.(suggestion.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onActivateSuggestion?.(suggestion.id);
+                  }
+                }}
               >
                 <div className="mb-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
                   <span>
@@ -991,11 +1028,13 @@ export function CommentsSidebar({
                 <p className="break-words text-sm">
                   {before?.changedText ? (
                     <del className="text-muted-foreground">
-                      {before.changedText}
+                      {renderSuggestionText(before.changedText)}
                     </del>
                   ) : null}
                   {before?.changedText && after?.changedText ? " → " : null}
-                  {after?.changedText ? <ins>{after.changedText}</ins> : null}
+                  {after?.changedText ? (
+                    <ins>{renderSuggestionText(after.changedText)}</ins>
+                  ) : null}
                 </p>
                 {canDecideSuggestions && suggestion.status === "pending" ? (
                   <div className="mt-3 flex justify-end gap-1">
@@ -1003,9 +1042,10 @@ export function CommentsSidebar({
                       type="button"
                       className="rounded-md px-2.5 py-1 text-xs text-muted-foreground hover:bg-accent"
                       disabled={decidingSuggestion}
-                      onClick={() =>
-                        onDecideSuggestion?.(suggestion, "rejected")
-                      }
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDecideSuggestion?.(suggestion, "rejected");
+                      }}
                     >
                       {t("editor.rejectSuggestion")}
                     </button>
@@ -1013,9 +1053,10 @@ export function CommentsSidebar({
                       type="button"
                       className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground disabled:opacity-40"
                       disabled={decidingSuggestion}
-                      onClick={() =>
-                        onDecideSuggestion?.(suggestion, "accepted")
-                      }
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDecideSuggestion?.(suggestion, "accepted");
+                      }}
                     >
                       {t("editor.acceptSuggestion")}
                     </button>

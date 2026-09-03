@@ -734,7 +734,19 @@ describe("document editor layout", () => {
 
     expect(source).toContain("suggestionBaseRef.current = {");
     expect(source).toContain(
-      "markdownSuggestionOperation(\n          base.content",
+      "markdownSuggestionOperations(\n          base.content",
+    );
+    expect(source).toContain("for (const operation of operations)");
+    expect(source).toContain("operations: [operation]");
+    expect(source).toContain("createdSuggestionOperationsRef.current.get");
+    expect(source).toContain("createdSuggestionOperationsRef.current.set");
+    expect(
+      source.indexOf("createdSuggestionOperationsRef.current.set"),
+    ).toBeLessThan(
+      source.indexOf("const created = await createSuggestion.mutateAsync"),
+    );
+    expect(source).toContain(
+      "idempotencyKey,\n            operations: [operation]",
     );
     expect(source).toContain("baseRevision: base.updatedAt");
     expect(source).not.toContain("baseRevision: document.updatedAt");
