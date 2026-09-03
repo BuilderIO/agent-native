@@ -25,8 +25,9 @@ authorize to access and use the Service.
 1.3. "Agent-Native Site" means the Agent-Native website and other websites
 where these Terms are posted or linked.
 
-1.4. "Hosted Application" means any website, application, service, or other
-digital property that you build, configure, or deploy using the Service.
+1.4. "Hosted Agent-Native Application" and "Hosted Application" mean any
+website, application, service, or other digital property that you build,
+configure, or deploy using the Service.
 
 1.5. "Customer Data" means any data, materials, or content, including
 End-User Personal Data, that you, your Authorized Users, or End Users provide,
@@ -208,8 +209,9 @@ separate written terms.
 
 ## 7. TERM AND TERMINATION
 
-7.1. Term of Agreement. These Terms commence on the Effective Date and
-continue until you stop using the Service or these Terms are terminated.
+7.1. Term of Agreement. These Terms begin when you first access or use the
+Service, as described in Section 2.2, and continue until you stop using the
+Service or these Terms are terminated.
 
 7.2. Termination for Cause. Either party may terminate these Terms immediately
 upon notice if the other party materially breaches these Terms and fails to
