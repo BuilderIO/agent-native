@@ -275,6 +275,9 @@ export function mergeDocumentIntoDocumentCache(
     source: document.source,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
+    revision: document.revision,
+    bodyRevision: document.bodyRevision,
+    contentHash: document.contentHash,
   };
   return old && typeof old === "object"
     ? { ...old, ...pageOwnedPatch }
