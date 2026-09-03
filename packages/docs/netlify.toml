@@ -1,5 +1,5 @@
 [build]
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter @agent-native/docs build && if [ \"${CONTEXT:-}\" = \"production\" ] || [ \"${AGENT_NATIVE_RUN_RELEASE_MIGRATIONS:-}\" = \"1\" ]; then pnpm --filter @agent-native/docs migrate:production; fi"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter @agent-native/docs build && if { [ \"${CONTEXT:-}\" = \"production\" ] || [ \"${AGENT_NATIVE_RUN_RELEASE_MIGRATIONS:-}\" = \"1\" ]; } && [ \"${AGENT_NATIVE_PREBUILT_SKIP_RELEASE_MIGRATIONS:-}\" != \"1\" ]; then pnpm --filter @agent-native/docs migrate:production; fi"
 publish = "packages/docs/dist"
 edge_functions = "packages/docs/netlify/edge-functions"
 

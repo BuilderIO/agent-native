@@ -37,9 +37,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  migrate:
+    name: Migrate docs production schema
+    needs: pause-netlify-builds
+    uses: ./.github/workflows/deploy-netlify-prebuilt.yml
+    with:
+      target: production
+      site: fw
+      caller: release-migration
+      source_ref: ${{ inputs.source_ref || github.sha }}
+      build_context: production
+      deploy: false
+      deploy_mode: draft
+      smoke: false
+      migration_only: true
+    secrets: inherit
+
   deploy:
     name: docs production prebuilt deploy
-    needs: pause-netlify-builds
+    needs: [pause-netlify-builds, migrate]
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:
       target: production
@@ -50,6 +66,8 @@ jobs:
       deploy: true
       deploy_mode: production
       smoke: ${{ github.event_name == 'push' || inputs.smoke }}
+      migration_only: false
+      skip_build_migrations: true
     secrets: inherit
 
   pause-netlify-builds:

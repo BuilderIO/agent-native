@@ -42,6 +42,7 @@ export function validateReusableWorkflowConcurrency(
     !group.includes("inputs.caller") ||
     !group.includes("inputs.source_ref") ||
     !group.includes("netlify-prebuilt-child") ||
+    !group.includes("agent-native-release-migrations") ||
     !group.includes("inputs.target") ||
     !group.includes("inputs.site") ||
     !group.includes("agent-native-production-site") ||
@@ -205,10 +206,12 @@ issues.push(...validateReusableWorkflowConcurrency(reusableDocument ?? {}));
 if (asRecord(reusableDocument?.concurrency)?.["cancel-in-progress"] !== false) {
   issues.push(`${reusablePath} beta deploys must queue every source SHA`);
 }
-if (asRecord(parsedWorkflows.get(betaPath)?.concurrency)) {
-  issues.push(
-    `${betaPath} must not use a shared workflow concurrency group; GitHub keeps only one pending run per group`,
-  );
+const betaConcurrency = asRecord(parsedWorkflows.get(betaPath)?.concurrency);
+if (
+  betaConcurrency?.group !== "agent-native-beta-publisher" ||
+  betaConcurrency?.["cancel-in-progress"] !== true
+) {
+  issues.push(`${betaPath} must use a canceling latest-main concurrency group`);
 }
 
 const productionConcurrency = asRecord(
@@ -304,6 +307,8 @@ for (const input of [
   "deploy_mode",
   "smoke",
   "caller",
+  "migration_only",
+  "skip_build_migrations",
 ]) {
   if (!asRecord(workflowCallInputs?.[input])) {
     issues.push(`${reusablePath} workflow_call must define the ${input} input`);
@@ -615,26 +620,28 @@ for (const [path, target, buildContext] of [
   }
   if (
     path === betaPath &&
-    asRecord(deployJob?.strategy)?.["max-parallel"] !== 1
+    asRecord(deployJob?.strategy)?.["max-parallel"] !== 8
   ) {
     issues.push(
-      `${path} must serialize beta builds because release migrations share database capacity`,
+      `${path} must allow beta artifact builds to run concurrently after migration preflight`,
     );
   }
 }
 
-for (const required of [
-  "context.runId",
-  "run.id < context.runId",
-  "run.event",
-  "workflow_dispatch",
-  "actions.getWorkflowRun",
-] as const) {
-  if (!beta.includes(required)) {
-    issues.push(
-      `${betaPath} must queue push and manual beta runs behind the prior workflow run (${required})`,
-    );
-  }
+const betaMigrateJob = asRecord(
+  asRecord(parsedWorkflows.get(betaPath)?.jobs)?.migrate,
+);
+const betaMigrateWith = asRecord(betaMigrateJob?.with);
+if (
+  betaMigrateJob?.uses !== "./.github/workflows/deploy-netlify-prebuilt.yml" ||
+  asRecord(betaMigrateJob?.strategy)?.["max-parallel"] !== 1 ||
+  betaMigrateWith?.caller !== "release-migration" ||
+  betaMigrateWith?.migration_only !== true ||
+  betaMigrateWith?.deploy !== false
+) {
+  issues.push(
+    `${betaPath} must run one serialized reusable migration preflight before beta artifact builds`,
+  );
 }
 
 if (issues.length) {
