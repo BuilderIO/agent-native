@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildCreateRecordingRequestBody,
   buildCreateRecordingRequestHeaders,
+  isStorageSetupFailureMessage,
 } from "./recording-request";
 
 describe("buildCreateRecordingRequestHeaders", () => {
@@ -50,5 +51,16 @@ describe("buildCreateRecordingRequestBody", () => {
       spaceIds: [],
       visibility: "private",
     });
+  });
+});
+
+describe("isStorageSetupFailureMessage", () => {
+  it("recognizes storage setup errors returned by create-recording", () => {
+    expect(
+      isStorageSetupFailureMessage('{"error":"No video storage configured"}'),
+    ).toBe(true);
+    expect(
+      isStorageSetupFailureMessage('{"error":"Database unavailable"}'),
+    ).toBe(false);
   });
 });

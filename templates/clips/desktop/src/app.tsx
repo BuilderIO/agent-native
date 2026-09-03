@@ -141,6 +141,7 @@ import {
 import {
   RECORDING_SERVER_UNAVAILABLE,
   RECORDING_SESSION_EXPIRED,
+  isStorageSetupFailureMessage,
 } from "./lib/recording-request";
 import { boundedCleanup } from "./lib/recording-start-guard";
 import { REWIND_AGENT_PROMPT } from "./lib/rewind-agent-prompt";
@@ -378,8 +379,6 @@ type VideoStorageStatus = "checking" | "configured" | "missing";
 
 const STORAGE_SETUP_HELP_TEXT =
   "Clips is 100% free and open source, so you need to hook up a way to store your clips. Connect storage with Builder.io for free-tier storage and AI, or use S3-compatible object storage and your own LLM keys.";
-const STORAGE_SETUP_FAILURE_RE =
-  /video storage is not connected|no video storage configured|file upload provider|storage provider|connect builder|s3-compatible/i;
 const DEFAULT_SCREEN_MEMORY_CONFIG = {
   enabled: false,
   paused: false,
@@ -400,10 +399,6 @@ const DEFAULT_SCREEN_MEMORY_CONFIG = {
   ],
   excludePrivateWindows: false,
 };
-
-function isStorageSetupFailureMessage(message: string | null | undefined) {
-  return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
-}
 
 // Shared with overlays via lib/url.ts — the meeting pill reads the same key.
 const STORAGE_KEY = SERVER_URL_STORAGE_KEY;

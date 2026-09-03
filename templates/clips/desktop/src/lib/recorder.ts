@@ -84,6 +84,7 @@ import {
   buildCreateRecordingRequestBody,
   RECORDING_SERVER_UNAVAILABLE,
   RECORDING_SESSION_EXPIRED,
+  isStorageSetupFailureMessage,
   type NativeRecordingRequestOptions,
 } from "./recording-request";
 import {
@@ -1646,6 +1647,9 @@ async function createServerRecording(
     console.error("[clips-recorder] bad response:", url, res.status, body);
     if (res.status === 401) {
       throw new Error(RECORDING_SESSION_EXPIRED);
+    }
+    if (res.status >= 500 && isStorageSetupFailureMessage(body)) {
+      throw new Error(body.slice(0, 200));
     }
     if (res.status >= 500) {
       throw new Error(RECORDING_SERVER_UNAVAILABLE);
