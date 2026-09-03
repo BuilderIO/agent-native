@@ -463,6 +463,7 @@ function SortableSlideThumb({
           </button>
         </ContextMenuTrigger>
         <ContextMenuContent
+          style={{ animation: "none", transition: "none" }}
           onCloseAutoFocus={(event) => {
             // Radix restores focus to the trigger (this slide's thumbnail
             // button) when the menu closes. That button's onFocus reselects
