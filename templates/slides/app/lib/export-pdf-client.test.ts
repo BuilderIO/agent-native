@@ -106,6 +106,18 @@ describe("findSlideExportSource", () => {
       /Slide 3 of 5 is not currently rendered/,
     );
   });
+
+  it("can restrict lookup to a dedicated export stage", () => {
+    const stage = document.createElement("div");
+    const canvas = addSlideCopy("s1", {
+      offsetWidth: 960,
+      renderedWidth: 960,
+    });
+    stage.appendChild(canvas);
+    document.body.appendChild(stage);
+
+    expect(findSlideExportSource("s1", 0, 1, stage)).toBe(canvas);
+  });
 });
 
 /**

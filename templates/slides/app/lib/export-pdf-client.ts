@@ -115,9 +115,10 @@ export function findSlideExportSource(
   slideId: string,
   slideIndex: number,
   slideCount: number,
+  root: ParentNode = document,
 ): HTMLElement {
   const candidates = Array.from(
-    document.querySelectorAll<HTMLElement>(
+    root.querySelectorAll<HTMLElement>(
       `[data-slide-canvas="${CSS.escape(slideId)}"]`,
     ),
   );
@@ -435,9 +436,17 @@ export async function exportDeckAsPdf(
     format: [dims.width, dims.height],
   });
 
+  const exportStage = document.querySelector<HTMLElement>(
+    "[data-pdf-export-stage]",
+  );
   for (let i = 0; i < slides.length; i++) {
     const slideId = slides[i].id;
-    const source = findSlideExportSource(slideId, i, slides.length);
+    const source = findSlideExportSource(
+      slideId,
+      i,
+      slides.length,
+      exportStage ?? document,
+    );
 
     // Force CORS-enabled re-fetch on every cross-origin <img> before
     // capture — otherwise the canvas tainting check inside modern-screenshot

@@ -104,6 +104,7 @@ export default function SharedPresentation({
       deckId={`__shared__/${token}`}
       aspectRatio={deck.aspectRatio}
       designSystem={designSystem}
+      pdfExportTitle={deck.title}
     />
   );
 }
