@@ -880,49 +880,6 @@ export default function EditorToolbar({
               </>
             )}
 
-            {canEdit && currentSlide && onChangeSlideTransition && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel>
-                  {t("editorToolbar.transition")}
-                </DropdownMenuLabel>
-                <DropdownMenuGroup>
-                  {SLIDE_TRANSITIONS.map((transition) => (
-                    <DropdownMenuItem
-                      key={transition.value}
-                      onSelect={() => onChangeSlideTransition(transition.value)}
-                      className={
-                        activeSlideTransition === transition.value
-                          ? "bg-accent text-accent-foreground"
-                          : undefined
-                      }
-                    >
-                      {t(transition.labelKey)}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuGroup>
-              </>
-            )}
-
-            {canEdit && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel>
-                  {t("editorToolbar.media")}
-                </DropdownMenuLabel>
-                <DropdownMenuGroup>
-                  <DropdownMenuItem onSelect={onGenerateImage}>
-                    <IconPhoto className="size-4" />
-                    {t("editorToolbar.generateImage")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={onOpenAssetLibrary}>
-                    <IconFolderOpen className="size-4" />
-                    {t("editorToolbar.assetLibrary")}
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-              </>
-            )}
-
             {onToggleComments && (
               <>
                 <DropdownMenuSeparator />
@@ -978,19 +935,6 @@ export default function EditorToolbar({
               {importing
                 ? t("editorToolbar.importing")
                 : t("editorToolbar.importFile")}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onSelect={() => setTheme(isDark ? "light" : "dark")}
-            >
-              {isDark ? (
-                <IconSun className="size-4" />
-              ) : (
-                <IconMoon className="size-4" />
-              )}
-              {isDark
-                ? t("editorToolbar.lightTheme")
-                : t("editorToolbar.darkTheme")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
