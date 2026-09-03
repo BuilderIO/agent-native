@@ -2871,7 +2871,9 @@ export default function SlideEditor({
         `[data-builder-id="${targetId}"]`,
       );
       if (!source || !target || source.contains(target)) return;
-      if (placement === "inside" && !canDropSlideLayerInside(target)) return;
+      if (placement === "inside" && !canDropSlideLayerInside(target, source)) {
+        return;
+      }
       if (
         placement !== "inside" &&
         !canDropSlideLayerAdjacent(source, target)

@@ -1478,3 +1478,35 @@ describe("arrangeSlideLayerInParent", () => {
     expect(Number(zOf(a))).toBeGreaterThanOrEqual(0);
   });
 });
+
+describe("layer drop and arrange guards", () => {
+  it("rejects inside drops that a parser would silently reparent", () => {
+    const table = document.createElement("table");
+    const row = document.createElement("tr");
+    const div = document.createElement("div");
+    const listItem = document.createElement("li");
+    const list = document.createElement("ul");
+
+    expect(canDropSlideLayerInside(table, div)).toBe(false);
+    expect(canDropSlideLayerInside(row, div)).toBe(false);
+    expect(canDropSlideLayerInside(list, div)).toBe(false);
+    expect(canDropSlideLayerInside(list, listItem)).toBe(true);
+    expect(canDropSlideLayerInside(document.createElement("div"), div)).toBe(
+      true,
+    );
+  });
+
+  it("refuses to arrange a reserved negative-z background layer", () => {
+    document.body.innerHTML = `
+      <div data-slide-canvas="s1"><div class="slide-content">
+        <div class="fmd-slide" style="position:relative;display:flex">
+          <div id="bg" style="position:absolute;z-index:-1">bg</div>
+          <h1 id="a">Title</h1>
+        </div>
+      </div></div>`;
+    const bg = document.querySelector<HTMLElement>("#bg")!;
+
+    expect(arrangeSlideLayerInParent(bg, "front")).toBe(false);
+    expect(bg.style.zIndex).toBe("-1");
+  });
+});

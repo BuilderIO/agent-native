@@ -107,12 +107,23 @@ const SLIDE_LAYER_REQUIRED_CHILDREN = new Map<string, Set<string>>([
   ["UL", new Set(["LI"])],
 ]);
 
-export function canDropSlideLayerInside(target: Element): boolean {
-  return (
-    !isRichTextBlock(target as HTMLElement) &&
-    !SLIDE_LAYER_VOID_ELEMENTS.has(target.tagName) &&
-    !SLIDE_LAYER_NON_CONTAINER_ELEMENTS.has(target.tagName)
-  );
+export function canDropSlideLayerInside(
+  target: Element,
+  source?: Element,
+): boolean {
+  if (
+    isRichTextBlock(target as HTMLElement) ||
+    SLIDE_LAYER_VOID_ELEMENTS.has(target.tagName) ||
+    SLIDE_LAYER_NON_CONTAINER_ELEMENTS.has(target.tagName)
+  ) {
+    return false;
+  }
+  // TABLE, TBODY, TR, UL and friends accept only specific children. Appending
+  // anything else produces markup the parser silently reparents, so the layer
+  // lands somewhere the drop indicator never pointed.
+  const requiredChildren = SLIDE_LAYER_REQUIRED_CHILDREN.get(target.tagName);
+  if (!requiredChildren) return true;
+  return source ? requiredChildren.has(source.tagName) : false;
 }
 
 export function canDropSlideLayerAdjacent(
@@ -120,9 +131,7 @@ export function canDropSlideLayerAdjacent(
   target: Element,
 ): boolean {
   const parent = target.parentElement;
-  if (!parent || !canDropSlideLayerInside(parent)) return false;
-  const requiredChildren = SLIDE_LAYER_REQUIRED_CHILDREN.get(parent.tagName);
-  return !requiredChildren || requiredChildren.has(source.tagName);
+  return Boolean(parent) && canDropSlideLayerInside(parent!, source);
 }
 
 export type ResizeHandle = CanvasResizeHandle;
@@ -1181,6 +1190,9 @@ export function arrangeSlideLayerInParent(
 ): boolean {
   const parent = element.parentElement;
   if (!parent) return false;
+  // A negative index marks a reserved slide background. Arranging it would
+  // lift it into the editable stack, where it would cover the slide.
+  if ((readSlideLayerZIndex(element) ?? 0) < 0) return false;
   const siblings = slideLayerSiblings(element, parent);
   if (siblings.length === 0) return false;
 
