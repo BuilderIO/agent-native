@@ -789,12 +789,18 @@ export function getConfiguredLoginHtml(event: H3Event): string | null {
   const { rawPath } = getRequestPathAndSearch(event);
   const loginHtml =
     config.getLoginHtml?.(event, rawPath) ?? config.loginHtml ?? null;
-  return loginHtml
-    ? injectLoginSocialImageMeta(
-        injectBetaOptOutPersistence(loginHtml, rawPath),
-        event,
-      )
-    : null;
+  if (!loginHtml) return null;
+
+  const appOriginConfigScript = getAppOriginClientConfigScript();
+  const html =
+    appOriginConfigScript &&
+    !loginHtml.includes("data-agent-native-app-origin-config")
+      ? injectHeadScript(loginHtml, appOriginConfigScript)
+      : loginHtml;
+  return injectLoginSocialImageMeta(
+    injectBetaOptOutPersistence(html, rawPath),
+    event,
+  );
 }
 
 /**
