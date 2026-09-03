@@ -117,6 +117,20 @@ describe("SlideEditor render-phase safety", () => {
     expect(deleteBody).toContain("e.stopPropagation()");
   });
 
+  it("leaves Delete with a focused thumbnail", () => {
+    const deleteStart = source.indexOf(
+      "// Delete/Backspace removes the selected slide content",
+    );
+    const deleteEnd = source.indexOf(
+      "/**\n   * Find the nearest meaningful element",
+      deleteStart,
+    );
+
+    expect(source.slice(deleteStart, deleteEnd)).toContain(
+      'active.closest("[data-slide-thumbnail-id]")',
+    );
+  });
+
   it("ends native text editing before entering a multi-selection", () => {
     const start = source.indexOf("const applyMultiSelection");
     const end = source.indexOf("const clearMultiSelection", start);
