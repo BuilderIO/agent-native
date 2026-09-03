@@ -111,7 +111,10 @@ vi.mock("@agent-native/core/collab", () => ({
 vi.mock("./patch-deck.js", () => ({
   withDeckLock: (_deckId: string, fn: () => Promise<unknown>) => fn(),
   isAgentPatchCaller: (caller: string | undefined) =>
-    caller === "tool" || caller === "mcp" || caller === "a2a",
+    caller === "tool" ||
+    caller === "mcp" ||
+    caller === "a2a" ||
+    caller === "webmcp",
 }));
 
 vi.mock("../server/lib/deck-versions.js", () => ({
@@ -155,28 +158,31 @@ describe("add-slide", () => {
     expect(action.parallelSafe).toBeUndefined();
   });
 
-  it("rejects agent additions after the requested slide count", async () => {
-    deckData.generationContext = { targetSlideCount: 2 };
+  it.each(["tool", "webmcp"] as const)(
+    "rejects agent additions after the requested slide count for %s callers",
+    async (caller) => {
+      deckData.generationContext = { targetSlideCount: 2 };
 
-    await expect(
-      action.run(
-        {
+      await expect(
+        action.run(
+          {
+            deckId: "deck-1",
+            slideId: "slide-new",
+            content: "<div>New</div>",
+          },
+          { caller },
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "target_slide_count_reached",
+        details: {
           deckId: "deck-1",
-          slideId: "slide-new",
-          content: "<div>New</div>",
+          currentSlideCount: 2,
+          targetSlideCount: 2,
         },
-        { caller: "tool" },
-      ),
-    ).rejects.toMatchObject({
-      errorCode: "target_slide_count_reached",
-      details: {
-        deckId: "deck-1",
-        currentSlideCount: 2,
-        targetSlideCount: 2,
-      },
-    });
-    expect(updateFn).not.toHaveBeenCalled();
-  });
+      });
+      expect(updateFn).not.toHaveBeenCalled();
+    },
+  );
 
   it("repairs an opaque generated title from the first slide", async () => {
     deckData = {

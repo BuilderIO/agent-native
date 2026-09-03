@@ -856,10 +856,11 @@ describe("animation target validation", () => {
 });
 
 describe("isAgentPatchCaller", () => {
-  it("treats tool, mcp, and a2a callers as agent callers", () => {
+  it("treats tool, mcp, a2a, and webmcp callers as agent callers", () => {
     expect(isAgentPatchCaller("tool")).toBe(true);
     expect(isAgentPatchCaller("mcp")).toBe(true);
     expect(isAgentPatchCaller("a2a")).toBe(true);
+    expect(isAgentPatchCaller("webmcp")).toBe(true);
   });
 
   it("treats the browser editor and unset callers as non-agent", () => {

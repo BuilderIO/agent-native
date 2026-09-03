@@ -644,7 +644,12 @@ export function resolveDeckColumnUpdates(
  * `preserveSource` — so these guards must only run for agent callers.
  */
 export function isAgentPatchCaller(caller: string | undefined): boolean {
-  return caller === "tool" || caller === "mcp" || caller === "a2a";
+  return (
+    caller === "tool" ||
+    caller === "mcp" ||
+    caller === "a2a" ||
+    caller === "webmcp"
+  );
 }
 
 // ---------------------------------------------------------------------------
