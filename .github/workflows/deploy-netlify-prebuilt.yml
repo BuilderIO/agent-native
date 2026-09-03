@@ -114,12 +114,15 @@ permissions:
 
 concurrency:
   # Direct production dispatches share the per-site queue with the fleet,
-  # manager, and promotion jobs. A called workflow gets a distinct child queue
-  # because the fleet caller already owns the shared per-site lock.
+  # manager, and promotion jobs. Beta migration jobs use one queue per site;
+  # the beta caller serializes the shared database migrations across sites.
   group: >-
     ${{ inputs.caller == 'release-migration'
         && inputs.target == 'production'
         && format('agent-native-production-site-{0}', inputs.site)
+        || inputs.caller == 'release-migration'
+        && inputs.target == 'beta'
+        && format('agent-native-beta-migration-{0}', inputs.site)
         || inputs.caller == 'release-migration'
         && 'agent-native-release-migrations'
         || inputs.target == 'beta'
