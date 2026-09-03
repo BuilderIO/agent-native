@@ -36,10 +36,12 @@ vi.mock("@amplitude/analytics-browser", () => amplitudeMock);
 vi.mock("./session-replay.js", () => replayMock);
 
 const pageviewStateKey = Symbol.for("agent-native.client.pageviewTracking");
+const appEntryStateKey = Symbol.for("agent-native.client.appEntryTracking");
 const agentChatStateKey = Symbol.for("agent-native.client.agentChatTracking");
 
 function resetPageviewState() {
   delete (globalThis as any)[pageviewStateKey];
+  delete (globalThis as any)[appEntryStateKey];
   delete (globalThis as any)[agentChatStateKey];
 }
 
@@ -200,7 +202,7 @@ describe("browser analytics pageviews", () => {
     });
     await tick();
 
-    expect(analyticsCalls).toHaveLength(1);
+    expect(analyticsCalls).toHaveLength(2);
     const [url, init] = analyticsCalls[0];
     expect(url).toBe("https://analytics.example.test/track");
     const body = JSON.parse(String(init.body));
@@ -209,7 +211,10 @@ describe("browser analytics pageviews", () => {
       event: "pageview",
       properties: {
         app: "agent-native-mail",
+        app_name: "mail",
         template: "mail",
+        template_name: "mail",
+        session_id: expect.any(String),
         url: "https://mail.agent-native.com/inbox",
         path: "/inbox",
         hostname: "mail.agent-native.com",
@@ -224,8 +229,18 @@ describe("browser analytics pageviews", () => {
         llm_connection_source: "app_secrets",
       },
     });
+    expect(JSON.parse(String(analyticsCalls[1][1].body))).toMatchObject({
+      event: "app_entered",
+      properties: {
+        app_name: "mail",
+        template_name: "mail",
+        session_id: expect.any(String),
+        entry_path: "/inbox",
+      },
+    });
     expect(body.anonymousId).toMatch(/^[A-Za-z0-9_-]+$/);
-    expect(getCookie()).toContain(`an_aid=${body.anonymousId}`);
+    const latestBody = JSON.parse(String(analyticsCalls[1][1].body));
+    expect(getCookie()).toContain(`an_aid=${latestBody.anonymousId}`);
   });
 
   it("suppresses browser analytics for synthetic E2E traffic", async () => {
@@ -451,7 +466,7 @@ describe("browser analytics pageviews", () => {
     });
     await tick();
 
-    expect(analyticsCalls).toHaveLength(1);
+    expect(analyticsCalls).toHaveLength(2);
     const body = JSON.parse(String(analyticsCalls[0][1].body));
     expect(body.userId).toBe("dev@example.com");
     expect(body.properties).toMatchObject({
@@ -459,8 +474,14 @@ describe("browser analytics pageviews", () => {
       userEmail: "dev@example.com",
       userName: "Dev User",
       orgId: "org_123",
+      user_id: "dev@example.com",
+      user_email: "dev@example.com",
+      workspace_id: "org_123",
       app: "agent-native-clips",
+      app_name: "clips",
       template: "clips",
+      template_name: "clips",
+      session_id: expect.any(String),
     });
   });
 
