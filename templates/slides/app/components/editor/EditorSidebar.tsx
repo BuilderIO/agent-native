@@ -726,6 +726,13 @@ export default function EditorSidebar({
   );
 
   useEffect(() => {
+    if (!activeSlideId) return;
+    slideButtonRefs.current.get(activeSlideId)?.scrollIntoView({
+      block: "nearest",
+    });
+  }, [activeSlideId]);
+
+  useEffect(() => {
     const slideId = focusAfterDeleteRef.current;
     if (!slideId) return;
 
