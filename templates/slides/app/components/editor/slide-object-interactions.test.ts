@@ -30,6 +30,7 @@ import {
   isDeletableFlowImage,
   isDeletableSlideElement,
   preserveSlideObjectLayoutSpacer,
+  persistSlideObjectZOrderFromDom,
   removeSlideObjectAndLayoutSpacer,
   resolveSlideObjectContainingBlock,
   restoreSlideObjectStyle,
@@ -783,6 +784,17 @@ describe("slide object interactions", () => {
       value: 6,
       shiftPeers: [],
     });
+  });
+
+  it("persists the DOM order of a moved freeform stack", () => {
+    const container = document.createElement("div");
+    const source = createFreeformObject("source", { zIndex: 0 });
+    const peer = createFreeformObject("peer", { zIndex: 1 });
+    container.append(peer, source);
+
+    expect(persistSlideObjectZOrderFromDom(source, container)).toBe(true);
+    expect(peer.style.zIndex).toBe("0");
+    expect(source.style.zIndex).toBe("1");
   });
 
   it("sends an object behind every peer when there is room below", () => {

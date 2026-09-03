@@ -1014,6 +1014,37 @@ function getSlideObjectZOrderPeers(
   });
 }
 
+/** Persist the DOM order of a freeform stack after a Layers panel move. */
+export function persistSlideObjectZOrderFromDom(
+  element: HTMLElement,
+  container: HTMLElement,
+): boolean {
+  if (!isEditableFreeformSlideObject(element)) return false;
+  if (readSlideObjectZIndex(element) < 0) return false;
+
+  const peers = [
+    { element, zIndex: readSlideObjectZIndex(element), order: -1 },
+    ...getSlideObjectZOrderPeers(element, container),
+  ];
+  const domOrder = new Map(
+    Array.from(
+      container.querySelectorAll<HTMLElement>("[data-slide-object-id]"),
+    ).map((peer, order) => [peer, order]),
+  );
+  peers.sort(
+    (left, right) =>
+      (domOrder.get(left.element) ?? -1) - (domOrder.get(right.element) ?? -1),
+  );
+
+  let changed = false;
+  for (const [index, peer] of peers.entries()) {
+    if (readSlideObjectZIndex(peer.element) === index) continue;
+    peer.element.style.zIndex = String(index);
+    changed = true;
+  }
+  return changed;
+}
+
 /**
  * Compute the z-index change that puts `element` in front of / behind every
  * other freeform object inside `container`. Returns null when nothing needs

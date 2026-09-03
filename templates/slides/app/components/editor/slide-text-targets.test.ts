@@ -88,4 +88,21 @@ describe("slide text targets", () => {
     expect(shouldStampBuilderId(paragraph)).toBe(false);
     expect(findSmartBlock(paragraph, root)).toBe(layer);
   });
+
+  it("keeps table structure out of rich-text ownership", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="fmd-slide">
+        <table>
+          <tbody><tr><td><p>Cell text</p></td></tr></tbody>
+        </table>
+      </div>
+    `;
+
+    const table = root.querySelector("table") as HTMLElement;
+    const paragraph = root.querySelector("p") as HTMLElement;
+
+    expect(isSlideRichTextLayer(table)).toBe(false);
+    expect(findSmartBlock(paragraph, root)).toBe(paragraph);
+  });
 });

@@ -85,9 +85,14 @@ describe("SlideEditor render-phase safety", () => {
     const end = source.indexOf("const handleToggleList", start);
     const arrangeBody = source.slice(start, end);
 
-    expect(arrangeBody).toContain("reorderSlideLayerInParent(element, target)");
+    expect(arrangeBody).toContain(
+      "arrangeFlowSlideLayerInParent(element, target)",
+    );
     expect(arrangeBody).toContain("isPersistedFreeformObject(element)");
     expect(arrangeBody).toContain("resolveSlidePositioningLayer(element)");
+    expect(source).toContain("function arrangeFlowSlideLayerInParent");
+    expect(source).toContain("reorderSlideLayerInParent(element, target)");
+    expect(source).toContain("persistSlideObjectZOrderFromDom(source");
   });
 
   it("keeps portaled context-menu presses from clearing canvas selection", () => {

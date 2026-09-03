@@ -124,12 +124,26 @@ const RICH_TEXT_BLOCK_TAGS = new Set([
   "UL",
 ]);
 
+const RICH_TEXT_TABLE_TAGS = new Set([
+  "CAPTION",
+  "COL",
+  "COLGROUP",
+  "TABLE",
+  "TBODY",
+  "TD",
+  "TFOOT",
+  "TH",
+  "THEAD",
+  "TR",
+]);
+
 function isRichTextBlock(element: HTMLElement): boolean {
   if (
     !element ||
     isInlineTextElement(element) ||
     element.tagName === "IMG" ||
-    element.classList.contains("fmd-img-placeholder")
+    element.classList.contains("fmd-img-placeholder") ||
+    RICH_TEXT_TABLE_TAGS.has(element.tagName)
   ) {
     return false;
   }
@@ -151,7 +165,8 @@ export function isSlideRichTextLayer(element: HTMLElement): boolean {
     !element ||
     isSlideCanvasShell(element) ||
     isInlineTextElement(element) ||
-    element.tagName === "IMG"
+    element.tagName === "IMG" ||
+    RICH_TEXT_TABLE_TAGS.has(element.tagName)
   ) {
     return false;
   }

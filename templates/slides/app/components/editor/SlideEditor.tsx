@@ -163,6 +163,7 @@ import {
   isValidSlideClipboardRoot,
   removeSlideObjectAndLayoutSpacer,
   preserveSlideObjectLayoutSpacer,
+  persistSlideObjectZOrderFromDom,
   readSlideObjectZIndex,
   resolveSlideObjectContainingBlock,
   resizeSlideObjectMembers,
@@ -305,6 +306,55 @@ function reorderSlideLayerInParent(
     parent.insertBefore(element, firstLayer);
   }
   return true;
+}
+
+function arrangeFlowSlideLayerInParent(
+  element: HTMLElement,
+  target: SlideObjectZOrderTarget,
+): boolean {
+  const parent = element.parentElement;
+  if (!parent) return false;
+  const positionedSiblings = Array.from(parent.children).filter((child) => {
+    const candidate = child as HTMLElement;
+    return candidate !== element && isPersistedFreeformObject(candidate);
+  });
+  if (positionedSiblings.length === 0) {
+    return reorderSlideLayerInParent(element, target);
+  }
+
+  const parentDisplay = window.getComputedStyle(parent).display;
+  const isFlexOrGridItem = parentDisplay === "flex" || parentDisplay === "grid";
+  const hasPositionedDescendant = Array.from(
+    element.querySelectorAll<HTMLElement>("*"),
+  ).some(
+    (descendant) => window.getComputedStyle(descendant).position === "absolute",
+  );
+  if (
+    hasPositionedDescendant &&
+    !isFlexOrGridItem &&
+    window.getComputedStyle(element).position === "static"
+  ) {
+    return reorderSlideLayerInParent(element, target);
+  }
+
+  const zIndexes = positionedSiblings.map((sibling) =>
+    readSlideObjectZIndex(sibling as HTMLElement),
+  );
+  const nextZIndex =
+    target === "front"
+      ? Math.max(...zIndexes) + 1
+      : Math.max(0, Math.min(...zIndexes) - 1);
+  const currentZIndex = readSlideObjectZIndex(element);
+  if (
+    window.getComputedStyle(element).position === "static" &&
+    !isFlexOrGridItem
+  ) {
+    element.style.position = "relative";
+  }
+  element.style.zIndex = String(nextZIndex);
+  return (
+    currentZIndex !== nextZIndex || reorderSlideLayerInParent(element, target)
+  );
 }
 
 function ensureBuilderId(element: HTMLElement): string {
@@ -2951,6 +3001,17 @@ export default function SlideEditor({
             element.style.width = `${Math.round(originalChildRect.width * childScaleX)}px`;
             element.style.height = `${Math.round(originalChildRect.height * childScaleY)}px`;
           }
+        }
+      }
+
+      if (sourceWasFreeform) {
+        const positioningLayer = resolveSlidePositioningLayer(source);
+        if (positioningLayer) {
+          const containingBlock = resolveSlideObjectContainingBlock(
+            source,
+            positioningLayer,
+          );
+          persistSlideObjectZOrderFromDom(source, containingBlock);
         }
       }
 
@@ -6716,7 +6777,7 @@ export default function SlideEditor({
         for (const shift of change.shiftPeers) {
           shift.element.style.zIndex = String(shift.value);
         }
-      } else if (!reorderSlideLayerInParent(element, target)) {
+      } else if (!arrangeFlowSlideLayerInParent(element, target)) {
         return;
       }
 
