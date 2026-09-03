@@ -103,6 +103,7 @@ export default defineAction({
     "Add a single slide to the real editable Agent-Native Slides deck. This is the primary Slides MCP edit action: use it after create-deck instead of creating or publishing a standalone HTML artifact. " +
     "Build decks slide-by-slide — " +
     "call it once per slide in slide order and wait for each result before adding the next slide. " +
+    "For multiple slides in one atomic write, use patch-deck with add-slide operations. " +
     "Avoid parallel add-slide calls for the same deck; sequential writes keep the editor and agent connection stable. " +
     "If the deck has a designSystemId, first use `get-design-system` and apply its `agentContext` tokens/docs; do not use generic slide styling from the id alone. " +
     "Pass presenter-only speaker notes in `notes`; keep them out of the slide HTML. " +

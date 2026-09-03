@@ -418,6 +418,9 @@ describe("WebMCP registration", () => {
         { signal: new AbortController().signal },
       ),
     ).resolves.toBe('{"id":"order-1","route":"orders"}');
+    await expect(
+      registrations[0].tool.execute({ id: "order-2" }),
+    ).resolves.toBe('{"id":"order-2","route":"orders"}');
     expect(run).toHaveBeenCalledWith(
       { id: "order-1" },
       expect.objectContaining({

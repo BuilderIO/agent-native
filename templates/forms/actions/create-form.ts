@@ -11,6 +11,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
 import {
   assertValidFields,
+  FIELD_TYPES,
   normalizeFieldIds,
 } from "../server/lib/validate-fields.js";
 import {
@@ -54,13 +55,13 @@ export default defineAction({
       .union([z.string(), z.array(z.any())])
       .optional()
       .describe(
-        "Array of complete field objects with id, type, label, and required (or JSON string of the same); never use shorthand strings such as 'text: Enter a name'.",
+        `Array of complete field objects with id, type, label, and required (or JSON string of the same). Valid field types: ${[...FIELD_TYPES].join(", ")}; never use shorthand strings.`,
       ),
     settings: z
       .union([z.string(), z.record(z.string(), z.any())])
       .optional()
       .describe(
-        "Form settings object (or JSON string). Set completionMode to message, redirect, message_then_refresh, or refresh. Use completionRefreshSeconds with message_then_refresh. Set anonymous=true for strict no-IP, no-identity, no-source-metadata responses.",
+        "Form settings object (or JSON string). Valid keys: submitText, successMessage, redirectUrl, completionMode, completionRefreshSeconds, showProgressBar, emailOnNewResponses, anonymous, integrations, allowedOrigins.",
       ),
     slug: z.string().optional().describe("Custom URL slug"),
     status: z
@@ -109,18 +110,18 @@ export default defineAction({
 
     let settings = defaultSettings;
     if (args.settings) {
+      let incomingSettings: FormSettings;
       if (typeof args.settings === "string") {
         try {
-          settings = { ...defaultSettings, ...JSON.parse(args.settings) };
+          incomingSettings = JSON.parse(args.settings) as FormSettings;
         } catch {
           throw new Error("--settings must be valid JSON");
         }
       } else {
-        settings = {
-          ...defaultSettings,
-          ...(args.settings as unknown as FormSettings),
-        };
+        incomingSettings = args.settings as unknown as FormSettings;
       }
+      assertValidFormCompletionSettings(incomingSettings);
+      settings = { ...defaultSettings, ...incomingSettings };
     }
     assertValidFormCompletionSettings(settings);
     // Reject blocked integration URLs at save time. fireIntegrations also

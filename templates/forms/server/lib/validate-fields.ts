@@ -10,7 +10,7 @@ import {
 } from "./file-upload-policy.js";
 
 export const FIELD_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
-const FIELD_TYPES = new Set([
+export const FIELD_TYPES = new Set([
   "text",
   "email",
   "number",
@@ -115,7 +115,7 @@ export function assertValidFields(fields: unknown): void {
 
     if (typeof f.type !== "string" || !FIELD_TYPES.has(f.type)) {
       throw new Error(
-        `field #${idx + 1} has an invalid type ${JSON.stringify(f.type)}`,
+        `field #${idx + 1} has an invalid type ${JSON.stringify(f.type)}; valid types: ${[...FIELD_TYPES].join(", ")}`,
       );
     }
     if (typeof f.label !== "string") {

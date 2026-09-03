@@ -1588,8 +1588,8 @@ describe("autoLayout", () => {
       enabled: false,
     });
 
-    expect(patch.result.status).toBe("applied");
-    expect(patch.content).toContain("display: block");
+    expect(patch.result.status).toBe("needsAgent");
+    expect(patch.content).toBe(html);
     expect(patch.content).not.toContain("position: absolute");
   });
 
@@ -1620,8 +1620,8 @@ describe("autoLayout", () => {
       enabled: false,
     });
 
-    expect(patch.result.status).toBe("applied");
-    expect(patch.content).toContain("display: block");
+    expect(patch.result.status).toBe("needsAgent");
+    expect(patch.content).toBe(html);
   });
 
   it("returns conflict when targetId is not found", () => {

@@ -442,6 +442,16 @@ const intentSchema = z.preprocess(
         ),
     }),
     z.object({
+      kind: z.literal("attribute"),
+      target: targetSchema,
+      name: z.string(),
+      value: z.string(),
+    }),
+    z.object({
+      kind: z.literal("deleteNode"),
+      target: targetSchema,
+    }),
+    z.object({
       kind: z.literal("moveNode"),
       target: targetSchema,
       anchor: targetSchema,
@@ -490,6 +500,20 @@ const intentSchema = z.preprocess(
         .string()
         .optional()
         .describe("Gap value when enabling. Defaults to 8px."),
+      containerStyles: z.record(z.string()).optional(),
+      childRects: z
+        .record(
+          z.object({
+            x: z.number(),
+            y: z.number(),
+            width: z.number(),
+            height: z.number(),
+          }),
+        )
+        .optional(),
+      containerRect: z
+        .object({ width: z.number(), height: z.number() })
+        .optional(),
     }) satisfies z.ZodType<AutoLayoutEditIntent>,
   ]),
 );
@@ -637,9 +661,11 @@ export default defineAction({
     source: sourceSchema.describe(
       "Edit source. Use kind=design-file with designId/filename or fileId to persist into SQL; kind=inline-html with html for a preview-only patch.",
     ),
-    intent: intentSchema.describe(
-      "Visual edit intent targeting a CodeLayerProjection nodeId or selector.",
-    ),
+    intent: z
+      .union([intentSchema, z.array(intentSchema).min(1)])
+      .describe(
+        "Visual edit intent or ordered intents targeting CodeLayerProjection nodeIds or selectors.",
+      ),
     includeContent: z
       .boolean()
       .optional()
@@ -691,12 +717,14 @@ export default defineAction({
     context,
   ) => {
     const actionSource = source as VisualEditActionSource;
-    let editIntent = intent as EditIntent;
+    let editIntents = (
+      Array.isArray(intent) ? intent : [intent]
+    ) as EditIntent[];
 
     if (actionSource.kind === "local-file") {
       const target =
-        "target" in editIntent
-          ? (editIntent.target as {
+        "target" in editIntents[0]
+          ? (editIntents[0].target as {
               nodeId?: string;
               selector?: string;
               sourceAnchor?: {
@@ -758,9 +786,10 @@ export default defineAction({
         };
       }
       if (
-        editIntent.kind !== "textContent" &&
-        editIntent.kind !== "class" &&
-        editIntent.kind !== "style"
+        editIntents.length !== 1 ||
+        (editIntents[0].kind !== "textContent" &&
+          editIntents[0].kind !== "class" &&
+          editIntents[0].kind !== "style")
       ) {
         return {
           result: {
@@ -801,7 +830,7 @@ export default defineAction({
       const planned = planLocalJsxVisualEdit({
         content: read.content,
         anchor: sourceAnchor,
-        intent: editIntent as LocalJsxLeafIntent,
+        intent: editIntents[0] as LocalJsxLeafIntent,
       });
       let persisted = false;
       let versionHash = read.versionHash;
@@ -849,9 +878,15 @@ export default defineAction({
     //    loaded); other sources fall back to the legacy prefix path.
     if (
       maxWidthPx != null &&
-      (editIntent.kind === "class" || editIntent.kind === "style")
+      editIntents.some(
+        (intent) => intent.kind === "class" || intent.kind === "style",
+      )
     ) {
-      editIntent = scopeIntentToFramerBound(editIntent, maxWidthPx);
+      editIntents = editIntents.map((intent) =>
+        intent.kind === "class" || intent.kind === "style"
+          ? scopeIntentToFramerBound(intent, maxWidthPx)
+          : intent,
+      );
     } else if (
       actionSource.kind !== "design-file" ||
       activeBreakpoint != null
@@ -860,8 +895,12 @@ export default defineAction({
         activeBreakpoint,
         activeFrameWidthPx,
       );
-      if (activePrefix !== null && editIntent.kind === "class") {
-        editIntent = scopeClassIntentToBreakpoint(editIntent, activePrefix);
+      if (activePrefix !== null) {
+        editIntents = editIntents.map((intent) =>
+          intent.kind === "class"
+            ? scopeClassIntentToBreakpoint(intent, activePrefix)
+            : intent,
+        );
       }
     }
 
@@ -871,15 +910,20 @@ export default defineAction({
         filename: actionSource.filename,
         revision: actionSource.revision,
       };
-      const patch = applyVisualEdit(actionSource.html ?? "", editIntent, {
-        source: codeLayerSource,
-      });
+      let content = actionSource.html ?? "";
+      let patch;
+      for (const editIntent of editIntents) {
+        patch = applyVisualEdit(content, editIntent, {
+          source: codeLayerSource,
+        });
+        content = patch.content;
+      }
       return {
-        result: patch.result,
-        projection: patch.projection,
-        patchedContent: includeContent ? patch.content : undefined,
+        result: patch!.result,
+        projection: patch!.projection,
+        patchedContent: includeContent ? content : undefined,
         bytesBefore: (actionSource.html ?? "").length,
-        bytesAfter: patch.content.length,
+        bytesAfter: content.length,
       };
     }
 
@@ -891,7 +935,7 @@ export default defineAction({
         filename: actionSource.filename,
         revision: actionSource.revision,
       };
-      const patch = applyVisualEdit("", editIntent, {
+      const patch = applyVisualEdit("", editIntents[0], {
         source: codeLayerSource,
       });
       // remote-url sources stay preview-only/unsupported. A 0/0 byte count
@@ -911,7 +955,9 @@ export default defineAction({
       maxWidthPx == null &&
       activeBreakpoint == null &&
       activeFrameWidthPx != null &&
-      (editIntent.kind === "class" || editIntent.kind === "style")
+      editIntents.some(
+        (intent) => intent.kind === "class" || intent.kind === "style",
+      )
     ) {
       const bound = resolveFramerBoundFromDesignData(
         file.designData,
@@ -919,30 +965,44 @@ export default defineAction({
         activeFrameWidthPx,
       );
       if (bound.kind === "bound") {
-        editIntent = scopeIntentToFramerBound(editIntent, bound.boundPx);
-      } else if (bound.kind === "unknown" && editIntent.kind === "class") {
+        editIntents = editIntents.map((intent) =>
+          intent.kind === "class" || intent.kind === "style"
+            ? scopeIntentToFramerBound(intent, bound.boundPx)
+            : intent,
+        );
+      } else if (bound.kind === "unknown") {
         // No breakpoint set on this design — legacy min-width prefix path.
         const activePrefix = resolveActivePrefix(null, activeFrameWidthPx);
         if (activePrefix !== null) {
-          editIntent = scopeClassIntentToBreakpoint(editIntent, activePrefix);
+          editIntents = editIntents.map((intent) =>
+            intent.kind === "class"
+              ? scopeClassIntentToBreakpoint(intent, activePrefix)
+              : intent,
+          );
         }
       }
       // bound.kind === "base": the active frame IS the widest context —
       // the edit stays a plain base write that cascades down.
     }
 
-    const patch = applyVisualEdit(file.content, editIntent, {
-      source: file.codeLayerSource,
-    });
+    let content = file.content;
+    let patch;
+    for (const editIntent of editIntents) {
+      patch = applyVisualEdit(content, editIntent, {
+        source: file.codeLayerSource,
+      });
+      content = patch.content;
+      if (patch.result.status !== "applied") break;
+    }
 
-    if (patch.result.target) {
+    if (patch?.result.target) {
       // Publish a RESOLVABLE selection descriptor so live viewers can render a
       // ring over the element being edited. Prefer the stable
       // `data-agent-native-node-id` anchor over the projection CSS selector.
       agentUpdateSelection(file.id, {
         selection: agentSelectionDescriptor(
           patch.result.target,
-          editIntentLabel(editIntent),
+          editIntentLabel(editIntents[editIntents.length - 1]),
         ),
         nodeId: patch.result.target.nodeId,
         editingFile: file.filename,
@@ -950,28 +1010,28 @@ export default defineAction({
       });
     }
 
-    if (patch.result.status === "applied" && patch.result.changed) {
+    if (patch?.result.status === "applied" && patch.result.changed) {
       await snapshotDesignBeforeAgentEdit(file.designId, context);
       await persistDesignFileEdit({
         id: file.id,
         designId: file.designId,
         filename: file.filename,
         fileType: file.fileType,
-        content: patch.content,
+        content,
         expectedVersionHash: file.versionHash,
       });
     }
 
     return {
-      result: patch.result,
-      projection: patch.projection,
+      result: patch!.result,
+      projection: patch!.projection,
       designId: file.designId,
       fileId: file.id,
       filename: file.filename,
       persisted: patch.result.status === "applied" && patch.result.changed,
-      patchedContent: includeContent ? patch.content : undefined,
+      patchedContent: includeContent ? content : undefined,
       bytesBefore: file.content.length,
-      bytesAfter: patch.content.length,
+      bytesAfter: content.length,
     };
   },
 });

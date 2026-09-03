@@ -329,19 +329,19 @@ const AgentPatchDeckInputSchema = z.object({
         PatchSlideOp,
         DeleteSlideOp,
         ReorderSlidesOp,
+        AddSlideOp,
         z.object({
           op: z.literal("patch-deck-fields"),
           fields: z.object({
-            title: z
-              .string()
-              .describe("The concise, specific title to apply to the deck"),
+            title: z.string().optional(),
+            starred: z.boolean().optional(),
           }),
         }),
       ]),
     )
     .min(1)
     .describe(
-      "Use patch-slide for content or slide fields, delete-slide to remove a slide, reorder-slides to set slide order, and patch-deck-fields only for a deck title change. For a deck-wide source restyle, include one patch-slide operation with content for every existing source slide.",
+      "Use add-slide to append slides in the same atomic patch, patch-slide for content or slide fields, delete-slide to remove a slide, reorder-slides to set slide order, and patch-deck-fields for optional title or starred changes. For a deck-wide source restyle, include one patch-slide operation with content for every existing source slide.",
     ),
 });
 

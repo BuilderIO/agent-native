@@ -10,30 +10,30 @@ export default defineAction({
   description:
     "Restore a soft-deleted form. The form returns to the main list with its responses intact.",
   schema: z.object({
-    id: z.string().describe("Form ID to restore (required)"),
+    id: z
+      .union([z.string(), z.array(z.string()).min(1)])
+      .describe("Form ID or IDs to restore (required)"),
   }),
   run: async (args) => {
-    await assertAccess("form", args.id, "admin");
-
     const db = getDb();
-    const [existing] = await db
-      .select()
-      .from(schema.forms)
-      .where(eq(schema.forms.id, args.id))
-      .limit(1);
-
-    if (!existing) {
-      throw new Error(`Form ${args.id} not found`);
+    const ids = Array.isArray(args.id) ? args.id : [args.id];
+    const results = [];
+    for (const id of ids) {
+      await assertAccess("form", id, "admin");
+      const [existing] = await db
+        .select()
+        .from(schema.forms)
+        .where(eq(schema.forms.id, id))
+        .limit(1);
+      if (!existing) throw new Error(`Form ${id} not found`);
+      const now = new Date().toISOString();
+      await db
+        .update(schema.forms)
+        .set({ deletedAt: null, updatedAt: now })
+        .where(eq(schema.forms.id, id));
+      invalidatePublicFormCache(existing);
+      results.push({ id, success: true });
     }
-
-    const now = new Date().toISOString();
-    await db
-      .update(schema.forms)
-      .set({ deletedAt: null, updatedAt: now })
-      .where(eq(schema.forms.id, args.id));
-
-    invalidatePublicFormCache(existing);
-
-    return { success: true };
+    return Array.isArray(args.id) ? { results } : results[0];
   },
 });

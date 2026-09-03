@@ -33,6 +33,7 @@ The script generates a unique ID, creates a URL slug, and stores the form in SQL
 | `date`        | Date picker                    | No             | Birthday, deadline    |
 | `rating`      | Star rating (1-5)              | No             | Satisfaction, quality |
 | `scale`       | Numeric scale (e.g., 1-10)     | No             | NPS, likelihood       |
+| `file`        | File upload                    | No             | Attachments, documents |
 
 ## Field JSON Schema
 

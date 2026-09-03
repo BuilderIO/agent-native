@@ -117,6 +117,19 @@ export interface FormSettings {
   allowedOrigins?: string[];
 }
 
+const FORM_SETTINGS_KEYS = new Set<keyof FormSettings>([
+  "submitText",
+  "successMessage",
+  "redirectUrl",
+  "completionMode",
+  "completionRefreshSeconds",
+  "showProgressBar",
+  "emailOnNewResponses",
+  "anonymous",
+  "integrations",
+  "allowedOrigins",
+]);
+
 /**
  * The subset of {@link FormSettings} that is safe to expose to anonymous
  * respondents of a published form. This is an explicit ALLOWLIST: only the
@@ -165,6 +178,14 @@ export function getFormCompletionRefreshSeconds(value: unknown): number {
 export function assertValidFormCompletionSettings(
   settings: FormSettings,
 ): void {
+  const unknownKey = Object.keys(settings).find(
+    (key) => !FORM_SETTINGS_KEYS.has(key as keyof FormSettings),
+  );
+  if (unknownKey) {
+    throw new Error(
+      `Unknown form settings key "${unknownKey}". Valid keys: ${[...FORM_SETTINGS_KEYS].join(", ")}`,
+    );
+  }
   if (settings.completionMode !== undefined) {
     switch (settings.completionMode) {
       case "message":

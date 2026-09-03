@@ -310,6 +310,9 @@ export default defineAction({
         "Set to true to include thread/page unread counts and Gmail total estimate",
       ),
     compact: cliBoolean.optional().describe("Set to true for compact output"),
+    expandThreads: cliBoolean
+      .optional()
+      .describe("Return every message instead of collapsing each thread."),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -333,6 +336,7 @@ export default defineAction({
     const limit = args.limit ?? 50;
     const includeCounts = args.includeCounts === true;
     const compact = args.compact !== false;
+    const expandThreads = args.expandThreads === true;
     const accountFilter = args.account?.toLowerCase();
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
@@ -649,7 +653,9 @@ export default defineAction({
         );
       }
 
-      emails = latestPerThread(emails).slice(0, limit);
+      emails = expandThreads
+        ? emails.slice(0, limit)
+        : latestPerThread(emails).slice(0, limit);
 
       const payload = compact ? toCompact(emails) : emails;
       if (includeCounts) {
@@ -772,7 +778,9 @@ export default defineAction({
         args.cursor,
       );
     }
-    emails = latestPerThread(emails).slice(0, limit);
+    emails = expandThreads
+      ? emails.slice(0, limit)
+      : latestPerThread(emails).slice(0, limit);
     const payload = compact ? toCompact(emails) : emails;
     if (includeCounts) {
       return JSON.stringify(

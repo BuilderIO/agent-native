@@ -68,7 +68,16 @@ export default defineAction({
         'Replacement text in single-edit mode; omit to delete the matched text (default: "").',
       ),
     edits: z
-      .string()
+      .preprocess(
+        (value) => (typeof value === "string" ? JSON.parse(value) : value),
+        z.array(
+          z.object({
+            find: z.string().min(1),
+            replace: z.string().default(""),
+          }),
+        ),
+      )
+      .optional()
       .optional()
       .describe(
         "JSON array of {find, replace} objects for an ordered batch; use instead of find/replace.",
@@ -103,15 +112,7 @@ export default defineAction({
     let edits: TextEdit[];
 
     if (args.edits) {
-      try {
-        edits = JSON.parse(args.edits);
-        if (!Array.isArray(edits))
-          throw new Error("--edits must be a JSON array");
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Unable to parse JSON";
-        throw new Error(`Invalid --edits JSON: ${message}`);
-      }
+      edits = args.edits;
     } else if (args.find !== undefined) {
       if (!args.find) throw new Error("--find cannot be empty");
       edits = [{ find: args.find, replace: args.replace ?? "" }];

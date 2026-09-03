@@ -8,6 +8,7 @@ import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
 import { invalidatePublicFormCache } from "../server/lib/public-form-ssr.js";
 import {
   assertValidFields,
+  FIELD_TYPES,
   normalizeFieldIds,
 } from "../server/lib/validate-fields.js";
 import {
@@ -40,13 +41,13 @@ export default defineAction({
       .union([z.string(), z.array(z.any())])
       .optional()
       .describe(
-        "Array of complete field objects with id, type, label, and required (or JSON string of the same); never use shorthand strings such as 'text: Enter a name'.",
+        `Array of complete field objects with id, type, label, and required (or JSON string of the same). Valid field types: ${[...FIELD_TYPES].join(", ")}; never use shorthand strings.`,
       ),
     settings: z
       .union([z.string(), z.record(z.string(), z.any())])
       .optional()
       .describe(
-        "Form settings object (or JSON string of the same). Set completionMode to message, redirect, message_then_refresh, or refresh. Use completionRefreshSeconds with message_then_refresh. Set emailOnNewResponses=true to email the form owner for each new response.",
+        "Form settings object (or JSON string of the same). Valid keys: submitText, successMessage, redirectUrl, completionMode, completionRefreshSeconds, showProgressBar, emailOnNewResponses, anonymous, integrations, allowedOrigins.",
       ),
     status: z
       .enum(["draft", "published", "closed"])
@@ -105,6 +106,7 @@ export default defineAction({
       } else {
         incomingSettings = args.settings as unknown as FormSettings;
       }
+      assertValidFormCompletionSettings(incomingSettings);
       let existingSettings: FormSettings = {};
       try {
         existingSettings = JSON.parse(existing.settings) as FormSettings;
@@ -113,7 +115,6 @@ export default defineAction({
         // the valid settings supplied by this update.
       }
       const parsedSettings = { ...existingSettings, ...incomingSettings };
-      assertValidFormCompletionSettings(parsedSettings);
       // Reject blocked integration URLs at save time (private IPs,
       // cloud-metadata, non-http(s) schemes). fireIntegrations also
       // re-checks at runtime as defense-in-depth.

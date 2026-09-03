@@ -1,7 +1,9 @@
+import type { ActionRunContext } from "@agent-native/core/action";
 import { createProviderApiRequestAction } from "@agent-native/core/provider-api/actions/provider-api";
 import { getCredentialContext } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
+import { requiresEmailSendApproval } from "../server/lib/automation-settings.js";
 import {
   MAIL_APP_ID,
   MAIL_PROVIDER_API_IDS,
@@ -208,6 +210,10 @@ export default createProviderApiRequestAction(
     }),
     appId: MAIL_APP_ID,
     getOwnerEmail: () => getCredentialContext()?.userEmail ?? null,
+    needsApproval: async (args, ctx?: ActionRunContext) =>
+      args.provider === "gmail" &&
+      !["GET", "HEAD"].includes(String(args.method ?? "GET").toUpperCase()) &&
+      (await requiresEmailSendApproval(ctx)),
     http: false,
     toolCallable: false,
   },

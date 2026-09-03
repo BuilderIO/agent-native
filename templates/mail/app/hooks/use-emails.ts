@@ -1476,11 +1476,23 @@ export function useLabels(accountEmails?: readonly string[]) {
     : undefined;
   return useQuery<Label[]>({
     queryKey: ["labels", accountFilter],
-    queryFn: () => {
-      const params = accountFilter?.length
-        ? `?accountEmails=${encodeURIComponent(accountFilter.join(","))}`
-        : "";
-      return apiFetch(`/api/labels${params}`);
+    queryFn: async () => {
+      const labels = await callAction<
+        Array<{ id: string; name: string; accountEmail?: string }>
+      >("list-labels", {});
+      return labels
+        .filter(
+          (label) =>
+            !accountFilter?.length ||
+            !label.accountEmail ||
+            accountFilter.includes(label.accountEmail.toLowerCase()),
+        )
+        .map((label) => ({
+          ...label,
+          type: label.id.startsWith("Label_")
+            ? ("user" as const)
+            : ("system" as const),
+        }));
     },
     // A failed background refresh must not erase the last complete label map.
     // The layout still surfaces isError so an initial failure has an explicit

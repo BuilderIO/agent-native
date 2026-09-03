@@ -280,7 +280,7 @@ export type EditCapability =
     }
   | {
       kind: "structure";
-      operations: Array<"moveNode">;
+      operations: Array<"moveNode" | "deleteNode">;
       confidence: number;
       reason?: string;
     }
@@ -452,6 +452,11 @@ export interface AttributeEditIntent {
   value: string;
 }
 
+export interface DeleteNodeEditIntent {
+  kind: "deleteNode";
+  target: EditIntentTarget;
+}
+
 export interface MoveNodeEditIntent {
   kind: "moveNode";
   target: EditIntentTarget;
@@ -602,6 +607,7 @@ export type EditIntent =
   | ClassEditIntent
   | TextEditIntent
   | AttributeEditIntent
+  | DeleteNodeEditIntent
   | MoveNodeEditIntent
   | WrapNodesEditIntent
   | UnwrapEditIntent
@@ -3956,10 +3962,7 @@ function applyAutoLayout(
       serializeStyleDeclarations(declarations),
     );
     if (!hasRects) {
-      return {
-        content: result,
-        capability: { kind: "style", properties: ["display"], confidence: 0.9 },
-      };
+      return "needsAgent";
     }
 
     const updatedElements = parseHtmlElements(result);
@@ -4347,6 +4350,19 @@ export function applyVisualEdit(
     edit = applyTextEdit(html, element, intent);
   } else if (intent.kind === "attribute") {
     edit = applyAttributeEdit(html, element, intent);
+  } else if (intent.kind === "deleteNode") {
+    const content = removeCodeLayerNodeFromHtml(html, beforeNode);
+    edit =
+      content === null
+        ? "unsupported"
+        : {
+            content,
+            capability: {
+              kind: "structure",
+              operations: ["deleteNode"],
+              confidence: 0.95,
+            },
+          };
   } else if (intent.kind === "responsive-class") {
     edit = applyResponsiveClassEdit(html, element, intent);
   } else if (intent.kind === "breakpoint-style") {
