@@ -31,6 +31,7 @@ import {
   ensureUniqueSlideIds,
   repairDeckSlideReferences,
 } from "../shared/slide-ids.js";
+import { getDeckUrl } from "./_app-url.js";
 import {
   assertDesignSystemReadable,
   assertValidAspectRatio,
@@ -196,7 +197,7 @@ export default defineAction({
       }
 
       notifyClients(deckId);
-      return deck;
+      return { ...deck, appUrl: getDeckUrl(deckId) };
     }),
 });
 

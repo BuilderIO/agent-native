@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { isPostgres } from "@agent-native/core/db";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -24,8 +24,38 @@ function parseJsonProjection(value: unknown, label: string): unknown {
   }
 }
 
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 100;
+
+function encodeDeckCursor(updatedAt: string, id: string): string {
+  return Buffer.from(JSON.stringify({ updatedAt, id })).toString("base64url");
+}
+
+function decodeDeckCursor(value: string): { updatedAt: string; id: string } {
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      typeof parsed.updatedAt !== "string" ||
+      !parsed.updatedAt ||
+      typeof parsed.id !== "string" ||
+      !parsed.id
+    ) {
+      throw new Error("invalid cursor shape");
+    }
+    return parsed;
+  } catch {
+    fail("Invalid deck list cursor.", {
+      errorCode: "invalid_deck_list_cursor",
+      statusCode: 400,
+    });
+  }
+}
+
 export default defineAction({
-  description: "List all decks from the database with metadata.",
+  description:
+    "List decks from the database with metadata. Use updatedSince, limit, and cursor for bounded incremental sync; paged responses are metadata-only, so use get-deck for slide content.",
   schema: z.object({
     compact: z
       .enum(["true", "false"])
@@ -56,6 +86,25 @@ export default defineAction({
       .enum(["all", "me"])
       .optional()
       .describe("Set to 'me' to list only decks created by the current user"),
+    updatedSince: z
+      .string()
+      .datetime({ offset: true })
+      .optional()
+      .describe("Only return decks updated after this timestamp"),
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_PAGE_SIZE)
+      .optional()
+      .describe("Maximum number of decks to return in a bounded page"),
+    cursor: z
+      .string()
+      .trim()
+      .min(1)
+      .max(512)
+      .optional()
+      .describe("Opaque cursor returned by the previous page"),
   }),
   http: { method: "GET" },
   link: () => ({
@@ -89,6 +138,73 @@ export default defineAction({
             sql`lower(trim(${schema.decks.ownerEmail})) = ${normalizedOwnerEmail}`,
           )
         : visibleDecks;
+
+    const paged =
+      args.updatedSince !== undefined ||
+      args.limit !== undefined ||
+      args.cursor !== undefined;
+    if (paged) {
+      const cursor = args.cursor ? decodeDeckCursor(args.cursor) : undefined;
+      const pageConditions = [
+        ...(args.updatedSince
+          ? [sql`${schema.decks.updatedAt} > ${args.updatedSince}`]
+          : []),
+        ...(cursor
+          ? [
+              sql`(${schema.decks.updatedAt} < ${cursor.updatedAt} OR (${schema.decks.updatedAt} = ${cursor.updatedAt} AND ${schema.decks.id} < ${cursor.id}))`,
+            ]
+          : []),
+      ];
+      const pagedWhere = pageConditions.length
+        ? and(where, ...pageConditions)
+        : where;
+      const pageSize = args.limit ?? DEFAULT_PAGE_SIZE;
+      const rows = await db
+        .select({
+          id: schema.decks.id,
+          title: schema.decks.title,
+          ownerEmail: schema.decks.ownerEmail,
+          designSystemId: schema.decks.designSystemId,
+          createdAt: schema.decks.createdAt,
+          updatedAt: schema.decks.updatedAt,
+          visibility: schema.decks.visibility,
+        })
+        .from(schema.decks)
+        .where(pagedWhere)
+        .orderBy(desc(schema.decks.updatedAt), desc(schema.decks.id))
+        .limit(pageSize + 1);
+      const hasNextPage = rows.length > pageSize;
+      const visibleRows = hasNextPage ? rows.slice(0, pageSize) : rows;
+      const lastRow = visibleRows[visibleRows.length - 1];
+      if (hasNextPage && !lastRow?.updatedAt) {
+        fail("Cannot paginate a deck without an updated timestamp.", {
+          errorCode: "deck_pagination_unavailable",
+          statusCode: 409,
+        });
+      }
+      const nextCursor =
+        hasNextPage && lastRow?.updatedAt
+          ? encodeDeckCursor(lastRow.updatedAt, lastRow.id)
+          : undefined;
+      const decks = visibleRows.map((row) => ({
+        id: row.id,
+        title: row.title,
+        url: getDeckUrl(row.id),
+        appUrl: getDeckUrl(row.id),
+        visibility: row.visibility,
+        designSystemId: row.designSystemId ?? null,
+        createdByMe:
+          normalizedOwnerEmail !== null &&
+          normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      }));
+      return {
+        count: decks.length,
+        decks,
+        ...(nextCursor ? { nextCursor } : {}),
+      };
+    }
 
     if (args.light === "true") {
       // Column-projected listing for cheap add/remove diffing (the client's
@@ -138,6 +254,7 @@ export default defineAction({
               title: row.title,
               updatedAt: row.updatedAt,
               visibility: row.visibility,
+              appUrl: getDeckUrl(row.id),
               createdByMe:
                 normalizedOwnerEmail !== null &&
                 normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
@@ -170,6 +287,7 @@ export default defineAction({
           title: row.title,
           updatedAt: row.updatedAt,
           visibility: row.visibility,
+          appUrl: getDeckUrl(row.id),
           createdByMe:
             normalizedOwnerEmail !== null &&
             normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
@@ -201,6 +319,7 @@ export default defineAction({
           id: row.id,
           title: row.title,
           url: getDeckUrl(row.id),
+          appUrl: getDeckUrl(row.id),
           visibility: row.visibility,
           designSystemId: row.designSystemId ?? null,
           createdByMe:
@@ -230,6 +349,7 @@ export default defineAction({
           ...data,
           id: row.id,
           title: row.title,
+          appUrl: getDeckUrl(row.id),
           visibility: row.visibility,
           createdByMe:
             normalizedOwnerEmail !== null &&
@@ -247,6 +367,7 @@ export default defineAction({
           id: row.id,
           title: row.title,
           url: getDeckUrl(row.id),
+          appUrl: getDeckUrl(row.id),
           slideCount: slides?.length ?? 0,
           visibility: row.visibility,
           designSystemId: row.designSystemId ?? null,
@@ -257,6 +378,7 @@ export default defineAction({
         id: row.id,
         title: row.title,
         url: getDeckUrl(row.id),
+        appUrl: getDeckUrl(row.id),
         slideCount: slides?.length ?? 0,
         visibility: row.visibility,
         designSystemId: row.designSystemId ?? null,

@@ -988,9 +988,11 @@ async function getBearerLegacySession(
  * `allowDevOpen: false` and the `userEmail` guard ensure an invalid token (or a
  * bare ACCESS_TOKEN with no owner hint) never escalates to an unauthenticated
  * or unscoped identity on this path — it strictly adds acceptance of verified,
- * audience-bound caller tokens, nothing more.
+ * audience-bound caller tokens, nothing more. Custom routes can opt in by
+ * calling this helper explicitly; generic `getSession` calls keep this token
+ * limited to action routes by default.
  */
-async function getMcpOAuthBearerSession(
+export async function getMcpOAuthBearerSession(
   event: H3Event,
 ): Promise<AuthSession | null> {
   const authHeader = getHeader(event, "authorization");

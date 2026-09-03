@@ -33,6 +33,7 @@ import {
   hashSlideContent,
 } from "../shared/slide-fit.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
+import { getDeckUrl } from "./_app-url.js";
 import {
   assertDeckWriteApplied,
   deckRevisionWhere,
@@ -386,7 +387,7 @@ export default defineAction({
       .default([])
       .describe("Exact context item versions that influenced this slide edit."),
   }),
-  http: false,
+  http: { method: "POST" },
   run: async (args, ctx) => {
     const isAgentCaller = isAgentPatchCaller(ctx?.caller);
     const {
@@ -774,6 +775,7 @@ export default defineAction({
         contentHash: rmw.contentHash,
         layoutFitRevision: rmw.layoutFitRevision,
       },
+      appUrl: getDeckUrl(deckId),
       deepLink: deckDeepLink(deckId),
       ...(rmw.contextMode
         ? {
