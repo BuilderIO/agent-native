@@ -79,7 +79,12 @@ import {
   EditorActionCluster,
   type SlideShapeType,
 } from "./EditorActionCluster";
-import { ExportMenu, type ExportMenuHandle } from "./ExportMenu";
+import {
+  ExportMenu,
+  ExportStatusDialog,
+  type ExportMenuHandle,
+  type ExportStatus,
+} from "./ExportMenu";
 export type PresentRequest = {
   preserveNativeNavigation: true;
 };
@@ -154,7 +159,7 @@ interface EditorToolbarProps {
   /** Duplicate the current deck */
   onDuplicateDeck?: () => void;
   /** Export the deck as PDF */
-  onExportPdf?: () => void;
+  onExportPdf?: () => Promise<void> | void;
   /** Export the deck as PPTX */
   onExportPptx?: () => Promise<void> | void;
   /** Create the deck in the user's Google Drive as native Google Slides */
@@ -280,6 +285,9 @@ export default function EditorToolbar({
   const contextToolbarVisible = canEdit && Boolean(currentSlide);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const exportMenuRef = useRef<ExportMenuHandle>(null);
+  const [exportStatus, setExportStatus] = useState<ExportStatus>({
+    state: "idle",
+  });
   const titleMeasureRef = useRef<HTMLSpanElement>(null);
   const [titleInputWidth, setTitleInputWidth] = useState(96);
   const [importing, setImporting] = useState(false);
@@ -541,7 +549,7 @@ export default function EditorToolbar({
         label: t("editorExport.exportPdf"),
         keywords: ["export", "pdf", "download"],
         icon: IconFileTypePdf,
-        run: () => onExportPdf?.(),
+        run: () => void exportMenuRef.current?.exportPdf(),
       },
       {
         id: "export-pptx",
@@ -796,6 +804,7 @@ export default function EditorToolbar({
             <TooltipContent>{t("editorToolbar.more")}</TooltipContent>
           </Tooltip>
           <DropdownMenuContent
+            forceMount
             align="end"
             className="max-h-[90vh] w-64 overflow-y-auto"
           >
@@ -915,6 +924,8 @@ export default function EditorToolbar({
             <ExportMenu
               ref={exportMenuRef}
               inline
+              hideExportDialog
+              onExportStatusChange={setExportStatus}
               deckId={deckId}
               deckTitle={deckTitle}
               onDuplicate={onDuplicateDeck ?? (() => {})}
@@ -938,6 +949,10 @@ export default function EditorToolbar({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <ExportStatusDialog
+          status={exportStatus}
+          onStatusChange={setExportStatus}
+        />
       </div>
 
       {/* Framework share (ownership, per-user/org grants, visibility) */}

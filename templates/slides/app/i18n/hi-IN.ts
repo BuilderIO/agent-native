@@ -269,6 +269,7 @@ const messages = {
   editorExport: {
     pptxFailed: "PPTX फ़ाइल जनरेट नहीं हो सकी।",
     exportFailed: "निर्यात विफल",
+    exporting: "निर्यात हो रहा है...",
     exportPptxError: "PPTX के रूप में निर्यात करते समय कुछ गलत हुआ।",
     googleSlidesDownloaded: "Google Slides के लिए डाउनलोड किया गया",
     googleSlidesImportHint:

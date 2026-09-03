@@ -261,6 +261,7 @@ const messages = {
   editorExport: {
     pptxFailed: "無法生成 PPTX 檔案。",
     exportFailed: "匯出失敗",
+    exporting: "正在匯出...",
     exportPptxError: "匯出為 PPTX 時出了點問題。",
     googleSlidesDownloaded: "已為 Google Slides 下載",
     googleSlidesImportHint:

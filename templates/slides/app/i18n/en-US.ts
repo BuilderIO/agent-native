@@ -270,6 +270,7 @@ const messages = {
   editorExport: {
     pptxFailed: "Could not generate PPTX file.",
     exportFailed: "Export failed",
+    exporting: "Exporting...",
     exportPptxError: "Something went wrong exporting as PPTX.",
     googleSlidesDownloaded: "Downloaded for Google Slides",
     googleSlidesImportHint:
