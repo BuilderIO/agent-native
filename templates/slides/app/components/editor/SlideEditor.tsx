@@ -152,6 +152,7 @@ import {
   getSlideSelectionIdentity,
   getSlideSelectionMode,
   findPersistedImageObject,
+  isAutoHeightTextResize,
   isDeletableFlowImage,
   isDeletableSlideElement,
   isSlideTableStructureElement,
@@ -4453,15 +4454,28 @@ export default function SlideEditor({
     (
       element: HTMLElement,
       geometry: SlideObjectGeometry,
-      { overrideImageSizing = false }: { overrideImageSizing?: boolean } = {},
+      {
+        overrideImageSizing = false,
+        autoHeight = false,
+      }: { overrideImageSizing?: boolean; autoHeight?: boolean } = {},
     ) => {
       element.style.left = `${geometry.x}px`;
       element.style.top = `${geometry.y}px`;
       if (overrideImageSizing) {
         setSlideObjectDimension(element, "width", `${geometry.width}px`);
-        setSlideObjectDimension(element, "height", `${geometry.height}px`);
       } else {
         element.style.width = `${geometry.width}px`;
+      }
+      if (autoHeight) {
+        // No inline height at all means the box sizes to its content, same
+        // as a freshly placed text box — leave it unset instead of "auto" so
+        // a later manual resize sees a clean absent-vs-explicit height.
+        element.style.removeProperty("height");
+        return;
+      }
+      if (overrideImageSizing) {
+        setSlideObjectDimension(element, "height", `${geometry.height}px`);
+      } else {
         element.style.height = `${geometry.height}px`;
       }
     },
@@ -5013,6 +5027,11 @@ export default function SlideEditor({
           ensureSlideObjectId(element);
           applyObjectGeometry(element, gesture.rect, {
             overrideImageSizing: true,
+            autoHeight: isAutoHeightTextResize(
+              element,
+              gesture.handle,
+              Boolean(gesture.pointer.shiftKey),
+            ),
           });
           const currentSelector = getBuilderSelector(element);
           if (currentSelector) {

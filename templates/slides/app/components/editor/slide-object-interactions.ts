@@ -5,8 +5,9 @@ import {
 } from "@agent-native/toolkit/canvas-interactions";
 
 import {
-  isSlideCanvasShell,
   isRichTextBlock,
+  isSlideCanvasShell,
+  isTextLeaf,
   shouldStampBuilderId,
 } from "./slide-text-targets";
 
@@ -853,6 +854,26 @@ export function resizeSlideObject(
     minWidth: minSize,
     minHeight: minSize,
   });
+}
+
+const WIDTH_ONLY_RESIZE_HANDLES = new Set<ResizeHandle>(["e", "w"]);
+
+/**
+ * A width-only handle on a text object should not pin a height: wrapped text
+ * needs the box free to grow or shrink as its width changes. Corners and the
+ * top/bottom handles are an explicit height drag (or, with Shift held,
+ * derive one to preserve aspect ratio), so those keep a manual, fixed height.
+ */
+export function isAutoHeightTextResize(
+  element: HTMLElement,
+  handle: ResizeHandle,
+  preserveAspectRatio: boolean,
+): boolean {
+  return (
+    WIDTH_ONLY_RESIZE_HANDLES.has(handle) &&
+    !preserveAspectRatio &&
+    isTextLeaf(element)
+  );
 }
 
 export function resizeSlideObjectMembers(
