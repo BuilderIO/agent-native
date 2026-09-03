@@ -1,0 +1,105 @@
+---
+title: "ما هو Agent-Native؟"
+description: "ما هو Agent-Native، وكيف تعمل بنيته ذات الإجراءات المشتركة، ومتى تبني تطبيقًا بهذه الطريقة."
+---
+
+# ما هو Agent-Native؟
+
+Agent-Native هو إطار عمل TypeScript مفتوح المصدر لبناء وكلاء مستقلين بواجهات
+استخدام بديهية. تعرّف كل قدرة مرة واحدة كـ [إجراء](/docs/actions-overview) — دالة
+مكتوبة الأنواع يستخدمها الوكيل كأداة وتستدعيها واجهة المستخدم من الكود.
+
+## لماذا نبني وكلاء بواجهات مستخدم
+
+<WireframeBlock id="doc-block-agent-ui-why">
+  <Screen
+    surface="desktop"
+    html={
+      "<div dir='rtl' style='display:grid;grid-template-columns:minmax(0,1fr) 54px minmax(0,1.15fr);gap:18px;align-items:center;padding:28px;min-height:420px;box-sizing:border-box'><section style='display:flex;flex-direction:column;gap:14px;align-items:center'><strong style='font-size:20px'>وكيل مع مربع نص فقط</strong><div class='wf-card' style='width:100%;min-height:250px;display:flex;flex-direction:column;gap:18px;padding:20px;box-sizing:border-box;border-radius:calc(var(--wf-radius) * 0.45)'><span class='wf-muted'>الوكيل</span><div style='flex:1;display:flex;align-items:center;justify-content:center'><div class='wf-box' style='width:72%;height:42px;border-radius:calc(var(--wf-radius) * 0.45)'></div></div></div><span class='wf-muted'>ماذا يمكنه أن يفعل؟</span></section><div aria-hidden='true' style='font-size:32px;text-align:center'>&larr;</div><section style='display:flex;flex-direction:column;gap:14px;align-items:center'><strong style='font-size:20px'>وكيل مع واجهة مستخدم</strong><div class='wf-card' style='width:100%;min-height:250px;display:flex;flex-direction:column;gap:10px;padding:16px;box-sizing:border-box;border-radius:calc(var(--wf-radius) * 0.45)'><strong>عرض الإطلاق</strong><div style='display:flex;gap:7px'><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>المخطط</span><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>الشرائح</span><span class='wf-pill' style='border-radius:calc(var(--wf-radius) * 0.45)'>المراجعة</span></div><div style='display:grid;grid-template-columns:minmax(0,1fr) 104px;gap:10px;flex:1;min-height:0'><div style='display:grid;grid-template-columns:42px minmax(0,1fr);gap:8px;min-width:0'><div style='display:flex;flex-direction:column;gap:7px'><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div><div class='wf-box' style='height:34px;border-radius:calc(var(--wf-radius) * 0.45)'></div></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;padding:12px;text-align:center;border-radius:calc(var(--wf-radius) * 0.45)'><strong>إطلاق المنتج للربع الثالث</strong></div></div><aside class='wf-box' style='display:flex;flex-direction:column;gap:8px;padding:10px;min-width:0;border-radius:calc(var(--wf-radius) * 0.45)'><strong>الوكيل</strong><div style='flex:1'></div><div style='display:flex;align-items:center;gap:6px'><div class='wf-box' style='height:26px;flex:1;border-radius:calc(var(--wf-radius) * 0.45)'></div><button aria-hidden='true' tabindex='-1' style='width:26px;height:26px;padding:0;border-radius:calc(var(--wf-radius) * 0.45)'>&uarr;</button></div></aside></div></div><span class='wf-muted'>الوكيل وواجهة المستخدم في مساحة عمل واحدة</span></section></div>"
+    }
+  />
+</WireframeBlock>
+
+قد تجعل وكلاء البرمجة مربع النص يبدو كافيًا. لكن مربع النص ليس سوى جزء واحد
+من بيئة عملهم. توفر قاعدة الشفرة السياق، وتمنحهم الأدوات طرقًا واضحة للتنفيذ،
+وتجعل الملفات والاختبارات والمعاينات النتائج مرئية.
+
+لا يأتي معظم العمل المعرفي بهذه البنية. في مربع نص فارغ، يضطر الناس إلى تخمين
+ما يمكن للوكيل فعله، وما السياق المتاح له، وما الذي ينبغي أن يطلبوه.
+
+توفر واجهة المستخدم ما يفتقده مربع النص. فهي تجعل قدرات الوكيل واضحة، وتدمج
+السياق وسير العمل في التجربة، وتتيح للناس رؤية العمل وتوجيهه أثناء تطوره.
+
+يتيح لك Agent-Native بناء الوكلاء بهذه الطريقة. تمنح واجهة المستخدم الناس نقاط
+بداية واضحة من دون حصر الوكيل في سير عمل ثابت. ولأن الوكيل وواجهة المستخدم
+يستخدمان القدرات نفسها، يمكن للناس تفويض العمل إلى الوكيل، وفحصه أو تغييره في
+واجهة المستخدم، والتنقل بين الاثنين من دون فقدان التقدم.
+
+## كيف يعمل Agent-Native
+
+<Video
+  src="https://cdn.builder.io/o/assets%2Fc5b47d20f6a943e485717e5895739988%2Fc88d506c160142ae9b8618616ceedcea%2Fcompressed?apiKey=c5b47d20f6a943e485717e5895739988&token=c88d506c160142ae9b8618616ceedcea&alt=media&optimized=true"
+  alt="مقارنة بين شخص يستخدم تطبيقًا مباشرةً والعمل عبر وكيل ذكاء اصطناعي في التطبيق نفسه."
+  align="full"
+  caption="شاهد مقدمة مدتها أربع دقائق إلى بنية Agent-Native."
+/>
+
+يربط Agent-Native الوكيل وواجهة المستخدم عبر ثلاثة أسس مشتركة:
+
+- **[الإجراءات المشتركة](/docs/actions-overview).** تعرّف كل قدرة مرة واحدة.
+  يستدعيها الوكيل كأداة، وتستدعيها واجهة المستخدم من الكود. يستخدم المساران
+  التحقق والصلاحيات والتنفيذ نفسها.
+- **[البيانات المشتركة](/docs/server-database).** تقرأ الإجراءات البيانات نفسها
+  وتحدّثها، لذلك يظهر العمل الذي ينفذه الوكيل في واجهة المستخدم، ويكون العمل
+  المنفذ في واجهة المستخدم متاحًا للوكيل.
+- **[حالة التطبيق المشتركة](/docs/context-awareness).** تصف حالة التطبيق ما
+  يحدث في واجهة المستخدم، مثل الصفحة الحالية أو السجل المحدد أو العرض النشط.
+  يمنح Agent-Native الحالة ذات الصلة للوكيل كسياق، ليفهم ما الذي يعمل عليه
+  الشخص.
+
+لا ينقر الوكيل عبر واجهة المستخدم. بل يعمل من خلال طبقة الإجراءات نفسها التي
+تستخدمها واجهة المستخدم.
+
+على سبيل المثال، يمكن لشخص تعيين تذكرة دعم عبر واجهة المستخدم أو أن يطلب من
+الوكيل فعل ذلك. يشغّل كلا المسارين الإجراء نفسه ويحدّثان التذكرة نفسها. يمكن
+للشخص فحص النتيجة أو تغييرها في واجهة المستخدم، ثم السماح للوكيل بالمتابعة من
+هناك.
+
+## متى تستخدم Agent-Native؟
+
+تكون Agent-Native مناسبة عندما:
+
+- ينبغي للوكيل تنفيذ عمل حقيقي، وليس الإجابة عن الأسئلة فقط.
+- يحتاج الأشخاص إلى واجهة مستخدم لمعرفة ما يمكن للوكيل فعله، ولفحص عمله أو
+  تحريره أو الموافقة عليه أو مشاركته.
+- ينبغي أن يتمكن الأشخاص من التنقل بين الوكيل وواجهة المستخدم دون فقدان التقدم
+  أو السياق.
+
+إذا كنت تحتاج فقط إلى استجابة مولّدة واحدة، فاستدعِ نموذجًا مباشرة. وإذا كان
+سير العمل يتبع تسلسلًا ثابتًا ومتوقعًا، فإن منطق التطبيق العادي أو الأتمتة
+أبسط. استخدم Agent-Native عندما يحتاج الوكيل وواجهة المستخدم معًا إلى دور
+مستمر في العمل نفسه.
+
+## الخطوات التالية
+
+<Cards>
+
+### [البدء](/docs/getting-started)
+
+أنشئ تطبيقًا واستدعِ الإجراء نفسه من الوكيل وواجهة المستخدم.
+
+### [المفاهيم الأساسية](/docs/key-concepts)
+
+تعرّف على كيفية توافق الإجراءات وبيانات SQL وسياق التطبيق والوصول والمزامنة
+المباشرة معًا.
+
+### [أسطح الوكيل](/docs/agent-surfaces)
+
+اطّلع على كيفية دعم النموذج نفسه لتطبيقات تقودها واجهة مستخدم أو دردشة أو
+أتمتة أو وكيل آخر.
+
+### [التطبيقات](/docs/cloneable-saas)
+
+انطلق من منتج SaaS كامل بدلاً من البناء تدريجيًا انطلاقًا من Chat.
+
+</Cards>

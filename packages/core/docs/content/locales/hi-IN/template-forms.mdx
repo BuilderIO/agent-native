@@ -1,0 +1,137 @@
+---
+title: "फॉर्म"
+description: "एक एजेंट-संचालित फॉर्म बिल्डर जो Typeform और Google Forms की जगह एक ऐसे ऐप से लेता है जिसका मालिक आप खुद हैं। चैट में अपना इच्छित फॉर्म बताएं, एक सुरक्षित लिंक प्रकाशित करें, और प्रतिक्रियाओं को अपने आप रूट, एक्सपोर्ट, और सारांशित होते देखें।"
+---
+
+# फॉर्म
+
+फॉर्म एक फॉर्म बिल्डर है, हर उस व्यक्ति के लिए जिसे बिना कोड लिखे जानकारी इकट्ठा करनी है। इसे साइनअप, फ़ीडबैक, रजिस्ट्रेशन, या सर्वे के लिए इस्तेमाल करें। एजेंट को अपना इच्छित फॉर्म बताएं, जब आपको ज़्यादा सीधा नियंत्रण चाहिए तो इसे विज़ुअली फाइन-ट्यून करें, और एक ऐसा लिंक प्रकाशित करें जिसे कोई भी भर सके।
+
+<Cards columns={1}>
+
+### [अभी आज़माएं →](https://forms.agent-native.com)
+
+फॉर्म को लाइव देखें और एक असली फॉर्म प्रकाशित करें।
+
+</Cards>
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F70338a3cf0cc402580858a409dd5bd6a?alt=media&token=f2c7c8e9-6cf3-4e03-865d-abc499d87ff6&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="फॉर्म एप्लिकेशन का एक संक्षिप्त टूर।"
+  caption="फॉर्म एप्लिकेशन का एक संक्षिप्त टूर।"
+  autoplay={true}
+  loop={true}
+/>
+
+हर नया सेशन **Ask Forms** पर खुलता है, एक चैट जहां आप बताते हैं कि आपको क्या चाहिए। एजेंट आपके लिए फॉर्म बना देता है। इसके बाद आप जब चाहें विज़ुअल एडिटर में जाकर फ़ील्ड, वैलिडेशन, या पब्लिशिंग सेटिंग्स को हाथ से एडजस्ट कर सकते हैं। एडिट करने के दोनों तरीके एक ही फॉर्म को अपडेट करते हैं, इसलिए कुछ भी सिंक से बाहर नहीं होता।
+
+<Diagram id="doc-block-forms2" title="निर्माण करें, प्रकाशित करें, संग्रह करें" summary={"एजेंट और विज़ुअल एडिटर एक ही फॉर्म को एडिट करते हैं। कोई भी बिना साइन इन किए सार्वजनिक भरने वाला पेज खोल सकता है, और नए सबमिशन अपने आप आपके गंतव्यों तक भेज दिए जाते हैं।"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Ask Forms चैट<br /><small class="diagram-muted"
+        >"एक NPS सवाल जोड़ें"</small
+      >
+    </div>
+    <div class="diagram-node">
+      विज़ुअल एडिटर<br /><small class="diagram-muted"
+        >लेबल, वैलिडेशन, क्रम</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-form · patch-form-fields</span
+    ><small class="diagram-muted">fields JSON, settings JSON</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    forms table<br /><small class="diagram-muted">Drizzle के ज़रिए SQL</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      सार्वजनिक भरने वाला पेज<br /><small class="diagram-muted"
+        >unauthenticated</small
+      >
+    </div>
+    <div class="diagram-box">
+      responses<br /><small class="diagram-muted"
+        >+ Slack / वेबहुक / Sheets</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## यह क्या बदलता है
+
+<Comparison>
+
+### पहले
+
+- Typeform, Google Forms, या हाथ से बनाया गया फॉर्म, प्रतिक्रियाएं इकट्ठा करने के लिए
+- नए सबमिशन को हाथ से Slack या किसी स्प्रेडशीट में कॉपी करना
+- सिर्फ़ यह बताने के लिए एक अलग टूल कि क्या-क्या वापस आया
+- प्रतिक्रियाओं को Sheets या किसी वेबहुक तक पहुंचाने के लिए एक Zapier ऑटोमेशन सेट करना
+
+### बाद में
+
+- एक ही फॉर्म, जिसे एजेंट और विज़ुअल एडिटर दोनों अपडेट करते हैं
+- नई प्रतिक्रियाएं आते ही Slack, Discord, Sheets, या किसी वेबहुक पर भेज दी जाती हैं
+- सारांश मांगें और बिना किसी अलग टूल के एक चार्ट, एक टेबल, या दोनों पाएं
+- कंडीशनल फ़ील्ड, स्पैम सुरक्षा, और गुमनाम मोड, सब उसी बिल्डर में पहले से बने हुए हैं
+
+</Comparison>
+
+## मल्टी-ऐप वर्कस्पेस में फॉर्म
+
+अगर आप [डिस्पैच](/docs/template-dispatch) में फॉर्म को दूसरे ऐप्स के साथ चला रहे हैं, तो फॉर्म सिर्फ़ हाथ से खोलने वाला एक पेज नहीं रह जाता। फॉर्म का एजेंट किसी दूसरे ऐप से जुड़े सवाल आगे भेज सकता है, और दूसरे ऐप्स सीधे आपके फॉर्म में प्रतिक्रियाएं भेज सकते हैं, ठीक वैसे ही जैसे फ्रेमवर्क का अपना फ़ीडबैक बटन करता है। यह कैसे काम करता है, यह जानने के लिए [मल्टी-ऐप वर्कस्पेस में फॉर्म का क्रॉस-ऐप उपयोग](/docs/template-forms-integrations) देखें।
+
+## आप इसके साथ क्या कर सकते हैं
+
+- **संवादात्मक रूप से फॉर्म बनाएं।** "एक संपर्क फॉर्म बनाएं," "एक NPS स्कोर सवाल जोड़ें," या "ईमेल फ़ील्ड को ज़रूरी बनाएं" जैसे प्रॉम्प्ट आज़माएं। [उपलब्ध फ़ील्ड प्रकार](/docs/template-forms-features#field-types) देखें।
+- **विज़ुअली फाइन-ट्यून करें।** जब आपको ज़्यादा सीधा नियंत्रण चाहिए, तो फॉर्म बिल्डर में सीधे लेबल, प्लेसहोल्डर, ज़रूरी फ़ील्ड, विकल्प, और फ़ील्ड क्रम एडिट करें।
+- **सार्वजनिक फॉर्म प्रकाशित करें और सुरक्षित करें।** एक सार्वजनिक लिंक शेयर करें, और ज़रूरत पड़ने पर स्पैम सुरक्षा या पूरी तरह गुमनाम प्रतिक्रियाएं चालू करें। [सुविधाएं](/docs/template-forms-features) देखें।
+- **प्रतिक्रियाएं देखें और इनसाइट मांगें।** "इस हफ़्ते के सबमिशन को सारांशित करें" या "दिन के हिसाब से सबमिशन चार्ट करें" जैसे प्रॉम्प्ट आज़माएं। [सुविधाएं](/docs/template-forms-features#response-insights) देखें।
+- **सबमिशन अपने आप रूट करें।** कोई Slack, Discord, Google Sheets, या सामान्य वेबहुक URL पेस्ट करें, और नई प्रतिक्रियाएं आते ही वहां भेज दी जाती हैं।
+
+## आगे क्या
+
+- [**सुविधाएं**](/docs/template-forms-features) — फ़ील्ड प्रकार, कंडीशनल लॉजिक, पब्लिशिंग, सुरक्षा, प्रतिक्रियाएं, इनसाइट, और रूटिंग, हर एक के लिए सेटअप स्टेप्स के साथ
+- [**एजेंट से बात करें**](/docs/template-forms-agent) — काम के हिसाब से प्रॉम्प्ट और एजेंट आपकी स्क्रीन को कैसे देखता है
+- [**मल्टी-ऐप वर्कस्पेस में फॉर्म का क्रॉस-ऐप उपयोग**](/docs/template-forms-integrations) — डेलिगेशन और वह सार्वजनिक सबमिट एंडपॉइंट जिसे दूसरे ऐप्स इस्तेमाल करते हैं
+- [**डेवलपर गाइड**](/docs/template-forms-developers) — डेवलपर्स के लिए SQL स्कीमा, action रेफरेंस, और रूट्स
+- [**टेम्पलेट्स**](/docs/cloneable-saas) — Cloneable SaaS मॉडल
+- [**शुरुआत करें**](/docs/getting-started) — फ़्रेमवर्क की बुनियादी बातें: actions, application state, और live sync
+- [**Actions**](/docs/actions-overview) — बिल्डर को शक्ति देने वाला action सिस्टम
+- [**Messaging**](/docs/messaging) — Slack और दूसरे सबमिशन गंतव्य
+- [**साझाकरण**](/docs/sharing) — शेयर-ग्रांट मॉडल जिस पर फॉर्म शेयर बने हैं

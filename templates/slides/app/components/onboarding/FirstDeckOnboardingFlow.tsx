@@ -1,0 +1,646 @@
+import { appBasePath } from "@agent-native/core/client/api-path";
+import {
+  PromptComposer,
+  type PromptComposerSubmitOptions,
+  useEagerFileUploads,
+} from "@agent-native/core/client/composer";
+import { callAction, useSession } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import type { FirstRunOnboardingExtensionProps } from "@agent-native/core/client/onboarding";
+import { IconArrowLeft } from "@tabler/icons-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router";
+import { toast } from "sonner";
+
+import {
+  NewDeckReferenceStep,
+  type ImportedReference,
+  type NewDeckReferenceSelection,
+  type NewDeckReferenceSource,
+} from "@/components/editor/NewDeckReferenceStep";
+import {
+  createPromptChatAttachments,
+  uploadPromptFiles,
+  type PromptChatAttachment,
+  type UploadedFile,
+} from "@/components/editor/PromptDialog";
+import {
+  describeDeckPersistenceFailure,
+  useDecks,
+} from "@/context/DeckContext";
+import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import { useDesignSystems } from "@/hooks/use-design-systems";
+import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
+import { startDeckGeneration } from "@/lib/create-deck-generation";
+import { IMPORT_ACTION_TIMEOUT_MS } from "@/lib/import-uploaded-deck";
+import {
+  forgetRecentReference,
+  readRecentReferences,
+  rememberRecentReference,
+  type RecentReference,
+} from "@/lib/recent-references";
+
+import { MAX_REFERENCE_FILE_BYTES } from "../../../shared/upload-types";
+
+type FirstDeckStep = "prompt" | "references";
+
+type PromptModelSelection = Pick<
+  PromptComposerSubmitOptions,
+  "model" | "engine" | "effort"
+>;
+
+export function FirstDeckOnboardingFlow({
+  onComplete,
+  onSkip,
+}: FirstRunOnboardingExtensionProps) {
+  const t = useT();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { session } = useSession();
+  const { decks, createDeck, ensureDeckPersisted, deleteDeck, reloadDecks } =
+    useDecks();
+  const { designSystems } = useDesignSystems();
+  const { designSystem: workspaceDesignSystem } = useWorkspaceDefaults();
+  const { submit: agentSubmit } = useAgentGenerating();
+  const [step, setStep] = useState<FirstDeckStep>("prompt");
+  const [prompt, setPrompt] = useState("");
+  const [promptFiles, setPromptFiles] = useState<UploadedFile[]>([]);
+  const [promptAttachments, setPromptAttachments] = useState<
+    PromptChatAttachment[]
+  >([]);
+  const [promptModelSelection, setPromptModelSelection] = useState<
+    PromptModelSelection | undefined
+  >();
+  const [promptInitialText, setPromptInitialText] = useState<string>();
+  const [promptInitialTextKey, setPromptInitialTextKey] = useState<number>();
+  const [referenceImporting, setReferenceImporting] = useState(false);
+  const [recentReferences, setRecentReferences] = useState<RecentReference[]>(
+    [],
+  );
+  const promptSourceFilesRef = useRef<File[]>([]);
+  const activePromptFilesRef = useRef<File[]>([]);
+  const generationInFlightRef = useRef(false);
+
+  const initialPrompt = searchParams.get("initialPrompt")?.trim() ?? "";
+  const workspaceDesignSystemId =
+    workspaceDesignSystem && !workspaceDesignSystem.unavailable
+      ? workspaceDesignSystem.id
+      : null;
+  const lastUsedDesignSystemId =
+    recentReferences.find(
+      (reference) =>
+        reference.kind === "design-system" &&
+        designSystems.some((designSystem) => designSystem.id === reference.id),
+    )?.id ?? null;
+  const lastUsedReferenceDeckId =
+    recentReferences.find(
+      (reference) =>
+        reference.kind === "deck" &&
+        decks.some((deck) => deck.id === reference.id),
+    )?.id ?? null;
+  const initialDesignSystemId =
+    lastUsedDesignSystemId ?? workspaceDesignSystemId;
+  const initialReferenceDeckId = lastUsedReferenceDeckId;
+  const handleRetainedFilesAbandoned = useCallback(
+    (_files: readonly File[], discard: () => void) => {
+      if (!generationInFlightRef.current) discard();
+    },
+    [],
+  );
+  const deleteUploadedFile = useCallback(async (file: UploadedFile) => {
+    const response = await fetch(`${appBasePath()}/api/uploads`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ path: file.path }),
+    });
+    if (!response.ok) {
+      throw new Error(`Upload cleanup failed (${response.status})`);
+    }
+  }, []);
+  const {
+    commitFiles,
+    discardFiles,
+    retainFiles,
+    syncFiles,
+    uploadFiles,
+    uploading,
+  } = useEagerFileUploads(uploadPromptFiles, {
+    onDiscard: deleteUploadedFile,
+    onRetainedFilesAbandoned: handleRetainedFilesAbandoned,
+  });
+
+  useEffect(() => {
+    const result = readRecentReferences();
+    if (result.readable) setRecentReferences(result.items);
+  }, []);
+
+  useEffect(() => {
+    if (!initialPrompt) return;
+    setPromptInitialText(initialPrompt);
+    setPromptInitialTextKey(Date.now());
+    setSearchParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        next.delete("initialPrompt");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [initialPrompt, setSearchParams]);
+
+  const rememberReference = useCallback(
+    (reference: Omit<RecentReference, "lastUsedAt">) => {
+      const result = rememberRecentReference(reference);
+      if (result.readable) setRecentReferences(result.items);
+    },
+    [],
+  );
+  const forgetReference = useCallback((kind: RecentReference["kind"]) => {
+    const result = forgetRecentReference(kind);
+    if (result.readable) setRecentReferences(result.items);
+  }, []);
+
+  const handlePromptSubmit = useCallback(
+    async (
+      text: string,
+      files: File[],
+      _references: unknown[],
+      options?: PromptComposerSubmitOptions,
+    ) => {
+      try {
+        const uploaded = await uploadFiles(files);
+        retainFiles(files);
+        promptSourceFilesRef.current = files;
+        setPrompt(text);
+        const chatAttachments = await createPromptChatAttachments(
+          options?.attachments,
+          uploaded,
+        );
+        setPromptFiles(uploaded);
+        setPromptAttachments(chatAttachments);
+        setPromptModelSelection(
+          options
+            ? {
+                model: options.model,
+                engine: options.engine,
+                effort: options.effort,
+              }
+            : undefined,
+        );
+        setStep("references");
+      } catch (error) {
+        discardFiles(files);
+        toast.error(t("raw.uploadFailed"), {
+          description:
+            error instanceof Error
+              ? error.message
+              : t("raw.uploadAttachedFailed"),
+        });
+      }
+    },
+    [discardFiles, retainFiles, t, uploadFiles],
+  );
+
+  const handlePromptAttachmentsChange = useCallback(
+    (files: File[]) => {
+      if (files.length === 0 && promptSourceFilesRef.current.length > 0) return;
+      activePromptFilesRef.current = files;
+      syncFiles(files);
+      const uploadBatch = files;
+      void uploadFiles(uploadBatch).catch((error) => {
+        if (
+          !uploadBatch.some((file) =>
+            activePromptFilesRef.current.includes(file),
+          )
+        )
+          return;
+        toast.error(t("raw.uploadFailed"), {
+          description:
+            error instanceof Error
+              ? error.message
+              : t("raw.uploadAttachedFailed"),
+        });
+      });
+    },
+    [syncFiles, t, uploadFiles],
+  );
+
+  const handlePromptModelChange = useCallback(
+    (model: string, engine: string) => {
+      setPromptModelSelection((current) => ({ ...current, model, engine }));
+    },
+    [],
+  );
+  const handlePromptEffortChange = useCallback(
+    (effort: NonNullable<PromptModelSelection["effort"]>) => {
+      setPromptModelSelection((current) => ({ ...current, effort }));
+    },
+    [],
+  );
+
+  const startGeneration = useCallback(
+    async (
+      files: UploadedFile[],
+      selection: NewDeckReferenceSelection = {},
+    ) => {
+      const sourceFiles = promptSourceFilesRef.current;
+      const clearSourceFiles = () => {
+        if (promptSourceFilesRef.current === sourceFiles) {
+          promptSourceFilesRef.current = [];
+        }
+      };
+      generationInFlightRef.current = true;
+      try {
+        const result = await startDeckGeneration({
+          session,
+          prompt,
+          files,
+          attachments: promptAttachments,
+          modelSelection: promptModelSelection,
+          referenceSelection: selection,
+          selectedDesignSystemId: initialDesignSystemId,
+          selectedReferenceDeckId: initialReferenceDeckId,
+          designSystems,
+          createDeck,
+          ensureDeckPersisted,
+          deleteDeck,
+          navigate,
+          agentSubmit,
+          onPromptClosed: () => undefined,
+          onUnauthenticated: () => {
+            toast.error(t("home.signInTitle"));
+          },
+          onPersistenceFailure: (failedPrompt, _failedFiles, failure) => {
+            setPromptInitialText(failedPrompt);
+            setPromptInitialTextKey(Date.now());
+            setStep("prompt");
+            toast.error(t("home.generationStartFailed"), {
+              description: describeDeckPersistenceFailure(
+                failure,
+                t("home.generationStartFailedDescription"),
+              ),
+            });
+          },
+          onSetupFailure: (failedPrompt, _failedFiles, failure) => {
+            setPromptInitialText(failedPrompt);
+            setPromptInitialTextKey(Date.now());
+            setStep("prompt");
+            toast.error(t("home.generationStartFailed"), {
+              description:
+                failure instanceof Error
+                  ? failure.message
+                  : t("home.generationStartFailedDescription"),
+            });
+          },
+        });
+        if (result === "started") {
+          commitFiles(sourceFiles);
+          clearSourceFiles();
+          onComplete();
+          return;
+        }
+        discardFiles(sourceFiles);
+        clearSourceFiles();
+      } catch (error) {
+        discardFiles(sourceFiles);
+        clearSourceFiles();
+        throw error;
+      } finally {
+        generationInFlightRef.current = false;
+      }
+    },
+    [
+      agentSubmit,
+      commitFiles,
+      createDeck,
+      deleteDeck,
+      discardFiles,
+      designSystems,
+      ensureDeckPersisted,
+      initialDesignSystemId,
+      navigate,
+      onComplete,
+      prompt,
+      promptAttachments,
+      promptModelSelection,
+      session,
+      t,
+      initialReferenceDeckId,
+    ],
+  );
+
+  const handleReferenceSelect = useCallback(
+    async (selection: NewDeckReferenceSelection) => {
+      if (selection.designSystemId !== undefined) {
+        if (selection.designSystemId) {
+          rememberReference({
+            id: selection.designSystemId,
+            kind: "design-system",
+          });
+        } else {
+          forgetReference("design-system");
+        }
+      }
+      if (selection.referenceDeckId !== undefined) {
+        if (selection.referenceDeckId) {
+          rememberReference({ id: selection.referenceDeckId, kind: "deck" });
+        } else {
+          forgetReference("deck");
+        }
+      }
+      await startGeneration(promptFiles, selection);
+    },
+    [
+      forgetReference,
+      promptAttachments,
+      promptFiles,
+      rememberReference,
+      startGeneration,
+    ],
+  );
+
+  const handleReferenceImport = useCallback(
+    async (files: File[]): Promise<ImportedReference | null> => {
+      setReferenceImporting(true);
+      try {
+        const uploaded = await uploadPromptFiles(files);
+        const pptxReference = uploaded.find((file) =>
+          file.originalName.toLowerCase().endsWith(".pptx"),
+        );
+        const pdfReference = uploaded.find((file) =>
+          file.originalName.toLowerCase().endsWith(".pdf"),
+        );
+        const docxReference = uploaded.find((file) =>
+          file.originalName.toLowerCase().endsWith(".docx"),
+        );
+        let importedReference: ImportedReference | null = null;
+        let generationFiles = uploaded;
+        if (pptxReference) {
+          const imported = (await callAction(
+            "import-pptx",
+            { filePath: pptxReference.path },
+            { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+          )) as {
+            id?: unknown;
+            imported?: unknown;
+            slideCount?: unknown;
+            title?: unknown;
+          };
+          if (
+            typeof imported.id !== "string" ||
+            !imported.id ||
+            imported.imported !== true ||
+            typeof imported.slideCount !== "number" ||
+            imported.slideCount < 1
+          ) {
+            throw new Error("The imported presentation did not create a deck.");
+          }
+          importedReference = {
+            id: imported.id,
+            title:
+              typeof imported.title === "string" && imported.title
+                ? imported.title
+                : t("home.importedReferenceDeck"),
+            source: "pptx",
+          };
+          generationFiles = uploaded.filter((file) => file !== pptxReference);
+        } else if (pdfReference || docxReference) {
+          const documentReference = pdfReference ?? docxReference;
+          const documentFormat = pdfReference ? "pdf" : "docx";
+          const documentSaveError = t("editorToolbar.uploadFailed");
+          const documentImportError = t(
+            "editorToolbar.importFailedDescription",
+          );
+          if (!documentReference) {
+            throw new Error(documentImportError);
+          }
+          const referenceDeck = createDeck(undefined, {
+            noDefaultSlides: true,
+          });
+          const persisted = await ensureDeckPersisted(referenceDeck.id);
+          if (!persisted.persisted) {
+            deleteDeck(referenceDeck.id);
+            throw new Error(
+              describeDeckPersistenceFailure(persisted, documentSaveError),
+            );
+          }
+          try {
+            const imported = (await callAction(
+              "import-file",
+              {
+                filePath: documentReference.path,
+                format: documentFormat,
+                deckId: referenceDeck.id,
+                importIntoDeck: true,
+              },
+              { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+            )) as {
+              imported?: unknown;
+              deckId?: unknown;
+              pageCount?: unknown;
+              slideCount?: unknown;
+              title?: unknown;
+            };
+            const importedSlideCount =
+              documentFormat === "pdf"
+                ? imported.pageCount
+                : imported.slideCount;
+            if (
+              imported.imported !== true ||
+              imported.deckId !== referenceDeck.id ||
+              typeof importedSlideCount !== "number" ||
+              importedSlideCount < 1
+            ) {
+              throw new Error(documentImportError);
+            }
+            importedReference = {
+              id: referenceDeck.id,
+              title:
+                typeof imported.title === "string" && imported.title
+                  ? imported.title
+                  : t("home.importedReferenceDeck"),
+              source: documentFormat,
+            };
+            generationFiles = uploaded.filter(
+              (file) => file !== documentReference,
+            );
+          } catch (error) {
+            deleteDeck(referenceDeck.id);
+            throw error;
+          }
+        }
+        setPromptFiles((current) => [...current, ...generationFiles]);
+        if (importedReference) {
+          await reloadDecks();
+        }
+        return importedReference;
+      } catch (error) {
+        toast.error(t("editorToolbar.uploadFailed"), {
+          description:
+            error instanceof Error
+              ? error.message
+              : t("editorToolbar.importFailedDescription"),
+        });
+        return null;
+      } finally {
+        setReferenceImporting(false);
+      }
+    },
+    [createDeck, deleteDeck, ensureDeckPersisted, reloadDecks, t],
+  );
+
+  const handleReferenceSourceImport = useCallback(
+    async (
+      source: NewDeckReferenceSource,
+    ): Promise<ImportedReference | null> => {
+      if (source.kind !== "google-docs") return null;
+      setReferenceImporting(true);
+      try {
+        const imported = (await callAction("import-google-slides-reference", {
+          presentationUrl: source.value,
+        })) as {
+          id?: unknown;
+          imported?: unknown;
+          slideCount?: unknown;
+          title?: unknown;
+        };
+        if (
+          typeof imported.id !== "string" ||
+          !imported.id ||
+          imported.imported !== true ||
+          typeof imported.slideCount !== "number" ||
+          imported.slideCount < 1
+        ) {
+          throw new Error(
+            "The Google Slides presentation did not create a deck.",
+          );
+        }
+        const importedReference: ImportedReference = {
+          id: imported.id,
+          title:
+            typeof imported.title === "string" && imported.title
+              ? imported.title
+              : t("home.importedReferenceDeck"),
+          source: "google-slides",
+        };
+        await reloadDecks();
+        return importedReference;
+      } catch (error) {
+        toast.error(t("editorToolbar.uploadFailed"), {
+          description:
+            error instanceof Error
+              ? error.message
+              : t("editorToolbar.importFailedDescription"),
+        });
+        return null;
+      } finally {
+        setReferenceImporting(false);
+      }
+    },
+    [reloadDecks, t],
+  );
+
+  const handleReferenceSkip = useCallback(async () => {
+    forgetReference("design-system");
+    forgetReference("deck");
+    await startGeneration(promptFiles, {
+      designSystemId: null,
+      referenceDeckId: null,
+    });
+  }, [forgetReference, promptFiles, startGeneration]);
+
+  const handleFirstDeckSkip = useCallback(() => {
+    discardFiles(promptSourceFilesRef.current);
+    promptSourceFilesRef.current = [];
+    onSkip();
+  }, [discardFiles, onSkip]);
+
+  if (step === "references") {
+    return (
+      <NewDeckReferenceStep
+        open
+        decks={decks}
+        designSystems={designSystems}
+        defaultDesignSystemId={initialDesignSystemId}
+        defaultReferenceDeckId={initialReferenceDeckId}
+        onSelect={handleReferenceSelect}
+        onImport={handleReferenceImport}
+        onImportSource={handleReferenceSourceImport}
+        onSkip={handleReferenceSkip}
+        onOpenChange={(open) => {
+          if (!open && !generationInFlightRef.current) {
+            discardFiles(promptSourceFilesRef.current);
+            promptSourceFilesRef.current = [];
+            setStep("prompt");
+          }
+        }}
+        importing={referenceImporting}
+        title={t("home.newDeck")}
+        designSystemLabel={t("home.designSystem")}
+        referenceDeckLabel={t("home.referenceDeck")}
+        chooseDeckLabel={t("home.referenceDeckPlaceholder")}
+        importingLabel={t("raw.uploading")}
+        skipLabel={t("home.referenceDeckNone")}
+        searchDecksLabel={t("root.searchDecks")}
+        promptSummary={prompt}
+      />
+    );
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[200] flex min-h-screen flex-col bg-background text-foreground"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("home.firstDeckPromptTitle")}
+    >
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-5 sm:px-8">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <IconArrowLeft className="size-4" />
+          <span>{t("home.newDeck")}</span>
+        </div>
+        <button
+          type="button"
+          onClick={handleFirstDeckSkip}
+          className="text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {t("home.firstDeckSkip")}
+        </button>
+      </header>
+      <main className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-5 py-10 sm:px-8">
+        <div className="w-full max-w-xl">
+          <h1 className="text-center text-2xl font-semibold tracking-[-0.04em] sm:text-3xl">
+            {t("home.firstDeckPromptTitle")}
+          </h1>
+          <PromptComposer
+            className="mt-8"
+            autoFocus
+            attachmentsEnabled
+            voiceEnabled
+            maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
+            documentAttachmentLimitLabel="Slides reference files"
+            disabled={uploading}
+            placeholder={t("home.newDeckPlaceholder")}
+            onSubmit={handlePromptSubmit}
+            onAttachmentsChange={handlePromptAttachmentsChange}
+            draftScope="slides-first-deck"
+            initialText={promptInitialText}
+            initialTextKey={promptInitialTextKey}
+            selectedModel={promptModelSelection?.model}
+            selectedEngine={promptModelSelection?.engine}
+            selectedEffort={promptModelSelection?.effort}
+            onModelChange={
+              promptModelSelection ? handlePromptModelChange : undefined
+            }
+            onEffortChange={
+              promptModelSelection ? handlePromptEffortChange : undefined
+            }
+          />
+        </div>
+      </main>
+    </div>
+  );
+}
+
+export default FirstDeckOnboardingFlow;

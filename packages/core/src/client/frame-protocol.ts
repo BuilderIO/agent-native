@@ -1,0 +1,196 @@
+/**
+ * Frame Protocol — typed message definitions for frame communication.
+ *
+ * Any frame implementation (local dev frame, Builder.io cloud, Electron)
+ * must support these message types. Communication happens via postMessage
+ * between the app iframe and the parent frame.
+ */
+
+import type {
+  AgentChatContextMutationOptions,
+  AgentChatContextRemoveOptions,
+  AgentChatContextSetOptions,
+  AgentChatMessage,
+} from "./agent-chat.js";
+
+// ---------------------------------------------------------------------------
+// Messages FROM app TO frame
+// ---------------------------------------------------------------------------
+
+export interface AppReadyMessage {
+  type: "agentNative.appReady";
+}
+
+export interface SubmitChatMessage {
+  type: "agentNative.submitChat";
+  data: AgentChatMessage;
+}
+
+export interface SetChatContextMessage {
+  type: "agentNative.setChatContext";
+  data: AgentChatContextSetOptions;
+}
+
+export interface RemoveChatContextMessage {
+  type: "agentNative.removeChatContext";
+  data: AgentChatContextRemoveOptions;
+}
+
+export interface ClearChatContextMessage {
+  type: "agentNative.clearChatContext";
+  data: AgentChatContextMutationOptions;
+}
+
+export interface GetUserInfoMessage {
+  type: "agentNative.getUserInfo";
+}
+
+export interface SetEnvVarsMessage {
+  type: "agentNative.setEnvVars";
+  data: { vars: Array<{ key: string; value: string }> };
+}
+
+export interface DevModeChangeMessage {
+  type: "agentNative.devModeChange";
+  data: { isDevMode: boolean };
+}
+
+export interface ToggleSidebarMessage {
+  type: "agentNative.toggleSidebar";
+  data?: { open?: boolean };
+}
+
+/** The host chat rail asks the embedded app to compact its own navigation. */
+export interface PerAppChatSidebarStateMessage {
+  type: "agentNative.perAppChatState";
+  data: { open: boolean; hosted: boolean };
+}
+
+/** The embedded app asks a host for the current per-app chat state on mount. */
+export interface PerAppChatSidebarStateRequestMessage {
+  type: "agentNative.perAppChatStateRequest";
+}
+
+export interface EnterStyleEditingMessage {
+  type: "agentNative.enterStyleEditing";
+  data: { selector: string };
+}
+
+export interface EnterTextEditingMessage {
+  type: "agentNative.enterTextEditing";
+  data: { selector: string };
+}
+
+export interface ExitSelectionModeMessage {
+  type: "agentNative.exitSelectionMode";
+}
+
+/**
+ * Sent both ways: the app announces it has entered/exited presentation mode
+ * (so the frame can hide its chrome), and an outer frame can push the app
+ * into presentation mode (so the app's sidebar hides).
+ */
+export interface PresentationModeMessage {
+  type: "agentNative.presentationMode";
+  data: { active: boolean };
+}
+
+export interface DesignCloseMessage {
+  type: "design:close";
+}
+
+export type AppToFrameMessage =
+  | AppReadyMessage
+  | AuthStateMessage
+  | SubmitChatMessage
+  | SetChatContextMessage
+  | RemoveChatContextMessage
+  | ClearChatContextMessage
+  | GetUserInfoMessage
+  | SetEnvVarsMessage
+  | DevModeChangeMessage
+  | ToggleSidebarMessage
+  | PerAppChatSidebarStateRequestMessage
+  | EnterStyleEditingMessage
+  | EnterTextEditingMessage
+  | ExitSelectionModeMessage
+  | PresentationModeMessage
+  | DesignCloseMessage;
+
+// ---------------------------------------------------------------------------
+// Messages FROM frame TO app
+// ---------------------------------------------------------------------------
+
+export interface FrameOriginMessage {
+  type: "agentNative.frameOrigin";
+  origin: string;
+}
+
+export interface ChatRunningMessage {
+  type: "agentNative.chatRunning";
+  detail: {
+    isRunning: boolean;
+    tabId?: string;
+    reason?: "stopped" | "failed";
+  };
+}
+
+export interface UserInfoMessage {
+  type: "agentNative.userInfo";
+  data: { name?: string; email?: string };
+}
+
+/** The embedded app's own session state, surfaced to a trusted host frame. */
+export interface AuthStateMessage {
+  type: "agentNative.authState";
+  data: { status: "authenticated" | "unauthenticated" };
+}
+
+export interface CodeCompleteMessage {
+  type: "agentNative.codeComplete";
+  tabId: string;
+  success: boolean;
+}
+
+export interface SidebarModeMessage {
+  type: "agentNative.sidebarMode";
+  data: {
+    /** "code" hides the app's sidebar (frame controls it); "app" defers to the app. */
+    mode: "code" | "app";
+    /** When mode === "app", which panel the app should show. */
+    appMode?: "cli" | "resources" | "chat";
+    /** Frame-controlled sidebar width to sync into the app. */
+    width?: number;
+    /** Whether the app's sidebar should be open. */
+    open?: boolean;
+    /** Whether the sidebar is using the wide fixed drawer presentation. */
+    wide?: boolean;
+    /** Width reserved in the app layout while the wide drawer overlays it. */
+    placeholderWidth?: number;
+  };
+}
+
+export interface DesignInitMessage {
+  type: "design:init";
+  data: {
+    previewUrl: string;
+    themeVars?: Record<string, string>;
+    context?: { projectId?: string; branchId?: string; orgId?: string };
+  };
+}
+
+export type FrameToAppMessage =
+  | FrameOriginMessage
+  | ChatRunningMessage
+  | UserInfoMessage
+  | PerAppChatSidebarStateMessage
+  | CodeCompleteMessage
+  | SidebarModeMessage
+  | PresentationModeMessage
+  | DesignInitMessage;
+
+// ---------------------------------------------------------------------------
+// All message types
+// ---------------------------------------------------------------------------
+
+export type FrameMessage = AppToFrameMessage | FrameToAppMessage;

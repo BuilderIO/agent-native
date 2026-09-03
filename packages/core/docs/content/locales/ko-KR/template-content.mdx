@@ -1,0 +1,124 @@
+---
+title: "콘텐츠"
+description: "MDX용 오픈소스 Obsidian: 로컬 Markdown/MDX 파일을 편집하고, Notion 스타일 데이터베이스를 구축하고, AI 에이전트와 함께 글을 씁니다."
+---
+
+# 콘텐츠
+
+콘텐츠는 MDX용 오픈소스 Obsidian입니다. 로컬 파일과 잘 어울리는 문서
+작업 공간으로, 에이전트가 여러분을 대신해 페이지를 읽고 쓰고 재구성하고
+게시할 수 있습니다. 문서를 열고 "이 문단을 더 간결하게 다시 써줘"라고
+요청하거나 "목표, 지표, 리스크에 대한 하위 페이지를 포함한 Q4 Planning이라는
+페이지를 만들어줘"라고 요청해 보세요. 직접 하든 에이전트에게 부탁하든
+결과는 같습니다.
+
+<WireframeBlock id="doc-block-content1">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:210px 1fr;gap:14px;padding:16px;min-height:500px;box-sizing:border-box'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Content</strong><span class='wf-pill accent'>Q3 Roadmap</span><span class='wf-pill'>Goals</span><span class='wf-pill'>Metrics</span><span class='wf-pill'>Risks</span><hr/><span class='wf-pill'>Engineering wiki</span><span class='wf-pill'>Reading list</span><span class='wf-pill'>Weekly sync</span></aside><main style='display:flex;flex-direction:column;gap:12px;min-width:0;padding:8px 20px'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Q3 Roadmap</h1><div style='flex:1'></div><button>Share</button><button class='primary'>Publish</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:12px;padding:22px'><h2 style='margin:0'>Launch goals</h2><p style='margin:0'>Ship the onboarding flow, reduce setup time, and document owner handoffs.</p><div class='wf-box'>At a glance · owner, window, status</div><div class='wf-box'>Top objectives</div><div class='wf-box'>Workstreams table</div></div></main></div>"
+    }
+  />
+</WireframeBlock>
+
+앱을 열면 에디터 옆에 페이지 트리가 보입니다. 에이전트는 여러분이 보고 있는 페이지와 선택한 텍스트를 항상 알고 있으므로, 문서 편집이 현재 페이지를 기준으로 이루어질 수 있습니다.
+
+<Diagram id="doc-block-content2" title="하나의 문서, 세 가지 동기화 표면" summary={"여러분과 에이전트는 모두 동일한 실시간 편집 파이프라인을 통해 씁니다. SQL이 표준 저장소이며, 로컬 파일과 Notion, Builder CMS는 그 주변의 선택적 동기화 표면입니다."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      직접 입력<br /><small class="diagram-muted">slash 메뉴, 툴바</small>
+    </div>
+    <div class="diagram-node">
+      에이전트 편집<br /><small class="diagram-muted"
+        >edit-document find/replace</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    documents (markdown)<br /><small class="diagram-muted"
+      >정식 SQL 저장소</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      로컬 .md / .mdx<br /><small class="diagram-muted">/local-files</small>
+    </div>
+    <div class="diagram-box">
+      Notion 페이지<br /><small class="diagram-muted">pull · push</small>
+    </div>
+    <div class="diagram-box">
+      Builder CMS 항목<br /><small class="diagram-muted"
+        >pull · 보호된 push</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## 이것으로 무엇을 할 수 있나요
+
+- **문서를 작성하고 정리하세요.** 서식 있는 텍스트 편집, 무한히 중첩되는 페이지 트리, 즐겨찾기, 댓글, 버전 기록, 공유 기능을 제공합니다. [문서 작성 및 정리](/docs/template-content-editing)를 참조하세요.
+- **Notion 스타일 데이터베이스를 만드세요.** 모든 행이 각각 독립된 문서인 테이블로, 타입이 지정된 속성과 표/목록/갤러리/보드/캘린더/타임라인/폼 보기를 제공합니다. [데이터베이스, 속성 및 폼](/docs/template-content-databases)을 참조하세요.
+- **구조화된 제출 내용을 수집하세요.** 데이터베이스를 인테이크 폼으로 전환하면 에이전트나 Slack, 다른 앱에서 안전하게 제출할 수 있습니다. [데이터베이스, 속성 및 폼](/docs/template-content-databases)을 참조하세요.
+- **Obsidian처럼 디스크에 있는 파일을 편집**하고, 문서를 Notion 또는 Builder CMS와 동기화된 상태로 유지하세요. [로컬 파일, Notion 및 Builder CMS 동기화](/docs/template-content-sync)를 참조하세요.
+- **실시간으로 공동 작업하세요.** 여러 사람(그리고 에이전트)이 서로의 작업을 덮어쓰지 않고 동시에 같은 문서를 편집할 수 있습니다.
+- **문서를 공유하세요.** 팀원과 공유하거나 공개로 전환할 수 있습니다. 기본값은 비공개이며, 뷰어/편집자/관리자 역할을 사용할 수 있습니다.
+- **에이전트에게 무엇이든 요청하세요**: "이 문단을 다시 써줘." "맨 위에 TL;DR을 추가해 줘." "지난주 회의 메모를 전부 찾아줘." "Slack 제출용 폼이 있는 베타 신청 데이터베이스를 만들어 줘."
+
+## 시작하기
+
+라이브 데모: [content.agent-native.com](https://content.agent-native.com).
+
+앱을 열면 사이드바에서 **+ 새 페이지**를 클릭하고 제목을 지정한 다음 글쓰기를 시작하세요. 에이전트를 사용하려면 사이드바에 다음과 같이 입력하세요.
+
+- "Onboarding이라는 페이지를 만들고 그 아래에 하위 페이지 3개를 추가해 줘."
+- "이 문단을 더 간결하게 다시 써줘." (페이지를 연 상태에서)
+- "요금제에 관한 섹션을 항목 3개로 추가해 줘."
+- "이 문서를 맨 위에 TL;DR로 요약해 줘."
+- "Notion에서 최신 내용을 가져와 줘." (Notion 페이지를 연결한 후)
+
+텍스트를 선택하고 Cmd+I를 누르면 해당 선택 영역이 미리 로드된 채로 에이전트에 초점이 맞춰집니다. 이 상태에서 "더 임팩트 있게 만들어 줘"라고 요청하면 정확히 강조 표시한 부분에만 적용됩니다.
+
+나만의 콘텐츠 사본을 스캐폴딩하려면:
+
+```bash
+npx @agent-native/core@latest create my-content --standalone --template content
+```
+
+나머지 설정 과정(`cd`, `pnpm install`, `pnpm dev`)과 프레임워크 기본 개념은 [시작하기](/docs/getting-started)를 참조하세요.
+
+## 다음 단계
+
+- [**문서 작성 및 정리**](/docs/template-content-editing) — 에디터, 페이지 트리, 댓글, 버전 기록, 공유
+- [**데이터베이스, 속성 및 폼**](/docs/template-content-databases) — 인라인 데이터베이스, 속성 타입, 보기, 외부 소스, 인테이크 폼
+- [**로컬 파일, Notion 및 Builder CMS 동기화**](/docs/template-content-sync) — Obsidian 스타일 폴더 워크플로와 Notion, Builder CMS 간 왕복 동기화
+- [**개발자 가이드**](/docs/template-content-developers) — 데이터 모델, 액션 목록, 라우트, 템플릿을 확장하는 방법
+- [**템플릿**](/docs/cloneable-saas) — Cloneable SaaS 모델과 시작점으로 사용할 수 있는 다른 모든 도메인 템플릿
+- [**시작하기**](/docs/getting-started) — 액션, 애플리케이션 상태, 라이브 동기화 등 프레임워크 기본 개념
+- [**실시간 협업**](/docs/real-time-collaboration) — 다른 협업 표면과 문서가 공유하는 Yjs 파이프라인
+- [**공유**](/docs/sharing) — 문서가 기반으로 삼는 공유 권한 부여 모델

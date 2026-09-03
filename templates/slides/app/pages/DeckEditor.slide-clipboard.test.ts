@@ -1,0 +1,355 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { describe, expect, it } from "vitest";
+
+import type { Deck } from "../context/DeckContext";
+import {
+  getSlideClipboardStorageKey,
+  normalizeSlideClipboard,
+  readSlideClipboard,
+  resolveSlideClipboardForPaste,
+  writeSlideClipboard,
+} from "../lib/slide-clipboard";
+import {
+  isSlideClipboardStillArmed,
+  isSourceImportedDeck,
+  SLIDE_CLIPBOARD_ARM_WINDOW_MS,
+  syncSlideContentSnapshots,
+} from "./DeckEditor";
+
+const deckEditorSource = readFileSync(
+  path.join(path.dirname(fileURLToPath(import.meta.url)), "DeckEditor.tsx"),
+  "utf8",
+);
+
+function createStorage(initial?: Record<string, string>) {
+  const values = new Map(Object.entries(initial ?? {}));
+  return {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+  };
+}
+
+// Reproduces the Andrew Rohman Slack thread (C0ATH3CCZT4 / 1786711059459639):
+// a slide copied once early in the session kept silently re-duplicating on
+// unrelated, much-later Cmd/Ctrl+V presses that landed outside every
+// recognized text-input safe zone. The ambient document-level shortcut can
+// never enumerate every safe zone, so it must stop trusting an
+// indefinitely-armed clipboard instead.
+describe("isSlideClipboardStillArmed", () => {
+  it("stays armed immediately after a copy", () => {
+    const armedAt = 1_000;
+    expect(isSlideClipboardStillArmed(armedAt, armedAt)).toBe(true);
+  });
+
+  it("stays armed for a normal copy-then-paste within the window", () => {
+    const armedAt = 1_000;
+    expect(isSlideClipboardStillArmed(armedAt, armedAt + 2_000)).toBe(true);
+  });
+
+  it("disarms once the window has elapsed, so a stale copy can't silently duplicate a slide on an unrelated later paste", () => {
+    const armedAt = 1_000;
+    const now = armedAt + SLIDE_CLIPBOARD_ARM_WINDOW_MS + 1;
+    expect(isSlideClipboardStillArmed(armedAt, now)).toBe(false);
+  });
+
+  it("is never armed when nothing has been copied", () => {
+    expect(isSlideClipboardStillArmed(null, Date.now())).toBe(false);
+  });
+});
+
+describe("slide paste fallback", () => {
+  it("cancels for HTML-only native paste events", () => {
+    const pasteStart = deckEditorSource.indexOf("const handlePaste = () =>");
+    const pasteEnd = deckEditorSource.indexOf(
+      "// Resolve the active slide from URL/deck state.",
+      pasteStart,
+    );
+    const pasteBody = deckEditorSource.slice(pasteStart, pasteEnd);
+
+    expect(pasteBody).toContain(
+      "window.clearTimeout(slidePasteFallbackRef.current)",
+    );
+    expect(pasteBody).toContain("slidePasteFallbackRef.current = null");
+    expect(pasteBody).not.toContain("hasText");
+    expect(pasteBody).not.toContain("hasImage");
+  });
+
+  it("owns fallback cleanup by slide lifecycle, not ordinary rerenders", () => {
+    expect(deckEditorSource).toContain(`
+  useEffect(() => {
+    return () => {
+      if (slidePasteFallbackRef.current !== null) {
+        window.clearTimeout(slidePasteFallbackRef.current);
+        slidePasteFallbackRef.current = null;
+      }
+    };
+  }, [activeSlideId, id]);`);
+  });
+});
+
+describe("source-imported deck structure", () => {
+  it("recognizes source-preserving import metadata", () => {
+    expect(
+      isSourceImportedDeck({
+        sourceImport: {
+          mode: "source-preserving",
+          format: "pptx",
+          slides: [],
+        },
+      } as unknown as Deck),
+    ).toBe(true);
+  });
+
+  it("does not block ordinary or malformed deck metadata", () => {
+    expect(isSourceImportedDeck(null)).toBe(false);
+    expect(isSourceImportedDeck(undefined)).toBe(false);
+    expect(
+      isSourceImportedDeck({
+        sourceImport: { mode: "source-preserving", format: "pptx" },
+      } as unknown as Deck),
+    ).toBe(false);
+  });
+});
+
+describe("syncSlideContentSnapshots", () => {
+  it("adopts an inactive slide update without losing a queued local edit", () => {
+    const latestContent = new Map<string, string>();
+    const renderedContent = new Map<string, string>();
+    const initialSlides = [
+      { id: "slide-a", content: "A initial" },
+      { id: "slide-b", content: "B initial" },
+    ];
+
+    syncSlideContentSnapshots(initialSlides, latestContent, renderedContent);
+    latestContent.set("slide-a", "A queued local edit");
+    syncSlideContentSnapshots(initialSlides, latestContent, renderedContent);
+
+    expect(latestContent.get("slide-a")).toBe("A queued local edit");
+
+    syncSlideContentSnapshots(
+      [
+        { id: "slide-a", content: "A intervening update" },
+        { id: "slide-b", content: "B initial" },
+      ],
+      latestContent,
+      renderedContent,
+    );
+
+    expect(latestContent.get("slide-a")).toBe("A intervening update");
+  });
+});
+
+describe("slide clipboard storage", () => {
+  const slide = {
+    id: "slide-1",
+    content: "<div>Copied</div>",
+    notes: "Speaker note",
+    layout: "content" as const,
+    skipped: true,
+  };
+
+  it("round-trips a slide snapshot and copy timestamp", () => {
+    const storage = createStorage();
+    const storageKey = getSlideClipboardStorageKey("alice@example.com");
+
+    expect(writeSlideClipboard(storageKey, slide, 1_000, storage)).toBe(true);
+    expect(readSlideClipboard(storageKey, storage)).toEqual({
+      status: "ready",
+      slide,
+      copiedAt: 1_000,
+    });
+  });
+
+  it("distinguishes an empty or malformed clipboard", () => {
+    const storageKey = getSlideClipboardStorageKey("alice@example.com");
+    expect(readSlideClipboard(storageKey, createStorage())).toEqual({
+      status: "empty",
+      slide: null,
+      copiedAt: null,
+    });
+    expect(
+      readSlideClipboard(
+        storageKey,
+        createStorage({
+          [storageKey]: JSON.stringify({ version: 1 }),
+        }),
+      ),
+    ).toEqual({
+      status: "unreadable",
+      slide: null,
+      copiedAt: null,
+    });
+  });
+
+  it("normalizes omitted notes and layout from older slides", () => {
+    const storageKey = getSlideClipboardStorageKey("alice@example.com");
+    const result = readSlideClipboard(
+      storageKey,
+      createStorage({
+        [storageKey]: JSON.stringify({
+          version: 1,
+          slide: { ...slide, notes: null, layout: null },
+          copiedAt: 2_000,
+        }),
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "ready",
+      slide: { ...slide, notes: "", layout: "content" },
+      copiedAt: 2_000,
+    });
+  });
+
+  it("keeps only validated optional fields and drops transient data", () => {
+    const storageKey = getSlideClipboardStorageKey("alice@example.com");
+    const result = readSlideClipboard(
+      storageKey,
+      createStorage({
+        [storageKey]: JSON.stringify({
+          version: 1,
+          slide: {
+            ...slide,
+            imageLoading: true,
+            unexpected: "stale data",
+            animations: [{ id: "animation-1", elementIndex: 0, type: "fade" }],
+          },
+          copiedAt: 2_500,
+        }),
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "ready",
+      slide: {
+        ...slide,
+        animations: [{ id: "animation-1", elementIndex: 0, type: "fade" }],
+      },
+      copiedAt: 2_500,
+    });
+  });
+
+  it("normalizes the in-memory fallback before paste", () => {
+    expect(
+      normalizeSlideClipboard({
+        ...slide,
+        imageLoading: true,
+        unexpected: true,
+      }),
+    ).toEqual(slide);
+  });
+
+  it("rejects malformed optional fields", () => {
+    const storageKey = getSlideClipboardStorageKey("alice@example.com");
+    expect(
+      readSlideClipboard(
+        storageKey,
+        createStorage({
+          [storageKey]: JSON.stringify({
+            version: 1,
+            slide: { ...slide, animations: [{ id: "bad" }] },
+            copiedAt: 2_500,
+          }),
+        }),
+      ),
+    ).toEqual({
+      status: "unreadable",
+      slide: null,
+      copiedAt: null,
+    });
+  });
+
+  it("keeps clipboard snapshots isolated by signed-in user", () => {
+    const storage = createStorage();
+    const aliceKey = getSlideClipboardStorageKey("alice@example.com");
+    const bobKey = getSlideClipboardStorageKey("bob@example.com");
+
+    expect(writeSlideClipboard(aliceKey, slide, 3_000, storage)).toBe(true);
+    expect(readSlideClipboard(bobKey, storage)).toEqual({
+      status: "empty",
+      slide: null,
+      copiedAt: null,
+    });
+    expect(readSlideClipboard(aliceKey, storage).status).toBe("ready");
+  });
+
+  it("uses a newer cross-tab snapshot instead of a stale cached slide", () => {
+    const storageKey = getSlideClipboardStorageKey("alice@example.com");
+    const cachedSlide = { ...slide, content: "Cached" };
+    const latestSlide = { ...slide, content: "Latest" };
+
+    expect(
+      resolveSlideClipboardForPaste(
+        { status: "ready", slide: latestSlide, copiedAt: 4_000 },
+        cachedSlide,
+        storageKey,
+        storageKey,
+      ),
+    ).toEqual(latestSlide);
+  });
+
+  it("keeps a fresh in-memory snapshot when persistence is rejected", () => {
+    const storageKey = getSlideClipboardStorageKey("alice@example.com");
+    const cachedSlide = { ...slide, content: "Fresh cached copy" };
+    const olderSlide = { ...slide, content: "Older persisted copy" };
+    const rejectedStorage = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error("storage write rejected");
+      },
+    };
+
+    expect(
+      writeSlideClipboard(storageKey, cachedSlide, 4_000, rejectedStorage),
+    ).toBe(false);
+
+    expect(
+      resolveSlideClipboardForPaste(
+        { status: "ready", slide: olderSlide, copiedAt: 3_000 },
+        cachedSlide,
+        storageKey,
+        storageKey,
+        4_000,
+        true,
+      ),
+    ).toEqual(cachedSlide);
+    expect(
+      resolveSlideClipboardForPaste(
+        { status: "empty", slide: null, copiedAt: null },
+        cachedSlide,
+        storageKey,
+        storageKey,
+        4_000,
+        true,
+      ),
+    ).toEqual(cachedSlide);
+  });
+
+  it("keeps a pending copy while the session scope hydrates", () => {
+    const storageKey = getSlideClipboardStorageKey("alice@example.com");
+    const cachedSlide = { ...slide, content: "Copied before session loaded" };
+    const olderSlide = { ...slide, content: "Older persisted copy" };
+
+    expect(
+      resolveSlideClipboardForPaste(
+        { status: "ready", slide: olderSlide, copiedAt: 3_000 },
+        cachedSlide,
+        null,
+        storageKey,
+        4_000,
+      ),
+    ).toEqual(cachedSlide);
+    expect(
+      resolveSlideClipboardForPaste(
+        { status: "empty", slide: null, copiedAt: null },
+        cachedSlide,
+        null,
+        storageKey,
+        4_000,
+      ),
+    ).toEqual(cachedSlide);
+  });
+});

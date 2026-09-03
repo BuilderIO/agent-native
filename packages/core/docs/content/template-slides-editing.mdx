@@ -1,0 +1,56 @@
+---
+title: "Slides: Generating & Editing Decks"
+description: "Generate a deck from a prompt, edit it slide by slide, choose an aspect ratio, present full-screen, and collaborate with comments and version history."
+---
+
+# Generating & Editing Decks
+
+This page covers day-to-day deck work in [Slides](/docs/template-slides): generating a deck from a prompt, editing it slide by slide, presenting it, and collaborating with comments and version history. It's written for anyone using Slides, not just developers.
+
+## Generating a deck from a prompt
+
+Ask for a deck the way you'd brief a person: "Generate a 10-slide pitch deck for a coffee subscription service, audience is investors." The agent plans the slides first, then builds the deck one slide at a time so you watch it appear in the editor rather than waiting for the whole thing to land at once. Keep refining in the same conversation — "add a pricing slide after slide 3," "make this section shorter" — and only the slides you asked about change.
+
+Every new deck defaults to a 16:9 widescreen canvas. Ask the agent to switch it to 1:1 (square), 9:16 (vertical — Stories-style), or 4:5 (portrait) when you need a different shape. Changing it updates the editor canvas, presentation mode, and PDF/PPTX export together, so you never end up with an export that doesn't match what you built.
+
+## Editing slides visually
+
+- **Inline text editing.** Double-click any text to edit it directly on the slide.
+- **The bubble menu.** Click a block — a heading, a bullet list, an image — to get quick formatting options for just that block.
+- **The slash menu.** Type `/` to insert a new block — a heading, bullets, a table, a code block, an image placeholder — without leaving the keyboard.
+- **Reordering.** Drag slides in the filmstrip to reorder them; undo and redo work the way you'd expect.
+- **Rich embeds.** A slide can hold a hand-drawn diagram or a live-rendered chart alongside your text and images, not just static HTML.
+
+Select text on a slide and hit `Cmd+I` to hand the agent that exact selection — see [Talking to the Agent & Creative Context](/docs/template-slides-agent) for how selection-aware edits work.
+
+## Presenting full-screen
+
+<WireframeBlock id="doc-block-slides3">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='background:#0a0a0a;min-height:520px;display:flex;flex-direction:column;box-sizing:border-box;border-radius:8px;overflow:hidden;position:relative'><div style='flex:1;display:flex;align-items:center;justify-content:center;color:#fff;text-align:center;padding:40px'><div><div style='font-size:12px;letter-spacing:3px;text-transform:uppercase;color:#00E5FF;margin-bottom:18px'>Roadmap</div><h1 style='margin:0;font-size:36px'>Three Core Priorities</h1><p style='margin:14px 0 0;color:rgba(255,255,255,0.5)'>Speaker notes visible only to you</p></div></div><div style='display:flex;align-items:center;justify-content:space-between;padding:10px 18px;background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.6);font-size:12px'><span>4 / 10</span><span style='display:flex;gap:14px'><span>&larr; &rarr; navigate</span><span>F fullscreen</span><span>Esc exit</span></span></div></div>"
+    }
+  />
+</WireframeBlock>
+
+Click **Present** to go full-screen, with the arrow keys (or space bar) to advance, controls that fade out until you move the mouse, and your speaker notes visible only to you. Press `F` to toggle fullscreen and `Esc` to exit.
+
+## Comments and real-time collaboration
+
+Anyone with edit access can leave a comment anchored to a specific slide — optionally quoting the exact text or element it's about — and reply in a thread. Resolve a thread once it's addressed. Multiple people (and the agent) can edit the same deck at the same time without clobbering each other's changes; see [Real-Time Collaboration](/docs/real-time-collaboration) for how that works under the hood.
+
+## Sharing a deck
+
+Share a deck the same way you'd share any Agent-Native resource: keep it private, share it with specific teammates as a viewer or editor, or generate a public read-only link anyone can open without an account. See [Sharing](/docs/sharing) for the full model.
+
+## Restoring an earlier version
+
+Every meaningful change — yours or the agent's — snapshots the deck first, so nothing is ever silently lost. Open version history to see a timeline of past snapshots and restore any one of them; restoring takes its own snapshot first too, so a restore is never a dead end.
+
+## What's next
+
+- [**Design Systems & Media**](/docs/template-slides-design-and-media) — brand tokens, images, and import/export
+- [**Talking to the Agent & Creative Context**](/docs/template-slides-agent) — prompts by task and selection-aware edits
+- [**Developer Guide**](/docs/template-slides-developers) — the deck, slide, comment, and version actions behind this page
+- [**Slides overview**](/docs/template-slides) — back to the app summary

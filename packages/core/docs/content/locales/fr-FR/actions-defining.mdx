@@ -1,0 +1,382 @@
+---
+title: "Définir des actions"
+description: "L’anatomie de defineAction() : schéma, run, et configuration HTTP, ainsi que comment garder la surface d’actions restreinte."
+---
+
+# Définir des actions
+
+Chaque action commence par un appel à `defineAction()`. Il regroupe une description pour l’agent, un schéma qui valide l’entrée, et une fonction `run` qui effectue le travail, de sorte que l’UI et l’agent appellent exactement le même code.
+
+<AnnotatedCode
+  id="doc-block-actions-defining-1"
+  title="Anatomie d’une action"
+  filename="actions/reply-to-email.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description: "Reply to an email thread in the user\'s voice.",\n  schema: z.object({\n    emailId: z.string().describe("The id of the email to reply to."),\n    body: z.string().describe("The reply body, in markdown."),\n  }),\n  run: async ({ emailId, body }) => {\n    const db = getDb();\n    await db.insert(schema.replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "7",
+      label: "Surface d’outil",
+      note: "`description` est ce que l’agent lit pour décider quand appeler cette action. Les appels `.describe()` par champ se retrouvent aussi dans le JSON Schema.",
+    },
+    {
+      lines: "8-11",
+      label: "Contrat typé",
+      note: "Un seul schéma valide l’entrée depuis **toutes** les surfaces et est converti en JSON Schema pour le modèle. Les entrées invalides n’atteignent jamais `run`.",
+    },
+    {
+      lines: "12-16",
+      label: "Une seule implémentation",
+      note: "Le corps de `run` est la source unique de vérité. Le bouton de l’UI et l’outil de l’agent exécutent tous deux exactement ce code. `getDb()` et `schema` viennent du `server/db/index.ts` de votre application. Voir [Base de données](/docs/server-database).",
+    },
+  ]}
+/>
+
+Le framework découvre automatiquement chaque fichier de `actions/` et le monte au démarrage. Il n’y a rien d’autre à enregistrer à la main.
+
+<Signature
+  id="doc-block-actions-defining-2"
+  name="defineAction"
+  params={[
+    {
+      name: "config",
+      type: "DefineActionConfig<TSchema, TReturn, TOutputSchema>",
+      description:
+        "Tout ce qui suit tient dans un seul objet de configuration. Seuls description, schema, et run sont requis.",
+      fields: [
+        {
+          name: "description",
+          type: "string",
+          description:
+            "Ce que l’agent lit pour décider quand appeler cette action.",
+        },
+        {
+          name: "schema",
+          type: "StandardSchemaV1",
+          description:
+            "Valide l’entrée sur chaque surface. Voir les options de schéma ci-dessous.",
+        },
+        {
+          name: "run",
+          type: "(args, ctx?) => Promise<TReturn> | TReturn",
+          description:
+            "L’unique implémentation appelée par chaque surface. Voir Contexte d’exécution pour l’argument ctx.",
+        },
+        {
+          name: "http",
+          type: "ActionHttpConfig | false",
+          optional: true,
+          description:
+            "Remplace la méthode/le chemin monté, ou désactive entièrement le point de terminaison HTTP. Voir la configuration HTTP ci-dessous.",
+        },
+        {
+          name: "readOnly",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "Automatiquement true quand http.method vaut GET. Désactive le rafraîchissement par interrogation de l’UI et l’audit des écritures. Ce n’est pas un contrôle d’accès.",
+        },
+        {
+          name: "outputSchema",
+          type: "StandardSchemaV1",
+          optional: true,
+          description:
+            "Valide ce que run() renvoie. Voir Valider la valeur de retour ci-dessous.",
+        },
+        {
+          name: "outputErrorStrategy",
+          type: '"warn" | "strict" | "fallback"',
+          optional: true,
+          default: '"warn"',
+          description: "Ce qui se passe en cas de décalage de sortie.",
+        },
+        {
+          name: "outputFallback",
+          type: "TReturn",
+          optional: true,
+          description:
+            "Renvoyé à la place d’un résultat invalide quand outputErrorStrategy vaut « fallback ».",
+        },
+        {
+          name: "parallelSafe",
+          type: "boolean",
+          optional: true,
+          description:
+            "Autorise une action de mutation à s’exécuter en même temps que d’autres appels d’outil du même tour.",
+        },
+        {
+          name: "agentTool",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "Passez à false pour la masquer de toute liste d’outils de l’agent. Voir Accès et autorisation.",
+        },
+        {
+          name: "mcpTool",
+          type: "boolean",
+          optional: true,
+          default: "agentTool",
+          description:
+            "Hérite d’`agentTool`. Mettez false pour la masquer aux agents externes via MCP et A2A, ou true pour déclarer son appartenance au catalogue trié. Voir Accès et autorisation.",
+        },
+        {
+          name: "deferLoading",
+          type: "boolean",
+          optional: true,
+          description:
+            "Mettez false pour garder l’action dans la première liste d’outils de l’agent, true pour la charger à la demande via tool-search. Voir « Gardez la surface d’actions petite » ci-dessous.",
+        },
+        {
+          name: "toolCallable",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "Passez à false pour bloquer le pont iframe des extensions en bac à sable. Voir Accès et autorisation.",
+        },
+        {
+          name: "publicAgent",
+          type: "PublicAgentActionConfig",
+          optional: true,
+          description:
+            "{ expose: true } ajoute l’action aux surfaces publiques MCP/A2A/OpenAPI. Voir Accès et autorisation.",
+        },
+        {
+          name: "needsApproval",
+          type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)",
+          optional: true,
+          default: "false",
+          description:
+            "Met la boucle de l’agent en pause en attendant une approbation humaine avant run(). Voir Approbations humaines dans la boucle.",
+        },
+        {
+          name: "authorize",
+          type: "ActionAuthorize<TInput>",
+          optional: true,
+          description:
+            "Fonction de garde décidant si cet appelant peut exécuter l’action, tout court. Voir Accès et autorisation.",
+        },
+        {
+          name: "audit",
+          type: "ActionAuditConfig",
+          optional: true,
+          description:
+            "Ajuste la capture d’audit automatique dont bénéficie déjà chaque action de mutation. Voir Journal d’audit.",
+        },
+        {
+          name: "chatUI",
+          type: "ActionChatUIConfig",
+          optional: true,
+          description:
+            "Déclare un renderer de chat natif pour le résultat de l’action. Voir Autres surfaces.",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "ActionDefinition<TInput, TReturn>",
+    description:
+      "La définition d’action typée. Exportez-la comme export par défaut du fichier.",
+  }}
+/>
+
+## Options de schéma {#schemas}
+
+`schema` accepte toute bibliothèque compatible [Standard Schema](https://standardschema.dev) :
+
+- **Zod** (v4) : le choix le plus courant, avec la meilleure inférence de types et une conversion automatique en JSON Schema.
+- **Valibot** : un bon choix quand la taille du bundle compte.
+- **ArkType** : un bon choix si vous préférez sa syntaxe.
+
+Le schéma remplit deux rôles. Il se convertit en JSON Schema pour la définition d’outil de l’API Claude, et il valide l’entrée à l’exécution avant que `run()` ne se déclenche. Une entrée invalide n’atteint jamais votre gestionnaire.
+
+## Valider la valeur de retour {#output-schema}
+
+`schema` valide les _entrées_. Pour aussi valider ce qu’une action **renvoie**, passez un `outputSchema` (n’importe quel schéma compatible Standard Schema : Zod, Valibot, ArkType, la même surface que `schema`). Le framework valide l’entrée avant `run()` et valide le résultat après la résolution de `run()`.
+
+```ts
+export default defineAction({
+  description: "Summarize a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({
+    summary: z.string(),
+    messageCount: z.number(),
+  }),
+  outputErrorStrategy: "warn", // default
+  run: async ({ threadId }) => {
+    /* ...returns { summary, messageCount } ... */
+  },
+});
+```
+
+`outputErrorStrategy` contrôle ce qui se passe en cas de décalage :
+
+| Stratégie    | Comportement en cas de décalage                                                                         |
+| ------------ | ------------------------------------------------------------------------------------------------------- |
+| `"warn"`     | **Par défaut.** `console.warn` les problèmes et renvoie le résultat **original** inchangé. Non cassant. |
+| `"strict"`   | Lève une erreur claire, pour qu’un bug dans l’action soit facile à remarquer.                           |
+| `"fallback"` | Renvoie la valeur `outputFallback` fournie à la place du résultat invalide.                             |
+
+Quand `run()` réussit, le framework renvoie la valeur validée, de sorte que les valeurs par défaut ou les coercions de `outputSchema` s’appliquent, de la même manière que pour l’entrée. Quand vous ne passez pas de `outputSchema`, la valeur de retour reste inchangée.
+
+## Configuration HTTP {#http}
+
+Par défaut, chaque action est exposée en tant que `POST /_agent-native/actions/<name>`. Remplacez avec l’option `http` :
+
+```ts
+export default defineAction({
+  description: "Get details for a lead.",
+  schema: z.object({ leadId: z.string() }),
+  http: { method: "GET" },
+  run: async ({ leadId }) => {
+    return await db.select().from(leads).where(eq(leads.id, leadId));
+  },
+});
+```
+
+Pour une action `GET`, `leadId` est transmis comme paramètre de requête : `/_agent-native/actions/get-lead?leadId=abc`.
+
+<Endpoint id="doc-block-actions-defining-3" title="Le point de terminaison d’action monté automatiquement" method="GET" path="/_agent-native/actions/get-lead" summary={"Chaque action est montée ici automatiquement. Le nom de fichier est le nom de l’action."} auth={"Cookie de session (les appels du frontend portent `X-Agent-Native-Frontend: 1`), ou `Authorization: Bearer <token>` pour les appelants externes"} params={[
+  {
+    "name": "leadId",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "Les arguments GET arrivent en paramètres de requête. Les arguments POST arrivent dans le corps JSON."
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "La valeur de retour de l’action, en JSON."
+  },
+  {
+    "status": "400",
+    "description": "L’entrée a échoué la validation de schéma avant que run() ne se déclenche."
+  }
+]}>
+
+POST est la valeur par défaut, et `http: { method: "GET" }` en fait un GET. Les hooks React et `callAction()` appellent toujours ce chemin par nom, quel que soit un éventuel remplacement de `http.path`. Un système externe peut appeler la même route avec un jeton porteur longue durée. Voir [API HTTP](/docs/http-api).
+
+</Endpoint>
+
+- **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`** : la valeur par défaut est `POST`. Les actions `GET` sont automatiquement marquées `readOnly`, de sorte qu’un appel réussi ne déclenche pas de rafraîchissement par interrogation de l’UI.
+- **`http: { path: "..." }`** : remplace l’URL montée sous `/_agent-native/actions/`. Elle vaut par défaut le nom du fichier. Ce remplacement ne change l’URL que pour les appelants HTTP directs. `useActionQuery()`, `useActionMutation()`, et `callAction()` appellent toujours `/_agent-native/actions/<name>`, quel que soit ce remplacement, donc remplacer le chemin fait échouer ces hooks avec un 404. N’utilisez un remplacement de chemin que pour les appelants HTTP externes. Notez aussi que les segments de route `:param` dans le chemin de remplacement ne sont pas analysés en arguments de `run()`. Seuls les paramètres de chaîne de requête et les champs du corps JSON le sont.
+- **`http: false`** : désactive entièrement le point de terminaison HTTP. Seuls l’agent et la CLI peuvent appeler l’action.
+- **`readOnly: true`** : désactive explicitement le rafraîchissement par interrogation, même pour des actions POST qui ne modifient rien. Ce n’est pas un contrôle d’accès. Cela ne restreint pas qui peut appeler l’action, et cela n’affecte ni `useActionQuery()`, ni `useActionMutation()`, ni aucun hook client. Ses seuls effets sont de supprimer l’événement de rafraîchissement post-appel et de faire sortir l’action de l’audit des écritures. Pour masquer une action au modèle, utilisez `agentTool: false`. Pour restreindre qui peut l’appeler, utilisez les options d’authentification et d’accès sur [Accès et autorisation](/docs/actions-access-control).
+- **`parallelSafe: true`** : autorise une action de mutation à s’exécuter en même temps que d’autres appels d’outil du même tour. Ne définissez ceci que lorsque l’action est sûre à exécuter en parallèle et ne dépend pas de l’ordre. Les actions de mutation se sérialisent par défaut.
+
+## Faire échouer une action {#failing}
+
+Une action signale un échec en levant une erreur. Renvoyer `{ error: "..." }` ressemble à un succès pour toutes les parties du framework, donc les disjoncteurs de reprise de l’agent ne le comptent jamais et l’appel est enregistré comme un effet de bord terminé.
+
+Ce que vous levez décide de ce qui survit du message. `fail()` lève une `ActionContractError`, et c’est ce type qui est la seule raison pour laquelle le texte atteint l’appelant. Un simple `throw new Error("No such email")` est indiscernable d’une panne Postgres ou d’un service en amont, donc la route d’action le remplace par un 500 générique `"Internal server error"`, garde le vrai message dans le journal serveur et le remonte au suivi d’erreurs. Réservez le `throw` nu aux véritables défaillances internes. C’est à cela que sert le 500.
+
+`fail()` accepte un message et un objet d’options :
+
+- **message**: le texte que lit l’appelant. Écrivez-le pour une personne, pas pour un journal.
+- **options.errorCode**: un code stable, lisible par une machine. Vaut `"action_failed"` par défaut.
+- **options.statusCode**: le statut HTTP de la route d’action. Vaut `400` par défaut.
+- **options.details**: un contexte structuré et sûr pour l’appelant. N’y mettez jamais de secrets ni de sortie brute d’un pilote.
+
+L’appel le plus simple ne demande qu’un message :
+
+```ts
+import { defineAction, fail } from "@agent-native/core/action";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Reply to an email thread in the user's voice.",
+  schema: z.object({
+    emailId: z.string().describe("The id of the email to reply to."),
+    body: z.string().describe("The reply body, in markdown."),
+  }),
+  run: async ({ emailId, body }) => {
+    const db = getDb();
+    const [email] = await db
+      .select()
+      .from(schema.emails)
+      .where(eq(schema.emails.id, emailId));
+    if (!email) fail("That email is no longer in the mailbox.");
+    await db.insert(schema.replies).values({ emailId, body });
+    return { ok: true, emailId };
+  },
+});
+```
+
+Nommer la cause est ce qui permet à l’UI de réagir à un échec au lieu de seulement l’afficher. Le code et le statut survivent tous deux au transport :
+
+```ts
+if (!email) {
+  fail("That email is no longer in the mailbox.", {
+    errorCode: "email_not_found",
+    statusCode: 404,
+  });
+}
+```
+
+Le navigateur reçoit `{ error, errorCode, details }`. `useActionQuery()`, `useActionMutation()` et `callAction()` l’exposent comme une `Error` portant `status`, `errorCode`, `details` et `actionMessage`.
+
+`error.message` conserve un préfixe `Action <name> failed:`, qui a sa place dans une console et se lit mal dans un toast. `actionErrorMessage()` ne renvoie que le texte écrit par l’action, ou `undefined` si personne n’en a rédigé un :
+
+```tsx
+import {
+  actionErrorMessage,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+
+const reply = useActionMutation("reply-to-email", {
+  onError: (error) =>
+    toast.error(actionErrorMessage(error) ?? t("email.replyFailed")),
+});
+```
+
+Une coupure réseau, une page d’erreur HTML d’un proxy et une simple ligne de statut ne rédigent aucun message. Elles renvoient donc `undefined` plutôt qu’une chaîne qu’une UI afficherait par erreur. Associez toujours cette fonction à vos propres textes.
+
+### Ce que produit chaque levée {#failure-shapes}
+
+| Levé depuis `run()`                             | Statut HTTP        | Corps de la réponse                          | Remonté au suivi d’erreurs |
+| ----------------------------------------------- | ------------------ | -------------------------------------------- | -------------------------- |
+| `fail(msg)`                                     | 400                | `{ error: msg, errorCode: "action_failed" }` | Non                        |
+| `fail(msg, { errorCode, statusCode, details })` | votre `statusCode` | `{ error, errorCode, details }`              | Non                        |
+| `new ActionContractError(msg, { errorCode })`   | 409                | `{ error, errorCode, details }`              | Non                        |
+| `new AgentActionStopError(msg)`                 | 500                | `{ error: msg }`                             | Non                        |
+| `new Error(msg)`                                | 500                | `{ error: "Internal server error" }`         | Oui                        |
+| Entrée qui échoue au `schema`                   | 400                | `{ error: "Invalid action parameters..." }`  | Non                        |
+
+`AgentActionStopError` est celle à lever quand l’agent doit terminer son tour plutôt que lire l’échec et réessayer. `ActionContractError` est ce que `fail()` lève pour vous, donc ne l’utilisez directement que si 409 est le statut voulu.
+
+### Choisir un statut sur lequel la politique de reprise peut agir {#failure-status}
+
+`useActionQuery()` réessaie `429`, `502`, `503` et `504`, jusqu’à trois fois, avec un délai de 500 ms puis 1 s puis 2 s. Tout autre statut est traité comme déterministe et remonte dès la première réponse. Renvoyer une requête refusée parce qu’elle était incorrecte ne fait que racheter le même refus. `useActionMutation()` ne réessaie pas du tout.
+
+Le statut n’est donc pas cosmétique. Un refus envoyé en `404` coûte un aller-retour. Le même refus envoyé en `500`, ou levé nu, coûte quatre allers-retours et quatre rapports d’erreur en double.
+
+Les appelants agents ne voient pas le statut. L’agent exécute `run()` en processus, il reçoit donc le message directement quel que soit le type, sous la forme `Error running <action>: <message>`. Un `errorCode` autre que la valeur par défaut `action_failed` est ajouté sous la forme `(errorCode: not_found)`, ce qui permet au modèle de s’y appuyer sans analyser la prose. Les agents externes via MCP reçoivent le même texte. Les secrets présents dans le message sont d’abord expurgés, et les disjoncteurs d’erreurs répétées de l’agent bornent le nombre de nouvelles tentatives.
+
+## Garder la surface d’actions restreinte {#small-surface}
+
+Chaque action visible par l’agent prend une place dans la liste d’outils du modèle, et une liste longue et redondante rend plus difficile pour le modèle de choisir le bon outil. Concevez la surface d’actions comme une API que vous maintenez, pas une action par bouton de l’UI :
+
+- Préférez **une seule action `update` de style CRUD** qui prend un patch de champs optionnels, plutôt que de nombreuses actions par champ comme `update-name`, `update-order`, et `update-color`. L’appelant n’envoie que les champs qui ont changé.
+- Avant d’ajouter une nouvelle action de lecture pour chaque requête ou filtre, envisagez d’abord une option plus générale : le [trio d’API fournisseur](/docs/template-dispatch-vault-integrations#provider-api) (`provider-api-catalog`, `provider-api-docs`, et `provider-api-request`) pour les données fournisseur, ou l’outil dev `db-query` pour les données d’application.
+- Marquez les actions réservées à l’UI ou programmatiques [`agentTool: false`](/docs/actions-access-control#agent-tool). Elles restent appelables depuis le frontend ou via HTTP, sans prendre de place dans la liste d’outils du modèle.
+- Marquez `deferLoading: false` la poignée d’actions que l’agent sollicite en permanence. Ce sont ces schémas qui sont envoyés à la première requête du modèle ; tout le reste se charge à la demande via `tool-search` quand l’agent en a besoin. Dès qu’une action s’exclut ainsi, toutes les actions non marquées sont différées : marquez donc tout l’ensemble de départ d’un coup plutôt qu’une action à la fois. Il s’agit du coût du premier tour, pas d’un contrôle d’accès : une action différée est appelable dès que `tool-search` la renvoie. C’est la forme par action du tableau `initialToolNames` du plugin, et une application peut utiliser l’une ou l’autre.
+- Supprimez ou masquez les actions que l’UI n’utilise plus, plutôt que de les laisser exposées au modèle.
+
+Le dépôt inclut un utilitaire consultatif, `node scripts/audit-template-actions.mjs [template ...]` (alias `pnpm actions:audit`). Il scanne le dossier `actions/` d’un template et signale les actions que l’UI n’utilise peut-être plus, ainsi que des groupes d’actions par champ qui pourraient être combinées en une seule. Il sort toujours avec le code 0 et ne fait jamais échouer la CI, et ses heuristiques sont prudentes, donc traitez sa sortie comme une suggestion, pas comme une erreur.
+
+## Quelle est la prochaine étape
+
+- [**Vue d’ensemble**](/docs/actions-overview) — ce qu’est une action et la démonstration hello-world
+- [**Accès et autorisation**](/docs/actions-access-control) — `agentTool`, `toolCallable`, `authorize`, et la portée de `ctx`
+- [**Contexte d’exécution**](/docs/actions-run-context) — le tableau complet des champs de `ctx`
+- [**Autres surfaces**](/docs/actions-other-surfaces) — UI de chat native, CLI, A2A, MCP, et actions standard
+- [**Base de données**](/docs/server-database) — `getDb()`/`schema` utilisés à l’intérieur de `run()`
+- [**Données et synchronisation**](/docs/client-data) — appeler cette action depuis l’UI

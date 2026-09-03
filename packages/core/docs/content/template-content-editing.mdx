@@ -1,0 +1,60 @@
+---
+title: "Content: Writing & Organizing Documents"
+description: "How to write, format, organize, comment on, and share documents in Content — for anyone using the app day to day."
+---
+
+# Writing & Organizing Documents
+
+This page covers the everyday parts of Content: writing and formatting a page, arranging your pages into a tree, commenting with teammates, rolling back to an earlier version, and controlling who can see a document. It's written for anyone using the app, not just developers.
+
+## Writing and formatting
+
+Type `/` on an empty line to open the slash menu and insert headings, bulleted or numbered lists, tables, code blocks, images, dividers, and callouts. Select any text to pop up a formatting toolbar for bold, italic, links, and inline code.
+
+- Images can be dropped in or pasted; Content uploads them to your configured file storage automatically.
+- Math renders as real equations — type inline math between `` $` `` marks or a block equation between `$$` lines, and the editor displays the formatted result while keeping the original notation in the document.
+- Ask the agent instead of formatting by hand: "add a callout warning about the deprecated endpoint," "turn this list into a table," or "make this heading a level 2."
+
+## Organizing your pages
+
+Every page lives in a sidebar tree. Drag a page to reorder it or nest it under another page as a sub-page — nesting has no depth limit. Star a page to pin it to **Favorites** at the top of the sidebar.
+
+Use the search box (or ask the agent to "find my meeting notes from last week") to search titles and content across every page you can see, with a preview snippet for each match.
+
+## Comments
+
+Select a passage and leave a comment the way you would in Notion or Google Docs — the commented text gets a highlight instead of any change to the document body, so the page reads exactly the same afterward. Comments support @mentions of teammates, threaded replies, and a resolve/reopen toggle; resolved threads collapse into a "Resolved" section in the sidebar so they don't clutter an active review.
+
+If a commented passage gets edited later, the highlight follows the surrounding text rather than snapping to a fixed position, and if the exact text is ever deleted the comment thread still stays reachable from the sidebar instead of disappearing.
+
+## Version history
+
+Content keeps a snapshot of a page every time it changes significantly. Open a page's version history to see prior snapshots and restore one — restoring replaces the current content with that version's content wholesale; there's no line-by-line diff or partial restore.
+
+<WireframeBlock id="doc-block-content3">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:1fr 260px;gap:14px;padding:16px;min-height:480px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Launch checklist</h1><div style='flex:1'></div><span class='wf-pill'>3 comments</span></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px;padding:20px'><p style='margin:0'>Confirm pricing page copy before <mark>Thursday's release window</mark>.</p><div class='wf-box'>Owner: Priya · Status: In review</div><p style='margin:0' class='wf-muted'>Rollback plan documented below.</p></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Comments</strong><div class='wf-box'>Sam: \"Can we push this a day?\"</div><div class='wf-box wf-muted'>Resolved (2)</div><hr/><strong>Version history</strong><span class='wf-pill'>Today, 2:14pm</span><span class='wf-pill'>Yesterday, 5:02pm</span><span class='wf-pill'>Restore</span></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+## Sharing and visibility
+
+Documents are **private by default** — only you can see a page you create. To share one, use the share dialog (or ask the agent, "share this doc with the team as an editor") to:
+
+- Change visibility to **org** (anyone in your organization can open it) or **public** (anyone with the link can open it, at a read-only public URL).
+- Grant specific people or your whole org a **viewer**, **editor**, or **admin** role.
+
+An org-visible page can also be made discoverable-off — still open to anyone with the link, but left out of org-wide search and the sidebar list, useful for pages that exist for reference but shouldn't show up in everyday browsing.
+
+Public pages ship a read-only chat for visitors: they can ask questions about the page's content, but they can't create, edit, comment on, or share anything through it.
+
+## What's next
+
+- [Content overview](/docs/template-content) — what the app is and how to get started
+- [Databases, properties & forms](/docs/template-content-databases) — turning a page into a structured table
+- [Local files, Notion & Builder CMS sync](/docs/template-content-sync) — editing the same pages from outside the app
+- [Sharing](/docs/sharing) — the framework-wide share-grant model this page's roles build on
+- [Real-Time Collaboration](/docs/real-time-collaboration) — how simultaneous edits from people and the agent merge live

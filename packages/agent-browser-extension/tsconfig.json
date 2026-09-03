@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "ignoreDeprecations": "6.0",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "paths": {
+      "@agent-native/browser-control-extension-core": [
+        "../browser-control-extension-core/src/index.ts"
+      ],
+      "@agent-native/core/browser-context": [
+        "../core/src/browser-context/index.ts"
+      ],
+      "@agent-native/core/integrations/computer-supervision": [
+        "../core/src/integrations/computer-supervision.ts"
+      ]
+    },
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2022",
+    "types": ["chrome", "vite/client"]
+  },
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "vite.config.ts"]
+}

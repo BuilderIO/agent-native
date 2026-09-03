@@ -1,0 +1,1407 @@
+/**
+ * Connector-catalog tier tests.
+ *
+ * Verifies that when a template declares a `connectorCatalog`, the MCP server:
+ *
+ *   1. Only advertises the declared tools (+ builtin cross-app tools) in tools/list.
+ *   2. Rejects tools/call for any tool NOT in the catalog.
+ *   3. Serves the full surface when the caller opted up with catalog_scope: "full"
+ *      (both A2A JWT and OAuth token paths).
+ *   4. Applies the connector catalog without requiring an env flag.
+ *   5. ask-agent is excluded from the connector tier.
+ */
+
+import * as jose from "jose";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// ---------------------------------------------------------------------------
+// Mocks (same pattern as server.spec.ts)
+// ---------------------------------------------------------------------------
+
+vi.mock("./builtin-tools.js", () => ({
+  getBuiltinCrossAppTools: () => ({
+    list_apps: {
+      tool: { description: "List workspace apps" },
+      readOnly: true,
+      run: async () => ({ apps: [] }),
+    },
+    open_app: {
+      tool: {
+        description: "Open a workspace app",
+        parameters: {
+          type: "object",
+          properties: { app: { type: "string" } },
+        },
+      },
+      readOnly: true,
+      run: async () => ({ url: "/" }),
+    },
+    ask_app: {
+      tool: {
+        description: "Ask a workspace app",
+        parameters: {
+          type: "object",
+          properties: { app: { type: "string" }, message: { type: "string" } },
+          required: ["app", "message"],
+        },
+      },
+      run: async () => ({ response: "ok" }),
+    },
+    ask_app_status: {
+      tool: {
+        description: "Poll an ask_app task",
+        parameters: {
+          type: "object",
+          properties: {
+            app: { type: "string" },
+            taskId: { type: "string" },
+          },
+          required: ["taskId"],
+        },
+      },
+      readOnly: true,
+      run: async () => ({ status: "completed", response: "ok" }),
+    },
+    create_embed_session: {
+      tool: {
+        description: "Create an embed session",
+        _meta: { ui: { visibility: ["app"] } },
+      },
+      run: async () => ({ startUrl: "/_agent-native/embed/start/mock" }),
+    },
+    create_workspace_app: {
+      tool: { description: "Scaffold a workspace app" },
+      run: async () => ({ url: "/new-app" }),
+    },
+    list_templates: {
+      tool: { description: "List app templates" },
+      readOnly: true,
+      run: async () => ({ templates: [] }),
+    },
+  }),
+}));
+
+vi.mock("../org/context.js", () => ({
+  resolveOrgByDomain: vi.fn(async () => null),
+  getA2ASecretByDomain: vi.fn(async () => null),
+}));
+
+vi.mock("./connect-store.js", () => ({
+  MCP_CONNECT_SCOPE: "mcp-connect",
+  MCP_CONNECT_OAUTH_CLIENT_ID: "agent-native-connect",
+  isJtiRevoked: vi.fn(async () => false),
+  touchTokenUsed: vi.fn(async () => {}),
+}));
+
+vi.mock("../server/embed-session.js", () => ({
+  createEmbedSessionTicket: vi.fn(async ({ targetPath }: any) => ({
+    ticket: "mock-ticket",
+    ticketHash: "mock-hash",
+    expiresAt: 9999999999000,
+    targetPath,
+  })),
+  normalizeEmbedTargetPath: vi.fn((raw: string) => raw || null),
+}));
+
+vi.mock("../server/embed-route.js", () => ({
+  buildEmbedStartPath: (ticket: string) =>
+    `/_agent-native/embed/start?ticket=${encodeURIComponent(ticket)}`,
+}));
+
+vi.mock("./oauth-store.js", () => ({
+  MCP_OAUTH_ACCESS_TOKEN_TTL: "30d",
+  MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS: 30 * 86400,
+  getOAuthClient: vi.fn(async () => null),
+}));
+
+const { handleMcpRequest } = await import("./server.js");
+const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const A2A_SECRET = "connector-catalog-a2a-secret";
+const OAUTH_SECRET = "connector-catalog-oauth-secret";
+
+function makeEvent(opts: {
+  headers?: Record<string, string>;
+  body?: unknown;
+  ip?: string;
+}): any {
+  const headers: Record<string, string> = {
+    host: "plan.agent-native.com",
+    "x-forwarded-proto": "https",
+    accept: "application/json, text/event-stream",
+    "content-type": "application/json",
+    ...opts.headers,
+  };
+  const reqUrl = "https://plan.agent-native.com/";
+  const webReq = new Request(reqUrl, { method: "POST", headers });
+  return {
+    method: "POST",
+    url: { pathname: "/" },
+    path: "/",
+    req: webReq,
+    _headers: headers,
+    _body: opts.body ?? {},
+    _status: 200,
+    _ip: opts.ip ?? "93.184.216.34", // non-loopback
+  };
+}
+
+async function signA2AToken(
+  sub: string,
+  extraClaims: Record<string, unknown> = {},
+): Promise<string> {
+  return new jose.SignJWT({
+    sub,
+    scope: "mcp-connect",
+    jti: `test-jti-${Math.random().toString(36).slice(2)}`,
+    ...extraClaims,
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("1h")
+    .sign(new TextEncoder().encode(A2A_SECRET));
+}
+
+async function signOAuthToken(
+  extra: Record<string, unknown> = {},
+): Promise<string> {
+  return signMcpOAuthAccessToken({
+    ownerEmail: "alice@example.com",
+    clientId: "agent-native-connect",
+    scope: "mcp:read mcp:write",
+    resource: "https://plan.agent-native.com/_agent-native/mcp",
+    issuer: "https://plan.agent-native.com",
+    ...extra,
+  });
+}
+
+async function call(
+  rpc: Record<string, unknown>,
+  opts: {
+    headers?: Record<string, string>;
+    mcpConfig?: Record<string, unknown>;
+  } = {},
+): Promise<any> {
+  const event = makeEvent({ body: rpc, headers: opts.headers });
+  const cfg = opts.mcpConfig ?? connectorConfig;
+  const res = await handleMcpRequest(event, cfg as any);
+  expect(res).toBeInstanceOf(Response);
+  const text = await (res as Response).text();
+  const ct = (res as Response).headers.get("content-type") || "";
+  if (ct.includes("text/event-stream")) {
+    const line = text
+      .split("\n")
+      .find((l) => l.startsWith("data:"))
+      ?.slice(5)
+      .trim();
+    return JSON.parse(line as string);
+  }
+  return JSON.parse(text);
+}
+
+// ---------------------------------------------------------------------------
+// Test configuration
+// ---------------------------------------------------------------------------
+
+/** Catalog declared by the template — covers the "included" tools only. */
+const CONNECTOR_CATALOG = ["create-plan", "get-plan", "navigate"];
+
+/** Full action surface (includes excluded tools). */
+const fullActions: Record<string, unknown> = {
+  "create-plan": {
+    tool: { description: "Create a plan" },
+    run: async () => ({ id: "plan-1" }),
+  },
+  "get-plan": {
+    tool: {
+      description: "Get a plan",
+      parameters: {
+        type: "object",
+        properties: { id: { type: "string" } },
+        required: ["id"],
+      },
+    },
+    readOnly: true,
+    run: async () => ({ id: "plan-1", title: "My plan" }),
+  },
+  "public-read": {
+    tool: { description: "Read an authenticated record" },
+    http: { method: "GET" },
+    readOnly: true,
+    publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+    run: async () => ({ ok: true }),
+  },
+  "public-write": {
+    tool: { description: "Write an authenticated record" },
+    http: { method: "POST" },
+    publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+    run: async () => ({ ok: true }),
+  },
+  "db-query": {
+    tool: { description: "Read the app database" },
+    readOnly: true,
+    run: async () => ({ ok: true }),
+  },
+  navigate: {
+    tool: {
+      description: "Navigate to a view",
+      parameters: {
+        type: "object",
+        properties: { view: { type: "string" } },
+        required: ["view"],
+      },
+    },
+    run: async () => ({ ok: true }),
+  },
+  // Tools that should be excluded from the connector tier:
+  "db-exec": {
+    tool: { description: "Execute SQL" },
+    run: async () => ({ ok: true }),
+  },
+  "seed-kitchen-sink": {
+    tool: { description: "Seed demo data" },
+    run: async () => ({ ok: true }),
+  },
+  "manage-extensions": {
+    tool: { description: "Manage extensions" },
+    run: async () => ({ ok: true }),
+  },
+};
+
+const connectorConfig = {
+  name: "Plan",
+  appId: "plan",
+  description: "Plan agent",
+  builtinCrossAppTools: true,
+  actions: fullActions,
+  productionActions: fullActions,
+  askAgent: async () => "agent answer",
+  connectorCatalog: CONNECTOR_CATALOG,
+};
+
+// h3 mock (same as server.spec.ts)
+vi.mock("h3", () => ({
+  defineEventHandler: (fn: any) => fn,
+  getMethod: (event: any) => event.method ?? "GET",
+  getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
+  getRequestHeader: (event: any, name: string) =>
+    event._headers?.[name.toLowerCase()],
+  getRequestIP: (event: any) => event._ip,
+  getQuery: () => ({}),
+  setResponseStatus: (event: any, code: number) => {
+    event._status = code;
+  },
+  setResponseHeader: (event: any, name: string, value: string) => {
+    event._responseHeaders ??= {};
+    event._responseHeaders[name.toLowerCase()] = value;
+  },
+}));
+
+vi.mock("../server/h3-helpers.js", () => ({
+  readBody: vi.fn(async (event: any) => event._body ?? {}),
+}));
+
+vi.mock("../server/framework-request-handler.js", () => ({
+  getH3App: () => ({ use: () => {} }),
+}));
+
+vi.mock("../server/app-base-path.js", () => ({
+  getConfiguredAppBasePath: () => "",
+}));
+
+vi.mock("../server/auth.js", () => ({
+  isLoopbackRequest: (event: any) =>
+    event._ip === "127.0.0.1" || event._ip === "::1",
+}));
+
+vi.mock("../mcp/oauth-route.js", () => ({
+  getMcpOAuthResource: () => "https://plan.agent-native.com/_agent-native/mcp",
+  getMcpOAuthAudiences: () => [
+    "https://plan.agent-native.com/_agent-native/mcp",
+  ],
+  getMcpOAuthIssuer: () => "https://plan.agent-native.com",
+  getMcpOAuthProtectedResourceMetadataUrl: () =>
+    "https://plan.agent-native.com/.well-known/oauth-protected-resource",
+  buildMcpOAuthChallenge: () => 'Bearer realm="plan"',
+}));
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe("connector-catalog tier", () => {
+  beforeEach(() => {
+    process.env.A2A_SECRET = A2A_SECRET;
+    process.env.AGENT_NATIVE_CONNECTOR_CATALOG = "1";
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_MCP_FULL_CATALOG;
+  });
+
+  afterEach(() => {
+    delete process.env.A2A_SECRET;
+    delete process.env.AGENT_NATIVE_CONNECTOR_CATALOG;
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_MCP_FULL_CATALOG;
+    vi.clearAllMocks();
+  });
+
+  describe("tools/list — connector tier", () => {
+    it("only advertises catalog tools + builtin cross-app tools", async () => {
+      const token = await signA2AToken("alice@example.com");
+      const rpc = {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/list",
+        params: {},
+      };
+      const out = await call(rpc, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const names: string[] = out.result.tools.map((t: any) => t.name);
+
+      // Catalog tools are present
+      expect(names).toContain("create-plan");
+      expect(names).toContain("get-plan");
+      expect(names).toContain("navigate");
+
+      // Builtin cross-app tools are always included
+      expect(names).toContain("list_apps");
+      expect(names).toContain("open_app");
+
+      // Excluded tools are absent
+      expect(names).not.toContain("db-exec");
+      expect(names).not.toContain("seed-kitchen-sink");
+      expect(names).not.toContain("manage-extensions");
+
+      // ask-agent is excluded from connector tier
+      expect(names).not.toContain("ask-agent");
+    });
+
+    it("snapshot: exact tool set in connector tier matches declared catalog + builtins", async () => {
+      const token = await signA2AToken("alice@example.com");
+      const rpc = { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} };
+      const out = await call(rpc, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const names: string[] = out.result.tools.map((t: any) => t.name).sort();
+
+      // The exact set: catalog tools + the 5 core builtin cross-app tools.
+      // create_workspace_app and list_templates are NOT in COMPACT_MCP_APP_CATALOG_BUILTINS
+      // so they are excluded unless explicitly listed in the connectorCatalog
+      // or marked as authenticated reads through the auto policy. Only the 5
+      // core cross-app builtins are always included.
+      const expected = [
+        ...CONNECTOR_CATALOG,
+        "list_apps",
+        "open_app",
+        "ask_app",
+        "ask_app_status",
+        "create_embed_session",
+      ].sort();
+
+      expect(names).toEqual(expected);
+    });
+
+    it("serves the connector catalog with NO env flag set (AGENT_NATIVE_CONNECTOR_CATALOG deleted)", async () => {
+      // Regression guard: the connector-catalog tier is now driven purely by a
+      // declared `connectorCatalog` — it must NOT depend on the legacy
+      // `AGENT_NATIVE_CONNECTOR_CATALOG=1` env flag (which build-server.ts no
+      // longer reads). The suite's beforeEach sets it to "1"; delete it here so
+      // this test proves the tier still activates without it.
+      delete process.env.AGENT_NATIVE_CONNECTOR_CATALOG;
+
+      const token = await signA2AToken("alice@example.com");
+      const rpc = { jsonrpc: "2.0", id: 14, method: "tools/list", params: {} };
+      const out = await call(rpc, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const names: string[] = out.result.tools.map((t: any) => t.name);
+
+      // Advertised tools equal the declared connector allow-list + the core
+      // builtin cross-app tools — and nothing else.
+      expect([...names].sort()).toEqual(
+        [
+          ...CONNECTOR_CATALOG,
+          "list_apps",
+          "open_app",
+          "ask_app",
+          "ask_app_status",
+          "create_embed_session",
+        ].sort(),
+      );
+
+      // Every declared catalog tool is present.
+      for (const tool of CONNECTOR_CATALOG) {
+        expect(names).toContain(tool);
+      }
+
+      // Excluded / non-catalog tools are NOT advertised even without the flag.
+      expect(names).not.toContain("db-exec");
+      expect(names).not.toContain("seed-kitchen-sink");
+      expect(names).not.toContain("manage-extensions");
+      expect(names).not.toContain("ask-agent");
+    });
+  });
+
+  it("advertises and calls the Calendar and Mail deterministic connector reads", async () => {
+    const deterministicReads = {
+      "list-events": {
+        tool: { description: "List a calendar inventory" },
+        http: { method: "GET" as const },
+        readOnly: true,
+        run: async () => ({ version: 1, items: [], complete: true }),
+      },
+      "list-emails": {
+        tool: { description: "List a mail inventory" },
+        http: { method: "GET" as const },
+        readOnly: true,
+        run: async () => ({ version: 1, items: [], complete: true }),
+      },
+    };
+    const mcpConfig = {
+      ...connectorConfig,
+      actions: deterministicReads,
+      productionActions: deterministicReads,
+      connectorCatalog: ["list-events", "list-emails"],
+    };
+    const token = await signA2AToken("alice@example.com");
+    const headers = { authorization: `Bearer ${token}` };
+    const listed = await call(
+      { jsonrpc: "2.0", id: 30, method: "tools/list", params: {} },
+      { headers, mcpConfig },
+    );
+    const names = listed.result.tools.map((tool: any) => tool.name);
+    expect(names).toEqual(
+      expect.arrayContaining(["list-events", "list-emails"]),
+    );
+
+    for (const name of ["list-events", "list-emails"]) {
+      const called = await call(
+        {
+          jsonrpc: "2.0",
+          id: name,
+          method: "tools/call",
+          params: { name, arguments: {} },
+        },
+        { headers, mcpConfig },
+      );
+      expect(called.error).toBeUndefined();
+      expect(called.result.isError).not.toBe(true);
+      expect(called.result.structuredContent).toMatchObject({
+        version: 1,
+        items: [],
+        complete: true,
+      });
+    }
+  });
+
+  describe("tools/call — non-catalog tool is rejected", () => {
+    it("rejects db-exec (not in catalog)", async () => {
+      const token = await signA2AToken("alice@example.com");
+      const rpc = {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "db-exec", arguments: { sql: "SELECT 1" } },
+      };
+      const out = await call(rpc, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(out.result.isError).toBe(true);
+      expect(out.result.content[0].text).toMatch(/Unknown tool/);
+    });
+
+    it("rejects seed-kitchen-sink (not in catalog)", async () => {
+      const token = await signA2AToken("alice@example.com");
+      const rpc = {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "seed-kitchen-sink", arguments: {} },
+      };
+      const out = await call(rpc, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(out.result.isError).toBe(true);
+      expect(out.result.content[0].text).toMatch(/Unknown tool/);
+    });
+
+    it("rejects ask-agent (excluded from connector tier)", async () => {
+      const token = await signA2AToken("alice@example.com");
+      const rpc = {
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "ask-agent", arguments: { message: "hello" } },
+      };
+      const out = await call(rpc, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(out.result.isError).toBe(true);
+    });
+
+    it("allows catalog tools to be called", async () => {
+      const token = await signA2AToken("alice@example.com");
+      const rpc = {
+        jsonrpc: "2.0",
+        id: 5,
+        method: "tools/call",
+        params: { name: "get-plan", arguments: { id: "plan-1" } },
+      };
+      const out = await call(rpc, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(out.result.isError).toBeFalsy();
+      const resultText = out.result.content.map((c: any) => c.text).join(" ");
+      expect(resultText).toContain("plan-1");
+    });
+  });
+
+  describe("action-declared `mcpTool`", () => {
+    /** Two actions the config catalog says nothing about: one opts itself in,
+     *  one opts itself out of the external surface entirely. */
+    const declaringActions = {
+      ...(fullActions as Record<string, any>),
+      "share-plan-externally": {
+        tool: { description: "Share a plan with an external agent" },
+        mcpTool: true,
+        run: async () => ({ ok: true }),
+      },
+      "open-plan-inspector": {
+        tool: { description: "Open the in-app inspector panel" },
+        mcpTool: false,
+        run: async () => ({ ok: true }),
+      },
+    };
+    const declaringConfig = {
+      ...connectorConfig,
+      actions: declaringActions,
+      productionActions: declaringActions,
+    };
+
+    it("advertises `mcpTool: true` alongside the configured catalog", async () => {
+      const token = await signA2AToken("alice@example.com");
+      const out = await call(
+        { jsonrpc: "2.0", id: 60, method: "tools/list", params: {} },
+        {
+          headers: { authorization: `Bearer ${token}` },
+          mcpConfig: declaringConfig,
+        },
+      );
+      const names: string[] = out.result.tools.map((t: any) => t.name);
+      expect(names).toContain("share-plan-externally");
+      for (const tool of CONNECTOR_CATALOG) expect(names).toContain(tool);
+      expect(names).not.toContain("db-exec");
+    });
+
+    it("activates the connector tier with no configured catalog at all", async () => {
+      const token = await signA2AToken("alice@example.com");
+      const { connectorCatalog: _dropped, ...noCatalogConfig } =
+        declaringConfig;
+      const out = await call(
+        { jsonrpc: "2.0", id: 61, method: "tools/list", params: {} },
+        {
+          headers: { authorization: `Bearer ${token}` },
+          mcpConfig: noCatalogConfig,
+        },
+      );
+      const names: string[] = out.result.tools.map((t: any) => t.name);
+      expect(names).toContain("share-plan-externally");
+      // The tier is real, not a fallback to "everything": the actions the
+      // config catalog used to carry are gone with it.
+      expect(names).not.toContain("create-plan");
+      expect(names).not.toContain("db-exec");
+    });
+
+    it("hides `mcpTool: false` from tools/list and tools/call", async () => {
+      const token = await signA2AToken("alice@example.com");
+      const headers = { authorization: `Bearer ${token}` };
+      const listed = await call(
+        { jsonrpc: "2.0", id: 62, method: "tools/list", params: {} },
+        { headers, mcpConfig: declaringConfig },
+      );
+      expect(listed.result.tools.map((t: any) => t.name)).not.toContain(
+        "open-plan-inspector",
+      );
+      const called = await call(
+        {
+          jsonrpc: "2.0",
+          id: 63,
+          method: "tools/call",
+          params: { name: "open-plan-inspector", arguments: {} },
+        },
+        { headers, mcpConfig: declaringConfig },
+      );
+      expect(called.result.isError).toBe(true);
+      expect(called.result.content[0].text).toMatch(/Unknown tool/);
+    });
+
+    it("inherits `agentTool: false` when `mcpTool` is not declared", async () => {
+      const inheriting = {
+        ...(fullActions as Record<string, any>),
+        "sidebar-width": {
+          tool: { description: "Persist the sidebar width" },
+          agentTool: false,
+          run: async () => ({ ok: true }),
+        },
+      };
+      const cfg = {
+        ...connectorConfig,
+        actions: inheriting,
+        productionActions: inheriting,
+      };
+      const token = await signA2AToken("alice@example.com", {
+        catalog_scope: "full",
+      });
+      const headers = { authorization: `Bearer ${token}` };
+      const listed = await call(
+        { jsonrpc: "2.0", id: 66, method: "tools/list", params: {} },
+        { headers, mcpConfig: cfg },
+      );
+      expect(listed.result.tools.map((t: any) => t.name)).not.toContain(
+        "sidebar-width",
+      );
+      const called = await call(
+        {
+          jsonrpc: "2.0",
+          id: 67,
+          method: "tools/call",
+          params: { name: "sidebar-width", arguments: {} },
+        },
+        { headers, mcpConfig: cfg },
+      );
+      expect(called.result.isError).toBe(true);
+      expect(called.result.content[0].text).toMatch(/Unknown tool/);
+    });
+
+    it("serves an MCP-only action: `agentTool: false` with `mcpTool: true`", async () => {
+      const mcpOnly = {
+        ...(fullActions as Record<string, any>),
+        "export-plan-archive": {
+          tool: { description: "Export a plan archive for an external agent" },
+          agentTool: false,
+          mcpTool: true,
+          run: async () => ({ archived: true }),
+        },
+      };
+      const cfg = {
+        ...connectorConfig,
+        actions: mcpOnly,
+        productionActions: mcpOnly,
+      };
+      const token = await signA2AToken("alice@example.com");
+      const headers = { authorization: `Bearer ${token}` };
+      const listed = await call(
+        { jsonrpc: "2.0", id: 68, method: "tools/list", params: {} },
+        { headers, mcpConfig: cfg },
+      );
+      expect(listed.result.tools.map((t: any) => t.name)).toContain(
+        "export-plan-archive",
+      );
+      const called = await call(
+        {
+          jsonrpc: "2.0",
+          id: 69,
+          method: "tools/call",
+          params: { name: "export-plan-archive", arguments: {} },
+        },
+        { headers, mcpConfig: cfg },
+      );
+      expect(called.result.isError).toBeFalsy();
+      expect(called.result.content.map((c: any) => c.text).join(" ")).toContain(
+        "archived",
+      );
+    });
+
+    it("dispatches allowlisted Content writes directly without invoking the app agent", async () => {
+      const createDocument = vi.fn(async () => ({ id: "doc-1" }));
+      const editDocument = vi.fn(async () => ({ id: "doc-1", edited: true }));
+      const askAgent = vi.fn(async () => "delegated answer");
+      const contentActions = {
+        "create-document": {
+          tool: { description: "Create and persist a Content document" },
+          mcpTool: true,
+          run: createDocument,
+        },
+        "edit-document": {
+          tool: { description: "Surgically edit a Content document" },
+          mcpTool: true,
+          run: editDocument,
+        },
+      };
+      const contentConfig = {
+        ...connectorConfig,
+        name: "Content",
+        appId: "content",
+        connectorCatalog: undefined,
+        externalAgents: { writes: "allowlisted" as const },
+        actions: contentActions,
+        productionActions: contentActions,
+        askAgent,
+      };
+      const token = await signA2AToken("alice@example.com");
+      const headers = { authorization: `Bearer ${token}` };
+
+      const created = await call(
+        {
+          jsonrpc: "2.0",
+          id: 70,
+          method: "tools/call",
+          params: {
+            name: "create-document",
+            arguments: { title: "Draft" },
+          },
+        },
+        { headers, mcpConfig: contentConfig },
+      );
+      const edited = await call(
+        {
+          jsonrpc: "2.0",
+          id: 71,
+          method: "tools/call",
+          params: {
+            name: "edit-document",
+            arguments: { id: "doc-1", find: "old", replace: "new" },
+          },
+        },
+        { headers, mcpConfig: contentConfig },
+      );
+
+      expect(created.result.isError).toBeFalsy();
+      expect(edited.result.isError).toBeFalsy();
+      expect(createDocument).toHaveBeenCalledWith(
+        { title: "Draft" },
+        expect.objectContaining({ caller: "mcp" }),
+      );
+      expect(editDocument).toHaveBeenCalledWith(
+        { id: "doc-1", find: "old", replace: "new" },
+        expect.objectContaining({ caller: "mcp" }),
+      );
+      expect(askAgent).not.toHaveBeenCalled();
+    });
+
+    it("keeps `mcpTool: false` uncallable on the full-catalog opt-in", async () => {
+      // The veto has to bite on the tier where `actions` IS the callable
+      // surface, or "hidden" would only mean "not listed".
+      const token = await signA2AToken("alice@example.com", {
+        catalog_scope: "full",
+      });
+      const headers = { authorization: `Bearer ${token}` };
+      const listed = await call(
+        { jsonrpc: "2.0", id: 64, method: "tools/list", params: {} },
+        { headers, mcpConfig: declaringConfig },
+      );
+      const names: string[] = listed.result.tools.map((t: any) => t.name);
+      expect(names).toContain("db-exec");
+      expect(names).not.toContain("open-plan-inspector");
+
+      const called = await call(
+        {
+          jsonrpc: "2.0",
+          id: 65,
+          method: "tools/call",
+          params: { name: "open-plan-inspector", arguments: {} },
+        },
+        { headers, mcpConfig: declaringConfig },
+      );
+      expect(called.result.isError).toBe(true);
+      expect(called.result.content[0].text).toMatch(/Unknown tool/);
+    });
+  });
+
+  describe("per-token opt-up: catalog_scope: 'full' in A2A JWT", () => {
+    it("serves full catalog when catalog_scope: 'full' is in the A2A token", async () => {
+      const token = await signA2AToken("alice@example.com", {
+        catalog_scope: "full",
+      });
+      const rpc = { jsonrpc: "2.0", id: 6, method: "tools/list", params: {} };
+      const out = await call(rpc, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const names: string[] = out.result.tools.map((t: any) => t.name);
+
+      // All catalog tools are present
+      expect(names).toContain("create-plan");
+      // Excluded tools are also present (full catalog)
+      expect(names).toContain("db-exec");
+      expect(names).toContain("seed-kitchen-sink");
+    });
+
+    it("allows non-catalog tool call when catalog_scope: 'full'", async () => {
+      const token = await signA2AToken("alice@example.com", {
+        catalog_scope: "full",
+      });
+      const rpc = {
+        jsonrpc: "2.0",
+        id: 7,
+        method: "tools/call",
+        params: { name: "db-exec", arguments: {} },
+      };
+      const out = await call(rpc, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      // Should succeed (not an "Unknown tool" error)
+      expect(out.result?.content?.[0]?.text ?? "").not.toMatch(/Unknown tool/);
+    });
+  });
+
+  describe("per-token opt-up: catalog_scope: 'full' in OAuth token", () => {
+    it("serves full catalog when OAuth token has catalog_scope: 'full'", async () => {
+      process.env.BETTER_AUTH_SECRET = OAUTH_SECRET;
+      try {
+        const token = await signOAuthToken({ catalogScope: "full" } as any);
+        const rpc = { jsonrpc: "2.0", id: 8, method: "tools/list", params: {} };
+        const out = await call(rpc, {
+          headers: { authorization: `Bearer ${token}` },
+          mcpConfig: {
+            ...connectorConfig,
+            actions: connectorConfig.actions,
+            productionActions: connectorConfig.productionActions,
+          },
+        });
+        const names: string[] = out.result.tools.map((t: any) => t.name);
+        expect(names).toContain("db-exec");
+        expect(names).toContain("seed-kitchen-sink");
+      } finally {
+        delete process.env.BETTER_AUTH_SECRET;
+      }
+    });
+  });
+
+  describe("AGENT_NATIVE_MCP_FULL_CATALOG=1 overrides connector tier", () => {
+    it("serves full catalog when AGENT_NATIVE_MCP_FULL_CATALOG=1", async () => {
+      process.env.AGENT_NATIVE_MCP_FULL_CATALOG = "1";
+      const token = await signA2AToken("alice@example.com");
+      const rpc = { jsonrpc: "2.0", id: 9, method: "tools/list", params: {} };
+      const out = await call(rpc, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const names: string[] = out.result.tools.map((t: any) => t.name);
+      expect(names).toContain("db-exec");
+      expect(names).toContain("seed-kitchen-sink");
+    });
+  });
+});
+
+describe("connector-catalog tier — env flag not required", () => {
+  beforeEach(() => {
+    process.env.A2A_SECRET = A2A_SECRET;
+    delete process.env.AGENT_NATIVE_CONNECTOR_CATALOG;
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_MCP_FULL_CATALOG;
+  });
+
+  afterEach(() => {
+    delete process.env.A2A_SECRET;
+    delete process.env.AGENT_NATIVE_CONNECTOR_CATALOG;
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_MCP_FULL_CATALOG;
+    vi.clearAllMocks();
+  });
+
+  it("still serves the declared connector catalog when env flag is absent", async () => {
+    const token = await signA2AToken("alice@example.com");
+    const rpc = { jsonrpc: "2.0", id: 10, method: "tools/list", params: {} };
+    const out = await call(rpc, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const names: string[] = out.result.tools.map((t: any) => t.name).sort();
+
+    expect(names).toEqual(
+      [
+        ...CONNECTOR_CATALOG,
+        "list_apps",
+        "open_app",
+        "ask_app",
+        "ask_app_status",
+        "create_embed_session",
+      ].sort(),
+    );
+    expect(names).not.toContain("db-exec");
+    expect(names).not.toContain("seed-kitchen-sink");
+  });
+
+  it("rejects non-catalog tools when env flag is absent", async () => {
+    const token = await signA2AToken("alice@example.com");
+    const rpc = {
+      jsonrpc: "2.0",
+      id: 11,
+      method: "tools/call",
+      params: { name: "db-exec", arguments: {} },
+    };
+    const out = await call(rpc, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(out.result.isError).toBe(true);
+    expect(out.result?.content?.[0]?.text ?? "").toMatch(/Unknown tool/);
+  });
+});
+
+describe("connector-catalog tier — no connectorCatalog declared", () => {
+  beforeEach(() => {
+    process.env.A2A_SECRET = A2A_SECRET;
+    process.env.AGENT_NATIVE_CONNECTOR_CATALOG = "1";
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_MCP_FULL_CATALOG;
+  });
+
+  afterEach(() => {
+    delete process.env.A2A_SECRET;
+    delete process.env.AGENT_NATIVE_CONNECTOR_CATALOG;
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_MCP_FULL_CATALOG;
+    vi.clearAllMocks();
+  });
+
+  it("falls back to the compact surface when connectorCatalog is not declared", async () => {
+    const configWithoutCatalog = {
+      ...connectorConfig,
+      connectorCatalog: undefined,
+    };
+    const token = await signA2AToken("alice@example.com");
+    const rpc = { jsonrpc: "2.0", id: 12, method: "tools/list", params: {} };
+    const out = await call(rpc, {
+      headers: { authorization: `Bearer ${token}` },
+      mcpConfig: configWithoutCatalog,
+    });
+    const names: string[] = out.result.tools.map((t: any) => t.name);
+    expect(names).toEqual([
+      "ask_app",
+      "ask_app_status",
+      "create_embed_session",
+      "list_apps",
+      "open_app",
+    ]);
+    expect(names).not.toContain("db-exec");
+    expect(names).not.toContain("seed-kitchen-sink");
+  });
+
+  it("serves the full surface when connectorCatalog is undeclared and full catalog is explicit", async () => {
+    process.env.AGENT_NATIVE_MCP_FULL_CATALOG = "1";
+    const configWithoutCatalog = {
+      ...connectorConfig,
+      connectorCatalog: undefined,
+    };
+    const token = await signA2AToken("alice@example.com");
+    const rpc = { jsonrpc: "2.0", id: 13, method: "tools/list", params: {} };
+    const out = await call(rpc, {
+      headers: { authorization: `Bearer ${token}` },
+      mcpConfig: configWithoutCatalog,
+    });
+    const names: string[] = out.result.tools.map((t: any) => t.name);
+    expect(names).toContain("db-exec");
+    expect(names).toContain("seed-kitchen-sink");
+  });
+
+  it("auto-advertises authenticated read actions without exposing writes", async () => {
+    const autoConfig = {
+      ...connectorConfig,
+      connectorCatalog: undefined,
+      externalAgents: { authenticatedReads: "auto" as const },
+    };
+    const token = await signA2AToken("alice@example.com");
+    const listOut = await call(
+      { jsonrpc: "2.0", id: 15, method: "tools/list", params: {} },
+      { headers: { authorization: `Bearer ${token}` }, mcpConfig: autoConfig },
+    );
+    const names: string[] = listOut.result.tools.map((t: any) => t.name);
+
+    expect(names).toContain("public-read");
+    expect(names).not.toContain("public-write");
+    expect(names).not.toContain("db-query");
+    expect(names).not.toContain("get-plan");
+
+    const readOut = await call(
+      {
+        jsonrpc: "2.0",
+        id: 16,
+        method: "tools/call",
+        params: { name: "public-read", arguments: {} },
+      },
+      { headers: { authorization: `Bearer ${token}` }, mcpConfig: autoConfig },
+    );
+    expect(readOut.result.isError).toBeFalsy();
+
+    const writeOut = await call(
+      {
+        jsonrpc: "2.0",
+        id: 17,
+        method: "tools/call",
+        params: { name: "public-write", arguments: {} },
+      },
+      { headers: { authorization: `Bearer ${token}` }, mcpConfig: autoConfig },
+    );
+    expect(writeOut.result.isError).toBe(true);
+    expect(writeOut.result.content[0].text).toMatch(/Unknown tool/);
+  });
+
+  it("applies the external-agent deny list to auto-discovered reads", async () => {
+    const autoConfig = {
+      ...connectorConfig,
+      connectorCatalog: undefined,
+      externalAgents: {
+        authenticatedReads: "auto" as const,
+        denyActions: ["public-read"],
+      },
+    };
+    const token = await signA2AToken("alice@example.com");
+    const out = await call(
+      { jsonrpc: "2.0", id: 18, method: "tools/list", params: {} },
+      { headers: { authorization: `Bearer ${token}` }, mcpConfig: autoConfig },
+    );
+    const names: string[] = out.result.tools.map((t: any) => t.name);
+    expect(names).not.toContain("public-read");
+  });
+
+  it("keeps explicitly cataloged writes behind ask_app in auto-read mode", async () => {
+    const autoConfig = {
+      ...connectorConfig,
+      connectorCatalog: ["public-write"],
+      externalAgents: { authenticatedReads: "auto" as const },
+    };
+    const token = await signA2AToken("alice@example.com");
+    const out = await call(
+      { jsonrpc: "2.0", id: 19, method: "tools/list", params: {} },
+      { headers: { authorization: `Bearer ${token}` }, mcpConfig: autoConfig },
+    );
+    const names: string[] = out.result.tools.map((t: any) => t.name);
+    expect(names).not.toContain("public-write");
+  });
+
+  // Hard-exclusion regression guard: even if a footgun action (generic
+  // SQL, template seed data, extension management, browser-session
+  // control, Context X-Ray) is ever mis-annotated with the full
+  // authenticated-read flag set — as db-query/db-schema briefly were —
+  // the AUTO derivation must still never advertise or call it. Explicit
+  // connectorCatalog entries remain a deliberate, unaffected app choice.
+  describe("AUTO authenticated-read hard exclusions", () => {
+    const excludedButFullyAnnotatedActions: Record<string, unknown> = {
+      "db-query": {
+        tool: { description: "Read the app's own SQL database" },
+        http: { method: "GET" },
+        readOnly: true,
+        publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+        run: async () => ({ ok: true }),
+      },
+      "seed-demo-data": {
+        tool: { description: "Seed demo data" },
+        http: { method: "GET" },
+        readOnly: true,
+        publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+        run: async () => ({ ok: true }),
+      },
+      "context-preview-get": {
+        tool: { description: "Preview the composed system context" },
+        http: { method: "GET" },
+        readOnly: true,
+        publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+        run: async () => ({ ok: true }),
+      },
+    };
+
+    it("never auto-advertises or auto-calls excluded actions even when fully annotated as authenticated reads", async () => {
+      const autoConfig = {
+        ...connectorConfig,
+        connectorCatalog: undefined,
+        actions: excludedButFullyAnnotatedActions,
+        productionActions: excludedButFullyAnnotatedActions,
+        externalAgents: { authenticatedReads: "auto" as const },
+      };
+      const token = await signA2AToken("alice@example.com");
+      const listOut = await call(
+        { jsonrpc: "2.0", id: 20, method: "tools/list", params: {} },
+        {
+          headers: { authorization: `Bearer ${token}` },
+          mcpConfig: autoConfig,
+        },
+      );
+      const names: string[] = listOut.result.tools.map((t: any) => t.name);
+      expect(names).not.toContain("db-query");
+      expect(names).not.toContain("seed-demo-data");
+      expect(names).not.toContain("context-preview-get");
+
+      for (const name of [
+        "db-query",
+        "seed-demo-data",
+        "context-preview-get",
+      ]) {
+        const callOut = await call(
+          {
+            jsonrpc: "2.0",
+            id: 21,
+            method: "tools/call",
+            params: { name, arguments: {} },
+          },
+          {
+            headers: { authorization: `Bearer ${token}` },
+            mcpConfig: autoConfig,
+          },
+        );
+        expect(callOut.result.isError).toBe(true);
+        expect(callOut.result.content[0].text).toMatch(/Unknown tool/);
+      }
+    });
+
+    it("still serves db-query / seed-demo-data when explicitly listed in connectorCatalog", async () => {
+      const explicitConfig = {
+        ...connectorConfig,
+        connectorCatalog: ["db-query", "seed-demo-data"],
+        actions: excludedButFullyAnnotatedActions,
+        productionActions: excludedButFullyAnnotatedActions,
+        externalAgents: { authenticatedReads: "auto" as const },
+      };
+      const token = await signA2AToken("alice@example.com");
+      const listOut = await call(
+        { jsonrpc: "2.0", id: 22, method: "tools/list", params: {} },
+        {
+          headers: { authorization: `Bearer ${token}` },
+          mcpConfig: explicitConfig,
+        },
+      );
+      const names: string[] = listOut.result.tools.map((t: any) => t.name);
+      expect(names).toContain("db-query");
+      expect(names).toContain("seed-demo-data");
+
+      for (const name of ["db-query", "seed-demo-data"]) {
+        const callOut = await call(
+          {
+            jsonrpc: "2.0",
+            id: 23,
+            method: "tools/call",
+            params: { name, arguments: {} },
+          },
+          {
+            headers: { authorization: `Bearer ${token}` },
+            mcpConfig: explicitConfig,
+          },
+        );
+        expect(callOut.result.isError).toBeFalsy();
+      }
+    });
+  });
+
+  describe('app catalog tier (`mcp: { catalog: "app" }`)', () => {
+    /** Same app, plus the `tool-search` action the plugin attaches to every
+     *  registry — the flat surface must drop it rather than list a discovery
+     *  tool alongside the tools it would discover. */
+    const appCatalogConfig = {
+      ...connectorConfig,
+      catalogMode: "app" as const,
+      actions: {
+        ...fullActions,
+        "tool-search": {
+          tool: { description: "Discover callable tools" },
+          readOnly: true,
+          run: async () => ({ results: [] }),
+        },
+      },
+      productionActions: {
+        ...fullActions,
+        "tool-search": {
+          tool: { description: "Discover callable tools" },
+          readOnly: true,
+          run: async () => ({ results: [] }),
+        },
+      },
+    };
+
+    it("advertises exactly the app's own registry, flat", async () => {
+      const token = await signA2AToken("alice@example.com");
+      const out = await call(
+        { jsonrpc: "2.0", id: 40, method: "tools/list", params: {} },
+        {
+          headers: { authorization: `Bearer ${token}` },
+          mcpConfig: appCatalogConfig,
+        },
+      );
+
+      expect(out.error).toBeUndefined();
+      const names = out.result.tools.map((t: any) => t.name).sort();
+      // Exactly the app registry: every action, and nothing the MCP layer
+      // adds on its own — no builtins, no tool-search, no ask-agent.
+      expect(names).toEqual(Object.keys(fullActions).sort());
+    });
+
+    it("ignores the declared connectorCatalog and makes excluded tools callable", async () => {
+      // `connectorConfig` declares a 3-name catalog; `catalogMode: "app"` must
+      // win. db-exec is the tool the connector tier deliberately withholds.
+      const token = await signA2AToken("alice@example.com");
+      const out = await call(
+        {
+          jsonrpc: "2.0",
+          id: 41,
+          method: "tools/call",
+          params: { name: "db-exec", arguments: {} },
+        },
+        {
+          headers: { authorization: `Bearer ${token}` },
+          mcpConfig: appCatalogConfig,
+        },
+      );
+
+      expect(out.error).toBeUndefined();
+      expect(out.result.isError).toBeFalsy();
+    });
+
+    it("still honors externalAgents.denyActions", async () => {
+      // denyActions is an explicit removal by the app, not catalog tiering,
+      // so parity with the in-app agent must not resurrect a denied name.
+      const denyConfig = {
+        ...appCatalogConfig,
+        externalAgents: { denyActions: ["db-exec"] },
+      };
+      const token = await signA2AToken("alice@example.com");
+      const listed = await call(
+        { jsonrpc: "2.0", id: 42, method: "tools/list", params: {} },
+        {
+          headers: { authorization: `Bearer ${token}` },
+          mcpConfig: denyConfig,
+        },
+      );
+      expect(listed.result.tools.map((t: any) => t.name)).not.toContain(
+        "db-exec",
+      );
+
+      const called = await call(
+        {
+          jsonrpc: "2.0",
+          id: 43,
+          method: "tools/call",
+          params: { name: "db-exec", arguments: {} },
+        },
+        {
+          headers: { authorization: `Bearer ${token}` },
+          mcpConfig: denyConfig,
+        },
+      );
+      expect(called.result.isError).toBe(true);
+      expect(called.result.content[0].text).toContain("Unknown tool");
+    });
+
+    it("does not expose or accept the ask-agent meta-tool", async () => {
+      const token = await signA2AToken("alice@example.com");
+      const out = await call(
+        {
+          jsonrpc: "2.0",
+          id: 44,
+          method: "tools/call",
+          params: { name: "ask-agent", arguments: { message: "hi" } },
+        },
+        {
+          headers: { authorization: `Bearer ${token}` },
+          mcpConfig: appCatalogConfig,
+        },
+      );
+
+      expect(out.result.isError).toBe(true);
+      expect(out.result.content[0].text).toContain("Unknown tool");
+    });
+  });
+
+  describe("tool-search scoping", () => {
+    const toolSearchEntry = {
+      tool: {
+        description: "Discover callable tools",
+        parameters: {
+          type: "object",
+          properties: { query: { type: "string" } },
+        },
+      },
+      readOnly: true,
+      // Deliberately answers with a name that is NOT in the connector catalog.
+      // If the MCP layer serves this entry unscoped, the caller is handed a
+      // name that `tools/call` then rejects.
+      run: async () => ({ results: [{ name: "db-exec" }] }),
+    };
+    const withToolSearch = {
+      ...fullActions,
+      "tool-search": toolSearchEntry,
+    };
+
+    it("scopes tool-search to the advertised set on the connector tier", async () => {
+      const cfg = {
+        ...connectorConfig,
+        actions: withToolSearch,
+        productionActions: withToolSearch,
+      };
+      const token = await signA2AToken("alice@example.com");
+      const out = await call(
+        {
+          jsonrpc: "2.0",
+          id: 50,
+          method: "tools/call",
+          params: { name: "tool-search", arguments: {} },
+        },
+        { headers: { authorization: `Bearer ${token}` }, mcpConfig: cfg },
+      );
+
+      expect(out.error).toBeUndefined();
+      expect(out.result.isError).toBeFalsy();
+      const text = JSON.stringify(out.result.content);
+      // The template entry's own `run` would have returned db-exec. The scoped
+      // replacement searches the advertised set, which excludes it.
+      expect(text).not.toContain("db-exec");
+      expect(text).toContain("create-plan");
+    });
+
+    it("drops tool-search entirely on both flat catalogs", async () => {
+      const token = await signA2AToken("alice@example.com");
+
+      for (const [id, cfg] of [
+        [
+          51,
+          {
+            ...connectorConfig,
+            catalogMode: "app" as const,
+            actions: withToolSearch,
+            productionActions: withToolSearch,
+          },
+        ],
+        [
+          52,
+          {
+            ...connectorConfig,
+            actions: withToolSearch,
+            productionActions: withToolSearch,
+          },
+        ],
+      ] as const) {
+        // The second config reaches the flat surface through the explicit
+        // full-catalog opt-in rather than catalogMode.
+        if (id === 52) process.env.AGENT_NATIVE_MCP_FULL_CATALOG = "1";
+
+        const listed = await call(
+          { jsonrpc: "2.0", id, method: "tools/list", params: {} },
+          { headers: { authorization: `Bearer ${token}` }, mcpConfig: cfg },
+        );
+        expect(listed.result.tools.map((t: any) => t.name)).not.toContain(
+          "tool-search",
+        );
+
+        const called = await call(
+          {
+            jsonrpc: "2.0",
+            id: id + 100,
+            method: "tools/call",
+            params: { name: "tool-search", arguments: {} },
+          },
+          { headers: { authorization: `Bearer ${token}` }, mcpConfig: cfg },
+        );
+        expect(called.result.isError).toBe(true);
+        expect(called.result.content[0].text).toContain("Unknown tool");
+
+        delete process.env.AGENT_NATIVE_MCP_FULL_CATALOG;
+      }
+    });
+  });
+});

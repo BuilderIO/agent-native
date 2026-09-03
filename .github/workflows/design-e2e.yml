@@ -1,0 +1,87 @@
+name: Design E2E (browser)
+
+# Post-merge only: a red canvas suite must not block an unrelated merge, and
+# this does not gate the beta deploy. Sharded because the suite is workers:1.
+# Already-broken tests carry test.fail() in the spec, so a red run here means
+# something that was passing broke.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "templates/design/**"
+      - "packages/core/**"
+      - "packages/toolkit/**"
+      - "packages/creative-context/**"
+      - ".github/workflows/design-e2e.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: design-e2e
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Shard ${{ matrix.shard }}/6
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Free disk for the design build and browser
+        run: |
+          sudo rm -rf \
+            /opt/ghc \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/.ghcup \
+            /usr/local/lib/android \
+            /usr/local/share/boost \
+            /usr/share/dotnet \
+            /usr/share/swift \
+            ~/.cache/ms-playwright
+          docker system prune -af || true
+          sudo apt-get clean
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Restore dist + tsBuildInfo cache
+        uses: ./.github/actions/restore-dist-cache
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell --with-deps chromium
+
+      - name: Run shard
+        working-directory: templates/design
+        run: |
+          mkdir -p .react-router/types
+          pnpm exec playwright test --shard=${{ matrix.shard }}/6
+
+      - name: Upload report on failure
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: design-e2e-report-${{ matrix.shard }}
+          path: templates/design/test-results
+          retention-days: 7
+          if-no-files-found: ignore

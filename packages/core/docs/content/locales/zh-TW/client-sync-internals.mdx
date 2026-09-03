@@ -1,0 +1,123 @@
+---
+title: "同步內部機制"
+description: "useDbSync 背後的變更版本機制：用於同步原始 useQuery 的 useChangeVersion/useChangeVersions，以及重新取得可能經過的兩條延遲路徑。"
+---
+
+# 同步內部機制
+
+[即時同步](/docs/key-concepts#polling-sync)涵蓋了心智模型：一次代理寫入變成一個變更事件，`useDbSync()` 接收到它，受影響的查詢就會重新取得。此頁面涵蓋大多數應用程式從不直接碰觸的底層機制：`useDbSync()` 所遞增的變更版本計數器，以及如何將它們折疊進一個沒有經過 `useActionQuery()` 的原始 `useQuery()` 呼叫中。
+
+`useActionQuery()` 在變異 action 完成時已經會自動重新取得（請參閱[資料與同步](/docs/client-data#fetching-mutating)）。只有在您要同步一個位於該路徑之外的原始 `useQuery()` 呼叫時，才使用 `useChangeVersion()`/`useChangeVersions()`，例如讀取整合狀態的低階用戶端輔助函式。
+
+## 變更版本如何運作 {#how-it-works}
+
+當伺服器端資料庫發生變異時，伺服器會記錄一個帶有 `source` 鍵標籤的變更事件。`useDbSync()` 接收該事件，並為該來源遞增一個本機計數器。將此計數器折疊進 React Query 鍵中，會讓查詢在後端回報該來源有新活動時自動重新取得。
+
+## useChangeVersion / useChangeVersions {#use-change-version}
+
+<Signature
+  id="doc-block-client-sync-internals-1"
+  name="useChangeVersion"
+  params={[
+    {
+      name: "source",
+      type: "string",
+      description: '要監看的變更事件來源，例如 `"dashboards"`。',
+    },
+  ]}
+  returns={{
+    type: "number",
+    description: "一個計數器，每當指定的來源發生變異時就會遞增。",
+  }}
+/>
+
+<Signature
+  id="doc-block-client-sync-internals-2"
+  name="useChangeVersions"
+  params={[
+    {
+      name: "sources",
+      type: "readonly string[]",
+      description: "要同時監看的多個變更事件來源。",
+    },
+  ]}
+  returns={{
+    type: "number",
+    description: "多個指定來源版本計數器的總和。",
+  }}
+/>
+
+在下方的範例中，一個原始的 `useQuery()` 呼叫直接讀取一個儀表板，並將 `"dashboards"` 來源的版本計數器折疊進其查詢鍵，使其在該來源發生變化時重新取得：
+
+```tsx
+import { useQuery } from "@tanstack/react-query";
+import { useChangeVersion } from "@agent-native/core/client/hooks";
+
+function DashboardView({ id }) {
+  const version = useChangeVersion("dashboards");
+
+  const { data } = useQuery({
+    queryKey: ["dashboard", id, version],
+    queryFn: () => fetchDashboard(id),
+    placeholderData: (prev) => prev,
+  });
+
+  return <div>{data?.title}</div>;
+}
+```
+
+`placeholderData: (prev) => prev` 讓重新取得期間畫面上保留先前的資料，因此檢視畫面不會閃爍到載入狀態。
+
+## 重新取得的兩條路徑 {#latency-models}
+
+一次變異透過兩種方式到達 UI，而它們的延遲不同。
+
+一次本機變異，也就是您自己的 `useActionMutation()` 呼叫剛剛所做的變異，會在成功後立即發出一個 `source: "action"` 事件。每個依賴該 action 的查詢都會立即重新取得。沒有來回延遲，因為進行寫入的分頁已經知道這件事。
+
+一次遠端變異，來自代理、webhook、另一個分頁或另一位使用者，必須先傳達到這個分頁。`useDbSync()` 幾乎立即透過 SSE 接收到它，或若 SSE 不可用，則在約兩秒內透過輪詢備援接收到它。只有在該事件到達之後，相關的版本計數器才會遞增，查詢才會在背景重新取得。
+
+<Diagram id="doc-block-client-sync-internals-3" title="重新取得的兩條路徑" summary="本機變異會立即使自己的快取失效。遠端寫入透過 SSE 到達此分頁，或以輪詢作為備援。">
+
+```html
+<div class="diagram-latency">
+  <div class="diagram-col">
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill ok">此分頁</span
+      ><strong>useActionMutation</strong
+      ><small class="diagram-muted"
+        >成功時發出 source: "action" &rarr; 立即在本機重新取得</small
+      >
+    </div>
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill accent">代理 · webhook · 其他分頁</span
+      ><strong>遠端寫入</strong
+      ><small class="diagram-muted"
+        >SSE 推送，或以約 2 秒的輪詢週期作為備援 &rarr; 版本遞增 &rarr;
+        背景重新取得</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-latency .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diagram-latency .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+}
+```
+
+</Diagram>
+
+## 下一步是什麼
+
+- [**即時同步**](/docs/key-concepts#polling-sync) — 此頁面所深入探討的概念性心智模型
+- [**資料與同步**](/docs/client-data) — `useActionQuery`/`useDbSync`，大多數頁面應改用這些而非這些原語
+- [**進階**](/docs/client-advanced) — 其他較低階的用戶端原語與逃生口

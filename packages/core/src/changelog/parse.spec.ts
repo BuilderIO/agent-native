@@ -1,0 +1,549 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  parseChangelog,
+  parsePendingEntry,
+  renderReleaseBody,
+  rollupChangelog,
+  mergePendingChangelog,
+  compactChangelog,
+  changelogSlug,
+  CHANGELOG_ARCHIVE_NOTE,
+} from "./parse.js";
+
+const SAMPLE = `# Changelog
+
+All notable user-facing changes to this app are documented here.
+
+## 2026-06-23
+
+### Added
+
+- Recordings can now be trimmed before sharing.
+
+### Fixed
+
+- Fixed a crash when opening an empty folder.
+
+## 2026-05-01
+
+### Improved
+
+- Faster transcript search.
+`;
+
+describe("parseChangelog", () => {
+  it("splits releases on `## ` headings and captures bodies", () => {
+    const entries = parseChangelog(SAMPLE);
+    expect(entries).toHaveLength(2);
+    expect(entries[0].title).toBe("2026-06-23");
+    expect(entries[0].date).toBe("2026-06-23");
+    expect(entries[0].body).toContain("Recordings can now be trimmed");
+    expect(entries[0].body).toContain("### Fixed");
+    expect(entries[1].title).toBe("2026-05-01");
+  });
+
+  it("does not treat `### ` sub-headings as new releases", () => {
+    const entries = parseChangelog(SAMPLE);
+    // The `### Added` / `### Fixed` under 2026-06-23 must stay in its body.
+    expect(entries[0].body.match(/^###/gm)?.length).toBe(2);
+  });
+
+  it("extracts version labels and strips brackets", () => {
+    const entries = parseChangelog(
+      "# Changelog\n\n## [1.4.0] - 2026-06-23\n\n- Thing\n",
+    );
+    expect(entries[0].version).toBe("1.4.0");
+    expect(entries[0].date).toBe("2026-06-23");
+    expect(entries[0].title).toContain("1.4.0");
+  });
+
+  it("returns [] for empty / malformed input instead of throwing", () => {
+    expect(parseChangelog("")).toEqual([]);
+    expect(parseChangelog("just some text, no headings")).toEqual([]);
+    // @ts-expect-error — defensive against bad runtime values.
+    expect(parseChangelog(null)).toEqual([]);
+  });
+
+  it("produces stable, unique ids", () => {
+    const entries = parseChangelog(
+      "# Changelog\n\n## 2026-06-23\n\n- a\n\n## 2026-06-23\n\n- b\n",
+    );
+    expect(entries[0].id).not.toBe(entries[1].id);
+    expect(new Set(entries.map((e) => e.id)).size).toBe(2);
+  });
+});
+
+describe("parsePendingEntry", () => {
+  it("parses frontmatter + body", () => {
+    const entry = parsePendingEntry(
+      "---\ntype: fixed\ndate: 2026-06-23\n---\nFixed the thing.\n",
+    );
+    expect(entry.type).toBe("fixed");
+    expect(entry.date).toBe("2026-06-23");
+    expect(entry.text).toBe("Fixed the thing.");
+  });
+
+  it("normalizes type aliases and defaults to `changed`", () => {
+    expect(parsePendingEntry("---\ntype: feature\n---\nx").type).toBe("added");
+    expect(parsePendingEntry("---\ntype: bugfix\n---\nx").type).toBe("fixed");
+    expect(parsePendingEntry("no frontmatter at all").type).toBe("changed");
+    expect(parsePendingEntry("no frontmatter at all").text).toBe(
+      "no frontmatter at all",
+    );
+  });
+
+  it("uses a dated filename fallback when hand-written frontmatter omits date", () => {
+    expect(
+      parsePendingEntry("---\ntype: fixed\n---\nFixed it.", "2026-07-08"),
+    ).toMatchObject({
+      type: "fixed",
+      date: "2026-07-08",
+    });
+  });
+
+  it("uses the filename fallback when hand-written frontmatter has an invalid date", () => {
+    expect(
+      parsePendingEntry(
+        "---\ntype: fixed\ndate: yesterday\n---\nFixed it.",
+        "2026-07-08",
+      ),
+    ).toMatchObject({
+      type: "fixed",
+      date: "2026-07-08",
+    });
+  });
+});
+
+describe("renderReleaseBody", () => {
+  it("groups bullets by type in canonical order", () => {
+    const body = renderReleaseBody([
+      { type: "fixed", text: "Fixed B" },
+      { type: "added", text: "Added A" },
+      { type: "fixed", text: "Fixed C" },
+    ]);
+    // Added group renders before Fixed group.
+    expect(body.indexOf("### Added")).toBeLessThan(body.indexOf("### Fixed"));
+    expect(body).toContain("- Added A");
+    expect(body).toContain("- Fixed B");
+    expect(body).toContain("- Fixed C");
+  });
+});
+
+describe("rollupChangelog", () => {
+  it("prepends a new dated section above existing releases", () => {
+    const next = rollupChangelog(
+      SAMPLE,
+      [{ type: "added", text: "Brand new feature." }],
+      "2026-06-30",
+    );
+    const entries = parseChangelog(next);
+    expect(entries[0].title).toBe("2026-06-30");
+    expect(entries[0].body).toContain("Brand new feature.");
+    // Existing releases are preserved, newest-first.
+    expect(entries.map((e) => e.title)).toEqual([
+      "2026-06-30",
+      "2026-06-23",
+      "2026-05-01",
+    ]);
+  });
+
+  it("seeds a header when there is no existing changelog", () => {
+    const next = rollupChangelog(
+      "",
+      [{ type: "added", text: "First entry." }],
+      "2026-06-30",
+    );
+    expect(next).toContain("# Changelog");
+    expect(parseChangelog(next)[0].body).toContain("First entry.");
+  });
+
+  it("is a no-op (returns existing) when there are no pending entries", () => {
+    expect(rollupChangelog(SAMPLE, [], "2026-06-30")).toBe(SAMPLE);
+  });
+});
+
+describe("mergePendingChangelog", () => {
+  it("shows pending entries above released entries grouped by authored date", () => {
+    const next = mergePendingChangelog(SAMPLE, [
+      { type: "fixed", text: "Fixed C", date: "2026-06-30" },
+      { type: "added", text: "Added B", date: "2026-07-01" },
+      { type: "improved", text: "Improved D", date: "2026-06-30" },
+    ]);
+
+    const entries = parseChangelog(next);
+    expect(entries.map((entry) => entry.title)).toEqual([
+      "2026-07-01",
+      "2026-06-30",
+      "2026-06-23",
+      "2026-05-01",
+    ]);
+    expect(entries[0].body).toContain("Added B");
+    expect(entries[1].body).toContain("### Improved");
+    expect(entries[1].body).toContain("Fixed C");
+  });
+
+  it("merges pending entries into an existing release with the same date", () => {
+    const next = mergePendingChangelog(SAMPLE, [
+      { type: "improved", text: "Same-day improvement.", date: "2026-06-23" },
+    ]);
+
+    const entries = parseChangelog(next);
+    expect(entries.map((entry) => entry.title)).toEqual([
+      "2026-06-23",
+      "2026-05-01",
+    ]);
+    expect(entries[0].body).toContain("Same-day improvement.");
+    expect(entries[0].body).toContain("Recordings can now be trimmed");
+  });
+
+  it("keeps pending entries non-destructive when there are no existing releases", () => {
+    const next = mergePendingChangelog("", [
+      { type: "added", text: "First visible entry.", date: "2026-06-30" },
+    ]);
+
+    expect(next).toContain("# Changelog");
+    expect(parseChangelog(next)[0].body).toContain("First visible entry.");
+  });
+
+  it("does not duplicate folder entries already present in the recent window", () => {
+    const next = mergePendingChangelog(SAMPLE, [
+      {
+        type: "added",
+        text: "Recordings can be trimmed before sharing.",
+        date: "2026-06-23",
+      },
+      {
+        type: "fixed",
+        text: "A folder-only fix.",
+        date: "2026-06-23",
+      },
+    ]);
+
+    expect(
+      next.match(/Recordings can be trimmed before sharing\./g),
+    ).toHaveLength(1);
+    expect(next).toContain("A folder-only fix.");
+  });
+
+  it("merges pending entries into existing release categories", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved
+
+- Existing overlay note.
+
+### Fixed
+
+- Existing recovery note.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "improved", text: "New overlay note.", date: "2026-08-20" },
+      { type: "fixed", text: "New recovery note.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Improved$/gm)).toHaveLength(1);
+    expect(next.match(/^### Fixed$/gm)).toHaveLength(1);
+    expect(next).toContain("- New overlay note.");
+    expect(next).toContain("- Existing overlay note.");
+    expect(next).toContain("- New recovery note.");
+    expect(next).toContain("- Existing recovery note.");
+
+    const rerun = mergePendingChangelog(next, [
+      { type: "improved", text: "New overlay note.", date: "2026-08-20" },
+      { type: "fixed", text: "New recovery note.", date: "2026-08-20" },
+    ]);
+    expect(rerun.match(/^### Improved$/gm)).toHaveLength(1);
+    expect(rerun.match(/^### Fixed$/gm)).toHaveLength(1);
+  });
+
+  it("deduplicates identical pending entries in one batch", () => {
+    const next = mergePendingChangelog("", [
+      { type: "fixed", text: "One fix.", date: "2026-08-20" },
+      { type: "fixed", text: "One fix.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/One fix\./g)).toHaveLength(1);
+  });
+
+  it("does not treat fenced headings as changelog categories", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved
+
+- Existing note.
+
+\`\`\`\`md
+\`\`\`md
+### Not a category
+\`\`\`
+\`\`\`\`
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "improved", text: "New note.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Improved$/gm)).toHaveLength(1);
+    expect(next).toContain("### Not a category");
+  });
+
+  it("does not treat HTML-comment headings as changelog categories", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved
+
+<!--
+### Improved
+- Hidden note.
+-->
+
+- Existing note.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "improved", text: "New note.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Improved$/gm)).toHaveLength(2);
+    expect(next).toContain("<!--\n### Improved\n- Hidden note.\n-->");
+    expect(next.indexOf("New note.")).toBeLessThan(next.indexOf("<!--"));
+    expect(next.indexOf("Existing note.")).toBeGreaterThan(next.indexOf("-->"));
+  });
+
+  it("preserves unsupported H3 lines in multiline entries", () => {
+    const next = mergePendingChangelog("", [
+      {
+        type: "improved",
+        text: "A note\n### Important detail\nStill part of the note.",
+        date: "2026-08-20",
+      },
+    ]);
+
+    expect(next).toContain(
+      "- A note\n  ### Important detail\n  Still part of the note.",
+    );
+    expect(next.match(/^### /gm)).toHaveLength(1);
+  });
+
+  it("preserves inline comments on category headings", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved <!-- release note -->
+
+- Existing note.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "improved", text: "New note.", date: "2026-08-20" },
+    ]);
+
+    expect(next).toContain("### Improved <!-- release note -->");
+    expect(next).toContain("- Existing note.");
+    expect(next).toContain("- New note.");
+  });
+
+  it("does not enter HTML-comment state from fenced code", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved
+
+\`\`\`\`html <!-- literal example
+### Not a category
+\`\`\`\`
+
+### Fixed
+
+- Existing fix.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "fixed", text: "New fix.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Fixed$/gm)).toHaveLength(1);
+    expect(next).toContain("### Not a category");
+    expect(next).toContain("- Existing fix.");
+    expect(next).toContain("- New fix.");
+  });
+
+  it("ignores HTML markers inside inline code", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved
+
+- Docs: \`<!-- literal marker\`
+
+### Fixed
+
+- Existing fix.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "fixed", text: "New fix.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Fixed$/gm)).toHaveLength(1);
+    expect(next).toContain("- Docs: `<!-- literal marker`");
+    expect(next).toContain("- Existing fix.");
+    expect(next).toContain("- New fix.");
+  });
+
+  it("tracks inline-code spans across lines", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved
+
+- Docs: \`<!-- literal marker
+### Not a category
+still code\`
+
+### Fixed
+
+- Existing fix.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "fixed", text: "New fix.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Fixed$/gm)).toHaveLength(1);
+    expect(next).toContain("### Not a category");
+    expect(next).toContain("still code`");
+    expect(next).toContain("- Existing fix.");
+    expect(next).toContain("- New fix.");
+  });
+
+  it("merges indented category headings", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+  ### Improved
+
+- Existing note.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "improved", text: "New note.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Improved$/gm)).toHaveLength(1);
+    expect(next).toContain("- Existing note.");
+    expect(next).toContain("- New note.");
+  });
+
+  it("normalizes category headings with closing markers", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved ###
+
+- Existing note.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "improved", text: "New note.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Improved$/gm)).toHaveLength(1);
+    expect(next).toContain("- Existing note.");
+    expect(next).toContain("- New note.");
+  });
+
+  it("deduplicates multiline folder entries after release rendering", () => {
+    const next = mergePendingChangelog(SAMPLE, [
+      {
+        type: "fixed",
+        text: "A multiline fix that explains the important detail.\nIt stays readable.",
+        date: "2026-06-23",
+      },
+    ]);
+    const twice = mergePendingChangelog(next, [
+      {
+        type: "fixed",
+        text: "A multiline fix that explains the important detail.\nIt stays readable.",
+        date: "2026-06-23",
+      },
+    ]);
+
+    expect(
+      twice.match(/A multiline fix that explains the important detail\./g),
+    ).toHaveLength(1);
+  });
+
+  it("inserts older folder entries after newer released sections", () => {
+    const next = mergePendingChangelog(SAMPLE, [
+      { type: "fixed", text: "An older folder fix.", date: "2026-04-01" },
+    ]);
+
+    expect(parseChangelog(next).map((entry) => entry.title)).toEqual([
+      "2026-06-23",
+      "2026-05-01",
+      "2026-04-01",
+    ]);
+  });
+});
+
+describe("compactChangelog", () => {
+  it("keeps the recent release window and points to folder history", () => {
+    const compacted = compactChangelog(
+      SAMPLE,
+      [
+        { type: "added", text: "Newer feature.", date: "2026-07-01" },
+        { type: "fixed", text: "Older folder fix.", date: "2026-04-01" },
+      ],
+      2,
+    );
+
+    expect(compacted).toContain(CHANGELOG_ARCHIVE_NOTE);
+    expect(compacted.trim().endsWith(CHANGELOG_ARCHIVE_NOTE)).toBe(true);
+    expect(compacted).toContain("Newer feature.");
+    expect(compacted).toContain(
+      "Recordings can now be trimmed before sharing.",
+    );
+    expect(compacted).not.toContain("Faster transcript search.");
+    expect(compacted).not.toContain("Older folder fix.");
+    expect(parseChangelog(compacted).map((entry) => entry.title)).toEqual([
+      "2026-07-01",
+      "2026-06-23",
+    ]);
+  });
+
+  it("replaces the legacy note and keeps the footer stable on reruns", () => {
+    const legacy = `${SAMPLE}\n\nOlder updates live in [the changelog folder](./changelog/) and are included in the in-app "What's new" view.\n`;
+    const compacted = compactChangelog(legacy, [], 2);
+    const rerun = compactChangelog(compacted, [], 2);
+
+    expect(compacted).toBe(rerun);
+    expect(compacted.match(/For the full list of updates/g)).toHaveLength(1);
+    expect(compacted.match(/Older updates live in/g)).toBeNull();
+    expect(compacted.trim().endsWith(CHANGELOG_ARCHIVE_NOTE)).toBe(true);
+  });
+
+  it("defaults to a 100-release window", () => {
+    const existing = `# Changelog\n\n${Array.from(
+      { length: 101 },
+      (_, index) => `## Release ${101 - index}\n\n- Update ${101 - index}`,
+    ).join("\n\n")}\n`;
+    const compacted = compactChangelog(existing, []);
+
+    expect(compacted.match(/^## /gm)).toHaveLength(100);
+    expect(compacted).toContain("## Release 101");
+    expect(compacted).not.toContain("## Release 1\n");
+    expect(compacted.trim().endsWith(CHANGELOG_ARCHIVE_NOTE)).toBe(true);
+  });
+});
+
+describe("changelogSlug", () => {
+  it("makes id-safe slugs", () => {
+    expect(changelogSlug("v1.2.0 — 2026-06-23")).toBe("v1-2-0-2026-06-23");
+  });
+});

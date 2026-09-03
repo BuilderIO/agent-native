@@ -1,0 +1,49 @@
+---
+title: "النشر"
+description: "انشر تطبيق Agent-Native أو مساحة عمل على منصة متوافقة مع Nitro باستخدام قاعدة بيانات SQL دائمة."
+---
+
+<!-- i18n-docs-ignore -->
+
+# النشر
+
+<a id="self-host-quickstart"></a>
+<a id="skip-ensure-tables"></a>
+
+تعمل تطبيقات Agent-Native على Nitro. اختر المسار الذي يناسب ما تريد شحنه:
+
+<Cards columns={2}>
+
+### [نشر تطبيق](/docs/deploy-an-app)
+
+أنشئ تطبيقًا واحدًا وانشره على نطاقه الخاص.
+
+### [نشر مساحة عمل](/docs/workspace-deployment)
+
+شغّل عدة تطبيقات خلف أصل واحد مع تسجيل دخول مشترك.
+
+</Cards>
+
+## قبل النشر: اختر قاعدة بيانات دائمة {#persistent-database}
+
+كل تطبيق منشور يحتاج إلى قاعدة بيانات SQL دائمة. اضبط `DATABASE_URL` في بيئة النشر قبل أول نشر إنتاجي. استخدم `DATABASE_AUTH_TOKEN` عندما يطلب موفر قاعدة البيانات رمزًا منفصلًا.
+
+تحتاج التطبيقات المستقلة إلى `BETTER_AUTH_SECRET` ثابت. تحتاج مساحات العمل التي تستخدم الطلبات الموقعة بين التطبيقات إلى `A2A_SECRET`.
+
+## تسليم البريد الإلكتروني اختياري، لكنه موصى به {#email-provider}
+
+موفر البريد الإلكتروني ليس مطلوبًا لمصادقة البريد الإلكتروني وكلمة المرور. بدونه، تستخدم التطبيقات المنشورة التسجيل وتسجيل الدخول بالبريد الإلكتروني وكلمة المرور، وتتخطى التحقق من البريد عند التسجيل، ولا تعرض مصادقة الروابط السحرية.
+
+اربط Resend أو SendGrid قبل النشر إذا أردت الروابط السحرية أو التحقق من البريد أو إعادة تعيين كلمات المرور أو الدعوات أو إشعارات المشاركة. اضبط `RESEND_API_KEY` أو `SENDGRID_API_KEY` في بيئة النشر؛ ويحتاج SendGrid أيضًا إلى `EMAIL_FROM`. راجع [المصادقة](/docs/authentication) لأنماط المصادقة المتاحة.
+
+## الأهداف المدعومة
+
+يدعم Agent-Native [Node.js](/docs/node-js) و[Docker](/docs/docker) و[Vercel](/docs/vercel) و[Netlify](/docs/netlify) و[Cloudflare Pages](/docs/cloudflare#cloudflare-pages) و[Cloudflare Workers](/docs/cloudflare#cloudflare-workers) و[AWS Amplify](/docs/aws-amplify) و[AWS Lambda](/docs/aws-lambda) و[Deno Deploy](/docs/deno-deploy) و[Azure Static Web Apps](/docs/azure-static-web-apps) و[Koyeb](/docs/koyeb) و[Render](/docs/render).
+
+راجع [مرجع متغيرات بيئة النشر](/docs/deployment-environment-variables) للإعدادات المتقدمة، والأسرار، وإعدادات الإنتاج.
+
+## التالي
+
+- [نشر تطبيق](/docs/deploy-an-app)
+- [نشر مساحة عمل](/docs/workspace-deployment)
+- [قاعدة البيانات](/docs/server-database#production)

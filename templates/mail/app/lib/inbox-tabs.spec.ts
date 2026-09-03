@@ -1,0 +1,235 @@
+import type { EmailMessage } from "@shared/types";
+import { describe, expect, it } from "vitest";
+
+import {
+  augmentSelfSentLabels,
+  filterInboxTabEmails,
+  resolvePinnedLabels,
+} from "./inbox-tabs";
+
+const self = { name: "Steve", email: "steve@builder.io" };
+const other = { name: "Mike", email: "mike@example.com" };
+
+function message(overrides: Partial<EmailMessage>): EmailMessage {
+  return {
+    id: "message",
+    threadId: "thread",
+    from: other,
+    to: [self],
+    subject: "Subject",
+    snippet: "",
+    body: "",
+    date: "2026-05-20T00:00:00.000Z",
+    isRead: true,
+    isStarred: false,
+    isArchived: false,
+    isTrashed: false,
+    labelIds: [],
+    ...overrides,
+  };
+}
+
+function augment(emails: EmailMessage[], hasNoteToSelf = true) {
+  return augmentSelfSentLabels(emails, {
+    isGoogleConnected: true,
+    connectedEmails: new Set([self.email]),
+    hasNoteToSelf,
+  });
+}
+
+describe("augmentSelfSentLabels", () => {
+  it("does not classify ordinary threads as note-to-self just because the latest message is from me", () => {
+    const received = message({
+      id: "received",
+      date: "2026-05-20T00:00:00.000Z",
+      labelIds: ["inbox"],
+    });
+    const sentReply = message({
+      id: "sent-reply",
+      date: "2026-05-21T00:00:00.000Z",
+      from: self,
+      to: [other, self],
+      isSent: true,
+      labelIds: ["sent"],
+    });
+
+    const augmented = augment([received, sentReply]);
+
+    expect(
+      augmented.find((e) => e.id === "sent-reply")?.labelIds,
+    ).not.toContain("note-to-self");
+    expect(augmented.find((e) => e.id === "sent-reply")?.labelIds).toContain(
+      "important",
+    );
+    expect(
+      filterInboxTabEmails(augmented, "note-to-self", [
+        "important",
+        "note-to-self",
+      ]).map((e) => e.id),
+    ).toEqual([]);
+  });
+
+  it("classifies all-self threads as note-to-self when the tab is pinned", () => {
+    const first = message({
+      id: "self-note",
+      date: "2026-05-20T00:00:00.000Z",
+      from: self,
+      to: [self],
+      isSent: true,
+      labelIds: ["inbox", "sent"],
+    });
+    const latest = message({
+      id: "self-note-follow-up",
+      date: "2026-05-21T00:00:00.000Z",
+      from: self,
+      to: [self],
+      isSent: true,
+      labelIds: ["sent"],
+    });
+
+    const augmented = augment([first, latest]);
+
+    expect(
+      augmented.find((e) => e.id === "self-note-follow-up")?.labelIds,
+    ).toContain("note-to-self");
+    expect(
+      filterInboxTabEmails(augmented, "note-to-self", [
+        "important",
+        "note-to-self",
+      ]).map((e) => e.id),
+    ).toEqual(["self-note", "self-note-follow-up"]);
+  });
+
+  it("excludes a self-started thread once another participant appears", () => {
+    const first = message({
+      id: "self-note",
+      date: "2026-05-20T00:00:00.000Z",
+      from: self,
+      to: [self],
+      isSent: true,
+      labelIds: ["inbox", "sent"],
+    });
+    const later = message({
+      id: "forwarded",
+      date: "2026-05-21T00:00:00.000Z",
+      from: self,
+      to: [self, other],
+      isSent: true,
+      labelIds: ["sent"],
+    });
+
+    const augmented = augment([first, later]);
+
+    expect(augmented.flatMap((e) => e.labelIds)).not.toContain("note-to-self");
+  });
+
+  it("keeps the existing important fallback when note-to-self is not pinned", () => {
+    const sentReply = message({
+      id: "sent-reply",
+      from: self,
+      to: [other],
+      isSent: true,
+      labelIds: ["sent"],
+    });
+
+    expect(augment([sentReply], false)[0].labelIds).toContain("important");
+  });
+});
+
+describe("resolvePinnedLabels", () => {
+  it("uses Important only when no pin choices have been saved", () => {
+    expect(resolvePinnedLabels(undefined, true)).toEqual(["important"]);
+    expect(resolvePinnedLabels(undefined, false)).toEqual([]);
+    expect(resolvePinnedLabels([], true)).toEqual([]);
+  });
+
+  it("preserves the stored pinned-label order", () => {
+    expect(
+      resolvePinnedLabels(["archive", "important", "drafts"], true),
+    ).toEqual(["archive", "important", "drafts"]);
+    expect(resolvePinnedLabels(["archive"], true)).toEqual(["archive"]);
+  });
+});
+
+describe("filterInboxTabEmails", () => {
+  it("keeps saved-filter threads out of pinned tabs and Other", () => {
+    const github = message({
+      id: "github",
+      from: { name: "GitHub", email: "notifications@github.com" },
+      labelIds: ["inbox", "important"],
+    });
+    const ordinary = message({
+      id: "ordinary",
+      threadId: "ordinary-thread",
+      labelIds: ["inbox", "important"],
+    });
+    const queries = ["from:notifications@github.com"];
+
+    expect(
+      filterInboxTabEmails(
+        [github, ordinary],
+        "important",
+        ["important"],
+        queries,
+      ),
+    ).toEqual([ordinary]);
+    expect(
+      filterInboxTabEmails([github, ordinary], null, ["important"], queries),
+    ).toEqual([]);
+  });
+
+  it("claims a whole thread when an older message matches the saved filter", () => {
+    const olderGithub = message({
+      id: "older-github",
+      date: "2026-05-20T00:00:00.000Z",
+      from: { name: "GitHub", email: "notifications@github.com" },
+      labelIds: ["inbox"],
+    });
+    const latestReply = message({
+      id: "latest-reply",
+      date: "2026-05-21T00:00:00.000Z",
+      labelIds: ["inbox", "important"],
+    });
+
+    expect(
+      filterInboxTabEmails(
+        [olderGithub, latestReply],
+        "important",
+        ["important"],
+        ["from:notifications@github.com"],
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps saved-filter claims scoped to their account", () => {
+    const github = message({
+      id: "shared-github",
+      threadId: "shared-thread",
+      accountEmail: "steve@builder.io",
+      from: { name: "GitHub", email: "notifications@github.com" },
+      labelIds: ["inbox", "important"],
+    });
+    const otherAccount = message({
+      id: "shared-other",
+      threadId: "shared-thread",
+      accountEmail: "other@example.com",
+      labelIds: ["inbox", "important"],
+    });
+
+    expect(
+      filterInboxTabEmails(
+        [github, otherAccount],
+        "important",
+        ["important"],
+        ["from:notifications@github.com"],
+      ),
+    ).toEqual([otherAccount]);
+  });
+
+  it("preserves the existing partition when there are no saved filters", () => {
+    const important = message({ labelIds: ["inbox", "important"] });
+    expect(
+      filterInboxTabEmails([important], "important", ["important"]),
+    ).toEqual([important]);
+  });
+});

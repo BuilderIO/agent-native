@@ -1,0 +1,21 @@
+---
+title: "能力套件"
+description: "管理領域能力及其清單驅動生命週期，而不將其併入 Toolkit。"
+---
+
+# 能力套件
+
+Toolkit 提供跨應用程式產品基礎；能力套件提供受限領域、actions、skills 和生命週期中繼資料。Scheduling 和 Creative Context 是獨立能力套件，而不是 Toolkit 功能套件。
+
+`@agent-native/scheduling` 參與通用清單試行。請以各套件本機文件與生命週期清單作為擴充點和歸屬的來源。
+
+- [Scheduling 套件文件](https://github.com/BuilderIO/agent-native/tree/main/packages/scheduling/docs)
+- [Creative Context 套件文件](https://github.com/BuilderIO/agent-native/tree/main/packages/creative-context/docs)
+
+```bash
+agent-native package inspect @agent-native/scheduling
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+檢查、預演和 eject 規則見[套件生命週期](/docs/package-lifecycle)。
