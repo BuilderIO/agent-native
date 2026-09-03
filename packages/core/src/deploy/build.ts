@@ -4372,7 +4372,8 @@ const NITRO_AGENT_NATIVE_SERVER_CHUNK_RE =
  * Separate package chunks leave their live bindings in a cold-start TDZ.
  */
 export function nitroServerCodeSplittingGroupsForPreset(targetPreset: string) {
-  return shouldBundleYjsRuntimeForPreset(targetPreset)
+  return shouldBundleYjsRuntimeForPreset(targetPreset) ||
+    isAwsAmplifyPreset(targetPreset)
     ? [
         {
           test: NITRO_AGENT_NATIVE_SERVER_CHUNK_RE,
@@ -4380,6 +4381,11 @@ export function nitroServerCodeSplittingGroupsForPreset(targetPreset: string) {
         },
       ]
     : [];
+}
+
+export function nitroServerCodeSplittingConfigForPreset(targetPreset: string) {
+  const groups = nitroServerCodeSplittingGroupsForPreset(targetPreset);
+  return groups.length > 0 ? { output: { codeSplitting: { groups } } } : {};
 }
 
 // Netlify's hard limit is 250MB unzipped per function; keep 10MB of headroom
@@ -5860,8 +5866,8 @@ export default bundle;
     preset,
     nitroEnvironment,
   );
-  const nitroServerCodeSplittingGroups =
-    nitroServerCodeSplittingGroupsForPreset(preset);
+  const nitroServerCodeSplittingConfig =
+    nitroServerCodeSplittingConfigForPreset(preset);
   const nitroVirtual: Record<string, string | (() => string)> = {
     "virtual:agents-bundle": agentsBundleModuleSource,
   };
@@ -5910,14 +5916,11 @@ export default bundle;
     // path, and its top-level `window` access crashes the function at cold-start
     // (ReferenceError: window is not defined → every request 502s). Mirrors the
     // Vite `ssrStubPlugin`, which only covers the `build/server` step.
+    // Nitro 3 builds with Rolldown, so keep this in rolldownConfig. Nitro's
+    // Rolldown path merges its preset defaults after this config and preserves
+    // the package group ahead of the generic node_modules group.
+    rolldownConfig: nitroServerCodeSplittingConfig,
     rollupConfig: {
-      ...(nitroServerCodeSplittingGroups.length > 0
-        ? {
-            output: {
-              codeSplitting: { groups: nitroServerCodeSplittingGroups },
-            },
-          }
-        : {}),
       // Nitro treats the intermediate React Router SSR files as prebuilt
       // chunks, while core's server collaboration files participate in the
       // final Rolldown graph. Externalize Yjs consistently on Node/serverless so
