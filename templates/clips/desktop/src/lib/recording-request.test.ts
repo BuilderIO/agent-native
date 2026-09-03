@@ -1,6 +1,24 @@
 import { describe, expect, it } from "vitest";
 
-import { buildCreateRecordingRequestBody } from "./recording-request";
+import {
+  buildCreateRecordingRequestBody,
+  buildCreateRecordingRequestHeaders,
+} from "./recording-request";
+
+describe("buildCreateRecordingRequestHeaders", () => {
+  it("adds the desktop bearer token when one is available", () => {
+    expect(buildCreateRecordingRequestHeaders("  desktop-token  ")).toEqual({
+      "Content-Type": "application/json",
+      Authorization: "Bearer desktop-token",
+    });
+  });
+
+  it("does not send an empty authorization header", () => {
+    expect(buildCreateRecordingRequestHeaders("  ")).toEqual({
+      "Content-Type": "application/json",
+    });
+  });
+});
 
 describe("buildCreateRecordingRequestBody", () => {
   it("leaves visibility unset so the server can apply the saved default", () => {

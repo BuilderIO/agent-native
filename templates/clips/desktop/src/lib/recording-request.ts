@@ -1,5 +1,8 @@
 import type { CaptureTitleResult } from "./recording-title";
 
+export const RECORDING_SESSION_EXPIRED = "SESSION_EXPIRED";
+export const RECORDING_SERVER_UNAVAILABLE = "SERVER_UNAVAILABLE";
+
 export type NativeRecordingVisibility = "private" | "org" | "public";
 
 export interface NativeRecordingRequestOptions {
@@ -7,6 +10,16 @@ export interface NativeRecordingRequestOptions {
   requestStreaming?: boolean;
   streamingUploadClient?: "desktop-native";
   visibility?: NativeRecordingVisibility;
+}
+
+export function buildCreateRecordingRequestHeaders(
+  authToken?: string,
+): Record<string, string> {
+  const token = authToken?.trim();
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
 }
 
 export function buildCreateRecordingRequestBody(
