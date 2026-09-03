@@ -1700,18 +1700,37 @@ async function performLogout(
   ];
   const candidates = rawTokens.flatMap(sessionTokenLookupCandidates);
 
+  let auth: BetterAuthInstance | null = null;
+  try {
+    auth = await getAuth();
+  } catch (error) {
+    // The fallback route's `getAuth` retries resolving Better Auth here and
+    // may still find it unavailable — expected on that route, not tracked.
+    console.warn(
+      "[auth] could not resolve Better Auth instance during logout:",
+      error,
+    );
+  }
+
   for (const token of candidates) {
     await removeSession(token);
+    // No Better Auth instance in this mode (BYOA) means no `"session"`
+    // table to revoke from — skip rather than generate a guaranteed,
+    // uninformative "table missing" failure on every logout.
+    if (!auth) continue;
     try {
       await getDbExec().execute({
         sql: 'DELETE FROM "session" WHERE token = ?',
         args: [token],
       });
-      // Best-effort per-candidate revoke: the Better Auth session table may
-      // not exist on a token-only/BYOA deployment, and the legacy-table
-      // `removeSession` above already covers that logout path.
-      // coercion-ok: intentional, see reason above.
-    } catch {}
+    } catch (error) {
+      // A resolved Better Auth instance means this table should exist, so a
+      // failure here is a real signal that the row this bug depends on may
+      // have survived logout — not routine noise. `route: "logout"` is
+      // captured at `warning` level (see `captureAuthError`), so a spike is
+      // visible without paging anyone on a one-off.
+      captureAuthError(error, { route: "logout" });
+    }
   }
   invalidateSessionEmailCache();
 
@@ -1719,21 +1738,21 @@ async function performLogout(
   clearFirstRunOnboardingCookie(event);
   optOutOfAuthDisabledSession(event);
 
-  try {
-    const auth = await getAuth();
-    if (auth) {
+  if (auth) {
+    try {
       const result = await auth.api.signOut({
         headers: event.headers,
         returnHeaders: true,
       });
       forwardBetterAuthSetCookies(event, result);
+    } catch (error) {
+      // Better Auth's own signOut looks for its own session cookie, which
+      // this framework never issues to the browser (see the doc comment
+      // above) — expected to fail on essentially every call today, so this
+      // is logged for local debugging rather than tracked as an anomaly.
+      console.warn("[auth] Better Auth signOut failed during logout:", error);
     }
-    // Better Auth may have no session for this request, or be unavailable
-    // (the fallback route's `getAuth` retries resolving it here) — the
-    // direct `"session"` delete above is what actually revokes the row this
-    // bug depends on, so this is a secondary best-effort step.
-    // coercion-ok: intentional, see reason above.
-  } catch {}
+  }
 
   if (isElectronRequest(event)) await clearDesktopSso();
 }

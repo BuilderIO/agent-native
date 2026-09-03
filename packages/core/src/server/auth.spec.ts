@@ -1525,6 +1525,59 @@ describe("server/auth", () => {
       expect(await getSession(sessionAfterLogout)).toBeNull();
     });
 
+    it("reports a failed Better Auth session revoke during logout instead of swallowing it", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const mockExecute = vi.fn().mockImplementation((query: any) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        if (typeof sql === "string" && sql.includes('DELETE FROM "session"')) {
+          throw new Error("connection reset");
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth: async () => ({
+          api: { signOut: vi.fn(async () => ({ headers: new Headers() })) },
+        }),
+        getBetterAuthSync: () => null,
+      }));
+      const captureAuthError = vi.fn();
+      vi.doMock("./sentry.js", () => ({ captureAuthError }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const logoutHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/logout",
+      )?.[1];
+      const logoutEvent = createJsonPostEvent(
+        "/_agent-native/auth/logout",
+        {},
+        { cookie: "an_session=ba_session_token" },
+      );
+
+      // Logout still reports success — this only asserts the failure is
+      // tracked, not that it changes the response contract.
+      await expect(logoutHandler(logoutEvent)).resolves.toEqual({ ok: true });
+
+      expect(captureAuthError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "connection reset" }),
+        { route: "logout" },
+      );
+    });
+
     it("mounts generic Google OAuth routes by default when credentials are configured", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
