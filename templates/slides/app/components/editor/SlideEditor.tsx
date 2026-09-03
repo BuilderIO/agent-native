@@ -7467,6 +7467,7 @@ export default function SlideEditor({
         richTextEditor={richTextEditorRef.current}
         slideId={slide.id}
         deckId={deckId}
+        slideContentHash={hashSlideContent(slide.content)}
         onCommitInlineEdit={exitInlineEdit}
       />
 

@@ -203,8 +203,9 @@ regex-replace edits; include expectedMatches for ambiguous markers. Use
 exactly one update-slide input mode: edits, legacy find/replace, or
 fullContent. Never combine edits with find, replace, or fullContent. The action
 applies the whole list atomically under the deck lock, so a failed required
-match writes nothing. After a focused text write, verify with a compact
-get-deck read of the same slide. After a style, structural, or
+match writes nothing. After a focused text write, verify with a targeted
+get-deck read of the same slide using slideId and compact=false; do not read
+the full deck. After a style, structural, or
 multi-representation write, call get-deck again for the same slide with
 compact=false and verify the requested text, ordering, relationships, counts,
 and style scope in every affected representation. If the readback is wrong,
