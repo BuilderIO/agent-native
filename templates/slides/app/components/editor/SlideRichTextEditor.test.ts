@@ -80,7 +80,12 @@ describe("slide rich text normalization", () => {
   });
 
   it("restores semantic containers without nesting editor block markup", () => {
-    expect(contentForSlideTextContainer("H2", "<h2>Title</h2>")).toBe("Title");
+    expect(
+      contentForSlideTextContainer(
+        "H2",
+        '<h2 style="position:absolute;left:107px;top:190px">Title</h2>',
+      ),
+    ).toBe("Title");
     expect(contentForSlideTextContainer("UL", "<ul><li>First</li></ul>")).toBe(
       "<li>First</li>",
     );

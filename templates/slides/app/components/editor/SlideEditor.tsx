@@ -200,6 +200,7 @@ import {
 import { SlideContextToolbar } from "./SlideContextToolbar";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
 import {
+  contentForSlideTextContainer,
   isSlideTextContainerTag,
   restoreSlideTextContainerContent,
   selectionOffsetsWithin,
@@ -2397,7 +2398,7 @@ export default function SlideEditor({
           ? selectionOffsetsWithin(el, nativeRange)
           : null;
       const initialHtml = isSlideTextContainerTag(el.tagName)
-        ? el.outerHTML
+        ? contentForSlideTextContainer(el.tagName, el.outerHTML)
         : el.innerHTML;
       const path = elementPathFromRoot(slideContent, el);
       if (path.length === 0) return;

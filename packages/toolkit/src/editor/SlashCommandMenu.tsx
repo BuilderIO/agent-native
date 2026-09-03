@@ -8,6 +8,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import { createPortal } from "react-dom";
 
 import { cn } from "../utils.js";
 import { pickAndInsertImage, type ImageUploadFn } from "./ImageExtension.js";
@@ -353,7 +354,7 @@ export function SlashCommandMenu({
 
   if (!isOpen || !position || filteredCommands.length === 0) return null;
 
-  return (
+  return createPortal(
     <div
       ref={menuRef}
       className="an-rich-md-slash-menu"
@@ -367,6 +368,7 @@ export function SlashCommandMenu({
         } as CSSProperties
       }
       data-plan-interactive
+      onMouseDown={(event) => event.stopPropagation()}
     >
       <div className="an-rich-md-slash-heading">Blocks</div>
       {filteredCommands.map((command, index) => (
@@ -391,6 +393,7 @@ export function SlashCommandMenu({
           </span>
         </button>
       ))}
-    </div>
+    </div>,
+    document.body,
   );
 }
