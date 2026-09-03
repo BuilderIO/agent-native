@@ -17,6 +17,7 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
+import { isAgentPatchCaller } from "./patch-deck.js";
 
 export default defineAction({
   description:
@@ -37,6 +38,11 @@ export default defineAction({
     if (!rows.length) throw new Error(`Deck not found: ${deckId}`);
     const data = JSON.parse(rows[0].data);
     if (data.aspectRatio === aspectRatio) {
+      if (isAgentPatchCaller(ctx?.caller)) {
+        throw new Error(
+          "Nothing was written: the requested aspect ratio is already set. Re-read with get-deck before retrying.",
+        );
+      }
       return { id: deckId, aspectRatio, applied: false };
     }
     data.aspectRatio = aspectRatio;

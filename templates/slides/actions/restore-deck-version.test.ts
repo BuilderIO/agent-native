@@ -90,6 +90,14 @@ vi.mock("./_app-url.js", () => ({
   getDeckUrl: (deckId: string) => `/deck/${deckId}`,
 }));
 
+vi.mock("./patch-deck.js", () => ({
+  isAgentPatchCaller: (caller: string | undefined) =>
+    caller === "tool" ||
+    caller === "mcp" ||
+    caller === "a2a" ||
+    caller === "webmcp",
+}));
+
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => ({ and: conditions }),
   eq: (column: unknown, value: unknown) => ({ column, value }),
@@ -116,6 +124,19 @@ describe("restore-deck-version action", () => {
     });
 
     expect(mockAssertAccess).toHaveBeenCalledWith("deck", "deck-1", "editor");
+    expect(mockCreateDeckVersionSnapshot).not.toHaveBeenCalled();
+    expect(mockDb.transaction).not.toHaveBeenCalled();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("throws a no-write error for an equivalent agent restore", async () => {
+    await expect(
+      action.run(
+        { deckId: "deck-1", versionId: "version-1" },
+        { caller: "tool" },
+      ),
+    ).rejects.toThrow("Nothing was written");
     expect(mockCreateDeckVersionSnapshot).not.toHaveBeenCalled();
     expect(mockDb.transaction).not.toHaveBeenCalled();
     expect(mockNotifyClients).not.toHaveBeenCalled();

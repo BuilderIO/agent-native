@@ -60,6 +60,14 @@ vi.mock("../server/lib/deck-versions.js", () => ({
   deckVersionChatContextFromAction: vi.fn(() => undefined),
 }));
 
+vi.mock("./patch-deck.js", () => ({
+  isAgentPatchCaller: (caller: string | undefined) =>
+    caller === "tool" ||
+    caller === "mcp" ||
+    caller === "a2a" ||
+    caller === "webmcp",
+}));
+
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => ({ and: conditions }),
   eq: (col: unknown, val: unknown) => ({ col, val }),
@@ -137,6 +145,21 @@ describe("update-deck-aspect-ratio action", () => {
     await expect(
       action.run({ deckId: "deck-1", aspectRatio: "16:9" }),
     ).resolves.toEqual({ id: "deck-1", aspectRatio: "16:9", applied: false });
+    expect(updatedFields).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("throws a no-write error for repeated agent requests", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "T",
+      slides: [],
+      aspectRatio: "16:9",
+    });
+
+    await expect(
+      action.run({ deckId: "deck-1", aspectRatio: "16:9" }, { caller: "tool" }),
+    ).rejects.toThrow("Nothing was written");
     expect(updatedFields).toBeUndefined();
     expect(mockNotifyClients).not.toHaveBeenCalled();
     expect(mockWriteAppState).not.toHaveBeenCalled();

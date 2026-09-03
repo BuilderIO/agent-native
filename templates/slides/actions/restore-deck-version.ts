@@ -18,6 +18,7 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
+import { isAgentPatchCaller } from "./patch-deck.js";
 
 export default defineAction({
   description:
@@ -64,6 +65,11 @@ export default defineAction({
       deckVersionContentSignature(current.data) ===
         deckVersionContentSignature(data)
     ) {
+      if (isAgentPatchCaller(ctx?.caller)) {
+        throw new Error(
+          "Nothing was written: the selected deck version already matches the current deck. Re-read with get-deck before retrying.",
+        );
+      }
       return {
         id: deckId,
         title,
