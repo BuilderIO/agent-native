@@ -1258,6 +1258,106 @@ describe("bug fixes — reliability sweep", () => {
       expect(canonicalizeNfm(expected)).toBe(expected);
     });
 
+    it.each([
+      {
+        name: "callout",
+        open: '<callout icon="💡">',
+        close: "</callout>",
+        childType: "notionCallout",
+      },
+      {
+        name: "synced block",
+        open: '<synced_block url="https://www.notion.so/s">',
+        close: "</synced_block>",
+        childType: "notionSyncedBlock",
+      },
+    ])(
+      "preserves an ordinary nested $name body",
+      ({ open, close, childType }) => {
+        const source = L(
+          "<details>",
+          "<summary>Nested container</summary>",
+          open,
+          "Inside nested container",
+          close,
+          "</details>",
+        );
+
+        const toggle = nfmToDoc(source).content[0];
+        expect(toggle?.content?.[0]).toMatchObject({
+          type: childType,
+          content: [
+            {
+              type: "paragraph",
+              content: [{ type: "text", text: "Inside nested container" }],
+            },
+          ],
+        });
+        const canonical = canonicalizeNfm(source);
+        expect(canonical).toContain(
+          L(`\t${open}`, "\t\tInside nested container", `\t${close}`),
+        );
+        expect(canonicalizeNfm(canonical)).toBe(canonical);
+      },
+    );
+
+    it("preserves ordinary nested columns and their column children", () => {
+      const source = L(
+        "<details>",
+        "<summary>Nested columns</summary>",
+        "<columns>",
+        "<column>",
+        "Inside column",
+        "</column>",
+        "</columns>",
+        "</details>",
+      );
+
+      const toggle = nfmToDoc(source).content[0];
+      expect(toggle?.content?.[0]).toMatchObject({
+        type: "notionColumns",
+        content: [
+          {
+            type: "notionColumn",
+            content: [
+              {
+                type: "paragraph",
+                content: [{ type: "text", text: "Inside column" }],
+              },
+            ],
+          },
+        ],
+      });
+      const canonical = canonicalizeNfm(source);
+      expect(canonical).toContain(
+        L(
+          "\t<columns>",
+          "\t\t<column>",
+          "\t\t\tInside column",
+          "\t\t</column>",
+          "\t</columns>",
+        ),
+      );
+      expect(canonicalizeNfm(canonical)).toBe(canonical);
+    });
+
+    it("does not absorb later toggle content into an unclosed nested container", () => {
+      const source = L(
+        "<details>",
+        "<summary>Malformed nested container</summary>",
+        '<callout icon="💡">',
+        "Still a sibling",
+        "</details>",
+      );
+
+      const toggle = nfmToDoc(source).content[0];
+      expect(toggle?.content?.map((node) => node.type)).toEqual([
+        "paragraph",
+        "paragraph",
+      ]);
+      expect(toggle?.content?.[1]?.content?.[0]?.text).toBe("Still a sibling");
+    });
+
     it("does not treat a details close tag inside fenced code as the container close", () => {
       const source = L(
         "<details>",

@@ -1362,15 +1362,51 @@ function parseDetailsBody(
   parentIndent: number,
 ): PMNode[] {
   const childIndent = parentIndent + 1;
+  const nestedContainers: Array<{ tagKey: string; closeTag: string }> = [];
   let fence: { length: number; promoteBy: number } | undefined;
-  const bodyLines = lines.slice(start, end).map((line) => {
+  const sourceLines = lines.slice(start, end);
+  const hasMatchingClose = (from: number, tagKey: string): boolean => {
+    const closeTag = CONTAINER_CLOSE[tagKey];
+    let depth = 1;
+    let fenceLength = 0;
+    for (let i = from + 1; i < sourceLines.length; i++) {
+      const candidate = sourceLines[i].slice(leadingTabs(sourceLines[i]));
+      const fenceMatch = candidate.match(/^(`{3,})(.*)$/);
+      if (fenceLength) {
+        if (
+          fenceMatch &&
+          !fenceMatch[2].trim() &&
+          fenceMatch[1].length >= fenceLength
+        ) {
+          fenceLength = 0;
+        }
+        continue;
+      }
+      if (fenceMatch) {
+        fenceLength = fenceMatch[1].length;
+        continue;
+      }
+      if (matchContainerOpen(candidate) === tagKey) depth++;
+      if (candidate === closeTag && --depth === 0) return true;
+    }
+    return false;
+  };
+  const bodyLines = sourceLines.map((line, lineIndex) => {
     const indent = leadingTabs(line);
     const dedented = line.slice(indent);
+    if (nestedContainers[nestedContainers.length - 1]?.closeTag === dedented) {
+      nestedContainers.pop();
+    }
+    const detailsSummary =
+      nestedContainers[nestedContainers.length - 1]?.tagKey === "<details" &&
+      /^<summary>[\s\S]*<\/summary>\s*$/.test(dedented);
+    const requiredIndent =
+      childIndent + nestedContainers.length - (detailsSummary ? 1 : 0);
     if (fence) {
       const promoteBy =
         fence.promoteBy > 0
           ? fence.promoteBy
-          : Math.max(0, childIndent - indent);
+          : Math.max(0, requiredIndent - indent);
       const promoted = `${"\t".repeat(promoteBy)}${line}`;
       const close = dedented.match(/^(`{3,})\s*$/);
       if (close && close[1].length >= fence.length) fence = undefined;
@@ -1378,13 +1414,22 @@ function parseDetailsBody(
     }
     const open = dedented.match(/^(`{3,})(.*)$/);
     if (open) {
-      const promoteBy = Math.max(0, childIndent - indent);
+      const promoteBy = Math.max(0, requiredIndent - indent);
       fence = { length: open[1].length, promoteBy };
       return `${"\t".repeat(promoteBy)}${line}`;
     }
     if (!line.trim()) return line;
-    if (indent >= childIndent) return line;
-    return `${"\t".repeat(childIndent - indent)}${line}`;
+    const tagKey = matchContainerOpen(dedented);
+    if (
+      tagKey &&
+      tagKey !== "<table" &&
+      tagKey !== "<meeting-notes>" &&
+      hasMatchingClose(lineIndex, tagKey)
+    ) {
+      nestedContainers.push({ tagKey, closeTag: CONTAINER_CLOSE[tagKey] });
+    }
+    if (indent >= requiredIndent) return line;
+    return `${"\t".repeat(requiredIndent - indent)}${line}`;
   });
   return parseBlockSequence(bodyLines, 0, childIndent).nodes;
 }
