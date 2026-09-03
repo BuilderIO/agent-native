@@ -2634,10 +2634,35 @@ export function AuthPage(props: AuthPageProps) {
       background={
         marketingCopy.screenshotSrc ? null : <Starfield id="starfield" />
       }
+      topRight={
+        marketingCopy.learnMoreUrl ? (
+          <a
+            className="auth-marketing-learn-more"
+            data-auth-marketing-learn-more="true"
+            href={marketingCopy.learnMoreUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <span>
+              {t("newToApp").replace(
+                "{appName}",
+                marketingCopy.appName.replace(/^Agent-Native\s+/i, ""),
+              )}
+            </span>
+            <span aria-hidden="true"> - </span>
+            <span className="auth-marketing-learn-more-link">
+              {t("learnMore")}
+            </span>
+          </a>
+        ) : null
+      }
       auth={authCard}
       className={[
         "auth-marketing-home",
         marketingCopy.screenshotSrc ? "has-product-screenshot" : "",
+        marketingCopy.learnMorePlacement === "bottom-right"
+          ? "has-bottom-right-learn-more"
+          : "",
       ]
         .filter(Boolean)
         .join(" ")}
