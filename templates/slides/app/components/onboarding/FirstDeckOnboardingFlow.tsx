@@ -78,6 +78,7 @@ export function FirstDeckOnboardingFlow({
     [],
   );
   const promptSourceFilesRef = useRef<File[]>([]);
+  const activePromptFilesRef = useRef<File[]>([]);
   const generationInFlightRef = useRef(false);
 
   const initialPrompt = searchParams.get("initialPrompt")?.trim() ?? "";
@@ -204,8 +205,16 @@ export function FirstDeckOnboardingFlow({
   const handlePromptAttachmentsChange = useCallback(
     (files: File[]) => {
       if (files.length === 0 && promptSourceFilesRef.current.length > 0) return;
+      activePromptFilesRef.current = files;
       syncFiles(files);
-      void uploadFiles(files).catch((error) => {
+      const uploadBatch = files;
+      void uploadFiles(uploadBatch).catch((error) => {
+        if (
+          !uploadBatch.some((file) =>
+            activePromptFilesRef.current.includes(file),
+          )
+        )
+          return;
         toast.error(t("raw.uploadFailed"), {
           description:
             error instanceof Error

@@ -67,6 +67,11 @@ export async function addInlineImageFallbacks(
       result.push(uploadedFile);
       continue;
     }
+    if (uploadedFile.url) {
+      const { dataUrl: _dataUrl, ...withoutDataUrl } = uploadedFile;
+      result.push(withoutDataUrl);
+      continue;
+    }
     if (uploadedFile.dataUrl) {
       if (canAddInlineImageToPayload(inlineDataUrls, uploadedFile.dataUrl)) {
         inlineDataUrls.push(uploadedFile.dataUrl);
@@ -132,6 +137,12 @@ export async function createPromptChatAttachments(
     }
 
     const uploadedFile = uploaded[uploadedIndex++];
+    const isImage =
+      uploadedFile?.type.startsWith("image/") ||
+      Boolean(attachment.file?.type.startsWith("image/"));
+    if (uploadedFile && isImage && (uploadedFile.url || uploadedFile.dataUrl)) {
+      continue;
+    }
     result.push({
       type: "file",
       name: uploadedFile?.originalName ?? name,
@@ -459,6 +470,7 @@ export default function PromptPopover({
   );
   const [importingSource, setImportingSource] =
     useState<PromptImportSource | null>(null);
+  const activeAttachmentFilesRef = useRef<File[]>([]);
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const pptxInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -574,6 +586,7 @@ export default function PromptPopover({
   const handleAttachmentsChange = useCallback(
     (files: File[]) => {
       if (files.length === 0 && retainingAttachmentsRef.current) return;
+      activeAttachmentFilesRef.current = files;
       syncFiles(files);
       if (files.length === 0) return;
       if (
@@ -586,7 +599,14 @@ export default function PromptPopover({
         ) === false
       )
         return;
-      void uploadFiles(files).catch((error) => {
+      const uploadBatch = files;
+      void uploadFiles(uploadBatch).catch((error) => {
+        if (
+          !uploadBatch.some((file) =>
+            activeAttachmentFilesRef.current.includes(file),
+          )
+        )
+          return;
         toast.error(t("raw.uploadFailed"), {
           description:
             error instanceof Error
@@ -750,6 +770,7 @@ export default function PromptPopover({
       setSelectedImportFile(null);
       setImportingSource(null);
       if (!submitting && !retainingAttachmentsRef.current) {
+        activeAttachmentFilesRef.current = [];
         setSubmitting(false);
         resetEagerUploads();
       }
