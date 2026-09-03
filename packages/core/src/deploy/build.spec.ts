@@ -75,6 +75,7 @@ import {
   NITRO_RUNTIME_IGNORE_PATTERNS,
   bundleImportsLibsqlNativeAddon,
   nitroNoExternalsForPreset,
+  nitroServerCodeSplittingGroupsForPreset,
   patchCloudflareModuleNitroEntry,
   pruneServerlessFunctionDeadWeight,
   removeNetlifyStaticRootShell,
@@ -134,6 +135,27 @@ describe("shouldBundleYjsRuntimeForPreset", () => {
     }
     expect(shouldBundleYjsRuntimeForPreset("cloudflare-pages")).toBe(false);
     expect(shouldBundleYjsRuntimeForPreset("deno-deploy")).toBe(false);
+  });
+});
+
+describe("nitroServerCodeSplittingGroupsForPreset", () => {
+  it("co-locates Core and Creative Context for Node-style output", () => {
+    const groups = nitroServerCodeSplittingGroupsForPreset("vercel");
+    expect(groups).toHaveLength(1);
+    expect(
+      groups[0]?.test.test("/node_modules/@agent-native/core/server.js"),
+    ).toBe(true);
+    expect(
+      groups[0]?.test.test(
+        "/node_modules/@agent-native/creative-context/server.js",
+      ),
+    ).toBe(true);
+    expect(
+      groups[0]?.test.test("/node_modules/@agent-native/toolkit/server.js"),
+    ).toBe(false);
+    expect(nitroServerCodeSplittingGroupsForPreset("cloudflare-pages")).toEqual(
+      [],
+    );
   });
 });
 
