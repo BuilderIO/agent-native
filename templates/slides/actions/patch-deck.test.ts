@@ -797,7 +797,7 @@ describe("isAgentPatchCaller", () => {
 });
 
 describe("patch-deck agent schema", () => {
-  it("advertises only bounded deck and slide patch operations", () => {
+  it("advertises bounded slide edits, deletion, and ordering", () => {
     const parameters = patchDeckAction.tool.parameters as any;
     const operations = parameters.properties.operations.items.anyOf;
     const deckFields = operations.find(
@@ -807,8 +807,14 @@ describe("patch-deck agent schema", () => {
     const slidePatch = operations.find(
       (operation: any) => operation.properties?.op?.const === "patch-slide",
     );
+    const deleteSlide = operations.find(
+      (operation: any) => operation.properties?.op?.const === "delete-slide",
+    );
+    const reorderSlides = operations.find(
+      (operation: any) => operation.properties?.op?.const === "reorder-slides",
+    );
 
-    expect(operations).toHaveLength(2);
+    expect(operations).toHaveLength(4);
     expect(deckFields.properties.fields.properties.title).toMatchObject({
       type: "string",
     });
@@ -824,6 +830,10 @@ describe("patch-deck agent schema", () => {
     });
     expect(parameters.properties.requireAllSourceSlides).toMatchObject({
       type: "boolean",
+    });
+    expect(deleteSlide.properties.slideId).toMatchObject({ type: "string" });
+    expect(reorderSlides.properties.orderedIds).toMatchObject({
+      type: "array",
     });
   });
 

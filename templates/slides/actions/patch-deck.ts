@@ -277,9 +277,8 @@ export function assertSourceImportSlidesCovered(
   );
 }
 
-// The browser uses the full operation union above. Agents additionally use
-// this action for one bounded, deck-wide layout repair: one patch-slide per
-// source slide in a single SQL transaction, followed by compact verification.
+// The browser uses the full operation union above. Agents use the same
+// bounded operations, with source-import guards preserving imported structure.
 const AgentPatchDeckInputSchema = z.object({
   deckId: z.string().describe("Deck ID"),
   requireAllSourceSlides: z
@@ -293,6 +292,8 @@ const AgentPatchDeckInputSchema = z.object({
     .array(
       z.union([
         PatchSlideOp,
+        DeleteSlideOp,
+        ReorderSlidesOp,
         z.object({
           op: z.literal("patch-deck-fields"),
           fields: z.object({
@@ -305,7 +306,7 @@ const AgentPatchDeckInputSchema = z.object({
     )
     .min(1)
     .describe(
-      "For a deck-wide source restyle, include one patch-slide operation with content for every existing source slide. Use patch-deck-fields only for a deck title change.",
+      "Use patch-slide for slide edits, delete-slide to remove a slide, reorder-slides to set slide order, and patch-deck-fields only for a deck title change. For a deck-wide source restyle, include one patch-slide operation with content for every existing source slide.",
     ),
 });
 
@@ -619,6 +620,7 @@ export default defineAction({
     "operation with content for every imported slide in one call; the action " +
     "rejects partial coverage. For animations, inspect the final slide HTML, " +
     "then patch content and the complete ordered animations list together; " +
+    "use delete-slide to remove a slide and reorder-slides to set the order; " +
     "validate every 0-based elementPath and do not invent one-based indexes. " +
     "Then call get-deck with compact=true to verify the persisted slide IDs, " +
     "count, and animation metadata before reporting success. Content writes " +
