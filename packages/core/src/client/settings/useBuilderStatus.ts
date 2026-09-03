@@ -233,6 +233,8 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 // their own (the initial status fetch, the popup-open branches in `start`).
 // The connect-flow poll loop below gets its timeout from usePollLoop instead.
 const STATUS_FETCH_ABORT_MS = 10_000;
+const BUILDER_STATUS_UNAVAILABLE_MESSAGE =
+  "Couldn't reach Builder to check your account. Retrying.";
 const CALLBACK_SUCCESS_STATUS_RETRY_MS = 500;
 const CALLBACK_SUCCESS_STATUS_RETRIES = 10;
 const BUILDER_CONNECT_PARAM = "_an_connect";
@@ -628,6 +630,7 @@ export function useBuilderConnectFlow(
   const connectAttemptIdRef = useRef<string | null>(null);
   const callbackSuccessStartedAtRef = useRef<number | null>(null);
   const retryStatusRef = useRef<() => void>(() => {});
+  const statusUnavailableRef = useRef(false);
   const mountedRef = useRef(true);
   const notifiedConnectedRef = useRef(false);
   // Keep onConnected in a ref so start() doesn't need to re-create when the
@@ -735,7 +738,19 @@ export function useBuilderConnectFlow(
       // "use initial props until the hook has an answer" pattern wants to
       // stop waiting after we've tried, regardless of network outcome.
       setHasFetchedStatus(true);
-      if (!s) return;
+      if (!s) {
+        // "Could not read the status" must not render the same as "no status
+        // yet". `statusResolved` only flips on success, so without a visible
+        // error here the connect CTA stays inert for the rest of the session
+        // and the user gets a fully styled button that does nothing.
+        statusUnavailableRef.current = true;
+        setError(BUILDER_STATUS_UNAVAILABLE_MESSAGE);
+        return;
+      }
+      if (statusUnavailableRef.current) {
+        statusUnavailableRef.current = false;
+        setError(null);
+      }
       setStatusResolved(true);
       setConfigured(!!s.configured);
       setCodeChangeConfigured(isCodeChangeConfigured(s));

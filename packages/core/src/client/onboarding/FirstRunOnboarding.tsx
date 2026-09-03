@@ -646,6 +646,15 @@ export function FirstRunOnboarding({
                   <IconArrowRight size={15} />
                 </button>
               </BuilderConnectPopover>
+              {connectFlow.error && !connectFlow.statusResolved && (
+                <p
+                  role="status"
+                  data-testid="first-run-builder-status-error"
+                  className="mt-2 text-center text-xs text-destructive"
+                >
+                  {connectFlow.error}
+                </p>
+              )}
             </section>
 
             <div
@@ -1341,8 +1350,12 @@ function CapabilityInfoButton({
   );
 }
 
+// `aria-disabled` (not `disabled`) is what BuilderConnectPopover sets while the
+// Builder status is still in flight, so the `disabled:` styles never engage and
+// a pending CTA is pixel-identical to a live one — which is why this class of
+// dead button survives screenshot review.
 const primaryButtonClass =
-  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 aria-disabled:cursor-wait aria-disabled:opacity-60";
 
 /** Inline failure signal for a failed completeFirstRun() call — keeps the
  *  user on their current screen with a way forward, instead of swapping to
