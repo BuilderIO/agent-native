@@ -295,8 +295,6 @@ instructions, and application state.
   Builder/internal data, customer data, or credential-looking literals in source,
   docs, tests, fixtures, screenshots, prompts, or generated extension/app
   content. Use obviously fake placeholders in examples.
-- Never write real secrets to files that are not gitignored; keep temporary files
-  under the gitignored root `.tmp/` or another explicitly gitignored path.
 - Do not copy provider tokens into apps when a workspace integration grant can be
   used. Vault/secrets own secret values; apps own app-specific readers and
   interpretation.
