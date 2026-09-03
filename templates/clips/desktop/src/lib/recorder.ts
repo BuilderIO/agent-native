@@ -1645,7 +1645,7 @@ async function createServerRecording(
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     console.error("[clips-recorder] bad response:", url, res.status, body);
-    if (res.status === 401) {
+    if (res.status === 401 || res.status === 403) {
       throw new Error(RECORDING_SESSION_EXPIRED);
     }
     if (res.status >= 500 && isStorageSetupFailureMessage(body)) {

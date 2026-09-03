@@ -1500,6 +1500,16 @@ export function App({
       if (!res.ok) {
         if (res.status === 401 || res.status === 403) {
           clearDesktopAuthToken(requestServerUrl);
+          setAuthStatus("anon");
+          setSignedInAs(null);
+          return { state: "anonymous" };
+        }
+        if (res.status >= 500) {
+          setServerReachable(false);
+          setAuthStatus((current) =>
+            current === "authed" ? current : "unavailable",
+          );
+          return { state: "unavailable" };
         }
         setAuthStatus("anon");
         setSignedInAs(null);
