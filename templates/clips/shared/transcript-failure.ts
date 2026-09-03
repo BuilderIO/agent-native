@@ -24,6 +24,8 @@ export type TranscriptFailureCode =
   // --- audio extraction (mirrors AudioOnlyExtractionErrorCode) ---
   | "NO_AUDIO_TRACK"
   | "NO_SPEECH_DETECTED"
+  /** The captured track existed but measured as sustained digital silence. */
+  | "SILENT_AUDIO_CAPTURE"
   | "FFMPEG_UNAVAILABLE"
   | "EXTRACTION_FAILED"
   | "TIMEOUT"
@@ -73,6 +75,8 @@ export function transcriptFailureMessage(code: TranscriptFailureCode): string {
       return "The saved media has no audio stream, so there was nothing to transcribe.";
     case "NO_SPEECH_DETECTED":
       return "Audio was captured but no speech was found in it.";
+    case "SILENT_AUDIO_CAPTURE":
+      return "Audio was captured, but its measured level stayed near digital silence throughout the recording.";
     case "FFMPEG_UNAVAILABLE":
       return "Audio could not be prepared for transcription because ffmpeg is unavailable on the server.";
     case "EXTRACTION_FAILED":

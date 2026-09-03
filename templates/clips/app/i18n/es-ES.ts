@@ -1091,6 +1091,10 @@ const messages = {
     restartShortcut: "Reiniciar (⌥⇧R)",
     restartQuestion: "¿Iniciar una nueva grabación?",
     restartConfirm: "Reiniciar",
+    silenceWarning:
+      "No se ha detectado señal audible durante 10 segundos. Revisa el micrófono antes de detener.",
+    silenceStopWarning:
+      "Esta grabación midió silencio digital sostenido. Se guardará con una advertencia de audio.",
   },
   countdownOverlay: {
     startsIn: "La grabación empieza en {{count}}",

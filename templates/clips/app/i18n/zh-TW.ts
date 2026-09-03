@@ -1020,6 +1020,8 @@ const messages = {
     restartShortcut: "重新開始 (⌥⇧R)",
     restartQuestion: "要開始新的錄製嗎?",
     restartConfirm: "重新開始",
+    silenceWarning: "10 秒內未偵測到可聽見的訊號。停止前請檢查麥克風。",
+    silenceStopWarning: "此錄製偵測到持續的數位靜音。將附帶音訊警告儲存。",
   },
   countdownOverlay: {
     startsIn: "錄製將在 {{count}} 後開始",

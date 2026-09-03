@@ -1090,6 +1090,10 @@ const messages = {
     restartShortcut: "Redémarrer (⌥⇧R)",
     restartQuestion: "Démarrer un nouvel enregistrement ?",
     restartConfirm: "Redémarrer",
+    silenceWarning:
+      "Aucun signal audible n’a été détecté depuis 10 secondes. Vérifiez le micro avant d’arrêter.",
+    silenceStopWarning:
+      "Cet enregistrement a mesuré un silence numérique continu. Il sera enregistré avec un avertissement audio.",
   },
   countdownOverlay: {
     startsIn: "L’enregistrement commence dans {{count}}",

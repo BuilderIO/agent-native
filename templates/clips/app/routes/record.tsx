@@ -803,6 +803,9 @@ export default function RecordRoute() {
   const [uiState, setUiState] = useState<UiState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
+  const [audioLevel, setAudioLevel] = useState<number | null>(null);
+  const [sustainedSilence, setSustainedSilence] = useState(false);
+  const sustainedSilenceRef = useRef(false);
   const visibilityAutoPausedRef = useRef(false);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const playheadConfirmOpenRef = useRef(false);
@@ -1054,6 +1057,9 @@ export default function RecordRoute() {
       countdownAudioCueRef.current?.cleanup();
       countdownAudioCueRef.current = createCountdownAudioCue();
       setError(null);
+      sustainedSilenceRef.current = false;
+      setSustainedSilence(false);
+      setAudioLevel(null);
       setRecordingMode(opts.mode);
       pendingStartOptsRef.current = opts;
       // Clear any surface resolved by a previous capture; the engine reports the
@@ -1088,6 +1094,17 @@ export default function RecordRoute() {
           // recording keeps going; just let the user know what happened.
           onWarning: (message) => {
             toast.warning(message);
+          },
+          onAudioSignal: ({ level, sustainedSilence: isSilent }) => {
+            setAudioLevel(level);
+            if (isSilent && !sustainedSilenceRef.current) {
+              sustainedSilenceRef.current = true;
+              setSustainedSilence(true);
+              toast.warning(t("recordingToolbar.silenceWarning"));
+            } else if (!isSilent && sustainedSilenceRef.current) {
+              sustainedSilenceRef.current = false;
+              setSustainedSilence(false);
+            }
           },
           // Camera track ended mid-recording (unplugged, permission revoked,
           // device asleep). The recorded composite already drops the bubble;
@@ -2099,6 +2116,25 @@ export default function RecordRoute() {
       }
 
       const stopResult = await engine.stop();
+      const audioSignal = engine.getAudioSignalEvidence();
+      if (sustainedSilenceRef.current && audioSignal) {
+        toast.warning(t("recordingToolbar.silenceStopWarning"));
+        await fetch(
+          agentNativePath("/_agent-native/actions/save-browser-transcript"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              recordingId: pending.id,
+              fullText: "",
+              failureCode: "SILENT_AUDIO_CAPTURE",
+              audioSignal,
+            }),
+          },
+        ).catch((err) => {
+          console.warn("[recorder] silent-audio outcome save failed:", err);
+        });
+      }
       // The recording is durable here; saveBrowserDiagnostics is one more
       // round trip. Start the clipboard write first so it isn't pushed even
       // further from the stop gesture that authorized it.
@@ -2146,7 +2182,7 @@ export default function RecordRoute() {
         duration: 12_000,
       });
     }
-  }, [finishSavedRecording, liveTranscription, saveBrowserDiagnostics]);
+  }, [finishSavedRecording, liveTranscription, saveBrowserDiagnostics, t]);
 
   // Keep the ref current so engine callbacks always invoke the latest doStop.
   doStopRef.current = doStop;
@@ -2791,11 +2827,21 @@ export default function RecordRoute() {
       <ConfettiCanvas ref={confettiRef} />
 
       {/* Floating toolbar */}
+      {showRecordingUi && sustainedSilence && uiState === "recording" && (
+        <div
+          role="status"
+          className="fixed inset-x-4 top-4 z-[96] mx-auto w-fit rounded-md bg-amber-950/90 px-3 py-2 text-sm text-amber-50 shadow-lg"
+        >
+          {t("recordingToolbar.silenceWarning")}
+        </div>
+      )}
+
       {showRecordingUi && (
         <RecordingToolbar
           active={uiState === "recording"}
           getElapsedMs={() => engineRef.current?.getElapsedMs() ?? 0}
           isPaused={isPaused}
+          audioLevel={audioLevel}
           onTogglePause={togglePause}
           onStop={() => void doStop()}
           onCancel={requestDiscard}

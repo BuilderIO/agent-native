@@ -1076,6 +1076,10 @@ const messages = {
     restartShortcut: "やり直す (⌥⇧R)",
     restartQuestion: "新しい録画を開始しますか?",
     restartConfirm: "やり直す",
+    silenceWarning:
+      "10 秒間、聞こえる音声信号が検出されていません。停止する前にマイクを確認してください。",
+    silenceStopWarning:
+      "この録画では継続したデジタル無音が測定されました。音声警告付きで保存されます。",
   },
   countdownOverlay: {
     startsIn: "録画は {{count}} で開始します",

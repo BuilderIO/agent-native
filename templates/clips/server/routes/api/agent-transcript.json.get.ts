@@ -197,6 +197,16 @@ export default defineEventHandler(async (event: H3Event) => {
       status: transcript?.status ?? "missing",
       language: transcript?.language ?? null,
       failureReason: transcript?.failureReason ?? null,
+      failureCode: transcript?.failureCode ?? null,
+      audioSignal: (() => {
+        const raw = transcript?.audioSignalJson;
+        if (!raw) return null;
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return null;
+        }
+      })(),
       retryAfterSeconds: transcript?.status === "pending" ? 15 : null,
       ...(transcriptWindow
         ? {

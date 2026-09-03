@@ -1211,6 +1211,12 @@ export const migrations = runMigrations(
         `CREATE INDEX IF NOT EXISTS recordings_thumbnail_status_idx ON recordings (status, thumbnail_status)`,
       ].join("; "),
     },
+    {
+      version: 69,
+      name: "recording-transcripts-audio-signal",
+      // Additive capture evidence; older recordings intentionally remain NULL.
+      sql: `ALTER TABLE recording_transcripts ADD COLUMN audio_signal_json TEXT`,
+    },
   ],
   { table: "clips_migrations" },
 );

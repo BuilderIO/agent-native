@@ -22,6 +22,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
+import {
+  transcriptFailureMessage,
+  type TranscriptFailureCode,
+} from "../shared/transcript-failure.js";
 import { buildCaptionSegmentsFromText } from "../shared/transcript-segments.js";
 import { booleanParam } from "./lib/cli-params.js";
 import { finalizeEndedMeetingsForRecording } from "./lib/finalize-ended-meetings.js";
@@ -102,13 +106,36 @@ export default defineAction({
       .string()
       .optional()
       .describe("Why native speech recognition could not save text"),
+    failureCode: z
+      .enum(["SILENT_AUDIO_CAPTURE"])
+      .optional()
+      .describe(
+        "Typed capture outcome when measured signal is sustained digital silence",
+      ),
+    audioSignal: z
+      .object({
+        sampleCount: z.number().int().nonnegative(),
+        silentSampleCount: z.number().int().nonnegative(),
+        durationMs: z.number().nonnegative(),
+        silentDurationMs: z.number().nonnegative(),
+        peakDb: z.number().nullable(),
+        meanDb: z.number().nullable(),
+        thresholdDb: z.number(),
+      })
+      .optional()
+      .describe(
+        "Measured capture signal summary; not a claim about speaker intent",
+      ),
   }),
   run: async (args) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const now = new Date().toISOString();
     const fullText = args.fullText.trim();
-    const failureReason = args.failureReason?.trim() || "";
+    const failureCode = args.failureCode as TranscriptFailureCode | undefined;
+    const failureReason = failureCode
+      ? transcriptFailureMessage(failureCode)
+      : args.failureReason?.trim() || "";
     // Prefer real caller-supplied segment timestamps; otherwise
     // synthesize evenly-paced segments from the text.
     const segmentsJson =
@@ -148,6 +175,27 @@ export default defineAction({
           recordingId: args.recordingId,
           status: "skipped" as const,
           reason: "Transcript already exists",
+        };
+      }
+      if (failureCode === "SILENT_AUDIO_CAPTURE" && current) {
+        await db
+          .update(schema.recordingTranscripts)
+          .set({
+            ownerEmail,
+            status: "failed",
+            fullText: "",
+            segmentsJson: "[]",
+            failureReason,
+            failureCode,
+            audioSignalJson: JSON.stringify(args.audioSignal ?? null),
+            updatedAt: now,
+          })
+          .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
+        return {
+          recordingId: args.recordingId,
+          status: "failed" as const,
+          failureCode,
+          audioSignal: args.audioSignal ?? null,
         };
       }
       // An empty native result is only a diagnostic. Never create a terminal
@@ -203,6 +251,10 @@ export default defineAction({
           segmentsJson,
           status: savedStatus,
           failureReason: savedFailureReason,
+          failureCode: truncated ? (failureCode ?? null) : null,
+          audioSignalJson: args.audioSignal
+            ? JSON.stringify(args.audioSignal)
+            : null,
           updatedAt: now,
         })
         .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
@@ -215,6 +267,10 @@ export default defineAction({
         fullText,
         status: savedStatus,
         failureReason: savedFailureReason,
+        failureCode: truncated ? (failureCode ?? null) : null,
+        audioSignalJson: args.audioSignal
+          ? JSON.stringify(args.audioSignal)
+          : null,
         createdAt: now,
         updatedAt: now,
       });

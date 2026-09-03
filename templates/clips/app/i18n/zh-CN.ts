@@ -1020,6 +1020,8 @@ const messages = {
     restartShortcut: "重新开始 (⌥⇧R)",
     restartQuestion: "要开始新的录制吗？",
     restartConfirm: "重新开始",
+    silenceWarning: "10 秒内未检测到可听见的信号。停止前请检查麦克风。",
+    silenceStopWarning: "此录制检测到持续的数字静音。将带有音频警告保存。",
   },
   countdownOverlay: {
     startsIn: "录制将在 {{count}} 后开始",

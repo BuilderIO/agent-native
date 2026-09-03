@@ -77,6 +77,8 @@ describe("/api/agent-transcript route", () => {
         language: "en",
         fullText: "First. Second. Third.",
         failureReason: null,
+        failureCode: null,
+        audioSignalJson: null,
       },
       agentSegments: segments,
     });
@@ -97,6 +99,36 @@ describe("/api/agent-transcript route", () => {
           "Use this HTTP transcript endpoint directly; it works without a browser and is the complete transcript path.",
         ),
       ]),
+    });
+  });
+
+  it("returns the typed silent-audio outcome and its measured signal evidence", async () => {
+    mockLoadAgentTranscript.mockResolvedValue({
+      transcript: {
+        status: "failed",
+        language: "en",
+        fullText: "",
+        failureReason:
+          "Audio was captured, but its measured level stayed near digital silence throughout the recording.",
+        failureCode: "SILENT_AUDIO_CAPTURE",
+        audioSignalJson: JSON.stringify({
+          peakDb: -91,
+          silentDurationMs: 10_200,
+          thresholdDb: -70,
+        }),
+      },
+      agentSegments: [],
+    });
+    await expect(handler({} as any)).resolves.toMatchObject({
+      transcript: {
+        status: "failed",
+        failureCode: "SILENT_AUDIO_CAPTURE",
+        audioSignal: {
+          peakDb: -91,
+          silentDurationMs: 10_200,
+          thresholdDb: -70,
+        },
+      },
     });
   });
 

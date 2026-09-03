@@ -1,6 +1,14 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { captureClientException } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
+import {
+  audioSignalEvidence,
+  createAudioSilenceState,
+  isSustainedDigitalSilence,
+  recordAudioSignalSample,
+  type AudioSignalEvidence,
+  type AudioSilenceState,
+} from "@shared/audio-silence";
 import { waitForAcceptedRecordingAfterFinalizeError } from "@shared/finalize-recovery";
 import {
   chooseFallbackAudioInput,
@@ -155,6 +163,12 @@ export interface RecorderEngineOptions {
    * `onError`, this does NOT transition the engine into the `error` state.
    */
   onWarning?: (message: string) => void;
+  /** Live audio level and sustained-silence state from the track being encoded. */
+  onAudioSignal?: (signal: {
+    level: number;
+    sustainedSilence: boolean;
+    evidence: AudioSignalEvidence;
+  }) => void;
   /**
    * Fired when the camera ends (unplugged / revoked) any time after acquire,
    * so the UI can drop the on-page camera bubble to match the recorded output.
@@ -518,6 +532,10 @@ export class RecorderEngine {
   private cameraComposite: CameraCompositeHandle | null = null;
   private audioMixCtx: AudioContext | null = null;
   private audioMixSources: MediaStreamAudioSourceNode[] = [];
+  private audioSignalSource: MediaStreamAudioSourceNode | null = null;
+  private audioSignalAnalyser: AnalyserNode | null = null;
+  private audioSignalTimer: number | null = null;
+  private audioSilenceState: AudioSilenceState = createAudioSilenceState();
   private wakeLock: WakeLockSentinel | null = null;
   private wakeLockGeneration = 0;
   private wakeLockRetake: (() => void) | null = null;
@@ -616,6 +634,10 @@ export class RecorderEngine {
 
   getCameraStream(): MediaStream | null {
     return this.cameraStream;
+  }
+
+  getAudioSignalEvidence(): AudioSignalEvidence | null {
+    return audioSignalEvidence(this.audioSilenceState, performance.now());
   }
 
   /**
@@ -1258,6 +1280,7 @@ export class RecorderEngine {
     }
     this.startedAtMs = performance.now();
     this.transition("recording");
+    this.startAudioSignalMonitor();
   }
 
   pause(): void {
@@ -1268,6 +1291,12 @@ export class RecorderEngine {
       this.emitError(err);
       return;
     }
+    // Paused time is not recorded audio, so it must not count toward a
+    // sustained-silence warning when capture resumes.
+    this.audioSilenceState = {
+      ...this.audioSilenceState,
+      silentStartedAtMs: null,
+    };
     this.pausedStartedMs = performance.now();
     this.transition("paused");
   }
@@ -1834,6 +1863,60 @@ export class RecorderEngine {
   // -------------------------------------------------------------------------
   // Internals
   // -------------------------------------------------------------------------
+
+  private startAudioSignalMonitor(): void {
+    this.stopAudioSignalMonitor();
+    this.audioSilenceState = createAudioSilenceState();
+    const track = this.combinedStream?.getAudioTracks()[0];
+    const context = this.audioMixCtx;
+    if (!track || !context || context.state === "closed") return;
+    try {
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 2048;
+      this.audioSignalSource = context.createMediaStreamSource(
+        new MediaStream([track]),
+      );
+      this.audioSignalSource.connect(analyser);
+      this.audioSignalAnalyser = analyser;
+      const samples = new Float32Array(analyser.fftSize);
+      this.audioSignalTimer = window.setInterval(() => {
+        if (this.state !== "recording") return;
+        analyser.getFloatTimeDomainData(samples);
+        let sum = 0;
+        for (const sample of samples) sum += sample * sample;
+        const rms = Math.sqrt(sum / samples.length);
+        const db = rms > 0 ? 20 * Math.log10(rms) : -100;
+        this.audioSilenceState = recordAudioSignalSample(
+          this.audioSilenceState,
+          Math.max(-100, db),
+          performance.now(),
+        );
+        const evidence = this.getAudioSignalEvidence();
+        if (!evidence) return;
+        this.opts.onAudioSignal?.({
+          level: Math.max(0, Math.min(1, (db + 70) / 70)),
+          sustainedSilence: isSustainedDigitalSilence(evidence),
+          evidence,
+        });
+      }, 250);
+    } catch (error) {
+      // Metering is diagnostic-only; a browser that cannot analyse an encoded
+      // track must still be able to save its recording.
+      console.warn("[recorder] audio signal monitor unavailable:", error);
+      this.stopAudioSignalMonitor();
+    }
+  }
+
+  private stopAudioSignalMonitor(): void {
+    if (this.audioSignalTimer !== null) {
+      window.clearInterval(this.audioSignalTimer);
+      this.audioSignalTimer = null;
+    }
+    this.audioSignalSource?.disconnect();
+    this.audioSignalSource = null;
+    this.audioSignalAnalyser?.disconnect();
+    this.audioSignalAnalyser = null;
+  }
 
   /**
    * Mix audio tracks from multiple streams into a single track via Web Audio
@@ -2532,6 +2615,7 @@ export class RecorderEngine {
   }
 
   private cleanupTracks(): void {
+    this.stopAudioSignalMonitor();
     // Clear before stopping tracks so the `ended` events our own stop() fires
     // aren't mistaken for a disconnect.
     this.releaseWakeLock();

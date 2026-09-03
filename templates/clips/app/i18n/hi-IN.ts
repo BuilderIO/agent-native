@@ -1053,6 +1053,10 @@ const messages = {
     restartShortcut: "फिर से शुरू करें (⌥⇧R)",
     restartQuestion: "क्या नई रिकॉर्डिंग शुरू करें?",
     restartConfirm: "फिर से शुरू करें",
+    silenceWarning:
+      "10 सेकंड से कोई सुनाई देने वाला सिग्नल नहीं मिला। रोकने से पहले माइक्रोफ़ोन जाँचें।",
+    silenceStopWarning:
+      "इस रिकॉर्डिंग में लगातार डिजिटल सन्नाटा मापा गया। इसे ऑडियो चेतावनी के साथ सहेजा जाएगा।",
   },
   countdownOverlay: {
     startsIn: "रिकॉर्डिंग {{count}} में शुरू होगी",

@@ -1098,6 +1098,10 @@ const messages = {
     restartShortcut: "Neu starten (⌥⇧R)",
     restartQuestion: "Eine neue Aufnahme starten?",
     restartConfirm: "Neu starten",
+    silenceWarning:
+      "Seit 10 Sekunden wurde kein hörbares Signal erkannt. Prüfe dein Mikrofon, bevor du stoppst.",
+    silenceStopWarning:
+      "Diese Aufnahme zeigte anhaltende digitale Stille. Sie wird mit einem Audiowarnhinweis gespeichert.",
   },
   countdownOverlay: {
     startsIn: "Aufnahme startet in {{count}}",

@@ -24,6 +24,7 @@ export interface RecordingToolbarProps {
   /** Reads the current elapsed time from the recorder engine on each tick. */
   getElapsedMs: () => number;
   isPaused: boolean;
+  audioLevel: number | null;
   onTogglePause: () => void;
   onStop: () => void;
   /** Used by the upload/compress state, where delete still opens the route's
@@ -52,6 +53,7 @@ export function RecordingToolbar({
   active,
   getElapsedMs,
   isPaused,
+  audioLevel,
   onTogglePause,
   onStop,
   onCancel,
@@ -268,7 +270,7 @@ export function RecordingToolbar({
         orientation={pos.orientation}
         enabled={active}
         pendingAction={pendingAction}
-        meter={<LiveWaveform level={null} dimmed={!active || isPaused} />}
+        meter={<LiveWaveform level={audioLevel} dimmed={!active || isPaused} />}
         labels={{
           controls: t("recordingToolbar.controls"),
           stop: t("recordingToolbar.stop"),

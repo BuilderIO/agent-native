@@ -1075,6 +1075,10 @@ const messages = {
     restartShortcut: "إعادة البدء (⌥⇧R)",
     restartQuestion: "هل تريد بدء تسجيل جديد؟",
     restartConfirm: "إعادة البدء",
+    silenceWarning:
+      "لم يتم اكتشاف إشارة مسموعة لمدة 10 ثوانٍ. تحقق من الميكروفون قبل الإيقاف.",
+    silenceStopWarning:
+      "قاس هذا التسجيل صمتًا رقميًا مستمرًا. سيُحفظ مع تحذير صوتي.",
   },
   countdownOverlay: {
     startsIn: "يبدأ التسجيل خلال {{count}}",

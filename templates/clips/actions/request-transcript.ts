@@ -1198,6 +1198,7 @@ const requestTranscriptAction = defineAction({
         updatedAt: schema.recordingTranscripts.updatedAt,
         language: schema.recordingTranscripts.language,
         retryCount: schema.recordingTranscripts.retryCount,
+        failureCode: schema.recordingTranscripts.failureCode,
       })
       .from(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
@@ -1219,6 +1220,24 @@ const requestTranscriptAction = defineAction({
       console.log(
         `[clips] auto-retry transcription attempt ${args.retryAttempt} for ${args.recordingId}`,
       );
+    }
+
+    // The recorder measured the encoded track as sustained digital silence.
+    // Preserve that capture fact instead of spending cloud credits to turn it
+    // back into a generic no-speech failure. An explicit regenerate remains a
+    // deliberate re-check of the saved media.
+    if (
+      !args.regenerate &&
+      existingNativeTranscript?.status === "failed" &&
+      existingNativeTranscript.failureCode === "SILENT_AUDIO_CAPTURE"
+    ) {
+      return {
+        recordingId: args.recordingId,
+        status: "failed" as const,
+        failureCode: "SILENT_AUDIO_CAPTURE" as const,
+        skipped: true,
+        reason: "sustained-digital-silence",
+      };
     }
 
     if (

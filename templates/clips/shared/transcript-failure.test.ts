@@ -9,6 +9,7 @@ import {
 const ALL: TranscriptFailureCode[] = [
   "NO_AUDIO_TRACK",
   "NO_SPEECH_DETECTED",
+  "SILENT_AUDIO_CAPTURE",
   "FFMPEG_UNAVAILABLE",
   "EXTRACTION_FAILED",
   "TIMEOUT",
@@ -36,6 +37,7 @@ describe("transcript failure taxonomy", () => {
     // costs a media fetch plus an ffmpeg run to reach the same answer.
     expect(isRetryableTranscriptFailure("NO_AUDIO_SAVED")).toBe(false);
     expect(isRetryableTranscriptFailure("NO_AUDIO_TRACK")).toBe(false);
+    expect(isRetryableTranscriptFailure("SILENT_AUDIO_CAPTURE")).toBe(false);
     expect(isRetryableTranscriptFailure("CLOUD_UNCONFIGURED")).toBe(false);
     expect(isRetryableTranscriptFailure(null)).toBe(false);
   });

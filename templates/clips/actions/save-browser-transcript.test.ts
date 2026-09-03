@@ -47,6 +47,8 @@ vi.mock("../server/db/index.js", () => ({
       status: "recordingTranscripts.status",
       fullText: "recordingTranscripts.fullText",
       segmentsJson: "recordingTranscripts.segmentsJson",
+      failureCode: "recordingTranscripts.failureCode",
+      audioSignalJson: "recordingTranscripts.audioSignalJson",
     },
   },
 }));
@@ -119,6 +121,41 @@ describe("save-browser-transcript", () => {
     expect(mocks.update).not.toHaveBeenCalled();
     expect(mocks.insert).not.toHaveBeenCalled();
     expect(mocks.writeAppState).not.toHaveBeenCalled();
+  });
+
+  it("persists a typed silent-audio outcome with its measured evidence after finalization", async () => {
+    mocks.rows = [
+      [
+        {
+          recordingId: "rec-1",
+          status: "pending",
+          fullText: "",
+          segmentsJson: "[]",
+        },
+      ],
+    ];
+    mocks.update.mockReturnValue({ set: vi.fn(() => ({ where: vi.fn() })) });
+    const audioSignal = {
+      sampleCount: 41,
+      silentSampleCount: 41,
+      durationMs: 10_200,
+      silentDurationMs: 10_200,
+      peakDb: -91,
+      meanDb: -91,
+      thresholdDb: -70,
+    };
+    await expect(
+      saveBrowserTranscript.run({
+        recordingId: "rec-1",
+        fullText: "",
+        failureCode: "SILENT_AUDIO_CAPTURE",
+        audioSignal,
+      }),
+    ).resolves.toMatchObject({
+      status: "failed",
+      failureCode: "SILENT_AUDIO_CAPTURE",
+      audioSignal,
+    });
   });
 
   it("keeps a truncated capture out of 'ready' so the cloud fallback still runs", async () => {

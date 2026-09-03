@@ -1062,6 +1062,10 @@ const messages = {
     restartShortcut: "다시 시작 (⌥⇧R)",
     restartQuestion: "새 녹화를 시작할까요?",
     restartConfirm: "다시 시작",
+    silenceWarning:
+      "10초 동안 들리는 신호가 감지되지 않았습니다. 중지하기 전에 마이크를 확인하세요.",
+    silenceStopWarning:
+      "이 녹화에서는 지속적인 디지털 무음이 측정되었습니다. 오디오 경고와 함께 저장됩니다.",
   },
   countdownOverlay: {
     startsIn: "{{count}} 후 녹화 시작",

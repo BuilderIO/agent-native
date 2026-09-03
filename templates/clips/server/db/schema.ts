@@ -262,6 +262,9 @@ export const recordingTranscripts = table("recording_transcripts", {
   // being re-derived by regex over that prose. Nullable for rows written
   // before this column existed.
   failureCode: text("failure_code"),
+  // Capture-side signal evidence (RMS level summary) for typed silent-audio
+  // outcomes. Nullable keeps recordings made before client-side metering.
+  audioSignalJson: text("audio_signal_json"),
   // Count of automatic retries already attempted after a transient failure
   // (ffmpeg timeout, transient provider/network error). Bounds the
   // fire-and-forget auto-retry pass in request-transcript.ts so a repeatedly
