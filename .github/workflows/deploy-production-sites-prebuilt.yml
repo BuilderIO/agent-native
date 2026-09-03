@@ -69,6 +69,7 @@ jobs:
     needs: resolve-source
     runs-on: ubuntu-latest
     outputs:
+      complete_fleet: ${{ steps.matrix.outputs.complete_fleet }}
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -135,9 +136,23 @@ jobs:
           }
           if (!buildable.length) throw new Error('No buildable production sites selected.');
 
+          const productionNames = Object.entries(sites)
+            .filter(([, site]) =>
+              typeof site?.host === 'string' && site.host.endsWith('.agent-native.com'),
+            )
+            .map(([name]) => name);
+          const completeFleet =
+            unsupported.length === 0 &&
+            productionNames.length > 0 &&
+            productionNames.every((name) => names.includes(name));
+
           fs.appendFileSync(
             process.env.GITHUB_OUTPUT,
             `matrix=${JSON.stringify({ include: buildable })}\n`,
+          );
+          fs.appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `complete_fleet=${completeFleet}\n`,
           );
           console.log(`Discovered ${buildable.length} buildable production sites.`);
           NODE
@@ -186,8 +201,10 @@ jobs:
 
   record-beta-migration:
     name: Record production migration marker
-    needs: [resolve-source, deploy]
-    if: ${{ inputs.sites == 'all' && needs.deploy.result == 'success' }}
+    needs: [resolve-source, discover-sites, deploy]
+    if: >-
+      ${{ needs.discover-sites.outputs.complete_fleet == 'true'
+      && needs.deploy.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

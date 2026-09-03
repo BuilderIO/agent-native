@@ -276,15 +276,33 @@ describe("production Netlify site concurrency guard", () => {
     const production = readWorkflow(
       ".github/workflows/deploy-production-sites-prebuilt.yml",
     );
+    const productionDiscover = (production.jobs as Workflow)[
+      "discover-sites"
+    ] as Workflow;
+    assert.equal(
+      productionDiscover.outputs?.complete_fleet,
+      "${{ steps.matrix.outputs.complete_fleet }}",
+    );
+    assert.match(
+      String(productionDiscover.steps[1].run),
+      /completeFleet.*productionNames/s,
+    );
     const productionMarker = (production.jobs as Workflow)[
       "record-beta-migration"
     ] as Workflow;
-    assert.match(String(productionMarker.if), /inputs\.sites == 'all'/);
+    assert.match(
+      String(productionMarker.if),
+      /needs\.discover-sites\.outputs\.complete_fleet == 'true'/,
+    );
     assert.match(
       String(productionMarker.if),
       /needs\.deploy\.result == 'success'/,
     );
-    assert.deepEqual(productionMarker.needs, ["resolve-source", "deploy"]);
+    assert.deepEqual(productionMarker.needs, [
+      "resolve-source",
+      "discover-sites",
+      "deploy",
+    ]);
     assert.equal((productionMarker.permissions as Workflow).contents, "write");
     assert.match(
       String(productionMarker.steps[0].with?.script),

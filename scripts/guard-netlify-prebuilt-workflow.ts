@@ -725,6 +725,10 @@ const productionMigrationMarkerJob = asRecord(
     "record-beta-migration"
   ],
 );
+const productionDiscoverJob = asRecord(
+  asRecord(parsedWorkflows.get(productionPath)?.jobs)?.["discover-sites"],
+);
+const productionDiscoverOutputs = asRecord(productionDiscoverJob?.outputs);
 const productionMigrationMarkerSteps =
   (productionMigrationMarkerJob?.steps as
     | Array<Record<string, unknown>>
@@ -777,13 +781,28 @@ if (
 }
 
 if (
+  productionDiscoverOutputs?.complete_fleet !==
+    "${{ steps.matrix.outputs.complete_fleet }}" ||
+  !(
+    (productionDiscoverJob?.steps as
+      | Array<Record<string, unknown>>
+      | undefined) ?? []
+  ).some(
+    (step) =>
+      typeof step.run === "string" &&
+      step.run.includes("completeFleet") &&
+      step.run.includes("productionNames"),
+  ) ||
   !productionMigrationMarkerJob ||
-  !String(productionMigrationMarkerJob.if).includes("inputs.sites == 'all'") ||
+  !String(productionMigrationMarkerJob.if).includes(
+    "needs.discover-sites.outputs.complete_fleet == 'true'",
+  ) ||
   !String(productionMigrationMarkerJob.if).includes(
     "needs.deploy.result == 'success'",
   ) ||
   !Array.isArray(productionMigrationMarkerJob.needs) ||
   !productionMigrationMarkerJob.needs.includes("resolve-source") ||
+  !productionMigrationMarkerJob.needs.includes("discover-sites") ||
   !productionMigrationMarkerJob.needs.includes("deploy") ||
   asRecord(productionMigrationMarkerJob.permissions)?.contents !== "write" ||
   !productionMigrationMarkerSteps.some(
