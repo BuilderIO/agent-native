@@ -2665,9 +2665,9 @@ export default function SlideEditor({
       if (ids.size > 0) {
         clearSelectedElement();
         setSelectedStyleSnapshot(mergeSlideStyleSnapshots(styleSnapshots));
+        setSelectedImg(null);
+        setImageOverlay(null);
       }
-      setSelectedImg(null);
-      setImageOverlay(null);
       // Anchor the chip to the slide canvas (clickable wrapper)
       const canvas = containerRef.current?.querySelector(
         ".slide-image-clickable",
@@ -6738,6 +6738,8 @@ export default function SlideEditor({
 
       // For images / placeholders, show overlay
       if (target.tagName === "IMG" || target.closest(".fmd-img-placeholder")) {
+        e.preventDefault();
+        e.stopPropagation();
         showImageOverlay(target);
         return;
       }
