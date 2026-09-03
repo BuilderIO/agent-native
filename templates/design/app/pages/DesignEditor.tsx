@@ -18201,9 +18201,7 @@ function DesignEditor() {
               ? repromptDraftRequest
               : null
           }
-          nodeRewriteCanvasTarget={
-            screenIsActive && breakpointWidthPx === undefined
-          }
+          nodeRewriteCanvasTarget={screenIsActive}
           onRepromptDraftConsumed={handleRepromptDraftConsumed}
         />
       );

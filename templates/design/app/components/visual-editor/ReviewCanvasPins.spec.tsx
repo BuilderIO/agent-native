@@ -568,6 +568,24 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     );
     expect(document.body.textContent).not.toContain("review.commentMode");
     expect(document.body.textContent).not.toContain("review.clickToPin");
+    const modeMenuTrigger = document.querySelector<HTMLButtonElement>(
+      '[aria-label="designEditor.nodeRewrite.agentModeOptions"]',
+    );
+    await act(async () => {
+      modeMenuTrigger?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      modeMenuTrigger?.click();
+    });
+    expect(
+      document
+        .querySelector("[data-review-mode-menu]")
+        ?.hasAttribute("data-review-popover"),
+    ).toBe(true);
     await act(async () => send?.click());
 
     expect(mocks.createMutate).not.toHaveBeenCalled();

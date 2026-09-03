@@ -51,13 +51,25 @@ export function ReviewCommentComposer({
     if (!canSubmit) return;
     onSubmit(resolutionTarget);
   };
+  const submitVisibleAction = (preferred: ReviewResolutionTarget) => {
+    if (preferred === "human" && showCommentAction) {
+      submit("human");
+      return;
+    }
+    if (preferred === "agent" && showAgentAction) {
+      submit("agent");
+      return;
+    }
+    if (showCommentAction) submit("human");
+    else if (showAgentAction) submit("agent");
+  };
 
   return (
     <form
       className={cn("@container/review", className)}
       onSubmit={(event) => {
         event.preventDefault();
-        submit("human");
+        submitVisibleAction("human");
       }}
     >
       {contextLabel ? (
@@ -82,7 +94,7 @@ export function ReviewCommentComposer({
           }
           if (submitOnEnter && event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
-            submit(enterSubmitTarget);
+            submitVisibleAction(enterSubmitTarget);
           }
         }}
       />

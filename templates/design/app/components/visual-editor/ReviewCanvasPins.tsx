@@ -1299,7 +1299,12 @@ function DraftComposer({
             <IconChevronDown className="size-3" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuContent
+          data-review-popover
+          data-review-mode-menu
+          align="end"
+          className="w-56"
+        >
           <DropdownMenuRadioGroup
             value={modeOverride}
             onValueChange={(nextMode) =>

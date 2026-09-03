@@ -11957,7 +11957,7 @@ function isInteractiveScreenContentTarget(target: EventTarget | null) {
 function isCanvasOverlayInteractionTarget(target: EventTarget | null) {
   return (
     target instanceof Element &&
-    Boolean(target.closest("[data-review-popover]"))
+    Boolean(target.closest("[data-review-popover],[data-review-click-plane]"))
   );
 }
 

@@ -50,4 +50,39 @@ describe("ReviewCommentComposer actions", () => {
     act(() => editWithAi?.click());
     expect(onSubmit).toHaveBeenCalledWith("agent");
   });
+
+  it("routes implicit submission to the visible agent action", () => {
+    const onSubmit = vi.fn();
+    act(() => {
+      root.render(
+        <ReviewCommentComposer
+          value="Make the heading concise"
+          onChange={() => {}}
+          onSubmit={onSubmit}
+          showCommentAction={false}
+          showAgentAction
+          submitOnEnter
+        />,
+      );
+    });
+
+    const textarea = container.querySelector("textarea");
+    const form = container.querySelector("form");
+    act(() => {
+      textarea?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      form?.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+    expect(onSubmit).toHaveBeenNthCalledWith(1, "agent");
+    expect(onSubmit).toHaveBeenNthCalledWith(2, "agent");
+  });
 });
