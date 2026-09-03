@@ -3211,6 +3211,9 @@ describe("server/auth", () => {
       expect(firstHtml).toContain(
         '"workspaceAppMountPaths":["/plan","/diagrams"]',
       );
+      expect(
+        firstHtml.indexOf("data-agent-native-app-origin-config"),
+      ).toBeLessThan(firstHtml.indexOf('data-agent-native-beta-redirect="1"'));
       expect(firstHtml).not.toContain("/plan/_agent-native/auth/session");
       expect(firstHtml).not.toContain("/diagrams/_agent-native/auth/session");
     });

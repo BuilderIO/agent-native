@@ -3242,16 +3242,17 @@ function loginHtmlResponse(
   } = {},
 ): Response {
   const appOriginConfigScript = getAppOriginClientConfigScript();
-  let html = injectLoginSocialImageMeta(
-    injectBetaOptOutPersistence(loginHtml),
-    options.requestIndependent ? undefined : event,
-  );
+  let html = loginHtml;
   if (
     appOriginConfigScript &&
     !html.includes("data-agent-native-app-origin-config")
   ) {
     html = injectHeadScript(html, appOriginConfigScript);
   }
+  html = injectLoginSocialImageMeta(
+    injectBetaOptOutPersistence(html),
+    options.requestIndependent ? undefined : event,
+  );
   if (options.includeRootAuthRedirect) {
     html = injectHeadScript(
       html,
