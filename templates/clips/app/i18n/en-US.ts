@@ -716,6 +716,7 @@ const messages = {
     transcriptCleanupDescription:
       "Show the native transcript immediately, then clean it up in the background when available.",
     notifications: "Notifications",
+    monthlyRecap: "Monthly recap",
     sharing: "Sharing",
     defaultVisibility: "Default visibility for new recordings",
     defaultVisibilityDescription:
@@ -725,7 +726,7 @@ const messages = {
     visibilityPublic: "Public - anyone with the link",
     emailNotifications: "Email notifications",
     emailNotificationsDescription:
-      "Get an email when someone comments on or reacts to your recording.",
+      "Choose which optional Clips emails you receive.",
     saved: "Settings saved",
     saveFailed: "Failed to save",
     builderConnectedToast: "Builder.io connected",
