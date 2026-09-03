@@ -755,11 +755,13 @@ export const WeekView = memo(function WeekView({
     regularAllDayEventLaneHeight;
   const allDaySectionHeight =
     workingLocationLaneHeight + laneSeparatorHeight + regularAllDayLaneHeight;
-  const allDayHeaderSpacerWidth = Math.max(
-    0,
-    timeGridScrollbarWidth - allDayScrollbarWidth,
+  const calendarScrollbarWidth = Math.max(
+    timeGridScrollbarWidth,
+    allDayScrollbarWidth,
   );
-  const allDayCreateRowSpacerWidth = timeGridScrollbarWidth;
+  const allDayHeaderSpacerWidth = calendarScrollbarWidth - allDayScrollbarWidth;
+  const timeGridContentSpacerWidth =
+    calendarScrollbarWidth - timeGridScrollbarWidth;
 
   useEffect(() => {
     const measureScrollbars = () => {
@@ -1018,11 +1020,11 @@ export const WeekView = memo(function WeekView({
               </div>
             );
           })}
-          {timeGridScrollbarWidth > 0 && (
+          {calendarScrollbarWidth > 0 && (
             <div
               aria-hidden="true"
               className="shrink-0"
-              style={{ width: `${timeGridScrollbarWidth}px` }}
+              style={{ width: `${calendarScrollbarWidth}px` }}
             />
           )}
         </div>
@@ -1067,12 +1069,12 @@ export const WeekView = memo(function WeekView({
                     </button>
                   ))}
                 </div>
-                {allDayCreateRowSpacerWidth > 0 && (
+                {calendarScrollbarWidth > 0 && (
                   <div
                     aria-hidden="true"
                     className="shrink-0"
                     style={{
-                      width: `${allDayCreateRowSpacerWidth}px`,
+                      width: `${calendarScrollbarWidth}px`,
                       height: `${allDayCreateRowHeight}px`,
                     }}
                   />
@@ -1609,6 +1611,13 @@ export const WeekView = memo(function WeekView({
               </div>
             );
           })}
+          {timeGridContentSpacerWidth > 0 && (
+            <div
+              aria-hidden="true"
+              className="shrink-0"
+              style={{ width: `${timeGridContentSpacerWidth}px` }}
+            />
+          )}
         </div>
       </div>
     </div>
