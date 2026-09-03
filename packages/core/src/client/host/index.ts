@@ -30,6 +30,7 @@ export {
   sendToBuilderChat,
   type BuilderChatMessage,
 } from "../builder-frame.js";
+export { getClientSurface, type ClientSurface } from "../client-surface.js";
 export {
   AgentNative,
   useAgentNativeScreenContext,
@@ -144,6 +145,7 @@ export {
   AgentNativeWebMcpUnsupportedError,
   createAgentNativeWebMcpClient,
   createAgentNativeWebMcpRegistration,
+  initializeAgentNativeWebMcp,
   isAgentNativeWebMcpSupported,
   type AgentNativeWebMcpApprovalRequest,
   type AgentNativeWebMcpClient,

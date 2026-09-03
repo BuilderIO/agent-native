@@ -7,6 +7,7 @@ import {
   getMcpConnectGuides,
   getMcpStaticTokenFallback,
   interpolateMcpConnectTemplate,
+  resolveMcpConnectGuideId,
   type McpConnectTemplateValues,
 } from "../../shared/mcp-connect-content.js";
 import { AgentTabFrame } from "../agent-page/AgentTabFrame.js";
@@ -95,7 +96,20 @@ export function McpAccessSettings({
   );
   const [urls, setUrls] = useState<AccessUrls | null>(null);
   const [agentCardAvailable, setAgentCardAvailable] = useState(false);
-  const [activeGuide, setActiveGuide] = useState<string | null>(null);
+  const [activeGuide, setActiveGuide] = useState<string>("claude");
+
+  useEffect(() => {
+    const syncGuide = () => {
+      setActiveGuide(
+        resolveMcpConnectGuideId(
+          new URLSearchParams(window.location.search).get("guide"),
+        ),
+      );
+    };
+    syncGuide();
+    window.addEventListener("popstate", syncGuide);
+    return () => window.removeEventListener("popstate", syncGuide);
+  }, []);
 
   useEffect(() => {
     const origin = window.location.origin;
@@ -124,6 +138,7 @@ export function McpAccessSettings({
     } satisfies McpConnectTemplateValues;
     const connectUrl = new URL(appPath("/mcp/connect"), origin);
     connectUrl.searchParams.set("locale", locale);
+    connectUrl.searchParams.set("guide", activeGuide);
     setUrls({
       appName,
       appUrl: baseUrl,
@@ -137,7 +152,7 @@ export function McpAccessSettings({
         origin,
       ).toString(),
     });
-  }, [appNameProp, locale]);
+  }, [activeGuide, appNameProp, locale]);
 
   useEffect(() => {
     if (!urls) return;
@@ -163,6 +178,12 @@ export function McpAccessSettings({
       }
     : null;
   const guide = guides.find((item) => item.id === activeGuide);
+  const selectGuide = (guideId: string) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("guide", guideId);
+    window.history.pushState(window.history.state, "", url);
+    setActiveGuide(guideId);
+  };
 
   return (
     <AgentTabFrame
@@ -219,7 +240,7 @@ export function McpAccessSettings({
                         ? `mcp-guide-panel-${item.id}`
                         : undefined
                     }
-                    onClick={() => setActiveGuide(item.id)}
+                    onClick={() => selectGuide(item.id)}
                     className={cn(
                       "shrink-0 cursor-pointer rounded-md px-2.5 py-1.5 text-xs font-medium",
                       item.id === activeGuide

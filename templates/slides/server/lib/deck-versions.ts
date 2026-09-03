@@ -33,7 +33,8 @@ export function deckVersionChatContextFromAction(
     !context ||
     (context.caller !== "tool" &&
       context.caller !== "mcp" &&
-      context.caller !== "a2a")
+      context.caller !== "a2a" &&
+      context.caller !== "webmcp")
   ) {
     return undefined;
   }

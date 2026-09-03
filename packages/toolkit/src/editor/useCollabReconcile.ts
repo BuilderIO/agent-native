@@ -288,7 +288,7 @@ export function useCollabReconcile({
   const authoritativeBaseRef = useRef<{
     value: string;
     revision: string;
-  } | null>(null);
+  } | null>(contentRevision ? { value, revision: contentRevision } : null);
   const reportedConflictRevisionRef = useRef<string | null>(null);
 
   // Whether THIS client is the one that seeds the empty shared doc / applies an
@@ -347,6 +347,10 @@ export function useCollabReconcile({
     if (!collab || !editor || editor.isDestroyed || !ydoc) return;
     if (seededRef.current) return;
     if (!collabSynced) return;
+    if (contentRevision) {
+      authoritativeBaseRef.current = { value, revision: contentRevision };
+      reportedConflictRevisionRef.current = null;
+    }
     // An empty SQL value has nothing to seed. Release the first real keystroke
     // immediately, but when a fragment already exists defer the ambiguous
     // reconcile decision for one task: active-peer or just-emitted local content
@@ -449,6 +453,7 @@ export function useCollabReconcile({
     value,
     isLeadClient,
     contentUpdatedAt,
+    contentRevision,
     getMarkdown,
     setContent,
     shouldSeed,

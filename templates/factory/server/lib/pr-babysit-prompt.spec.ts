@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   BABYSIT_LIST_BOUND,
   BABYSIT_SCOPE_INSTRUCTION,
+  BABYSIT_WORK_RETRIGGER,
   repairPrBabysitPrompt,
 } from "./pr-babysit-prompt.js";
 
@@ -32,6 +33,19 @@ ${obsoleteBound}
 
     expect(repaired).toContain(BABYSIT_LIST_BOUND);
     expect(repaired).toContain(BABYSIT_SCOPE_INSTRUCTION);
+  });
+
+  it("replaces the old commit-retriggers-a-poke sentence", () => {
+    const repaired = repairPrBabysitPrompt(`
+A changed commit, new unresolved
+feedback, failing or pending CI, or merge conflict starts a new bounded
+request; twenty minutes without new work to address ends that babysitting
+window.
+`);
+
+    expect(repaired).toContain(BABYSIT_WORK_RETRIGGER);
+    expect(repaired).not.toContain("A changed commit, new unresolved feedback");
+    expect(repaired).toContain("Do not ask the bot to poll");
   });
 
   it("rewrites the retired babysit-agent-native-pull-request name", () => {

@@ -5,7 +5,6 @@ import {
   IconBrandWhatsapp,
   IconBrandGoogleDrive,
   IconTerminal2,
-  IconBuildingSkyscraper,
   IconCopy,
   IconCheck,
   IconChevronLeft,
@@ -18,14 +17,22 @@ import {
 } from "@tabler/icons-react";
 import React, { useState, useCallback, useEffect, useMemo } from "react";
 
-import { agentNativePath } from "../api-path.js";
+import { buildSettingsRoute } from "../../navigation/index.js";
+import {
+  matchesMcpConnectHost,
+  resolveMcpConnectGuideId,
+} from "../../shared/mcp-connect-content.js";
+import { agentNativePath, appPath } from "../api-path.js";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
-import { getDefaultMcpIntegrations } from "../resources/mcp-integration-catalog.js";
+import {
+  getDefaultMcpIntegrations,
+  type DefaultMcpIntegration,
+} from "../resources/mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
 import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 import {
@@ -130,38 +137,6 @@ const PLATFORMS: PlatformInfo[] = [
       "Add this agent's URL as a provider in your OpenClaw config",
       "OpenClaw discovers your agent's capabilities via the A2A protocol",
     ],
-    category: "Agent clients",
-  },
-  {
-    id: "claude-code",
-    label: "Claude Code",
-    icon: IconTerminal2,
-    description:
-      "Let Claude Code call this agent via A2A for data and actions.",
-    envVars: [],
-    isClient: true,
-    setupSteps: [
-      "Your agent exposes an A2A endpoint at /.well-known/agent-card.json",
-      "In Claude Code, reference your agent's URL when asking for data",
-      "Claude Code will discover and call your agent's skills automatically",
-    ],
-    category: "Agent clients",
-  },
-  {
-    id: "builder",
-    label: "Builder.io",
-    icon: IconBuildingSkyscraper,
-    description:
-      "One chat interface that orchestrates all your agents together.",
-    envVars: [],
-    isClient: true,
-    setupSteps: [
-      "Connect your agent-native apps in your Builder.io workspace",
-      "Builder.io discovers each agent's skills via A2A",
-      "Chat with one agent that can trigger actions across all your apps",
-    ],
-    docsUrl:
-      "https://www.builder.io?utm_source=agent-native&utm_medium=product&utm_campaign=integrations&utm_content=integrations_panel",
     category: "Agent clients",
   },
 ];
@@ -762,9 +737,11 @@ export interface McpIntegrationsSectionProps {
   showDescription?: boolean;
   showHeader?: boolean;
   className?: string;
+  integrations?: DefaultMcpIntegration[];
   onOAuthStart?: (url: string) => void | Promise<void>;
   oauthReady?: boolean;
   oauthReturnPath?: string;
+  showEmptyState?: boolean;
 }
 
 export function McpIntegrationsSection({
@@ -775,9 +752,11 @@ export function McpIntegrationsSection({
   showDescription = true,
   showHeader = true,
   className,
+  integrations: integrationOptions,
   onOAuthStart,
   oauthReady,
   oauthReturnPath,
+  showEmptyState = true,
 }: McpIntegrationsSectionProps) {
   const t = useT();
   const serversQuery = useMcpServers();
@@ -799,7 +778,10 @@ export function McpIntegrationsSection({
     key: string;
     message: string;
   } | null>(null);
-  const catalog = useMemo(() => getDefaultMcpIntegrations(), []);
+  const catalog = useMemo(
+    () => integrationOptions ?? getDefaultMcpIntegrations(),
+    [integrationOptions],
+  );
   const activeQuery = query ?? localQuery;
   const normalizedQuery = activeQuery.trim().toLowerCase();
   const filteredCatalog = useMemo(() => {
@@ -1077,7 +1059,7 @@ export function McpIntegrationsSection({
         </div>
       )}
 
-      {filteredCatalog.length === 0 && normalizedQuery && (
+      {showEmptyState && filteredCatalog.length === 0 && normalizedQuery && (
         <p className="border-y border-border/60 py-4 text-xs text-muted-foreground">
           No agent integrations match “{activeQuery}”.
         </p>
@@ -1127,6 +1109,7 @@ export function McpIntegrationsLanding({
 }
 
 export function IntegrationsPanel() {
+  const t = useT();
   const { statuses, loading, refetch } = useIntegrationStatus();
   const [selectedPlatform, setSelectedPlatform] = useState<PlatformInfo | null>(
     null,
@@ -1138,13 +1121,23 @@ export function IntegrationsPanel() {
     return status?.configured || status?.enabled;
   });
   const normalizedQuery = query.trim().toLowerCase();
+  const externalHostMatches =
+    normalizedQuery.length > 0 && matchesMcpConnectHost(normalizedQuery);
+  const externalHostGuide = resolveMcpConnectGuideId(normalizedQuery);
+  const mcpIntegrations = useMemo(
+    () =>
+      getDefaultMcpIntegrations().filter(
+        (integration) => integration.id !== "builder-cms",
+      ),
+    [],
+  );
   const filteredPlatforms = PLATFORMS.filter((platform) => {
     if (!normalizedQuery) return true;
     return `${platform.label} ${platform.description} ${platform.category}`
       .toLowerCase()
       .includes(normalizedQuery);
   });
-  const mcpCatalogMatches = getDefaultMcpIntegrations().some((integration) =>
+  const mcpCatalogMatches = mcpIntegrations.some((integration) =>
     normalizedQuery
       ? `${integration.name} ${integration.provider} ${integration.description} ${integration.useCase}`
           .toLowerCase()
@@ -1188,7 +1181,36 @@ export function IntegrationsPanel() {
         </label>
       </div>
 
-      <McpIntegrationsSection query={normalizedQuery} showHeader={false} />
+      <McpIntegrationsSection
+        query={normalizedQuery}
+        integrations={mcpIntegrations}
+        showHeader={false}
+        showEmptyState={false}
+      />
+
+      {externalHostMatches && (
+        <section>
+          <IntegrationGrid
+            className="sm:grid-cols-1"
+            items={[
+              {
+                id: "external-ai-host",
+                name: t("settings.mcpClientSetup"),
+                description: t("settings.mcpClientSetupDescription"),
+                logo: <IconTerminal2 size={18} strokeWidth={1.8} />,
+                actionLabel: t("mcpIntegrations.connect"),
+                onAction: () => {
+                  const route = appPath(
+                    `${buildSettingsRoute("mcp")}?guide=${encodeURIComponent(externalHostGuide)}`,
+                  );
+                  window.history.pushState(null, "", route);
+                  window.dispatchEvent(new PopStateEvent("popstate"));
+                },
+              },
+            ]}
+          />
+        </section>
+      )}
 
       {loading ? (
         <div className="grid gap-3 sm:grid-cols-2">
@@ -1281,16 +1303,18 @@ export function IntegrationsPanel() {
             },
           )}
 
-          {filteredPlatforms.length === 0 && !mcpCatalogMatches && (
-            <div className="rounded-xl border border-dashed border-border p-8 text-center">
-              <p className="text-sm font-medium text-foreground">
-                No integrations found
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Try a different tool or category.
-              </p>
-            </div>
-          )}
+          {filteredPlatforms.length === 0 &&
+            !mcpCatalogMatches &&
+            !externalHostMatches && (
+              <div className="rounded-xl border border-dashed border-border p-8 text-center">
+                <p className="text-sm font-medium text-foreground">
+                  No integrations found
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Try a different tool or category.
+                </p>
+              </div>
+            )}
         </>
       )}
     </div>

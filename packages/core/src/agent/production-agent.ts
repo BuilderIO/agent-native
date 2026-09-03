@@ -1797,9 +1797,19 @@ export function trimOldToolResults(
   return trimmed ? result : null;
 }
 
-/** Upper bound (jitter included) on what `retryDelay(attempt)` will sleep. */
-function maxRetryDelayMs(attempt: number): number {
-  return RETRY_BASE_DELAY_MS * Math.pow(2, attempt) * 1.1;
+/**
+ * Upper bound (jitter included) on what `retryDelay(attempt, signal,
+ * retryAfterMs)` will sleep. Takes the same `retryAfterMs` so the budget
+ * estimate that approves a retry never disagrees with the sleep it approved —
+ * a provider-requested wait longer than the computed backoff must count
+ * against the budget too, or `hasBudgetForEngineRetry` would wave through a
+ * retry that then blows the run's remaining time asleep.
+ */
+function maxRetryDelayMs(attempt: number, retryAfterMs?: number): number {
+  return Math.max(
+    RETRY_BASE_DELAY_MS * Math.pow(2, attempt) * 1.1,
+    retryAfterMs ?? 0,
+  );
 }
 
 /**
@@ -1825,20 +1835,34 @@ export function remainingRunBudgetMs(startedAt: number): number {
  * (observed: every failing run spent all 3 retries, ~14s of it asleep, and
  * left nothing for recovery).
  */
-function hasBudgetForEngineRetry(startedAt: number, attempt: number): boolean {
+function hasBudgetForEngineRetry(
+  startedAt: number,
+  attempt: number,
+  retryAfterMs?: number,
+): boolean {
   const remainingMs = remainingRunBudgetMs(startedAt);
   if (remainingMs === Number.POSITIVE_INFINITY) return true;
   return (
-    remainingMs - maxRetryDelayMs(attempt) >=
+    remainingMs - maxRetryDelayMs(attempt, retryAfterMs) >=
     SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS
   );
 }
 
-/** Wait with exponential backoff, respecting abort signal */
-function retryDelay(attempt: number, signal: AbortSignal): Promise<void> {
+/**
+ * Wait with exponential backoff, respecting abort signal. When the provider
+ * classified a `Retry-After` wait longer than the computed backoff, sleep
+ * that long instead — `hasBudgetForEngineRetry` already approved this exact
+ * number via `maxRetryDelayMs`, so the two must stay in lockstep.
+ */
+function retryDelay(
+  attempt: number,
+  signal: AbortSignal,
+  retryAfterMs?: number,
+): Promise<void> {
   const baseMs = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
   const jitter = baseMs * 0.1;
-  const ms = Math.max(0, baseMs + (Math.random() * 2 - 1) * jitter);
+  const computedMs = Math.max(0, baseMs + (Math.random() * 2 - 1) * jitter);
+  const ms = Math.max(computedMs, retryAfterMs ?? 0);
   return new Promise((resolve, reject) => {
     if (signal.aborted) return reject(new Error("aborted"));
     const onAbort = () => {
@@ -5497,6 +5521,7 @@ export async function runAgentLoop(opts: {
                   contextOverflow: event.contextOverflow,
                   requestId: event.requestId,
                   requestShape: event.requestShape,
+                  retryAfterMs: event.retryAfterMs,
                 });
               }
             }
@@ -5557,10 +5582,15 @@ export async function runAgentLoop(opts: {
             { errorCode: "context_length_exceeded" },
           );
         }
+        // Only for errors `isRetryableError` already approves — this never
+        // widens what's retryable, it only changes how long an approved
+        // retry waits.
+        const retryAfterMs =
+          err instanceof EngineError ? err.retryAfterMs : undefined;
         if (
           retry < maxRetriesForError(err) &&
           isRetryableError(err) &&
-          hasBudgetForEngineRetry(budgetStartedAt, retry)
+          hasBudgetForEngineRetry(budgetStartedAt, retry, retryAfterMs)
         ) {
           // Clear partial text from the failed attempt so the retry
           // doesn't produce garbled duplicate output. A fast provider blip
@@ -5580,7 +5610,7 @@ export async function runAgentLoop(opts: {
             });
           }
           send({ type: "clear" });
-          await retryDelay(retry, signal);
+          await retryDelay(retry, signal, retryAfterMs);
           continue;
         }
         throw err;

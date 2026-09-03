@@ -252,6 +252,20 @@ describe("applyDocSurgically", () => {
 });
 
 describe("reconcileDocAgainstBase", () => {
+  it("merges a server insertion between unchanged blocks with a separate local edit", () => {
+    const editor = makeEditor("Alpha\n\nBravo\n\nCharlie local");
+    try {
+      const base = parse(editor, "Alpha\n\nBravo\n\nCharlie");
+      const server = parse(editor, "Alpha\n\nInserted\n\nBravo\n\nCharlie");
+      const result = reconcileDocAgainstBase(editor, base, server);
+
+      expect(result.status).toBe("applied");
+      expect(md(editor)).toBe("Alpha\n\nInserted\n\nBravo\n\nCharlie local");
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("preserves non-overlapping local and server changes", () => {
     const editor = makeEditor("Alpha local\n\nBravo\n\nCharlie");
     try {

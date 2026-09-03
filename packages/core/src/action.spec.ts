@@ -284,6 +284,17 @@ describe("defineAction", () => {
     });
   });
 
+  it("preserves an action title for WebMCP and MCP hosts", () => {
+    const action = defineAction({
+      title: "Review draft",
+      description: "review draft",
+      parameters: {},
+      run: async () => "ok",
+    });
+
+    expect(action.tool.title).toBe("Review draft");
+  });
+
   it("drops malformed MCP Apps config", () => {
     const action = defineAction({
       description: "bad ui",

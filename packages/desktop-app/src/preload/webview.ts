@@ -23,14 +23,30 @@ import {
 } from "@shared/ipc-channels";
 import { contextBridge, ipcRenderer } from "electron";
 
+type AgentChatCommandOptions = { focus?: boolean };
+
+function sendChatCommand(
+  command: "toggle" | "open" | "close",
+  options?: AgentChatCommandOptions,
+) {
+  if (options) {
+    ipcRenderer.sendToHost("agent-native:chat-command", command, options);
+  } else {
+    ipcRenderer.sendToHost("agent-native:chat-command", command);
+  }
+}
+
 const agentNativeDesktop = {
   analytics: {
     clientPlatform: "electron" as const,
   },
   chat: {
-    toggle: () => ipcRenderer.sendToHost("agent-native:chat-command", "toggle"),
-    open: () => ipcRenderer.sendToHost("agent-native:chat-command", "open"),
-    close: () => ipcRenderer.sendToHost("agent-native:chat-command", "close"),
+    toggle: (options?: AgentChatCommandOptions) =>
+      sendChatCommand("toggle", options),
+    open: (options?: AgentChatCommandOptions) =>
+      sendChatCommand("open", options),
+    close: (options?: AgentChatCommandOptions) =>
+      sendChatCommand("close", options),
   },
   clipboard: {
     writeText: (text: string): Promise<boolean> =>

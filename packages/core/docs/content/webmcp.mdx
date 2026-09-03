@@ -40,6 +40,11 @@ validated, authenticated server dispatcher. This includes agent-only actions
 declared with `http: false`; WebMCP does not turn those actions into public HTTP
 APIs.
 
+The core also initializes `@mcp-b/webmcp-polyfill` when the browser does not
+provide a usable native WebMCP surface. This keeps `document.modelContext`
+available for a host browser JavaScript evaluator. The polyfill is page-local.
+It does not grant access to the page or create a network MCP connection.
+
 An action is eligible when `agentTool` is not `false` and `needsApproval` is
 not declared. The latter is a fail-closed boundary: the server action approval
 contract belongs to the agent loop and cannot be delegated to a browser hint.
@@ -49,6 +54,48 @@ without `document.modelContext` simply keep the normal app behavior.
 
 No per-app WebMCP list or new `defineAction` metadata is required. Change the
 existing action definition when its exposure should change.
+
+## Use WebMCP from Claude Code or Cowork
+
+The ChatGPT app has named framework host tools for browser-session WebMCP.
+Other agents may expose the same capability through an MCP-B local relay or a
+browser JavaScript evaluator instead. The `/webmcp` skill tries the host bridge
+first, then the relay, then the evaluator.
+
+When a browser evaluator is the available path, it can call the live page API
+directly. The evaluator must run in the requested tab:
+
+```js
+const tools = await document.modelContext.getTools();
+const tool = tools.find(({ name }) => name === "create-deck");
+if (!tool) throw new Error("create-deck is unavailable in this tab");
+const result = await document.modelContext.executeTool(
+  tool,
+  JSON.stringify({ title: "Customer onboarding", slides: [] }),
+);
+return typeof result === "string" ? JSON.parse(result) : result;
+```
+
+`executeTool()` invokes the registered page callback. For framework backend
+actions, that callback uses the shared action dispatcher with the current
+browser session. Agents should list tools immediately before each mutation and
+pass the descriptor returned by that listing. They should not call an internal
+action `run()` function, hand-build an authenticated HTTP request, or use the
+visible developer console as the transport.
+
+For agents that use the MCP-B local relay, the page also needs the relay's
+browser embed script and the local MCP server must be configured in the agent
+host. The server exposes `webmcp_list_sources`, `webmcp_list_tools`, and the
+live page tools. Restrict the relay to the app origin instead of leaving its
+development default open:
+
+```bash
+npx @mcp-b/webmcp-local-relay@latest --widget-origin https://slides.agent-native.com
+```
+
+The strict polyfill makes the page API available, but it does not inject the
+relay embed script automatically. This separation prevents every deployed app
+from opening a local connection without the app owner's opt-in.
 
 ## Explicit page-local actions
 
@@ -245,8 +292,9 @@ bounded convenience when the clip is already open in a compatible browser.
 
 ## Compatibility and safety
 
-- Feature-detect `document.modelContext`; `supported` is false when the
-  browser has no WebMCP implementation.
+- Feature-detect `document.modelContext`; call
+  `initializeAgentNativeWebMcp()` when a standalone page needs the framework's
+  polyfill before creating a client or registration.
 - Keep `fromOrigins` and `exposedTo` to exact secure origins. Do not use `*` in
   production.
 - Treat descriptions, schemas, annotations, and results as page-provided

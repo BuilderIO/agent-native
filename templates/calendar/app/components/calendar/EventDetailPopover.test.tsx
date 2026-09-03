@@ -280,6 +280,40 @@ describe("EventDetailPopover characterization", () => {
     expect(content?.innerHTML).toContain("text-[13px] font-medium");
   });
 
+  it("shows shared-calendar provenance without edit controls", () => {
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent({
+            accountEmail: "emdistal@gmail.com",
+            calendarName: "Friends",
+            calendarPrimary: false,
+            calendarReadOnly: true,
+          })}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    expect(document.body.textContent).toContain(
+      "eventForm.viewingOwnerCalendar",
+    );
+    expect(
+      document.querySelector('button[aria-label="eventForm.eventOptions"]'),
+    ).toBeNull();
+    const title = document.querySelector("h2");
+    act(() => {
+      title?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(
+      document.querySelector('input[placeholder="eventForm.addTitle"]'),
+    ).toBeNull();
+    expect(updateEventMutate).not.toHaveBeenCalled();
+  });
+
   it("makes the event options visible and scrolls to them when opened", () => {
     act(() => {
       root.render(
@@ -878,6 +912,43 @@ describe("EventDetailPopover characterization", () => {
       }),
       expect.objectContaining({ onSettled: expect.any(Function) }),
     );
+  });
+
+  it("labels attendee draft creation Save while still submitting the draft", () => {
+    const onDraftCreate = vi.fn();
+    const event = baseEvent({
+      id: "attendee-draft",
+      source: "local",
+      attendees: [{ email: "guest@example.com" }],
+    });
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          isDraft
+          defaultOpen
+          onDelete={() => undefined}
+          onDraftCreate={onDraftCreate}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const saveButton = findByExactText("button", "eventForm.save");
+    expect(saveButton).toBeTruthy();
+    expect(
+      findByExactText("button", "eventForm.createAndSend"),
+    ).toBeUndefined();
+
+    act(() => {
+      (saveButton as HTMLElement).click();
+    });
+
+    expect(onDraftCreate).toHaveBeenCalledWith("attendee-draft", {
+      title: "Team sync",
+    });
   });
 
   it("offers series scope before removing Google Meet from a recurring event", async () => {

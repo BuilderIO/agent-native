@@ -4,6 +4,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockAssertAccess = vi.fn();
 const mockWriteAppState = vi.fn();
+const mockGetRequestRunContext = vi.fn(() => ({
+  browserTabId: "slides-tab-1",
+}));
 const mockNotifyClients = vi.fn();
 const mockGetUserEmail = vi.fn(() => "owner@example.com");
 const mockGetOrgId = vi.fn(() => null);
@@ -110,6 +113,7 @@ vi.mock("../server/lib/deck-versions.js", () => ({
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => mockGetUserEmail(),
   getRequestOrgId: () => mockGetOrgId(),
+  getRequestRunContext: () => mockGetRequestRunContext(),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -143,6 +147,20 @@ describe("create-deck — aspectRatio", () => {
     expect(insertedRow).toBeDefined();
     const data = JSON.parse(insertedRow!.data as string);
     expect(data.slides).toEqual([]);
+  });
+
+  it("opens a newly created empty deck for incremental slide generation", async () => {
+    const result = await action.run({ title: "T", slides: [] });
+
+    expect(result.slideCount).toBe(0);
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "navigate:slides-tab-1",
+      expect.objectContaining({
+        view: "editor",
+        deckId: result.id,
+        _writeId: expect.any(String),
+      }),
+    );
   });
 
   it("omits aspectRatio from the data JSON when not provided (legacy default)", async () => {
@@ -212,6 +230,21 @@ describe("create-deck — aspectRatio", () => {
     expect(updatedFields).toBeDefined();
     const data = JSON.parse(updatedFields!.data as string);
     expect(data.aspectRatio).toBe("1:1");
+  });
+
+  it("scopes existing-deck navigation to the invoking browser tab", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({ title: "T", slides: [] }),
+    };
+
+    await action.run({ title: "T2", slides: [], deckId: "deck-1" });
+
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "navigate:slides-tab-1",
+      expect.objectContaining({ view: "editor", deckId: "deck-1" }),
+    );
   });
 
   it("overwrites the existing aspectRatio when one is provided on bulk replace", async () => {

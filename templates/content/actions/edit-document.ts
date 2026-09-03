@@ -19,10 +19,7 @@ import {
   documentVersionChatContextFromAction,
   serializeDocumentVersionChatContext,
 } from "../server/lib/document-version-context.js";
-import {
-  applyDocumentTextEdits,
-  parseDocumentTextEditsJson,
-} from "../shared/document-text-edits.js";
+import { applyDocumentTextEdits } from "../shared/document-text-edits.js";
 import { inspectNfmFidelity } from "../shared/nfm.js";
 import {
   lockPrimaryBlocksFields,
@@ -35,6 +32,25 @@ interface TextEdit {
   find: string;
   replace: string;
 }
+
+const textEditsSchema = z.preprocess(
+  (value) => {
+    if (typeof value !== "string") return value;
+    try {
+      return JSON.parse(value);
+    } catch (error) {
+      throw new Error(
+        `Invalid --edits JSON: ${error instanceof Error ? error.message : "Unable to parse JSON"}`,
+      );
+    }
+  },
+  z.array(
+    z.object({
+      find: z.string().min(1),
+      replace: z.string().default(""),
+    }),
+  ),
+);
 
 const reuseLabelSchema = z.object({
   itemId: z.string().min(1).optional(),
@@ -75,8 +91,7 @@ const editDocumentSchema = z.object({
     .describe(
       'Replacement text in single-edit mode; omit to delete the matched text (default: "").',
     ),
-  edits: z
-    .string()
+  edits: textEditsSchema
     .optional()
     .describe(
       "JSON array of {find, replace} objects for a snapshot-stable batch; use instead of find/replace.",
@@ -133,25 +148,15 @@ export default defineAction({
 
     let edits: TextEdit[];
 
-    if (args.edits) {
-      try {
-        edits = parseDocumentTextEditsJson(args.edits);
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Unable to parse JSON";
-        throw new Error(`Invalid --edits JSON: ${message}`);
-      }
+    if (Array.isArray(args.edits)) {
+      edits = args.edits;
+    } else if (args.edits !== undefined) {
+      throw new Error("--edits must be a JSON array");
     } else if (args.find !== undefined) {
       if (!args.find) throw new Error("--find cannot be empty");
       edits = [{ find: args.find, replace: args.replace ?? "" }];
     } else {
       throw new Error("Either --find or --edits is required");
-    }
-
-    for (const edit of edits) {
-      if (!edit.find)
-        throw new Error("Each edit must have a non-empty 'find' field");
-      if (edit.replace === undefined) edit.replace = "";
     }
 
     const access = await assertAccess("document", id, "editor");

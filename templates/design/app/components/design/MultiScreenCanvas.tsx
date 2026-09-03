@@ -87,6 +87,7 @@ import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
 
 import { parseBreakpointWidthInput } from "./BreakpointBar";
+import { isCanvasOverlayInteractionTarget } from "./canvas-interactions/review-overlay-interaction";
 import {
   canvasPrimitiveReactStyle,
   DEFAULT_LINE_STROKE,
@@ -6988,6 +6989,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      if (isCanvasOverlayInteractionTarget(e.target)) return;
       claimKeyboardFocus();
       // Clear any stale pick-suppression left over from a prior resize/rotate/move
       // gesture that never received its trailing frame click — otherwise it would

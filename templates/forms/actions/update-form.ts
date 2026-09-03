@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -8,10 +8,12 @@ import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
 import { invalidatePublicFormCache } from "../server/lib/public-form-ssr.js";
 import {
   assertValidFields,
+  FIELD_TYPES,
   normalizeFieldIds,
 } from "../server/lib/validate-fields.js";
 import {
   assertValidFormCompletionSettings,
+  FORM_SETTINGS_KEYS,
   type FormField,
   type FormSettings,
 } from "../shared/types.js";
@@ -40,13 +42,13 @@ export default defineAction({
       .union([z.string(), z.array(z.any())])
       .optional()
       .describe(
-        "Array of complete field objects with id, type, label, and required (or JSON string of the same); never use shorthand strings such as 'text: Enter a name'.",
+        `Array of complete field objects with id, type, label, and required (or JSON string of the same). Field types: ${FIELD_TYPES.join(", ")}. Never use shorthand strings such as 'text: Enter a name'.`,
       ),
     settings: z
       .union([z.string(), z.record(z.string(), z.any())])
       .optional()
       .describe(
-        "Form settings object (or JSON string of the same). Set completionMode to message, redirect, message_then_refresh, or refresh. Use completionRefreshSeconds with message_then_refresh. Set emailOnNewResponses=true to email the form owner for each new response.",
+        `Form settings object (or JSON string of the same). Valid settings: ${FORM_SETTINGS_KEYS.join(", ")}. Set completionMode to message, redirect, message_then_refresh, or refresh. Use completionRefreshSeconds with message_then_refresh. Set emailOnNewResponses=true to email the form owner for each new response.`,
       ),
     status: z
       .enum(["draft", "published", "closed"])
@@ -64,7 +66,10 @@ export default defineAction({
       .limit(1);
 
     if (!existing) {
-      throw new Error(`Form ${args.id} not found`);
+      fail(`Form ${args.id} not found`, {
+        errorCode: "form_not_found",
+        statusCode: 404,
+      });
     }
 
     const now = new Date().toISOString();
@@ -85,7 +90,7 @@ export default defineAction({
         try {
           parsedFields = JSON.parse(args.fields);
         } catch {
-          throw new Error("--fields must be valid JSON");
+          fail("--fields must be valid JSON", { errorCode: "invalid_fields" });
         }
       } else {
         parsedFields = args.fields;
@@ -100,7 +105,9 @@ export default defineAction({
         try {
           incomingSettings = JSON.parse(args.settings) as FormSettings;
         } catch {
-          throw new Error("--settings must be valid JSON");
+          fail("--settings must be valid JSON", {
+            errorCode: "invalid_settings",
+          });
         }
       } else {
         incomingSettings = args.settings as unknown as FormSettings;
@@ -112,8 +119,8 @@ export default defineAction({
         // Keep malformed legacy settings recoverable by replacing them with
         // the valid settings supplied by this update.
       }
+      assertValidFormCompletionSettings(incomingSettings);
       const parsedSettings = { ...existingSettings, ...incomingSettings };
-      assertValidFormCompletionSettings(parsedSettings);
       // Reject blocked integration URLs at save time (private IPs,
       // cloud-metadata, non-http(s) schemes). fireIntegrations also
       // re-checks at runtime as defense-in-depth.

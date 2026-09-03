@@ -772,6 +772,7 @@ interface VisualEditorProps {
   pendingHighlight?: { from: number; to: number } | null;
   /** Called when the user clicks an inline highlight in the document. */
   onActivateThread?: (threadId: string) => void;
+  showCommentIndicators?: boolean;
   onJoinTitle?: (text: string) => void;
   notionPageLinks?: NotionPageLink[];
   onOpenNotionPageLink?: (documentId: string) => void;
@@ -2100,6 +2101,7 @@ export function VisualEditor({
   activeThreadId,
   pendingHighlight,
   onActivateThread,
+  showCommentIndicators = true,
   onJoinTitle,
   notionPageLinks = [],
   onOpenNotionPageLink,
@@ -2809,6 +2811,14 @@ export function VisualEditor({
         ? new Map<string, CommentHighlightSpec>()
         : new Map((current?.specs ?? []).map((s) => [s.threadId, s]));
       const specs: CommentHighlightSpec[] = [];
+      if (!showCommentIndicators) {
+        setCommentHighlights(view, {
+          specs,
+          pending: pendingHighlight ?? null,
+          activeId: activeThreadId ?? null,
+        });
+        return;
+      }
       for (const thread of threadsRef.current ?? []) {
         if (thread.resolved) continue;
         const existing = mapped.get(thread.threadId);
@@ -2836,7 +2846,7 @@ export function VisualEditor({
         activeId: activeThreadId ?? null,
       });
     },
-    [activeThreadId, editor, pendingHighlight],
+    [activeThreadId, editor, pendingHighlight, showCommentIndicators],
   );
 
   const applyRef = useRef(applyHighlights);
@@ -2887,30 +2897,19 @@ export function VisualEditor({
   // Active card / pending selection just update the existing highlights.
   useEffect(() => {
     scheduleApply(false);
-  }, [editor, scheduleApply, activeThreadId, pendingKey]);
+  }, [
+    activeThreadId,
+    editor,
+    pendingKey,
+    scheduleApply,
+    showCommentIndicators,
+  ]);
 
   // Re-resolve from scratch when the loaded content changes wholesale (an agent
   // edit / Notion pull replaces the document body).
   useEffect(() => {
     scheduleApply(true);
   }, [editor, scheduleApply, content, contentUpdatedAt]);
-
-  // Clicking an inline highlight focuses its thread in the sidebar.
-  useEffect(() => {
-    if (!editor || editor.isDestroyed || !onActivateThread) return;
-    const dom = editor.view.dom;
-    const handleClick = (event: Event) => {
-      const target = event.target as HTMLElement | null;
-      const el = target?.closest?.(
-        "[data-comment-thread]",
-      ) as HTMLElement | null;
-      if (!el) return;
-      const id = el.getAttribute("data-comment-thread");
-      if (id) setTimeout(() => onActivateThread(id), 0);
-    };
-    dom.addEventListener("click", handleClick);
-    return () => dom.removeEventListener("click", handleClick);
-  }, [editor, onActivateThread]);
 
   if (!editor) {
     return (

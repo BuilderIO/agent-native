@@ -10,13 +10,14 @@ import {
   IconMessageCircle,
   IconArrowUp,
   IconArrowBackUp,
-  IconChevronDown,
+  IconFilter,
 } from "@tabler/icons-react";
 import {
   Fragment,
   useState,
   useRef,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useCallback,
   type RefObject,
@@ -28,6 +29,15 @@ import {
   AvatarFallback as UserAvatarFallback,
   AvatarImage as UserAvatarImage,
 } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Tooltip,
   TooltipContent,
@@ -342,7 +352,7 @@ interface CommentsSidebarProps {
     anchor?: CommentTextAnchor;
     range?: { from: number; to: number };
   } | null;
-  onPendingDone?: () => void;
+  onPendingDone?: (threadId?: string) => void;
   scrollContainerRef?: RefObject<HTMLDivElement | null>;
   activeThreadId?: string | null;
   selectedThreadId?: string | null;
@@ -354,6 +364,8 @@ interface CommentsSidebarProps {
   canResolve?: boolean;
   alignToAnchors?: boolean;
   forceVisible?: boolean;
+  visibleThreadId?: string | null;
+  presentation?: "inline" | "history";
 }
 
 export function CommentsSidebar({
@@ -373,6 +385,8 @@ export function CommentsSidebar({
   canResolve = false,
   alignToAnchors = true,
   forceVisible = false,
+  visibleThreadId,
+  presentation = "inline",
 }: CommentsSidebarProps) {
   const t = useT();
   const { data: members = [] } = useMentionMembers();
@@ -383,18 +397,61 @@ export function CommentsSidebar({
   const [replyMentions, setReplyMentions] = useState<MentionEntry[]>([]);
   const [pendingText, setPendingText] = useState("");
   const [pendingMentions, setPendingMentions] = useState<MentionEntry[]>([]);
-  const [showResolved, setShowResolved] = useState(false);
+  const [historyStatus, setHistoryStatus] = useState<
+    "all" | "open" | "resolved"
+  >("all");
+  const [historyAuthor, setHistoryAuthor] = useState<string | null>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const pendingInputRef = useRef<HTMLTextAreaElement>(null);
 
-  const openThreads = useMemo(
-    () => threads?.filter((t) => !t.resolved) ?? [],
-    [threads],
-  );
-  const resolvedThreads = useMemo(
-    () => threads?.filter((t) => t.resolved) ?? [],
-    [threads],
-  );
+  const openThreads = useMemo(() => {
+    const open = threads?.filter((thread) => !thread.resolved) ?? [];
+    return visibleThreadId
+      ? open.filter((thread) => thread.threadId === visibleThreadId)
+      : open;
+  }, [threads, visibleThreadId]);
+  const selectedThreadIsOpen =
+    !!selectedThreadId &&
+    openThreads.some((thread) => thread.threadId === selectedThreadId);
+
+  useLayoutEffect(() => {
+    const nextReplyingThreadId =
+      presentation === "inline" && canComment && selectedThreadIsOpen
+        ? selectedThreadId
+        : null;
+    setReplyingThreadId(nextReplyingThreadId);
+    setReplyText("");
+    setReplyMentions([]);
+  }, [canComment, presentation, selectedThreadId, selectedThreadIsOpen]);
+  const historyAuthors = useMemo(() => {
+    const authors = new Map<string, string>();
+    for (const thread of threads) {
+      for (const comment of thread.comments) {
+        authors.set(
+          comment.author_email,
+          comment.author_name ?? comment.author_email.split("@")[0],
+        );
+      }
+    }
+    return [...authors.entries()].sort((left, right) =>
+      left[1].localeCompare(right[1]),
+    );
+  }, [threads]);
+  const historyThreads = useMemo(() => {
+    return threads.filter((thread) => {
+      if (historyStatus === "open" && thread.resolved) return false;
+      if (historyStatus === "resolved" && !thread.resolved) return false;
+      if (
+        historyAuthor &&
+        !thread.comments.some(
+          (comment) => comment.author_email === historyAuthor,
+        )
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [historyAuthor, historyStatus, threads]);
 
   useEffect(() => {
     if (pendingComment) {
@@ -418,10 +475,10 @@ export function CommentsSidebar({
         mentions: mentionsJsonFor(pendingText, pendingMentions),
       },
       {
-        onSuccess: () => {
+        onSuccess: (result) => {
           setPendingText("");
           setPendingMentions([]);
-          onPendingDone?.();
+          onPendingDone?.(result.threadId);
         },
         onError: (error) => {
           toast.error(t("empty.genericError"), {
@@ -610,7 +667,9 @@ export function CommentsSidebar({
   }, [onSelectedThreadChange, selectedThreadId, openThreads]);
 
   const hasContent =
-    openThreads.length > 0 || !!pendingComment || resolvedThreads.length > 0;
+    presentation === "history"
+      ? threads.length > 0
+      : openThreads.length > 0 || !!pendingComment;
   if (!hasContent && !isLoading && !forceVisible) return null;
 
   const items = layoutCommentThreads(
@@ -644,15 +703,128 @@ export function CommentsSidebar({
     });
   };
 
+  if (presentation === "history") {
+    return (
+      <div className="min-h-full w-full bg-background" data-comments-history>
+        <div className="sticky top-0 z-10 flex items-center border-b border-border bg-background px-3 py-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <IconFilter size={14} />
+                {t("comments.filter")}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              <DropdownMenuLabel>
+                {t("comments.statusFilter")}
+              </DropdownMenuLabel>
+              <DropdownMenuGroup>
+                {(["all", "open", "resolved"] as const).map((status) => (
+                  <DropdownMenuCheckboxItem
+                    key={status}
+                    checked={historyStatus === status}
+                    onCheckedChange={(checked) =>
+                      checked && setHistoryStatus(status)
+                    }
+                    onSelect={(event) => event.preventDefault()}
+                  >
+                    {status === "all"
+                      ? t("comments.allStatuses")
+                      : status === "open"
+                        ? t("comments.open")
+                        : t("comments.resolvedStatus")}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>
+                {t("comments.authorFilter")}
+              </DropdownMenuLabel>
+              <DropdownMenuGroup>
+                <DropdownMenuCheckboxItem
+                  checked={historyAuthor === null}
+                  onCheckedChange={(checked) =>
+                    checked && setHistoryAuthor(null)
+                  }
+                  onSelect={(event) => event.preventDefault()}
+                >
+                  {t("comments.allAuthors")}
+                </DropdownMenuCheckboxItem>
+                {historyAuthors.map(([email, name]) => (
+                  <DropdownMenuCheckboxItem
+                    key={email}
+                    checked={historyAuthor === email}
+                    onCheckedChange={(checked) =>
+                      checked && setHistoryAuthor(email)
+                    }
+                    onSelect={(event) => event.preventDefault()}
+                  >
+                    {name}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        <div className="grid gap-2 p-3">
+          {isLoading ? (
+            [0, 1, 2].map((item) => (
+              <div
+                key={item}
+                className="h-24 animate-pulse rounded-lg bg-muted/60"
+                aria-hidden="true"
+              />
+            ))
+          ) : historyThreads.length === 0 ? (
+            <div className="px-2 py-10 text-center text-sm text-muted-foreground">
+              {t("comments.noFilteredComments")}
+            </div>
+          ) : (
+            historyThreads.map((thread) =>
+              thread.resolved ? (
+                <ResolvedThreadView
+                  key={thread.threadId}
+                  thread={thread}
+                  canResolve={canResolve}
+                  onReopen={() => handleReopen(thread)}
+                  t={t}
+                />
+              ) : (
+                <HistoryThreadView
+                  key={thread.threadId}
+                  thread={thread}
+                  onOpen={() => onActivateThread?.(thread.threadId)}
+                />
+              ),
+            )
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       ref={sidebarRef}
-      className="relative w-full min-w-0 shrink-0 pb-16"
+      className="relative flow-root w-full min-w-0 shrink-0 pb-16"
       data-comments-sidebar
     >
       {!hasContent && !isLoading ? (
         <div className="px-4 py-8 text-sm text-muted-foreground">
           {t("comments.empty")}
+        </div>
+      ) : null}
+      {isLoading ? (
+        <div className="space-y-3 px-2 pt-3" aria-hidden="true">
+          {[0, 1].map((item) => (
+            <div
+              key={item}
+              className="h-28 animate-pulse rounded-lg bg-muted/60"
+            />
+          ))}
         </div>
       ) : null}
       {/* Pending new comment — positioned at the selection Y offset */}
@@ -704,20 +876,13 @@ export function CommentsSidebar({
 
       {/* Open thread cards — positioned to align with their referenced text */}
       {items.map((item, index) => {
-        const { thread, marginTop, top, anchorTop, isOrphaned } = item;
+        const { thread, marginTop, top, isOrphaned } = item;
         const isActive = activeThreadId === thread.threadId;
         const startsOrphanedSection =
           isOrphaned &&
           !items.slice(0, index).some((prior) => prior.isOrphaned);
         return (
           <Fragment key={thread.threadId}>
-            {alignToAnchors && anchorTop != null ? (
-              <CommentConnector
-                anchorTop={anchorTop}
-                cardTop={top}
-                active={isActive}
-              />
-            ) : null}
             {startsOrphanedSection ? (
               <div
                 className="absolute inset-x-2 flex items-center gap-2 text-[11px] text-muted-foreground"
@@ -733,6 +898,7 @@ export function CommentsSidebar({
               thread={thread}
               marginTop={marginTop}
               isActive={isActive}
+              allowEmphasisMotion={alignToAnchors}
               isExpanded={replyingThreadId === thread.threadId}
               isSubmitting={createComment.isPending}
               replyText={replyingThreadId === thread.threadId ? replyText : ""}
@@ -747,9 +913,7 @@ export function CommentsSidebar({
                   threadPositions.get(thread.threadId)?.documentTop,
                 );
                 if (canComment) {
-                  setReplyingThreadId((current) =>
-                    current === thread.threadId ? null : thread.threadId,
-                  );
+                  setReplyingThreadId(thread.threadId);
                 }
                 setReplyText("");
                 setReplyMentions([]);
@@ -777,69 +941,40 @@ export function CommentsSidebar({
           </Fragment>
         );
       })}
-
-      {/* Resolved comments — collapsible, reopenable */}
-      {resolvedThreads.length > 0 && (
-        <div className="mx-2 mr-4 mt-4 mb-6">
-          <button
-            onClick={() => setShowResolved((v) => !v)}
-            className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent"
-          >
-            <IconChevronDown
-              size={14}
-              className={showResolved ? "" : "-rotate-90 transition-transform"}
-            />
-            {t("comments.resolved", { count: resolvedThreads.length })}
-          </button>
-          {showResolved && (
-            <div className="mt-1.5 space-y-1.5">
-              {resolvedThreads.map((thread) => (
-                <ResolvedThreadView
-                  key={thread.threadId}
-                  thread={thread}
-                  canResolve={canResolve}
-                  onReopen={() => handleReopen(thread)}
-                  t={t}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
 
-function CommentConnector({
-  anchorTop,
-  cardTop,
-  active,
+function HistoryThreadView({
+  thread,
+  onOpen,
 }: {
-  anchorTop: number;
-  cardTop: number;
-  active: boolean;
+  thread: CommentThread;
+  onOpen: () => void;
 }) {
-  const cardPoint = cardTop + 20;
-  if (Math.abs(anchorTop - cardPoint) < 6) return null;
-  const top = Math.min(anchorTop, cardPoint);
-  const height = Math.abs(anchorTop - cardPoint);
-  const colorClass = active ? "border-primary/60" : "border-border";
-
+  const first = thread.comments[0];
   return (
-    <div aria-hidden data-comment-connector={active ? "active" : "idle"}>
-      <span
-        className={`pointer-events-none absolute left-1 w-2 border-t ${colorClass}`}
-        style={{ top: anchorTop }}
-      />
-      <span
-        className={`pointer-events-none absolute left-1 border-s ${colorClass}`}
-        style={{ top, height }}
-      />
-      <span
-        className={`pointer-events-none absolute left-1 w-2 border-t ${colorClass}`}
-        style={{ top: cardPoint }}
-      />
-    </div>
+    <button
+      type="button"
+      className="w-full min-w-0 overflow-hidden rounded-lg bg-popover p-3 text-start shadow-sm ring-1 ring-border/50 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={onOpen}
+    >
+      {thread.quotedText ? (
+        <p className="mb-2 line-clamp-2 border-s-2 border-border ps-2 text-xs italic text-muted-foreground">
+          {thread.quotedText}
+        </p>
+      ) : null}
+      <div className="flex items-start gap-2">
+        <CommentAvatar
+          email={first.author_email}
+          name={first.author_name ?? first.author_email}
+          className="size-5 shrink-0"
+        />
+        <span className="min-w-0 flex-1 break-words text-[13px] text-foreground/90">
+          {renderCommentBody(first.content, first.mentions)}
+        </span>
+      </div>
+    </button>
   );
 }
 
@@ -847,6 +982,7 @@ function ThreadView({
   thread,
   marginTop,
   isActive,
+  allowEmphasisMotion,
   isExpanded,
   isSubmitting,
   replyText,
@@ -867,6 +1003,7 @@ function ThreadView({
   thread: CommentThread;
   marginTop: number;
   isActive: boolean;
+  allowEmphasisMotion: boolean;
   isExpanded: boolean;
   isSubmitting: boolean;
   replyText: string;
@@ -910,10 +1047,14 @@ function ThreadView({
     <div
       ref={cardRef}
       data-thread-card={thread.threadId}
-      className={`group/thread mx-2 mr-4 rounded-lg bg-popover shadow-md cursor-pointer transition-shadow ${
-        isActive
-          ? "ring-2 ring-primary/60"
-          : "ring-1 ring-border/50 hover:ring-border"
+      className={`group/thread mx-2 mr-4 cursor-pointer rounded-lg bg-popover shadow-md ring-1 ring-border/50 ${
+        allowEmphasisMotion
+          ? `transition-transform duration-[260ms] ease-[var(--ease-drawer)] ${
+              isActive
+                ? "-translate-x-2 shadow-lg"
+                : "hover:-translate-x-2 hover:shadow-lg"
+            }`
+          : ""
       }`}
       style={{ marginTop }}
       onClick={() => {
@@ -924,10 +1065,12 @@ function ThreadView({
     >
       <div className="relative p-3 pb-2">
         {/* Hover actions — top right, Notion style pill */}
-        <div className="absolute top-2 right-2 hidden group-hover/thread:flex items-center rounded-md bg-accent/80 ring-1 ring-border/50">
+        <div className="pointer-events-none absolute top-2 right-2 flex items-center rounded-md bg-accent/80 opacity-0 ring-1 ring-border/50 transition-opacity group-hover/thread:pointer-events-auto group-hover/thread:opacity-100 group-focus-within/thread:pointer-events-auto group-focus-within/thread:opacity-100">
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                type="button"
+                aria-label={t("comments.askAi")}
                 onClick={(e) => {
                   e.stopPropagation();
                   onSendToAI();
@@ -943,6 +1086,8 @@ function ThreadView({
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
+                  type="button"
+                  aria-label={t("comments.resolve")}
                   onClick={(e) => {
                     e.stopPropagation();
                     onResolve();
@@ -958,6 +1103,17 @@ function ThreadView({
         </div>
 
         {/* Comments */}
+        <button
+          type="button"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-2 focus:z-10 focus:rounded focus:bg-background focus:px-2 focus:py-1 focus:text-xs focus:ring-2 focus:ring-ring"
+          aria-expanded={isExpanded}
+          onClick={(event) => {
+            event.stopPropagation();
+            onExpand();
+          }}
+        >
+          {t("comments.reply")}
+        </button>
         {thread.comments.map((c) => (
           <div key={c.id} className="mb-3 last:mb-0">
             <div className="flex items-center gap-2 mb-0.5">
@@ -1006,6 +1162,8 @@ function ThreadView({
             />
             <div className="absolute right-1 bottom-0.5 flex items-center gap-0.5">
               <button
+                type="button"
+                aria-label={t("comments.submit")}
                 onClick={onSubmitReply}
                 disabled={!replyText.trim() || isSubmitting}
                 className="p-1 rounded-full text-muted-foreground/40 hover:text-foreground disabled:opacity-30"
@@ -1033,7 +1191,7 @@ function ResolvedThreadView({
 }) {
   const first = thread.comments[0];
   return (
-    <div className="group/resolved rounded-lg bg-muted/40 p-3 ring-1 ring-border/40">
+    <div className="group/resolved w-full min-w-0 overflow-hidden rounded-lg bg-muted/40 p-3 ring-1 ring-border/40">
       {thread.quotedText && (
         <p className="mb-1.5 truncate border-l-2 border-border pl-2 text-xs italic text-muted-foreground">
           {thread.quotedText}
@@ -1052,8 +1210,10 @@ function ResolvedThreadView({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                type="button"
+                aria-label={t("comments.reopen")}
                 onClick={onReopen}
-                className="p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/resolved:opacity-100"
+                className="p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/resolved:opacity-100 group-focus-within/resolved:opacity-100 focus:opacity-100"
               >
                 <IconArrowBackUp size={14} />
               </button>

@@ -340,7 +340,7 @@ test("requires every Capability in the canonical catalog to use version 2", () =
   );
   assert(
     result.errors.some((error) =>
-      error.includes("expected 124 Capabilities, found 2"),
+      error.includes("expected 125 Capabilities, found 2"),
     ),
   );
 });

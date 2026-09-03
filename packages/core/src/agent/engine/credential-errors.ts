@@ -10,6 +10,14 @@ export const LLM_MISSING_CREDENTIALS_ERROR_CODE = "missing_credentials";
 export const CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE =
   "credential_store_unavailable";
 
+const LLM_REJECTED_CREDENTIAL_ERROR_CODES = new Set([
+  "http_401",
+  "http_403",
+  "invalid_api_key",
+  "authentication_error",
+  "unauthorized",
+]);
+
 export const LLM_MISSING_CREDENTIALS_MESSAGE =
   "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io (free tier available) or add a provider key.";
 
@@ -62,6 +70,7 @@ export function isLlmCredentialError(
   // "We could not read the credential store" is a retryable failure, not a
   // setup problem. Telling this user to connect a provider is the bug.
   if (code === CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE) return false;
+  if (LLM_REJECTED_CREDENTIAL_ERROR_CODES.has(code.toLowerCase())) return true;
 
   const message = getErrorMessage(error);
   if (!message) return false;

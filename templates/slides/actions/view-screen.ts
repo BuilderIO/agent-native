@@ -86,6 +86,7 @@ function getCurrentSlideFitMeasurement(
 }
 
 export default defineAction({
+  title: "Inspect current Slides screen",
   description:
     "See what the user is currently looking at. Returns the CURRENT deck ID, current slide ID, and the full list of slide IDs in the open deck (or the deck list if the user is on the home page). Call this before any slide operation to get the exact IDs you need for add-slide / update-slide / create-deck.",
   schema: z.object({}),

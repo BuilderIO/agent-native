@@ -28,7 +28,6 @@ export interface AuthMarketingProps {
   screenshotWidth?: number;
   screenshotHeight?: number;
   learnMoreUrl?: string;
-  learnMorePlacement?: "top-right" | "bottom-right";
 }
 
 export interface AuthLocaleOption {
@@ -67,7 +66,6 @@ export interface AuthPageProps {
   showGoogle: boolean;
   signupLegalNotice?: AuthLegalNotice;
   signupLocalModeNote?: { text: string; command: string };
-  connectionLabel: string;
   docsAuthUrl: string;
   identitySsoEnabled: boolean;
   publicOAuthOrigin: string;
@@ -630,7 +628,6 @@ export function AuthPage(props: AuthPageProps) {
     showGoogle,
     signupLegalNotice,
     signupLocalModeNote,
-    connectionLabel,
     docsAuthUrl,
     identitySsoEnabled,
     publicOAuthOrigin,
@@ -648,7 +645,6 @@ export function AuthPage(props: AuthPageProps) {
   const [localDevBusy, setLocalDevBusy] = React.useState(false);
   const [fullAuthOptionsVisible, setFullAuthOptionsVisible] =
     React.useState(true);
-  const [localNoteVisible, setLocalNoteVisible] = React.useState(false);
   const [upgradeVisible, setUpgradeVisible] = React.useState(false);
   const [magicLinkEmail, setMagicLinkEmail] = React.useState("");
   const [signupEmail, setSignupEmail] = React.useState("");
@@ -680,6 +676,7 @@ export function AuthPage(props: AuthPageProps) {
   const nativeOAuthAbandonTimer = React.useRef<number | null>(null);
   const verificationCheckInFlight = React.useRef(false);
   const verifiedReturnHandled = React.useRef(false);
+  const verificationStepStartedRef = React.useRef(false);
 
   const [runtimeAppBasePath, setRuntimeAppBasePath] =
     React.useState(appBasePath);
@@ -941,16 +938,6 @@ export function AuthPage(props: AuthPageProps) {
     });
   }, [authMode, homePath, runtimeAppBasePath, trackingApp]);
 
-  React.useEffect(() => {
-    const hostname = window.location.hostname.toLowerCase();
-    setLocalNoteVisible(
-      hostname === "localhost" ||
-        hostname === "127.0.0.1" ||
-        hostname === "::1" ||
-        hostname.endsWith(".local"),
-    );
-  }, []);
-
   const localDevAllowed = React.useMemo(
     () =>
       isLoopbackHostname() ||
@@ -975,6 +962,10 @@ export function AuthPage(props: AuthPageProps) {
         const available = response.ok && data.available === true;
         setLocalDevAvailable(available);
         if (!available) {
+          setFullAuthOptionsVisible(true);
+          return;
+        }
+        if (verificationStepStartedRef.current) {
           setFullAuthOptionsVisible(true);
           return;
         }
@@ -1480,6 +1471,8 @@ export function AuthPage(props: AuthPageProps) {
       setVerificationEmail(normalized);
       rememberPendingSignupEmail(normalized);
       setNotice("verification", null);
+      verificationStepStartedRef.current = true;
+      setFullAuthOptionsVisible(true);
       setView("verification");
       writeStorage(TAB_STORAGE_KEY, "signup");
     },
@@ -2519,16 +2512,6 @@ export function AuthPage(props: AuthPageProps) {
       </div>
     </div>
   );
-  const localNote = (
-    <p
-      className={`local-note ${localNoteVisible ? "show" : ""}`}
-      id="local-note"
-    >
-      <span data-i18n="localNotePrefix">{t("localNotePrefix")}</span> (
-      <strong>{connectionLabel}</strong>)
-      <span data-i18n="localNoteSuffix">{t("localNoteSuffix")}</span>
-    </p>
-  );
   const localePicker = (
     <div className="locale-picker">
       <button
@@ -2656,6 +2639,7 @@ export function AuthPage(props: AuthPageProps) {
         marketingCopy.learnMoreUrl ? (
           <a
             className="auth-marketing-learn-more"
+            data-auth-marketing-learn-more="true"
             href={marketingCopy.learnMoreUrl}
             target="_blank"
             rel="noreferrer"
@@ -2673,24 +2657,21 @@ export function AuthPage(props: AuthPageProps) {
           </a>
         ) : null
       }
-      auth={
-        <>
-          {authCard}
-          {localNote}
-        </>
-      }
+      auth={authCard}
       className={[
         "auth-marketing-home",
         marketingCopy.screenshotSrc ? "has-product-screenshot" : "",
-        marketingCopy.learnMorePlacement === "bottom-right"
-          ? "has-bottom-right-learn-more"
-          : "",
       ]
         .filter(Boolean)
         .join(" ")}
     >
       {marketingCopy.screenshotSrc ? (
-        <div className="auth-marketing-screenshot-wrap">
+        <div
+          className="auth-marketing-screenshot-wrap"
+          style={{
+            aspectRatio: `${marketingCopy.screenshotWidth ?? 914} / ${marketingCopy.screenshotHeight ?? 818}`,
+          }}
+        >
           <img
             className="auth-marketing-screenshot"
             src={marketingCopy.screenshotSrc}
@@ -2754,10 +2735,7 @@ export function AuthPage(props: AuthPageProps) {
       )}
     </MarketingHome>
   ) : (
-    <>
-      <div className="auth-centered">{authCard}</div>
-      {localNote}
-    </>
+    <div className="auth-centered">{authCard}</div>
   );
 
   return (

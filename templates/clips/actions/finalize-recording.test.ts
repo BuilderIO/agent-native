@@ -26,6 +26,14 @@ const mockDispatchPostFinalizeJob = vi.hoisted(() =>
 );
 const mockClearSeekableRepairPending = vi.hoisted(() => vi.fn());
 const mockMarkSeekableRepairPending = vi.hoisted(() => vi.fn());
+const mockEnsureRecordingThumbnail = vi.hoisted(() =>
+  vi.fn(async () => ({
+    recordingId: "rec_1",
+    status: "already-set" as const,
+    changed: false,
+    thumbnailUrl: null,
+  })),
+);
 const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockDeleteAppState = vi.hoisted(() => vi.fn());
@@ -124,6 +132,11 @@ vi.mock("../server/lib/debug.js", () => ({
   debugLog: vi.fn(),
 }));
 
+vi.mock("../server/lib/ensure-recording-thumbnail.js", () => ({
+  ensureRecordingThumbnail: (...args: unknown[]) =>
+    mockEnsureRecordingThumbnail(...args),
+}));
+
 vi.mock("../server/lib/builder-media-compression.js", () => ({
   queueBuilderMediaCompression: vi.fn(async () => ({
     queued: false,
@@ -134,6 +147,10 @@ vi.mock("../server/lib/builder-media-compression.js", () => ({
 vi.mock("../server/lib/post-finalize-dispatch.js", () => ({
   dispatchPostFinalizeJob: (...args: unknown[]) =>
     mockDispatchPostFinalizeJob(...args),
+}));
+
+vi.mock("../server/lib/reconcile-meeting-on-finalize.js", () => ({
+  reconcileMeetingOnRecordingReady: vi.fn(async () => undefined),
 }));
 
 vi.mock("../server/lib/faststart.js", () => ({
@@ -341,6 +358,13 @@ describe("finalize-recording media serve verification", () => {
     mockDeleteAppState.mockResolvedValue(undefined);
     mockClearSeekableRepairPending.mockResolvedValue(undefined);
     mockMarkSeekableRepairPending.mockResolvedValue(undefined);
+    mockEnsureRecordingThumbnail.mockClear();
+    mockEnsureRecordingThumbnail.mockResolvedValue({
+      recordingId: "rec_1",
+      status: "already-set",
+      changed: false,
+      thumbnailUrl: null,
+    });
     mockCompareAndSetAppState.mockResolvedValue(true);
     mockUpdateWhere.mockImplementation(() => ({
       returning: mockUpdateReturning,
@@ -557,6 +581,12 @@ describe("finalize-recording media serve verification", () => {
     expect(mockUpdateSet).toHaveBeenCalledWith(
       expect.objectContaining({ status: "ready", videoSizeBytes: 2 }),
     );
+    expect(mockUpdateSet).toHaveBeenCalledWith({ thumbnailStatus: "pending" });
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec_1",
+      kind: "thumbnail",
+      requireAccepted: true,
+    });
   });
 
   it("keeps verification pending when storage omits a determinate byte count", async () => {

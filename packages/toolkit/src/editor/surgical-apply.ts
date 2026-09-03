@@ -96,6 +96,15 @@ export function diffTopLevelHunks(
     const skipBase = lcs[(i + 1) * width + j];
     const skipChanged = lcs[i * width + j + 1];
     if (skipBase === skipChanged) {
+      const insertion =
+        j + 1 < changed.length && nodesEqual(base[i], changed[j + 1]);
+      const deletion =
+        i + 1 < base.length && nodesEqual(base[i + 1], changed[j]);
+      if (insertion !== deletion) {
+        if (insertion) j++;
+        else i++;
+        continue;
+      }
       // A plain substitution leaves the same suffix LCS after advancing both
       // sides. Treat that as one changed run; only competing cross-matches are
       // ambiguous enough to fail closed.

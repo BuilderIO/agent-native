@@ -2701,7 +2701,6 @@ describe("AgentEngine registry", () => {
         readAppSecret,
         readAppSecrets,
       }));
-
       const { registerAgentEngine, detectEngineFromUserSecrets } =
         await import("./registry.js");
 
@@ -2755,9 +2754,37 @@ describe("AgentEngine registry", () => {
         readAppSecret,
         readAppSecrets,
       }));
+      vi.doMock(
+        "../../server/credential-provider.js",
+        async (importOriginal) => {
+          const actual =
+            await importOriginal<
+              typeof import("../../server/credential-provider.js")
+            >();
+          return {
+            ...actual,
+            resolveBuilderCredentialsDetailed: vi.fn(async () => ({
+              privateKey: "p-key",
+              publicKey: "space",
+              lookupFailed: false,
+            })),
+          };
+        },
+      );
+      vi.stubEnv("AGENT_ENGINE_PREFER_BYO_KEY", undefined);
 
-      const { registerAgentEngine, detectEngineFromUserSecrets } =
-        await import("./registry.js");
+      const {
+        registerAgentEngine,
+        unregisterAgentEngine,
+        listAgentEngines,
+        detectEngineFromUserSecrets,
+      } = await import("./registry.js");
+
+      // A reused Vitest worker can retain registered engines from another
+      // package suite; this test is specifically about Builder's priority.
+      for (const entry of listAgentEngines()) {
+        unregisterAgentEngine(entry.name);
+      }
 
       registerAgentEngine({
         name: "builder",

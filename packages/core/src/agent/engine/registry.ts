@@ -90,8 +90,14 @@ const AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR =
  */
 export function registerAgentEngine(entry: AgentEngineEntry): void {
   if (_registry.has(entry.name)) {
-    // Allow re-registration in tests / hot-reload — just overwrite
+    // Allow re-registration in tests / hot-reload — just overwrite.
+    // Delete first: `Map.set` on an existing key keeps its original insertion
+    // slot, so a re-registered engine would silently retain the priority it
+    // had in a previous test's registry. Detection walks this map in order, so
+    // that leaves a stale entry ahead of Builder and probes a provider key on
+    // the path that is supposed to resolve without reading one.
     if (process.env.NODE_ENV === "test") {
+      _registry.delete(entry.name);
       _registry.set(entry.name, entry);
       return;
     }
@@ -706,6 +712,17 @@ export async function detectEngineFromUserSecrets(
     return null;
   }
 
+  const firstEntry = _registry.values().next().value;
+  if (
+    !getAppConfig().agent.preferBringYourOwnKey &&
+    firstEntry?.name === "builder" &&
+    isAgentEnginePackageInstalled(firstEntry) &&
+    firstEntry.requiredEnvVars.length > 0 &&
+    (await hasUsableBuilderConnection(identity))
+  ) {
+    return firstEntry;
+  }
+
   // Deliberately lazy: a connected Builder account resolves from the first
   // registry entry without reading a provider key at all, so warming eagerly
   // would put four scope reads in front of the fast path on a continuously
@@ -746,26 +763,7 @@ export async function detectEngineFromUserSecrets(
     return true;
   };
 
-  // Batch-load every candidate provider credential for this identity in one
-  // read per scope, so the per-engine checks below answer from the request
-  // memo instead of each key re-walking the four-scope waterfall. Without this
-  // an unconfigured request sweeps the whole registry one point read at a time.
-  const candidateProviderKeys = Array.from(
-    new Set(
-      [..._registry.values()]
-        .filter(
-          (entry) =>
-            entry.name !== "builder" && isAgentEnginePackageInstalled(entry),
-        )
-        .flatMap((entry) => entry.requiredEnvVars),
-    ),
-  );
-  if (candidateProviderKeys.length > 0) {
-    await prefetchSecrets(candidateProviderKeys);
-  }
-
   const preferByo = getAppConfig().agent.preferBringYourOwnKey;
-
   if (preferByo) {
     for (const entry of _registry.values()) {
       if (entry.name === "builder") continue;
