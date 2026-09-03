@@ -57,6 +57,24 @@ describe("editor side panels", () => {
       'animationsOpen || layersOpen ? "rounded-r-lg" : ""',
     );
   });
+
+  it("mounts Layers beside the canvas shell like Transitions", () => {
+    expect(editorSource).toContain(
+      "createPortal(layersPanel, layersPanelSlot)",
+    );
+    expect(pageSource).toContain('data-layers-panel-host="true"');
+    expect(pageSource).toContain("layersPanelSlot={layersPanelSlot}");
+  });
+
+  it("uses the same element context menu from every layer row", () => {
+    expect(editorSource).toContain(
+      "contextMenuContent={readOnly ? undefined : slideElementContextMenuContent}",
+    );
+    expect(editorSource).toContain(
+      "onContextMenuLayer={readOnly ? undefined : handleLayerContextMenu}",
+    );
+    expect(editorSource).toContain("{slideElementContextMenuContent}");
+  });
 });
 
 describe("slide context toolbar", () => {

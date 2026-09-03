@@ -80,6 +80,16 @@ describe("SlideEditor render-phase safety", () => {
     );
   });
 
+  it("arranges flow layers by sibling order when they have no z-index stack", () => {
+    const start = source.indexOf("const handleArrangeSelected");
+    const end = source.indexOf("const handleToggleList", start);
+    const arrangeBody = source.slice(start, end);
+
+    expect(arrangeBody).toContain("reorderSlideLayerInParent(element, target)");
+    expect(arrangeBody).toContain("isPersistedFreeformObject(element)");
+    expect(arrangeBody).toContain("resolveSlidePositioningLayer(element)");
+  });
+
   it("keeps portaled context-menu presses from clearing canvas selection", () => {
     const start = source.indexOf("const handleCanvasBackgroundPointerDown");
     const end = source.indexOf("const handleSlideContextMenu", start);

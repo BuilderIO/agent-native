@@ -50,7 +50,27 @@ export function isSlideTextEditingTarget(
 export function shouldStampBuilderId(element: HTMLElement): boolean {
   return (
     !element.classList.contains("fmd-layout-spacer") &&
-    !isInlineTextElement(element)
+    !isInlineTextElement(element) &&
+    !isRichTextLayerAncestor(element)
+  );
+}
+
+function isRichTextLayerAncestor(element: HTMLElement): boolean {
+  let ancestor = element.parentElement;
+  while (ancestor) {
+    if (isSlideCanvasShell(ancestor)) return false;
+    if (isSlideRichTextLayer(ancestor)) return true;
+    ancestor = ancestor.parentElement;
+  }
+  return false;
+}
+
+function isSlideCanvasShell(element: HTMLElement): boolean {
+  return (
+    element.classList.contains("fmd-slide") ||
+    element.classList.contains("fmd-autofit-scale") ||
+    element.hasAttribute("data-fmd-autofit-content") ||
+    element.hasAttribute("data-slide-canvas")
   );
 }
 
@@ -88,6 +108,75 @@ export function isSmartGroup(element: HTMLElement): boolean {
     if (!isTextLeaf(childElement) && !isSmartGroup(childElement)) return false;
   }
   return true;
+}
+
+const RICH_TEXT_BLOCK_TAGS = new Set([
+  "BLOCKQUOTE",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+  "LI",
+  "OL",
+  "P",
+  "UL",
+]);
+
+function isRichTextBlock(element: HTMLElement): boolean {
+  if (
+    !element ||
+    isInlineTextElement(element) ||
+    element.tagName === "IMG" ||
+    element.classList.contains("fmd-img-placeholder")
+  ) {
+    return false;
+  }
+  if (RICH_TEXT_BLOCK_TAGS.has(element.tagName)) {
+    return Boolean(element.textContent?.trim());
+  }
+  if (isTextLeaf(element)) return true;
+  const children = Array.from(element.children);
+  return (
+    Boolean(element.textContent?.trim()) &&
+    children.length > 0 &&
+    children.every((child) => isRichTextBlock(child as HTMLElement))
+  );
+}
+
+/** Rich text owns its block descendants as one editable canvas layer. */
+export function isSlideRichTextLayer(element: HTMLElement): boolean {
+  if (
+    !element ||
+    isSlideCanvasShell(element) ||
+    isInlineTextElement(element) ||
+    element.tagName === "IMG"
+  ) {
+    return false;
+  }
+  if (
+    element.classList.contains("fmd-text-box") ||
+    element.isContentEditable ||
+    element.hasAttribute("data-editing-block") ||
+    element.matches(
+      ".slide-shared-rich-editor, .slide-tiptap-editor, [data-slide-rich-text-root='true']",
+    )
+  ) {
+    return true;
+  }
+  if (["BLOCKQUOTE", "OL", "UL"].includes(element.tagName)) {
+    return Boolean(element.textContent?.trim());
+  }
+  if (isTextLeaf(element) || isSmartGroup(element)) return true;
+  const children = Array.from(element.children);
+  if (
+    children.length > 0 &&
+    children.every((child) => isRichTextBlock(child as HTMLElement))
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /** Resolve a click inside inline markup to the containing editable text block. */

@@ -370,6 +370,9 @@ export default function DeckEditor() {
     useState<HTMLDivElement | null>(null);
   const [wideContextToolbarSlot, setWideContextToolbarSlot] =
     useState<HTMLDivElement | null>(null);
+  const [layersPanelSlot, setLayersPanelSlot] = useState<HTMLDivElement | null>(
+    null,
+  );
   const [retryingMissingDeck, setRetryingMissingDeck] = useState(false);
   const [accessRequestSentDeckId, setAccessRequestSentDeckId] = useState<
     string | null
@@ -2388,6 +2391,7 @@ export default function DeckEditor() {
             comments={currentSlideThreads}
             contextToolbarSlot={contextToolbarSlot}
             wideContextToolbarSlot={wideContextToolbarSlot}
+            layersPanelSlot={layersPanelSlot}
             contextToolbarLeading={
               canEdit ? (
                 <EditorActionCluster
@@ -2526,6 +2530,12 @@ export default function DeckEditor() {
             presentUsers={slidePresence.get(currentSlide.id) ?? []}
           />
         )}
+
+        <div
+          ref={setLayersPanelSlot}
+          data-layers-panel-host="true"
+          className="contents"
+        />
 
         {commentsOpen && (
           <SlideCommentsPanel

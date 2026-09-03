@@ -4,8 +4,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   findSmartBlock,
-  isTextLeaf,
+  isSlideRichTextLayer,
   isSlideTextEditingTarget,
+  isTextLeaf,
   shouldStampBuilderId,
 } from "./slide-text-targets";
 
@@ -13,7 +14,7 @@ describe("slide text targets", () => {
   it("keeps inline style runs inside their containing text block", () => {
     const root = document.createElement("div");
     root.innerHTML =
-      '<h2>Keep <span data-slide-inline-style="true">this word</span></h2>';
+      '<div class="fmd-slide"><h2>Keep <span data-slide-inline-style="true">this word</span></h2></div>';
 
     const heading = root.querySelector("h2") as HTMLElement;
     const styledRun = root.querySelector("span") as HTMLElement;
@@ -66,5 +67,24 @@ describe("slide text targets", () => {
         includeTextBoxes: false,
       }),
     ).toBeNull();
+  });
+
+  it("keeps rich text descendants inside one layer", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="fmd-slide">
+        <div>
+          <p>Heading</p>
+          <ul><li><p>First point</p></li><li><p>Second point</p></li></ul>
+        </div>
+      </div>
+    `;
+
+    const layer = root.querySelector(".fmd-slide > div") as HTMLElement;
+    const paragraph = layer.querySelector("p") as HTMLElement;
+
+    expect(isSlideRichTextLayer(layer)).toBe(true);
+    expect(shouldStampBuilderId(layer)).toBe(true);
+    expect(shouldStampBuilderId(paragraph)).toBe(false);
   });
 });
