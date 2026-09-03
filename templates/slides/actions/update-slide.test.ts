@@ -125,6 +125,7 @@ vi.mock("./patch-deck.js", () => ({
 
 vi.mock("../server/lib/deck-versions.js", () => ({
   createDeckVersionSnapshot: vi.fn(async () => ({ created: true })),
+  deckVersionChangeGroupFromAction: vi.fn(() => undefined),
   deckVersionChatContextFromAction: vi.fn(() => undefined),
 }));
 

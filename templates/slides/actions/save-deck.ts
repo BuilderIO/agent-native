@@ -17,7 +17,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import {
+  createDeckVersionSnapshot,
+  deckVersionContentSignature,
+} from "../server/lib/deck-versions.js";
 import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
@@ -44,17 +47,6 @@ import {
 } from "./_deck-write.js";
 import { withDeckLock } from "./patch-deck.js";
 
-function comparableDeckData(raw: unknown): string {
-  try {
-    const data = typeof raw === "string" ? JSON.parse(raw) : raw;
-    const clone = JSON.parse(JSON.stringify(data ?? {}));
-    delete clone.updatedAt;
-    return JSON.stringify(clone);
-  } catch {
-    return typeof raw === "string" ? raw : JSON.stringify(raw ?? "");
-  }
-}
-
 function shouldSnapshotDeckWrite(
   current: { title?: string | null; data?: string | null },
   nextTitle: string,
@@ -62,7 +54,8 @@ function shouldSnapshotDeckWrite(
 ): boolean {
   return (
     (current.title ?? "Untitled") !== nextTitle ||
-    comparableDeckData(current.data ?? "") !== comparableDeckData(nextDeck)
+    deckVersionContentSignature(current.data ?? "") !==
+      deckVersionContentSignature(nextDeck)
   );
 }
 
@@ -160,6 +153,9 @@ export default defineAction({
           ? deckDesignSystemId(deck)
           : (access.resource.designSystemId ?? null);
         await assertDesignSystemReadable(nextDesignSystemId);
+        if (!shouldSnapshotDeckWrite(access.resource, title, deck)) {
+          return { ...deck, updatedAt: access.resource.updatedAt };
+        }
         await db.transaction(async (tx: any) => {
           if (shouldSnapshotDeckWrite(access.resource, title, deck)) {
             await createDeckVersionSnapshot(

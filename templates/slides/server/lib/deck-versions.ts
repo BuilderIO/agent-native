@@ -41,6 +41,13 @@ export function deckVersionChatContextFromAction(
   return contextFromFields(context);
 }
 
+export function deckVersionChangeGroupFromAction(
+  context?: ActionRunContext,
+): string | undefined {
+  const chatContext = deckVersionChatContextFromAction(context);
+  return chatContext?.turnId ?? chatContext?.runId;
+}
+
 export function deckVersionChatContextFromRun(run: {
   threadId?: unknown;
   runId?: unknown;
@@ -80,6 +87,52 @@ export interface DeckSnapshotSource {
   ownerEmail: string;
 }
 
+function stableDeckVersionStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableDeckVersionStringify).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(
+        ([key, entry]) =>
+          `${JSON.stringify(key)}:${stableDeckVersionStringify(entry)}`,
+      )
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+export function deckVersionContentSignature(raw: unknown): string {
+  try {
+    const data = typeof raw === "string" ? JSON.parse(raw) : raw;
+    const clone = JSON.parse(JSON.stringify(data ?? {}));
+    if (clone && typeof clone === "object" && !Array.isArray(clone)) {
+      delete (clone as Record<string, unknown>).updatedAt;
+    }
+    return stableDeckVersionStringify(clone);
+  } catch {
+    return typeof raw === "string" ? raw : (JSON.stringify(raw ?? "") ?? "");
+  }
+}
+
+function normalizedChatContext(
+  raw: string | null | undefined,
+): string | null | undefined {
+  if (!raw) return undefined;
+  try {
+    return (
+      serializeDeckVersionChatContext(parseDeckVersionChatContext(raw)) ??
+      undefined
+    );
+  } catch {
+    console.warn(
+      "Deck version chat metadata is unreadable; skipping turn deduplication.",
+    );
+    return null;
+  }
+}
+
 export async function createDeckVersionSnapshot(
   source: DeckSnapshotSource,
   options: {
@@ -99,6 +152,7 @@ export async function createDeckVersionSnapshot(
       title: schema.deckVersions.title,
       data: schema.deckVersions.data,
       createdAt: schema.deckVersions.createdAt,
+      chatContext: schema.deckVersions.chatContext,
     })
     .from(schema.deckVersions)
     .where(
@@ -113,9 +167,20 @@ export async function createDeckVersionSnapshot(
   if (
     latestVersion &&
     latestVersion.title === source.title &&
-    latestVersion.data === source.data
+    deckVersionContentSignature(latestVersion.data) ===
+      deckVersionContentSignature(source.data)
   ) {
     return { created: false, reason: "duplicate" };
+  }
+
+  const requestedChatContext = serializeDeckVersionChatContext(
+    options.chatContext,
+  );
+  if (
+    requestedChatContext &&
+    requestedChatContext === normalizedChatContext(latestVersion?.chatContext)
+  ) {
+    return { created: false, reason: "same-agent-turn" };
   }
 
   if (!options.force && latestVersion?.createdAt) {

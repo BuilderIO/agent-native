@@ -22,6 +22,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import {
   createDeckVersionSnapshot,
+  deckVersionChangeGroupFromAction,
   deckVersionChatContextFromAction,
 } from "../server/lib/deck-versions.js";
 import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
@@ -478,7 +479,12 @@ export default defineAction({
 
       // Broadcast to any open editors so the new slide appears immediately.
       // Include the new slideId + agent actor (backwards-compatible payload).
-      notifyClients(deckId, { slideId: newSlideId, actor: "agent" });
+      const agentChangeId = deckVersionChangeGroupFromAction(ctx);
+      notifyClients(deckId, {
+        slideId: newSlideId,
+        actor: "agent",
+        ...(agentChangeId ? { agentChangeId } : {}),
+      });
 
       const base = {
         deckId,

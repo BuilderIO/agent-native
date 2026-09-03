@@ -1006,6 +1006,41 @@ describe("DeckContext deck creation persistence", () => {
     );
   });
 
+  it("skips unchanged multi-slide commits", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck({
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "one", notes: "same", layout: "content" },
+        { id: "slide-2", content: "two", notes: "same", layout: "content" },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlides("shared-deck", [
+        { slideId: "slide-1", updates: { notes: "same" } },
+        { slideId: "slide-2", updates: { notes: "same" } },
+      ]);
+    });
+
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
+      ),
+    ).toHaveLength(0);
+    expect(result.current.canUndo).toBe(false);
+  });
+
   it("persists inline drafts without replacing the local editor state", async () => {
     window.history.pushState({}, "", "/deck/inline-draft-deck");
     const { fetchMock, setAccessibleDeck } = setupFetch();
@@ -3443,6 +3478,70 @@ describe("DeckContext deck creation persistence", () => {
         result.current.getDeck("same-timestamp-deck")?.slides[0]?.content,
       ).toBe("<h1>After agent edit</h1>"),
     );
+  });
+
+  it("coalesces multiple remote updates from one agent turn into one undo", async () => {
+    window.history.pushState({}, "", "/deck/agent-undo-deck");
+    const initial: Deck = {
+      id: "agent-undo-deck",
+      title: "Agent Undo Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Before</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    const source = MockEventSource.lastInstance!;
+    const sendAgentUpdate = async (content: string) => {
+      setAccessibleDeck({
+        ...initial,
+        slides: [{ ...initial.slides[0]!, content }],
+      });
+      await act(async () => {
+        source.onmessage?.(
+          new MessageEvent("message", {
+            data: JSON.stringify({
+              type: "deck-changed",
+              deckId: initial.id,
+              actor: "agent",
+              agentChangeId: "turn-1",
+            }),
+          }),
+        );
+      });
+      await waitFor(() =>
+        expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+          content,
+        ),
+      );
+    };
+
+    await sendAgentUpdate("<h1>First agent update</h1>");
+    await sendAgentUpdate("<h1>Last agent update</h1>");
+
+    act(() => {
+      result.current.undo();
+    });
+    await waitFor(() =>
+      expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+        "<h1>Before</h1>",
+      ),
+    );
+    expect(result.current.canUndo).toBe(false);
   });
 
   it("reconciles a deck-change event while a local edit is pending", async () => {

@@ -8,6 +8,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import {
   createDeckVersionSnapshot,
+  deckVersionChangeGroupFromAction,
   deckVersionChatContextFromAction,
 } from "../server/lib/deck-versions.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
@@ -58,7 +59,12 @@ export default defineAction({
         .where(deckRevisionWhere(schema.decks, deckId, rows[0].updatedAt));
       assertDeckWriteApplied(updateResult, deckId, "aspect ratio change");
     });
-    notifyClients(deckId);
+    const agentChangeId = deckVersionChangeGroupFromAction(ctx);
+    if (agentChangeId) {
+      notifyClients(deckId, { agentChangeId });
+    } else {
+      notifyClients(deckId);
+    }
     await writeAppState("refresh-signal", {
       ts: now,
       source: "update-deck-aspect-ratio",

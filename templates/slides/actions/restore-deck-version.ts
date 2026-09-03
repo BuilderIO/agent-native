@@ -8,6 +8,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import {
   createDeckVersionSnapshot,
+  deckVersionChangeGroupFromAction,
   deckVersionChatContextFromAction,
 } from "../server/lib/deck-versions.js";
 import { getDeckUrl } from "./_app-url.js";
@@ -84,7 +85,12 @@ export default defineAction({
       assertDeckWriteApplied(updateResult, deckId, "deck restore");
     });
 
-    notifyClients(deckId);
+    const agentChangeId = deckVersionChangeGroupFromAction(ctx);
+    if (agentChangeId) {
+      notifyClients(deckId, { agentChangeId });
+    } else {
+      notifyClients(deckId);
+    }
     await writeAppState("refresh-signal", {
       ts: now,
       source: "restore-deck-version",

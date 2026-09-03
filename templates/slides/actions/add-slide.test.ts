@@ -137,6 +137,8 @@ vi.mock("./patch-deck.js", () => ({
 vi.mock("../server/lib/deck-versions.js", () => ({
   createDeckVersionSnapshot: (...args: unknown[]) =>
     mockCreateDeckVersionSnapshot(...args),
+  deckVersionChangeGroupFromAction: (...args: unknown[]) =>
+    mockDeckVersionChatContextFromAction(...args)?.turnId,
   deckVersionChatContextFromAction: (...args: unknown[]) =>
     mockDeckVersionChatContextFromAction(...args),
 }));

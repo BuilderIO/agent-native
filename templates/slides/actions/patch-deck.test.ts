@@ -1265,6 +1265,42 @@ describe("run() — asynchronous layout fit metadata", () => {
     expect(result.layoutOverflow).toBeUndefined();
   });
 
+  it.each(["frontend", "tool"] as const)(
+    "does not persist an unchanged patch for %s callers",
+    async (caller) => {
+      const result = await patchDeckAction
+        .run(
+          {
+            deckId: "deck-1",
+            requireAllSourceSlides: false,
+            operations: [
+              {
+                op: "patch-slide",
+                slideId: "slide-1",
+                fields: { content: "<div>One</div>" },
+              },
+            ],
+          },
+          { caller },
+        )
+        .catch((error: unknown) => error);
+
+      if (caller === "tool") {
+        expect(result).toMatchObject({
+          message: expect.stringContaining("Nothing was written"),
+        });
+      } else {
+        expect(result).toMatchObject({
+          ok: true,
+          applied: false,
+          updatedAt: mockDeckRow!.updatedAt,
+        });
+      }
+      expect(lastUpdatedDeckData).toBeUndefined();
+      expect(mockNotifyClients).not.toHaveBeenCalled();
+    },
+  );
+
   it("broadcasts the changed slide for a single-slide agent patch", async () => {
     await patchDeckAction.run(
       {
@@ -1278,12 +1314,13 @@ describe("run() — asynchronous layout fit metadata", () => {
           },
         ],
       },
-      { caller: "tool" },
+      { caller: "tool", runId: "run-1", turnId: "turn-1" },
     );
 
     expect(mockNotifyClients).toHaveBeenCalledWith("deck-1", {
       slideId: "slide-1",
       actor: "agent",
+      agentChangeId: "turn-1",
     });
   });
 
