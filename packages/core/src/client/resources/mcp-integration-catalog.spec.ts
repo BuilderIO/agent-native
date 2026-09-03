@@ -417,6 +417,11 @@ describe("MCP integration catalog", () => {
     );
     expect(isMcpConnectionSuggestionText("HubSpot requires access")).toBe(true);
     expect(
+      isMcpConnectionSuggestionText(
+        "The Dispatch connection requires authentication.",
+      ),
+    ).toBe(true);
+    expect(
       isMcpConnectionSuggestionText("I don't have access to HubSpot yet."),
     ).toBe(true);
     expect(isMcpConnectionSuggestionText("HubSpot is connected")).toBe(false);

@@ -4,6 +4,7 @@ import {
   humanizeToolLabelText,
   humanizeToolName,
   isCallAgentToolCallShadowed,
+  resolveToolCallRowContext,
   runningToolLabel,
   shadowedCallAgentToolCallIds,
 } from "./tool-display.js";
@@ -34,6 +35,27 @@ describe("tool display labels", () => {
         "get-design-snapshot",
       ),
     ).toBe("Preparing get screen snapshot action");
+  });
+
+  it("surfaces the actual command or target beside a tool label", () => {
+    expect(
+      resolveToolCallRowContext({ cmd: "pnpm test\n--filter core" }),
+    ).toEqual({
+      text: "pnpm test --filter core",
+      mono: true,
+      kind: "data",
+    });
+    expect(resolveToolCallRowContext({ query: "activity trace" })).toEqual({
+      text: "activity trace",
+      mono: false,
+      kind: "data",
+    });
+    expect(resolveToolCallRowContext({ filePath: "src/App.tsx" })).toEqual({
+      text: "src/App.tsx",
+      mono: true,
+      kind: "file",
+    });
+    expect(resolveToolCallRowContext({ ignored: "secret" })).toBeNull();
   });
 
   it("shadows the raw call-agent row when its richer agent row is present", () => {

@@ -72,6 +72,15 @@ export interface Task {
   metadata?: Record<string, unknown>;
 }
 
+/** Trusted task metadata used to propagate a blocked integration across A2A. */
+export interface A2AConnectionRequestMetadata {
+  version: 1;
+  provider: string;
+  reason: "connect" | "grant" | "reauthorize" | "admin_required";
+  appId?: string;
+  detail?: string;
+}
+
 // --- Agent Card ---
 
 export interface AgentSkill {

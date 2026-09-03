@@ -41,6 +41,8 @@ import {
   matchesUserStoppedRun,
   reconnectActivityFallbackContent,
   reconnectProgressTimedOut,
+  resolveAssistantChatSuggestionInputs,
+  shouldShowAssistantChatSuggestions,
   resolveAssistantChatRunningState,
   resolveAssistantChatRunningStatusLabel,
   resolveAssistantChatComposerPlaceholder,
@@ -54,6 +56,98 @@ import {
   useAutoResumeStatus,
   waitForThreadRunToClear,
 } from "./AssistantChat.js";
+
+describe("resolveAssistantChatSuggestionInputs", () => {
+  it("preserves structured agent-authored actions while merging dynamic prompts", () => {
+    const authored = {
+      id: "review",
+      label: "Review changes",
+      prompt: "Review the changes in detail",
+      metadata: { source: "agent" },
+    } as const;
+
+    expect(
+      resolveAssistantChatSuggestionInputs(
+        ["Review the changes in detail", "Explain this screen"],
+        [authored],
+      ),
+    ).toEqual([authored, "Explain this screen"]);
+  });
+});
+
+describe("shouldShowAssistantChatSuggestions", () => {
+  it("defers full-page next actions until the agent has replied", () => {
+    expect(
+      shouldShowAssistantChatSuggestions("after-agent-response", false),
+    ).toBe(false);
+    expect(
+      shouldShowAssistantChatSuggestions("after-agent-response", true),
+    ).toBe(true);
+  });
+
+  it("preserves immediate contextual suggestions for panel variants", () => {
+    expect(shouldShowAssistantChatSuggestions("always", false)).toBe(true);
+  });
+});
+
+describe("page composer geometry", () => {
+  it("keeps the focused hero composer subtle and multiline content inset", () => {
+    const styles = readFileSync("src/styles/agent-native.css", "utf8");
+    const tokens = readFileSync("src/styles/tokens/agent-kit.css", "utf8");
+    const focusRule = styles.slice(
+      styles.indexOf(".agent-composer-root--hero:focus-within"),
+      styles.indexOf(
+        '.agent-composer-root--hero [data-agent-composer-slot="editor-wrap"]',
+      ),
+    );
+    const editorRule = styles.slice(
+      styles.indexOf(
+        '.agent-composer-root--hero [data-agent-composer-slot="editor-input"]',
+      ),
+      styles.indexOf("/* Keep touch-width editors at 16px"),
+    );
+    const mobileEditorRule = styles.slice(
+      styles.indexOf("@media (max-width: 767px)"),
+      styles.indexOf(".agent-composer-root--hero .agent-composer-toolbar"),
+    );
+
+    expect(focusRule).toContain("var(--agent-kit-composer-focus-border-color)");
+    expect(focusRule).not.toContain("var(--ring)");
+    expect(styles).toContain(
+      "padding-inline: var(--agent-kit-composer-editor-padding-inline);",
+    );
+    expect(styles).toContain(
+      "scroll-padding-block: var(--agent-kit-composer-block-padding-start);",
+    );
+    expect(editorRule).toContain(
+      "font-size: var(--agent-kit-composer-font-size);",
+    );
+    expect(editorRule).toContain(
+      "line-height: var(--agent-kit-composer-line-height);",
+    );
+    expect(mobileEditorRule).toContain(
+      "font-size: var(--agent-kit-composer-mobile-font-size);",
+    );
+    expect(mobileEditorRule).toContain(
+      "line-height: var(--agent-kit-composer-mobile-line-height);",
+    );
+    expect(tokens).toContain(
+      "--agent-kit-composer-editor-padding-inline: 1rem;",
+    );
+    expect(tokens).toContain("--agent-kit-composer-font-size: 0.875rem;");
+  });
+});
+
+describe("message branch controls", () => {
+  it("exposes alternate-response navigation through assistant-ui primitives", () => {
+    const source = readFileSync("src/client/chat/message-components.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("BranchPickerPrimitive.Root");
+    expect(source).toContain("MessageBranchPicker");
+  });
+});
 
 describe("shouldShowAssistantChatModelSelector", () => {
   it("keeps the framework selector by default and lets hosts replace only its visual control", () => {
@@ -1646,6 +1740,16 @@ describe("tool approval continuation", () => {
 });
 
 describe("chat connection suggestion alignment", () => {
+  it("does not promote integrations from composer text", () => {
+    const chatSource = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(chatSource).not.toContain(
+      "<McpConnectionSuggestion text={composerText}",
+    );
+  });
+
   it("uses the fullscreen composer width contract and removes page-only insets", () => {
     const panelSource = readFileSync("src/client/AgentPanel.tsx", {
       encoding: "utf8",
@@ -1661,9 +1765,11 @@ describe("chat connection suggestion alignment", () => {
     expect(panelSource).toContain(
       ".agent-composer-area:not(.agent-composer-area--compact)",
     );
-    expect(panelSource).toContain("const FULLSCREEN_CHAT_COLUMN_MAX_PX = 750;");
+    expect(panelSource).toContain(
+      "max-width:var(--agent-kit-conversation-max-width);",
+    );
     expect(panelSource).toContain("padding-left:0;padding-right:0;");
-    expect(suggestionSource).toContain("w-[min(calc(100%_-_1.5rem),750px)]");
+    expect(suggestionSource).toContain("agent-kit-composer-adjacent-width");
     expect(suggestionSource).toContain(
       "agent-mcp-connection-suggestion-error--composer",
     );
@@ -2042,7 +2148,7 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
 describe("resolveAssistantChatComposerPlaceholder", () => {
   it("provides a clear default for shared chat composers", () => {
     expect(resolveAssistantChatComposerPlaceholder(undefined)).toBe(
-      "Write a message...",
+      "Ask the agent to explore, build, or explain…",
     );
   });
 

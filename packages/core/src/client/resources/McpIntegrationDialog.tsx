@@ -54,6 +54,7 @@ export interface McpIntegrationDialogProps {
   initialIntegrationId?: string | null;
   connectIntegrationId?: string | null;
   quickConnectIntegrationId?: string | null;
+  presentation?: "takeover" | "modal";
   defaultScope: McpServerScope;
   canCreateOrgMcp: boolean;
   hasOrg: boolean;
@@ -118,6 +119,7 @@ export function McpIntegrationDialog({
   initialIntegrationId = null,
   connectIntegrationId = null,
   quickConnectIntegrationId = null,
+  presentation = "takeover",
   defaultScope,
   canCreateOrgMcp,
   hasOrg,
@@ -661,7 +663,12 @@ export function McpIntegrationDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         aria-describedby={undefined}
-        className="inset-0 flex h-[100dvh] max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0"
+        className={cn(
+          "flex flex-col gap-0 overflow-hidden p-0",
+          presentation === "takeover"
+            ? "inset-0 h-[100dvh] max-h-none w-full max-w-none translate-x-0 translate-y-0 rounded-none"
+            : "max-h-[min(680px,calc(100dvh-2rem))] w-[calc(100vw-2rem)] max-w-xl rounded-xl",
+        )}
       >
         {mcpServersQuery.isError ? (
           <div
@@ -714,6 +721,7 @@ export function McpIntegrationDialog({
                   : undefined
               }
               busy={busy}
+              compact={presentation === "modal"}
               onPersonal={() => connectPersonal(selected)}
               onWorkspace={() => connectWorkspace(selected)}
             />
@@ -819,21 +827,27 @@ export function McpIntegrationDialog({
           </>
         ) : (
           <>
-            <DialogHeader className="shrink-0 border-b border-border px-7 pb-5 pe-14 pt-7 sm:px-10">
-              <button
-                type="button"
-                onClick={() => {
-                  clearFeedback();
-                  setMode("catalog");
-                }}
-                className={cn(
-                  "mb-1 inline-flex w-fit items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground",
-                  !showCatalog && "hidden",
-                )}
-              >
-                <IconArrowLeft className="h-3 w-3 rtl:-scale-x-100" />
-                {t("mcpIntegrations.backToIntegrations")}
-              </button>
+            <DialogHeader
+              className={cn(
+                "shrink-0 border-b border-border pe-14",
+                presentation === "takeover"
+                  ? "px-7 pb-5 pt-7 sm:px-10"
+                  : "px-6 pb-4 pt-6",
+              )}
+            >
+              {showCatalog && presentation === "takeover" ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearFeedback();
+                    setMode("catalog");
+                  }}
+                  className="mb-1 inline-flex w-fit items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                >
+                  <IconArrowLeft className="h-3 w-3 rtl:-scale-x-100" />
+                  {t("mcpIntegrations.backToIntegrations")}
+                </button>
+              ) : null}
               <DialogTitle>
                 {selected
                   ? selectedRequiresSetup
@@ -855,7 +869,14 @@ export function McpIntegrationDialog({
                   : t("mcpIntegrations.customDescription")}
               </DialogDescription>
             </DialogHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto px-7 py-7 sm:px-10">
+            <div
+              className={cn(
+                "min-h-0 flex-1 overflow-y-auto",
+                presentation === "takeover"
+                  ? "px-7 py-7 sm:px-10"
+                  : "px-6 py-5",
+              )}
+            >
               <div className="mx-auto max-w-2xl space-y-3">
                 {renderScopeSelector()}
                 {selected?.setupNoteKey && !selectedRequiresSetup ? (
@@ -864,17 +885,24 @@ export function McpIntegrationDialog({
                   </div>
                 ) : null}
                 {selectedRequiresSetup && selected && (
-                  <div className="mx-auto grid w-full max-w-xl gap-4 py-8">
-                    <div>
-                      <p className="text-base font-semibold tracking-[-0.02em] text-foreground">
-                        {t("mcpIntegrations.providerSetupRequired")}
-                      </p>
-                      <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                        {t("mcpIntegrations.providerSetupDescription", {
-                          name: selected.name,
-                        })}
-                      </p>
-                    </div>
+                  <div
+                    className={cn(
+                      "mx-auto grid w-full max-w-xl gap-4",
+                      presentation === "takeover" ? "py-8" : "py-1",
+                    )}
+                  >
+                    {presentation === "takeover" ? (
+                      <div>
+                        <p className="text-base font-semibold tracking-[-0.02em] text-foreground">
+                          {t("mcpIntegrations.providerSetupRequired")}
+                        </p>
+                        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                          {t("mcpIntegrations.providerSetupDescription", {
+                            name: selected.name,
+                          })}
+                        </p>
+                      </div>
+                    ) : null}
                     {selected.setupNoteKey ? (
                       <p className="text-sm leading-6 text-muted-foreground">
                         {t(selected.setupNoteKey)}
@@ -1060,7 +1088,12 @@ export function McpIntegrationDialog({
                 )}
               </div>
             </div>
-            <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border px-7 py-4">
+            <div
+              className={cn(
+                "flex shrink-0 items-center justify-between gap-2 border-t border-border py-4",
+                presentation === "takeover" ? "px-7" : "px-6",
+              )}
+            >
               {!selectedRequiresSetup && (
                 <button
                   type="button"

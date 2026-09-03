@@ -103,6 +103,7 @@ test("selects dependency-aware checks for a template change", () => {
   assert.equal(scope.checks.build, true);
   assert.equal(scope.checks.scaffold, true);
   assert.equal(scope.checks.trusted_acceptance, true);
+  assert.equal(scope.checks.agentkit_acceptance, false);
   assert.equal(scope.checks.qa_static, true);
   assert.equal(scope.checks.core_integration, false);
   assert.equal(scope.checks.brain_evals, false);
@@ -121,6 +122,47 @@ test("runs shared coverage when core changes", () => {
   assert.equal(scope.checks.scaffold, true);
   assert.equal(scope.checks.ssr_boot, true);
   assert.equal(scope.checks.trusted_acceptance, true);
+  assert.equal(scope.checks.agentkit_acceptance, true);
+});
+
+test("selects standalone AgentKit acceptance only for its production surface", () => {
+  for (const path of [
+    "packages/agentkit-protocol/src/index.ts",
+    "packages/agentkit-client/src/index.ts",
+    "packages/agentkit-adapters/src/http.ts",
+    "packages/agentkit-conformance/src/index.ts",
+    "packages/agentkit-react/src/components.tsx",
+    "packages/agentkit/src/index.ts",
+    "packages/core/src/client/chat/agentkit-protocol.ts",
+    "packages/toolkit/src/composer/PromptComposer.tsx",
+    "packages/shared-app-config/templates.ts",
+    "templates/chat/app/routes/_index.tsx",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.agentkit_acceptance,
+      true,
+      `${path} must select standalone AgentKit acceptance`,
+    );
+  }
+
+  assert.equal(
+    classifyChangedPaths(["templates/calendar/app/routes/index.tsx"]).checks
+      .agentkit_acceptance,
+    false,
+  );
+  assert.equal(
+    classifyChangedPaths(["packages/dispatch/src/index.ts"]).checks
+      .agentkit_acceptance,
+    false,
+  );
+});
+
+test("fails closed to AgentKit acceptance for unknown and empty scopes", () => {
+  assert.equal(classifyChangedPaths([]).checks.agentkit_acceptance, true);
+  assert.equal(
+    classifyChangedPaths(["unknown-root-config.ts"]).checks.agentkit_acceptance,
+    true,
+  );
 });
 
 test("keeps package metadata targeted but runs the drizzle guard", () => {

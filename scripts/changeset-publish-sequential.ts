@@ -6,6 +6,10 @@ import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { NPM_PUBLISH_PACKAGE_NAMES } from "./public-package-names.ts";
+
+export { NPM_PUBLISH_PACKAGE_NAMES } from "./public-package-names.ts";
+
 type PackageJson = {
   name?: string;
   version?: string;
@@ -45,16 +49,6 @@ const availabilityTimeoutMs = Number(
   process.env.AGENT_NATIVE_NPM_AVAILABILITY_TIMEOUT_MS ??
     DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS,
 );
-export const NPM_PUBLISH_PACKAGE_NAMES = [
-  "@agent-native/core",
-  "@agent-native/creative-context",
-  "@agent-native/dispatch",
-  "@agent-native/pinpoint",
-  "@agent-native/recap-cli",
-  "@agent-native/scheduling",
-  "@agent-native/skills",
-  "@agent-native/toolkit",
-] as const;
 const npmPublishAllowlist = new Set(NPM_PUBLISH_PACKAGE_NAMES);
 
 async function readJson<T>(filePath: string): Promise<T> {

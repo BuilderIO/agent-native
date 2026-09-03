@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { AgentConnectionRequiredError } from "../action.js";
 import type { WorkspaceConnectionTemplateUse } from "../connections/catalog.js";
 import {
   describeCredentialScopeGap,
@@ -2168,9 +2169,12 @@ export async function resolveProviderApiOAuthAccessToken(
         accountId: args.accountId,
       });
   if (!credential) {
-    throw new Error(
-      `${oauthAuth.tokenLabel} workspace connection is not available to ${runtime.appId}.`,
-    );
+    return throwWorkspaceConnectionRequired({
+      runtime,
+      provider: oauthAuth.workspaceProvider ?? oauthAuth.oauthProvider,
+      connectionId: args.connectionId,
+      message: `${oauthAuth.tokenLabel} workspace connection is not available to ${runtime.appId}.`,
+    });
   }
   return {
     accessToken: credential.value,
@@ -4076,6 +4080,18 @@ async function resolveAnyCredential(options: {
     options.keys,
     options.ctx,
   ).catch(() => null);
+  if (
+    options.workspaceProvider &&
+    !options.runtime.resolveCredential &&
+    !scopeGap
+  ) {
+    return throwWorkspaceConnectionRequired({
+      runtime: options.runtime,
+      provider: options.workspaceProvider,
+      connectionId: options.connectionId,
+      message: `${options.provider} requires an available workspace connection.`,
+    });
+  }
   throw new Error(
     `${options.provider} credential not configured. Tried: ${options.keys.join(
       ", ",
@@ -4097,6 +4113,18 @@ async function resolveRequiredCredential(options: {
     // coercion-ok: only enriches an error we throw either way — losing the scope
     // hint still surfaces the real "not configured" failure, never a success.
     .catch(() => null);
+  if (
+    options.workspaceProvider &&
+    !options.runtime.resolveCredential &&
+    !scopeGap
+  ) {
+    return throwWorkspaceConnectionRequired({
+      runtime: options.runtime,
+      provider: options.workspaceProvider,
+      connectionId: options.connectionId,
+      message: `${options.provider} requires an available workspace connection.`,
+    });
+  }
   throw new Error(
     `${options.key} not configured${scopeGap ? `. ${scopeGap}` : ""}`,
   );
@@ -4270,9 +4298,41 @@ async function resolveConnectionBoundOAuthBearerToken(options: {
   const credential =
     await resolveOptionalConnectionBoundOAuthBearerToken(options);
   if (credential) return credential;
-  throw new Error(
-    `${options.auth.tokenLabel} requires an available workspace connection.`,
-  );
+  return throwWorkspaceConnectionRequired({
+    runtime: options.runtime,
+    provider: options.workspaceProvider,
+    connectionId: options.connectionId,
+    message: `${options.auth.tokenLabel} requires an available workspace connection.`,
+  });
+}
+
+async function throwWorkspaceConnectionRequired(options: {
+  runtime: ProviderApiRuntimeOptions;
+  provider: string;
+  connectionId?: string | null;
+  message: string;
+}): Promise<never> {
+  let reason: "connect" | "grant" | "reauthorize" = "connect";
+  const resolved = await resolveWorkspaceConnectionForApp({
+    appId: options.runtime.appId,
+    provider: options.provider,
+    connectionId: options.connectionId?.trim() || undefined,
+    includeDisabled: true,
+    requireConnected: false,
+  });
+  if (resolved.connection && resolved.appAccess?.available === false) {
+    reason = "grant";
+  } else if (
+    resolved.connection &&
+    resolved.connection.status !== "connected"
+  ) {
+    reason = "reauthorize";
+  }
+  throw new AgentConnectionRequiredError(options.message, {
+    provider: options.provider,
+    reason,
+    appId: options.runtime.appId,
+  });
 }
 
 async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
@@ -4303,7 +4363,14 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
     throw error;
   }
   if (!resolved.available || !resolved.connection) {
-    if (requestedConnectionId) throw new Error(resolved.reason);
+    if (requestedConnectionId) {
+      return throwWorkspaceConnectionRequired({
+        runtime: options.runtime,
+        provider: options.workspaceProvider,
+        connectionId: requestedConnectionId,
+        message: resolved.reason,
+      });
+    }
     return null;
   }
   const connectionAccountId = resolved.connection.accountId?.trim();

@@ -8,6 +8,7 @@ import { splitMarkdownBlocks } from "../../shared/markdown-block-split.js";
 import {
   loadMarkdown,
   markdownComponents,
+  messageMatchesActiveTextStream,
   onMarkdownReady,
   shouldAnimateMarkdownText,
   SmoothMarkdownText,
@@ -68,6 +69,36 @@ describe("shouldAnimateMarkdownText", () => {
       }),
     ).toBe(true);
   });
+
+  it("animates a complete text part that belongs to the active AgentKit turn", () => {
+    expect(
+      shouldAnimateMarkdownText({
+        textStreaming: false,
+        isLastAssistantMessage: true,
+        statusType: "complete",
+        activeMessageStreaming: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("matches active turns before continuation run ids", () => {
+    expect(
+      messageMatchesActiveTextStream(
+        {
+          metadata: {
+            custom: { runId: "run-2", turnId: "turn-current" },
+          },
+        },
+        { runId: "run-1", turnId: "turn-current" },
+      ),
+    ).toBe(true);
+    expect(
+      messageMatchesActiveTextStream(
+        { metadata: { runId: "run-current", turnId: "turn-previous" } },
+        { runId: "run-current", turnId: "turn-current" },
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("useSmoothStreamingText", () => {
@@ -127,6 +158,33 @@ describe("useSmoothStreamingText", () => {
     expect(
       container.querySelector("[data-testid='visible-text']")?.textContent,
     ).toBe(firstVisibleText);
+  });
+
+  it("starts a new message from its own cursor when the message key changes", () => {
+    const firstText = "The first response is still being revealed.";
+    const nextText = "The first response is replaced by a follow-up.";
+
+    act(() => {
+      root.render(<Probe text={firstText} resetKey="message-1" />);
+    });
+
+    act(() => {
+      const callback = frameCallbacks.shift();
+      callback?.(40);
+    });
+    expect(
+      container.querySelector("[data-testid='visible-text']")?.textContent,
+    ).not.toBe(firstText);
+
+    act(() => {
+      root.render(<Probe text={nextText} resetKey="message-2" />);
+    });
+
+    const visibleText = container.querySelector(
+      "[data-testid='visible-text']",
+    )?.textContent;
+    expect(visibleText).not.toContain(firstText.slice(0, 12));
+    expect(nextText.startsWith(visibleText ?? "")).toBe(true);
   });
 
   it("keeps wide markdown tables inside a scrollable wrapper", () => {

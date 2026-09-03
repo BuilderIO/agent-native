@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 
-type PrebuildMode = "dev" | "postinstall";
+type PrebuildMode = "agentkit-acceptance" | "dev" | "postinstall";
 
 interface PackageTarget {
   id: string;
@@ -94,6 +94,58 @@ function exportedDistOutputs(packageDir: string): string[] {
 }
 
 const targets: PackageTarget[] = [
+  {
+    id: "agentkit-protocol",
+    name: "@agent-native/agentkit-protocol",
+    dir: "packages/agentkit-protocol",
+    expectedOutputs: exportedDistOutputs("packages/agentkit-protocol"),
+    tsBuildInfoFiles: [
+      "node_modules/.cache/tsbuildinfo/agentkit-protocol.tsbuildinfo",
+    ],
+  },
+  {
+    id: "agentkit-client",
+    name: "@agent-native/agentkit-client",
+    dir: "packages/agentkit-client",
+    expectedOutputs: exportedDistOutputs("packages/agentkit-client"),
+    tsBuildInfoFiles: [
+      "node_modules/.cache/tsbuildinfo/agentkit-client.tsbuildinfo",
+    ],
+  },
+  {
+    id: "agentkit-adapters",
+    name: "@agent-native/agentkit-adapters",
+    dir: "packages/agentkit-adapters",
+    expectedOutputs: exportedDistOutputs("packages/agentkit-adapters"),
+    tsBuildInfoFiles: [
+      "node_modules/.cache/tsbuildinfo/agentkit-adapters.tsbuildinfo",
+    ],
+  },
+  {
+    id: "agentkit-conformance",
+    name: "@agent-native/agentkit-conformance",
+    dir: "packages/agentkit-conformance",
+    expectedOutputs: exportedDistOutputs("packages/agentkit-conformance"),
+    tsBuildInfoFiles: [
+      "node_modules/.cache/tsbuildinfo/agentkit-conformance.tsbuildinfo",
+    ],
+  },
+  {
+    id: "agentkit-react",
+    name: "@agent-native/agentkit-react",
+    dir: "packages/agentkit-react",
+    expectedOutputs: exportedDistOutputs("packages/agentkit-react"),
+    tsBuildInfoFiles: [
+      "node_modules/.cache/tsbuildinfo/agentkit-react.tsbuildinfo",
+    ],
+  },
+  {
+    id: "agentkit",
+    name: "@agent-native/agentkit",
+    dir: "packages/agentkit",
+    expectedOutputs: exportedDistOutputs("packages/agentkit"),
+    tsBuildInfoFiles: ["node_modules/.cache/tsbuildinfo/agentkit.tsbuildinfo"],
+  },
   {
     id: "recap-cli",
     name: "@agent-native/recap-cli",
@@ -190,7 +242,23 @@ const targets: PackageTarget[] = [
 ];
 
 const modeTargets: Record<PrebuildMode, string[]> = {
+  "agentkit-acceptance": [
+    "agentkit-protocol",
+    "agentkit-client",
+    "agentkit-adapters",
+    "agentkit-conformance",
+    "agentkit-react",
+    "agentkit",
+    "toolkit",
+    "core",
+  ],
   dev: [
+    "agentkit-protocol",
+    "agentkit-client",
+    "agentkit-adapters",
+    "agentkit-conformance",
+    "agentkit-react",
+    "agentkit",
     "recap-cli",
     "shared-app-config",
     "toolkit",
@@ -202,6 +270,12 @@ const modeTargets: Record<PrebuildMode, string[]> = {
     "pinpoint",
   ],
   postinstall: [
+    "agentkit-protocol",
+    "agentkit-client",
+    "agentkit-adapters",
+    "agentkit-conformance",
+    "agentkit-react",
+    "agentkit",
     "recap-cli",
     "shared-app-config",
     "toolkit",
@@ -218,9 +292,11 @@ const modeTargets: Record<PrebuildMode, string[]> = {
 
 function readMode(): PrebuildMode {
   const raw = process.argv[2] ?? "dev";
-  if (raw === "dev" || raw === "postinstall") return raw;
+  if (raw === "agentkit-acceptance" || raw === "dev" || raw === "postinstall") {
+    return raw;
+  }
   console.error(
-    `[prebuild-workspace-packages] Unknown mode "${raw}". Use dev or postinstall.`,
+    `[prebuild-workspace-packages] Unknown mode "${raw}". Use agentkit-acceptance, dev, or postinstall.`,
   );
   process.exit(1);
 }
@@ -236,9 +312,12 @@ function firstMissingOutput(target: PackageTarget): string | null {
   return null;
 }
 
-function clearStaleBuildInfo(target: PackageTarget): void {
+function clearStaleBuildInfo(
+  target: PackageTarget,
+  options: { force: boolean },
+): void {
   const missingOutput = firstMissingOutput(target);
-  if (!missingOutput) return;
+  if (!missingOutput && !options.force) return;
 
   const removed: string[] = [];
   for (const buildInfo of target.tsBuildInfoFiles ?? []) {
@@ -250,10 +329,12 @@ function clearStaleBuildInfo(target: PackageTarget): void {
 
   if (removed.length > 0) {
     console.log(
-      `[prebuild-workspace-packages] ${target.name}: ${path.join(
-        target.dir,
-        missingOutput,
-      )} is missing; removed stale ${removed.join(", ")}`,
+      options.force
+        ? `[prebuild-workspace-packages] ${target.name}: removed incremental state for a deterministic acceptance build: ${removed.join(", ")}`
+        : `[prebuild-workspace-packages] ${target.name}: ${path.join(
+            target.dir,
+            missingOutput!,
+          )} is missing; removed stale ${removed.join(", ")}`,
     );
   }
 }
@@ -266,7 +347,7 @@ const selectedTargets = modeTargets[mode].map((id) => {
 });
 
 for (const target of selectedTargets) {
-  clearStaleBuildInfo(target);
+  clearStaleBuildInfo(target, { force: mode === "agentkit-acceptance" });
 }
 
 const filters = selectedTargets.flatMap((target) => ["--filter", target.name]);

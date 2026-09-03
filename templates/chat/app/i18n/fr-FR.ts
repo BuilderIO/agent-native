@@ -32,6 +32,8 @@ const messages = {
     newChat: "Nouveau chat",
     optionsFor: "Options pour",
     pinChat: "Épingler le chat",
+    pinned: "Épinglés",
+    recents: "Récents",
     renameChat: "Renommer le chat",
     renameFailed: "Échec du renommage",
     renameThread: "Renommer le fil",
@@ -39,6 +41,7 @@ const messages = {
     suggestionCapabilities: "Que peut faire cette app ?",
     suggestionCustomize: "Aidez-moi à personnaliser cette app",
     unpinChat: "Désépingler le chat",
+    untitledChat: "Chat sans titre",
   },
   navigation: {
     chat: "Chat",

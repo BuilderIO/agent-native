@@ -1238,7 +1238,7 @@ export function isMcpConnectionSuggestionText(text: string): boolean {
       normalized,
     );
   const hasRequiredConnection =
-    /\b(?:connection|access)\b[\s\S]{0,60}\b(?:required|needed|missing|unavailable)\b/i.test(
+    /\b(?:connection|access)\b[\s\S]{0,60}\b(?:required|requires?|needed|missing|unavailable)\b/i.test(
       normalized,
     );
   const hasRequiredAccess =

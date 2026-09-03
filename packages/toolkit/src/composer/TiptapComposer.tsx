@@ -389,6 +389,20 @@ export function getComposerPopoverPosition(
   }
 }
 
+export function getComposerPopoverAnchorPosition(
+  view: Pick<EditorView, "coordsAtPos" | "dom">,
+  pos: number,
+): { top: number; left: number; width?: number } | null {
+  const position = getComposerPopoverPosition(view, pos);
+  if (!position) return null;
+  const root = view.dom.closest<HTMLElement>(
+    '[data-agent-composer-slot="root"]',
+  );
+  const rect = root?.getBoundingClientRect();
+  if (!rect || rect.width <= 0) return position;
+  return { top: rect.top, left: rect.left, width: rect.width };
+}
+
 export function displayableComposerModeMessage(options: {
   messagePrefix: string;
   trimmedText: string;
@@ -728,7 +742,11 @@ export interface ComposerAgentOption {
 
 export interface TiptapComposerProps {
   placeholder?: string;
+  /** Accessible name for the editable prompt surface. */
+  ariaLabel?: string;
   disabled?: boolean;
+  /** Prevent submission without making the editable surface lose focus. */
+  submitting?: boolean;
   /** Override the generic document attachment cap for a multipart host. */
   maxDocumentAttachmentBytes?: number;
   /** Label used in the visible document attachment limit error. */
@@ -1623,7 +1641,7 @@ function ModelSelector({
               ? `. Agent: ${selectedAgentLabel}`
               : ""
           }`}
-          className="agent-composer-model-button flex min-w-0 max-w-[10.5rem] shrink items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          className="agent-composer-model-button flex min-w-0 max-w-none shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
           <span className="min-w-0 truncate">
             {selectedAgentOption?.icon ? (
@@ -1636,7 +1654,7 @@ function ModelSelector({
               : compactComposerModelName(model, t)}
           </span>
           {effortOptions.length > 0 && (
-            <span className="agent-composer-model-effort min-w-0 shrink truncate text-muted-foreground/70">
+            <span className="agent-composer-model-effort min-w-0 shrink-0 truncate text-muted-foreground/70">
               · {compactComposerReasoningEffortLabel(selectedEffort, t)}
             </span>
           )}
@@ -2321,14 +2339,16 @@ function ModelSelectorSkeleton() {
 
 type PopoverState = {
   type: "@" | "/";
-  position: { top: number; left: number };
+  position: { top: number; left: number; width?: number };
   startPos: number;
   query: string;
 } | null;
 
 export function TiptapComposer({
   placeholder,
+  ariaLabel,
   disabled = false,
+  submitting = false,
   maxDocumentAttachmentBytes = MAX_DOCUMENT_ATTACHMENT_BYTES,
   documentAttachmentLimitLabel = "PDFs",
   focusRef,
@@ -2409,7 +2429,7 @@ export function TiptapComposer({
   const canSend = canSubmitComposerContent({
     hasEditorContent: editorHasText || slotReferences.length > 0,
     attachmentCount: composerAttachments.length,
-    disabled,
+    disabled: disabled || submitting,
   });
   const primaryAction = resolveComposerPrimaryAction({
     canSubmit: canSend,
@@ -2620,6 +2640,9 @@ export function TiptapComposer({
     },
     editorProps: {
       attributes: {
+        "aria-label": ariaLabel ?? resolvedPlaceholder,
+        "aria-multiline": "true",
+        role: "textbox",
         "data-agent-composer-variant": layoutVariant,
         "data-agent-composer-slot": "editor-input",
         class:
@@ -2838,7 +2861,7 @@ export function TiptapComposer({
             from,
           );
           if (from === 1 || textBefore === "" || /\s/.test(textBefore)) {
-            const position = getComposerPopoverPosition(view, from);
+            const position = getComposerPopoverAnchorPosition(view, from);
             if (!position) return false;
             setTimeout(() => {
               const state: PopoverState = {
@@ -2862,7 +2885,7 @@ export function TiptapComposer({
             from,
           );
           if (from === 1 || textBefore === "" || /\s/.test(textBefore)) {
-            const position = getComposerPopoverPosition(view, from);
+            const position = getComposerPopoverAnchorPosition(view, from);
             if (!position) return false;
             setTimeout(() => {
               const state: PopoverState = {
@@ -3420,6 +3443,7 @@ export function TiptapComposer({
     if (!isComposerEditorUsable(ed)) return;
     ed.commands.clearContent();
     cancelScheduledDraftPersist();
+    ed.commands.focus("end");
     setEditorHasText(false);
     setSlotReferences([]);
     resetComposerRuntimeState();
@@ -3856,7 +3880,8 @@ export function TiptapComposer({
   return (
     <RealtimeVoiceModeBoundary>
       <style>{`
-        .aui-composer .ProseMirror p.is-editor-empty:first-child::before {
+        .aui-composer .ProseMirror p.is-editor-empty:first-child::before,
+        .aui-composer .ProseMirror p.is-empty:first-child:last-child::before {
           content: attr(data-placeholder);
           color: var(--color-muted-foreground);
           opacity: 0.5;

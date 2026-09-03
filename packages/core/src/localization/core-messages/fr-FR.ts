@@ -121,6 +121,7 @@ const messages: AgentChatTranslation = {
     "Ouvrez l’application de bureau pour utiliser ce chat.",
   "composer.removeAttachment": "Supprimer {{name}}",
   "composer.scrollToBottom": "Faire défiler jusqu’en bas",
+  "composer.suggestedPrompts": "Prompts suggérés",
   "composer.stopResponse": "Arrêter la réponse",
   "composer.subAgentReadOnly":
     "Envoyez des messages au chat de l’orchestrateur ; ce sous-agent s’exécute automatiquement",
@@ -186,6 +187,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "Retirer de la file d’attente",
   "queue.sendNow": "Envoyer maintenant",
   "queue.sendNowHint": "Envoyer maintenant (arrête la réponse actuelle)",
+  "queue.steer": "Orienter",
+  "queue.steerHint": "Envoyer ce message ensuite",
+  "queue.moreActions": "Autres actions",
+  "queue.moveToTop": "Déplacer en haut",
   "recovery.connectingBuilder": "Connexion à Builder.io",
   "recovery.copyDebug": "Copier les informations de débogage",
   "recovery.copyFailed": "Échec de la copie",

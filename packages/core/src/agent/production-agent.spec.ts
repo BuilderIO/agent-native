@@ -6,7 +6,11 @@ import path from "node:path";
 import { mockEvent } from "h3";
 import { describe, expect, it, vi } from "vitest";
 
-import { AgentActionStopError, fail } from "../action.js";
+import {
+  AgentActionStopError,
+  AgentConnectionRequiredError,
+  fail,
+} from "../action.js";
 import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
@@ -478,6 +482,68 @@ describe("callConnectedAgentReference", () => {
         durationMs: 4_500,
       },
     ]);
+  });
+
+  it("rehydrates a delegated connection request into the caller run", async () => {
+    const events: AgentChatEvent[] = [];
+    const remoteFailure = Object.assign(new Error("input required"), {
+      task: {
+        id: "dispatch-task",
+        status: {
+          state: "input-required",
+          timestamp: "2026-08-31T00:00:00.000Z",
+          message: {
+            role: "agent",
+            metadata: {
+              agentNativeConnectionRequest: {
+                version: 1,
+                provider: "slack",
+                reason: "grant",
+                appId: "dispatch",
+                detail: "Connect Slack to continue.",
+              },
+            },
+            parts: [{ type: "text", text: "Connect Slack to continue." }],
+          },
+        },
+      },
+    });
+
+    const failure = await callConnectedAgentReference({
+      agent: "Dispatch",
+      path: "https://dispatch.example.test",
+      message: "Verify Slack",
+      send: (event) => events.push(event),
+      callAgent: vi.fn(async () => {
+        throw remoteFailure;
+      }),
+      resolveCallerAuth: vi.fn(async () => ({
+        apiKey: "test-key",
+        apiKeyFallbacks: [],
+        userEmail: "user@example.test",
+        orgId: "org-1",
+        orgDomain: "example.test",
+        orgSecret: "test-secret",
+        metadata: {},
+      })),
+      agentCallId: "dispatch-call",
+      now: vi.fn().mockReturnValueOnce(1_000).mockReturnValueOnce(1_200),
+    }).catch((error) => error);
+
+    expect(failure).toBeInstanceOf(AgentConnectionRequiredError);
+    expect(failure).toMatchObject({
+      provider: "slack",
+      reason: "grant",
+      appId: "dispatch",
+      source: { id: "Dispatch", kind: "agent", label: "Dispatch" },
+    });
+    expect(events.at(-1)).toEqual({
+      type: "agent_call",
+      agent: "Dispatch",
+      status: "pending",
+      agentCallId: "dispatch-call",
+      durationMs: 200,
+    });
   });
 });
 
@@ -8223,6 +8289,87 @@ describe("runAgentLoop", () => {
         code: "bigquery_query_failed",
         retryable: false,
         message: "BigQuery returned: nope",
+      },
+    ]);
+  });
+
+  it("pauses the exact run with a structured connection request", async () => {
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call",
+              id: "dispatch-1",
+              name: "dispatch",
+              input: { channel: "slack" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+    const outcomes: AgentLoopOutcome[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "send" }] }],
+      actions: {
+        dispatch: {
+          ...actionEntry({ readOnly: false }),
+          run: async () => {
+            throw new AgentConnectionRequiredError(
+              "Connect Slack to continue.",
+              {
+                provider: "slack",
+                reason: "grant",
+                appId: "dispatch",
+                source: { id: "dispatch", kind: "app", label: "Dispatch" },
+              },
+            );
+          },
+        },
+      },
+      send: (event) => events.push(event),
+      onOutcome: (outcome) => outcomes.push(outcome),
+      signal: new AbortController().signal,
+    });
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "connection_required",
+        requestId: expect.any(String),
+        provider: "slack",
+        reason: "grant",
+        appId: "dispatch",
+        detail: "Connect Slack to continue.",
+        source: { id: "dispatch", kind: "app", label: "Dispatch" },
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(outcomes).toEqual([
+      {
+        state: "input_required",
+        code: "connection_required",
+        message: "Connect Slack to continue.",
       },
     ]);
   });

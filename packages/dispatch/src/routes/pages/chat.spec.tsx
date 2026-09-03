@@ -107,7 +107,7 @@ describe("Dispatch ChatRoute", () => {
       chatViewTransition: true,
       centerComposerWhenEmpty: true,
       composerLayoutVariant: "hero",
-      composerPlaceholder: "Ask Dispatch...",
+      composerPlaceholder: "Tell Dispatch what you’d like to make happen…",
       suppressInlineOpenApp: true,
     });
     expect(container.textContent).toContain("Chat across your apps");

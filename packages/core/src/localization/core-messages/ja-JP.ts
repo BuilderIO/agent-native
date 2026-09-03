@@ -117,6 +117,7 @@ const messages: AgentChatTranslation = {
     "このチャットを使用するにはデスクトップ版を開いてください。",
   "composer.removeAttachment": "{{name}} を削除",
   "composer.scrollToBottom": "一番下までスクロール",
+  "composer.suggestedPrompts": "おすすめのプロンプト",
   "composer.stopResponse": "応答を停止",
   "composer.subAgentReadOnly":
     "オーケストレーターチャットにメッセージを送信してください。このサブエージェントは自動的に実行されます",
@@ -490,6 +491,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "キューから削除",
   "queue.sendNow": "今すぐ送信",
   "queue.sendNowHint": "今すぐ送信（現在の応答を停止します）",
+  "queue.steer": "ステア",
+  "queue.steerHint": "このメッセージを次に送信",
+  "queue.moreActions": "その他のアクション",
+  "queue.moveToTop": "先頭に移動",
   "recovery.connectingBuilder": "Builder.io に接続中",
   "recovery.copyDebug": "デバッグ情報をコピー",
   "recovery.copyFailed": "コピーに失敗しました",

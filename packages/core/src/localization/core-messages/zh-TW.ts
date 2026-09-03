@@ -109,6 +109,7 @@ const messages: AgentChatTranslation = {
   "composer.openDesktop": "請開啟桌面版以使用這個聊天。",
   "composer.removeAttachment": "移除 {{name}}",
   "composer.scrollToBottom": "捲動到底部",
+  "composer.suggestedPrompts": "建議提示",
   "composer.stopResponse": "停止回應",
   "composer.subAgentReadOnly":
     "請將訊息傳送到協調代理聊天——這個子代理會自動執行",
@@ -464,6 +465,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "從佇列中移除",
   "queue.sendNow": "立即傳送",
   "queue.sendNowHint": "立即傳送（停止目前的回應）",
+  "queue.steer": "引導",
+  "queue.steerHint": "下一則傳送此訊息",
+  "queue.moreActions": "更多操作",
+  "queue.moveToTop": "移至頂端",
   "recovery.connectingBuilder": "正在連線至 Builder.io",
   "recovery.copyDebug": "複製偵錯資訊",
   "recovery.copyFailed": "複製失敗",

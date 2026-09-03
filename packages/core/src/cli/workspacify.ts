@@ -53,6 +53,10 @@ export interface WorkspacifyOptions {
   dispatchDependencyVersion?: string;
   /** Version range to use for the published @agent-native/toolkit package */
   toolkitDependencyVersion?: string;
+  /** Version range to use for the published @agent-native/agentkit package */
+  agentKitDependencyVersion?: string;
+  /** Version ranges for optional AgentKit packages used by the template. */
+  agentKitPackageDependencyVersions?: Record<string, string>;
 }
 
 export function workspacifyApp(opts: WorkspacifyOptions): void {
@@ -70,6 +74,10 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
   const toolkitDependencyVersion = pinnedByWorkspace(
     "@agent-native/toolkit",
     opts.toolkitDependencyVersion,
+  );
+  const agentKitDependencyVersion = pinnedByWorkspace(
+    "@agent-native/agentkit",
+    opts.agentKitDependencyVersion,
   );
 
   // 1) Rewrite package.json to add the workspace core dep and resolve
@@ -98,6 +106,16 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
             }
             if (key === "@agent-native/toolkit") {
               deps[key] = toolkitDependencyVersion;
+            }
+            if (key === "@agent-native/agentkit") {
+              deps[key] = agentKitDependencyVersion;
+            }
+            if (key.startsWith("@agent-native/agentkit-")) {
+              deps[key] = pinnedByWorkspace(
+                key,
+                opts.agentKitPackageDependencyVersions?.[key] ??
+                  agentKitDependencyVersion,
+              );
             }
           }
         }

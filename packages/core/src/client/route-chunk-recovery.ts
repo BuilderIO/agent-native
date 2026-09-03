@@ -220,6 +220,16 @@ function recoverFromDynamicImportFailure(
   message: string,
 ): boolean {
   if (!isDynamicImportFailureMessage(message)) return false;
+  // The Vite dev recovery script owns optimizer races in development. Let its
+  // bounded overlay/reload policy handle those failures instead of starting a
+  // second reload loop from the route recovery layer.
+  if (
+    (win as unknown as Record<string, unknown>)[
+      "__agentNativeViteDevRecoveryInstalled"
+    ] === true
+  ) {
+    return false;
+  }
   state.routeModuleFailureAt = Date.now();
   if (recoverToIntendedNavigation(win, state)) return true;
   return reloadForStaleChunk(win);
