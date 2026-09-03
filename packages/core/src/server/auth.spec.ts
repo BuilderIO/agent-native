@@ -3079,6 +3079,34 @@ describe("server/auth", () => {
       expect(getSession).not.toHaveBeenCalled();
     });
 
+    it("does not serve the login document at / when homePath is the root", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      // With the app home at "/", the root is the authenticated app shell, not
+      // a public marketing surface. Serving the login document there would
+      // bounce a signed-in visitor back to "/" forever.
+      defineAppConfig({ app: { homePath: "/" } });
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => null,
+        loginHtml:
+          "<!doctype html><html><head><title>QA login</title></head><body>QA login</body></html>",
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const result = await guard(createMockEvent({ path: "/" }));
+
+      // The app-shell path returns undefined so the SSR handler renders "/".
+      expect(result).not.toBeInstanceOf(Response);
+    });
+
     it("keeps the cached root auth document independent of request host", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
