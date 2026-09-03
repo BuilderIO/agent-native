@@ -180,6 +180,7 @@ async function fetchEmailList(
             try {
               const map = await fetchGmailLabelMap(accessToken);
               for (const [id, name] of map) labelMap.set(id, name);
+              // coercion-ok: Label metadata is optional; Gmail messages remain usable without it.
             } catch {}
           }),
         );
