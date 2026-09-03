@@ -32,6 +32,7 @@ import {
   finishMcpOAuthAuthorization,
   isGoogleWorkspaceMcpServer,
   startMcpOAuthAuthorization,
+  type McpOAuthCredentialBundle,
   type McpOAuthDiscoveryState,
   validateMcpOAuthCallbackIssuer,
 } from "./oauth-client.js";
@@ -50,6 +51,21 @@ import {
   type StoredRemoteMcpServer,
   type RemoteMcpScope,
 } from "./remote-store.js";
+
+export function resolveTrustedMcpOAuthAuthorizationScope(
+  serverUrl: URL,
+): string | undefined {
+  return serverUrl.origin === "https://mcp.builder.io" &&
+    serverUrl.pathname.replace(/\/+$/, "") === "/mcp/publish" &&
+    !serverUrl.search &&
+    !serverUrl.hash
+    ? "mcp:publish:read"
+    : undefined;
+}
+
+function isBuilderPublishMcpServer(serverUrl: URL): boolean {
+  return resolveTrustedMcpOAuthAuthorizationScope(serverUrl) !== undefined;
+}
 
 const FLOW_TTL_SECONDS = 10 * 60;
 const MCP_WORKSPACE_STATE_PROVIDER = "mcp";
@@ -98,6 +114,7 @@ export interface McpOAuthFlow {
   codeVerifier: string;
   clientInformation: StoredOAuthClientInformation;
   discoveryState?: McpOAuthDiscoveryState;
+  authorizationScope?: string;
   returnUrl?: string;
   replaceServerId?: string;
   expiresAt: number;
@@ -120,6 +137,18 @@ export function resolveMcpOAuthReturnPath(
     flow.returnUrl ??
     `/settings/integrations?connected=mcp-${encodeURIComponent(flow.name)}`
   );
+}
+
+export function bindMcpOAuthAuthorizationScope(
+  flow: Pick<McpOAuthFlow, "authorizationScope">,
+  credentials: McpOAuthCredentialBundle,
+): McpOAuthCredentialBundle {
+  return flow.authorizationScope && !credentials.tokens.scope
+    ? {
+        ...credentials,
+        tokens: { ...credentials.tokens, scope: flow.authorizationScope },
+      }
+    : credentials;
 }
 
 export function redirectWithStagedCookies(
@@ -308,10 +337,14 @@ async function handleMcpOAuthStart(
       if (isManagedMcpOAuthServer(urlCheck.url!) && !clientInformation) {
         return null;
       }
+      const authorizationScope = resolveTrustedMcpOAuthAuthorizationScope(
+        urlCheck.url!,
+      );
       return startMcpOAuthAuthorization({
         serverUrl: urlCheck.url!.toString(),
         redirectUrl: redirectUri,
         state,
+        ...(authorizationScope ? { scope: authorizationScope } : {}),
         ...(clientInformation ? { clientInformation } : {}),
       });
     });
@@ -336,6 +369,13 @@ async function handleMcpOAuthStart(
       clientInformation: started.clientInformation,
       ...(started.discoveryState
         ? { discoveryState: started.discoveryState }
+        : {}),
+      ...(resolveTrustedMcpOAuthAuthorizationScope(urlCheck.url!)
+        ? {
+            authorizationScope: resolveTrustedMcpOAuthAuthorizationScope(
+              urlCheck.url!,
+            ),
+          }
         : {}),
       ...(safeReturnUrl ? { returnUrl: safeReturnUrl } : {}),
       ...(reconnectServerId ? { replaceServerId: reconnectServerId } : {}),
@@ -384,6 +424,9 @@ export function resolveMcpOAuthScope(
   requestedScope: unknown,
   options?: { allowManagedOrgReconnect?: boolean },
 ): RemoteMcpScope | null {
+  if (isBuilderPublishMcpServer(serverUrl)) {
+    return requestedScope === "org" ? "org" : null;
+  }
   if (
     isManagedMcpOAuthServer(serverUrl) &&
     requestedScope === "org" &&
@@ -489,18 +532,22 @@ async function handleMcpOAuthCallback(
           iss,
         }),
     );
+    const credentials = bindMcpOAuthAuthorizationScope(
+      flow,
+      finished.credentials,
+    );
     const result = flow.replaceServerId
       ? await replaceOAuthRemoteServer(
           flow.scope,
           flow.scopeId,
           flow.replaceServerId,
-          finished.credentials,
+          credentials,
         )
       : await addOAuthRemoteServer(flow.scope, flow.scopeId, {
           name: flow.name,
           url: flow.url,
           description: flow.description,
-          credentials: finished.credentials,
+          credentials,
         });
     if (!result.ok) {
       setResponseStatus(event, 400);
