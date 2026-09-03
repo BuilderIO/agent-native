@@ -46,6 +46,8 @@ vi.mock("@/components/visual-editor", () => ({
 }));
 
 vi.mock("@/context/DeckContext", () => ({
+  hasFailedDeckSave: () => false,
+  hasUnsavedDeckChanges: () => false,
   useSaveState: () => ({ saving: false }),
 }));
 

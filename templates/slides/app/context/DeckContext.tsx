@@ -189,6 +189,17 @@ export interface Deck {
   previewSlide?: Slide;
 }
 
+export interface SetDeckSlidesOptions {
+  deckFields?: Partial<
+    Pick<
+      Deck,
+      "title" | "aspectRatio" | "designSystemId" | "tweaks" | "starred"
+    >
+  >;
+  persistence?: "debounced" | "immediate";
+  forcePersistence?: boolean;
+}
+
 export type DeckPersistenceResult =
   | { persisted: true }
   | { persisted: false; reason: "request-failed"; error: unknown }
@@ -306,7 +317,11 @@ interface DeckContextType {
     overSlideId: string,
     selectedSlideIds?: string[],
   ) => void;
-  setDeckSlides: (deckId: string, slides: Slide[]) => void;
+  setDeckSlides: (
+    deckId: string,
+    slides: Slide[],
+    options?: SetDeckSlidesOptions,
+  ) => void;
   /**
    * Mark a deck as having uncommitted local changes without modifying its data.
    * Use this when the user begins an interaction (e.g. inline text editing) that
@@ -537,6 +552,10 @@ export function hasUnsavedDeckChanges(deckId: string): boolean {
     pendingOpsQueue.has(deckId) ||
     failedSaveDecks.has(deckId)
   );
+}
+
+export function hasFailedDeckSave(deckId: string): boolean {
+  return failedSaveDecks.has(deckId);
 }
 
 /** Snapshot of save state — true when anything is debounced or in flight. */
@@ -3647,15 +3666,21 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   );
 
   const setDeckSlides = useCallback(
-    (deckId: string, slides: Slide[]) => {
+    (deckId: string, slides: Slide[], options?: SetDeckSlidesOptions) => {
       const before = decksRef.current.find((deck) => deck.id === deckId);
       const after = before
-        ? { ...before, slides, updatedAt: new Date().toISOString() }
+        ? {
+            ...before,
+            ...(options?.deckFields ?? {}),
+            slides,
+            updatedAt: new Date().toISOString(),
+          }
         : null;
       if (
         before &&
         after &&
-        deckContentSignature(before) === deckContentSignature(after)
+        deckContentSignature(before) === deckContentSignature(after) &&
+        !options?.forcePersistence
       ) {
         return;
       }
@@ -3682,6 +3707,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             { op: "full-replace", deck: next },
             {
               onSaveSuccess,
+              persistence: options?.persistence,
               onPersisted: (results, slideWriteSequences) =>
                 reconcilePersistedLayoutFit(
                   deckId,

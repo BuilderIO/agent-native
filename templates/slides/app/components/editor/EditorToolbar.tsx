@@ -65,8 +65,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { SaveStatusIndicator } from "@/components/visual-editor";
-import type { Deck, Slide } from "@/context/DeckContext";
-import { useSaveState } from "@/context/DeckContext";
+import {
+  hasFailedDeckSave,
+  hasUnsavedDeckChanges,
+  useSaveState,
+  type Deck,
+  type Slide,
+} from "@/context/DeckContext";
+import { DeckBackupError } from "@/lib/deck-backup";
 import { getDeckShareLinkOrder } from "@/lib/deck-share-links";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 import { parseUploadResponse } from "@/lib/upload-response";
@@ -161,6 +167,10 @@ interface EditorToolbarProps {
   onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
   /** Flush local edits before entering the full-screen presentation view. */
   onPresent?: (request?: PresentRequest) => boolean | void;
+  /** Download the current local deck state as a recovery backup. */
+  onDownloadBackup?: () => void;
+  /** Restore a recovery backup into the current deck. */
+  onImportDeckBackup?: (file: File) => Promise<{ slideCount: number }>;
   /** Inserts a blank slide directly below the active slide. Threaded through
    *  to the fallback action cluster below so an empty deck (no current
    *  slide, so the primary element-controls toolbar never mounts) still has
@@ -223,6 +233,8 @@ export default function EditorToolbar({
   onExportPptx,
   onExportGoogleSlides,
   onPresent,
+  onDownloadBackup,
+  onImportDeckBackup,
   onAddEmptySlide,
   addSlideGenerating,
   canEdit = true,
@@ -260,6 +272,8 @@ export default function EditorToolbar({
   // Live save state for the toolbar indicator, so users always see whether
   // their work has committed (a lost-deck report motivated surfacing this).
   const { saving } = useSaveState();
+  const deckHasUnsavedChanges = hasUnsavedDeckChanges(deckId);
+  const saveFailed = hasFailedDeckSave(deckId);
   const [offline, setOffline] = useState(
     typeof navigator !== "undefined" ? !navigator.onLine : false,
   );
@@ -309,9 +323,21 @@ export default function EditorToolbar({
     toast(t("editorToolbar.importingFile"), {
       description: t("editorToolbar.readingFile", { fileName: file.name }),
     });
-    const formData = new FormData();
-    formData.append("file", file);
     try {
+      if (file.name.toLowerCase().endsWith(".json")) {
+        if (!onImportDeckBackup) throw new DeckBackupError();
+        const { slideCount } = await onImportDeckBackup(file);
+        toast.success(t("editorToolbar.importComplete"), {
+          description: t("editorToolbar.importCompleteSlides", {
+            count: slideCount,
+            fileName: file.name,
+          }),
+        });
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("file", file);
       const uploadRes = await fetch(`${appBasePath()}/api/uploads`, {
         method: "POST",
         body: formData,
@@ -368,9 +394,11 @@ export default function EditorToolbar({
       console.error("Import failed:", err);
       toast.error(t("editorToolbar.importFailed"), {
         description:
-          err instanceof Error
-            ? err.message
-            : t("editorToolbar.importFailedDescription"),
+          err instanceof DeckBackupError
+            ? t("editorToolbar.invalidBackup")
+            : err instanceof Error
+              ? err.message
+              : t("editorToolbar.importFailedDescription"),
       });
     } finally {
       setImporting(false);
@@ -760,7 +788,13 @@ export default function EditorToolbar({
       {canEdit && (
         <SaveStatusIndicator
           saving={saving}
+          hasUnsavedChanges={deckHasUnsavedChanges}
+          saveFailed={saveFailed}
           offline={offline}
+          onDownloadBackup={onDownloadBackup}
+          onImportBackup={
+            onImportDeckBackup ? () => fileInputRef.current?.click() : undefined
+          }
           className="flex-shrink-0 mr-1"
         />
       )}
@@ -1051,7 +1085,7 @@ export default function EditorToolbar({
       <input
         ref={fileInputRef}
         type="file"
-        accept=".pptx,.docx,.pdf"
+        accept=".pptx,.docx,.pdf,.json"
         onChange={handleImportFile}
         className="hidden"
       />
