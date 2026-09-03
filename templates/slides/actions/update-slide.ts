@@ -38,7 +38,7 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
-import { withDeckLock } from "./patch-deck.js";
+import { isAgentPatchCaller, withDeckLock } from "./patch-deck.js";
 
 function deckDeepLink(deckId: string): string {
   return buildDeepLink({
@@ -651,10 +651,7 @@ export default defineAction({
               ownerEmail: row.ownerEmail ?? "",
             },
             {
-              force:
-                ctx?.caller === "tool" ||
-                ctx?.caller === "mcp" ||
-                ctx?.caller === "a2a",
+              force: isAgentPatchCaller(ctx?.caller),
               chatContext: deckVersionChatContextFromAction(ctx),
               label: "Before slide edit",
               db: tx,

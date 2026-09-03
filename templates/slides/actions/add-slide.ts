@@ -387,10 +387,7 @@ export default defineAction({
             ownerEmail: row.ownerEmail,
           },
           {
-            force:
-              ctx?.caller === "tool" ||
-              ctx?.caller === "mcp" ||
-              ctx?.caller === "a2a",
+            force: isAgentPatchCaller(ctx?.caller),
             chatContext: deckVersionChatContextFromAction(ctx),
             label: "Before adding slide",
             db: tx,

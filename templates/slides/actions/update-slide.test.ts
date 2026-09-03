@@ -114,6 +114,11 @@ vi.mock("@agent-native/core/collab", () => ({
 // on update-slide's own read-modify-write logic.
 vi.mock("./patch-deck.js", () => ({
   withDeckLock: (_deckId: string, fn: () => Promise<unknown>) => fn(),
+  isAgentPatchCaller: (caller: string | undefined) =>
+    caller === "tool" ||
+    caller === "mcp" ||
+    caller === "a2a" ||
+    caller === "webmcp",
 }));
 
 vi.mock("../server/lib/deck-versions.js", () => ({

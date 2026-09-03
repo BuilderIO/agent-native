@@ -39,6 +39,22 @@ const mockDb = {
 
 const mockGetGenerationCreativeContext = vi.fn(async () => null);
 const mockRecordGenerationCreativeContext = vi.fn(async () => undefined);
+const mockCreateDeckVersionSnapshot = vi.fn(async () => ({ created: true }));
+const mockDeckVersionChatContextFromAction = vi.fn(
+  (context?: {
+    caller?: string;
+    threadId?: string;
+    runId?: string;
+    turnId?: string;
+  }) =>
+    context?.caller === "webmcp"
+      ? {
+          threadId: context.threadId,
+          runId: context.runId,
+          turnId: context.turnId,
+        }
+      : undefined,
+);
 const mockValidateGenerationCreativeContext = vi.fn(
   async (input: {
     contextPackId?: string;
@@ -118,8 +134,10 @@ vi.mock("./patch-deck.js", () => ({
 }));
 
 vi.mock("../server/lib/deck-versions.js", () => ({
-  createDeckVersionSnapshot: vi.fn(async () => ({ created: true })),
-  deckVersionChatContextFromAction: vi.fn(() => undefined),
+  createDeckVersionSnapshot: (...args: unknown[]) =>
+    mockCreateDeckVersionSnapshot(...args),
+  deckVersionChatContextFromAction: (...args: unknown[]) =>
+    mockDeckVersionChatContextFromAction(...args),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -183,6 +201,36 @@ describe("add-slide", () => {
       expect(updateFn).not.toHaveBeenCalled();
     },
   );
+
+  it("forces a WebMCP version snapshot with its run context", async () => {
+    deckData.generationContext = { targetSlideCount: 3 };
+
+    await action.run(
+      {
+        deckId: "deck-1",
+        slideId: "slide-new",
+        content: "<div>New</div>",
+      },
+      {
+        caller: "webmcp",
+        threadId: "thread-webmcp",
+        runId: "run-webmcp",
+        turnId: "turn-webmcp",
+      },
+    );
+
+    expect(mockCreateDeckVersionSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "deck-1" }),
+      expect.objectContaining({
+        force: true,
+        chatContext: {
+          threadId: "thread-webmcp",
+          runId: "run-webmcp",
+          turnId: "turn-webmcp",
+        },
+      }),
+    );
+  });
 
   it("repairs an opaque generated title from the first slide", async () => {
     deckData = {
