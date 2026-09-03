@@ -24,6 +24,7 @@ import {
   getSlideSelectionIdentity,
   getSlideSelectionMode,
   findPersistedImageObject,
+  isAutoHeightTextResize,
   isValidSlideClipboardRoot,
   resolveSlideClipboardElement,
   getSlideTextBoxDefaultColor,
@@ -585,6 +586,27 @@ describe("slide object interactions", () => {
         { handle: "w", dx: 30, dy: 99, preserveAspectRatio: true },
       ),
     ).toEqual({ x: 130, y: 57.5, width: 170, height: 85 });
+  });
+
+  it("keeps height auto only for a width-only drag on a text object", () => {
+    const textBox = document.createElement("div");
+    textBox.className = "fmd-text-box";
+    textBox.textContent = "Some text";
+
+    const shape = document.createElement("div");
+    shape.setAttribute("data-slide-shape", "rectangle");
+
+    for (const handle of ["e", "w"] as const) {
+      expect(isAutoHeightTextResize(textBox, handle, false)).toBe(true);
+      // Shift locks aspect ratio, deriving an explicit height on purpose.
+      expect(isAutoHeightTextResize(textBox, handle, true)).toBe(false);
+      // Non-text objects have no wrapped-text reason to drop their height.
+      expect(isAutoHeightTextResize(shape, handle, false)).toBe(false);
+    }
+
+    for (const handle of ["nw", "ne", "sw", "se", "n", "s"] as const) {
+      expect(isAutoHeightTextResize(textBox, handle, false)).toBe(false);
+    }
   });
 
   it("freezes an in-flow text block without removing its layout slot", () => {
