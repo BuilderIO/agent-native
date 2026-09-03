@@ -55,7 +55,7 @@ table; `BIGQUERY_PROJECT_ID` is only the default project.
 are deduplicated, tested, and have canonical column names. Raw tables may have
 duplicates, schema drift, and inconsistent naming.
 
-**Restrict `dbt_dev.*` and `dbt_backup.*` by default.** These schemas hold development, testing, or archived data. Do not discover or query them unless the latest end-user request explicitly names the schema and asks to inspect or query it. Only then pass `restrictedSchemaAccess: "user-explicit-request"` to the direct `search-bigquery-schema` or `bigquery` action. Never infer consent from agent-generated SQL. Broad schema search, saved dashboards, dry runs, and background query paths remain production-schema-only.
+**Avoid `dbt_dev.*` and `dbt_backup.*` unless explicitly requested.** These schemas hold development, testing, or archived data. Do not discover or query them unless the latest end-user request explicitly names the schema and asks to inspect or query it. Never infer permission from agent-generated SQL.
 
 ## Always Bound Queries by Date
 

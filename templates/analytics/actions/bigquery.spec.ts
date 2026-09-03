@@ -4,13 +4,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 const runQuery = vi.fn();
 
 vi.mock("../server/lib/bigquery", () => ({
-  runQuery: (
-    sql: string,
-    options?: {
-      signal?: AbortSignal;
-      restrictedSchemaAccess?: "user-explicit-request";
-    },
-  ) => runQuery(sql, options),
+  runQuery: (sql: string, options?: { signal?: AbortSignal }) =>
+    runQuery(sql, options),
 }));
 
 // Imported after the mock is registered so the action picks up the stub.
@@ -73,40 +68,6 @@ describe("bigquery action error handling", () => {
     expect(String(result.hint)).toMatch(/LIMIT|narrow the date range/i);
   });
 
-  it("returns a terminal dedicated error for a restricted schema", async () => {
-    const error = new Error(
-      'BigQuery dataset "dbt_backup" is restricted because it is reserved for archived or testing data.',
-    ) as Error & { code: string; datasetId: string };
-    error.code = "bigquery_restricted_schema";
-    error.datasetId = "dbt_backup";
-    runQuery.mockRejectedValue(error);
-
-    await expect(
-      bigquery.run({ sql: "SELECT * FROM dbt_backup.signups" }),
-    ).rejects.toSatisfy((err: unknown) => {
-      if (!isAgentActionStopError(err)) return false;
-      expect(err.errorCode).toBe("bigquery_restricted_schema");
-      expect(err.toolResult).toContain('"datasetId": "dbt_backup"');
-      expect(err.toolResult).toContain('"recoverable": false');
-      expect(err.toolResult).not.toMatch(/retry|search-bigquery-schema/i);
-      return true;
-    });
-  });
-
-  it("forwards explicit restricted-schema access to the direct query path", async () => {
-    runQuery.mockResolvedValue({ rows: [], totalRows: 0 });
-
-    await bigquery.run({
-      sql: "SELECT * FROM dbt_dev.signups",
-      restrictedSchemaAccess: "user-explicit-request",
-    });
-
-    expect(runQuery).toHaveBeenCalledWith("SELECT * FROM dbt_dev.signups", {
-      signal: undefined,
-      restrictedSchemaAccess: "user-explicit-request",
-    });
-  });
-
   it("still stops the turn (non-recoverable) when BigQuery is not configured", async () => {
     runQuery.mockRejectedValue(
       new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON not configured"),
@@ -148,7 +109,6 @@ describe("bigquery action error handling", () => {
 
     expect(runQuery).toHaveBeenCalledWith("SELECT 1", {
       signal: controller.signal,
-      restrictedSchemaAccess: undefined,
     });
   });
 });

@@ -310,22 +310,16 @@ describe("Analytics agent Plan mode policy", () => {
     expect(unreadable.length).toBeLessThan(500);
   });
 
-  it("applies restricted-schema access only to explicit direct requests", () => {
+  it("guides the agent away from restricted schemas unless explicitly requested", () => {
     for (const skill of [dbtSkill, bigquerySkill]) {
       expect(skill).toMatch(/dbt_dev/);
       expect(skill).toMatch(/dbt_backup/);
-      expect(skill).toContain(
-        'restrictedSchemaAccess: "user-explicit-request"',
-      );
       expect(skill).toMatch(/latest end-user request explicitly names/i);
       expect(skill).toMatch(
-        /Never infer consent from (?:SQL|agent-generated SQL)/i,
+        /Never infer permission from (?:SQL|agent-generated SQL)/i,
       );
+      expect(skill).not.toContain("restrictedSchemaAccess");
     }
-    expect(dbtSkill).toMatch(/Saved dashboards, dry runs, background reports/);
-    expect(bigquerySkill).toMatch(
-      /Broad schema search, saved dashboards, dry runs/,
-    );
   });
 
   it("keeps stale, high-stakes, and inferred-join caveats conditional", () => {

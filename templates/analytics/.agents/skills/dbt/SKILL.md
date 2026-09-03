@@ -31,7 +31,7 @@ Report the metric name, dimensions, filters, date range and time grain, plus env
 
 ## Restricted Schemas
 
-`dbt_dev` and `dbt_backup` are testing or archival schemas. Do not discover or query either schema by default. The direct `search-bigquery-schema` and `bigquery` actions may receive `restrictedSchemaAccess: "user-explicit-request"` only when the latest end-user request explicitly names the restricted schema and asks to inspect or query it. Never infer consent from SQL that the agent generated. Saved dashboards, dry runs, background reports, and broad schema searches remain production-schema-only.
+`dbt_dev` and `dbt_backup` are testing or archival schemas. Do not discover or query either schema unless the latest end-user request explicitly names it and asks to inspect or query it. Never infer permission from SQL that the agent generated.
 
 ## Freshness
 

@@ -7,42 +7,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core", () => ({
-  AgentActionStopError: class AgentActionStopError extends Error {
-    errorCode?: string;
-    toolResult?: string;
-
-    constructor(
-      message: string,
-      details?: { errorCode?: string; toolResult?: string },
-    ) {
-      super(message);
-      this.errorCode = details?.errorCode;
-      this.toolResult = details?.toolResult;
-    }
-  },
   defineAction: (definition: unknown) => definition,
 }));
 vi.mock("../server/lib/bigquery", () => ({
   getBigQueryProjectId: mocks.getBigQueryProjectId,
-  isRestrictedBigQueryDataset: (datasetId: string) =>
-    ["dbt_dev", "dbt_backup"].includes(datasetId.trim().toLowerCase()),
-  enforceBigQueryRestrictedDatasetPolicy: (
-    datasetId: string,
-    options?: { restrictedSchemaAccess?: string },
-  ) => {
-    const normalized = datasetId.trim().toLowerCase();
-    if (
-      ["dbt_dev", "dbt_backup"].includes(normalized) &&
-      options?.restrictedSchemaAccess !== "user-explicit-request"
-    ) {
-      const error = new Error(
-        `BigQuery dataset "${normalized}" is restricted.`,
-      ) as Error & { code: string; datasetId: string };
-      error.code = "bigquery_restricted_schema";
-      error.datasetId = normalized;
-      throw error;
-    }
-  },
 }));
 vi.mock("../server/lib/gcloud", () => ({
   getAccessToken: mocks.getAccessToken,
@@ -78,18 +46,6 @@ beforeEach(() => {
               datasetId: "product",
             },
           },
-          {
-            datasetReference: {
-              projectId: "test-project",
-              datasetId: "dbt_dev",
-            },
-          },
-          {
-            datasetReference: {
-              projectId: "test-project",
-              datasetId: "dbt_backup",
-            },
-          },
         ],
       });
     }
@@ -114,32 +70,6 @@ beforeEach(() => {
             type: "TABLE",
           },
         ],
-      });
-    }
-
-    if (path.endsWith("/datasets/dbt_backup/tables")) {
-      return jsonResponse({
-        tables: [
-          {
-            tableReference: {
-              projectId: "test-project",
-              datasetId: "dbt_backup",
-              tableId: "archived_signups",
-            },
-            type: "TABLE",
-          },
-        ],
-      });
-    }
-
-    if (path.endsWith("/datasets/dbt_backup/tables/archived_signups")) {
-      return jsonResponse({
-        tableReference: {
-          projectId: "test-project",
-          datasetId: "dbt_backup",
-          tableId: "archived_signups",
-        },
-        schema: { fields: [{ name: "created_at", type: "TIMESTAMP" }] },
       });
     }
 
@@ -218,108 +148,13 @@ describe("search-bigquery-schema", () => {
     ]);
   });
 
-  it("keeps restricted datasets out of no-argument and global searches", async () => {
-    const datasetsResult = await action.run({});
-    const searchResult = await action.run({ search: "created", limit: 10 });
-
-    expect(datasetsResult).toMatchObject({
-      mode: "datasets",
-      datasets: [{ datasetId: "product" }],
-    });
-    expect(searchResult.datasetsScanned).toBe(1);
-    expect(
-      mocks.fetch.mock.calls.some(([input]) =>
-        String(input).includes("/datasets/dbt_backup/tables"),
-      ),
-    ).toBe(false);
-    expect(
-      mocks.fetch.mock.calls.some(([input]) =>
-        String(input).includes("/datasets/dbt_dev/tables"),
-      ),
-    ).toBe(false);
-  });
-
-  it.each([
-    [{ dataset: "dbt_backup" }, "dbt_backup"],
-    [{ table: "dbt_dev.signups" }, "dbt_dev"],
-  ])(
-    "rejects direct restricted metadata access before credentials or network",
-    async (args, datasetId) => {
-      await expect(action.run(args)).rejects.toSatisfy((err: unknown) => {
-        if (!err || typeof err !== "object") return false;
-        const stopped = err as { errorCode?: unknown; toolResult?: unknown };
-        expect(stopped.errorCode).toBe("bigquery_restricted_schema");
-        expect(String(stopped.toolResult)).toContain(
-          `"datasetId": "${datasetId}"`,
-        );
-        expect(String(stopped.toolResult)).toContain('"recoverable": false');
-        return true;
-      });
-      expect(mocks.getBigQueryProjectId).not.toHaveBeenCalled();
-      expect(mocks.getAccessToken).not.toHaveBeenCalled();
-      expect(mocks.fetch).not.toHaveBeenCalled();
-    },
-  );
-
-  it("pages past restricted datasets to return allowed datasets", async () => {
-    mocks.fetch.mockImplementation(async (input: URL | string) => {
-      const url = new URL(String(input));
-      if (url.searchParams.get("pageToken") === "next-page") {
-        return jsonResponse({
-          datasets: [
-            {
-              datasetReference: {
-                projectId: "test-project",
-                datasetId: "product",
-              },
-            },
-          ],
-        });
-      }
-      return jsonResponse({
-        datasets: [
-          {
-            datasetReference: {
-              projectId: "test-project",
-              datasetId: "dbt_backup",
-            },
-          },
-        ],
-        nextPageToken: "next-page",
-      });
-    });
-
-    const result = await action.run({ limit: 1 });
+  it("keeps the no-argument call as a lightweight dataset listing", async () => {
+    const result = await action.run({});
 
     expect(result).toMatchObject({
       mode: "datasets",
       datasets: [{ datasetId: "product" }],
-      truncated: false,
     });
-    expect(mocks.fetch).toHaveBeenCalledTimes(2);
-  });
-
-  it("allows a specifically requested restricted dataset with the explicit marker", async () => {
-    const tablesResult = await action.run({
-      dataset: "dbt_backup",
-      restrictedSchemaAccess: "user-explicit-request",
-    });
-    const tableResult = await action.run({
-      table: "dbt_backup.archived_signups",
-      restrictedSchemaAccess: "user-explicit-request",
-    });
-
-    expect(tablesResult).toMatchObject({
-      mode: "tables",
-      datasetId: "dbt_backup",
-      tables: [{ tableId: "archived_signups" }],
-    });
-    expect(tableResult).toMatchObject({
-      mode: "table",
-      table: {
-        datasetId: "dbt_backup",
-        tableId: "archived_signups",
-      },
-    });
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
   });
 });
