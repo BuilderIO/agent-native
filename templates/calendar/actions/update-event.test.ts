@@ -688,4 +688,46 @@ describe("update-event approval gate", () => {
       } as never),
     ).toBe(true);
   });
+
+  it("gates adding a guest, which invites them by default", async () => {
+    const gate = action.needsApproval;
+    if (typeof gate !== "function") throw new Error("expected a predicate");
+
+    // run() leaves sendUpdates at Google's "all" default once addAttendees
+    // names anyone, in either raw shape the schema accepts.
+    expect(
+      await gate({
+        id: "google-a",
+        addAttendees: [{ email: "guest@example.com" }],
+      } as never),
+    ).toBe(true);
+    expect(
+      await gate({
+        id: "google-a",
+        addAttendees: "guest@example.com",
+      } as never),
+    ).toBe(true);
+    // An explicit sendUpdates wins over that default, so nothing is mailed.
+    expect(
+      await gate({
+        id: "google-a",
+        addAttendees: [{ email: "guest@example.com" }],
+        sendUpdates: "none",
+      } as never),
+    ).toBe(false);
+    // Nobody named, nothing sent.
+    expect(await gate({ id: "google-a", addAttendees: [] } as never)).toBe(
+      false,
+    );
+    expect(await gate({ id: "google-a", addAttendees: "  " } as never)).toBe(
+      false,
+    );
+    // Replacing the list does not reach the sendUpdates default.
+    expect(
+      await gate({
+        id: "google-a",
+        attendees: [{ email: "guest@example.com" }],
+      } as never),
+    ).toBe(false);
+  });
 });
