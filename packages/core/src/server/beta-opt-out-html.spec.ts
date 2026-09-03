@@ -109,6 +109,10 @@ describe("injectBetaOptOutPersistence", () => {
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "plan" }]),
+    );
 
     const html = injectBetaOptOutPersistence(
       "<html><head></head><body>Sign in</body></html>",
@@ -121,6 +125,10 @@ describe("injectBetaOptOutPersistence", () => {
   it("prefers the request mount over a stale build-time base", () => {
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "dispatch" }, { id: "diagrams" }]),
+    );
 
     const html = injectBetaOptOutPersistence(
       "<html><head></head><body>Sign in</body></html>",
@@ -135,6 +143,10 @@ describe("injectBetaOptOutPersistence", () => {
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ path: "/<script>alert(1)" }]),
+    );
 
     const html = injectBetaOptOutPersistence(
       "<html><head></head><body>Sign in</body></html>",
@@ -143,6 +155,20 @@ describe("injectBetaOptOutPersistence", () => {
 
     expect(html).toContain("\\u003cscript\\u003ealert(1)");
     expect(html).not.toContain("<script>alert(1)");
+  });
+
+  it("keeps the root session path for an unlisted workspace login route", () => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+
+    const html = injectBetaOptOutPersistence(
+      "<html><head></head><body>Sign in</body></html>",
+      "/settings/login",
+    );
+
+    expect(html).toContain("/_agent-native/auth/session");
+    expect(html).not.toContain("/settings/_agent-native/auth/session");
   });
 
   it("keeps the existing onboarding switcher instead of injecting a second one", () => {
