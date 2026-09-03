@@ -11,10 +11,10 @@ import {
 } from "./registry.js";
 import type { FileUploadProvider } from "./types.js";
 
-const resolveBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
+const canAuthorizeBuilderApiRequestMock = vi.hoisted(() => vi.fn());
 
-vi.mock("../server/credential-provider.js", () => ({
-  resolveBuilderPrivateKey: resolveBuilderPrivateKeyMock,
+vi.mock("../server/builder-api-auth.js", () => ({
+  canAuthorizeBuilderApiRequest: canAuthorizeBuilderApiRequestMock,
 }));
 
 function makeProvider(
@@ -44,6 +44,7 @@ describe("file-upload registry", () => {
     process.env = { ...originalEnv };
     delete process.env.BUILDER_PRIVATE_KEY;
     vi.clearAllMocks();
+    canAuthorizeBuilderApiRequestMock.mockResolvedValue(false);
   });
 
   afterEach(() => {
@@ -131,12 +132,12 @@ describe("file-upload registry", () => {
     });
 
     it("resolves a request-scoped Builder connection", async () => {
-      resolveBuilderPrivateKeyMock.mockResolvedValue("bpk-secret");
+      canAuthorizeBuilderApiRequestMock.mockResolvedValue(true);
 
       await expect(getActiveFileUploadProviderForRequest()).resolves.toBe(
         builderFileUploadProvider,
       );
-      expect(resolveBuilderPrivateKeyMock).toHaveBeenCalled();
+      expect(canAuthorizeBuilderApiRequestMock).toHaveBeenCalled();
     });
   });
 
@@ -154,7 +155,7 @@ describe("file-upload registry", () => {
       expect(result).toEqual({ url: "https://cdn/s3/x", provider: "s3" });
       expect(upload).toHaveBeenCalledWith(input);
       // The builder credential path must not be touched for user providers.
-      expect(resolveBuilderPrivateKeyMock).not.toHaveBeenCalled();
+      expect(canAuthorizeBuilderApiRequestMock).not.toHaveBeenCalled();
     });
 
     it("uses a request-scoped user provider before resolving builder creds", async () => {
@@ -175,11 +176,11 @@ describe("file-upload registry", () => {
         provider: "s3",
       });
       expect(upload).toHaveBeenCalledWith(input);
-      expect(resolveBuilderPrivateKeyMock).not.toHaveBeenCalled();
+      expect(canAuthorizeBuilderApiRequestMock).not.toHaveBeenCalled();
     });
 
     it("resolves builder credentials async and uploads via the builtin", async () => {
-      resolveBuilderPrivateKeyMock.mockResolvedValue("bpk-runtime");
+      canAuthorizeBuilderApiRequestMock.mockResolvedValue(true);
       const uploadSpy = vi
         .spyOn(builderFileUploadProvider, "upload")
         .mockResolvedValue({
@@ -201,14 +202,14 @@ describe("file-upload registry", () => {
     });
 
     it("returns null when no object-storage credentials resolve", async () => {
-      resolveBuilderPrivateKeyMock.mockResolvedValue(null);
+      canAuthorizeBuilderApiRequestMock.mockResolvedValue(false);
       const result = await uploadFile({ data: new Uint8Array([1]) });
       expect(result).toBeNull();
     });
 
     it("falls back to null when credential resolution throws (DB unavailable)", async () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      resolveBuilderPrivateKeyMock.mockRejectedValue(new Error("db down"));
+      canAuthorizeBuilderApiRequestMock.mockRejectedValue(new Error("db down"));
 
       const result = await uploadFile({ data: new Uint8Array([1]) });
 
@@ -223,7 +224,7 @@ describe("file-upload registry", () => {
     it("does NOT swallow a real upload failure as a fallback", async () => {
       // Creds resolve fine, so an upload error must propagate to the caller
       // rather than being treated as a missing-provider null.
-      resolveBuilderPrivateKeyMock.mockResolvedValue("bpk-runtime");
+      canAuthorizeBuilderApiRequestMock.mockResolvedValue(true);
       const uploadSpy = vi
         .spyOn(builderFileUploadProvider, "upload")
         .mockRejectedValue(new Error("network blip"));

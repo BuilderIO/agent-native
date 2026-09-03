@@ -7,6 +7,11 @@ import type { GoogleAuthStatus } from "@shared/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  isSharedCalendarDemo,
+  SHARED_CALENDAR_DEMO_STATUS,
+} from "@/lib/shared-calendar-demo";
+
 export interface DesktopAuthIssue {
   error?: string;
   message?: string;
@@ -149,14 +154,16 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
 }
 
 export function useGoogleAuthStatus() {
+  const demo = isSharedCalendarDemo();
   return useQuery<GoogleAuthStatus>({
     queryKey: ["google-status"],
     queryFn: async () => {
+      if (demo) return SHARED_CALENDAR_DEMO_STATUS;
       return fetchJson<GoogleAuthStatus>(
         agentNativePath("/_agent-native/google/status"),
       );
     },
-    staleTime: 30_000,
+    staleTime: demo ? Infinity : 30_000,
   });
 }
 

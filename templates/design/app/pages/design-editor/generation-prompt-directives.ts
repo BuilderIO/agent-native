@@ -1,5 +1,6 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import type { TweakDefinition } from "@shared/api";
+import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 
@@ -192,6 +193,7 @@ export function designVariantGenerationDirectives(
     "The user's prompt already asks to explore multiple directions, so DO NOT call `show-design-questions` first and DO NOT call `generate-design` first.",
     "Call `present-design-variants` with 2-5 concise directions (3 when unspecified). Prefer label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens. Every web design must be responsive; default each desktop direction to width 1440 and height 1024. Use mobile dimensions only when the user explicitly requested a mobile-first primary artboard.",
     'Wait for the user\'s chat pick, delete each unchosen variant screen at most once, call `get-design-snapshot` exactly once with `fileId` for the kept screen, then call `edit-design` exactly once on that same `fileId` in a bounded pass. Use `mode: "replace-file"` when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call `generate-design` after a variant pick. Stop after the first successful `edit-design` save.',
+    DESIGN_MUTATION_REQUIRED_DIRECTIVE,
   ];
 }
 
@@ -247,6 +249,7 @@ export function designGenerationDirectives(
     'Responsive behavior is mandatory for every web design: use a mobile-first layout, include a viewport meta tag, stack or collapse desktop columns at narrow widths, and never rely on a fixed-width desktop shell. Default to a desktop primary artboard. For a Desktop or Both/responsive intake answer, pass `primaryViewport: "desktop"` and `canvasFrames` with width 1440 and height 1024; pass `primaryViewport: "mobile"` only when the user explicitly chooses a mobile-primary artboard.',
     "Keep the first pass bounded enough to finish quickly: one self-contained Alpine.js + Tailwind CDN HTML document, polished but concise. Add 3-6 tweaks only when they naturally fit the design.",
     "After generate-design succeeds, run `take-design-screenshot` at desktop and mobile viewports. Fix any horizontal overflow or layout breakage with edit-design before summarizing what was created.",
+    DESIGN_MUTATION_REQUIRED_DIRECTIVE,
   ];
 }
 
@@ -266,5 +269,6 @@ export function designTemplateRefinementDirectives(
     "Preserve canvasFrames and the template's width and height. Change only the unlocked content needed for the user's request.",
     "Prefer one bounded search-replace edit pass. Use replace-file only when necessary, and keep every locked subtree exactly as it appeared in the snapshot.",
     "After edit-design succeeds, stop and summarize the refinement.",
+    DESIGN_MUTATION_REQUIRED_DIRECTIVE,
   ];
 }

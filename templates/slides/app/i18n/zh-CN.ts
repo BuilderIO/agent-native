@@ -143,6 +143,8 @@ const messages = {
     clearSelection: "選択を解除",
     sendToAgent: "发送给代理",
     saveReconnect: "再接続時に変更が保存されます",
+    saveFailedDescription:
+      "你最近的编辑内容仅保存在此设备上。离开前请下载备份。",
     offline: "离线",
     selected: "已选择",
     chooseDesignSystem: "デザインシステムを選択",
@@ -201,6 +203,9 @@ const messages = {
     usingDesignSystem: "正在使用 {{title}}",
     usingLinkedDesignSystem: "正在使用已关联的设计系统",
     viewOnly: "仅查看",
+    sourcePreserving: "有限编辑",
+    sourcePreservingDescription:
+      "可以编辑文本和对象。此导入的演示文稿已禁用添加、删除或重新排序幻灯片。",
     commenterRoleLabel: "评论者",
     commenterRoleDescription: "可以查看并添加评论",
     slideSettings: "幻灯片设置",
@@ -256,6 +261,11 @@ const messages = {
     more: "更多",
     importing: "正在导入...",
     importFile: "导入文件",
+    downloadBackup: "下载备份",
+    importBackup: "导入备份",
+    backupDownloaded: "备份已下载",
+    backupDownloadFailed: "无法下载备份",
+    invalidBackup: "请选择有效的 Slides 备份 JSON 文件。",
     savedVersions: "已保存版本",
     lightTheme: "浅色主题",
     darkTheme: "深色主题",
@@ -263,6 +273,7 @@ const messages = {
   editorExport: {
     pptxFailed: "无法生成 PPTX 文件。",
     exportFailed: "导出失败",
+    exporting: "正在导出...",
     exportPptxError: "导出为 PPTX 时出了点问题。",
     googleSlidesDownloaded: "已为 Google Slides 下载",
     googleSlidesImportHint:

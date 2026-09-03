@@ -865,7 +865,7 @@ export default function PromptPopover({
           }
         }}
         data-agent-native-prompt-popover
-        className="z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border-border p-0 shadow-2xl shadow-black/60"
+        className="relative z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border-border p-0 shadow-2xl shadow-black/60"
       >
         <div className="flex items-center justify-between gap-2 px-3.5 pt-3 pb-2">
           <span className="text-sm font-medium text-foreground/90">
@@ -962,7 +962,6 @@ export default function PromptPopover({
             }
           />
         </div>
-
         {!showStartChoice &&
           (onTemplateChange ||
             onDesignSystemChange ||

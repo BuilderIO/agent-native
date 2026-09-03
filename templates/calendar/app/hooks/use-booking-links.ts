@@ -8,10 +8,8 @@ import type {
   ConferencingConfig,
   CustomField,
 } from "@shared/api";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
-
-import { appApiPath } from "@/lib/api-path";
 
 const LIST_KEY = ["action", "list-booking-links", undefined] as const;
 
@@ -124,24 +122,28 @@ export function useUpdateBookingLink() {
       void queryClient.invalidateQueries({
         queryKey: LIST_KEY,
       });
+      // The editor's time-zone preview reads this same link through the
+      // public endpoint (to see peer enrichment as a visitor would). That
+      // query isn't part of LIST_KEY, so without this it keeps showing
+      // pre-save hosts/display names after editing co-hosts here, even
+      // though the preview's slots already reflect the new draft.
+      void queryClient.invalidateQueries({
+        queryKey: ["public-booking-link"],
+      });
     },
   });
 }
 
 export function useDeleteBookingLink() {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(appApiPath(`/api/booking-links/${id}`), {
-        method: "DELETE",
-      });
-      if (!res.ok) throw new Error("Failed to delete booking link");
-      return res.json();
+  return useActionMutation<{ ok: true }, { id: string }>(
+    "delete-booking-link",
+    {
+      onSuccess: () => {
+        void queryClient.invalidateQueries({
+          queryKey: LIST_KEY,
+        });
+      },
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: LIST_KEY,
-      });
-    },
-  });
+  );
 }

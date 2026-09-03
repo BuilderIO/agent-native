@@ -91,6 +91,47 @@ function setTextareaValue(element: HTMLTextAreaElement, value: string) {
   element.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+describe("QuestionFlow option ordering", () => {
+  it("puts a recommended option first without recommending the decide option", async () => {
+    const { container, cleanup } = await renderQuestionFlow({
+      onSubmit: vi.fn(),
+      onSkip: vi.fn(),
+      skipLabel: "Skip",
+      questions: [
+        {
+          id: "form_factor",
+          type: "text-options",
+          question: "What form factor?",
+          options: [
+            { label: "Decide for me", value: "decide", recommended: true },
+            { label: "Mobile", value: "mobile" },
+            { label: "Desktop", value: "desktop", recommended: true },
+          ],
+          allowOther: false,
+          includeExplore: false,
+          includeDecide: false,
+        },
+      ],
+    });
+
+    const optionButtons = Array.from(
+      container.querySelectorAll("section button"),
+    );
+    expect(
+      optionButtons.map((button) =>
+        button.textContent
+          ?.replace("Recommended", "")
+          .replace(/\s+/g, " ")
+          .trim(),
+      ),
+    ).toEqual(["Desktop", "Decide for me", "Mobile"]);
+    expect(optionButtons[0]?.textContent).toContain("Recommended");
+    expect(optionButtons[1]?.textContent).not.toContain("Recommended");
+
+    await cleanup();
+  });
+});
+
 describe("QuestionFlow Other answers", () => {
   it("offers a write-in answer by default for text options", async () => {
     const onSubmit = vi.fn();

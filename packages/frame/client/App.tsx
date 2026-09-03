@@ -12,6 +12,7 @@
 import {
   clampAgentSidebarWidth,
   getAgentSidebarWideWidth,
+  focusAgentChat,
   startAgentChatViewTransition,
 } from "@agent-native/core/client/agent-chat";
 import {
@@ -361,7 +362,15 @@ export function App() {
   }, [frameMode, sidebarOpen, isPresentationMode]);
 
   useEffect(() => {
-    const toggleHandler = () => setSidebarOpen((prev) => !prev);
+    const toggleHandler = (event: Event) => {
+      const focusOnOpen =
+        (event as CustomEvent<{ focus?: unknown }>).detail?.focus === true;
+      if (focusOnOpen && !sidebarOpen) {
+        focusAgentChat();
+        return;
+      }
+      setSidebarOpen((prev) => !prev);
+    };
     const openHandler = () => setSidebarOpen(true);
     const closeHandler = () => setSidebarOpen(false);
     window.addEventListener("agent-panel:toggle", toggleHandler);
@@ -372,13 +381,15 @@ export function App() {
       window.removeEventListener("agent-panel:open", openHandler);
       window.removeEventListener("agent-panel:close", closeHandler);
     };
-  }, []);
+  }, [sidebarOpen]);
 
   useEffect(() => {
     const keydownHandler = (event: KeyboardEvent) => {
       if (!isAgentSidebarToggleShortcut(event)) return;
       event.preventDefault();
-      window.dispatchEvent(new Event("agent-panel:toggle"));
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:toggle", { detail: { focus: true } }),
+      );
     };
     window.addEventListener("keydown", keydownHandler);
     return () => window.removeEventListener("keydown", keydownHandler);
@@ -405,8 +416,10 @@ export function App() {
       if (!event.data?.type) return;
       if (event.data.type === "agentNative.toggleSidebar") {
         const forceOpen = event.data.data?.open;
+        const focusOnOpen = event.data.data?.focus === true;
         if (forceOpen === true) {
-          setSidebarOpen(true);
+          if (focusOnOpen) focusAgentChat();
+          else setSidebarOpen(true);
         } else if (forceOpen === false) {
           setSidebarOpen(false);
         } else {

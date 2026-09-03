@@ -9,6 +9,7 @@ import { z } from "zod";
 import { isPrivateClip } from "../app/lib/rewind-visibility.js";
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
+import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
@@ -134,7 +135,6 @@ export default defineAction({
     }));
     edits.rewindOriginalStartMs = args.addedMs;
     edits.mediaStorageLayout = "external";
-
     const [transcript] = await db
       .select()
       .from(schema.recordingTranscripts)
@@ -198,6 +198,11 @@ export default defineAction({
       updatedAt: now,
     };
     await writeAppState(key, applied);
+    await dispatchPostFinalizeJob({
+      recordingId: args.recordingId,
+      kind: "thumbnail",
+      requireAccepted: true,
+    });
     await writeAppState("refresh-signal", { ts: Date.now() });
     return { recordingId: args.recordingId, request: applied };
   },

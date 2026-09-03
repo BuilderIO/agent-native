@@ -2,6 +2,7 @@ import {
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
   dataWidgetResultSchema,
   defineAction,
+  fail,
 } from "@agent-native/core";
 import {
   createDataChartWidgetResult,
@@ -317,7 +318,10 @@ export default defineAction({
     const formIds = forms.map((form) => form.id);
 
     if (formId && forms.length === 0) {
-      throw new Error(`Form ${formId} not found`);
+      fail(`Form ${formId} not found`, {
+        errorCode: "form_not_found",
+        statusCode: 404,
+      });
     }
 
     const responseFilter =

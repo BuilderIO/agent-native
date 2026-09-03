@@ -6,17 +6,39 @@
  * handler, which only kills the screencapture fallback child, never runs
  * meeting teardown). Without this, such a row keeps a permanent Live badge,
  * the detail page polls get-meeting every 2s forever, the linked recording
- * stays "uploading", and notes never generate.
+ * stays "uploading", and notes never generate. It is also the only server
+ * backstop for the native end-of-call detector (mic release / calendar end /
+ * 15-min silence, macOS only) missing a real hangup.
  *
- * Staleness definition (conservative — never end a genuinely live meeting):
- *   - actualStart IS NOT NULL AND actualEnd IS NULL AND trashedAt IS NULL
- *   - last transcript activity (recording_transcripts.updatedAt, or
- *     meetings.updatedAt if no transcript row) is older than
- *     STALE_THRESHOLD_MS — the desktop flushes the transcript at least every
- *     1.5s while genuinely live, so this many minutes of silence is
- *     decisive.
- *   - scheduledEnd IS NULL OR scheduledEnd < now — if the scheduled window
- *     is still in the future, skip: the user may have simply paused.
+ * Three independent staleness predicates close out a live meeting — any one
+ * is sufficient:
+ *
+ *   1. No-activity: last transcript activity (recording_transcripts.updatedAt,
+ *      or meetings.updatedAt if no transcript row) is older than
+ *      STALE_THRESHOLD_MS — the desktop flushes the transcript at least every
+ *      1.5s while genuinely live, so this many minutes of silence is
+ *      decisive.
+ *   2. Time-bound + short inactivity: closes a meeting well past its expected
+ *      end once activity has been quiet for at least TIME_BOUND_INACTIVITY_MS
+ *      — short enough that a burst of post-call ambient noise (fans, a TV,
+ *      someone else's voice) can't keep re-flushing `updatedAt` and disarm
+ *      predicate 1 forever, but long enough that a real meeting still
+ *      actively transcribing past its slot (running long) is left alone.
+ *        - scheduledEnd is set: now > scheduledEnd + SCHEDULED_END_GRACE_MS
+ *          AND lastActivity older than TIME_BOUND_INACTIVITY_MS.
+ *        - scheduledEnd is null (ad-hoc meeting, no calendar bound):
+ *          now > actualStart + ADHOC_MAX_SESSION_MS AND lastActivity older
+ *          than TIME_BOUND_INACTIVITY_MS.
+ *   3. Hard cap: unconditional, ignores activity entirely — a runaway session
+ *      (constant ambient noise defeats predicate 2 forever too) still ends
+ *      after ADHOC_HARD_CAP_MS past its anchor (scheduledEnd, or actualStart
+ *      for ad-hoc meetings). Generous on purpose: this is the backstop for
+ *      the backstop, not the common case.
+ *
+ * All three predicates only apply once actualStart IS NOT NULL AND actualEnd
+ * IS NULL AND trashedAt IS NULL — never end a meeting still genuinely live.
+ * If scheduledEnd is still in the future, skip: the user may have simply
+ * paused.
  *
  * Mirrors what `actions/stop-meeting-recording.ts` does when a user
  * manually stops (kept as a small duplicated helper here rather than
@@ -42,6 +64,21 @@ import { getDb, schema } from "../db/index.js";
 
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 min
 const STALE_THRESHOLD_MS = 60 * 60 * 1000; // 60 min of zero transcript activity
+// Scheduled meetings: eligible for time-bound closure this long past
+// scheduledEnd (still gated on TIME_BOUND_INACTIVITY_MS below).
+const SCHEDULED_END_GRACE_MS = 20 * 60 * 1000; // 20 min
+// Ad-hoc meetings (no scheduledEnd) have no calendar time bound, so cap the
+// session length outright (also gated on TIME_BOUND_INACTIVITY_MS below).
+const ADHOC_MAX_SESSION_MS = 4 * 60 * 60 * 1000; // 4 hours
+// Predicate 2's activity gate — short on purpose. A meeting still genuinely
+// live and overrunning its slot keeps flushing transcript activity far more
+// often than this, so requiring silence this recent (rather than reusing the
+// 60-min STALE_THRESHOLD_MS) is what stops predicate 2 from truncating a real
+// overrunning call. Long enough to not fire on a single flush cycle's jitter.
+const TIME_BOUND_INACTIVITY_MS = 5 * 60 * 1000; // 5 min
+// Predicate 3 — unconditional, no activity check. Anchors on scheduledEnd for
+// scheduled meetings, actualStart for ad-hoc.
+const ADHOC_HARD_CAP_MS = 12 * 60 * 60 * 1000; // 12 hours
 // A finalize claim with no update in this long is presumed crashed, not merely
 // a slow Gemini call. Mirrors finalize-meeting.ts's force-takeover window.
 const PENDING_STALE_MS = 2 * 60 * 1000; // 2 min
@@ -177,6 +214,9 @@ export async function runStaleMeetingSweepOnce(): Promise<void> {
     const staleBefore = new Date(
       now.getTime() - STALE_THRESHOLD_MS,
     ).toISOString();
+    const timeBoundInactiveBefore = new Date(
+      now.getTime() - TIME_BOUND_INACTIVITY_MS,
+    ).toISOString();
 
     try {
       const candidates = await db
@@ -187,6 +227,7 @@ export async function runStaleMeetingSweepOnce(): Promise<void> {
           orgId: schema.meetings.orgId,
           updatedAt: schema.meetings.updatedAt,
           scheduledEnd: schema.meetings.scheduledEnd,
+          actualStart: schema.meetings.actualStart,
         })
         .from(schema.meetings)
         .where(
@@ -217,14 +258,54 @@ export async function runStaleMeetingSweepOnce(): Promise<void> {
               .limit(1);
             if (transcript?.updatedAt) lastActivityIso = transcript.updatedAt;
           }
-          if (!lastActivityIso || lastActivityIso > staleBefore) continue;
+          const noActivityStale =
+            Boolean(lastActivityIso) && lastActivityIso <= staleBefore;
+          const timeBoundInactive =
+            Boolean(lastActivityIso) &&
+            lastActivityIso <= timeBoundInactiveBefore;
+
+          // Predicate 2 (time-bound + short inactivity) and predicate 3 (hard
+          // cap, unconditional) share an anchor: scheduledEnd when set,
+          // otherwise actualStart for ad-hoc meetings.
+          let timeBoundStale = false;
+          let hardCapStale = false;
+          const anchor = meeting.scheduledEnd ?? meeting.actualStart;
+          if (anchor) {
+            const anchorMs = new Date(anchor).getTime();
+            hardCapStale = now.getTime() > anchorMs + ADHOC_HARD_CAP_MS;
+            const graceMs = meeting.scheduledEnd
+              ? SCHEDULED_END_GRACE_MS
+              : ADHOC_MAX_SESSION_MS;
+            timeBoundStale =
+              now.getTime() > anchorMs + graceMs && timeBoundInactive;
+          }
+
+          if (!noActivityStale && !timeBoundStale && !hardCapStale) continue;
+
+          const reason = hardCapStale
+            ? "hard-cap"
+            : timeBoundStale
+              ? meeting.scheduledEnd
+                ? "scheduled-end-grace"
+                : "adhoc-max-session"
+              : "no-transcript-activity";
+          console.info("[stale-meeting-sweeper] closing stale meeting", {
+            meetingId: meeting.id,
+            reason,
+            noActivityStale,
+            timeBoundStale,
+            hardCapStale,
+            lastActivityIso,
+            scheduledEnd: meeting.scheduledEnd,
+            actualStart: meeting.actualStart,
+          });
 
           const closed = await closeOutStaleMeeting({
             meetingId: meeting.id,
             recordingId: meeting.recordingId,
             ownerEmail: meeting.ownerEmail,
             orgId: meeting.orgId,
-            endedAtIso: lastActivityIso,
+            endedAtIso: lastActivityIso || nowIso,
           });
           if (closed.hasTranscript) {
             try {
@@ -245,7 +326,7 @@ export async function runStaleMeetingSweepOnce(): Promise<void> {
             }
           }
           console.log(
-            `[stale-meeting-sweeper] closed out stranded-live meeting ${meeting.id} (last activity ${lastActivityIso})`,
+            `[stale-meeting-sweeper] closed out stranded-live meeting ${meeting.id} (reason ${reason}, last activity ${lastActivityIso})`,
           );
         } catch (err: any) {
           console.warn(

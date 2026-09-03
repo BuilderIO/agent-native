@@ -28,12 +28,9 @@ For a deliberately isolated app, add that app directly at
 `https://<app>.agent-native.com/mcp` or
 `https://<your-host>/mcp`.
 
-In-app, the Agent page's **Access** tab (`/agent#access`, see the
-`agent-page` skill) is the discoverable home for all of this: it shows the
-app's copyable MCP URL and A2A agent-card URL, per-client setup steps
-(Claude, ChatGPT, Cursor, Claude Code, Codex, Other), and links to the full
-`/mcp/connect` page including the static-token fallback. Point users there
-instead of dictating URLs in chat.
+In-app, the Agent page's **Access** tab (`/agent#access`) is the home for this:
+it shows MCP/A2A URLs, client setup steps, and the full `/mcp/connect` page.
+Point users there instead of dictating URLs in chat.
 
 OAuth-capable hosts should use the standard remote MCP OAuth flow. Claude
 connectors and Claude Code `/mcp` authentication discover the protected
@@ -152,9 +149,9 @@ https://dispatch.agent-native.com/mcp
 ```
 
 Then open Dispatch → Agents to choose whether the gateway exposes every app or
-only selected app IDs. External agents call `list_apps` to see the granted set,
-`ask_app` to route a natural-language task over A2A to a granted app, and
-`open_app` to return a deep link or inline app preview.
+only selected IDs. Use `list_apps` for grants, `open_app` for links/embeds, and
+named actions when cataloged. Use `ask_app` only when direct action is
+unavailable or app-agent reasoning helps.
 
 Use a direct app URL only when you intentionally want one isolated app:
 
@@ -243,9 +240,9 @@ precedence). Disable the set with `MCPConfig.builtinCrossAppTools: false`.
 
 The advertised `tools/list` and `resources/list` catalogs are intentionally
 tiny by default for ChatGPT/Claude-style app hosts, including OAuth MCP Apps
-callers and generic authenticated remote HTTP/static-token callers. The model
-sees the generic app-facing verbs (`list_apps`, `open_app`, `ask_app`, and
-app-only `create_embed_session`) and routes UI through
+callers. The unified gateway exposes only generic verbs (`list_apps`, `open_app`,
+`ask_app`, `create_embed_session`); named actions come from a direct app MCP
+connection or page WebMCP. Route UI through
 `open_app({ embed: true })`. Stdio/code clients use the same compact surface
 unless they explicitly opt into the full catalog, and
 `publicAgent.expose` remains the action-level opt-in for safe read/ingest tools

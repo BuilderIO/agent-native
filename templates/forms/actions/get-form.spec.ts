@@ -80,6 +80,19 @@ describe("get-form action", () => {
     expect(result.settings).not.toHaveProperty("allowedOrigins");
   });
 
+  it("reports a missing form as a readable 404, not a generic 500", async () => {
+    // A bare `throw new Error` here is indistinguishable from a driver blowup
+    // at the action route, so it is replaced by "Internal server error" and the
+    // caller cannot tell a deleted form from a broken backend.
+    sharingMock.resolveAccess.mockResolvedValue(null);
+
+    await expect(getForm.run({ id: "missing_form" })).rejects.toMatchObject({
+      message: "Form missing_form not found",
+      errorCode: "form_not_found",
+      statusCode: 404,
+    });
+  });
+
   it("keeps full settings for editors", async () => {
     sharingMock.resolveAccess.mockResolvedValue({
       role: "editor",

@@ -104,6 +104,7 @@ describe("get-deck", () => {
     });
     expect(result.createdByMe).toBe(true);
     expect(result.slides[0]).not.toHaveProperty("index");
+    expect(result.sourceEditability).toEqual({ structuralEdits: "allowed" });
   });
 
   it("repairs duplicate persisted slide IDs before returning the deck", async () => {
@@ -236,6 +237,38 @@ describe("get-deck", () => {
       missingSlideIds: ["source-2"],
       unexpectedSlideIds: ["extra"],
     });
+    expect(result.sourceEditability).toMatchObject({
+      structuralEdits: "blocked",
+      reason: "source-preserving import",
+      conversion: {
+        action: "patch-deck",
+        parameter: "rewriteSource",
+      },
+    });
+  });
+
+  it("reports editable source snapshots without structural restrictions", async () => {
+    currentResource!.data = JSON.stringify({
+      title: "Copied source",
+      slides: [{ id: "slide-1", content: "One" }],
+      sourceImport: {
+        mode: "source-preserving",
+        format: "pptx",
+        fidelity: "source-faithful",
+        slideCount: 1,
+        slideIds: ["slide-1"],
+        slides: [{ id: "slide-1" }],
+        editableSnapshot: true,
+      },
+    });
+
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result.sourceImport.editableSnapshot).toBe(true);
+    expect(result.sourceEditability).toEqual({ structuralEdits: "allowed" });
   });
 
   it("lets agent calls opt into full slide HTML", async () => {

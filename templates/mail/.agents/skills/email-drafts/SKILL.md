@@ -218,6 +218,10 @@ Scheduled sends use job ids prefixed `scheduled-`; `send-scheduled-email-now`
 and `cancel-scheduled-email` both strip that prefix internally before looking
 up the job — pass the id as shown to the user either way.
 
+Use `create-scheduled-send` to create one from an agent call. It is approval
+gated like `send-email` and is not a page-local WebMCP tool. `create-scheduled-job`
+is the page-local action for snoozes.
+
 ## Snippets
 
 `manage-snippets` lists, creates, updates, and deletes saved reply snippets.

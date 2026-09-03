@@ -395,6 +395,13 @@ const messages = {
     page: "Page",
     source: "स्रोत",
     sortBy: "Sort by {{label}}",
+    communityReview: "समीक्षा",
+    communityPublish: "साइट पर प्रकाशित करें",
+    communityPublishing: "प्रकाशित हो रहा है...",
+    communityPublished: "प्रकाशित",
+    communityView: "साइट पर देखें",
+    communityNeedsCheck: "पुनः प्रयास करने से पहले Builder जाँचें",
+    communityPromotionFailed: "इस सबमिशन को प्रकाशित नहीं किया जा सका।",
   },
 };
 

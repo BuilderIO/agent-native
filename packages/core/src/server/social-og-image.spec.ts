@@ -55,16 +55,12 @@ describe("social OG image", () => {
     expect(svg).not.toContain('font-weight="850"');
   });
 
-  it("renders evenly spaced horizontal and vertical grid lines", () => {
+  it("renders a solid background with no grid pattern", () => {
     const svg = renderAgentNativeOgImageSvg();
 
-    expect(svg).toContain(
-      '<pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">',
-    );
-    expect(svg).toContain('d="M 0 0.5 H 48 M 0.5 0 V 48"');
-    expect(svg).toContain(
-      'stroke="#ffffff" stroke-opacity="0.07" stroke-width="1"',
-    );
+    expect(svg).toContain('<rect width="1200" height="630" fill="#0A0A0A"/>');
+    expect(svg).not.toContain("<pattern");
+    expect(svg).not.toContain('fill="url(#grid)"');
   });
 
   it("renders Arabic titles with a bundled RTL font", () => {
@@ -107,7 +103,7 @@ describe("social OG image", () => {
     const designSvg = renderAgentNativeOgImageSvg();
     expect(designSvg).toContain("Agent-Native Design");
     expect(designSvg).toContain("100% free and open source");
-    expect(designSvg).toContain('<path d="M24.5537');
+    expect(designSvg).toContain('<path d="M26.8789');
 
     vi.stubEnv("APP_NAME", "slides");
     vi.stubEnv("npm_package_name", "slides");
@@ -125,7 +121,7 @@ describe("social OG image", () => {
     expect(svg).toContain("Analytics");
     expect(svg).not.toContain("Agent-Native");
     expect(svg).not.toContain("100% free and open source");
-    expect(svg).not.toContain('<path d="M24.5537');
+    expect(svg).not.toContain('<path d="M26.8789');
     expect(renderAgentNativeOgImageSvg({ appName: "Analytics" })).not.toContain(
       "100% free and open source",
     );
@@ -139,7 +135,7 @@ describe("social OG image", () => {
     expect(svg).toContain("Acme Workspace");
     expect(svg).not.toContain("Agent-Native");
     expect(svg).not.toContain("100% free and open source");
-    expect(svg).not.toContain('<path d="M24.5537');
+    expect(svg).not.toContain('<path d="M26.8789');
   });
 
   it("preserves a custom app-config name under a built-in path", () => {
@@ -171,7 +167,7 @@ describe("social OG image", () => {
     expect(svg).toContain(
       '<image x="0" y="0" width="114" height="66" href="https://cdn.example.com/acme.svg"',
     );
-    expect(svg).not.toContain('<path d="M24.5537');
+    expect(svg).not.toContain('<path d="M26.8789');
     expect(svg).not.toContain("Agent-Native");
 
     expect(renderAgentNativeOgImageSvg({ appName: "Acme Override" })).toContain(

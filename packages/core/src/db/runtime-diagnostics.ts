@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
   getDialect,
   getDbExec,
@@ -15,6 +16,14 @@ export interface DatabaseRuntimeFingerprint {
   source: string;
   dialect: Dialect;
   urlHash?: string;
+  /**
+   * Pooler-agnostic identity of the physical database: `dialect:database:endpoint`,
+   * where `endpoint` is the Neon endpoint id when present (shared by a pooled
+   * and unpooled URL to the same database) or else a short hash of the host.
+   * No credentials — for comparing "is this the same database", not for
+   * telling two databases on the same host apart by name alone.
+   */
+  fingerprint?: string;
   protocol?: string;
   host?: string;
   database?: string;
@@ -126,6 +135,46 @@ function envValue(key: string): string | undefined {
   return value || undefined;
 }
 
+/**
+ * Better Auth's own core tables (see better-auth-instance.ts's pgAuthSchema /
+ * sqliteAuthSchema) — only the columns request-serving code actually reads,
+ * not every column Better Auth defines. `jwks` is the one most likely to be
+ * missing in practice: it is created lazily on first key generation rather
+ * than by the framework's own migrations, so a deploy can look schema-ok on
+ * every other table while `/auth/ba/jwks` 500s.
+ */
+export const BETTER_AUTH_REQUIRED_SCHEMA: RequiredSchemaTable[] = [
+  { table: "user", columns: ["id", "email", "name", "email_verified"] },
+  { table: "session", columns: ["id", "user_id", "token", "expires_at"] },
+  {
+    table: "account",
+    columns: ["id", "user_id", "provider_id", "account_id"],
+  },
+  {
+    table: "verification",
+    columns: ["id", "identifier", "value", "expires_at"],
+  },
+  { table: "jwks", columns: ["id", "public_key", "private_key"] },
+];
+
+/** Same AUTH_DISABLED resolution as getRuntimeConfigReport() in shared/runtime-config.ts. */
+function isAuthDisabled(): boolean {
+  return isTruthyRuntimeValue(envValue("AUTH_DISABLED"));
+}
+
+/**
+ * The schema this process should have. Better Auth's tables are appended only
+ * when auth is enabled — an `AUTH_DISABLED` deployment never creates them, so
+ * requiring them there would report a permanent false "missing table".
+ */
+export function getRequiredSchema(
+  authEnabled: boolean = !isAuthDisabled(),
+): RequiredSchemaTable[] {
+  return authEnabled
+    ? [...DEFAULT_REQUIRED_SCHEMA, ...BETTER_AUTH_REQUIRED_SCHEMA]
+    : DEFAULT_REQUIRED_SCHEMA;
+}
+
 function appEnvPrefix(): string | undefined {
   return envValue("APP_NAME")?.toUpperCase().replace(/-/g, "_");
 }
@@ -183,11 +232,20 @@ function parseDatabaseUrl(url: string): Partial<DatabaseRuntimeFingerprint> {
 export function getDatabaseRuntimeFingerprint(): DatabaseRuntimeFingerprint {
   const url = getRuntimeDatabaseUrl();
   const parsed = parseDatabaseUrl(url);
+  const dialect = getDialect();
   return {
     configured: Boolean(url),
     source: getRuntimeDatabaseSource(),
-    dialect: getDialect(),
+    dialect,
     urlHash: shortHash(url),
+    fingerprint: url
+      ? `${dialect}:${parsed.database ?? ""}:${
+          parsed.neon?.endpointId ??
+          (parsed.host
+            ? createHash("sha256").update(parsed.host).digest("hex").slice(0, 8)
+            : "")
+        }`
+      : undefined,
     appName: envValue("APP_NAME"),
     authTokenConfigured: databaseAuthTokenConfigured(),
     netlifyDatabaseUrlConfigured: Boolean(
@@ -311,7 +369,7 @@ export async function runDatabaseSchemaHealthCheck(
 
   const dialect = options.dialect ?? getDialect();
   const exec = options.exec ?? getDbExec();
-  const required = options.required ?? DEFAULT_REQUIRED_SCHEMA;
+  const required = options.required ?? getRequiredSchema();
   const missingTables: string[] = [];
   const missingColumns: Array<{ table: string; column: string }> = [];
 

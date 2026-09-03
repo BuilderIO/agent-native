@@ -2,6 +2,7 @@ import { getDbExec } from "../db/client.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../jobs/cron.js";
 import {
   buildJobResourceContent,
+  isRecoveredFactoryJob,
   jobBelongsToApp,
   normalizeJobMcpTools,
   parseJobResource,
@@ -252,7 +253,8 @@ export async function canUpdateAutomationResource(
 /**
  * Factory is a shared team workspace: any current org member may queue Run now
  * for that app's Factory-domain org jobs. Mail/CRM and other automations stay
- * on creator-or-admin `canUpdate`.
+ * on creator-or-admin `canUpdate`. Recovered Factory-folder jobs that lost
+ * `domain` / `appId` stay on the same team-member exception.
  */
 export async function canQueueAutomationRunNow(
   actorInput: AutomationActor,
@@ -261,7 +263,13 @@ export async function canQueueAutomationRunNow(
 ): Promise<boolean> {
   const { meta } = parseJobResource(resource.content);
   const actor = normalizeActor(actorInput);
-  if (!jobBelongsToApp(meta, actor.appId)) return false;
+  const recoveredFactory = isRecoveredFactoryJob(
+    meta,
+    resource.path,
+    actor.appId,
+    resource.owner,
+  );
+  if (!jobBelongsToApp(meta, actor.appId) && !recoveredFactory) return false;
   const access = await mutationAccess(actor, resource, meta);
   if (access.canUpdate) return true;
   const resourceOrgId = organizationIdFromResourceOwner(resource.owner);
@@ -270,7 +278,7 @@ export async function canQueueAutomationRunNow(
     Boolean(resourceOrgId) &&
     actor.orgId === resourceOrgId &&
     actor.appId === "factory" &&
-    meta.domain === "factory"
+    (meta.domain === "factory" || recoveredFactory)
   );
 }
 

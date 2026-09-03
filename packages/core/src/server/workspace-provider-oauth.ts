@@ -36,6 +36,7 @@ import {
   decodeOAuthState,
   encodeOAuthState,
   getAppUrl,
+  logOAuthStateDecodeFailure,
   oauthErrorPage,
   resolveOAuthRedirectUri,
   type OAuthStatePayload,
@@ -395,6 +396,14 @@ export async function handleWorkspaceProviderOAuthCallback(
   }
   deleteCookie(event, flowCookieName(providerId), { path: "/" });
   const state = decodeOAuthState(stateParam, "");
+  if (!state.ok) {
+    logOAuthStateDecodeFailure(event, state.reason, providerId);
+    return oauthFlowFailure(
+      event,
+      400,
+      "OAuth state rejected: state is missing, malformed, or has an invalid signature. Start the connection again.",
+    );
+  }
   const stateError = workspaceProviderOAuthFlowInvalidReason({
     flow,
     state,

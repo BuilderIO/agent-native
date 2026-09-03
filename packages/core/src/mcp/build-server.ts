@@ -26,6 +26,7 @@ import type {
   Tool,
 } from "@modelcontextprotocol/server";
 
+import { actionCallIsReadOnly } from "../action-call-classification.js";
 import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
@@ -39,6 +40,7 @@ import {
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
+import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
   buildDeepLink,
@@ -52,6 +54,10 @@ import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "../server/request-context.js";
+import {
+  agentNativeMcpInstructions,
+  agentNativeToolTitle,
+} from "../shared/agent-mcp-metadata.js";
 import {
   isAgentNativeOpenDeepLink,
   withCollapsedAgentSidebarParam,
@@ -105,6 +111,8 @@ export interface MCPConfig {
   appId?: string;
   /** App description */
   description: string;
+  /** Additional host-facing guidance included in the MCP initialize response. */
+  instructions?: string;
   /** Optional canonical website URL for hosts that surface MCP app details. */
   websiteUrl?: string;
   /** Optional app icons for MCP hosts that render server branding. */
@@ -1849,6 +1857,7 @@ export async function createMCPServerForRequest(
       Boolean(entry.mcpApp?.resource),
     );
   const server = new Server(mcpServerInfo(config, requestMeta), {
+    instructions: agentNativeMcpInstructions(config.instructions),
     capabilities: {
       tools: {},
       ...(supportsMcpApps
@@ -2063,7 +2072,9 @@ export async function createMCPServerForRequest(
                 : {}),
             };
             const baseDescription = entry.tool.description ?? name;
+            const title = agentNativeToolTitle(name, entry.tool.title);
             const annotations: Record<string, unknown> = {
+              title,
               readOnlyHint: entry.readOnly === true,
               destructiveHint:
                 entry.publicAgent?.isConsequential === true ||
@@ -2378,7 +2389,7 @@ export async function createMCPServerForRequest(
               });
           const content: any[] = [{ type: "text", text }];
           if (block) content.push(block);
-          return {
+          const response = {
             content,
             ...(mcpResultIsError || embedProducedNothing
               ? { isError: true }
@@ -2388,6 +2399,24 @@ export async function createMCPServerForRequest(
               ? { _meta: responseMeta }
               : {}),
           };
+          if (
+            response.isError !== true &&
+            !actionCallIsReadOnly(entry, args, false)
+          ) {
+            try {
+              await writeActionChangeMarker({
+                actionName: name,
+                owner: getRequestUserEmail() ?? undefined,
+                orgId: getRequestOrgId() ?? undefined,
+              });
+            } catch (error) {
+              console.warn(
+                "Could not write the action-change marker after an MCP tool call",
+                error,
+              );
+            }
+          }
+          return response;
         } catch (err: any) {
           // Same contract the in-app agent gets: the message the action wrote,
           // plus the code it chose. `action_failed` is `fail()`'s stand-in for
