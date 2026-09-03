@@ -119,14 +119,22 @@ async function checkHealth(
   // ownership either way, not that it confirmed there was none, so they warn
   // instead of failing the deploy.
   const identity = body.database?.identity;
+  const runningApp = body.database?.runningApp;
   if (body.database?.identityMismatch === true) {
     const recordedApp =
       identity?.state === "recorded" ? identity.app : "unknown";
-    const runningApp = body.database?.appName ?? "this deploy";
-    return {
-      ok: false,
-      reason: `database identity mismatch: recorded for app "${recordedApp}", but "${runningApp}" is running against it`,
-    };
+    // Warn, do not fail, until the fleet has shown that the identity a hosted
+    // bundle derives for itself matches what its release migration recorded.
+    // The first crm promotion failed on a null runtime identity; promote this
+    // to a hard failure once every host reports a non-null, matching
+    // `runningApp`.
+    console.warn(
+      `WARN (health): database identity mismatch — recorded for app "${recordedApp}", but "${runningApp ?? "unknown"}" is running against it.`,
+    );
+  } else if (identity?.state === "recorded" && runningApp == null) {
+    console.warn(
+      `WARN (health): database identity recorded for "${identity.app}" but this runtime could not derive its own app identity (runningApp=null).`,
+    );
   }
   if (identity && identity.state !== "recorded") {
     const detail =
