@@ -457,5 +457,28 @@ export const builderFileUploadProvider: FileUploadProvider = {
       console.log(`[builder-resumable] upload complete: ${url}`);
       return url;
     },
+
+    async abortSession(session) {
+      const response = await fetchWithTimeout(session.sessionId, {
+        method: "DELETE",
+        headers: { "Content-Length": "0" },
+        body: new Uint8Array(0),
+      });
+      // GCS returns 499 for a successful JSON API cancellation. A session
+      // that is already gone is also fully cleaned up from this retry's point
+      // of view, so treat its terminal 404/410 responses as success.
+      if (
+        response.ok ||
+        response.status === 404 ||
+        response.status === 410 ||
+        response.status === 499
+      ) {
+        return;
+      }
+      const body = await response.text();
+      throw new Error(
+        `GCS resumable session cancellation failed (${response.status}): ${body || response.statusText}`,
+      );
+    },
   },
 };
