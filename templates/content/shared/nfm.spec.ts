@@ -1358,6 +1358,47 @@ describe("bug fixes — reliability sweep", () => {
       expect(toggle?.content?.[1]?.content?.[0]?.text).toBe("Still a sibling");
     });
 
+    it("does not close a nested container from inside fenced code", () => {
+      const source = L(
+        "<details>",
+        "<summary>Nested fenced example</summary>",
+        '<callout icon="💡">',
+        "```html",
+        "</callout>",
+        "```",
+        "After fenced example",
+        "</callout>",
+        "</details>",
+      );
+
+      const callout = nfmToDoc(source).content[0]?.content?.[0];
+      expect(callout).toMatchObject({
+        type: "notionCallout",
+        content: [
+          {
+            type: "codeBlock",
+            content: [{ type: "text", text: "</callout>" }],
+          },
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "After fenced example" }],
+          },
+        ],
+      });
+      const canonical = canonicalizeNfm(source);
+      expect(canonical).toContain(
+        L(
+          '\t<callout icon="💡">',
+          "\t\t```html",
+          "\t\t</callout>",
+          "\t\t```",
+          "\t\tAfter fenced example",
+          "\t</callout>",
+        ),
+      );
+      expect(canonicalizeNfm(canonical)).toBe(canonical);
+    });
+
     it("does not treat a details close tag inside fenced code as the container close", () => {
       const source = L(
         "<details>",

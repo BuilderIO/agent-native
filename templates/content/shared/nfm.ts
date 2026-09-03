@@ -1394,15 +1394,8 @@ function parseDetailsBody(
   const bodyLines = sourceLines.map((line, lineIndex) => {
     const indent = leadingTabs(line);
     const dedented = line.slice(indent);
-    if (nestedContainers[nestedContainers.length - 1]?.closeTag === dedented) {
-      nestedContainers.pop();
-    }
-    const detailsSummary =
-      nestedContainers[nestedContainers.length - 1]?.tagKey === "<details" &&
-      /^<summary>[\s\S]*<\/summary>\s*$/.test(dedented);
-    const requiredIndent =
-      childIndent + nestedContainers.length - (detailsSummary ? 1 : 0);
     if (fence) {
+      const requiredIndent = childIndent + nestedContainers.length;
       const promoteBy =
         fence.promoteBy > 0
           ? fence.promoteBy
@@ -1412,6 +1405,14 @@ function parseDetailsBody(
       if (close && close[1].length >= fence.length) fence = undefined;
       return promoted;
     }
+    if (nestedContainers[nestedContainers.length - 1]?.closeTag === dedented) {
+      nestedContainers.pop();
+    }
+    const detailsSummary =
+      nestedContainers[nestedContainers.length - 1]?.tagKey === "<details" &&
+      /^<summary>[\s\S]*<\/summary>\s*$/.test(dedented);
+    const requiredIndent =
+      childIndent + nestedContainers.length - (detailsSummary ? 1 : 0);
     const open = dedented.match(/^(`{3,})(.*)$/);
     if (open) {
       const promoteBy = Math.max(0, requiredIndent - indent);
