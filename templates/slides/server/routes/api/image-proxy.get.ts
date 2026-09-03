@@ -1,6 +1,7 @@
 import { getSession } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
+import { parseHTML } from "linkedom/worker";
 
 import { getDb, schema } from "../../db";
 import {
@@ -38,9 +39,6 @@ const FAILURE_MESSAGE: Record<RemoteImageFailure, string> = {
   "not-an-image": "Not an image",
   "too-large": "Image too large",
 };
-
-const SHARED_IMAGE_PATTERN =
-  /<img\b[^>]*\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)')[^>]*>/gi;
 
 function isMarkdownCharacterEscaped(content: string, index: number): boolean {
   let backslashes = 0;
@@ -142,6 +140,28 @@ function parseMarkdownTitle(
   return null;
 }
 
+function markdownIndentedCodeEndAt(
+  content: string,
+  start: number,
+): number | null {
+  if (start > 0 && content[start - 1] !== "\n") return null;
+  const firstLineEnd = content.indexOf("\n", start);
+  const firstLine = content.slice(
+    start,
+    firstLineEnd === -1 ? content.length : firstLineEnd,
+  );
+  if (!/^(?: {4}|\t)/.test(firstLine)) return null;
+
+  let end = firstLineEnd === -1 ? content.length : firstLineEnd + 1;
+  while (end < content.length) {
+    const lineEnd = content.indexOf("\n", end);
+    const line = content.slice(end, lineEnd === -1 ? content.length : lineEnd);
+    if (!/^(?:\s*$| {4}|\t)/.test(line)) break;
+    end = lineEnd === -1 ? content.length : lineEnd + 1;
+  }
+  return end;
+}
+
 function markdownFenceEndAt(content: string, start: number): number | null {
   if (start > 0 && content[start - 1] !== "\n") return null;
 
@@ -202,6 +222,7 @@ function markdownNonRenderedRanges(content: string): MarkdownSourceRange[] {
   while (start < content.length) {
     const end =
       markdownFenceEndAt(content, start) ??
+      markdownIndentedCodeEndAt(content, start) ??
       markdownInlineCodeEndAt(content, start);
     if (end === null || end <= start) {
       start += 1;
@@ -211,6 +232,73 @@ function markdownNonRenderedRanges(content: string): MarkdownSourceRange[] {
     start = end;
   }
   return ranges;
+}
+
+function htmlTagEndAt(content: string, start: number): number | null {
+  if (content.startsWith("<!--", start)) {
+    const commentEnd = content.indexOf("-->", start + 4);
+    return commentEnd === -1 ? content.length : commentEnd + 3;
+  }
+
+  const next = content[start + 1];
+  if (!next || (!/[A-Za-z]/.test(next) && !["/", "!", "?"].includes(next))) {
+    return null;
+  }
+
+  let quote: '"' | "'" | null = null;
+  for (let end = start + 1; end < content.length; end += 1) {
+    const character = content[end];
+    if (quote) {
+      if (character === quote) quote = null;
+    } else if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === ">") {
+      return end + 1;
+    }
+  }
+  return null;
+}
+
+function htmlTagRanges(content: string): MarkdownSourceRange[] {
+  const ranges: MarkdownSourceRange[] = [];
+  let cursor = 0;
+  while (cursor < content.length) {
+    const start = content.indexOf("<", cursor);
+    if (start === -1) break;
+    const end = htmlTagEndAt(content, start);
+    if (end === null) {
+      cursor = start + 1;
+      continue;
+    }
+    ranges.push({ end, start });
+    cursor = end;
+  }
+  return ranges;
+}
+
+function markdownImageScanRanges(content: string): MarkdownSourceRange[] {
+  return [
+    ...markdownNonRenderedRanges(content),
+    ...htmlTagRanges(content),
+  ].sort((a, b) => a.start - b.start);
+}
+
+function maskRanges(content: string, ranges: MarkdownSourceRange[]): string {
+  const masked = content.split("");
+  for (const range of ranges) {
+    for (let index = range.start; index < range.end; index += 1) {
+      masked[index] = " ";
+    }
+  }
+  return masked.join("");
+}
+
+function renderedHtmlImageSources(content: string): string[] {
+  const html = maskRanges(content, markdownNonRenderedRanges(content));
+  const { document } = parseHTML(`<body>${html}</body>`);
+  return Array.from(document.querySelectorAll("img[src]"))
+    .map((image) => image.getAttribute("src"))
+    .filter((source): source is string => Boolean(source));
 }
 
 function normalizeMarkdownReferenceLabel(value: string): string {
@@ -275,7 +363,7 @@ function markdownReferenceDefinitions(content: string): Map<string, string> {
 
 function markdownImageSources(content: string): string[] {
   const definitions = markdownReferenceDefinitions(content);
-  const nonRenderedRanges = markdownNonRenderedRanges(content);
+  const nonRenderedRanges = markdownImageScanRanges(content);
   const sources: string[] = [];
   let rangeIndex = 0;
   for (let start = 0; start < content.length - 1; start += 1) {
@@ -329,19 +417,9 @@ function markdownImageSources(content: string): string[] {
 }
 
 function decodeHtmlAttribute(value: string): string {
-  return value
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&#x27;/gi, "'")
-    .replace(/&#x([0-9a-f]+);/gi, (match, hex: string) => {
-      const codePoint = Number.parseInt(hex, 16);
-      return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : match;
-    })
-    .replace(/&#([0-9]+);/g, (match, decimal: string) => {
-      const codePoint = Number.parseInt(decimal, 10);
-      return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : match;
-    })
-    .trim();
+  const escaped = value.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const { document } = parseHTML(`<body><span>${escaped}</span></body>`);
+  return document.querySelector("span")?.textContent?.trim() ?? value.trim();
 }
 
 function normalizeImageUrl(value: string): string {
@@ -373,18 +451,10 @@ export function sharedDeckContainsImage(
     }
     const content = (slide as { content?: unknown }).content;
     if (typeof content !== "string") return false;
-    for (const match of content.matchAll(SHARED_IMAGE_PATTERN)) {
-      const source = match[1] ?? match[2];
-      if (source && normalizeImageUrl(source) === requested) return true;
-    }
-    if (
-      markdownImageSources(content).some(
-        (source) => normalizeImageUrl(source) === requested,
-      )
-    ) {
-      return true;
-    }
-    return false;
+    return [
+      ...renderedHtmlImageSources(content),
+      ...markdownImageSources(content),
+    ].some((source) => normalizeImageUrl(source) === requested);
   });
 }
 

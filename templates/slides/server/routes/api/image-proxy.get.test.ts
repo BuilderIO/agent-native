@@ -53,12 +53,32 @@ describe("sharedDeckContainsImage", () => {
   it("does not treat code samples as rendered Markdown images", () => {
     const slides = JSON.stringify([
       {
-        content: "```\n![Not rendered](https://cdn.example.com/code.png)\n```",
+        content:
+          '```\n<img src="https://cdn.example.com/code.png">\n```\n\n    ![Also not rendered](https://cdn.example.com/indented.png)',
       },
     ]);
 
     expect(
       sharedDeckContainsImage(slides, "https://cdn.example.com/code.png"),
+    ).toBe(false);
+    expect(
+      sharedDeckContainsImage(slides, "https://cdn.example.com/indented.png"),
+    ).toBe(false);
+  });
+
+  it("parses HTML image attributes and ignores tag-looking attribute text", () => {
+    const slides = JSON.stringify([
+      {
+        content:
+          "<img src=https&colon;//cdn.example.com/unquoted.png><span data-example='<img src=\"https://cdn.example.com/fake.png\">'></span>",
+      },
+    ]);
+
+    expect(
+      sharedDeckContainsImage(slides, "https://cdn.example.com/unquoted.png"),
+    ).toBe(true);
+    expect(
+      sharedDeckContainsImage(slides, "https://cdn.example.com/fake.png"),
     ).toBe(false);
   });
 });
