@@ -400,9 +400,6 @@ export function CommentsSidebar({
   const [historyStatus, setHistoryStatus] = useState<
     "all" | "open" | "resolved"
   >("all");
-  const [historyType, setHistoryType] = useState<"comments" | "suggestions">(
-    "comments",
-  );
   const [historyAuthor, setHistoryAuthor] = useState<string | null>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const pendingInputRef = useRef<HTMLTextAreaElement>(null);
@@ -441,7 +438,6 @@ export function CommentsSidebar({
     );
   }, [threads]);
   const historyThreads = useMemo(() => {
-    if (historyType === "suggestions") return [];
     return threads.filter((thread) => {
       if (historyStatus === "open" && thread.resolved) return false;
       if (historyStatus === "resolved" && !thread.resolved) return false;
@@ -455,7 +451,7 @@ export function CommentsSidebar({
       }
       return true;
     });
-  }, [historyAuthor, historyStatus, historyType, threads]);
+  }, [historyAuthor, historyStatus, threads]);
 
   useEffect(() => {
     if (pendingComment) {
@@ -722,28 +718,6 @@ export function CommentsSidebar({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-56">
-              <DropdownMenuLabel>{t("comments.typeFilter")}</DropdownMenuLabel>
-              <DropdownMenuGroup>
-                <DropdownMenuCheckboxItem
-                  checked={historyType === "comments"}
-                  onCheckedChange={(checked) =>
-                    checked && setHistoryType("comments")
-                  }
-                  onSelect={(event) => event.preventDefault()}
-                >
-                  {t("comments.title")}
-                </DropdownMenuCheckboxItem>
-                <DropdownMenuCheckboxItem
-                  checked={historyType === "suggestions"}
-                  onCheckedChange={(checked) =>
-                    checked && setHistoryType("suggestions")
-                  }
-                  onSelect={(event) => event.preventDefault()}
-                >
-                  {t("comments.suggestions")}
-                </DropdownMenuCheckboxItem>
-              </DropdownMenuGroup>
-              <DropdownMenuSeparator />
               <DropdownMenuLabel>
                 {t("comments.statusFilter")}
               </DropdownMenuLabel>

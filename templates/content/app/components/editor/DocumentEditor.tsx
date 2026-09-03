@@ -418,6 +418,7 @@ function useElementMinWidth(
 export function positionAnchoredCommentCard({
   anchorRect,
   containerRect,
+  boundaryRect = containerRect,
   cardHeight,
   preferredWidth = 320,
   gap = 4,
@@ -425,6 +426,7 @@ export function positionAnchoredCommentCard({
 }: {
   anchorRect: Pick<DOMRect, "top" | "bottom" | "left" | "right">;
   containerRect: Pick<DOMRect, "top" | "bottom" | "left" | "right" | "width">;
+  boundaryRect?: Pick<DOMRect, "top" | "bottom">;
   cardHeight: number;
   preferredWidth?: number;
   gap?: number;
@@ -440,10 +442,12 @@ export function positionAnchoredCommentCard({
   const below = anchorRect.bottom - containerRect.top + gap;
   const above = anchorRect.top - containerRect.top - cardHeight - gap;
   const fitsBelow =
-    below + cardHeight <= containerRect.bottom - containerRect.top - edge;
+    anchorRect.bottom + gap + cardHeight <= boundaryRect.bottom - edge;
   return {
     left,
-    top: fitsBelow ? below : Math.max(edge, above),
+    top: fitsBelow
+      ? below
+      : Math.max(boundaryRect.top - containerRect.top + edge, above),
     width,
     placement: fitsBelow ? ("below" as const) : ("above" as const),
   };
@@ -1921,6 +1925,8 @@ function DocumentEditorBody({
   const [lastUtilityPanel, setLastUtilityPanel] =
     useState<Exclude<DocumentUtilityPanel, null>>("comments");
   const [commentsBrowseOpen, setCommentsBrowseOpen] = useState(false);
+  const [commentsHistoryRailMounted, setCommentsHistoryRailMounted] =
+    useState(false);
   const [showCommentIndicators, setShowCommentIndicators] = useState(true);
   const activeThreadId = hoveredThreadId ?? selectedThreadId;
   const { data: threads, isLoading: commentsLoading } = useComments(
@@ -1962,6 +1968,10 @@ function DocumentEditorBody({
   useEffect(() => {
     if (utilityPanel) setLastUtilityPanel(utilityPanel);
   }, [utilityPanel]);
+
+  useEffect(() => {
+    if (showDesktopCommentsHistory) setCommentsHistoryRailMounted(true);
+  }, [showDesktopCommentsHistory]);
 
   useLayoutEffect(() => {
     if (!showInlineComments) {
@@ -2062,9 +2072,11 @@ function DocumentEditorBody({
       setAnchoredCommentPosition(null);
       return;
     }
-    const layout = documentLayoutRef.current;
     const scrollContainer = scrollContainerRef.current;
-    if (!layout || !scrollContainer) return;
+    const scrollContent = scrollContainer?.querySelector(
+      "[data-document-scroll-content]",
+    ) as HTMLElement | null;
+    if (!scrollContainer || !scrollContent) return;
     let frame = 0;
     const update = () => {
       cancelAnimationFrame(frame);
@@ -2079,18 +2091,23 @@ function DocumentEditorBody({
             ? `[data-comment-thread="${escapedThreadId}"]`
             : ".comment-highlight--pending",
         ) as HTMLElement | null;
-        if (!marked) return;
+        if (!marked) {
+          setAnchoredCommentPosition(null);
+          return;
+        }
         const paragraph = marked.closest(
           "p, li, blockquote, h1, h2, h3, h4, h5, h6",
         );
         const anchorRect = (paragraph ?? marked).getBoundingClientRect();
-        const containerRect = layout.getBoundingClientRect();
+        const containerRect = scrollContent.getBoundingClientRect();
+        const boundaryRect = scrollContainer.getBoundingClientRect();
         const cardHeight =
           anchoredCommentRef.current?.getBoundingClientRect().height ?? 180;
         setAnchoredCommentPosition(
           positionAnchoredCommentCard({
             anchorRect,
             containerRect,
+            boundaryRect,
             cardHeight,
           }),
         );
@@ -2098,9 +2115,26 @@ function DocumentEditorBody({
     };
     update();
     window.addEventListener("resize", update);
+    scrollContainer.addEventListener("scroll", update, { passive: true });
+    const mutationObserver = new MutationObserver(update);
+    mutationObserver.observe(scrollContent, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-comment-thread", "class"],
+    });
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    resizeObserver?.observe(scrollContent);
+    if (anchoredCommentRef.current) {
+      resizeObserver?.observe(anchoredCommentRef.current);
+    }
     return () => {
       cancelAnimationFrame(frame);
+      mutationObserver.disconnect();
+      resizeObserver?.disconnect();
       window.removeEventListener("resize", update);
+      scrollContainer.removeEventListener("scroll", update);
     };
   }, [selectedThreadId, showAnchoredCommentPopover, scrollContainerRef]);
 
@@ -2863,9 +2897,16 @@ function DocumentEditorBody({
           aria-hidden={!showDesktopCommentsHistory || undefined}
           inert={!showDesktopCommentsHistory || undefined}
           data-comments-history-rail
+          onTransitionEnd={(event) => {
+            if (event.propertyName === "width" && !showDesktopCommentsHistory) {
+              setCommentsHistoryRailMounted(false);
+            }
+          }}
         >
           <div className="h-full w-80 overflow-x-hidden overflow-y-auto">
-            {renderUtilityPanelContent("comments")}
+            {commentsHistoryRailMounted
+              ? renderUtilityPanelContent("comments")
+              : null}
           </div>
         </aside>
 

@@ -246,14 +246,15 @@ describe("comments sidebar layout", () => {
     );
   });
 
-  it("combines comment history filters into one persistent checkbox menu", () => {
+  it("combines supported comment history filters into one persistent checkbox menu", () => {
     const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
       encoding: "utf8",
     });
 
     expect(source.match(/<DropdownMenu>/g)).toHaveLength(1);
     expect(source).toContain("DropdownMenuCheckboxItem");
-    expect(source).toContain('t("comments.typeFilter")');
+    expect(source).not.toContain('t("comments.typeFilter")');
+    expect(source).not.toContain('historyType === "suggestions"');
     expect(source).toContain('t("comments.statusFilter")');
     expect(source).toContain('t("comments.authorFilter")');
     expect(source).toContain("event.preventDefault()");
@@ -276,8 +277,14 @@ describe("comments sidebar layout", () => {
     expect(source).toContain("commentLaneRef");
     expect(source).toContain('querySelector(".notion-editor")');
     expect(source).toContain("translate-x-4");
-    expect(source).not.toContain(
-      'scrollContainer.addEventListener("scroll", update',
+    expect(source).toContain(
+      'scrollContainer.addEventListener("scroll", update, { passive: true })',
+    );
+    expect(source).toContain(
+      "const containerRect = scrollContent.getBoundingClientRect()",
+    );
+    expect(source).toContain(
+      "const mutationObserver = new MutationObserver(update)",
     );
     expect(source).toContain('className="pointer-events-none absolute z-30"');
     expect(source).toContain("data-comments-anchored-popover");

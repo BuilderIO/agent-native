@@ -54,6 +54,23 @@ describe("document editor layout", () => {
       }),
     ).toEqual({ left: 16, top: 396, width: 320, placement: "above" });
   });
+
+  it("uses the visible scroller as the compact card boundary", () => {
+    expect(
+      positionAnchoredCommentCard({
+        anchorRect: { top: 620, bottom: 700, left: 100, right: 500 },
+        containerRect: {
+          top: -300,
+          bottom: 1500,
+          left: 0,
+          right: 700,
+          width: 700,
+        },
+        boundaryRect: { top: 0, bottom: 720 },
+        cardHeight: 220,
+      }),
+    ).toEqual({ left: 140, top: 696, width: 320, placement: "above" });
+  });
   it("keeps a local-file editor mounted when its saved timestamp advances", () => {
     const key = (documentUpdatedAt: string) =>
       visualEditorInstanceKey({
@@ -363,7 +380,7 @@ describe("document editor layout", () => {
     );
 
     const scrollIndex = source.indexOf("data-document-print-scroll");
-    const contentIndex = source.indexOf("data-document-scroll-content");
+    const contentIndex = source.lastIndexOf("data-document-scroll-content");
     const desktopPanelIndex = source.indexOf("{showDesktopRightRail ? (");
     const mobileSheetIndex = source.indexOf("<Sheet");
 
@@ -617,6 +634,8 @@ describe("document editor layout", () => {
     );
     expect(source).toContain("showDesktopCommentsHistory");
     expect(source).toContain("data-comments-history-rail");
+    expect(source).toContain("commentsHistoryRailMounted");
+    expect(source).toContain('event.propertyName === "width"');
     expect(source).toContain(
       '"min-h-0 shrink-0 overflow-hidden border-s bg-background transition-[width] duration-[260ms] ease-[var(--ease-drawer)]"',
     );
