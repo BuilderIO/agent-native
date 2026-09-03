@@ -133,6 +133,7 @@ import {
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import { injectAnalyticsIntoHtml } from "./analytics.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
+import { getAppOriginClientConfigScript } from "./app-origin-config.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
   addSignupAttributionHeader,
@@ -788,9 +789,18 @@ export function getConfiguredLoginHtml(event: H3Event): string | null {
   const { rawPath } = getRequestPathAndSearch(event);
   const loginHtml =
     config.getLoginHtml?.(event, rawPath) ?? config.loginHtml ?? null;
-  return loginHtml
-    ? injectLoginSocialImageMeta(injectBetaOptOutPersistence(loginHtml), event)
-    : null;
+  if (!loginHtml) return null;
+
+  const appOriginConfigScript = getAppOriginClientConfigScript();
+  const html =
+    appOriginConfigScript &&
+    !loginHtml.includes("data-agent-native-app-origin-config")
+      ? injectHeadScript(loginHtml, appOriginConfigScript)
+      : loginHtml;
+  return injectLoginSocialImageMeta(
+    injectBetaOptOutPersistence(html, rawPath),
+    event,
+  );
 }
 
 /**
@@ -1782,6 +1792,22 @@ let _authGuardConfig: AuthGuardConfig | null = null;
 const AUTH_PUBLIC_PATHS_REGISTRY_KEY = Symbol.for(
   "@agent-native/core/auth.publicPaths",
 );
+const SESSION_RESOLUTION_ERROR_CONTEXT_KEY = "__anSessionResolutionError";
+
+async function getLegacyCookieSessionSafely(
+  event: H3Event,
+): Promise<AuthSession | null> {
+  try {
+    return await getLegacyCookieSession(event);
+  } catch (error) {
+    console.error("[auth] legacy cookie session resolution error:", error);
+    (event.context as Record<string, unknown>)[
+      SESSION_RESOLUTION_ERROR_CONTEXT_KEY
+    ] = true;
+    return null;
+  }
+}
+
 interface AuthPublicPathRegistry {
   exactPathsByApp: WeakMap<object, Set<string>>;
 }
@@ -3221,8 +3247,16 @@ function loginHtmlResponse(
     requestIndependent?: boolean;
   } = {},
 ): Response {
-  let html = injectLoginSocialImageMeta(
-    injectBetaOptOutPersistence(loginHtml),
+  const appOriginConfigScript = getAppOriginClientConfigScript();
+  let html = loginHtml;
+  if (
+    appOriginConfigScript &&
+    !html.includes("data-agent-native-app-origin-config")
+  ) {
+    html = injectHeadScript(html, appOriginConfigScript);
+  }
+  html = injectLoginSocialImageMeta(
+    injectBetaOptOutPersistence(html),
     options.requestIndependent ? undefined : event,
   );
   if (options.includeRootAuthRedirect) {
@@ -4202,7 +4236,7 @@ async function resolveSessionUncached(
   // 2. ACCESS_TOKEN check (programmatic/agent access)
   const accessTokens = getAccessTokens();
   if (accessTokens.length > 0) {
-    const cookieSession = await getLegacyCookieSession(event);
+    const cookieSession = await getLegacyCookieSessionSafely(event);
     if (cookieSession) return cookieSession;
   }
 
@@ -4250,10 +4284,13 @@ async function resolveSessionUncached(
       }
     } catch (e) {
       console.error("[auth] ba.api.getSession error:", e);
+      (event.context as Record<string, unknown>)[
+        SESSION_RESOLUTION_ERROR_CONTEXT_KEY
+      ] = true;
     }
 
     // 6. Legacy cookie fallback (for sessions created before migration)
-    const cookieSession = await getLegacyCookieSession(event);
+    const cookieSession = await getLegacyCookieSessionSafely(event);
     if (cookieSession) return cookieSession;
 
     // 7. Desktop SSO broker fallback.
@@ -6233,6 +6270,15 @@ async function mountBetterAuthRoutes(
         return { error: "Method not allowed" };
       }
       const session = await getSession(event);
+      if (
+        !session &&
+        (event.context as Record<string, unknown>)[
+          SESSION_RESOLUTION_ERROR_CONTEXT_KEY
+        ] === true
+      ) {
+        setResponseStatus(event, 503);
+        return { error: "Session unavailable" };
+      }
       if (session) setFrameworkSessionHintCookie(event);
       else clearFrameworkSessionHintCookies(event);
       return session ?? { error: "Not authenticated" };
@@ -6442,6 +6488,15 @@ function mountAuthFallbackRoutes(app: H3App): void {
         return { error: "Method not allowed" };
       }
       const session = await getSession(event);
+      if (
+        !session &&
+        (event.context as Record<string, unknown>)[
+          SESSION_RESOLUTION_ERROR_CONTEXT_KEY
+        ] === true
+      ) {
+        setResponseStatus(event, 503);
+        return { error: "Session unavailable" };
+      }
       if (session) setFrameworkSessionHintCookie(event);
       else clearFrameworkSessionHintCookies(event);
       return session ?? { error: "Not authenticated" };
@@ -6580,6 +6635,15 @@ export async function autoMountAuth(
           return { error: "Method not allowed" };
         }
         const session = await getSession(event);
+        if (
+          !session &&
+          (event.context as Record<string, unknown>)[
+            SESSION_RESOLUTION_ERROR_CONTEXT_KEY
+          ] === true
+        ) {
+          setResponseStatus(event, 503);
+          return { error: "Session unavailable" };
+        }
         return session ?? { error: "Not authenticated" };
       }),
     );
