@@ -257,12 +257,38 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(String(schemaGateBlockStep?.run), /required_source_sha/);
     const migrationMarkerStep = (schemaGate.steps as Array<Workflow>).find(
-      (step) => step.name === "Record beta migration marker",
+      (step) => step.name === "Record pending beta migration marker",
+    );
+    assert.match(
+      String(schemaGateStep?.run),
+      /No production-owned migration marker exists/,
+    );
+    assert.match(String(migrationMarkerStep?.if), /record_pending/);
+    assert.match(
+      String(migrationMarkerStep?.with?.script),
+      /Concurrent beta pending marker/,
     );
     assert.match(String(migrationMarkerStep?.with?.script), /createRef/);
     assert.equal(
       (schemaGate.steps as Array<Workflow>)[0].with?.["fetch-depth"],
       0,
+    );
+    const production = readWorkflow(
+      ".github/workflows/deploy-production-sites-prebuilt.yml",
+    );
+    const productionMarker = (production.jobs as Workflow)[
+      "record-beta-migration"
+    ] as Workflow;
+    assert.match(String(productionMarker.if), /inputs\.sites == 'all'/);
+    assert.match(
+      String(productionMarker.if),
+      /needs\.deploy\.result == 'success'/,
+    );
+    assert.deepEqual(productionMarker.needs, ["resolve-source", "deploy"]);
+    assert.equal((productionMarker.permissions as Workflow).contents, "write");
+    assert.match(
+      String(productionMarker.steps[0].with?.script),
+      /agent-native-beta-migrated/,
     );
     const reusable = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",

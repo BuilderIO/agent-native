@@ -122,12 +122,25 @@ jobs:
             echo "::error::migrated_source_sha must be a full 40-character commit SHA."
             exit 1
           fi
+          migrated_source_sha="${migrated_source_sha,,}"
           is_ancestor() {
             git merge-base --is-ancestor "$1" "$2"
           }
           commit_for_tag() {
             git rev-parse "$1^{commit}" 2>/dev/null
           }
+
+          if [[ -n "$migrated_source_sha" ]]; then
+            marker_sha="$(commit_for_tag "agent-native-beta-migrated/$migrated_source_sha")" || {
+              echo "::error::No production-owned migration marker exists for $migrated_source_sha."
+              echo "Run the all-sites production cutover successfully before beta recovery."
+              exit 1
+            }
+            if [[ "${marker_sha,,}" != "$migrated_source_sha" ]]; then
+              echo "::error::Production migration marker does not point to $migrated_source_sha."
+              exit 1
+            fi
+          fi
 
           migrated_tags="$(git tag --list 'agent-native-beta-migrated/*' || true)"
           pending_tags="$(git tag --list 'agent-native-beta-pending/*' || true)"
@@ -219,37 +232,19 @@ jobs:
           echo "schema_changed=false" >> "$GITHUB_OUTPUT"
           echo "No schema-dependent paths changed; beta may publish automatically."
 
-      - name: Record beta migration marker
-        if: >-
-          steps.detect-schema.outputs.record_pending == 'true' ||
-          (inputs.migrated_source_sha != '' && steps.detect-schema.outputs.schema_changed != 'true')
+      - name: Record pending beta migration marker
+        if: steps.detect-schema.outputs.record_pending == 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          marker_kind: ${{ steps.detect-schema.outputs.record_pending == 'true' && 'pending' || 'migrated' }}
-          marker_sha: ${{ steps.detect-schema.outputs.record_pending == 'true' && needs.resolve-source.outputs.source_sha || inputs.migrated_source_sha }}
-          source_sha: ${{ needs.resolve-source.outputs.source_sha }}
+          marker_sha: ${{ needs.resolve-source.outputs.source_sha }}
         with:
           script: |
-            const markerKind = process.env.marker_kind;
             const markerSha = process.env.marker_sha.trim().toLowerCase();
-            const sourceSha = process.env.source_sha.trim().toLowerCase();
             if (!/^[0-9a-f]{40}$/.test(markerSha)) {
-              core.setFailed('The beta migration marker must target a full commit SHA.');
+              core.setFailed('The pending beta migration marker must target a full commit SHA.');
               return;
             }
-            if (markerKind === 'migrated') {
-              const comparison = await github.rest.repos.compareCommits({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                base: markerSha,
-                head: sourceSha,
-              });
-              if (!['ahead', 'identical'].includes(comparison.data.status)) {
-                core.setFailed(`Migration marker ${markerSha} is not an ancestor of source ${sourceSha}.`);
-                return;
-              }
-            }
-            const ref = `refs/tags/agent-native-beta-${markerKind}/${markerSha}`;
+            const ref = `refs/tags/agent-native-beta-pending/${markerSha}`;
             try {
               const existing = await github.rest.git.getRef({
                 owner: context.repo.owner,
@@ -257,19 +252,33 @@ jobs:
                 ref: ref.slice('refs/'.length),
               });
               if (existing.data.object.sha.toLowerCase() !== markerSha) {
-                core.setFailed(`Refusing to change existing beta migration marker ${ref}.`);
+                core.setFailed(`Refusing to change existing beta pending marker ${ref}.`);
                 return;
               }
-              core.info(`Beta migration marker already exists: ${ref}`);
+              core.info(`Beta pending marker already exists: ${ref}`);
             } catch (error) {
               if (error.status !== 404) throw error;
-              await github.rest.git.createRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref,
-                sha: markerSha,
-              });
-              core.info(`Created beta migration marker: ${ref}`);
+              try {
+                await github.rest.git.createRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref,
+                  sha: markerSha,
+                });
+                core.info(`Created beta pending marker: ${ref}`);
+              } catch (createError) {
+                if (createError.status !== 422) throw createError;
+                const existing = await github.rest.git.getRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: ref.slice('refs/'.length),
+                });
+                if (existing.data.object.sha.toLowerCase() !== markerSha) {
+                  core.setFailed(`Concurrent beta pending marker ${ref} points to a different commit.`);
+                  return;
+                }
+                core.info(`Beta pending marker was created concurrently: ${ref}`);
+              }
             }
 
       - name: Block schema-dependent beta code until production migration

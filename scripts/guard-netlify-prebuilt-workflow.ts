@@ -710,7 +710,7 @@ const betaSchemaGateBlockStep = (
 );
 const betaMigrationMarkerStep = (
   (betaSchemaGateJob?.steps as Array<Record<string, unknown>> | undefined) ?? []
-).find((step) => step.name === "Record beta migration marker");
+).find((step) => step.name === "Record pending beta migration marker");
 const betaSchemaGateCheckoutStep = (
   (betaSchemaGateJob?.steps as Array<Record<string, unknown>> | undefined) ?? []
 ).find(
@@ -720,6 +720,15 @@ const betaSchemaGateCheckoutStep = (
 const betaDeployNeeds = Array.isArray(betaDeployJob?.needs)
   ? betaDeployJob.needs
   : [];
+const productionMigrationMarkerJob = asRecord(
+  asRecord(parsedWorkflows.get(productionPath)?.jobs)?.[
+    "record-beta-migration"
+  ],
+);
+const productionMigrationMarkerSteps =
+  (productionMigrationMarkerJob?.steps as
+    | Array<Record<string, unknown>>
+    | undefined) ?? [];
 if (betaMigrateJob || betaDeployNeeds.includes("migrate")) {
   issues.push(
     `${betaPath} must not run release migrations against masked beta site secrets`,
@@ -750,6 +759,13 @@ if (
   typeof betaSchemaGateBlockStep?.run !== "string" ||
   !betaSchemaGateBlockStep.run.includes("required_source_sha") ||
   typeof betaMigrationMarkerStep?.with !== "object" ||
+  !String(betaSchemaGateStep.run).includes(
+    "No production-owned migration marker exists",
+  ) ||
+  !String(betaMigrationMarkerStep.if).includes("record_pending") ||
+  !String(asRecord(betaMigrationMarkerStep.with)?.script).includes(
+    "Concurrent beta pending marker",
+  ) ||
   !String(asRecord(betaMigrationMarkerStep.with)?.script).includes(
     "createRef",
   ) ||
@@ -757,6 +773,33 @@ if (
 ) {
   issues.push(
     `${betaPath} must block schema-dependent beta code until production migration is confirmed`,
+  );
+}
+
+if (
+  !productionMigrationMarkerJob ||
+  !String(productionMigrationMarkerJob.if).includes("inputs.sites == 'all'") ||
+  !String(productionMigrationMarkerJob.if).includes(
+    "needs.deploy.result == 'success'",
+  ) ||
+  !Array.isArray(productionMigrationMarkerJob.needs) ||
+  !productionMigrationMarkerJob.needs.includes("resolve-source") ||
+  !productionMigrationMarkerJob.needs.includes("deploy") ||
+  asRecord(productionMigrationMarkerJob.permissions)?.contents !== "write" ||
+  !productionMigrationMarkerSteps.some(
+    (step) =>
+      typeof step.with === "object" &&
+      String(asRecord(step.with)?.script).includes(
+        "agent-native-beta-migrated",
+      ) &&
+      String(asRecord(step.with)?.script).includes(
+        "Concurrent production migration marker",
+      ) &&
+      String(asRecord(step.with)?.script).includes("createRef"),
+  )
+) {
+  issues.push(
+    `${productionPath} must create the beta migration marker only after a successful all-sites cutover`,
   );
 }
 
