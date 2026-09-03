@@ -532,3 +532,61 @@ describe("nesting follows where you started, not whether the box fits", () => {
     );
   });
 });
+
+describe("pen path paint defaults", () => {
+  const penPath = (pathData: string): CanvasPrimitiveInsert => ({
+    kind: "path",
+    nodeId: "pen-1",
+    geometry: { x: 10, y: 10, width: 80, height: 60 },
+    pathData,
+  });
+
+  const committedPath = (primitive: CanvasPrimitiveInsert) => {
+    const html = appendCanvasPrimitiveToHtml(
+      blankScreenHtml("Screen 1"),
+      primitive,
+    );
+    const path = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector("path");
+    if (!path) throw new Error("no <path> committed");
+    return path;
+  };
+
+  it("commits a closed pen path like a drawn rectangle: filled, unstroked", () => {
+    const path = committedPath(penPath("M 10 10 L 90 10 L 50 70 Z"));
+    expect(path.getAttribute("fill")).toBe("rgb(218 218 218)");
+    expect(path.getAttribute("stroke")).toBe("none");
+  });
+
+  it("keeps the stroke on an open pen path, which is only its stroke", () => {
+    const path = committedPath(penPath("M 10 10 L 90 10 L 50 70"));
+    expect(path.getAttribute("fill")).toBe("none");
+    expect(path.getAttribute("stroke")).toBe("#000000");
+  });
+
+  it("still honours an explicitly chosen fill and stroke", () => {
+    const path = committedPath({
+      ...penPath("M 10 10 L 90 10 L 50 70 Z"),
+      fill: "#ff0000",
+      stroke: "#00ff00",
+      strokeWidth: 4,
+    });
+    expect(path.getAttribute("fill")).toBe("#ff0000");
+    expect(path.getAttribute("stroke")).toBe("#00ff00");
+    expect(path.getAttribute("stroke-width")).toBe("4");
+  });
+
+  it("gives a polygon the same unstroked shape paint", () => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      kind: "polygon",
+      nodeId: "poly-1",
+      geometry: { x: 0, y: 0, width: 40, height: 40 },
+    });
+    const polygon = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector("polygon");
+    expect(polygon?.getAttribute("fill")).toBe("rgb(218 218 218)");
+    expect(polygon?.getAttribute("stroke")).toBe("none");
+  });
+});

@@ -2121,7 +2121,11 @@ function buildProjection(
     const selector = primarySelector(element, elements);
     const path = pathSelector(element, elements);
     const classes = classList(element);
-    const style = parseStyle(attributeValue(element, "style"));
+    const style = withVectorPaintStyle(
+      element,
+      elements,
+      parseStyle(attributeValue(element, "style")),
+    );
     const dataAttributes = dataAttributeRecord(element);
     const layerName = layerNameFor(html, element);
     // Only alias attribute selectors that are actually STABLE, UNIQUE node
@@ -2852,6 +2856,117 @@ function setStyleValue(
     declarations.push({ property, value });
   }
   return serializeStyleDeclarations(declarations);
+}
+
+const VECTOR_PAINT_PRIMITIVES = new Set([
+  "path",
+  "line",
+  "arrow",
+  "polygon",
+  "star",
+]);
+
+const VECTOR_SHAPE_TAGS = new Set([
+  "path",
+  "polygon",
+  "ellipse",
+  "rect",
+  "line",
+  "polyline",
+]);
+
+const VECTOR_PAINT_PROPERTIES = [
+  "fill",
+  "fill-opacity",
+  "stroke",
+  "stroke-width",
+  "stroke-opacity",
+] as const;
+
+/**
+ * A drawn vector primitive's `<svg>` carries the geometry and its shape child
+ * carries the paint, so fill/stroke aimed at the wrapper tints the bounding
+ * box instead. Mirrored by `vectorPaintTarget` in editor-chrome.bridge.ts.
+ */
+function vectorShapeChild(
+  element: ParsedElement,
+  elements: ParsedElement[],
+): ParsedElement | null {
+  if (element.tag !== "svg") return null;
+  const kind = attributeValue(element, "data-an-primitive");
+  if (!kind || !VECTOR_PAINT_PRIMITIVES.has(kind)) return null;
+  for (const childIndex of element.childIndexes) {
+    const child = elements[childIndex];
+    if (child && VECTOR_SHAPE_TAGS.has(child.tag)) return child;
+  }
+  return null;
+}
+
+/**
+ * Folds the shape child's paint onto the wrapper node. The child is skipped by
+ * `hasSvgAncestor`, so the wrapper is the only layer a reader can address —
+ * without this the inspector sees no fill and offers to add a `background`.
+ */
+function withVectorPaintStyle(
+  element: ParsedElement,
+  elements: ParsedElement[],
+  style: Record<string, string>,
+): Record<string, string> {
+  const child = vectorShapeChild(element, elements);
+  if (!child) return style;
+  const childStyle = parseStyle(attributeValue(child, "style"));
+  const merged = { ...style };
+  for (const property of VECTOR_PAINT_PROPERTIES) {
+    // An inline declaration on the child outranks its presentation
+    // attribute, the same order the cascade resolves them when painting.
+    const value = childStyle[property] ?? attributeValue(child, property);
+    if (value) merged[property] = value;
+  }
+  return merged;
+}
+
+/**
+ * Box paint that a vector wrapper must never carry: it paints the bounding
+ * rectangle, and the inspector no longer edits these for a vector, so a value
+ * left here is unreachable from the UI.
+ */
+const VECTOR_WRAPPER_BOX_PAINT = new Set([
+  "background",
+  "background-color",
+  "background-image",
+  "border",
+  "border-width",
+  "border-style",
+  "border-color",
+]);
+
+function clearVectorWrapperPaint(html: string, wrapper: ParsedElement): string {
+  const style = attributeValue(wrapper, "style");
+  if (!style) return html;
+  const kept = parseStyleDeclarations(style).filter(
+    (declaration) => !VECTOR_WRAPPER_BOX_PAINT.has(declaration.property),
+  );
+  const next = serializeStyleDeclarations(kept);
+  if (next === style) return html;
+  // Safe against the child edit that just ran: the wrapper's open tag, and so
+  // its style attribute offsets, precede every child byte.
+  return replaceOrInsertAttribute(html, wrapper, "style", next);
+}
+
+function vectorPaintChild(
+  html: string,
+  element: ParsedElement,
+  property: string,
+): ParsedElement | null {
+  if (!property.startsWith("fill") && !property.startsWith("stroke")) {
+    return null;
+  }
+  const elements = parseHtmlElements(html);
+  // childIndexes only address this array if it is the same parse the caller's
+  // element came from; a shifted index would repaint an unrelated element.
+  const parsed = elements[element.index];
+  if (!parsed || parsed.start !== element.start) return null;
+  return vectorShapeChild(parsed, elements);
 }
 
 function applyStyleEdit(
@@ -4340,7 +4455,14 @@ export function applyVisualEdit(
   let edit: { content: string; capability: EditCapability } | PatchResultStatus;
   let moveInsertAt: number | undefined;
   if (intent.kind === "style") {
-    edit = applyStyleEdit(html, element, intent);
+    const paintChild = vectorPaintChild(html, element, intent.property);
+    edit = applyStyleEdit(html, paintChild ?? element, intent);
+    if (paintChild && typeof edit !== "string") {
+      edit = {
+        ...edit,
+        content: clearVectorWrapperPaint(edit.content, element),
+      };
+    }
   } else if (intent.kind === "class") {
     edit = applyClassEdit(html, element, intent);
   } else if (intent.kind === "textContent") {

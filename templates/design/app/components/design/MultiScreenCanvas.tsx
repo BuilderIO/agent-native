@@ -43,6 +43,7 @@ import {
   getPenPathGeometry,
   hitTestPenAnchor,
   hitTestPenHandle,
+  isClosedPathData,
   isPenCloseTarget,
   movePenAnchor,
   movePenHandle,
@@ -89,8 +90,7 @@ import { cn } from "@/lib/utils";
 import { parseBreakpointWidthInput } from "./BreakpointBar";
 import {
   canvasPrimitiveReactStyle,
-  DEFAULT_LINE_STROKE,
-  DEFAULT_LINE_STROKE_WIDTH_PX,
+  canvasVectorPaint,
 } from "./canvas-primitive-style";
 import {
   CONTENT_SIZE_REPORT_MESSAGE_TYPE,
@@ -9353,13 +9353,15 @@ function DraftPrimitiveContent({
       (draft.penPath
         ? serializePenPath(draft.penPath)
         : pointsToPath(draft.points ?? []));
-    // Figma parity: a freshly drawn line/arrow/pen path defaults to solid
-    // black at 1px (DEFAULT_LINE_STROKE / DEFAULT_LINE_STROKE_WIDTH_PX in
-    // canvas-primitive-style.ts), matching the committed board-file output
-    // and DesignEditor's appendCanvasPrimitiveToHtml. The arrowhead marker's
-    // fill is set to this same resolved stroke color (not `currentColor`) so
-    // it never disagrees with the shaft when a custom stroke is chosen.
-    const resolvedStroke = draft.stroke ?? DEFAULT_LINE_STROKE;
+    const paint = canvasVectorPaint({
+      closed: isClosedPathData(pathData),
+      fill: draft.fill,
+      stroke: draft.stroke,
+      strokeWidth: draft.strokeWidth,
+    });
+    // The arrowhead marker takes the resolved stroke color (not
+    // `currentColor`) so it never disagrees with the shaft.
+    const resolvedStroke = paint.stroke;
     return (
       <svg
         className={cn("block size-full overflow-visible", muted)}
@@ -9382,11 +9384,11 @@ function DraftPrimitiveContent({
         ) : null}
         <path
           d={pathData}
-          fill="none"
+          fill={paint.fill}
           stroke={resolvedStroke}
           strokeLinecap="round"
           strokeLinejoin="round"
-          strokeWidth={draft.strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX}
+          strokeWidth={paint.strokeWidth}
           markerEnd={draft.kind === "arrow" ? `url(#${markerId})` : undefined}
         />
       </svg>
@@ -9435,6 +9437,12 @@ function DraftPrimitiveContent({
   }
 
   if (draft.kind === "polygon" || draft.kind === "star") {
+    const polygonPaint = canvasVectorPaint({
+      closed: true,
+      fill: draft.fill,
+      stroke: draft.stroke,
+      strokeWidth: draft.strokeWidth,
+    });
     return (
       <svg
         className={cn("block size-full overflow-visible", muted)}
@@ -9449,10 +9457,10 @@ function DraftPrimitiveContent({
             draft.geometry.width,
             draft.geometry.height,
           )}
-          fill={draft.fill ?? "hsl(var(--primary) / 0.12)"}
-          stroke={draft.stroke ?? "none"}
+          fill={polygonPaint.fill}
+          stroke={polygonPaint.stroke}
           strokeLinejoin="round"
-          strokeWidth={draft.strokeWidth ?? 0}
+          strokeWidth={polygonPaint.strokeWidth}
         />
       </svg>
     );

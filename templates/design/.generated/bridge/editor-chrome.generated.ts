@@ -1799,6 +1799,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function getElementInfo(el) {
       var cs = window.getComputedStyle(el);
+      var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
       var rect = el.getBoundingClientRect();
       var componentName = componentNameForElement(el);
       var parentAutoLayout = autoLayoutParentInfo(el);
@@ -1940,6 +1941,13 @@ export const editorChromeBridgeScript: string = `"use strict";
           outlineStyle: cs.outlineStyle,
           outlineColor: cs.outlineColor,
           outlineOffset: cs.outlineOffset,
+          // Read off the shape child for a drawn vector (vectorPaintTarget):
+          // the \`<svg>\` wrapper itself is never painted.
+          fill: paintCs.fill,
+          fillOpacity: paintCs.fillOpacity,
+          stroke: paintCs.stroke,
+          strokeWidth: paintCs.strokeWidth,
+          strokeOpacity: paintCs.strokeOpacity,
           // Text glyph outline (Figma-parity text "Stroke") — CSS has no
           // unprefixed alias, so this is read via the vendor-prefixed
           // longhands directly. See applyStyleEdit/normalizeStyleProperty in
@@ -5980,11 +5988,45 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (prop.indexOf("--") === 0) return prop;
       return prop.replace(/([A-Z])/g, "-$1").toLowerCase();
     }
+    function vectorPaintTarget(el) {
+      if (!el || el.tagName.toLowerCase() !== "svg") return null;
+      var kind = el.getAttribute("data-an-primitive") || "";
+      if (kind !== "path" && kind !== "line" && kind !== "arrow" && kind !== "polygon" && kind !== "star") {
+        return null;
+      }
+      return el.querySelector("path, polygon, ellipse, rect, line, polyline");
+    }
+    function isVectorPaintProperty(cssProperty) {
+      return cssProperty.indexOf("fill") === 0 || cssProperty.indexOf("stroke") === 0;
+    }
+    function clearVectorWrapperPaint(el) {
+      var style = el.style;
+      var properties = [
+        "background",
+        "background-color",
+        "background-image",
+        "border",
+        "border-width",
+        "border-style",
+        "border-color"
+      ];
+      for (var i = 0; i < properties.length; i += 1) {
+        style.removeProperty(properties[i]);
+      }
+    }
     function applyInlineStyleProperty(el, property, value) {
       if (!el || !property) return false;
       var cssProperty = normalizeCssPropertyName(property);
       if (!cssProperty) return false;
-      el.style.setProperty(cssProperty, String(value));
+      var target = el;
+      if (isVectorPaintProperty(cssProperty)) {
+        var shape = vectorPaintTarget(el);
+        if (shape) {
+          target = shape;
+          clearVectorWrapperPaint(el);
+        }
+      }
+      target.style.setProperty(cssProperty, String(value));
       return true;
     }
     function exactCoverSpanForRange(range) {

@@ -5,6 +5,10 @@ import {
   type PenPath,
 } from "@shared/pen-path";
 
+import {
+  DEFAULT_LINE_STROKE,
+  DEFAULT_SHAPE_FILL,
+} from "@/components/design/canvas-primitive-style";
 import type { PortableStyleSnapshot } from "@/components/design/types";
 import {
   applyDesignClipboardManagedStyles,
@@ -92,10 +96,17 @@ export function writeBackVectorEditedPenPath(
     const isClosed = Boolean(penPath.closed && penPath.nodes.length > 1);
 
     path.setAttribute("d", d);
-    if (isClosed && path.getAttribute("fill") === "none") {
-      path.setAttribute("fill", "#D9D9D9");
-    } else if (!isClosed) {
+    if (isClosed) {
+      if (path.getAttribute("fill") === "none") {
+        path.setAttribute("fill", DEFAULT_SHAPE_FILL);
+      }
+    } else {
       path.setAttribute("fill", "none");
+      // An open path is only its stroke, and a path drawn closed commits
+      // with stroke:none — reopening it without this paints nothing at all.
+      if (path.getAttribute("stroke") === "none") {
+        path.setAttribute("stroke", DEFAULT_LINE_STROKE);
+      }
     }
 
     svg.setAttribute("data-an-pen-nodes", serializePenNodes(penPath));
