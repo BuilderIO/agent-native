@@ -50,6 +50,7 @@ import {
 import { chunks } from "./_batch-utils.js";
 import { readBlocksFieldIdentities } from "./_blocks-field-identity.js";
 import {
+  nextAppendPosition,
   propertyDefinitionsPositionScope,
   withPositionLock,
 } from "./_position-utils.js";
@@ -1330,7 +1331,7 @@ export async function seedDefaultBlocksField(args: {
     propertyDefinitionsPositionScope(args.databaseId),
     async () => {
       const [maxPos] = await db
-        .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+        .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
         .from(schema.documentPropertyDefinitions)
         .where(
           eq(schema.documentPropertyDefinitions.databaseId, args.databaseId),
@@ -1347,7 +1348,7 @@ export async function seedDefaultBlocksField(args: {
           type: "blocks",
           visibility: "always_show",
           optionsJson: serializePropertyOptions({ blocks: { primary: true } }),
-          position: (maxPos?.max ?? -1) + 1,
+          position: nextAppendPosition(maxPos?.max),
           createdAt: args.now,
           updatedAt: args.now,
         })

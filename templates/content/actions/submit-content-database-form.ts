@@ -30,6 +30,7 @@ import {
   touchContentDatabase,
 } from "./_content-database-mutation-lock.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
+import { nextAppendPosition } from "./_position-utils.js";
 import { nanoid, parseDatabaseViewConfig } from "./_property-utils.js";
 
 const submitContentDatabaseFormSchema = z.object({
@@ -371,7 +372,7 @@ export default defineAction({
         );
       }
       const [maxDocumentPosition] = await tx
-        .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+        .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
         .from(schema.documents)
         .where(
           and(
@@ -380,7 +381,7 @@ export default defineAction({
           ),
         );
       const [maxItemPosition] = await tx
-        .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+        .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
         .from(schema.contentDatabaseItems)
         .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
       const inheritedShares = await tx
@@ -401,7 +402,7 @@ export default defineAction({
         title: normalizedTitle,
         content: documentContent,
         icon: null,
-        position: (maxDocumentPosition?.max ?? -1) + 1,
+        position: nextAppendPosition(maxDocumentPosition?.max),
         isFavorite: 0,
         hideFromSearch: databaseDocument.hideFromSearch ?? 0,
         visibility: databaseDocument.visibility ?? "private",
@@ -414,7 +415,7 @@ export default defineAction({
         orgId: database.orgId,
         databaseId,
         documentId,
-        position: (maxItemPosition?.max ?? -1) + 1,
+        position: nextAppendPosition(maxItemPosition?.max),
         createdAt: now,
         updatedAt: now,
       });
