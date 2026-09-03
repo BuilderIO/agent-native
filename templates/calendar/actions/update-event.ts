@@ -69,13 +69,20 @@ function mergeAttendees(
 }
 
 /**
- * Whether raw `attendeesInput` names at least one guest. Like every
- * `needsApproval` input this arrives unparsed, as either the array or the
- * comma-separated string the schema accepts.
+ * Whether raw `attendeesInput` names at least one guest Google would actually
+ * invite. Like every `needsApproval` input this arrives unparsed, as either the
+ * array or the comma-separated string the schema accepts — and anything without
+ * an `@` is dropped before `run` counts attendees, so it mails nobody.
+ * Delegating to the same normalizer `run` uses keeps the gate from drifting
+ * away from what it is gating; re-implementing the address check here would let
+ * a future change to that filter silently skip an approval.
  */
 function namesGuests(value: unknown): boolean {
-  if (Array.isArray(value)) return value.length > 0;
-  return typeof value === "string" && value.trim().length > 0;
+  if (typeof value !== "string" && !Array.isArray(value)) return false;
+  return (
+    (normalizeAttendees(value as Parameters<typeof normalizeAttendees>[0])
+      ?.length ?? 0) > 0
+  );
 }
 
 function workingLocationTitle(

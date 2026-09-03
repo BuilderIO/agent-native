@@ -730,4 +730,28 @@ describe("update-event approval gate", () => {
       } as never),
     ).toBe(false);
   });
+
+  it("does not stop an update whose attendee input names nobody reachable", async () => {
+    const gate = action.needsApproval;
+    if (typeof gate !== "function") throw new Error("expected a predicate");
+
+    // An entry with no address is dropped before run() counts attendees, so it
+    // invites nobody and must not cost an approval.
+    expect(
+      await gate({ id: "google-a", addAttendees: "not-an-address" } as never),
+    ).toBe(false);
+    expect(
+      await gate({
+        id: "google-a",
+        addAttendees: [{ email: "not-an-address" }],
+      } as never),
+    ).toBe(false);
+    // One real address among unreachable ones still invites that person.
+    expect(
+      await gate({
+        id: "google-a",
+        addAttendees: "nope, guest@example.com",
+      } as never),
+    ).toBe(true);
+  });
 });
