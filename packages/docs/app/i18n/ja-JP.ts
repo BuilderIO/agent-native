@@ -2117,7 +2117,7 @@ const jaJP = {
     fileUploads: "ファイルアップロード",
     deployment: "デプロイ",
     deploymentOverview: "概要",
-    deploymentProviders: "プロバイダー",
+    deploymentProviders: "ホスティングプロバイダー",
     deploymentProduction: "本番環境と高度な設定",
     deployAnApp: "アプリをデプロイ",
     workspaceDeployment: "ワークスペースのデプロイ",
