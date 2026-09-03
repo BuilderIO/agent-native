@@ -271,37 +271,23 @@ describe("builderFileUploadProvider", () => {
     ).toBe("space-agent-native");
   });
 
-  it("uses the PAT and space from the same complete credential pair", async () => {
+  it("rejects a credential scope mismatch instead of substituting another PAT", async () => {
     resolveBuilderApiAuthorizationMock.mockResolvedValue("Bearer btk-user");
     resolveBuilderCredentialsDetailedMock.mockResolvedValue({
       privateKey: "btk-org",
       publicKey: "space-org",
     });
-    fetchMock
-      .mockResolvedValueOnce(
-        jsonResponse({
-          uploadUrl: "https://storage.example.com/upload",
-          assetId: "asset-1",
-          requiredHeaders: {},
-        }),
-      )
-      .mockResolvedValueOnce(jsonResponse({}))
-      .mockResolvedValueOnce(
-        jsonResponse({ url: "https://cdn.builder.io/video" }),
-      );
 
-    await builderFileUploadProvider.upload({
-      data: new Uint8Array([1]),
-      filename: "clip.webm",
-      mimeType: "video/webm",
-    });
-
-    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(
-      "Bearer btk-org",
+    await expect(
+      builderFileUploadProvider.upload({
+        data: new Uint8Array([1]),
+        filename: "clip.webm",
+        mimeType: "video/webm",
+      }),
+    ).rejects.toThrow(
+      "Builder credential scope mismatch: the connection holding the upload space is not the one authorized for this request.",
     );
-    expect(
-      new URL(fetchMock.mock.calls[0][0].toString()).searchParams.get("apiKey"),
-    ).toBe("space-org");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("passes only stableUrl through signed URL completion when requested", async () => {
