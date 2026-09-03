@@ -66,7 +66,7 @@ interface DayViewProps {
     date: Date,
     startTime: string,
     endTime: string,
-    options?: { explicitDuration?: boolean },
+    options?: { allDay?: boolean; explicitDuration?: boolean },
   ) => void;
   onCreateWorkingLocation?: (date: Date) => void;
   quickEditEventId?: string | null;
@@ -805,7 +805,7 @@ export const DayView = memo(function DayView({
       </div>
 
       {/* Working locations and ordinary all-day events */}
-      {allDayEvents.length > 0 && (
+      {(allDayEvents.length > 0 || onClickTimeSlot) && (
         <div className="max-h-[88px] overflow-y-auto border-b border-border bg-card/50">
           {workingLocations.length > 0 && (
             <div data-working-location-lane className="px-4 py-1.5">
@@ -880,7 +880,7 @@ export const DayView = memo(function DayView({
             </div>
           )}
 
-          {regularAllDayEvents.length > 0 && (
+          {(regularAllDayEvents.length > 0 || onClickTimeSlot) && (
             <div
               data-all-day-event-lane
               className={cn(
@@ -960,6 +960,21 @@ export const DayView = memo(function DayView({
                     </EventDetailPopover>
                   );
                 })}
+                {onClickTimeSlot && (
+                  <button
+                    type="button"
+                    data-calendar-create-surface="all-day"
+                    aria-label={t("eventForm.allDay")}
+                    className="min-h-6 w-full rounded-sm text-left hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                    onClick={() =>
+                      onClickTimeSlot(date, "00:00", "00:00", {
+                        allDay: true,
+                      })
+                    }
+                  >
+                    <span className="sr-only">{t("eventForm.allDay")}</span>
+                  </button>
+                )}
               </div>
             </div>
           )}

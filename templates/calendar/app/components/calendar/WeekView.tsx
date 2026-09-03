@@ -83,7 +83,7 @@ interface WeekViewProps {
     date: Date,
     startTime: string,
     endTime: string,
-    options?: { explicitDuration?: boolean },
+    options?: { allDay?: boolean; explicitDuration?: boolean },
   ) => void;
   onCreateWorkingLocation?: (date: Date) => void;
   quickEditEventId?: string | null;
@@ -728,19 +728,26 @@ export const WeekView = memo(function WeekView({
 
   const hasWorkingLocations = workingLocationLayout.rowCount > 0;
   const hasRegularAllDayEvents = regularAllDayLayout.rowCount > 0;
-  const hasAnyAllDay = hasWorkingLocations || hasRegularAllDayEvents;
+  const hasAllDayCreateSurface = Boolean(onClickTimeSlot);
+  const hasAnyAllDay =
+    hasWorkingLocations || hasRegularAllDayEvents || hasAllDayCreateSurface;
   const workingLocationRowHeight = 16;
   const allDayRowHeight = 20;
+  const emptyAllDayRowHeight = 28;
   const workingLocationLaneHeight = hasWorkingLocations
     ? workingLocationLayout.rowCount * workingLocationRowHeight + 2
     : 0;
   const laneSeparatorHeight =
-    hasWorkingLocations && hasRegularAllDayEvents ? 1 : 0;
+    hasWorkingLocations && (hasRegularAllDayEvents || hasAllDayCreateSurface)
+      ? 1
+      : 0;
   const regularAllDayLaneOffset =
     workingLocationLaneHeight + laneSeparatorHeight;
   const regularAllDayLaneHeight = hasRegularAllDayEvents
     ? regularAllDayLayout.rowCount * allDayRowHeight + 6
-    : 0;
+    : hasAllDayCreateSurface
+      ? emptyAllDayRowHeight
+      : 0;
   const allDaySectionHeight =
     workingLocationLaneHeight + laneSeparatorHeight + regularAllDayLaneHeight;
   const allDayHeaderSpacerWidth = Math.max(
@@ -1026,14 +1033,12 @@ export const WeekView = memo(function WeekView({
               className="relative shrink-0 border-r border-border"
               style={{ width: `${GUTTER_WIDTH}px` }}
             >
-              {hasRegularAllDayEvents && (
-                <span
-                  className="absolute right-2 text-[10px] text-muted-foreground"
-                  style={{ top: `${regularAllDayLaneOffset + 4}px` }}
-                >
-                  {t("eventForm.allDay")}
-                </span>
-              )}
+              <span
+                className="absolute right-2 text-[10px] text-muted-foreground"
+                style={{ top: `${regularAllDayLaneOffset + 4}px` }}
+              >
+                {t("eventForm.allDay")}
+              </span>
             </div>
 
             {/* All-day columns container (relative, for absolute-positioned spans) */}
@@ -1048,6 +1053,30 @@ export const WeekView = memo(function WeekView({
                   )}
                 />
               ))}
+
+              {hasAllDayCreateSurface &&
+                days.map((day, i) => (
+                  <button
+                    key={`all-day-create-${day.toISOString()}`}
+                    type="button"
+                    data-calendar-create-surface="all-day"
+                    aria-label={t("eventForm.allDay")}
+                    className="absolute z-0 rounded-sm text-left hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                    style={{
+                      top: `${regularAllDayLaneOffset + 2}px`,
+                      left: `${(i / days.length) * 100}%`,
+                      width: `${100 / days.length}%`,
+                      height: `${regularAllDayLaneHeight - 4}px`,
+                    }}
+                    onClick={() =>
+                      onClickTimeSlot?.(day, "00:00", "00:00", {
+                        allDay: true,
+                      })
+                    }
+                  >
+                    <span className="sr-only">{t("eventForm.allDay")}</span>
+                  </button>
+                ))}
 
               {laneSeparatorHeight > 0 && (
                 <div
@@ -1205,7 +1234,7 @@ export const WeekView = memo(function WeekView({
                       >
                         <button
                           className={cn(
-                            "absolute flex items-center gap-1 truncate rounded px-1.5 text-left text-[11px] font-medium text-foreground transition-opacity hover:opacity-80",
+                            "absolute z-10 flex items-center gap-1 truncate rounded px-1.5 text-left text-[11px] font-medium text-foreground transition-opacity hover:opacity-80",
                             event.ownerColor && "pr-3.5",
                           )}
                           aria-label={
