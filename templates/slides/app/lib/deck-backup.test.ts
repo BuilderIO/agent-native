@@ -80,4 +80,27 @@ describe("Slides deck backups", () => {
       ),
     ).toThrowError(DeckBackupError);
   });
+
+  it("rejects invalid optional slide fields", () => {
+    const backup = {
+      format: "agent-native-slides-deck",
+      version: 1,
+      deck: {
+        title: "Broken",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<div />",
+            notes: "",
+            layout: "content",
+            animations: "not-an-array",
+          },
+        ],
+      },
+    };
+
+    expect(() => parseDeckBackup(JSON.stringify(backup))).toThrowError(
+      DeckBackupError,
+    );
+  });
 });

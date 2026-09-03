@@ -2,6 +2,8 @@ import { ASPECT_RATIO_VALUES, type AspectRatio } from "@shared/aspect-ratios";
 
 import type { Deck, Slide, SlideLayout } from "@/context/DeckContext";
 
+import { normalizeSlideClipboard } from "./slide-clipboard";
+
 export const DECK_BACKUP_FORMAT = "agent-native-slides-deck" as const;
 export const DECK_BACKUP_VERSION = 1 as const;
 
@@ -72,22 +74,9 @@ function parseSlide(value: unknown): Slide {
     throw new DeckBackupError();
   }
 
-  const {
-    id: _id,
-    content: _content,
-    notes: _notes,
-    layout: _layout,
-    imageLoading: _imageLoading,
-    ...optionalFields
-  } = source;
-
-  return {
-    ...optionalFields,
-    id: source.id,
-    content: source.content,
-    notes: source.notes,
-    layout: source.layout,
-  } as Slide;
+  const normalized = normalizeSlideClipboard(source);
+  if (!normalized) throw new DeckBackupError();
+  return normalized;
 }
 
 function backupFields(deck: Deck): DeckBackupFields {

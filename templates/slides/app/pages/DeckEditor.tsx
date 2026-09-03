@@ -2097,6 +2097,13 @@ export default function DeckEditor() {
           ? { starred: backup.deck.starred }
           : {}),
       },
+      clearDeckFields: [
+        "aspectRatio",
+        "designSystemId",
+        "tweaks",
+        "starred",
+        "sourceImport",
+      ],
       persistence: "immediate",
       forcePersistence: true,
     });
