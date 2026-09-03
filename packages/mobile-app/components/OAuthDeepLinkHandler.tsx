@@ -1,9 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { router } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { useEffect } from "react";
 import { Linking, Platform } from "react-native";
 
+import { navigateToPath } from "@/lib/navigation";
 import { completeOAuthCallback } from "@/lib/oauth-session";
 import {
   OAUTH_BASE_URL_KEY,
@@ -48,17 +48,15 @@ async function handleOAuthUrl(url: string | null): Promise<void> {
   } catch {
     // Nothing to dismiss.
   }
-  if (returnPath) router.replace(returnPath as never);
+  if (returnPath) navigateToPath(returnPath, "replace");
 }
 
 /**
  * Owns the agentnative://oauth-complete return, at the app root, so it works
  * even when the OS killed the app while it was in the Google sign-in browser
  * and cold-starts it from the deep link. getInitialURL covers that cold start;
- * the url listener covers a warm return. Running here (not in a route) sidesteps
- * expo-router's host/path ambiguity for agentnative://oauth-complete, which
- * otherwise lands the user on Home. The persisted return-path and token key
- * survive the app kill in AsyncStorage.
+ * the url listener covers a warm return. The persisted return-path and token
+ * key survive the app kill in AsyncStorage.
  */
 export default function OAuthDeepLinkHandler() {
   useEffect(() => {
