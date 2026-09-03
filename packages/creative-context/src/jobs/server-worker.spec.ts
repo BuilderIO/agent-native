@@ -158,25 +158,34 @@ describe("creative context hosted worker", () => {
     expect(mocks.enqueueDailyMaintenance).not.toHaveBeenCalled();
   });
 
-  it("rejects invalid signed dispatches", async () => {
+  it("rejects invalid signed dispatches for both processors", async () => {
     vi.stubEnv("A2A_SECRET", "configured-secret");
     mocks.verifyInternalToken.mockReturnValue(false);
-    mocks.readBody.mockResolvedValue({
-      jobId: "job-invalid",
-      ownerEmail: "owner@example.com",
-    });
-    await createCreativeContextWorkerPlugin({ appId: "design" })({});
-    const handler = mocks.h3Use.mock.calls.at(-1)?.[1] as (
-      event: unknown,
-    ) => Promise<Response>;
-    const response = await handler({
-      req: {
-        method: "POST",
-        headers: new Headers({ authorization: "Bearer invalid" }),
-      },
-    });
-    expect(response.status).toBe(401);
-    expect(mocks.processImport).not.toHaveBeenCalled();
+
+    for (const [route, processor] of [
+      [CREATIVE_CONTEXT_IMPORT_PROCESSOR_ROUTE, mocks.processImport],
+      [CREATIVE_CONTEXT_BACKGROUND_PROCESSOR_ROUTE, mocks.processBackground],
+    ] as const) {
+      mocks.readBody.mockResolvedValue({
+        jobId: `job-invalid-${route.endsWith("background") ? "background" : "import"}`,
+        ownerEmail: "owner@example.com",
+      });
+      await createCreativeContextWorkerPlugin({ appId: "design" })({});
+      const handler = mocks.h3Use.mock.calls.find(
+        ([mountedRoute]) => mountedRoute === route,
+      )?.[1] as ((event: unknown) => Promise<Response>) | undefined;
+      expect(handler).toBeTypeOf("function");
+
+      const response = await handler!({
+        req: {
+          method: "POST",
+          headers: new Headers({ authorization: "Bearer invalid" }),
+        },
+      });
+
+      expect(response.status).toBe(401);
+      expect(processor).not.toHaveBeenCalled();
+    }
   });
 
   it("accepts valid signed dispatches for both processors", async () => {
