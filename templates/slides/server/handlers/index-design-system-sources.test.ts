@@ -1,12 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetSession = vi.hoisted(() => vi.fn());
+const mockGetMcpOAuthBearerSession = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockIndexBuilderDesignSystem = vi.hoisted(() => vi.fn());
 const mockUpsertBuilderProxyDesignSystem = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
+  getMcpOAuthBearerSession: (...args: unknown[]) =>
+    mockGetMcpOAuthBearerSession(...args),
   runWithRequestContext: async (_ctx: unknown, fn: () => unknown) => fn(),
   indexBuilderDesignSystem: (...args: unknown[]) =>
     mockIndexBuilderDesignSystem(...args),
@@ -33,6 +36,8 @@ import { indexDesignSystemSources } from "./index-design-system-sources";
 describe("indexDesignSystemSources session-lookup regression", () => {
   beforeEach(() => {
     mockGetSession.mockReset();
+    mockGetMcpOAuthBearerSession.mockReset();
+    mockGetMcpOAuthBearerSession.mockResolvedValue(null);
     mockSetResponseStatus.mockReset();
     mockIndexBuilderDesignSystem.mockReset();
     mockUpsertBuilderProxyDesignSystem.mockReset();
