@@ -43,7 +43,6 @@ export function validateReusableWorkflowConcurrency(
     typeof group !== "string" ||
     !group.includes("inputs.caller") ||
     !group.includes("netlify-prebuilt-child") ||
-    !group.includes("agent-native-beta-migration") ||
     !group.includes("agent-native-release-migrations") ||
     !group.includes("inputs.target") ||
     !group.includes("inputs.site") ||
@@ -210,9 +209,12 @@ if (asRecord(reusableDocument?.concurrency)?.["cancel-in-progress"] !== false) {
   issues.push(`${reusablePath} beta deploys must queue every source SHA`);
 }
 const betaConcurrency = asRecord(parsedWorkflows.get(betaPath)?.concurrency);
-if (betaConcurrency) {
+if (
+  betaConcurrency?.group !== "agent-native-release-pipeline" ||
+  betaConcurrency["cancel-in-progress"] !== false
+) {
   issues.push(
-    `${betaPath} must let every main push reach its per-site publish queue instead of canceling the workflow`,
+    `${betaPath} must serialize shared release migrations without canceling the current workflow`,
   );
 }
 const reusableConcurrencyGroup = String(
@@ -240,6 +242,15 @@ if (
   );
 }
 const docsProductionDocument = parsedWorkflows.get(docsProductionPath);
+const docsProductionConcurrency = asRecord(docsProductionDocument?.concurrency);
+if (
+  docsProductionConcurrency?.group !== "agent-native-release-pipeline" ||
+  docsProductionConcurrency["cancel-in-progress"] !== false
+) {
+  issues.push(
+    `${docsProductionPath} must share the release pipeline queue without cancellation`,
+  );
+}
 const docsProductionJobs = asRecord(docsProductionDocument?.jobs);
 for (const jobName of ["pause-netlify-builds", "restore-netlify-builds"]) {
   const concurrency = asRecord(
@@ -668,25 +679,22 @@ for (const [path, target, buildContext] of [
     path === betaPath &&
     asRecord(deployJob?.strategy)?.["max-parallel"] !== 8
   ) {
-    issues.push(
-      `${path} must allow beta artifact builds to run concurrently after migration preflight`,
-    );
+    issues.push(`${path} must allow beta artifact builds to run concurrently`);
   }
 }
 
 const betaMigrateJob = asRecord(
   asRecord(parsedWorkflows.get(betaPath)?.jobs)?.migrate,
 );
-const betaMigrateWith = asRecord(betaMigrateJob?.with);
-if (
-  betaMigrateJob?.uses !== "./.github/workflows/deploy-netlify-prebuilt.yml" ||
-  asRecord(betaMigrateJob?.strategy)?.["max-parallel"] !== 1 ||
-  betaMigrateWith?.caller !== "release-migration" ||
-  betaMigrateWith?.migration_only !== true ||
-  betaMigrateWith?.deploy !== false
-) {
+const betaDeployJob = asRecord(
+  asRecord(parsedWorkflows.get(betaPath)?.jobs)?.deploy,
+);
+const betaDeployNeeds = Array.isArray(betaDeployJob?.needs)
+  ? betaDeployJob.needs
+  : [];
+if (betaMigrateJob || betaDeployNeeds.includes("migrate")) {
   issues.push(
-    `${betaPath} must run one serialized reusable migration preflight before beta artifact builds`,
+    `${betaPath} must not run release migrations against masked beta site secrets`,
   );
 }
 

@@ -13,9 +13,11 @@ permissions:
   contents: read
   actions: read
 
-# Every main push gets its own workflow. The reusable beta deploy serializes
-# each site's remote Netlify publish, while its source freshness check skips
-# artifacts that are no longer the current main commit.
+# Beta sites share databases with production. Serialize beta publishes with
+# the docs production cutover while retaining the newest queued main revision.
+concurrency:
+  group: agent-native-release-pipeline
+  cancel-in-progress: false
 
 jobs:
   resolve-source:
@@ -46,7 +48,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
-      migration_matrix: ${{ steps.matrix.outputs.migration_matrix }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -66,47 +67,19 @@ jobs:
           );
           if (!sites.length) throw new Error('No beta sites configured.');
           const matrix = { include: sites.map(({ id }) => ({ site: id })) };
-          const migrationMatrix = {
-            include: sites
-              .filter(({ id }) => !['clips', 'plan'].includes(id))
-              .map(({ id }) => ({ site: id })),
-          };
           fs.appendFileSync(
             process.env.GITHUB_OUTPUT,
             [
               `matrix=${JSON.stringify(matrix)}`,
-              `migration_matrix=${JSON.stringify(migrationMatrix)}`,
               '',
             ].join('\n'),
           );
           console.log(`Discovered ${sites.length} beta sites.`);
           NODE
 
-  migrate:
-    name: ${{ matrix.site }} beta release migration
-    needs: [resolve-source, discover-sites]
-    strategy:
-      fail-fast: false
-      # Migration duty is the only serialized part of the fleet. Builds do
-      # not touch the database and can run concurrently after this completes.
-      max-parallel: 1
-      matrix: ${{ fromJSON(needs.discover-sites.outputs.migration_matrix) }}
-    uses: ./.github/workflows/deploy-netlify-prebuilt.yml
-    with:
-      target: beta
-      site: ${{ matrix.site }}
-      caller: release-migration
-      source_ref: ${{ needs.resolve-source.outputs.source_sha }}
-      build_context: branch-deploy
-      deploy: false
-      deploy_mode: draft
-      smoke: false
-      migration_only: true
-    secrets: inherit
-
   deploy:
     name: ${{ matrix.site }} beta prebuilt deploy
-    needs: [resolve-source, discover-sites, migrate]
+    needs: [resolve-source, discover-sites]
     strategy:
       fail-fast: false
       max-parallel: 8

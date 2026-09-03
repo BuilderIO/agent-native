@@ -207,15 +207,24 @@ describe("production Netlify site concurrency guard", () => {
     const beta = readWorkflow(
       ".github/workflows/deploy-beta-sites-prebuilt.yml",
     );
-    assert.equal(beta.concurrency, undefined);
+    assert.deepEqual(beta.concurrency, {
+      group: "agent-native-release-pipeline",
+      "cancel-in-progress": false,
+    });
     assert.equal(
       ((beta.jobs as Workflow).deploy as Workflow).strategy?.["max-parallel"],
       8,
     );
     assert.equal(
-      ((beta.jobs as Workflow).migrate as Workflow).strategy?.["max-parallel"],
-      1,
+      ((beta.jobs as Workflow)["discover-sites"] as Workflow).outputs
+        ?.migration_matrix,
+      undefined,
     );
+    assert.equal((beta.jobs as Workflow).migrate, undefined);
+    assert.deepEqual((beta.jobs as Workflow).deploy.needs, [
+      "resolve-source",
+      "discover-sites",
+    ]);
     const reusable = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
     );
@@ -232,7 +241,7 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(
       String((reusable.concurrency as Workflow).group),
-      /format\('agent-native-beta-migration-\{0\}', inputs\.site\)/,
+      /inputs\.caller == 'release-migration'/,
     );
     assert.match(
       reusableSource,
@@ -252,10 +261,6 @@ describe("production Netlify site concurrency guard", () => {
       reusableSource,
       /BUILD_CONTEXT="\$BUILD_CONTEXT" node --experimental-strip-types scripts\/netlify-migration-url\.ts/,
     );
-    const betaMigrate = (beta.jobs as Workflow).migrate as Workflow;
-    assert.equal((betaMigrate.with as Workflow).caller, "release-migration");
-    assert.equal((betaMigrate.with as Workflow).migration_only, true);
-    assert.equal((betaMigrate.with as Workflow).deploy, false);
   });
 
   it("resolves migration URLs by context, then preserves key priority", () => {
