@@ -8474,7 +8474,7 @@ function CreatePlanDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[680px]">
+      <DialogContent className="relative sm:max-w-[680px]">
         <DialogHeader>
           <DialogTitle>{t("plansPage.create.title")}</DialogTitle>
           <DialogDescription>
