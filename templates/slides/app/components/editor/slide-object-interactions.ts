@@ -1407,60 +1407,52 @@ function writeSlideObjectClipboardLegacy(
   }
 }
 
-let slideObjectClipboardWriteQueue: Promise<unknown> = Promise.resolve();
-
 /**
  * Give layer copies a native marker so the paste event can identify which
  * clipboard source is newest. The in-memory copy remains the local fallback.
  */
-export function writeSlideObjectClipboard(
+export async function writeSlideObjectClipboard(
   clipboardId: string,
   copied: CopiedSlideObjects,
   doc: Document | null = typeof document === "undefined" ? null : document,
 ): Promise<"rich" | "text-only"> {
-  const write = async (): Promise<"rich" | "text-only"> => {
-    const html = slideObjectClipboardHtml(clipboardId, copied);
-    const textDocument =
-      doc ?? (typeof document === "undefined" ? null : document);
-    if (!textDocument) throw new Error("Clipboard writing requires a document");
-    const text = slideObjectClipboardText(copied, textDocument);
-    const representations = { text, html };
-    if (writeSlideObjectClipboardLegacy(representations, doc)) return "rich";
+  const html = slideObjectClipboardHtml(clipboardId, copied);
+  const textDocument =
+    doc ?? (typeof document === "undefined" ? null : document);
+  if (!textDocument) throw new Error("Clipboard writing requires a document");
+  const text = slideObjectClipboardText(copied, textDocument);
+  const representations = { text, html };
+  if (writeSlideObjectClipboardLegacy(representations, doc)) return "rich";
 
-    const clipboard =
-      typeof navigator === "undefined" ? null : (navigator.clipboard ?? null);
-    const ClipboardItemCtor =
-      typeof globalThis.ClipboardItem === "undefined"
-        ? null
-        : globalThis.ClipboardItem;
+  const clipboard =
+    typeof navigator === "undefined" ? null : (navigator.clipboard ?? null);
+  const ClipboardItemCtor =
+    typeof globalThis.ClipboardItem === "undefined"
+      ? null
+      : globalThis.ClipboardItem;
 
-    let richWriteError: unknown;
-    if (clipboard?.write && ClipboardItemCtor) {
-      try {
-        await clipboard.write([
-          new ClipboardItemCtor({
-            "text/plain": new Blob([text], { type: "text/plain" }),
-            "text/html": new Blob([html], { type: "text/html" }),
-          }),
-        ]);
-        return "rich";
-      } catch (error) {
-        richWriteError = error;
-      }
+  let richWriteError: unknown;
+  if (clipboard?.write && ClipboardItemCtor) {
+    try {
+      await clipboard.write([
+        new ClipboardItemCtor({
+          "text/plain": new Blob([text], { type: "text/plain" }),
+          "text/html": new Blob([html], { type: "text/html" }),
+        }),
+      ]);
+      return "rich";
+    } catch (error) {
+      richWriteError = error;
     }
+  }
 
-    if (writeSlideObjectClipboardLegacy(representations, doc)) return "rich";
-    if (clipboard?.writeText) {
-      await clipboard.writeText(text);
-      return "text-only";
-    }
-    if (richWriteError) throw richWriteError;
-    throw new Error("Clipboard writing is not supported");
-  };
-
-  const queuedWrite = slideObjectClipboardWriteQueue.then(write, write);
-  slideObjectClipboardWriteQueue = queuedWrite;
-  return queuedWrite;
+  if (writeSlideObjectClipboardLegacy(representations, doc)) return "rich";
+  if (clipboard?.writeText) {
+    await clipboard.writeText(text);
+    return "text-only";
+  }
+  if (richWriteError) throw richWriteError;
+  throw new Error("Clipboard writing is not supported");
 }
 
 export function copySlideObjects(elements: HTMLElement[]): CopiedSlideObjects {

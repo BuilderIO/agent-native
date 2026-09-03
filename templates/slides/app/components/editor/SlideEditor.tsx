@@ -1362,6 +1362,7 @@ export default function SlideEditor({
     slideId: string;
     sourceRect?: Pick<DOMRect, "left" | "top" | "width" | "height">;
   } | null>(null);
+  const knownCopiedObjectClipboardIdsRef = useRef(new Set<string>());
   const [hasCopiedObject, setHasCopiedObject] = useState(false);
   const [selectedElementPath, setSelectedElementPath] = useState<
     number[] | null
@@ -3932,44 +3933,41 @@ export default function SlideEditor({
   ]);
 
   const storeCopiedObjects = useCallback(
-    (selection: HTMLElement[], writeToSystemClipboard = true) => {
+    (selection: HTMLElement[]) => {
       const copied = copySlideObjects(selection);
       const clipboard = {
         copied,
         clipboardId: createSlideObjectId(),
-        nativeClipboardMode: writeToSystemClipboard
-          ? ("pending" as const)
-          : ("not-written" as const),
+        nativeClipboardMode: "pending" as const,
         deckId,
         slideId: slide.id,
         sourceRect: selection[0]?.getBoundingClientRect(),
       };
       copiedObjectClipboardRef.current = clipboard;
+      knownCopiedObjectClipboardIdsRef.current.add(clipboard.clipboardId);
       setHasCopiedObject(true);
-      if (writeToSystemClipboard) {
-        const queuedWrite = writeSlideObjectClipboard(
-          clipboard.clipboardId,
-          copied,
-        );
-        void queuedWrite.then(
-          (mode) => {
-            if (
-              copiedObjectClipboardRef.current?.clipboardId ===
-              clipboard.clipboardId
-            ) {
-              copiedObjectClipboardRef.current.nativeClipboardMode = mode;
-            }
-          },
-          () => {
-            if (
-              copiedObjectClipboardRef.current?.clipboardId ===
-              clipboard.clipboardId
-            ) {
-              copiedObjectClipboardRef.current.nativeClipboardMode = "failed";
-            }
-          },
-        );
-      }
+      const clipboardWrite = writeSlideObjectClipboard(
+        clipboard.clipboardId,
+        copied,
+      );
+      void clipboardWrite.then(
+        (mode) => {
+          if (
+            copiedObjectClipboardRef.current?.clipboardId ===
+            clipboard.clipboardId
+          ) {
+            copiedObjectClipboardRef.current.nativeClipboardMode = mode;
+          }
+        },
+        () => {
+          if (
+            copiedObjectClipboardRef.current?.clipboardId ===
+            clipboard.clipboardId
+          ) {
+            copiedObjectClipboardRef.current.nativeClipboardMode = "failed";
+          }
+        },
+      );
       return clipboard;
     },
     [deckId, slide.id],
@@ -3998,10 +3996,9 @@ export default function SlideEditor({
   const duplicateSelectedObjects = useCallback(() => {
     const selection = getClipboardSelection();
     if (!selection) return false;
-    const clipboard = storeCopiedObjects(selection, false);
-    pasteSlideObjects(clipboard.copied, selection[0]);
+    pasteSlideObjects(copySlideObjects(selection), selection[0]);
     return true;
-  }, [getClipboardSelection, pasteSlideObjects, storeCopiedObjects]);
+  }, [getClipboardSelection, pasteSlideObjects]);
 
   const cutSelectedObjects = useCallback(() => {
     const selection = getClipboardSelection();
@@ -4015,6 +4012,7 @@ export default function SlideEditor({
   // It intentionally does not survive a deck switch.
   useEffect(() => {
     copiedObjectClipboardRef.current = null;
+    knownCopiedObjectClipboardIdsRef.current.clear();
     setHasCopiedObject(false);
   }, [deckId]);
 
@@ -4045,11 +4043,6 @@ export default function SlideEditor({
       const selection = getClipboardSelection();
       if (!selection) return;
 
-      const copySelection = () => {
-        if (!selection) return null;
-        return storeCopiedObjects(selection, false);
-      };
-
       if (key === "c") {
         e.preventDefault();
         storeCopiedObjects(selection);
@@ -4064,10 +4057,8 @@ export default function SlideEditor({
 
       // Duplicate re-copies the live selection so it duplicates what's
       // currently selected regardless of what's on the clipboard.
-      if (!selection) return;
       e.preventDefault();
-      const clipboard = copySelection();
-      if (clipboard) pasteSlideObjects(clipboard.copied, selection[0]);
+      pasteSlideObjects(copySlideObjects(selection), selection[0]);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -4120,6 +4111,15 @@ export default function SlideEditor({
         );
       };
       if (nativeClipboardId === clipboard.clipboardId) {
+        pasteLocalClipboard();
+        return;
+      }
+      // A prior in-app write can settle after a newer copy. Keep the current
+      // local payload aligned with any older marker left by that write.
+      if (
+        nativeClipboardId &&
+        knownCopiedObjectClipboardIdsRef.current.has(nativeClipboardId)
+      ) {
         pasteLocalClipboard();
         return;
       }

@@ -196,6 +196,7 @@ describe("SlideEditor render-phase safety", () => {
   it("uses the native layer marker instead of a timer to arbitrate paste", () => {
     expect(source).toContain("writeSlideObjectClipboard");
     expect(source).toContain("readSlideObjectClipboardId");
+    expect(source).toContain("knownCopiedObjectClipboardIdsRef");
     expect(source).not.toContain("objectPasteFallbackRef");
     const pasteStart = source.indexOf("const onPaste = (e: ClipboardEvent)");
     const pasteEnd = source.indexOf(
@@ -208,7 +209,11 @@ describe("SlideEditor render-phase safety", () => {
     );
     expect(pasteBody).toContain('clipboard.nativeClipboardMode === "pending"');
     expect(pasteBody).toContain('clipboard.nativeClipboardMode === "failed"');
+    expect(pasteBody).toContain(
+      "knownCopiedObjectClipboardIdsRef.current.has(nativeClipboardId)",
+    );
     expect(pasteBody).not.toContain("clipboard.clipboardText");
+    expect(source).toContain("pasteSlideObjects(copySlideObjects(selection)");
   });
 
   it("re-measures portaled selection chrome after the editor layout moves", () => {

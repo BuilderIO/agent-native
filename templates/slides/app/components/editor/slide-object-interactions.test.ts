@@ -156,21 +156,15 @@ describe("slide object interactions", () => {
     }
   });
 
-  it("serializes asynchronous native clipboard writes", async () => {
-    let releaseFirst: () => void = () => undefined;
-    const firstWrite = new Promise<void>((resolve) => {
-      releaseFirst = resolve;
-    });
+  it("starts each asynchronous native clipboard write immediately", async () => {
     class FakeClipboardItem {
       constructor(readonly items: Record<string, Blob>) {}
     }
-    const htmlWrites: string[] = [];
-    const write = vi.fn(async (items: FakeClipboardItem[]) => {
-      const html = await items[0]!.items["text/html"]!.text();
-      htmlWrites.push(html);
-      if (html.includes('data-agent-native-slide-object-clipboard="copy-1"')) {
-        await firstWrite;
-      }
+    const htmlWrites: Blob[] = [];
+    const releases: Array<() => void> = [];
+    const write = vi.fn((items: FakeClipboardItem[]) => {
+      htmlWrites.push(items[0]!.items["text/html"]!);
+      return new Promise<void>((resolve) => releases.push(resolve));
     });
     vi.stubGlobal("navigator", { clipboard: { write } });
     vi.stubGlobal("ClipboardItem", FakeClipboardItem);
@@ -188,17 +182,18 @@ describe("slide object interactions", () => {
     );
     await Promise.resolve();
 
-    expect(write).toHaveBeenCalledTimes(1);
-    releaseFirst();
+    expect(write).toHaveBeenCalledTimes(2);
+    await expect(htmlWrites[0]!.text()).resolves.toContain(
+      'data-agent-native-slide-object-clipboard="copy-1"',
+    );
+    await expect(htmlWrites[1]!.text()).resolves.toContain(
+      'data-agent-native-slide-object-clipboard="copy-2"',
+    );
+    releases[1]!();
+    releases[0]!();
     await expect(first).resolves.toBe("rich");
     await expect(second).resolves.toBe("rich");
     expect(htmlWrites).toHaveLength(2);
-    expect(htmlWrites[0]).toContain(
-      'data-agent-native-slide-object-clipboard="copy-1"',
-    );
-    expect(htmlWrites[1]).toContain(
-      'data-agent-native-slide-object-clipboard="copy-2"',
-    );
   });
 
   it("lets explicit image sizing override image size caps", () => {
