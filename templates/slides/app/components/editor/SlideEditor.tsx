@@ -132,6 +132,7 @@ import { decideSlideEscape } from "./slide-escape-arbiter";
 import {
   alignSlideObjectMembers,
   applySlideObjectMoveDelta,
+  arrangeSlideLayerInParent,
   buildPastedSlideObjects,
   canDropSlideLayerAdjacent,
   canDropSlideLayerInside,
@@ -154,9 +155,12 @@ import {
   isAutoHeightTextResize,
   isDeletableFlowImage,
   isDeletableSlideElement,
+  isSlideTableStructureElement,
   isValidSlideClipboardRoot,
   removeSlideObjectAndLayoutSpacer,
   preserveSlideObjectLayoutSpacer,
+  persistSlideObjectZOrderFromDom,
+  readSlideObjectZIndex,
   resolveSlideObjectContainingBlock,
   resizeSlideObjectMembers,
   resolveSlideClipboardElement,
@@ -201,6 +205,7 @@ import {
 } from "./SlideRichTextEditor";
 import {
   SlidesLayersPanel,
+  type SlidesLayerKind,
   type SlidesLayerNode,
   type SlidesLayerPlacement,
 } from "./SlidesLayersPanel";
@@ -332,6 +337,65 @@ function layerLabel(element: HTMLElement, index: number): string {
   return text.slice(0, 48) || `${element.tagName.toLowerCase()} ${index + 1}`;
 }
 
+function layerKindForElement(
+  element: HTMLElement,
+  hasChildren: boolean,
+): SlidesLayerKind {
+  if (isRichTextBlock(element)) return "text";
+  if (
+    element.tagName === "IMG" ||
+    element.classList.contains("fmd-img-placeholder") ||
+    element.querySelector("img")
+  ) {
+    return "image";
+  }
+  if (element.tagName === "SVG" || element.querySelector("svg")) {
+    return "vector";
+  }
+  if (element.tagName === "PRE" || element.tagName === "CODE") return "code";
+  return hasChildren ? "container" : "shape";
+}
+
+function isZIndexedSlideLayer(element: HTMLElement): boolean {
+  if (isPersistedFreeformObject(element)) return true;
+  const zIndex = element.style.zIndex;
+  if (!zIndex || zIndex === "auto") return false;
+  const position = window.getComputedStyle(element).position;
+  if (position !== "static") return true;
+  const parentDisplay = element.parentElement
+    ? window.getComputedStyle(element.parentElement).display
+    : "";
+  return parentDisplay === "flex" || parentDisplay === "grid";
+}
+
+function sortSlideLayerElements(elements: HTMLElement[]): HTMLElement[] {
+  return elements
+    .map((element, index) => ({ element, index }))
+    .sort((left, right) => {
+      const leftZIndexed = isZIndexedSlideLayer(left.element);
+      const rightZIndexed = isZIndexedSlideLayer(right.element);
+      const leftBucket = leftZIndexed
+        ? readSlideObjectZIndex(left.element) < 0
+          ? -1
+          : 1
+        : 0;
+      const rightBucket = rightZIndexed
+        ? readSlideObjectZIndex(right.element) < 0
+          ? -1
+          : 1
+        : 0;
+      if (leftBucket !== rightBucket) return leftBucket - rightBucket;
+      if (leftZIndexed && rightZIndexed) {
+        return (
+          readSlideObjectZIndex(left.element) -
+            readSlideObjectZIndex(right.element) || left.index - right.index
+        );
+      }
+      return left.index - right.index;
+    })
+    .map(({ element }) => element);
+}
+
 function buildSlidesLayerTree(root: HTMLElement | null): SlidesLayerNode[] {
   if (!root) return [];
   stampBuilderIds(root);
@@ -357,23 +421,23 @@ function buildSlidesLayerTree(root: HTMLElement | null): SlidesLayerNode[] {
     if (element.tagName === "IMG" && findPersistedImageObject(element, root)) {
       return null;
     }
-    if (isRichTextBlock(element)) {
-      return {
-        id: ensureBuilderId(element),
-        label: layerLabel(element, index),
-      };
-    }
-    const children = Array.from(element.children)
-      .map((child, childIndex) => visit(child as HTMLElement, childIndex))
-      .filter((child): child is SlidesLayerNode => child !== null);
+    // Rich text is one layer: its blocks are structure, not rows of their own.
+    const children = isRichTextBlock(element)
+      ? []
+      : sortSlideLayerElements(Array.from(element.children) as HTMLElement[])
+          .map((child, childIndex) => visit(child as HTMLElement, childIndex))
+          .filter((child): child is SlidesLayerNode => child !== null);
     return {
       id: ensureBuilderId(element),
       label: layerLabel(element, index),
+      kind: layerKindForElement(element, children.length > 0),
       ...(children.length > 0 ? { children } : {}),
     };
   };
 
-  return Array.from(positioningLayer.children)
+  return sortSlideLayerElements(
+    Array.from(positioningLayer.children) as HTMLElement[],
+  )
     .map((element, index) => visit(element as HTMLElement, index))
     .filter((node): node is SlidesLayerNode => node !== null);
 }
@@ -748,6 +812,8 @@ interface SlideEditorProps {
   contextToolbarSlot?: HTMLElement | null;
   /** Wide editor-shell host for the toolbar's top-row placement. */
   wideContextToolbarSlot?: HTMLElement | null;
+  /** Parent-shell host so Layers sits beside the canvas like Transitions. */
+  layersPanelSlot?: HTMLElement | null;
   /** Selection-independent actions for the head of the contextual toolbar. */
   contextToolbarLeading?: ReactNode;
   onGenerateImage: () => void;
@@ -1239,6 +1305,7 @@ export default function SlideEditor({
   readOnly = false,
   contextToolbarSlot,
   wideContextToolbarSlot,
+  layersPanelSlot,
   contextToolbarLeading,
   onGenerateImage,
   onOpenAssetLibrary,
@@ -2821,7 +2888,9 @@ export default function SlideEditor({
         `[data-builder-id="${targetId}"]`,
       );
       if (!source || !target || source.contains(target)) return;
-      if (placement === "inside" && !canDropSlideLayerInside(target)) return;
+      if (placement === "inside" && !canDropSlideLayerInside(target, source)) {
+        return;
+      }
       if (
         placement !== "inside" &&
         !canDropSlideLayerAdjacent(source, target)
@@ -2913,6 +2982,17 @@ export default function SlideEditor({
             element.style.width = `${Math.round(originalChildRect.width * childScaleX)}px`;
             element.style.height = `${Math.round(originalChildRect.height * childScaleY)}px`;
           }
+        }
+      }
+
+      if (sourceWasFreeform) {
+        const positioningLayer = resolveSlidePositioningLayer(source);
+        if (positioningLayer) {
+          const containingBlock = resolveSlideObjectContainingBlock(
+            source,
+            positioningLayer,
+          );
+          persistSlideObjectZOrderFromDom(source, containingBlock);
         }
       }
 
@@ -6384,6 +6464,7 @@ export default function SlideEditor({
       // highlighting, shortcuts, and Enter-to-add-bullet all work, and the
       // style dock targets the same block being edited.
       if (!readOnly && slideContent) {
+        stampBuilderIds(slideContent);
         const block = findSmartBlock(target, slideContent, {
           includeTextBoxes: false,
         });
@@ -6447,14 +6528,48 @@ export default function SlideEditor({
     [clearCanvasSelection],
   );
 
+  const clearContextMenuState = useCallback(() => {
+    contextMenuTargetRef.current = null;
+    contextMenuTableCellRef.current = null;
+    setContextMenuTableInfo(null);
+  }, []);
+
+  const selectContextMenuTarget = useCallback(
+    (selectable: HTMLElement) => {
+      const builderId = selectable.getAttribute("data-builder-id");
+      const isMultiSelectionTarget = Boolean(
+        builderId && multiSelection.has(builderId),
+      );
+      contextMenuTargetRef.current = isMultiSelectionTarget ? null : selectable;
+      if (!isMultiSelectionTarget) {
+        if (multiSelection.size > 0) clearMultiSelection();
+        const selector = getBuilderSelector(selectable);
+        if (selector) {
+          selectElementForStyling(selectable, selector);
+          enterSelectionMode("agentNative.enterStyleEditing", { selector });
+        }
+      }
+    },
+    [clearMultiSelection, multiSelection, selectElementForStyling],
+  );
+
+  const handleLayerContextMenu = useCallback(
+    (id: string) => {
+      const slideContent = getSlideContent();
+      const selectable = slideContent?.querySelector<HTMLElement>(
+        `[data-builder-id="${id}"]`,
+      );
+      if (selectable) selectContextMenuTarget(selectable);
+    },
+    [getSlideContent, selectContextMenuTarget],
+  );
+
   const handleSlideContextMenu = useCallback(
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement;
       const slideContent = getSlideContent();
       if (!slideContent) {
-        contextMenuTargetRef.current = null;
-        contextMenuTableCellRef.current = null;
-        setContextMenuTableInfo(null);
+        clearContextMenuState();
         return;
       }
 
@@ -6479,29 +6594,16 @@ export default function SlideEditor({
         return;
       }
 
-      const builderId = selectable.getAttribute("data-builder-id");
-      const isMultiSelectionTarget = Boolean(
-        builderId && multiSelection.has(builderId),
-      );
-      contextMenuTargetRef.current = isMultiSelectionTarget ? null : selectable;
-      if (!isMultiSelectionTarget) {
-        if (multiSelection.size > 0) clearMultiSelection();
-        const selector = getBuilderSelector(selectable);
-        if (selector) {
-          selectElementForStyling(selectable, selector);
-          enterSelectionMode("agentNative.enterStyleEditing", { selector });
-        }
-      }
+      selectContextMenuTarget(selectable);
     },
     [
+      clearContextMenuState,
       clearCanvasSelection,
-      clearMultiSelection,
       findSelectableElement,
       findTableCell,
       getSlideContent,
-      multiSelection,
       readOnly,
-      selectElementForStyling,
+      selectContextMenuTarget,
     ],
   );
 
@@ -6616,31 +6718,32 @@ export default function SlideEditor({
           ? contextMenuTarget
           : null) ?? resolveSelectedElement();
       if (!element) return;
-      const fmdSlide = element.closest(".fmd-slide") as HTMLElement | null;
-      const positioningLayer = fmdSlide
-        ? (Array.from(fmdSlide.children).find(
-            (child): child is HTMLElement =>
-              child instanceof HTMLElement &&
-              child.hasAttribute("data-fmd-autofit-content"),
-          ) ?? fmdSlide)
-        : null;
-      if (!positioningLayer) return;
-
-      const containingBlock = resolveSlideObjectContainingBlock(
-        element,
-        positioningLayer,
-      );
-      const change = computeSlideObjectZOrder(element, containingBlock, target);
+      if (isSlideTableStructureElement(element)) return;
       const selector = getBuilderSelector(element);
       if (!selector) return;
-      selectElementForStyling(element, selector);
-      if (!change) return;
 
-      element.style.zIndex = String(change.value);
-      for (const shift of change.shiftPeers) {
-        shift.element.style.zIndex = String(shift.value);
+      if (isPersistedFreeformObject(element)) {
+        const positioningLayer = resolveSlidePositioningLayer(element);
+        if (!positioningLayer) return;
+        const containingBlock = resolveSlideObjectContainingBlock(
+          element,
+          positioningLayer,
+        );
+        const change = computeSlideObjectZOrder(
+          element,
+          containingBlock,
+          target,
+        );
+        if (!change) return;
+        element.style.zIndex = String(change.value);
+        for (const shift of change.shiftPeers) {
+          shift.element.style.zIndex = String(shift.value);
+        }
+      } else if (!arrangeSlideLayerInParent(element, target)) {
+        return;
       }
 
+      selectElementForStyling(element, selector);
       const html = readCurrentSlideContentHtml();
       if (html !== null) onUpdateSlideRef.current({ content: html });
     },
@@ -6798,6 +6901,7 @@ export default function SlideEditor({
         ".slide-content",
       ) as HTMLElement | null;
       if (!slideContent) return;
+      stampBuilderIds(slideContent);
       const block = findSmartBlock(target, slideContent);
       if (!block) return;
 
@@ -6851,6 +6955,74 @@ export default function SlideEditor({
         canZoomOut,
         canZoomIn,
       };
+
+  const slideElementContextMenuContent = (
+    <>
+      <ContextMenuItem
+        disabled={!hasClipboardSelection}
+        onSelect={cutSelectedObjects}
+      >
+        {t("editorSidebar.cut")}
+        <ContextMenuShortcut>{shortcutLabel("cmd+x")}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={!hasClipboardSelection}
+        onSelect={copySelectedObjects}
+      >
+        {t("styleInspector.copy")}
+        <ContextMenuShortcut>{shortcutLabel("cmd+c")}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={!hasCopiedObject}
+        onSelect={pasteSelectedObjects}
+      >
+        {t("styleInspector.paste")}
+        <ContextMenuShortcut>{shortcutLabel("cmd+v")}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={!hasClipboardSelection}
+        onSelect={duplicateSelectedObjects}
+      >
+        {t("editorSidebar.duplicate")}
+        <ContextMenuShortcut>{shortcutLabel("cmd+d")}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={!hasClipboardSelection}
+        onSelect={() => deleteSelectedElements()}
+      >
+        {t("editorSidebar.delete")}
+        <ContextMenuShortcut>⌫</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem
+        disabled={getStyleTargets().length === 0}
+        onSelect={copySelectedElementStyle}
+      >
+        {t("styleInspector.copyStyle")}
+        <ContextMenuShortcut>{shortcutLabel("cmd+alt+c")}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={!hasCopiedElementStyle || getStyleTargets().length === 0}
+        onSelect={pasteCopiedElementStyle}
+      >
+        {t("styleInspector.pasteStyle")}
+        <ContextMenuShortcut>{shortcutLabel("cmd+alt+v")}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem
+        disabled={!selectedElementSelector}
+        onSelect={() => handleArrangeSelected("front")}
+      >
+        {t("styleInspector.bringToFront")}
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={!selectedElementSelector}
+        onSelect={() => handleArrangeSelected("back")}
+      >
+        {t("styleInspector.sendToBack")}
+      </ContextMenuItem>
+    </>
+  );
 
   // Excalidraw slides have no selectable slide content, so the row collapses
   // to its slide-level state — but that state owns the background picker, and
@@ -6927,6 +7099,25 @@ export default function SlideEditor({
         className="slide-context-toolbar--top-row"
       />
     </div>
+  ) : null;
+
+  const layersPanel = layersOpen ? (
+    <SlidesLayersPanel
+      layers={layerNodes}
+      selectedIds={selectedLayerIds}
+      contextMenuContent={readOnly ? undefined : slideElementContextMenuContent}
+      onContextMenuLayer={readOnly ? undefined : handleLayerContextMenu}
+      onContextMenuClose={clearContextMenuState}
+      onSelectLayer={selectLayerFromPanel}
+      onMoveLayer={moveLayerFromPanel}
+      onClose={onCloseLayers ?? (() => {})}
+      labels={{
+        title: t("editorToolbar.layers"),
+        close: t("editorToolbar.closeLayers"),
+        expand: t("editorToolbar.expandLayer"),
+        collapse: t("editorToolbar.collapseLayer"),
+      }}
+    />
   ) : null;
 
   return (
@@ -7085,11 +7276,7 @@ export default function SlideEditor({
                         </div>
                       </ContextMenuTrigger>
                       <ContextMenuContent
-                        onCloseAutoFocus={() => {
-                          contextMenuTargetRef.current = null;
-                          contextMenuTableCellRef.current = null;
-                          setContextMenuTableInfo(null);
-                        }}
+                        onCloseAutoFocus={clearContextMenuState}
                       >
                         {contextMenuTableInfo && (
                           <>
@@ -7147,86 +7334,7 @@ export default function SlideEditor({
                             <ContextMenuSeparator />
                           </>
                         )}
-                        <ContextMenuItem
-                          disabled={!hasClipboardSelection}
-                          onSelect={cutSelectedObjects}
-                        >
-                          {t("editorSidebar.cut")}
-                          <ContextMenuShortcut className="tracking-normal">
-                            {shortcutLabel("cmd+x")}
-                          </ContextMenuShortcut>
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          disabled={!hasClipboardSelection}
-                          onSelect={copySelectedObjects}
-                        >
-                          {t("styleInspector.copy")}
-                          <ContextMenuShortcut className="tracking-normal">
-                            {shortcutLabel("cmd+c")}
-                          </ContextMenuShortcut>
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          disabled={!hasCopiedObject}
-                          onSelect={pasteSelectedObjects}
-                        >
-                          {t("styleInspector.paste")}
-                          <ContextMenuShortcut className="tracking-normal">
-                            {shortcutLabel("cmd+v")}
-                          </ContextMenuShortcut>
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          disabled={!hasClipboardSelection}
-                          onSelect={duplicateSelectedObjects}
-                        >
-                          {t("editorSidebar.duplicate")}
-                          <ContextMenuShortcut className="tracking-normal">
-                            {shortcutLabel("cmd+d")}
-                          </ContextMenuShortcut>
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          disabled={!hasClipboardSelection}
-                          onSelect={() => deleteSelectedElements()}
-                        >
-                          {t("editorSidebar.delete")}
-                          <ContextMenuShortcut className="tracking-normal">
-                            ⌫
-                          </ContextMenuShortcut>
-                        </ContextMenuItem>
-                        <ContextMenuSeparator />
-                        <ContextMenuItem
-                          disabled={getStyleTargets().length === 0}
-                          onSelect={copySelectedElementStyle}
-                        >
-                          {t("styleInspector.copyStyle")}
-                          <ContextMenuShortcut className="tracking-normal">
-                            {shortcutLabel("cmd+alt+c")}
-                          </ContextMenuShortcut>
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          disabled={
-                            !hasCopiedElementStyle ||
-                            getStyleTargets().length === 0
-                          }
-                          onSelect={pasteCopiedElementStyle}
-                        >
-                          {t("styleInspector.pasteStyle")}
-                          <ContextMenuShortcut className="tracking-normal">
-                            {shortcutLabel("cmd+alt+v")}
-                          </ContextMenuShortcut>
-                        </ContextMenuItem>
-                        <ContextMenuSeparator />
-                        <ContextMenuItem
-                          disabled={!selectedElementSelector}
-                          onSelect={() => handleArrangeSelected("front")}
-                        >
-                          {t("styleInspector.bringToFront")}
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          disabled={!selectedElementSelector}
-                          onSelect={() => handleArrangeSelected("back")}
-                        >
-                          {t("styleInspector.sendToBack")}
-                        </ContextMenuItem>
+                        {slideElementContextMenuContent}
                       </ContextMenuContent>
                     </ContextMenu>
                   </div>
@@ -7235,21 +7343,11 @@ export default function SlideEditor({
             </div>
           )}
         </div>
-        {layersOpen && (
-          <SlidesLayersPanel
-            layers={layerNodes}
-            selectedIds={selectedLayerIds}
-            onSelectLayer={selectLayerFromPanel}
-            onMoveLayer={moveLayerFromPanel}
-            onClose={onCloseLayers ?? (() => {})}
-            labels={{
-              title: t("editorToolbar.layers"),
-              close: t("editorToolbar.closeLayers"),
-              expand: t("editorToolbar.expandLayer"),
-              collapse: t("editorToolbar.collapseLayer"),
-            }}
-          />
-        )}
+        {layersPanel
+          ? layersPanelSlot
+            ? createPortal(layersPanel, layersPanelSlot)
+            : layersPanel
+          : null}
       </div>
 
       <SpeakerNotesPanel

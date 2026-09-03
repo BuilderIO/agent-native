@@ -7,6 +7,7 @@ import { sanitizeSlideHtml } from "@/lib/sanitize-slide-html";
 import {
   alignSlideObjectMembers,
   applySlideObjectMoveDelta,
+  arrangeSlideLayerInParent,
   buildPastedSlideObjects,
   canDropSlideLayerAdjacent,
   canDropSlideLayerInside,
@@ -31,6 +32,7 @@ import {
   isDeletableFlowImage,
   isDeletableSlideElement,
   preserveSlideObjectLayoutSpacer,
+  persistSlideObjectZOrderFromDom,
   removeSlideObjectAndLayoutSpacer,
   resolveSlideObjectContainingBlock,
   restoreSlideObjectStyle,
@@ -113,6 +115,13 @@ describe("slide object interactions", () => {
     expect(canDropSlideLayerInside(document.createElement("p"))).toBe(false);
     expect(canDropSlideLayerInside(document.createElement("h2"))).toBe(false);
     expect(canDropSlideLayerInside(document.createElement("div"))).toBe(true);
+  });
+
+  it("rejects nesting into rich-text layer targets", () => {
+    const richText = document.createElement("div");
+    richText.innerHTML = "<p>Heading</p><p>Body</p>";
+
+    expect(canDropSlideLayerInside(richText)).toBe(false);
   });
 
   it("rejects adjacent drops that would violate structural parent rules", () => {
@@ -800,6 +809,17 @@ describe("slide object interactions", () => {
     });
   });
 
+  it("persists the DOM order of a moved freeform stack", () => {
+    const container = document.createElement("div");
+    const source = createFreeformObject("source", { zIndex: 0 });
+    const peer = createFreeformObject("peer", { zIndex: 1 });
+    container.append(peer, source);
+
+    expect(persistSlideObjectZOrderFromDom(source, container)).toBe(true);
+    expect(peer.style.zIndex).toBe("0");
+    expect(source.style.zIndex).toBe("1");
+  });
+
   it("sends an object behind every peer when there is room below", () => {
     const container = document.createElement("div");
     const element = createFreeformObject("back-me", { zIndex: 5 });
@@ -1354,5 +1374,139 @@ describe("resolveSlideClipboardElement", () => {
     const selected = document.createElement("div");
 
     expect(resolveSlideClipboardElement(selected, null, root)).toBe(selected);
+  });
+});
+
+describe("arrangeSlideLayerInParent", () => {
+  /** The shape DeckContext's layout templates persist: a flex-column slide. */
+  function mountSlide(inner: string): HTMLElement {
+    document.body.innerHTML = `
+      <div data-slide-canvas="s1">
+        <div class="slide-content">
+          <div class="fmd-slide" style="position:relative;display:flex;flex-direction:column">${inner}</div>
+        </div>
+      </div>`;
+    return document.querySelector(".fmd-slide") as HTMLElement;
+  }
+
+  const zOf = (element: HTMLElement) => element.style.zIndex;
+
+  it("raises a flow layer above its siblings instead of moving it down the column", () => {
+    const slide = mountSlide(
+      `<h1 id="a">Title</h1><p id="b">One</p><p id="c">Two</p>`,
+    );
+    const a = slide.querySelector<HTMLElement>("#a")!;
+
+    expect(arrangeSlideLayerInParent(a, "front")).toBe(true);
+    // Layout order is untouched — only the stacking index changed.
+    expect(Array.from(slide.children).map((n) => n.id)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+    expect(Number(zOf(a))).toBeGreaterThan(0);
+  });
+
+  it("sends a text layer behind an image that carries no explicit z-index", () => {
+    const slide = mountSlide(
+      `<img id="img" data-slide-object-id="i1" style="position:absolute;left:0;top:0" />
+       <h1 id="a">Overlay title</h1>`,
+    );
+    const a = slide.querySelector<HTMLElement>("#a")!;
+    const img = slide.querySelector<HTMLElement>("#img")!;
+
+    expect(arrangeSlideLayerInParent(a, "back")).toBe(true);
+    // `auto` is not 0: the image has to be lifted for the text to be behind it.
+    expect(Number(zOf(a))).toBeLessThan(Number(zOf(img)));
+  });
+
+  it("keeps a sole layer reporting no change rather than silently reordering", () => {
+    const slide = mountSlide(`<div id="wrap"><h1>Title</h1></div>`);
+    const wrap = slide.querySelector<HTMLElement>("#wrap")!;
+
+    expect(arrangeSlideLayerInParent(wrap, "front")).toBe(false);
+    expect(arrangeSlideLayerInParent(wrap, "back")).toBe(false);
+  });
+
+  it("reports no change once the layer already sits at that end", () => {
+    const slide = mountSlide(`<h1 id="a">Title</h1><p id="b">One</p>`);
+    const a = slide.querySelector<HTMLElement>("#a")!;
+
+    expect(arrangeSlideLayerInParent(a, "front")).toBe(true);
+    expect(arrangeSlideLayerInParent(a, "front")).toBe(false);
+  });
+
+  it("round-trips front and back across repeated presses", () => {
+    const slide = mountSlide(
+      `<div id="a">A</div><div id="b">B</div><div id="c">C</div>`,
+    );
+    const a = slide.querySelector<HTMLElement>("#a")!;
+    const b = slide.querySelector<HTMLElement>("#b")!;
+
+    arrangeSlideLayerInParent(a, "front");
+    expect(Number(zOf(a))).toBeGreaterThan(Number(zOf(b) || 0));
+
+    arrangeSlideLayerInParent(a, "back");
+    expect(Number(zOf(a))).toBeLessThan(Number(zOf(b)));
+
+    arrangeSlideLayerInParent(b, "back");
+    expect(Number(zOf(b))).toBeLessThan(Number(zOf(a)));
+  });
+
+  it("promotes a static layer so the index it is handed is not inert", () => {
+    document.body.innerHTML = `
+      <div data-slide-canvas="s1"><div class="slide-content">
+        <div class="fmd-slide" style="position:relative;display:block">
+          <div id="a">A</div><div id="b">B</div>
+        </div>
+      </div></div>`;
+    const a = document.querySelector<HTMLElement>("#a")!;
+
+    expect(arrangeSlideLayerInParent(a, "front")).toBe(true);
+    expect(a.style.position).toBe("relative");
+  });
+
+  it("leaves reserved negative background layers below every editable layer", () => {
+    const slide = mountSlide(
+      `<div id="bg" style="position:absolute;z-index:-1">bg</div>
+       <h1 id="a">Title</h1><p id="b">One</p>`,
+    );
+    const a = slide.querySelector<HTMLElement>("#a")!;
+
+    arrangeSlideLayerInParent(a, "back");
+    expect(slide.querySelector<HTMLElement>("#bg")!.style.zIndex).toBe("-1");
+    expect(Number(zOf(a))).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("layer drop and arrange guards", () => {
+  it("rejects inside drops that a parser would silently reparent", () => {
+    const table = document.createElement("table");
+    const row = document.createElement("tr");
+    const div = document.createElement("div");
+    const listItem = document.createElement("li");
+    const list = document.createElement("ul");
+
+    expect(canDropSlideLayerInside(table, div)).toBe(false);
+    expect(canDropSlideLayerInside(row, div)).toBe(false);
+    expect(canDropSlideLayerInside(list, div)).toBe(false);
+    expect(canDropSlideLayerInside(list, listItem)).toBe(true);
+    expect(canDropSlideLayerInside(document.createElement("div"), div)).toBe(
+      true,
+    );
+  });
+
+  it("refuses to arrange a reserved negative-z background layer", () => {
+    document.body.innerHTML = `
+      <div data-slide-canvas="s1"><div class="slide-content">
+        <div class="fmd-slide" style="position:relative;display:flex">
+          <div id="bg" style="position:absolute;z-index:-1">bg</div>
+          <h1 id="a">Title</h1>
+        </div>
+      </div></div>`;
+    const bg = document.querySelector<HTMLElement>("#bg")!;
+
+    expect(arrangeSlideLayerInParent(bg, "front")).toBe(false);
+    expect(bg.style.zIndex).toBe("-1");
   });
 });
