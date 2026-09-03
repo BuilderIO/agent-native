@@ -613,6 +613,28 @@ for (const [path, target, buildContext] of [
       `${path} deploy job must explicitly select the reusable workflow child queue`,
     );
   }
+  if (
+    path === betaPath &&
+    asRecord(deployJob?.strategy)?.["max-parallel"] !== 1
+  ) {
+    issues.push(
+      `${path} must serialize beta builds because release migrations share database capacity`,
+    );
+  }
+}
+
+for (const required of [
+  "context.runId",
+  "run.id < context.runId",
+  "run.event",
+  "workflow_dispatch",
+  "actions.getWorkflowRun",
+] as const) {
+  if (!beta.includes(required)) {
+    issues.push(
+      `${betaPath} must queue push and manual beta runs behind the prior workflow run (${required})`,
+    );
+  }
 }
 
 if (issues.length) {
