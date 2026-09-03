@@ -964,7 +964,7 @@ export const DayView = memo(function DayView({
                   <button
                     type="button"
                     data-calendar-create-surface="all-day"
-                    aria-label={t("eventForm.allDay")}
+                    aria-label={`${t("eventForm.createEvent")}: ${t("eventForm.allDay")}, ${format(date, "EEE, MMM d")}`}
                     className="min-h-6 w-full rounded-sm text-left hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                     onClick={() =>
                       onClickTimeSlot(date, "00:00", "00:00", {

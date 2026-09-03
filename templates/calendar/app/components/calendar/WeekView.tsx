@@ -733,7 +733,7 @@ export const WeekView = memo(function WeekView({
     hasWorkingLocations || hasRegularAllDayEvents || hasAllDayCreateSurface;
   const workingLocationRowHeight = 16;
   const allDayRowHeight = 20;
-  const emptyAllDayRowHeight = 28;
+  const allDayCreateRowHeight = 28;
   const workingLocationLaneHeight = hasWorkingLocations
     ? workingLocationLayout.rowCount * workingLocationRowHeight + 2
     : 0;
@@ -743,11 +743,14 @@ export const WeekView = memo(function WeekView({
       : 0;
   const regularAllDayLaneOffset =
     workingLocationLaneHeight + laneSeparatorHeight;
-  const regularAllDayLaneHeight = hasRegularAllDayEvents
+  const regularAllDayEventLaneHeight = hasRegularAllDayEvents
     ? regularAllDayLayout.rowCount * allDayRowHeight + 6
-    : hasAllDayCreateSurface
-      ? emptyAllDayRowHeight
-      : 0;
+    : 0;
+  const regularAllDayLaneHeight =
+    regularAllDayEventLaneHeight +
+    (hasAllDayCreateSurface ? allDayCreateRowHeight : 0);
+  const allDayCreateRowOffset =
+    regularAllDayLaneOffset + regularAllDayEventLaneHeight;
   const allDaySectionHeight =
     workingLocationLaneHeight + laneSeparatorHeight + regularAllDayLaneHeight;
   const allDayHeaderSpacerWidth = Math.max(
@@ -1060,13 +1063,13 @@ export const WeekView = memo(function WeekView({
                     key={`all-day-create-${day.toISOString()}`}
                     type="button"
                     data-calendar-create-surface="all-day"
-                    aria-label={t("eventForm.allDay")}
+                    aria-label={`${t("eventForm.createEvent")}: ${t("eventForm.allDay")}, ${format(day, "EEE, MMM d")}`}
                     className="absolute z-0 rounded-sm text-left hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                     style={{
-                      top: `${regularAllDayLaneOffset + 2}px`,
+                      top: `${allDayCreateRowOffset + 2}px`,
                       left: `${(i / days.length) * 100}%`,
                       width: `${100 / days.length}%`,
-                      height: `${regularAllDayLaneHeight - 4}px`,
+                      height: `${allDayCreateRowHeight - 4}px`,
                     }}
                     onClick={() =>
                       onClickTimeSlot?.(day, "00:00", "00:00", {
