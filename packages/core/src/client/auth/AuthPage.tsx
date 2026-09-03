@@ -2076,14 +2076,19 @@ export function AuthPage(props: AuthPageProps) {
     />
   );
   const identityHref = apiPath("/_agent-native/identity/login");
+  const hideLocalDevSignupIntro = view === "signup" && localDevAvailable;
   const authCard = (
     <div className={cardClassName}>
-      <h1 id="heading" data-i18n={keys.heading}>
-        {t(keys.heading)}
-      </h1>
-      <p id="subtitle" className="subtitle" data-i18n={keys.subtitle}>
-        {t(keys.subtitle)}
-      </p>
+      {!hideLocalDevSignupIntro ? (
+        <>
+          <h1 id="heading" data-i18n={keys.heading}>
+            {t(keys.heading)}
+          </h1>
+          <p id="subtitle" className="subtitle" data-i18n={keys.subtitle}>
+            {t(keys.subtitle)}
+          </p>
+        </>
+      ) : null}
       <p
         className={`upgrade-note ${upgradeVisible ? "show" : ""}`}
         id="upgrade-note"
@@ -2655,9 +2660,6 @@ export function AuthPage(props: AuthPageProps) {
       className={[
         "auth-marketing-home",
         marketingCopy.screenshotSrc ? "has-product-screenshot" : "",
-        marketingCopy.learnMorePlacement === "bottom-right"
-          ? "has-bottom-right-learn-more"
-          : "",
       ]
         .filter(Boolean)
         .join(" ")}

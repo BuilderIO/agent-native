@@ -1,4 +1,8 @@
-import { AgentNativeRouteWarmup } from "@agent-native/core/client/host";
+import { AgentNativeWebMcpActionRegistration } from "@agent-native/core/client/hooks";
+import {
+  AgentNativeRouteWarmup,
+  defineClientAction,
+} from "@agent-native/core/client/host";
 import {
   AgentNativeI18nProvider,
   getLocaleInitScript,
@@ -6,6 +10,7 @@ import {
 } from "@agent-native/core/client/i18n";
 import { recoverFromStaleChunkError } from "@agent-native/core/client/route-chunk-recovery";
 import { ErrorReportActions } from "@agent-native/core/client/ui";
+import { createAgentNativeWebMcpRegistration } from "@agent-native/core/client/webmcp";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   lazy,
@@ -24,6 +29,7 @@ import {
   Link,
   isRouteErrorResponse,
   useMatches,
+  useNavigate,
   useRouteError,
   useLocation,
   type LoaderFunctionArgs,
@@ -137,6 +143,58 @@ export async function loader({ request, url }: LoaderFunctionArgs) {
   };
 }
 
+function DocsWebMcpNavigationRegistration() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const registration = createAgentNativeWebMcpRegistration({
+      actions: [
+        defineClientAction<{ path: string }, { path: string }>({
+          name: "navigate",
+          title: "Navigate docs",
+          description: "Navigate the documentation site to a same-origin path.",
+          schema: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                description:
+                  "Absolute same-origin path, including query or hash",
+              },
+            },
+            required: ["path"],
+            additionalProperties: false,
+          },
+          run: (input) => {
+            if (typeof input?.path !== "string") {
+              throw new Error("Docs navigation requires a string path");
+            }
+            const { path } = input;
+            if (!path.startsWith("/")) {
+              throw new Error("Docs navigation requires an absolute path");
+            }
+            const target = new URL(path, window.location.origin);
+            if (target.origin !== window.location.origin) {
+              throw new Error("Docs navigation must stay on the current site");
+            }
+            const destination = `${target.pathname}${target.search}${target.hash}`;
+            navigate(destination);
+            return { path: destination };
+          },
+        }),
+      ],
+    });
+
+    void registration.start().catch(() => {
+      // WebMCP is progressive enhancement. Unsupported browsers keep normal
+      // docs navigation without exposing a broken page-level integration.
+    });
+    return () => registration.stop();
+  }, [navigate]);
+
+  return null;
+}
+
 type RootLocaleData = Awaited<ReturnType<typeof loader>>;
 
 function isRootLocaleData(data: unknown): data is RootLocaleData {
@@ -178,21 +236,21 @@ export const links = () => [
 ];
 
 export const meta = () => [
-  { title: "Agent-Native — Framework for Agent-Native Apps" },
+  { title: "Agent-Native — The Agentic Application Framework" },
   {
     name: "description",
     content:
-      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with cloneable SaaS apps.",
+      "Build autonomous agents with intuitive UIs. Define each capability once for the agent, UI, APIs, and integrations. Open-source TypeScript.",
   },
   ...defaultSocialImageMeta(),
   {
     property: "og:title",
-    content: "Agent-Native — Framework for Agent-Native Apps",
+    content: "Agent-Native — The Agentic Application Framework",
   },
   {
     property: "og:description",
     content:
-      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with cloneable SaaS apps.",
+      "Build autonomous agents with intuitive UIs. Define each capability once for the agent, UI, APIs, and integrations. Open-source TypeScript.",
   },
   { property: "og:type", content: "website" },
   { property: "og:url", content: SITE_URL },
@@ -527,7 +585,13 @@ export function RootShell({ mounted }: { mounted: boolean }) {
   // the Suspense boundary mounted in every phase removes that first teardown.
   return (
     <>
-      {mounted && <AgentNativeRouteWarmup />}
+      {mounted && (
+        <>
+          <AgentNativeRouteWarmup />
+          <AgentNativeWebMcpActionRegistration />
+          <DocsWebMcpNavigationRegistration />
+        </>
+      )}
       <Suspense fallback={fallback}>
         {mounted ? (
           <LazyAgentSidebar

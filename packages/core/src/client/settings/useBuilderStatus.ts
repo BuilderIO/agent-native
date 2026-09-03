@@ -21,6 +21,8 @@ export interface BuilderStatus {
    */
   envManaged?: boolean;
   credentialSource?: "user" | "org" | "workspace" | "env";
+  /** Server-authorized ability to revoke the effective Builder grant. */
+  canDisconnect?: boolean;
   connectUrl: string;
   appHost: string;
   apiHost: string;
@@ -189,6 +191,8 @@ export interface BuilderConnectFlow {
    * Builder account.
    */
   envManaged: boolean;
+  credentialSource?: BuilderStatus["credentialSource"] | null;
+  canDisconnect?: boolean;
   /** True only when the server has enabled the one-click account flow. */
   agentNativeProvisioningEnabled: boolean;
   /**
@@ -598,6 +602,10 @@ export function useBuilderConnectFlow(
   const [configured, setConfigured] = useState(false);
   const [codeChangeConfigured, setCodeChangeConfigured] = useState(false);
   const [envManaged, setEnvManaged] = useState(false);
+  const [credentialSource, setCredentialSource] = useState<
+    BuilderStatus["credentialSource"] | null
+  >(null);
+  const [canDisconnect, setCanDisconnect] = useState(false);
   const [agentNativeProvisioningEnabled, setAgentNativeProvisioningEnabled] =
     useState(false);
   const [agentNativeProvisioningToken, setAgentNativeProvisioningToken] =
@@ -670,6 +678,7 @@ export function useBuilderConnectFlow(
           | "agentNativeProvisioningEnabled"
           | "agentNativeProvisioningToken"
           | "envManaged"
+          | "canDisconnect"
           | "builderEnabled"
           | "orgName"
           | "connectUrl"
@@ -700,6 +709,8 @@ export function useBuilderConnectFlow(
       setConfigured(false);
       setCodeChangeConfigured(false);
       setEnvManaged(false);
+      setCredentialSource(null);
+      setCanDisconnect(false);
       setAgentNativeProvisioningEnabled(false);
       setAgentNativeProvisioningToken(null);
       setBuilderEnabled(false);
@@ -729,6 +740,8 @@ export function useBuilderConnectFlow(
       setConfigured(!!s.configured);
       setCodeChangeConfigured(isCodeChangeConfigured(s));
       setEnvManaged(!!s.envManaged);
+      setCredentialSource(s.credentialSource ?? null);
+      setCanDisconnect(!!s.canDisconnect);
       setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
       setAgentNativeProvisioningToken(s.agentNativeProvisioningToken ?? null);
       setAccountExists(s.connectError?.code === "account_exists");
@@ -891,6 +904,8 @@ export function useBuilderConnectFlow(
               setConfigured(!!s.configured);
               setCodeChangeConfigured(isCodeChangeConfigured(s));
               setEnvManaged(!!s.envManaged);
+              setCredentialSource(s.credentialSource ?? null);
+              setCanDisconnect(!!s.canDisconnect);
               setAgentNativeProvisioningEnabled(
                 !!s.agentNativeProvisioningEnabled,
               );
@@ -943,6 +958,8 @@ export function useBuilderConnectFlow(
               setConfigured(!!s.configured);
               setCodeChangeConfigured(isCodeChangeConfigured(s));
               setEnvManaged(!!s.envManaged);
+              setCredentialSource(s.credentialSource ?? null);
+              setCanDisconnect(!!s.canDisconnect);
               setAgentNativeProvisioningEnabled(
                 !!s.agentNativeProvisioningEnabled,
               );
@@ -1027,6 +1044,8 @@ export function useBuilderConnectFlow(
         setConfigured(true);
         setCodeChangeConfigured(isCodeChangeConfigured(s));
         setEnvManaged(!!s.envManaged);
+        setCredentialSource(s.credentialSource ?? null);
+        setCanDisconnect(!!s.canDisconnect);
         setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
         setAgentNativeProvisioningToken(s.agentNativeProvisioningToken ?? null);
         setAccountExists(false);
@@ -1148,6 +1167,8 @@ export function useBuilderConnectFlow(
           setConfigured(false);
           setCodeChangeConfigured(false);
           setEnvManaged(!!s.envManaged);
+          setCredentialSource(s.credentialSource ?? null);
+          setCanDisconnect(!!s.canDisconnect);
           setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
           setAgentNativeProvisioningToken(
             s.agentNativeProvisioningToken ?? null,
@@ -1176,6 +1197,8 @@ export function useBuilderConnectFlow(
       setConfigured(true);
       setCodeChangeConfigured(isCodeChangeConfigured(s));
       setEnvManaged(!!s.envManaged);
+      setCredentialSource(s.credentialSource ?? null);
+      setCanDisconnect(!!s.canDisconnect);
       setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
       setAgentNativeProvisioningToken(s.agentNativeProvisioningToken ?? null);
       setAccountExists(false);
@@ -1252,6 +1275,8 @@ export function useBuilderConnectFlow(
     codeChangeConfigured,
     statusResolved,
     envManaged,
+    credentialSource,
+    canDisconnect,
     agentNativeProvisioningEnabled,
     builderEnabled,
     orgName,

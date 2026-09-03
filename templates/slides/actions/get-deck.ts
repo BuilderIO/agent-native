@@ -144,10 +144,26 @@ function deckDeepLink(deckId: string): string {
   });
 }
 
+function sourceEditabilityForDeck(
+  sourceImport: ReturnType<typeof sourceImportForDeck>,
+) {
+  if (!sourceImport) return { structuralEdits: "allowed" as const };
+  return {
+    structuralEdits: "blocked" as const,
+    reason: "source-preserving import",
+    conversion: {
+      action: "patch-deck",
+      parameter: "rewriteSource",
+      description:
+        "Set rewriteSource=true only when the user explicitly asks to rewrite the imported structure; this clears source-preservation metadata.",
+    },
+  };
+}
+
 export default defineAction({
   title: "Read Slides deck",
   description:
-    "Get a specific deck. Pass slideId to return only that slide; targeted agent reads include full HTML by default. In-app agent calls without slideId return compact slide metadata by default; set compact=false when full deck HTML is needed. Frontend and CLI reads remain full unless compact=true. For any continuation or follow-up, call this first and use generationContext as the canonical original brief, references, theme, and target slide count. For source-preserving work, the compact result includes sourceCoverage; do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI: slide 1 is the first slide. Use slideId for edits.",
+    "Get a specific deck. Pass slideId to return only that slide; targeted agent reads include full HTML by default. In-app agent calls without slideId return compact slide metadata by default; set compact=false when full deck HTML is needed. Frontend and CLI reads remain full unless compact=true. For any continuation or follow-up, call this first and use generationContext as the canonical original brief, references, theme, and target slide count. For source-preserving work, sourceEditability states whether structural edits are blocked and names the patch-deck rewriteSource conversion path; the compact result also includes sourceCoverage. Do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI: slide 1 is the first slide. Use slideId for edits.",
   timeoutMs: 60_000,
   schema: z.object({
     id: z.string().optional().describe("Deck ID (required)"),
@@ -237,6 +253,7 @@ export default defineAction({
                 : {}),
             }
           : null,
+        sourceEditability: sourceEditabilityForDeck(sourceImport),
         sourceCoverage,
         slideCount: slides.length,
         slideNumbering:
@@ -286,6 +303,7 @@ export default defineAction({
         normalizedOwnerEmail !== null &&
         normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
       designSystemId: row.designSystemId ?? null,
+      sourceEditability: sourceEditabilityForDeck(sourceImport),
       sourceCoverage,
       slideCount: slides.length,
       slideNumbering:

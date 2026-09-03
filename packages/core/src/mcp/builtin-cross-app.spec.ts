@@ -400,6 +400,7 @@ describe("ask_app — honest routing metadata", () => {
     expect(result.routedVia).toBe("local");
     expect(result.app).toBe("mail");
     expect(result.response).toBe("local-answer");
+    expect(result.verification).toBe("unverified");
     expect(result.note).toBeUndefined();
   });
 
@@ -553,6 +554,7 @@ describe("ask_app — honest routing metadata", () => {
       taskId: "task-1",
       status: "completed",
       response: "local answer",
+      verification: "unverified",
     });
   });
 
@@ -599,6 +601,7 @@ describe("ask_app — honest routing metadata", () => {
       taskId: "task-1",
       status: "completed",
       response: "local answer after retry",
+      verification: "unverified",
     });
   });
 
@@ -957,6 +960,7 @@ describe("ask_app — bounded deadline & retry behavior for the hosted A2A poll 
       taskId: "task-transient",
       status: "completed",
       response: "The report is ready.",
+      verification: "unverified",
     });
     expect(getTaskSpy).toHaveBeenCalledTimes(2);
   });
@@ -1049,6 +1053,7 @@ describe("ask_app — in-process inline fallback when no app origin is derivable
       taskId: result.taskId,
       status: "completed",
       response: "slow answer",
+      verification: "unverified",
     });
   });
 });
@@ -1142,6 +1147,7 @@ describe("ask_app — org-directory routing", () => {
     expect(result.routedVia).toBe("a2a");
     expect(result.app).toBe("calendar");
     expect(result.response).toBe("calendar-says-hi");
+    expect(result.verification).toBe("unverified");
     expect(result.note).toBeUndefined();
   });
 
@@ -1273,6 +1279,7 @@ describe("ask_app — org-directory routing", () => {
       taskId: "content-task-1",
       status: "completed",
       response: "content answer",
+      verification: "unverified",
     });
     await runWithRequestContext(
       { userEmail: "caller@acme.com", orgId: "org-1" },

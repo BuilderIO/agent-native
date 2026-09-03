@@ -14,6 +14,7 @@ import {
 } from "../server/lib/factory-automation-config.js";
 import {
   DEFAULT_FACTORY_ID,
+  factoryAutomationRunHistoryKey,
   factoryIdSchema,
   readAutomationFactoryId,
   resolveAutomationDisplayName,
@@ -22,10 +23,6 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
-
-function automationRunHistoryKey(path: string): string {
-  return path.replace(/^jobs\//, "").replace(/\.md$/, "");
-}
 
 export default defineAction({
   description:
@@ -56,7 +53,7 @@ export default defineAction({
       scoped.map(async ({ resource, name, meta, body }) => {
         const runs = await listAutomationRuns({
           owners: [resource.owner],
-          automation: automationRunHistoryKey(resource.path),
+          automation: factoryAutomationRunHistoryKey(resource.path),
           appId: "factory",
           limit: 20,
         });

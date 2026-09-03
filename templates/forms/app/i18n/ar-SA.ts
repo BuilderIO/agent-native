@@ -402,6 +402,13 @@ const messages = {
     page: "Page",
     source: "المصدر",
     sortBy: "Sort by {{label}}",
+    communityReview: "مراجعة",
+    communityPublish: "نشر على الموقع",
+    communityPublishing: "جارٍ النشر...",
+    communityPublished: "تم النشر",
+    communityView: "عرض على الموقع",
+    communityNeedsCheck: "تحقق من Builder قبل إعادة المحاولة",
+    communityPromotionFailed: "تعذر نشر هذا الإرسال.",
   },
 };
 

@@ -347,6 +347,12 @@ body {
   .template-detail-page > section:not(:first-child) {
     padding-block: 3rem;
   }
+
+  /* Sections whose own border box must meet the section rule, so the vertical
+     borders are not left floating inside this padding. */
+  .template-detail-page > section.template-section-flush {
+    padding-block: 0;
+  }
 }
 
 ::selection {
@@ -2111,6 +2117,14 @@ html.dark .shiki span {
   padding: 0 12px;
   color: var(--fg-secondary);
   font-weight: 500;
+}
+
+/* Matches the header's GitHub/Ask AI buttons, whose border token lives inside
+   .builder-brand-tokens and so is unreadable from page content. */
+.template-hero-actions .secondary-button {
+  min-height: 40px;
+  padding: 0 16px;
+  border-color: color-mix(in srgb, var(--fg) 33%, transparent);
 }
 
 .secondary-button:hover {

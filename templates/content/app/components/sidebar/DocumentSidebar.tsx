@@ -87,6 +87,7 @@ import {
   useTrashedContentDatabases,
 } from "@/hooks/use-content-database";
 import {
+  shouldAutoEnsureContentSpaces,
   useContentSpaces,
   useEnsureContentSpaces,
   type ContentSpaceSummary,
@@ -915,20 +916,58 @@ export function DocumentSidebar({
   const moveWorkspaceItem = useMoveDatabaseItem(
     workspaceCatalogDocumentId ?? "",
   );
-  const spaceProvisionAttemptedRef = useRef(false);
+  const attemptedSpaceReconciliationKeyRef = useRef<string | null>(null);
+  const spaceReconciliationRetryTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const [spaceReconciliationRetryNonce, setSpaceReconciliationRetryNonce] =
+    useState(0);
+  useEffect(
+    () => () => {
+      if (spaceReconciliationRetryTimerRef.current) {
+        clearTimeout(spaceReconciliationRetryTimerRef.current);
+      }
+    },
+    [],
+  );
   useEffect(() => {
+    const reconciliationNeeded =
+      contentSpacesQuery.data?.needsReconciliation ?? false;
+    if (contentSpacesQuery.isSuccess && !reconciliationNeeded) {
+      attemptedSpaceReconciliationKeyRef.current = null;
+    }
+    const reconciliationKey = contentSpacesQuery.data?.reconciliationKey ?? "";
     if (
-      contentSpacesQuery.isSuccess &&
-      !spaceProvisionAttemptedRef.current &&
-      !ensureContentSpaces.isPending
+      shouldAutoEnsureContentSpaces({
+        querySucceeded: contentSpacesQuery.isSuccess,
+        reconciliationNeeded,
+        reconciliationKey,
+        attemptedReconciliationKey: attemptedSpaceReconciliationKeyRef.current,
+        provisioningPending: ensureContentSpaces.isPending,
+      })
     ) {
-      spaceProvisionAttemptedRef.current = true;
-      ensureContentSpaces.mutate({});
+      attemptedSpaceReconciliationKeyRef.current = reconciliationKey;
+      ensureContentSpaces.mutate(
+        {},
+        {
+          onError: () => {
+            if (spaceReconciliationRetryTimerRef.current) return;
+            spaceReconciliationRetryTimerRef.current = setTimeout(() => {
+              attemptedSpaceReconciliationKeyRef.current = null;
+              spaceReconciliationRetryTimerRef.current = null;
+              setSpaceReconciliationRetryNonce((nonce) => nonce + 1);
+            }, 5_000);
+          },
+        },
+      );
     }
   }, [
+    contentSpacesQuery.data?.needsReconciliation,
+    contentSpacesQuery.data?.reconciliationKey,
     contentSpacesQuery.isSuccess,
     ensureContentSpaces,
     ensureContentSpaces.isPending,
+    spaceReconciliationRetryNonce,
   ]);
   const [storedSpaceId, setStoredSpaceId] = useLocalStorage<string | null>(
     SELECTED_CONTENT_SPACE_STORAGE_KEY,
@@ -975,17 +1014,18 @@ export function DocumentSidebar({
     contentSpacesLoading: contentSpacesQuery.isLoading,
     contentSpacesFetching: contentSpacesQuery.isFetching,
     contentSpacesError: contentSpacesQuery.isError,
-    provisioningAttempted: spaceProvisionAttemptedRef.current,
+    provisioningAttempted: attemptedSpaceReconciliationKeyRef.current !== null,
     provisioningPending: ensureContentSpaces.isPending,
     provisioningError: ensureContentSpaces.isError,
   });
   const handleRetryContentSpaces = useCallback(() => {
     if (contentSpacesQuery.isError) {
-      spaceProvisionAttemptedRef.current = false;
+      attemptedSpaceReconciliationKeyRef.current = null;
       void contentSpacesQuery.refetch();
       return;
     }
-    spaceProvisionAttemptedRef.current = true;
+    attemptedSpaceReconciliationKeyRef.current =
+      contentSpacesQuery.data?.reconciliationKey ?? "manual-retry";
     ensureContentSpaces.mutate({});
   }, [contentSpacesQuery, ensureContentSpaces]);
   useEffect(() => {

@@ -1,4 +1,7 @@
+import { initializeWebMCPPolyfill } from "@mcp-b/webmcp-polyfill";
+
 import { agentNativeToolTitle } from "../shared/agent-mcp-metadata.js";
+import { agentNativePath } from "./api-path.js";
 import type {
   AgentNativeClientAction,
   AgentNativeClientActions,
@@ -153,6 +156,18 @@ function getModelContext(
   return value;
 }
 
+/**
+ * Make the page-local WebMCP surface available when the browser does not
+ * provide it natively. The polyfill only owns the current document. A host
+ * bridge or browser evaluator still controls who can discover and invoke it.
+ */
+export function initializeAgentNativeWebMcp(): boolean {
+  if (isAgentNativeWebMcpSupported()) return true;
+  if (typeof window === "undefined") return false;
+  initializeWebMCPPolyfill();
+  return isAgentNativeWebMcpSupported();
+}
+
 export function isAgentNativeWebMcpSupported(
   targetDocument?: Document,
 ): boolean {
@@ -290,6 +305,7 @@ export interface AgentNativeWebMcpClientOptions {
 export function createAgentNativeWebMcpClient(
   options: AgentNativeWebMcpClientOptions = {},
 ): AgentNativeWebMcpClient {
+  if (!options.document) initializeAgentNativeWebMcp();
   const modelContext = getModelContext(options.document);
   const defaultFromOrigins = options.fromOrigins;
   const limits = {
@@ -496,10 +512,13 @@ export function createAgentNativeServerActionWebMcpRegistration(options?: {
     maxToolCount: 1_000,
     maxDescriptionChars: 10_000,
     actions: async () => {
-      const response = await fetchImpl("/_agent-native/webmcp/manifest", {
-        credentials: "same-origin",
-        headers: { Accept: "application/json" },
-      });
+      const response = await fetchImpl(
+        agentNativePath("/_agent-native/webmcp/manifest"),
+        {
+          credentials: "same-origin",
+          headers: { Accept: "application/json" },
+        },
+      );
       if (!response.ok) {
         throw new Error(`Unable to load WebMCP actions (${response.status})`);
       }
@@ -516,7 +535,9 @@ export function createAgentNativeServerActionWebMcpRegistration(options?: {
         ...(action.readOnly ? { readOnly: true } : {}),
         run: async (args, runtime) => {
           const result = await fetchImpl(
-            `/_agent-native/webmcp/actions/${encodeURIComponent(action.name)}`,
+            agentNativePath(
+              `/_agent-native/webmcp/actions/${encodeURIComponent(action.name)}`,
+            ),
             {
               method: "POST",
               credentials: "same-origin",
@@ -670,6 +691,7 @@ function serializeWebMcpResult(
 export function createAgentNativeWebMcpRegistration(
   options: AgentNativeWebMcpRegistrationOptions,
 ): AgentNativeWebMcpRegistration {
+  if (!options.document) initializeAgentNativeWebMcp();
   const modelContext = getModelContext(options.document);
   let controller: AbortController | undefined;
   let registered = 0;

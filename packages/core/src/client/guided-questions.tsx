@@ -101,7 +101,7 @@ const EXPLORE_OPTION: GuidedQuestionOption = {
   description: "Show me a few distinct directions before committing.",
 };
 const DECIDE_OPTION: GuidedQuestionOption = {
-  label: "Decide for me",
+  label: "Let the agent decide",
   value: "__decide__",
   description: "Use your judgment and keep moving.",
 };
@@ -418,6 +418,33 @@ function optionKey(option: GuidedQuestionOption): string {
   return `${option.value.toLowerCase()}::${option.label.toLowerCase()}`;
 }
 
+function recommendedFirst<T extends { recommended?: boolean }>(
+  options: readonly T[],
+): T[] {
+  if (!options.some((option) => option.recommended)) return [...options];
+  return [
+    ...options.filter((option) => option.recommended),
+    ...options.filter((option) => !option.recommended),
+  ];
+}
+
+function defaultGuidedAnswers(
+  questions: readonly GuidedQuestion[],
+): GuidedQuestionAnswers {
+  const answers: GuidedQuestionAnswers = {};
+  for (const question of questions) {
+    if (question.type !== "text-options" && question.type !== "color-options")
+      continue;
+    const recommended = (question.options ?? question.choices ?? [])
+      .filter((option) => option.recommended)
+      .map((option) => option.value);
+    const first = recommended[0];
+    if (!first) continue;
+    answers[question.id] = question.multiSelect ? recommended : first;
+  }
+  return answers;
+}
+
 /** Stable content hash so poll refreshes do not reset in-progress answers. */
 export function guidedQuestionsFingerprint(
   questions: GuidedQuestion[],
@@ -451,7 +478,7 @@ export function guidedQuestionsFingerprint(
 }
 
 function withDefaultOptions(question: GuidedQuestion): GuidedQuestionOption[] {
-  const base = question.options ?? question.choices ?? [];
+  const base = recommendedFirst(question.options ?? question.choices ?? []);
   const seen = new Set(base.map(optionKey));
   const result = [...base];
   const maybePush = (option: GuidedQuestionOption, enabled: boolean) => {
@@ -495,14 +522,18 @@ export function GuidedQuestionFlow({
   submitLabel = "Continue",
   className,
 }: GuidedQuestionFlowProps) {
-  const [answers, setAnswers] = useState<GuidedQuestionAnswers>({});
+  const [answers, setAnswers] = useState<GuidedQuestionAnswers>(() =>
+    defaultGuidedAnswers(questions),
+  );
   const questionsFingerprint = useMemo(
     () => guidedQuestionsFingerprint(questions),
     [questions],
   );
 
   useEffect(() => {
-    setAnswers({});
+    setAnswers(defaultGuidedAnswers(questions));
+    // The fingerprint owns reset identity so polling does not erase answers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questionsFingerprint]);
 
   const setAnswer = useCallback((id: string, value: unknown) => {
@@ -826,7 +857,10 @@ function ColorOptions({
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
-  const options = question.options ?? question.choices ?? [];
+  const options = useMemo(
+    () => recommendedFirst(question.options ?? question.choices ?? []),
+    [question],
+  );
   const multiSelect = question.multiSelect === true;
   const selectedValues = Array.isArray(value) ? value : [];
   const isSelected = (optionValue: string) =>
@@ -1052,7 +1086,7 @@ export function useGuidedQuestionFlow({
   queryKey = ["show-questions"],
   refetchInterval = false,
   submitMessage = "Here are my answers — go ahead.",
-  skipMessage = "Skip the questions — decide for me.",
+  skipMessage = "Skip the questions — let the agent decide.",
   buildSubmitContext,
   buildSkipContext,
 }: UseGuidedQuestionFlowOptions = {}) {

@@ -59,8 +59,10 @@ Read the relevant skill before deeper work:
   `![alt](url)`.
 - Prefer exposed direct actions for bounded current-app work. Use `view-screen`
   first when selection or context matters, use the smallest action, and read
-  back. Use `call-agent` or `ask_app` only when direct actions are unavailable,
-  cross-app/multi-step reasoning is needed, or direct execution needs recovery.
+  back. `patch-deck` owns `delete-slide` and `reorder-slides`; read
+  `get-deck` first. Source-preserving decks block structure; use its
+  `rewriteSource` path only for rewrites. Verify delegated writes with
+  `get-deck` before success.
 - For data requests, read `analytics-data-for-decks` and delegate via Analytics
   over A2A; do not write SQL or call providers directly.
 - When the user names no reference deck or design system, call
@@ -70,7 +72,6 @@ Read the relevant skill before deeper work:
   then pinned/current pack, then narrow library search. Respect
   `contextMode: "off"`. Submit governed context through the Context tab or
   `manage-context-membership`; reuse only its opaque clone reference.
-
 ## Persistence Model
 
 Deck data lives in SQL and all writes go through server-side actions. Read

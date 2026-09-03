@@ -185,6 +185,10 @@ afterAll(() => {
 });
 
 describe("rename-screen with real SQLite", () => {
+  it("is exposed as the agent action used by the editor", () => {
+    expect(renameScreenAction.agentTool).not.toBe(false);
+  });
+
   it("renames once and atomically rewrites self-links and cross-screen links", async () => {
     const result = await rename("Dashboard");
     const [index, other, local, css] = persistedFiles();

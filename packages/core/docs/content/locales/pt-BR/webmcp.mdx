@@ -15,6 +15,8 @@ e a lista ativa de ferramentas é validada novamente antes da chamada.
 Superfícies autenticadas com `sessionBypass`, como rotas de incorporação MCP, também
 registram ferramentas de ações de backend. Páginas públicas e sem sessão não as registram.
 
+O núcleo do Agent-Native inicializa `@mcp-b/webmcp-polyfill` quando o navegador não oferece uma superfície WebMCP nativa utilizável. O polyfill é local à página e não cria uma conexão MCP de rede.
+
 ## Descoberta HTTP e fallback com fetch
 
 Para agentes que não executam um navegador, o Agent-Native também publica um

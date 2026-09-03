@@ -14,7 +14,7 @@
  * | `list_apps`           | none         | `{ apps: [{ id, url, running }] }`       |
  * | `open_app`            | none         | `{ url }` (+ deep-link `link`)           |
  * | `create_embed_session`| ticket mint  | `{ startUrl }` for MCP App iframes       |
- * | `ask_app`             | agent loop   | `{ app, routedVia, response }` or task   |
+ * | `ask_app`             | agent loop   | `{ app, routedVia, response, verification }` or task   |
  * | `ask_app_status`      | none         | poll a durable `ask_app` task            |
  * | `create_workspace_app`| scaffolds    | `{ name, url, port, deepLink }` (+ link) |
  *
@@ -125,6 +125,7 @@ interface AskAppTaskResult {
   taskHandle?: string;
   status: string;
   response?: string;
+  verification?: "unverified";
   error?: string;
   inputRequired?: string;
   note?: string;
@@ -284,6 +285,7 @@ function askAppTaskResult(
     return {
       ...base,
       response: response || "(no response)",
+      verification: "unverified",
     };
   }
 
@@ -351,7 +353,11 @@ function askAppInlineTaskResult(
   };
 
   if (inline.status === "completed") {
-    return { ...base, response: inline.response || "(no response)" };
+    return {
+      ...base,
+      response: inline.response || "(no response)",
+      verification: "unverified",
+    };
   }
 
   if (inline.status === "failed") {
@@ -1113,7 +1119,13 @@ async function routeAskOverA2A(
     approvedActions?: A2AApprovedAction[];
   },
 ): Promise<
-  { app: string; routedVia: "a2a"; response: string } | AskAppTaskResult
+  | {
+      app: string;
+      routedVia: "a2a";
+      response: string;
+      verification: "unverified";
+    }
+  | AskAppTaskResult
 > {
   if (options?.durable) {
     if (!options.issuerApp || !options.issuerAudience) {
@@ -1152,7 +1164,7 @@ async function routeAskOverA2A(
     // Bound the wait — cross-app A2A polls async by default.
     timeoutMs: 5 * 60_000,
   });
-  return { app: id, routedVia: "a2a", response };
+  return { app: id, routedVia: "a2a", response, verification: "unverified" };
 }
 
 async function resolveAskAppStatusRoute(
@@ -1213,7 +1225,8 @@ function askAppTool(
   return {
     tool: tool(
       "Send a natural-language message to an app's AI agent and get its " +
-        "response. Prefer host page WebMCP or cataloged direct action tools for " +
+        "response. A completed response is an agent claim, not proof of a " +
+        "write; it includes verification:'unverified'. Prefer host page WebMCP or cataloged direct action tools for " +
         "known, bounded current-app work. Use this when direct tools are " +
         "unavailable or the task needs the app agent's interpretation, full " +
         "skills, instructions, tools, and context for investigation, diagnosis, " +
@@ -1402,6 +1415,7 @@ function askAppTool(
           app: selfId,
           routedVia: "local",
           response: inline.response || "(no response)",
+          verification: "unverified",
         };
       }
       if (inline.status === "failed") {
