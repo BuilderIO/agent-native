@@ -3320,6 +3320,15 @@ function createAuthGuardFn(
       return;
     }
 
+    // Creative Context processors are self-fired with a short-lived HMAC
+    // bearer token and no browser session. Let their handlers verify the token.
+    if (
+      p === "/_agent-native/creative-context/process-import" ||
+      p === "/_agent-native/creative-context/process-background"
+    ) {
+      return;
+    }
+
     // Scheduled recurring-job sweeps are self-fired by the platform scheduler
     // through the durable background function and authenticate with the same
     // short-lived HMAC token as the other internal processors. They do not
