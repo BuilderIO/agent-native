@@ -384,6 +384,39 @@ describe("mountActionRoutes", () => {
     });
   });
 
+  it("reports an unreadable action body as a contract error", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn();
+    const actions = {
+      updateItem: {
+        run,
+        http: { method: "POST" as const },
+      },
+    };
+    mountActionRoutes(nitroApp, actions as any, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+    const event = {
+      _method: "POST",
+      req: { json: async () => Promise.reject(new SyntaxError("bad json")) },
+    };
+
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(400);
+    expect(result).toEqual({
+      error: "Request body must be a valid JSON object.",
+      errorCode: "invalid_action_request_body",
+    });
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("echoes a fail() message instead of a generic 500", async () => {
     const { fail } = await import("../scripts/utils.js");
     const { mountActionRoutes } = await import("./action-routes.js");

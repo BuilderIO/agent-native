@@ -10,6 +10,7 @@ import {
 
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
 import {
+  ActionContractError,
   isActionContractError,
   isActionExposedToExternalAgents,
   isAgentActionStopError,
@@ -712,6 +713,7 @@ function mountActionRoutesInternal(
             // directly. H3's readBody fails on those runtimes because it expects
             // a Node.js stream on event.node.req.
             let params: Record<string, any>;
+            let paramsError: string | undefined;
             try {
               if (method === "GET") {
                 // H3 v2: prefer web Request URL, fallback to getQuery
@@ -728,14 +730,22 @@ function mountActionRoutesInternal(
                 const webReq = (event as any).req;
                 if (webReq && typeof webReq.json === "function") {
                   // H3 v2: event.req is the web Request — use .json() directly
-                  params = (await webReq.json().catch(() => null)) ?? {};
+                  params = await webReq.json();
                 } else {
                   // Fallback: H3's readBody (Node.js dev)
                   params = (await readBody(event)) ?? {};
                 }
+                if (
+                  !params ||
+                  typeof params !== "object" ||
+                  Array.isArray(params)
+                ) {
+                  throw new Error("request body is not an object");
+                }
               }
             } catch {
               params = {};
+              paramsError = "Request body must be a valid JSON object.";
             }
 
             // Run the action. Tag the caller: browser calls (useActionQuery /
@@ -744,6 +754,12 @@ function mountActionRoutesInternal(
             // userEmail / orgId mirror the request context resolved above (do
             // NOT inject a dev identity — leave undefined when unauthenticated).
             try {
+              if (paramsError) {
+                throw new ActionContractError(paramsError, {
+                  errorCode: "invalid_action_request_body",
+                  statusCode: 400,
+                });
+              }
               const caller =
                 options?.caller ??
                 (resolvedCaller
