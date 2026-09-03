@@ -112,6 +112,26 @@ describe("slide rich text normalization", () => {
     expect(restored.style.left).toBe("107px");
   });
 
+  it("preserves heading paragraph attributes and formatting", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<h2 style="position:absolute;left:107px;top:190px">Title</h2>';
+    const heading = root.firstElementChild as HTMLElement;
+
+    const restored = restoreSlideTextContainerContent(
+      heading,
+      '<p style="text-align:center;color:red" dir="rtl" data-pptx-paragraph="2">Title</p>',
+    );
+
+    expect(restored.style.position).toBe("absolute");
+    expect(restored.style.left).toBe("107px");
+    expect(restored.style.top).toBe("190px");
+    expect(restored.style.textAlign).toBe("center");
+    expect(restored.style.color).toBe("red");
+    expect(restored.getAttribute("dir")).toBe("rtl");
+    expect(restored.getAttribute("data-pptx-paragraph")).toBe("2");
+  });
+
   it("keeps all blocks when a heading becomes structurally multi-block", () => {
     const root = document.createElement("div");
     root.innerHTML = "<h2>Title</h2>";

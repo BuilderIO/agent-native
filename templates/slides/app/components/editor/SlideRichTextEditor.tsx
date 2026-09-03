@@ -90,7 +90,7 @@ export function restoreSlideTextContainerContent(
   }
 
   const nextDocument = new DOMParser().parseFromString(html, "text/html");
-  const nextRoot = nextDocument.body.firstElementChild;
+  const nextRoot = nextDocument.body.firstElementChild as HTMLElement | null;
   const nextChildren = Array.from(nextDocument.body.children);
   const nextTags = nextChildren.map((child) => child.tagName);
   const preservesRoot =
@@ -108,6 +108,17 @@ export function restoreSlideTextContainerContent(
     /^H[1-6]$/.test(element.tagName) &&
     nextRoot?.tagName === "P"
   ) {
+    for (const attributeName of ["dir", "data-pptx-paragraph"]) {
+      const value = nextRoot.getAttribute(attributeName);
+      if (value !== null) element.setAttribute(attributeName, value);
+    }
+    for (const property of Array.from(nextRoot.style)) {
+      element.style.setProperty(
+        property,
+        nextRoot.style.getPropertyValue(property),
+        nextRoot.style.getPropertyPriority(property),
+      );
+    }
     element.innerHTML = nextRoot.innerHTML;
     return element;
   }
