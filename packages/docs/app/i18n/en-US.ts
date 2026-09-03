@@ -953,6 +953,25 @@ const enUS = {
       s060: "Choose what to capture, then start recording in Clips.",
       s061: "View more apps",
       s062: "View all apps",
+      faq: {
+        question1: "Is Clips free?",
+        answer1: "Yes. Clips is free and open source.",
+        question2: "Can AI read a screen recording?",
+        answer2:
+          "Yes. Every clip ships with a transcript, summary, and timestamped frames an agent can read directly.",
+        question3: "How is Clips different from Loom?",
+        answer3:
+          "Clips is open source, you own the data, and every share link is readable by AI agents, not just people.",
+        question4: "Can a screen recording capture console errors?",
+        answer4:
+          "Yes. Clips captures browser console errors and failed network requests alongside the recording. They attach themselves to the same share link as the transcript and frames. An agent can debug from a clip, not just watch it.",
+        question5: "Does Clips work with Claude, ChatGPT, or Cursor?",
+        answer5:
+          "Yes! No plugin or API key required. Paste a Clips share link into any agent and it can read the transcript, summary, and frames directly.",
+        question6: "Where do my recordings live?",
+        answer6:
+          "Wherever you deploy them. Self-hosted Clips keeps your video, transcripts, and analytics in your own infrastructure.",
+      },
       quickStart: {
         recordingMode: "Recording mode",
         modeScreenCamera: "Screen + cam",
