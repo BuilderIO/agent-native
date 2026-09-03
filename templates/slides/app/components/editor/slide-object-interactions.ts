@@ -1347,6 +1347,42 @@ const SLIDE_OBJECT_CLIPBOARD_TEXT_MARKER_ALPHABET = [
   "\u200d",
   "\u2060",
 ] as const;
+const SLIDE_OBJECT_CLIPBOARD_BLOCK_TAGS = new Set([
+  "ADDRESS",
+  "ARTICLE",
+  "ASIDE",
+  "BLOCKQUOTE",
+  "DIV",
+  "DL",
+  "DT",
+  "DD",
+  "FIGCAPTION",
+  "FIGURE",
+  "FOOTER",
+  "FORM",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+  "HEADER",
+  "LI",
+  "MAIN",
+  "NAV",
+  "OL",
+  "P",
+  "PRE",
+  "SECTION",
+  "TABLE",
+  "TBODY",
+  "TD",
+  "TFOOT",
+  "TH",
+  "THEAD",
+  "TR",
+  "UL",
+]);
 
 export function slideObjectClipboardHtml(
   clipboardId: string,
@@ -1425,10 +1461,30 @@ function slideObjectClipboardText(
     .map((html) => {
       const container = doc.createElement("div");
       container.innerHTML = html;
-      return container.textContent ?? "";
+      return slideObjectClipboardTextContent(container)
+        .replace(/\n{2,}/g, "\n")
+        .trim();
     })
     .filter(Boolean)
     .join("\n");
+}
+
+function slideObjectClipboardTextContent(node: Node): string {
+  if (node.nodeType === 3) return node.textContent ?? "";
+  if (node.nodeType !== 1) {
+    return Array.from(node.childNodes, slideObjectClipboardTextContent).join(
+      "",
+    );
+  }
+  const element = node as Element;
+  if (element.tagName === "BR") return "\n";
+  const text = Array.from(
+    element.childNodes,
+    slideObjectClipboardTextContent,
+  ).join("");
+  return SLIDE_OBJECT_CLIPBOARD_BLOCK_TAGS.has(element.tagName)
+    ? `\n${text}\n`
+    : text;
 }
 
 function writeSlideObjectClipboardLegacy(

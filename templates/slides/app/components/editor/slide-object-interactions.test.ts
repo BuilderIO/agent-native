@@ -97,6 +97,31 @@ describe("slide object interactions", () => {
     );
   });
 
+  it("preserves line breaks in plain-text clipboard content", async () => {
+    const write = vi.fn(async (_items: ClipboardItem[]) => undefined);
+    class FakeClipboardItem {
+      constructor(readonly items: Record<string, Blob>) {}
+    }
+    vi.stubGlobal("navigator", { clipboard: { write } });
+    vi.stubGlobal("ClipboardItem", FakeClipboardItem);
+
+    await writeSlideObjectClipboard(
+      "copy-1",
+      {
+        html: [
+          '<div data-slide-object-id="layer-1">First<br>Second</div>',
+          "<p>Third</p><p>Fourth</p>",
+        ],
+      },
+      null,
+    );
+
+    const item = write.mock.calls[0]![0]![0] as unknown as FakeClipboardItem;
+    expect(await item.items["text/plain"]?.text()).toBe(
+      "First\nSecond\nThird\nFourth",
+    );
+  });
+
   it("uses plain text when rich clipboard writing is unavailable", async () => {
     const writeText = vi.fn(async (_text: string) => undefined);
     vi.stubGlobal("navigator", { clipboard: { writeText } });
