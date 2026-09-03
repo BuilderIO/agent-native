@@ -6,6 +6,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -671,6 +672,7 @@ export async function runMigration(args: MigrationInput) {
             .set({
               title: version.title,
               content: version.content,
+              bodyRevision: bodyRevisionForContent(version.content),
               updatedAt: now,
             })
             .where(
