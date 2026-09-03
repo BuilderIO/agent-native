@@ -960,6 +960,25 @@ const ptBR = {
       s060: "Escolha o que capturar e comece a gravar no Clips.",
       s061: "Ver mais aplicativos",
       s062: "Ver todos os modelos",
+      faq: {
+        question1: "O Clips é gratuito?",
+        answer1: "Sim. O Clips é gratuito e de código aberto.",
+        question2: "A IA pode ler uma gravação de tela?",
+        answer2:
+          "Sim. Cada clipe inclui uma transcrição, um resumo e quadros com marcação de tempo que um agente pode ler diretamente.",
+        question3: "Qual é a diferença entre Clips e Loom?",
+        answer3:
+          "Clips é de código aberto, você é dono dos dados e todo link compartilhado pode ser lido por agentes de IA, não apenas por pessoas.",
+        question4: "Uma gravação de tela pode capturar erros do console?",
+        answer4:
+          "Sim. Clips captura erros do console do navegador e solicitações de rede com falha junto com a gravação. Eles ficam anexados ao mesmo link compartilhado da transcrição e dos quadros. Um agente pode depurar a partir de um clipe, não apenas assisti-lo.",
+        question5: "O Clips funciona com Claude, ChatGPT ou Cursor?",
+        answer5:
+          "Sim! Não é necessário plugin nem chave de API. Cole um link compartilhado do Clips em qualquer agente para que ele leia diretamente a transcrição, o resumo e os quadros.",
+        question6: "Onde ficam minhas gravações?",
+        answer6:
+          "Onde quer que você faça o deploy. O Clips hospedado por você mantém seus vídeos, transcrições e análises na sua própria infraestrutura.",
+      },
       quickStart: {
         recordingMode: "Modo de gravação",
         modeScreenCamera: "Tela + câmera",
