@@ -2107,7 +2107,7 @@ const frFR = {
     fileUploads: "Téléversements",
     deployment: "Déploiement",
     deploymentOverview: "Vue d’ensemble",
-    deploymentProviders: "Fournisseurs",
+    deploymentProviders: "Fournisseurs d’hébergement",
     deploymentProduction: "Production et avancé",
     deployAnApp: "Déployer une application",
     workspaceDeployment: "Déploiement du Workspace",

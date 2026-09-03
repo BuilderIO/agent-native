@@ -2084,7 +2084,7 @@ const enUS = {
     fileUploads: "File Uploads",
     deployment: "Deployment",
     deploymentOverview: "Overview",
-    deploymentProviders: "Providers",
+    deploymentProviders: "Hosting Providers",
     deploymentProduction: "Production & advanced",
     deployAnApp: "Deploy an app",
     workspaceDeployment: "Workspace Deployment",

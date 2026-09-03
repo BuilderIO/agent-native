@@ -2080,7 +2080,7 @@ const hiIN = {
     fileUploads: "File uploads",
     deployment: "Deployment",
     deploymentOverview: "अवलोकन",
-    deploymentProviders: "प्रदाता",
+    deploymentProviders: "होस्टिंग प्रदाता",
     deploymentProduction: "प्रोडक्शन और उन्नत",
     deployAnApp: "ऐप परिनियोजित करें",
     workspaceDeployment: "वर्कस्पेस परिनियोजन",

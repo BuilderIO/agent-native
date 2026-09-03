@@ -2107,7 +2107,7 @@ const deDE = {
     fileUploads: "Datei-Uploads",
     deployment: "Deployment",
     deploymentOverview: "Überblick",
-    deploymentProviders: "Anbieter",
+    deploymentProviders: "Hosting-Anbieter",
     deploymentProduction: "Produktion & erweitert",
     deployAnApp: "Eine App bereitstellen",
     workspaceDeployment: "Workspace-Deployment",
